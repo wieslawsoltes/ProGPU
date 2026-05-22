@@ -223,6 +223,38 @@ public class TextBox : Control
             borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
         }
 
+        // Draw soft 3D elevation shadows (ambient & penumbra layers)
+        if (IsEnabled)
+        {
+            float shadowR = CornerRadius;
+            
+            // Ambient shadow (offset Y=2, very soft, low opacity)
+            var ambientRect = new Rect(0, 2, Size.X, Size.Y);
+            var ambientBrush = new SolidColorBrush(0x0000000A);
+            if (shadowR <= 0f)
+            {
+                context.DrawRectangle(ambientBrush, null, ambientRect);
+            }
+            else
+            {
+                var ambientPath = CreateRoundedRectPath(ambientRect, shadowR);
+                context.DrawPath(ambientBrush, null, ambientPath);
+            }
+
+            // Penumbra shadow (offset Y=1, tighter, slightly higher opacity)
+            var penumbraRect = new Rect(0, 1, Size.X, Size.Y);
+            var penumbraBrush = new SolidColorBrush(0x00000014);
+            if (shadowR <= 0f)
+            {
+                context.DrawRectangle(penumbraBrush, null, penumbraRect);
+            }
+            else
+            {
+                var penumbraPath = CreateRoundedRectPath(penumbraRect, shadowR);
+                context.DrawPath(penumbraBrush, null, penumbraPath);
+            }
+        }
+
         if (CornerRadius <= 0f)
         {
             context.DrawRectangle(bg, borderPen, new Rect(Vector2.Zero, Size));

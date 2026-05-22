@@ -68,23 +68,43 @@ public static class GlyphRasterizer
         // 3. Ray-casting polygon intersection checker with Even-Odd rule
         bool IsPointInContours(Vector2 p)
         {
-            bool inside = false;
+            int winding = 0;
             foreach (var contour in scaledContours)
             {
                 int count = contour.Count;
-                for (int i = 0, j = count - 1; i < count; j = i++)
+                if (count < 2) continue;
+
+                for (int i = 0; i < count; i++)
                 {
                     Vector2 v1 = contour[i];
-                    Vector2 v2 = contour[j];
+                    Vector2 v2 = contour[(i + 1) % count];
+                    if (v1 == v2) continue;
 
-                    if (((v1.Y > p.Y) != (v2.Y > p.Y)) &&
-                        (p.X < (v2.X - v1.X) * (p.Y - v1.Y) / (v2.Y - v1.Y) + v1.X))
+                    if (v1.Y <= p.Y)
                     {
-                        inside = !inside;
+                        if (v2.Y > p.Y) // Upward crossing
+                        {
+                            float intersectX = v1.X + (p.Y - v1.Y) * (v2.X - v1.X) / (v2.Y - v1.Y);
+                            if (p.X < intersectX)
+                            {
+                                winding++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (v2.Y <= p.Y) // Downward crossing
+                        {
+                            float intersectX = v1.X + (p.Y - v1.Y) * (v2.X - v1.X) / (v2.Y - v1.Y);
+                            if (p.X < intersectX)
+                            {
+                                winding--;
+                            }
+                        }
                     }
                 }
             }
-            return inside;
+            return winding != 0;
         }
 
         // 4. Compute SDF: For each pixel, compute the exact signed distance to all line segments
