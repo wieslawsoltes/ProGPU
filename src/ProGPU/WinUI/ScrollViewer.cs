@@ -15,6 +15,7 @@ public class ScrollViewer : Control
     private bool _isDraggingVert;
     private float _dragStartOffset;
     private float _dragStartMouseY;
+    private bool _isPointerOverScrollbar;
 
     public FrameworkElement? Content
     {
@@ -66,7 +67,7 @@ public class ScrollViewer : Control
 
     public ScrollViewer()
     {
-        Background = new SolidColorBrush(0x101016FF);
+        Background = new SolidColorBrush(0x13131AFF); // Mica/Deep Dark styling
         Padding = new Thickness(0);
     }
 
@@ -114,8 +115,20 @@ public class ScrollViewer : Control
         base.OnPointerReleased(e);
     }
 
+    public override void OnPointerExited(PointerRoutedEventArgs e)
+    {
+        _isPointerOverScrollbar = false;
+        base.OnPointerExited(e);
+    }
+
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
+        if (IsEnabled)
+        {
+            _isPointerOverScrollbar = e.Position.X >= Size.X - 12f;
+            Invalidate();
+        }
+
         if (_isDraggingVert && IsEnabled)
         {
             float contentHeight = ContentHeight;
@@ -156,10 +169,10 @@ public class ScrollViewer : Control
         {
             float contentW = Content.DesiredSize.X;
             float contentH = Content.DesiredSize.Y;
-
+ 
             float viewportW = arrangeRect.Width;
             float viewportH = arrangeRect.Height;
-
+ 
             // Shift the child element offset by negative scroll positions
             Rect childRect = new Rect(
                 arrangeRect.X - _horizontalOffset,
@@ -187,8 +200,10 @@ public class ScrollViewer : Control
 
         if (contentHeight > viewportHeight)
         {
-            float scrollbarWidth = 6f;
-            float padding = 2f;
+            // Dynamic expanding scrollbar thickness based on hover state
+            float scrollbarWidth = (_isPointerOverScrollbar || _isDraggingVert) ? 8f : 3f;
+            float padding = (_isPointerOverScrollbar || _isDraggingVert) ? 2f : 4f;
+
             float thumbHeight = Math.Max(24f, (viewportHeight / contentHeight) * viewportHeight);
             float scrollableHeight = contentHeight - viewportHeight;
             float thumbY = (VerticalOffset / scrollableHeight) * (viewportHeight - thumbHeight);
@@ -196,13 +211,16 @@ public class ScrollViewer : Control
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, viewportHeight);
             Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
-            // Draw track (subtle dark line)
-            context.DrawRectangle(new SolidColorBrush(0xFFFFFF08), null, trackRect);
+            // Draw track (subtle translucent backdrop line)
+            Brush trackBg = (_isPointerOverScrollbar || _isDraggingVert) 
+                ? new SolidColorBrush(0xFFFFFF0D) 
+                : new SolidColorBrush(0xFFFFFF05);
+            context.DrawRectangle(trackBg, null, trackRect);
 
             // Draw thumb (glassmorphic capsule)
             Brush thumbBg = _isDraggingVert 
                 ? new SolidColorBrush(0xFFFFFF60) 
-                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
+                : (_isPointerOverScrollbar ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
             
             var roundedThumb = CreateRoundedRectPath(thumbRect, scrollbarWidth / 2f);
             context.DrawPath(thumbBg, null, roundedThumb);

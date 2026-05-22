@@ -67,7 +67,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let alpha = textureSample(atlasTexture, atlasSampler, input.texCoord).r;
+    let dist = textureSample(atlasTexture, atlasSampler, input.texCoord).r;
+    let width = fwidth(dist);
+    let alpha = smoothstep(0.5 - width, 0.5 + width, dist);
     return vec4<f32>(input.color.rgb, input.color.a * alpha);
 }
 ";

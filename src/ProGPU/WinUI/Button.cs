@@ -91,27 +91,31 @@ public class Button : Control
 
     public override void OnRender(DrawingContext context)
     {
-        Brush? bg = Background;
+        Brush? bg;
+        Pen? pen;
+
         if (!IsEnabled)
         {
             bg = new SolidColorBrush(0x2A2A3540);
+            pen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
         }
         else if (IsPointerPressed)
         {
-            bg = new SolidColorBrush(0xFFFFFF0D); // darker translucent
+            bg = Background != null ? new SolidColorBrush(0x005A9EFF) : new SolidColorBrush(0xFFFFFF0D);
+            pen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
         }
         else if (IsPointerOver)
         {
-            bg = new SolidColorBrush(0xFFFFFF25); // lighter translucent hover
+            bg = Background != null ? new SolidColorBrush(0x2B88D8FF) : new SolidColorBrush(0xFFFFFF25);
+            pen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
         }
         else
         {
-            bg = Background ?? new SolidColorBrush(0xFFFFFF15); // normal glassmorphic background
+            bg = Background ?? new SolidColorBrush(0xFFFFFF15);
+            pen = BorderBrush != null && BorderThickness.Left > 0 
+                ? new Pen(BorderBrush, BorderThickness.Left) 
+                : new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
         }
-
-        var pen = BorderBrush != null && BorderThickness.Left > 0 
-            ? new Pen(BorderBrush, BorderThickness.Left) 
-            : new Pen(new SolidColorBrush(IsEnabled ? 0xFFFFFF20 : 0xFFFFFF0F), 1f);
 
         if (CornerRadius <= 0f)
         {
@@ -121,6 +125,25 @@ public class Button : Control
         {
             var roundedPath = CreateRoundedRectPath(new Rect(Vector2.Zero, Size), CornerRadius);
             context.DrawPath(bg, pen, roundedPath);
+        }
+
+        // Draw active focus ring indicator
+        if (IsEnabled && IsFocused)
+        {
+            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Sharp Segoe Blue active focus ring
+            // Slightly inset focus ring for clean aesthetics
+            float inset = 1.5f;
+            var focusRect = new Rect(inset, inset, Size.X - 2 * inset, Size.Y - 2 * inset);
+            if (CornerRadius <= 0f)
+            {
+                context.DrawRectangle(null, focusPen, focusRect);
+            }
+            else
+            {
+                float focusR = Math.Max(0f, CornerRadius - inset);
+                var focusPath = CreateRoundedRectPath(focusRect, focusR);
+                context.DrawPath(null, focusPen, focusPath);
+            }
         }
 
         base.OnRender(context);

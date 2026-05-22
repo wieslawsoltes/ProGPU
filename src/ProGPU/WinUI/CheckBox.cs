@@ -137,26 +137,26 @@ public class CheckBox : Control
 
         if (!IsEnabled)
         {
-            boxBg = new SolidColorBrush(0x33333340);
-            boxBorder = new Pen(new SolidColorBrush(0x55555540), 1f);
+            boxBg = new SolidColorBrush(0x2A2A3540);
+            boxBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
         }
         else if (IsChecked)
         {
-            // Filled accent color for checked state
-            boxBg = new SolidColorBrush(0x0078D7FF); // standard premium blue accent
-            boxBorder = IsPointerOver 
-                ? new Pen(new SolidColorBrush(0x4DA6FFFF), 1f) 
-                : new Pen(new SolidColorBrush(0x005A9EFF), 1f);
+            // Filled accent color for checked state (Segoe Accent / Hover Accent / Pressed Accent)
+            boxBg = IsPointerPressed 
+                ? new SolidColorBrush(0x005A9EFF) 
+                : (IsPointerOver ? new SolidColorBrush(0x2B88D8FF) : new SolidColorBrush(0x0078D4FF));
+            boxBorder = null;
         }
         else
         {
             boxBg = IsPointerPressed 
-                ? new SolidColorBrush(0xFFFFFF08) 
-                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF20) : new SolidColorBrush(0xFFFFFF10));
+                ? new SolidColorBrush(0xFFFFFF0D) 
+                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF25) : new SolidColorBrush(0xFFFFFF15));
 
             boxBorder = IsPointerOver 
-                ? new Pen(new SolidColorBrush(0xFFFFFF80), 1f) 
-                : new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+                ? new Pen(new SolidColorBrush(0xFFFFFF30), 1f) 
+                : new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
         }
 
         // Draw check box frame
@@ -179,9 +179,25 @@ public class CheckBox : Control
             checkFigure.Segments.Add(new LineSegment(new Vector2(boxRect.X + 13.5f, boxRect.Y + 5f)));
             checkGeometry.Figures.Add(checkFigure);
 
-            // Draw white checkmark stroke
-            var checkPen = new Pen(new SolidColorBrush(0xFFFFFFFF), 2f);
+            // Draw white/muted checkmark stroke
+            var checkPen = new Pen(new SolidColorBrush(IsEnabled ? 0xFFFFFFFF : 0xFFFFFF60), 2f);
             context.DrawPath(null, checkPen, checkGeometry);
+        }
+
+        // Draw active focus ring indicator around the checkbox box frame
+        if (IsEnabled && IsFocused)
+        {
+            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Segoe Blue active focus ring
+            Rect focusRect = new Rect(boxRect.X - 2f, boxRect.Y - 2f, boxRect.Width + 4f, boxRect.Height + 4f);
+            if (CornerRadius <= 0f)
+            {
+                context.DrawRectangle(null, focusPen, focusRect);
+            }
+            else
+            {
+                var focusPath = CreateRoundedRectPath(focusRect, CornerRadius + 2f);
+                context.DrawPath(null, focusPen, focusPath);
+            }
         }
 
         base.OnRender(context);

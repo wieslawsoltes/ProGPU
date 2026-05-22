@@ -99,12 +99,12 @@ public class Slider : Control
 
     public override void OnRender(DrawingContext context)
     {
-        float thumbRadius = 8f;
+        float baseThumbRadius = 8f;
         float trackHeight = 4f;
         float yCenter = Size.Y / 2f;
 
         float width = Size.X;
-        float trackWidth = width - 2 * thumbRadius;
+        float trackWidth = width - 2 * baseThumbRadius;
 
         float pct = 0f;
         if (Maximum > Minimum)
@@ -112,49 +112,78 @@ public class Slider : Control
             pct = (Value - Minimum) / (Maximum - Minimum);
         }
 
-        float thumbX = thumbRadius + pct * trackWidth;
+        float thumbX = baseThumbRadius + pct * trackWidth;
+
+        // Micro-animated breathing thumb: 7f normal, 9f on hover/drag
+        float drawThumbRadius = (IsPointerOver || _isDragging) && IsEnabled ? 9f : 7f;
 
         // 1. Draw Inactive Track (Right side)
-        Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - thumbRadius - thumbX), trackHeight);
+        Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
         Brush inactiveBg = new SolidColorBrush(0xFFFFFF20); // translucent grey
         context.DrawRectangle(inactiveBg, null, inactiveRect);
 
         // 2. Draw Active Track (Left side)
-        if (thumbX > thumbRadius)
+        if (thumbX > baseThumbRadius)
         {
-            Rect activeRect = new Rect(thumbRadius, yCenter - trackHeight / 2f, thumbX - thumbRadius, trackHeight);
-            Brush activeBg = IsEnabled ? new SolidColorBrush(0x0078D7FF) : new SolidColorBrush(0x55555540); // Accent blue
+            Rect activeRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
+            Brush activeBg;
+            if (!IsEnabled)
+            {
+                activeBg = new SolidColorBrush(0x2A2A3540);
+            }
+            else if (_isDragging)
+            {
+                activeBg = new SolidColorBrush(0x005A9EFF); // pressed accent
+            }
+            else if (IsPointerOver)
+            {
+                activeBg = new SolidColorBrush(0x2B88D8FF); // hover accent
+            }
+            else
+            {
+                activeBg = new SolidColorBrush(0x0078D4FF); // Segoe Blue
+            }
             context.DrawRectangle(activeBg, null, activeRect);
         }
 
         // 3. Draw Thumb (Circle)
-        Rect thumbRect = new Rect(thumbX - thumbRadius, yCenter - thumbRadius, thumbRadius * 2f, thumbRadius * 2f);
+        Rect thumbRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius, drawThumbRadius * 2f, drawThumbRadius * 2f);
         Brush thumbBg;
         Pen? thumbBorder = null;
 
         if (!IsEnabled)
         {
-            thumbBg = new SolidColorBrush(0x555555FF);
+            thumbBg = new SolidColorBrush(0x2A2A35FF);
+            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
         }
         else if (_isDragging)
         {
-            thumbBg = new SolidColorBrush(0x0078D7FF); // accent blue when dragged
+            thumbBg = new SolidColorBrush(0x005A9EFF); // Pressed Accent Segoe Blue
             thumbBorder = new Pen(new SolidColorBrush(0xFFFFFFFF), 1.5f);
         }
         else if (IsPointerOver)
         {
             thumbBg = new SolidColorBrush(0xFFFFFFFF); // bright white
-            thumbBorder = new Pen(new SolidColorBrush(0x0078D7FF), 1f);
+            thumbBorder = new Pen(new SolidColorBrush(0x2B88D8FF), 1f); // hover accent border
         }
         else
         {
-            thumbBg = new SolidColorBrush(0xCCCCCCFF);
-            thumbBorder = new Pen(new SolidColorBrush(0x333333FF), 1f);
+            thumbBg = new SolidColorBrush(0xFFFFFFFF); // bright white
+            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFF20), 1f);
         }
 
-        // Standard Circle rendering using rounded rect path (radius = 8f)
-        var circlePath = CreateRoundedRectPath(thumbRect, thumbRadius);
+        // Standard Circle rendering using rounded rect path (radius = drawThumbRadius)
+        var circlePath = CreateRoundedRectPath(thumbRect, drawThumbRadius);
         context.DrawPath(thumbBg, thumbBorder, circlePath);
+
+        // Draw active focus ring indicator around thumb
+        if (IsEnabled && IsFocused)
+        {
+            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 1.5f);
+            Rect focusRect = new Rect(thumbRect.X - 2.5f, thumbRect.Y - 2.5f, thumbRect.Width + 5f, thumbRect.Height + 5f);
+            var focusPath = CreateRoundedRectPath(focusRect, drawThumbRadius + 2.5f);
+            context.DrawPath(null, focusPen, focusPath);
+        }
 
         base.OnRender(context);
     }

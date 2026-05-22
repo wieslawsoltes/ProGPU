@@ -198,14 +198,30 @@ public class TextBox : Control
 
     public override void OnRender(DrawingContext context)
     {
-        // 1. Draw background card
-        Brush bg = IsEnabled 
-            ? (IsFocused ? new SolidColorBrush(0x151520FF) : new SolidColorBrush(0xFFFFFF0A)) 
-            : new SolidColorBrush(0x2A2A3540);
+        // 1. Draw background card and border under premium Fluent dark specs
+        Brush bg;
+        Pen borderPen;
 
-        Pen borderPen = IsFocused 
-            ? new Pen(new SolidColorBrush(0x0078D7FF), 1.5f) // Glowing focused border
-            : new Pen(new SolidColorBrush(IsPointerOver ? 0xFFFFFF50 : 0xFFFFFF20), 1f);
+        if (!IsEnabled)
+        {
+            bg = new SolidColorBrush(0x2A2A3540);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+        }
+        else if (IsFocused)
+        {
+            bg = new SolidColorBrush(0x13131AFF); // Mica/deep dark card
+            borderPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Sharp Segoe Blue active focus ring
+        }
+        else if (IsPointerOver)
+        {
+            bg = new SolidColorBrush(0xFFFFFF15);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+        }
+        else
+        {
+            bg = new SolidColorBrush(0xFFFFFF0A);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+        }
 
         if (CornerRadius <= 0f)
         {
@@ -236,12 +252,12 @@ public class TextBox : Control
                 context.DrawText(Text, Font, FontSize, fgBrush, new Vector2(Padding.Left, textY));
             }
 
-            // 3. Draw insertion caret
+            // 3. Draw insertion caret using Segoe Blue active color for Fluent modern style
             if (IsFocused && (DateTime.Now.Millisecond / 500) % 2 == 0)
             {
                 float caretX = GetCaretX();
                 Rect caretRect = new Rect(caretX, textY - 1f, 1.5f, FontSize + 2f);
-                context.DrawRectangle(new SolidColorBrush(0xFFFFFFFF), null, caretRect);
+                context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, caretRect);
             }
         }
 

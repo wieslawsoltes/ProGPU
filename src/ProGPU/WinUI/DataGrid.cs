@@ -1,3 +1,6 @@
+#pragma warning disable CS0169 // The field is never used
+#pragma warning disable CS0414 // The field is assigned but its value is never used
+
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -34,6 +37,8 @@ public class DataGrid : Control
     private bool _isDraggingScroll;
     private float _dragStartOffset;
     private float _dragStartMouseY;
+    private int _hoveredRowIndex = -1;
+    private bool _isPointerOverScrollbar;
 
     private DataGridColumn? _sortingColumn;
     private readonly List<object> _itemsSource = new();
@@ -227,8 +232,49 @@ public class DataGrid : Control
         base.OnPointerReleased(e);
     }
 
+    public override void OnPointerExited(PointerRoutedEventArgs e)
+    {
+        _hoveredRowIndex = -1;
+        _isPointerOverScrollbar = false;
+        base.OnPointerExited(e);
+    }
+
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
+        if (IsEnabled)
+        {
+            _isPointerOverScrollbar = e.Position.X >= Size.X - 12f;
+
+            if (e.Position.Y > _headerHeight && e.Position.X < Size.X - 12f)
+            {
+                int r = (int)((e.Position.Y - _headerHeight + ScrollOffset) / _rowHeight);
+                if (r >= 0 && r < _itemsSource.Count)
+                {
+                    if (_hoveredRowIndex != r)
+                    {
+                        _hoveredRowIndex = r;
+                        Invalidate();
+                    }
+                }
+                else
+                {
+                    if (_hoveredRowIndex != -1)
+                    {
+                        _hoveredRowIndex = -1;
+                        Invalidate();
+                    }
+                }
+            }
+            else
+            {
+                if (_hoveredRowIndex != -1)
+                {
+                    _hoveredRowIndex = -1;
+                    Invalidate();
+                }
+            }
+        }
+
         if (_isDraggingScroll && IsEnabled)
         {
             float viewportH = ViewportHeight;
@@ -265,16 +311,20 @@ public class DataGrid : Control
     {
         if (Font == null) return;
 
-        // 1. Draw DataGrid outer card background
+        // 1. Draw DataGrid outer card background & border
+        Pen outerPen = IsFocused 
+            ? new Pen(new SolidColorBrush(0x0078D4FF), 2f) // Glowing Segoe Blue active focus ring
+            : new Pen(new SolidColorBrush(0xFFFFFF15), 1f); // Thin translucent outline
+
         if (Background != null)
         {
-            context.DrawRectangle(Background, new Pen(new SolidColorBrush(0xFFFFFF15), 1f), new Rect(Vector2.Zero, Size));
+            context.DrawRectangle(Background, outerPen, new Rect(Vector2.Zero, Size));
         }
 
         // 2. Draw Column Headers
         float runningX = Padding.Left;
-        Brush headerBg = new SolidColorBrush(0x13131CFF); // Fluent Header dark plate
-        Pen colBorder = new Pen(new SolidColorBrush(0xFFFFFF1F), 1f);
+        Brush headerBg = new SolidColorBrush(0x1A1A26FF); // Fluent Header dark plate
+        Pen colBorder = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
 
         context.DrawRectangle(headerBg, null, new Rect(0, 0, Size.X, _headerHeight));
 
@@ -292,7 +342,7 @@ public class DataGrid : Control
             {
                 string sortIndicator = col.IsAscending ? " ▲" : " ▼";
                 float headerTextW = col.Header.Length * (FontSize * 0.6f); // approximate width
-                context.DrawText(sortIndicator, Font, FontSize - 2f, new SolidColorBrush(0x0078D7FF), new Vector2(runningX + 8f + headerTextW, textY));
+                context.DrawText(sortIndicator, Font, FontSize - 2f, new SolidColorBrush(0x0078D4FF), new Vector2(runningX + 8f + headerTextW, textY));
             }
 
             runningX += col.Width;
@@ -312,21 +362,32 @@ public class DataGrid : Control
             float rowY = _headerHeight + r * _rowHeight - ScrollOffset;
             var item = _itemsSource[r];
 
-            // Alternate & Selection backgrounds
+            // Alternate, Hover & Selection backgrounds
             Brush? rowBg = null;
             if (r == SelectedIndex)
             {
-                rowBg = new SolidColorBrush(0x0078D735); // Accent selection highlight
+                rowBg = new SolidColorBrush(0x0078D420); // Premium translucent Segoe Blue selection
+            }
+            else if (r == _hoveredRowIndex)
+            {
+                rowBg = new SolidColorBrush(0xFFFFFF10); // Hover state row highlight
             }
             else if (r % 2 == 1)
             {
-                rowBg = new SolidColorBrush(0xFFFFFF08); // Alternate row background
+                rowBg = new SolidColorBrush(0xFFFFFF05); // Alternate row background
             }
 
             Rect rowRect = new Rect(0, rowY, Size.X, _rowHeight);
             if (rowBg != null)
             {
                 context.DrawRectangle(rowBg, null, rowRect);
+            }
+
+            // Draw active selection vertical indicator stripe on far-left
+            if (r == SelectedIndex)
+            {
+                Rect selectionStripe = new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f);
+                context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, selectionStripe);
             }
 
             // Draw cell text grid columns
@@ -349,8 +410,8 @@ public class DataGrid : Control
         // 4. Draw Scrollbar track
         if (TotalBodyHeight > ViewportHeight)
         {
-            float scrollbarWidth = 6f;
-            float padding = 2f;
+            float scrollbarWidth = (_isPointerOverScrollbar || _isDraggingScroll) ? 8f : 3f;
+            float padding = (_isPointerOverScrollbar || _isDraggingScroll) ? 2f : 4f;
             float viewportH = ViewportHeight;
             float thumbHeight = Math.Max(24f, (viewportH / TotalBodyHeight) * viewportH);
             float scrollableHeight = TotalBodyHeight - viewportH;
@@ -359,11 +420,16 @@ public class DataGrid : Control
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, _headerHeight, scrollbarWidth, viewportH);
             Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
-            context.DrawRectangle(new SolidColorBrush(0xFFFFFF08), null, trackRect);
+            // Draw track (subtle translucent backdrop line)
+            Brush trackBg = (_isPointerOverScrollbar || _isDraggingScroll) 
+                ? new SolidColorBrush(0xFFFFFF0D) 
+                : new SolidColorBrush(0xFFFFFF05);
+            context.DrawRectangle(trackBg, null, trackRect);
 
+            // Draw thumb (glassmorphic capsule)
             Brush thumbBg = _isDraggingScroll 
                 ? new SolidColorBrush(0xFFFFFF60) 
-                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
+                : (_isPointerOverScrollbar ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
             
             var roundedThumb = CreateRoundedRectPath(thumbRect, scrollbarWidth / 2f);
             context.DrawPath(thumbBg, null, roundedThumb);

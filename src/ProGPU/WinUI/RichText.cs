@@ -589,17 +589,36 @@ public class RichEditBox : Control
     public override void OnRender(DrawingContext context)
     {
         // Draw glassmorphic border card
-        Brush bg = IsFocused ? new SolidColorBrush(0x151520FF) : new SolidColorBrush(0xFFFFFF0D);
-        Pen borderPen = IsFocused 
-            ? new Pen(new SolidColorBrush(0x0078D7FF), 1.5f) 
-            : new Pen(new SolidColorBrush(IsPointerOver ? 0xFFFFFF50 : 0xFFFFFF20), 1f);
+        Brush bg;
+        Pen borderPen;
+
+        if (!IsEnabled)
+        {
+            bg = new SolidColorBrush(0x2A2A3540);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+        }
+        else if (IsFocused)
+        {
+            bg = new SolidColorBrush(0x13131AFF); // Mica/deep dark card
+            borderPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Sharp Segoe Blue active focus ring
+        }
+        else if (IsPointerOver)
+        {
+            bg = new SolidColorBrush(0xFFFFFF15);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+        }
+        else
+        {
+            bg = new SolidColorBrush(0xFFFFFF0D);
+            borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+        }
 
         var roundedPath = CreateRoundedRectPath(new Rect(Vector2.Zero, Size), CornerRadius);
         context.DrawPath(bg, borderPen, roundedPath);
 
         base.OnRender(context);
 
-        // Draw caret
+        // Draw caret using modern Segoe Blue active color
         if (IsFocused && Font != null && (DateTime.Now.Millisecond / 500) % 2 == 0)
         {
             _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
@@ -622,7 +641,7 @@ public class RichEditBox : Control
             }
 
             Rect caretRect = new Rect(caretPos.X, caretPos.Y, 1.5f, caretH + 2f);
-            context.DrawRectangle(new SolidColorBrush(0xFFFFFFFF), null, caretRect);
+            context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, caretRect);
         }
     }
 

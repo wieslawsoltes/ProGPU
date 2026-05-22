@@ -72,7 +72,8 @@ public unsafe class RenderPipelineCache : IDisposable
         CompareFunction stencilCompare = CompareFunction.Always,
         StencilOperation stencilFail = StencilOperation.Keep,
         StencilOperation stencilDepthFail = StencilOperation.Keep,
-        StencilOperation stencilPass = StencilOperation.Keep)
+        StencilOperation stencilPass = StencilOperation.Keep,
+        uint sampleCount = 1)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(RenderPipelineCache));
         if (_renderPipelines.TryGetValue(key, out var cachedPipeline)) return (RenderPipeline*)cachedPipeline;
@@ -179,7 +180,7 @@ public unsafe class RenderPipelineCache : IDisposable
                 DepthStencil = enableDepthStencil ? &depthStencilState : null,
                 Multisample = new MultisampleState
                 {
-                    Count = 1,
+                    Count = sampleCount,
                     Mask = 0xFFFFFFFF,
                     AlphaToCoverageEnabled = false
                 },

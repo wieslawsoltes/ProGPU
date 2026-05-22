@@ -33,7 +33,7 @@ public class GlyphAtlas : IDisposable
     private uint _currentY = 2;
     private uint _currentRowHeight = 0;
 
-    private readonly Dictionary<(TtfFont font, char character, float size), GlyphInfo> _glyphs = new();
+    private readonly Dictionary<(TtfFont font, char character), GlyphInfo> _glyphs = new();
     
     private bool _isDisposed;
 
@@ -63,101 +63,124 @@ public class GlyphAtlas : IDisposable
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(GlyphAtlas));
         
-        var key = (font, character, size);
-        if (_glyphs.TryGetValue(key, out var cachedInfo)) return cachedInfo;
-
-        ushort glyphIdx = font.GetGlyphIndex(character);
-        float advance = font.GetAdvanceWidth(glyphIdx, size);
-
-        // Handle space or control characters (empty outlines)
-        var outline = font.GetGlyphOutline(glyphIdx);
-        if (outline == null || character == ' ' || character == '\t' || character == '\n' || character == '\r')
+        var key = (font, character);
+        if (!_glyphs.TryGetValue(key, out var baseInfo))
         {
-            var spaceInfo = new GlyphInfo
+            ushort glyphIdx = font.GetGlyphIndex(character);
+
+            // Handle space or control characters (empty outlines)
+            var outline = font.GetGlyphOutline(glyphIdx);
+            if (outline == null || character == ' ' || character == '\t' || character == '\n' || character == '\r')
             {
-                X = 0, Y = 0, Width = 0, Height = 0,
-                BearX = 0, BearY = 0, Advance = advance,
-                TexCoordMin = Vector2.Zero, TexCoordMax = Vector2.Zero
-            };
-            _glyphs[key] = spaceInfo;
-            return spaceInfo;
-        }
-
-        // Rasterize outline into subpixel-antialiased alpha map
-        var glyph = GlyphRasterizer.Rasterize(outline, font, size);
-        if (glyph.Width == 0 || glyph.Height == 0)
-        {
-            var emptyInfo = new GlyphInfo
+                baseInfo = new GlyphInfo
+                {
+                    X = 0, Y = 0, Width = 0, Height = 0,
+                    BearX = 0, BearY = 0, Advance = 0f,
+                    TexCoordMin = Vector2.Zero, TexCoordMax = Vector2.Zero
+                };
+            }
+            else
             {
-                X = 0, Y = 0, Width = 0, Height = 0,
-                BearX = 0, BearY = 0, Advance = advance,
-                TexCoordMin = Vector2.Zero, TexCoordMax = Vector2.Zero
-            };
-            _glyphs[key] = emptyInfo;
-            return emptyInfo;
+                // Rasterize outline into base size SDF alpha map
+                var glyph = GlyphRasterizer.Rasterize(outline, font, GlyphRasterizer.SdfBaseSize);
+                if (glyph.Width == 0 || glyph.Height == 0)
+                {
+                    baseInfo = new GlyphInfo
+                    {
+                        X = 0, Y = 0, Width = 0, Height = 0,
+                        BearX = 0, BearY = 0, Advance = 0f,
+                        TexCoordMin = Vector2.Zero, TexCoordMax = Vector2.Zero
+                    };
+                }
+                else
+                {
+                    // Shelf Packing placement
+                    uint gW = (uint)glyph.Width;
+                    uint gH = (uint)glyph.Height;
+
+                    if (_currentX + gW + 2 > _atlasSize)
+                    {
+                        // Row is full, wrap to next shelf row
+                        _currentX = 2;
+                        _currentY += _currentRowHeight + 2;
+                        _currentRowHeight = 0;
+                    }
+
+                    if (_currentY + gH + 2 > _atlasSize)
+                    {
+                        // Atlas is entirely out of space, reset packer
+                        Console.WriteLine("[GlyphAtlas] Warning: Texture Atlas is full! Clearing cache.");
+                        _glyphs.Clear();
+                        _currentX = 2;
+                        _currentY = 2;
+                        _currentRowHeight = 0;
+
+                        byte[] clearData = new byte[_atlasSize * _atlasSize];
+                        _atlasTexture.WritePixels(new ReadOnlySpan<byte>(clearData));
+                    }
+
+                    uint posX = _currentX;
+                    uint posY = _currentY;
+
+                    // Advance packer
+                    _currentX += gW + 2;
+                    _currentRowHeight = Math.Max(_currentRowHeight, gH);
+
+                    // Upload glyph pixels directly to the atlas GPU texture
+                    _atlasTexture.WritePixelsSubRect(
+                        new ReadOnlySpan<byte>(glyph.AlphaMap), 
+                        posX, 
+                        posY, 
+                        gW, 
+                        gH
+                    );
+
+                    // Compute UV texture coordinates
+                    float texelSize = 1.0f / _atlasSize;
+                    var uvMin = new Vector2(posX * texelSize, posY * texelSize);
+                    var uvMax = new Vector2((posX + gW) * texelSize, (posY + gH) * texelSize);
+
+                    baseInfo = new GlyphInfo
+                    {
+                        X = posX,
+                        Y = posY,
+                        Width = gW,
+                        Height = gH,
+                        BearX = glyph.BearX,
+                        BearY = glyph.BearY,
+                        Advance = 0f,
+                        TexCoordMin = uvMin,
+                        TexCoordMax = uvMax
+                    };
+                }
+            }
+            _glyphs[key] = baseInfo;
         }
 
-        // Shelf Packing placement
-        uint gW = (uint)glyph.Width;
-        uint gH = (uint)glyph.Height;
+        // Scale layout parameters (BearX, BearY, Width, Height) from SdfBaseSize to the requested font size.
+        // The Advance should be fetched at the requested target size.
+        ushort idx = font.GetGlyphIndex(character);
+        float advance = font.GetAdvanceWidth(idx, size);
 
-        if (_currentX + gW + 2 > _atlasSize)
+        float scale = size / GlyphRasterizer.SdfBaseSize;
+
+        uint scaledWidth = (uint)Math.Round(baseInfo.Width * scale);
+        uint scaledHeight = (uint)Math.Round(baseInfo.Height * scale);
+        if (baseInfo.Width > 0 && scaledWidth == 0) scaledWidth = 1;
+        if (baseInfo.Height > 0 && scaledHeight == 0) scaledHeight = 1;
+
+        return new GlyphInfo
         {
-            // Row is full, wrap to next shelf row
-            _currentX = 2;
-            _currentY += _currentRowHeight + 2;
-            _currentRowHeight = 0;
-        }
-
-        if (_currentY + gH + 2 > _atlasSize)
-        {
-            // Atlas is entirely out of space, reset packer
-            Console.WriteLine("[GlyphAtlas] Warning: Texture Atlas is full! Clearing cache.");
-            _glyphs.Clear();
-            _currentX = 2;
-            _currentY = 2;
-            _currentRowHeight = 0;
-
-            byte[] clearData = new byte[_atlasSize * _atlasSize];
-            _atlasTexture.WritePixels(new ReadOnlySpan<byte>(clearData));
-        }
-
-        uint posX = _currentX;
-        uint posY = _currentY;
-
-        // Advance packer
-        _currentX += gW + 2;
-        _currentRowHeight = Math.Max(_currentRowHeight, gH);
-
-        // Upload glyph pixels directly to the atlas GPU texture
-        _atlasTexture.WritePixelsSubRect(
-            new ReadOnlySpan<byte>(glyph.AlphaMap), 
-            posX, 
-            posY, 
-            gW, 
-            gH
-        );
-
-        // Compute UV texture coordinates
-        float texelSize = 1.0f / _atlasSize;
-        var uvMin = new Vector2(posX * texelSize, posY * texelSize);
-        var uvMax = new Vector2((posX + gW) * texelSize, (posY + gH) * texelSize);
-
-        var info = new GlyphInfo
-        {
-            X = posX,
-            Y = posY,
-            Width = gW,
-            Height = gH,
-            BearX = glyph.BearX,
-            BearY = glyph.BearY,
+            X = baseInfo.X,
+            Y = baseInfo.Y,
+            Width = scaledWidth,
+            Height = scaledHeight,
+            BearX = baseInfo.BearX * scale,
+            BearY = baseInfo.BearY * scale,
             Advance = advance,
-            TexCoordMin = uvMin,
-            TexCoordMax = uvMax
+            TexCoordMin = baseInfo.TexCoordMin,
+            TexCoordMax = baseInfo.TexCoordMax
         };
-
-        _glyphs[key] = info;
-        return info;
     }
 
     public void Dispose()

@@ -16,6 +16,12 @@ public unsafe class Compositor : IDisposable
     private readonly RenderPipelineCache _pipelineCache;
     private readonly GlyphAtlas _atlas;
 
+    // MSAA color target resources
+    private Texture* _msaaTexture;
+    private TextureView* _msaaTextureView;
+    private uint _msaaWidth;
+    private uint _msaaHeight;
+
     // Uniform buffer (Projection Matrix)
     private readonly GpuBuffer _uniformBuffer;
     private BindGroup* _vectorUniformBindGroup;
@@ -133,7 +139,7 @@ public unsafe class Compositor : IDisposable
                 Attributes = attribsPtr
             };
 
-            // Compile primary graphics pipelines
+            // Compile primary graphics pipelines with 4x MSAA
             _vectorPipeline = _pipelineCache.GetOrCreateRenderPipeline(
                 "Vector", 
                 vecShaderModule, 
@@ -142,7 +148,8 @@ public unsafe class Compositor : IDisposable
                 RenderFormat, 
                 PrimitiveTopology.TriangleList, 
                 new[] { layoutDesc },
-                enableBlend: true
+                enableBlend: true,
+                sampleCount: 4
             );
 
             _textPipeline = _pipelineCache.GetOrCreateRenderPipeline(
@@ -153,7 +160,8 @@ public unsafe class Compositor : IDisposable
                 RenderFormat, 
                 PrimitiveTopology.TriangleList, 
                 new[] { layoutDesc },
-                enableBlend: true
+                enableBlend: true,
+                sampleCount: 4
             );
 
             _texturePipeline = _pipelineCache.GetOrCreateRenderPipeline(
@@ -164,7 +172,8 @@ public unsafe class Compositor : IDisposable
                 RenderFormat, 
                 PrimitiveTopology.TriangleList, 
                 new[] { layoutDesc },
-                enableBlend: true
+                enableBlend: true,
+                sampleCount: 4
             );
         }
 
@@ -291,6 +300,13 @@ public unsafe class Compositor : IDisposable
             _textureIndexBuffer.Write(CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
+        // Recreate MSAA resources if needed (handles initialization and window resizing)
+        if (_msaaTexture == null || _msaaWidth != width || _msaaHeight != height)
+        {
+            ReleaseMsaaResources();
+            CreateMsaaResources(width, height);
+        }
+
         // 5. WebGPU Command Encoder and Render Pass Execution
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Encoder") };
         var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
@@ -298,8 +314,8 @@ public unsafe class Compositor : IDisposable
 
         var colorAttachment = new RenderPassColorAttachment
         {
-            View = targetView,
-            ResolveTarget = null,
+            View = _msaaTextureView,
+            ResolveTarget = targetView,
             LoadOp = LoadOp.Clear,
             StoreOp = StoreOp.Store,
             ClearValue = new Color { R = 0.08, G = 0.08, B = 0.1, A = 1.0 } // Elegant dark blue UI background
@@ -619,7 +635,9 @@ public unsafe class Compositor : IDisposable
             var info = runGlyph.Glyph;
             if (info.Width == 0 || info.Height == 0) continue;
 
-            // Bounding box of the glyph quad
+            // Bounding box of the glyph quad.
+            // These coordinates correctly reflect the glyph padding (including any SDF spread/antialiasing padding)
+            // scaled to the target font size via the GlyphRasterizer, ensuring no clipping of the SDF spread.
             float x0 = runGlyph.Position.X + cmd.Position.X;
             float y0 = runGlyph.Position.Y + cmd.Position.Y;
             float x1 = x0 + info.Width;
@@ -705,6 +723,8 @@ public unsafe class Compositor : IDisposable
     {
         if (_isDisposed) return;
 
+        ReleaseMsaaResources();
+
         _uniformBuffer.Dispose();
         _vectorVertexBuffer.Dispose();
         _vectorIndexBuffer.Dispose();
@@ -740,6 +760,68 @@ public unsafe class Compositor : IDisposable
 
         _isDisposed = true;
         GC.SuppressFinalize(this);
+    }
+
+    private void CreateMsaaResources(uint width, uint height)
+    {
+        _msaaWidth = width > 0 ? width : 1;
+        _msaaHeight = height > 0 ? height : 1;
+
+        var labelPtr = SilkMarshal.StringToPtr("MSAA Color Texture");
+
+        var desc = new TextureDescriptor
+        {
+            Label = (byte*)labelPtr,
+            Usage = TextureUsage.RenderAttachment,
+            Dimension = TextureDimension.Dimension2D,
+            Size = new Extent3D { Width = _msaaWidth, Height = _msaaHeight, DepthOrArrayLayers = 1 },
+            Format = RenderFormat,
+            MipLevelCount = 1,
+            SampleCount = 4,
+            ViewFormatCount = 0,
+            ViewFormats = null
+        };
+
+        _msaaTexture = _context.Wgpu.DeviceCreateTexture(_context.Device, &desc);
+        SilkMarshal.Free(labelPtr);
+
+        if (_msaaTexture == null)
+        {
+            throw new InvalidOperationException($"Failed to allocate MSAA Texture {_msaaWidth}x{_msaaHeight}.");
+        }
+
+        var viewDesc = new TextureViewDescriptor
+        {
+            Format = RenderFormat,
+            Dimension = TextureViewDimension.Dimension2D,
+            BaseMipLevel = 0,
+            MipLevelCount = 1,
+            BaseArrayLayer = 0,
+            ArrayLayerCount = 1,
+            Aspect = TextureAspect.All
+        };
+
+        _msaaTextureView = _context.Wgpu.TextureCreateView(_msaaTexture, &viewDesc);
+        if (_msaaTextureView == null)
+        {
+            throw new InvalidOperationException($"Failed to create TextureView for MSAA Texture {_msaaWidth}x{_msaaHeight}.");
+        }
+    }
+
+    private void ReleaseMsaaResources()
+    {
+        if (_msaaTextureView != null)
+        {
+            _context.Wgpu.TextureViewRelease(_msaaTextureView);
+            _msaaTextureView = null;
+        }
+
+        if (_msaaTexture != null)
+        {
+            _context.Wgpu.TextureDestroy(_msaaTexture);
+            _context.Wgpu.TextureRelease(_msaaTexture);
+            _msaaTexture = null;
+        }
     }
 
     ~Compositor()

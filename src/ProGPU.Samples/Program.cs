@@ -187,9 +187,9 @@ public static unsafe class Program
         // 2. HEADER
         var headerBar = new Border
         {
-            Background = new SolidColorBrush(0x0C0C12FF),
-            BorderBrush = new SolidColorBrush(0x222230FF),
-            BorderThickness = new Thickness(0, 0, 0, 1.5f),
+            Background = new SolidColorBrush(0x13131AFF), // Premium dark Mica backdrop
+            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Thin translucent border outline
+            BorderThickness = new Thickness(0, 0, 0, 1f),
             Padding = new Thickness(20, 10, 20, 10),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
@@ -200,7 +200,9 @@ public static unsafe class Program
         headerGrid.ColumnDefinitions.Add(new GridLength(300f, GridUnitType.Absolute));
 
         var titleText = new RichTextBlock { Font = _font, FontSize = 20f, VerticalAlignment = VerticalAlignment.Center };
-        titleText.Inlines.Add(new Bold(new Run("ProGPU WinUI Gallery")));
+        var logoRun = new Run("Pro") { Foreground = new SolidColorBrush(0x0078D4FF) };
+        titleText.Inlines.Add(new Bold(logoRun));
+        titleText.Inlines.Add(new Bold(new Run("GPU WinUI Gallery")));
         headerGrid.AddChild(titleText);
         ProGPU.WinUI.Grid.SetColumn(titleText, 0);
 
@@ -228,8 +230,8 @@ public static unsafe class Program
         var sidebarCard = new Border
         {
             CornerRadius = 8f,
-            Background = new SolidColorBrush(0x13131AFF),
-            BorderBrush = new SolidColorBrush(0x2A2A38FF),
+            Background = new SolidColorBrush(0x13131AFF), // Mica background styling
+            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Translucent border outline
             BorderThickness = new Thickness(1f),
             Padding = new Thickness(12),
             Margin = new Thickness(10)
@@ -238,7 +240,7 @@ public static unsafe class Program
         var sidebarStack = new StackPanel { Orientation = Orientation.Vertical };
         
         var panelTitle = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(5, 5, 5, 15) };
-        panelTitle.Inlines.Add(new Bold(new Run("CONTROLS & PANELS")));
+        panelTitle.Inlines.Add(new Run("CONTROLS & PANELS") { Foreground = new SolidColorBrush(0x0078D4FF) });
         sidebarStack.AddChild(panelTitle);
 
         // Define beautiful tab switching buttons
@@ -270,8 +272,8 @@ public static unsafe class Program
         _showcaseContainer = new Border
         {
             CornerRadius = 8f,
-            Background = new SolidColorBrush(0x0C0C12FF),
-            BorderBrush = new SolidColorBrush(0x222230FF),
+            Background = new SolidColorBrush(0x13131AFF), // Mica background styling
+            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Translucent border outline
             BorderThickness = new Thickness(1f),
             Margin = new Thickness(0, 10, 10, 10),
             Padding = new Thickness(16)
@@ -286,9 +288,9 @@ public static unsafe class Program
         // 4. BOTTOM DIAGNOSTICS STATUS BAR
         var statusBar = new Border
         {
-            Background = new SolidColorBrush(0x07070BFF),
-            BorderBrush = new SolidColorBrush(0x1A1A26FF),
-            BorderThickness = new Thickness(0, 1.5f, 0, 0),
+            Background = new SolidColorBrush(0x0C0C12FF), // Deep dark status bar
+            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Translucent border outline
+            BorderThickness = new Thickness(0, 1f, 0, 0),
             Padding = new Thickness(16, 4, 16, 4),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
@@ -352,7 +354,7 @@ public static unsafe class Program
 
     private static void UpdateSidebarButtonStates()
     {
-        var activeBrush = new SolidColorBrush(0x0078D740); // translucent blue active
+        var activeBrush = new SolidColorBrush(0x0078D4FF); // Segoe Blue active accent
         var normalBrush = new SolidColorBrush(0xFFFFFF0D); // translucent default
 
         if (_basicInputTabBtn != null) _basicInputTabBtn.Background = _activeCategory == "Basic Input" ? activeBrush : normalBrush;
@@ -996,7 +998,19 @@ public static unsafe class Program
         if (_statsText != null)
         {
             _statsText.Inlines.Clear();
-            _statsText.Inlines.Add(new Run($"FPS: {_currentFps:F0} | CPU Frame: {_cpuFrameTimeMs:F2} ms | Cursor: ({_mousePos.X:F0}, {_mousePos.Y:F0}) | Focused: {_activeFocusedName}"));
+            
+            _statsText.Inlines.Add(new Run("FPS: "));
+            _statsText.Inlines.Add(new Bold(new Run($"{_currentFps:F0}")) { Foreground = new SolidColorBrush(0x0078D4FF) });
+            
+            _statsText.Inlines.Add(new Run("  |  CPU Frame: "));
+            _statsText.Inlines.Add(new Bold(new Run($"{_cpuFrameTimeMs:F2} ms")) { Foreground = new SolidColorBrush(0x0078D4FF) });
+            
+            _statsText.Inlines.Add(new Run("  |  Cursor: "));
+            _statsText.Inlines.Add(new Run($"({_mousePos.X:F0}, {_mousePos.Y:F0})"));
+            
+            _statsText.Inlines.Add(new Run("  |  Focused Element: "));
+            _statsText.Inlines.Add(new Bold(new Run(_activeFocusedName)) { Foreground = new SolidColorBrush(0x0078D4FF) });
+            
             _statsText.PerformRichLayout(1200f);
         }
 
