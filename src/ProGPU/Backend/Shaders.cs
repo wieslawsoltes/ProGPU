@@ -21,10 +21,6 @@ struct Brush {
 
 struct Uniforms {
     projection: mat4x4<f32>,
-    time: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
     brushes: array<Brush, 64>,
 };
 
