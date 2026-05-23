@@ -39,6 +39,19 @@ public class FrameworkElement : LayoutNode
     public object? ToolTip { get; set; }
 
     private Style? _style;
+    private EffectBase? _effect;
+    public EffectBase? Effect
+    {
+        get => _effect;
+        set
+        {
+            if (_effect != value)
+            {
+                _effect = value;
+                Invalidate();
+            }
+        }
+    }
     public Style? Style
     {
         get => _style;
@@ -196,5 +209,33 @@ public class FrameworkElement : LayoutNode
         {
             parentFe.OnCharacterReceived(e);
         }
+    }
+}
+
+public abstract class EffectBase
+{
+}
+
+public class BlurEffect : EffectBase
+{
+    public float BlurRadius { get; set; }
+
+    public BlurEffect(float blurRadius = 5f)
+    {
+        BlurRadius = blurRadius;
+    }
+}
+
+public class DropShadowEffect : EffectBase
+{
+    public float BlurRadius { get; set; }
+    public Vector2 Offset { get; set; }
+    public Vector4 Color { get; set; }
+
+    public DropShadowEffect(float blurRadius = 5f, Vector2 offset = default, Vector4 color = default)
+    {
+        BlurRadius = blurRadius;
+        Offset = offset;
+        Color = color == default ? new Vector4(0f, 0f, 0f, 0.5f) : color;
     }
 }

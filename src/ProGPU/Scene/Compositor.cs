@@ -8,6 +8,7 @@ using ProGPU.Backend;
 using ProGPU.Text;
 using ProGPU.Vector;
 using ProGPU.WinUI;
+using ProGPU.Compute;
 
 namespace ProGPU.Scene;
 
@@ -85,6 +86,9 @@ public unsafe class Compositor : IDisposable
     private RenderPipeline* _vectorPipeline;
     private RenderPipeline* _textPipeline;
     private RenderPipeline* _texturePipeline;
+    private RenderPipeline* _vectorPipelineOffscreen;
+    private RenderPipeline* _textPipelineOffscreen;
+    private RenderPipeline* _texturePipelineOffscreen;
     private BindGroupLayout* _textureBindGroupLayout;
 
     // Batch buffers (Dynamic GPU vertex & index buffers)
@@ -121,6 +125,9 @@ public unsafe class Compositor : IDisposable
     private readonly List<GpuBrush> _activeBrushes = new();
     private readonly Dictionary<(string Text, TtfFont Font, float Size, TextAlignment Align), TextLayout> _layoutCache = new();
 
+    private readonly ComputeAccelerator _compute;
+    private readonly Dictionary<FrameworkElement, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)> _effectTextures = new();
+
     private bool _isDisposed;
 
     private readonly Stack<Rect> _clipStack = new();
@@ -153,6 +160,7 @@ public unsafe class Compositor : IDisposable
         _context = context;
         RenderFormat = renderFormat ?? _context.SwapChainFormat;
         _pipelineCache = new RenderPipelineCache(_context);
+        _compute = new ComputeAccelerator(_context);
         
         // 1. Initialize Glyph Atlas (1024x1024)
         _atlas = new GlyphAtlas(_context, 1024);
@@ -262,6 +270,42 @@ public unsafe class Compositor : IDisposable
                 new[] { layoutDesc },
                 enableBlend: true,
                 sampleCount: 4
+            );
+
+            _vectorPipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
+                "Vector_Offscreen", 
+                vecShaderModule, 
+                "vs_main", 
+                "fs_main", 
+                RenderFormat, 
+                PrimitiveTopology.TriangleList, 
+                new[] { layoutDesc },
+                enableBlend: true,
+                sampleCount: 1
+            );
+
+            _textPipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
+                "Text_Offscreen", 
+                textShaderModule, 
+                "vs_main", 
+                "fs_main", 
+                RenderFormat, 
+                PrimitiveTopology.TriangleList, 
+                new[] { layoutDesc },
+                enableBlend: true,
+                sampleCount: 1
+            );
+
+            _texturePipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
+                "Texture_Offscreen", 
+                texShaderModule, 
+                "vs_main", 
+                "fs_main", 
+                RenderFormat, 
+                PrimitiveTopology.TriangleList, 
+                new[] { layoutDesc },
+                enableBlend: true,
+                sampleCount: 1
             );
         }
 
@@ -718,6 +762,12 @@ public unsafe class Compositor : IDisposable
 
     private void CompileVisualTree(Visual node, Matrix4x4 parentTransform)
     {
+        if (node is FrameworkElement fe && fe.Effect != null)
+        {
+            ApplyAndDrawEffect(fe, parentTransform);
+            return;
+        }
+
         // 1. Calculate global transform
         var localTransform = node.GetLocalTransform();
         var globalTransform = localTransform * parentTransform;
@@ -1795,6 +1845,14 @@ public unsafe class Compositor : IDisposable
         if (_pathAtlasBindGroup != null) _context.Wgpu.BindGroupRelease(_pathAtlasBindGroup);
         if (_pathAtlasBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_pathAtlasBindGroupLayout);
         _pipelineCache.Dispose();
+        _compute.Dispose();
+        foreach (var tuple in _effectTextures.Values)
+        {
+            tuple.Source.Dispose();
+            tuple.Temp.Dispose();
+            tuple.Destination.Dispose();
+        }
+        _effectTextures.Clear();
 
         if (_atlasSampler != null) _context.Wgpu.SamplerRelease(_atlasSampler);
 
@@ -1896,5 +1954,295 @@ public unsafe class Compositor : IDisposable
     ~Compositor()
     {
         Dispose();
+    }
+
+    // Helper methods for real-time drop shadows and Gaussian/backdrop blurs
+    private void ApplyAndDrawEffect(FrameworkElement fe, Matrix4x4 parentTransform)
+    {
+        if (fe.Size.X <= 0f || fe.Size.Y <= 0f) return;
+        uint w = (uint)fe.Size.X;
+        uint h = (uint)fe.Size.Y;
+
+        if (!_effectTextures.TryGetValue(fe, out var textures))
+        {
+            var source = new GpuTexture(_context, w, h, RenderFormat, TextureUsage.RenderAttachment | TextureUsage.TextureBinding, "Effect Source");
+            var temp = new GpuTexture(_context, w, h, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.StorageBinding, "Effect Temp");
+            var destination = new GpuTexture(_context, w, h, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.StorageBinding, "Effect Destination");
+            
+            textures = (source, temp, destination);
+            _effectTextures[fe] = textures;
+        }
+        else
+        {
+            textures.Source.Resize(w, h);
+            textures.Temp.Resize(w, h);
+            textures.Destination.Resize(w, h);
+        }
+
+        // 1. Render the subtree of fe offscreen into textures.Source
+        RenderOffscreen(fe, w, h, textures.Source);
+
+        // 2. Apply compute shader accelerator filter
+        if (fe.Effect is BlurEffect blur)
+        {
+            _compute.ApplyGaussianBlur(textures.Source, textures.Temp, textures.Destination);
+            
+            // Draw the blurred result back onto the main screen
+            var controlRect = new Rect(fe.Offset, fe.Size);
+            DrawTextureOnMain(textures.Destination, controlRect, parentTransform);
+        }
+        else if (fe.Effect is DropShadowEffect shadow)
+        {
+            _compute.ApplyDropShadow(textures.Source, textures.Destination, shadow.Offset, shadow.Color, shadow.BlurRadius);
+            
+            // Draw blurred shadow first (at offset)
+            var shadowRect = new Rect(fe.Offset + shadow.Offset, fe.Size);
+            DrawTextureOnMain(textures.Destination, shadowRect, parentTransform);
+            
+            // Draw original source on top
+            var controlRect = new Rect(fe.Offset, fe.Size);
+            DrawTextureOnMain(textures.Source, controlRect, parentTransform);
+        }
+    }
+
+    private void DrawTextureOnMain(GpuTexture texture, Rect localRect, Matrix4x4 parentTransform)
+    {
+        var cmd = new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = texture,
+            Rect = localRect
+        };
+        CompileTextureCommand(cmd, parentTransform);
+    }
+
+    public void RenderOffscreen(Visual node, uint width, uint height, GpuTexture targetTexture)
+    {
+        // 1. Calculate orthographic projection matrix for offscreen
+        var projection = new Matrix4x4(
+            2.0f / width, 0f, 0f, 0f,
+            0f, -2.0f / height, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            -1.0f, 1.0f, 0f, 1.0f
+        );
+
+        // 2. Save and clear lists
+        var savedVectorVertices = _vectorVerticesList.ToArray();
+        var savedVectorIndices = _vectorIndicesList.ToArray();
+        var savedTextVertices = _textVerticesList.ToArray();
+        var savedTextIndices = _textIndicesList.ToArray();
+        var savedTextureVertices = _textureVerticesList.ToArray();
+        var savedTextureIndices = _textureIndicesList.ToArray();
+        var savedDrawCalls = _drawCalls.ToArray();
+        var savedActiveBrushes = _activeBrushes.ToArray();
+        var savedClipStack = _clipStack.ToArray();
+        var savedActiveClipRect = _activeClipRect;
+
+        _vectorVerticesList.Clear();
+        _vectorIndicesList.Clear();
+        _textVerticesList.Clear();
+        _textIndicesList.Clear();
+        _textureVerticesList.Clear();
+        _textureIndicesList.Clear();
+        _drawCalls.Clear();
+        _activeBrushes.Clear();
+        _clipStack.Clear();
+        _activeClipRect = null;
+
+        // Save offset and temporarily set to Zero to render at origin of offscreen texture
+        var oldOffset = node.Offset;
+        node.Offset = Vector2.Zero;
+
+        CompileVisualTree(node, Matrix4x4.Identity);
+
+        node.Offset = oldOffset;
+
+        // Compile draw calls for offscreen node
+        uint vecStart = 0;
+        uint vecCount = (uint)_vectorIndicesList.Count;
+        if (vecCount > 0)
+        {
+            _drawCalls.Add(new CompositorDrawCall { Type = DrawCallType.Vector, IndexStart = vecStart, IndexCount = vecCount });
+        }
+        uint textStart = 0;
+        uint textCount = (uint)_textIndicesList.Count;
+        if (textCount > 0)
+        {
+            _drawCalls.Add(new CompositorDrawCall { Type = DrawCallType.Text, IndexStart = textStart, IndexCount = textCount });
+        }
+
+        // Upload CPU batches to dynamic GPU buffers
+        if (_vectorVerticesList.Count > 0)
+        {
+            EnsureBufferSize(ref _vectorVertexBuffer, (uint)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            _vectorVertexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_vectorVerticesList));
+        }
+        if (_vectorIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _vectorIndexBuffer, (uint)_vectorIndicesList.Count * 4, BufferUsage.Index);
+            _vectorIndexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_vectorIndicesList));
+        }
+
+        if (_textVerticesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textVertexBuffer, (uint)_textVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            _textVertexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_textVerticesList));
+        }
+        if (_textIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textIndexBuffer, (uint)_textIndicesList.Count * 4, BufferUsage.Index);
+            _textIndexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_textIndicesList));
+        }
+
+        if (_textureVerticesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textureVertexBuffer, (uint)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            _textureVertexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_textureVerticesList));
+        }
+        if (_textureIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textureIndexBuffer, (uint)_textureIndicesList.Count * 4, BufferUsage.Index);
+            _textureIndexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_textureIndicesList));
+        }
+
+        var uniforms = new GpuUniforms();
+        uniforms.Projection = projection;
+        GpuBrush* pBrushes = &uniforms.Brush0;
+        for (int i = 0; i < Math.Min(64, _activeBrushes.Count); i++)
+        {
+            pBrushes[i] = _activeBrushes[i];
+        }
+        _uniformBuffer.WriteSingle(uniforms);
+
+        // Render target view for offscreen GpuTexture
+        var targetView = targetTexture.ViewPtr;
+
+        // Render pass for offscreen (1x MSAA)
+        var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Offscreen Compositor Encoder") };
+        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        SilkMarshal.Free((nint)encoderDesc.Label);
+
+        // Clear with transparent color
+        var colorAttachment = new RenderPassColorAttachment
+        {
+            View = targetView,
+            ResolveTarget = null,
+            LoadOp = LoadOp.Clear,
+            StoreOp = StoreOp.Store,
+            ClearValue = new Color { R = 0, G = 0, B = 0, A = 0 }
+        };
+
+        var passDesc = new RenderPassDescriptor
+        {
+            ColorAttachmentCount = 1,
+            ColorAttachments = &colorAttachment,
+            DepthStencilAttachment = null
+        };
+
+        var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+
+        DrawCallType? currentType = null;
+        var textureEntries = stackalloc BindGroupEntry[2];
+
+        foreach (var dc in _drawCalls)
+        {
+            if (dc.Type == DrawCallType.Vector)
+            {
+                if (currentType != DrawCallType.Vector)
+                {
+                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, _vectorPipelineOffscreen);
+                    fixed (BindGroup** pGrp = &_vectorUniformBindGroup)
+                    {
+                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                    }
+                    var buffer = _vectorVertexBuffer.BufferPtr;
+                    _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
+                    _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
+                    currentType = DrawCallType.Vector;
+                }
+                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+            }
+            else if (dc.Type == DrawCallType.Text)
+            {
+                if (currentType != DrawCallType.Text)
+                {
+                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, _textPipelineOffscreen);
+                    fixed (BindGroup** pGrp = &_textUniformBindGroup)
+                    {
+                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                    }
+                    fixed (BindGroup** pAtlas = &_atlasBindGroup)
+                    {
+                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
+                    }
+                    var buffer = _textVertexBuffer.BufferPtr;
+                    _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
+                    _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _textIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textIndexBuffer.Size);
+                    currentType = DrawCallType.Text;
+                }
+                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+            }
+            else if (dc.Type == DrawCallType.Texture && dc.Texture != null)
+            {
+                _context.Wgpu.RenderPassEncoderSetPipeline(pass, _texturePipelineOffscreen);
+                fixed (BindGroup** pGrp = &_textureUniformBindGroup)
+                {
+                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                }
+                var buffer = _textureVertexBuffer.BufferPtr;
+                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
+                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
+                currentType = DrawCallType.Texture;
+
+                var viewPtr = dc.Texture.ViewPtr;
+                nint viewKey = (nint)viewPtr;
+
+                if (!_textureBindGroups.TryGetValue(viewKey, out var bgPtrVal))
+                {
+                    textureEntries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
+                    textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
+
+                    var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = textureEntries };
+                    var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                    bgPtrVal = (nint)bg;
+                    _textureBindGroups[viewKey] = bgPtrVal;
+                }
+
+                var bindGroup = (BindGroup*)bgPtrVal;
+                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
+                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+            }
+        }
+
+        _context.Wgpu.RenderPassEncoderEnd(pass);
+        _context.Wgpu.RenderPassEncoderRelease(pass);
+
+        var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Offscreen Compositor Command Buffer") };
+        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        SilkMarshal.Free((nint)cmdDesc.Label);
+
+        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+
+        _context.Wgpu.CommandBufferRelease(cmdBuffer);
+        _context.Wgpu.CommandEncoderRelease(encoder);
+
+        foreach (var bgVal in _textureBindGroups.Values)
+        {
+            if (bgVal != 0) _context.Wgpu.BindGroupRelease((BindGroup*)bgVal);
+        }
+        _textureBindGroups.Clear();
+
+        // Restore main lists and state
+        _vectorVerticesList.Clear(); _vectorVerticesList.AddRange(savedVectorVertices);
+        _vectorIndicesList.Clear(); _vectorIndicesList.AddRange(savedVectorIndices);
+        _textVerticesList.Clear(); _textVerticesList.AddRange(savedTextVertices);
+        _textIndicesList.Clear(); _textIndicesList.AddRange(savedTextIndices);
+        _textureVerticesList.Clear(); _textureVerticesList.AddRange(savedTextureVertices);
+        _textureIndicesList.Clear(); _textureIndicesList.AddRange(savedTextureIndices);
+        _drawCalls.Clear(); _drawCalls.AddRange(savedDrawCalls);
+        _activeBrushes.Clear(); _activeBrushes.AddRange(savedActiveBrushes);
+        _clipStack.Clear();
+        foreach (var clip in savedClipStack) _clipStack.Push(clip);
+        _activeClipRect = savedActiveClipRect;
     }
 }
