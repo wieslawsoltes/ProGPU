@@ -32,7 +32,7 @@ public class ComboBoxItem : Control
                     var tv = new TextVisual
                     {
                         Text = _text,
-                        Brush = new SolidColorBrush(0xFFFFFFFF),
+                        Brush = Foreground ?? ThemeManager.GetBrush("TextPrimary"),
                         FontSize = 14f
                     };
                     Content = tv;
@@ -166,12 +166,12 @@ public class ComboBoxItem : Control
 
         if (IsSelected)
         {
-            bg = new SolidColorBrush(0x0078D433); // Segoe Blue transparent active background
-            pen = new Pen(new SolidColorBrush(0x0078D4FF), 1f); // Segoe Blue thin border
+            bg = ThemeManager.GetBrush("SelectionHighlight"); // Segoe Blue transparent active background
+            pen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 1f); // Segoe Blue thin border
         }
         else if (IsPointerOver)
         {
-            bg = new SolidColorBrush(0xFFFFFF15);
+            bg = ThemeManager.GetBrush("ControlBackgroundHover");
         }
 
         if (bg != null)

@@ -34,6 +34,62 @@ public class NavigationView : FrameworkElement
         }
     }
 
+    private class NavigationViewPane : Panel
+    {
+        private readonly NavigationView _navigationView;
+
+        public NavigationViewPane(NavigationView navigationView)
+        {
+            _navigationView = navigationView;
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _navigationView._hamburgerButton.Measure(new Vector2(availableSize.X, 60f));
+
+            foreach (var item in _navigationView._flatVisibleItems)
+            {
+                item.Measure(new Vector2(availableSize.X, 40f));
+            }
+
+            if (_navigationView.SettingsItem != null)
+            {
+                _navigationView.SettingsItem.Measure(new Vector2(availableSize.X, 40f));
+            }
+
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            _navigationView._hamburgerButton.Arrange(new Rect(arrangeRect.X + (arrangeRect.Width - 40f) / 2f, arrangeRect.Y + 10f, 40f, 40f));
+
+            float cursorY = arrangeRect.Y + 60f;
+            foreach (var item in _navigationView._flatVisibleItems)
+            {
+                item.Arrange(new Rect(arrangeRect.X, cursorY, arrangeRect.Width, 40f));
+                cursorY += 40f;
+            }
+
+            if (_navigationView.SettingsItem != null)
+            {
+                float settingsY = arrangeRect.Y + arrangeRect.Height - 50f;
+                _navigationView.SettingsItem.Arrange(new Rect(arrangeRect.X, settingsY, arrangeRect.Width, 40f));
+            }
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var paneBg = new SolidColorBrush(0x1F1F1FFF);
+            context.DrawRectangle(paneBg, null, new Rect(0f, 0f, Size.X, Size.Y));
+            
+            var sepBrush = new SolidColorBrush(0xFFFFFF15);
+            context.DrawRectangle(sepBrush, null, new Rect(Size.X - 1f, 0f, 1f, Size.Y));
+
+            base.OnRender(context);
+        }
+    }
+
     private readonly HamburgerButton _hamburgerButton;
     private readonly List<NavigationViewItem> _flatVisibleItems = new();
     private bool _isPaneOpen;
@@ -41,6 +97,8 @@ public class NavigationView : FrameworkElement
     private NavigationViewItem? _settingsItem;
     private FrameworkElement? _content;
     private TtfFont? _font;
+    private readonly SplitView _splitView;
+    private readonly NavigationViewPane _panePanel;
 
     public ObservableCollection<NavigationViewItem> MenuItems { get; }
 
@@ -52,6 +110,7 @@ public class NavigationView : FrameworkElement
             if (_isPaneOpen != value)
             {
                 _isPaneOpen = value;
+                _splitView.IsPaneOpen = value;
                 Invalidate();
             }
         }
@@ -109,9 +168,8 @@ public class NavigationView : FrameworkElement
         {
             if (_content != value)
             {
-                if (_content != null) RemoveChild(_content);
                 _content = value;
-                if (_content != null) AddChild(_content);
+                _splitView.Content = value;
                 RebuildPaneChildren();
             }
         }
@@ -134,8 +192,19 @@ public class NavigationView : FrameworkElement
         
         MenuItems.CollectionChanged += OnMenuItemsChanged;
         
-        // Add default SettingsItem at the bottom
         _settingsItem = new NavigationViewItem("Settings", "⚙");
+
+        _panePanel = new NavigationViewPane(this);
+        _splitView = new SplitView
+        {
+            DisplayMode = SplitViewDisplayMode.CompactInline,
+            PaneWidth = 240f,
+            CompactPaneLength = 60f,
+            Pane = _panePanel,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        AddChild(_splitView);
 
         RebuildPaneChildren();
     }
@@ -197,10 +266,10 @@ public class NavigationView : FrameworkElement
 
     private void RebuildPaneChildren()
     {
-        ClearChildren();
+        _panePanel.ClearChildren();
 
         // 1. Add Hamburger
-        AddChild(_hamburgerButton);
+        _panePanel.AddChild(_hamburgerButton);
 
         // 2. Add currently expanded visual menu items stack
         _flatVisibleItems.Clear();
@@ -211,19 +280,13 @@ public class NavigationView : FrameworkElement
 
         foreach (var item in _flatVisibleItems)
         {
-            AddChild(item);
+            _panePanel.AddChild(item);
         }
 
         // 3. Add SettingsItem if available
         if (SettingsItem != null)
         {
-            AddChild(SettingsItem);
-        }
-
-        // 4. Add Content frame panel next to vertical stack
-        if (Content != null)
-        {
-            AddChild(Content);
+            _panePanel.AddChild(SettingsItem);
         }
 
         Invalidate();
@@ -231,73 +294,12 @@ public class NavigationView : FrameworkElement
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
-        float paneW = IsPaneOpen ? 240f : 60f;
-        
-        _hamburgerButton.Measure(new Vector2(paneW, 60f));
-
-        float cursorY = 60f;
-        foreach (var item in _flatVisibleItems)
-        {
-            item.Measure(new Vector2(paneW, 40f));
-            cursorY += 40f;
-        }
-
-        if (SettingsItem != null)
-        {
-            SettingsItem.Measure(new Vector2(paneW, 40f));
-        }
-
-        if (Content != null)
-        {
-            float contentW = Math.Max(0f, availableSize.X - paneW);
-            float contentH = availableSize.Y;
-            Content.Measure(new Vector2(contentW, contentH));
-        }
-
+        _splitView.Measure(availableSize);
         return availableSize;
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
-        float paneW = IsPaneOpen ? 240f : 60f;
-
-        // Hamburger top center
-        _hamburgerButton.Arrange(new Rect(arrangeRect.X + (paneW - 40f) / 2f, arrangeRect.Y + 10f, 40f, 40f));
-
-        // Menu items stack
-        float cursorY = arrangeRect.Y + 60f;
-        foreach (var item in _flatVisibleItems)
-        {
-            item.Arrange(new Rect(arrangeRect.X, cursorY, paneW, 40f));
-            cursorY += 40f;
-        }
-
-        // Footer SettingsItem at bottom
-        if (SettingsItem != null)
-        {
-            float settingsY = arrangeRect.Y + arrangeRect.Height - 50f;
-            SettingsItem.Arrange(new Rect(arrangeRect.X, settingsY, paneW, 40f));
-        }
-
-        // Content body panel adjacent to side pane
-        if (Content != null)
-        {
-            Content.Arrange(new Rect(arrangeRect.X + paneW, arrangeRect.Y, Math.Max(0f, arrangeRect.Width - paneW), arrangeRect.Height));
-        }
-    }
-
-    public override void OnRender(DrawingContext context)
-    {
-        float paneW = IsPaneOpen ? 240f : 60f;
-        
-        // Render Fluent design navigation sidebar background
-        var paneBg = new SolidColorBrush(0x1F1F1FFF);
-        context.DrawRectangle(paneBg, null, new Rect(0f, 0f, paneW, Size.Y));
-        
-        // Right edge sidebar thin divider line
-        var sepBrush = new SolidColorBrush(0xFFFFFF15);
-        context.DrawRectangle(sepBrush, null, new Rect(paneW - 1f, 0f, 1f, Size.Y));
-
-        base.OnRender(context);
+        _splitView.Arrange(arrangeRect);
     }
 }

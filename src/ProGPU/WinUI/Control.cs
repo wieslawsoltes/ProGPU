@@ -80,6 +80,13 @@ public class Control : FrameworkElement
         internal set { if (_isFocused != value) { _isFocused = value; OnVisualStateChanged(); } }
     }
 
+    private bool _isTabStop = true;
+    public bool IsTabStop
+    {
+        get => _isTabStop;
+        set { _isTabStop = value; }
+    }
+
     public virtual void OnVisualStateChanged()
     {
         Invalidate();
@@ -125,5 +132,17 @@ public class Control : FrameworkElement
             IsPointerPressed = false;
         }
         base.OnPointerReleased(e);
+    }
+
+    public override void OnRender(DrawingContext context)
+    {
+        base.OnRender(context);
+
+        // Draw dynamic high-contrast keyboard focus visual borders 2px outside the control
+        if (IsFocused && InputSystem.IsKeyboardFocusActive)
+        {
+            var accentColor = ThemeManager.GetBrush("SystemAccentColor");
+            context.DrawRectangle(null, new Pen(accentColor, 1.5f), new Rect(-2f, -2f, Size.X + 4f, Size.Y + 4f));
+        }
     }
 }

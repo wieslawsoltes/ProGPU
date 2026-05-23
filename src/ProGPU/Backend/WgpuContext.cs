@@ -19,8 +19,11 @@ public unsafe class WgpuContext : IDisposable
     
     private bool _isDisposed;
 
+    public static WgpuContext? Current { get; set; }
+
     public void Initialize(IWindow? window)
     {
+        Current = this;
         Wgpu = WebGPU.GetApi();
         
         // 1. Create WebGPU Instance

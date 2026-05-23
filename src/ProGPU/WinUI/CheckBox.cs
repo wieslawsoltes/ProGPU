@@ -137,26 +137,22 @@ public class CheckBox : Control
 
         if (!IsEnabled)
         {
-            boxBg = new SolidColorBrush(0x2A2A3540);
-            boxBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            boxBg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            boxBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsChecked)
         {
             // Filled accent color for checked state (Segoe Accent / Hover Accent / Pressed Accent)
             boxBg = IsPointerPressed 
-                ? new SolidColorBrush(0x005A9EFF) 
-                : (IsPointerOver ? new SolidColorBrush(0x2B88D8FF) : new SolidColorBrush(0x0078D4FF));
+                ? ThemeManager.GetBrush("SystemAccentColorDark1") 
+                : (IsPointerOver ? ThemeManager.GetBrush("SystemAccentColorLight1") : ThemeManager.GetBrush("SystemAccentColor"));
             boxBorder = null;
         }
         else
         {
-            boxBg = IsPointerPressed 
-                ? new SolidColorBrush(0xFFFFFF0D) 
-                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF25) : new SolidColorBrush(0xFFFFFF15));
+            boxBg = Background ?? ThemeManager.GetBrush(IsPointerPressed ? "ControlBackgroundPressed" : IsPointerOver ? "ControlBackgroundHover" : "ControlBackground");
 
-            boxBorder = IsPointerOver 
-                ? new Pen(new SolidColorBrush(0xFFFFFF30), 1f) 
-                : new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+            boxBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush(IsPointerOver ? "ControlBorderHover" : "ControlBorder"), 1f);
         }
 
         // Draw check box frame
@@ -180,14 +176,17 @@ public class CheckBox : Control
             checkGeometry.Figures.Add(checkFigure);
 
             // Draw white/muted checkmark stroke
-            var checkPen = new Pen(new SolidColorBrush(IsEnabled ? 0xFFFFFFFF : 0xFFFFFF60), 2f);
+            var checkBrush = IsEnabled 
+                ? (ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary"))
+                : ThemeManager.GetBrush("TextSecondary");
+            var checkPen = new Pen(checkBrush, 2f);
             context.DrawPath(null, checkPen, checkGeometry);
         }
 
         // Draw active focus ring indicator around the checkbox box frame
         if (IsEnabled && IsFocused)
         {
-            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Segoe Blue active focus ring
+            var focusPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 2f); // Segoe Blue active focus ring
             Rect focusRect = new Rect(boxRect.X - 2f, boxRect.Y - 2f, boxRect.Width + 4f, boxRect.Height + 4f);
             if (CornerRadius <= 0f)
             {

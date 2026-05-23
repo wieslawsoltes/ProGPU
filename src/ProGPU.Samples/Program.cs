@@ -193,8 +193,8 @@ public static unsafe class Program
         // 2. HEADER
         var headerBar = new Border
         {
-            Background = new SolidColorBrush(0x13131AFF), // Premium dark Mica backdrop
-            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Thin translucent border outline
+            Background = ThemeManager.GetBrush("HeaderBackground"), // Dynamic theme Mica backdrop
+            BorderBrush = ThemeManager.GetBrush("ControlBorder"), // Thin dynamic border outline
             BorderThickness = new Thickness(0, 0, 0, 1f),
             Padding = new Thickness(20, 10, 20, 10),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -203,14 +203,45 @@ public static unsafe class Program
 
         var headerGrid = new ProGPU.WinUI.Grid();
         headerGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        headerGrid.ColumnDefinitions.Add(new GridLength(120f, GridUnitType.Absolute));
         headerGrid.ColumnDefinitions.Add(new GridLength(300f, GridUnitType.Absolute));
 
         var titleText = new RichTextBlock { Font = _font, FontSize = 20f, VerticalAlignment = VerticalAlignment.Center };
-        var logoRun = new Run("Pro") { Foreground = new SolidColorBrush(0x0078D4FF) };
+        var logoRun = new Run("Pro") { Foreground = ThemeManager.GetBrush("SystemAccentColor") };
         titleText.Inlines.Add(new Bold(logoRun));
         titleText.Inlines.Add(new Bold(new Run("GPU WinUI Gallery")));
         headerGrid.AddChild(titleText);
         ProGPU.WinUI.Grid.SetColumn(titleText, 0);
+
+        // Sun/Moon dynamic theme selector toggle button
+        var themeBtn = new Button
+        {
+            Width = 100f,
+            Height = 32f,
+            CornerRadius = 6f,
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var themeBtnText = new RichTextBlock { Font = _font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var themeRun = new Run("🌙 Dark");
+        themeBtnText.Inlines.Add(new Bold(themeRun));
+        themeBtn.Content = themeBtnText;
+
+        themeBtn.Click += (s, e) =>
+        {
+            if (ThemeManager.CurrentTheme == ElementTheme.Dark)
+            {
+                ThemeManager.CurrentTheme = ElementTheme.Light;
+                themeRun.Text = "☀️ Light";
+            }
+            else
+            {
+                ThemeManager.CurrentTheme = ElementTheme.Dark;
+                themeRun.Text = "🌙 Dark";
+            }
+        };
+        headerGrid.AddChild(themeBtn);
+        ProGPU.WinUI.Grid.SetColumn(themeBtn, 1);
 
         var subtitleText = new RichTextBlock 
         { 
@@ -221,7 +252,7 @@ public static unsafe class Program
         };
         subtitleText.Inlines.Add(new Run(".NET 10 cross-platform high-performance engine showcase"));
         headerGrid.AddChild(subtitleText);
-        ProGPU.WinUI.Grid.SetColumn(subtitleText, 1);
+        ProGPU.WinUI.Grid.SetColumn(subtitleText, 2);
 
         headerBar.Child = headerGrid;
         _rootGrid.AddChild(headerBar);
@@ -244,6 +275,8 @@ public static unsafe class Program
         var motionAnimationsItem = new NavigationViewItem("Motion & Animations", "🎬", CreateMotionAnimationsView());
         var advancedItem = new NavigationViewItem("Advanced Controls", "🛠", CreateAdvancedControlsView());
         var compositorItem = new NavigationViewItem("Compositor API", "🎨", CreateCompositorShowcaseView());
+        var splitViewItem = new NavigationViewItem("SplitView Layout", "🪟", CreateSplitViewShowcaseView());
+        var imageRepeatItem = new NavigationViewItem("Image & Buttons", "🖼️", CreateImageRepeatShowcaseView());
 
         _navigationView.MenuItems.Add(basicInputItem);
         _navigationView.MenuItems.Add(panelsItem);
@@ -253,6 +286,8 @@ public static unsafe class Program
         _navigationView.MenuItems.Add(motionAnimationsItem);
         _navigationView.MenuItems.Add(advancedItem);
         _navigationView.MenuItems.Add(compositorItem);
+        _navigationView.MenuItems.Add(splitViewItem);
+        _navigationView.MenuItems.Add(imageRepeatItem);
 
         _navigationView.SelectionChanged += (s, e) =>
         {
@@ -272,8 +307,8 @@ public static unsafe class Program
         // 4. BOTTOM DIAGNOSTICS STATUS BAR
         var statusBar = new Border
         {
-            Background = new SolidColorBrush(0x0C0C12FF), // Deep dark status bar
-            BorderBrush = new SolidColorBrush(0xFFFFFF15), // Thin boundary stroke
+            Background = ThemeManager.GetBrush("HeaderBackground"), // Deep dark/light status bar
+            BorderBrush = ThemeManager.GetBrush("ControlBorder"), // Thin boundary stroke
             BorderThickness = new Thickness(0, 1f, 0, 0),
             Padding = new Thickness(16, 4, 16, 4),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -283,7 +318,7 @@ public static unsafe class Program
         _statsText = new RichTextBlock
         {
             FontSize = 11f,
-            Foreground = new SolidColorBrush(0x888899FF),
+            Foreground = ThemeManager.GetBrush("TextSecondary"),
             Font = _font,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -291,6 +326,18 @@ public static unsafe class Program
         statusBar.Child = _statsText;
         _rootGrid.AddChild(statusBar);
         ProGPU.WinUI.Grid.SetRow(statusBar, 2);
+
+        // Track global ThemeManager theme change event
+        ThemeManager.ThemeChanged += () =>
+        {
+            statusBar.Background = ThemeManager.GetBrush("HeaderBackground");
+            statusBar.BorderBrush = ThemeManager.GetBrush("ControlBorder");
+            _statsText.Foreground = ThemeManager.GetBrush("TextSecondary");
+            headerBar.Background = ThemeManager.GetBrush("HeaderBackground");
+            headerBar.BorderBrush = ThemeManager.GetBrush("ControlBorder");
+            logoRun.Foreground = ThemeManager.GetBrush("SystemAccentColor");
+            _rootGrid.Invalidate();
+        };
 
         // 5. TOP LEVEL CONTAINER GRID (App container)
         _topLevelGrid = new ProGPU.WinUI.Grid
@@ -1907,6 +1954,347 @@ public static unsafe class Program
 
         grid.AddChild(columnsGrid);
         ProGPU.WinUI.Grid.SetRow(columnsGrid, 1);
+
+        return grid;
+    }
+
+    private static FrameworkElement CreateSplitViewShowcaseView()
+    {
+        var grid = new ProGPU.WinUI.Grid { Margin = new Thickness(12) };
+        grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
+        grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main workspace
+
+        var descText = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+        descText.Inlines.Add(new Bold(new Run("SplitView Responsive Layout Demonstration\n")));
+        descText.Inlines.Add(new Run("Demonstrates collapsible navigation side panes with customizable display modes, positioning, and width metrics. Adjust states in real time."));
+        grid.AddChild(descText);
+        ProGPU.WinUI.Grid.SetRow(descText, 0);
+
+        // Define SplitView
+        var splitView = new SplitView
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            PaneWidth = 200f,
+            CompactPaneLength = 60f,
+            IsPaneOpen = true,
+            DisplayMode = SplitViewDisplayMode.CompactInline
+        };
+
+        // 1. Pane content
+        var paneBorder = new Border
+        {
+            Background = new SolidColorBrush(0x1F1F24FA),
+            BorderBrush = new SolidColorBrush(0xFFFFFF15),
+            BorderThickness = new Thickness(0, 0, 1f, 0),
+            Padding = new Thickness(10),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        var paneStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var paneHeader = new RichTextBlock { Font = _font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 10) };
+        paneHeader.Inlines.Add(new Bold(new Run("Navigation Pane")));
+        paneStack.AddChild(paneHeader);
+
+        for (int i = 1; i <= 4; i++)
+        {
+            var pBtn = new Button
+            {
+                Width = 180f,
+                Height = 32f,
+                CornerRadius = 4f,
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            var btnLabel = new RichTextBlock { Font = _font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            btnLabel.Inlines.Add(new Run($"Pane Option {i}"));
+            pBtn.Content = btnLabel;
+            paneStack.AddChild(pBtn);
+        }
+        paneBorder.Child = paneStack;
+        splitView.Pane = paneBorder;
+
+        // 2. Main content of SplitView
+        var contentGrid = new ProGPU.WinUI.Grid { Margin = new Thickness(12) };
+        contentGrid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Controls
+        contentGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Preview card
+
+        var ctrlStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
+        
+        var ctrlTitle = new RichTextBlock { Font = _font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+        ctrlTitle.Inlines.Add(new Bold(new Run("SplitView Controllers")));
+        ctrlStack.AddChild(ctrlTitle);
+
+        // Toggle Pane Button
+        var togglePaneBtn = new Button { Width = 200f, Height = 32f, CornerRadius = 6f, Margin = new Thickness(0, 0, 0, 15) };
+        var toggleText = new RichTextBlock { Font = _font, FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        toggleText.Inlines.Add(new Run("Collapse / Expand Pane"));
+        togglePaneBtn.Content = toggleText;
+        togglePaneBtn.Click += (s, e) =>
+        {
+            splitView.IsPaneOpen = !splitView.IsPaneOpen;
+        };
+        ctrlStack.AddChild(togglePaneBtn);
+
+        // ComboBox for DisplayMode
+        var modeLabel = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        modeLabel.Inlines.Add(new Run("SplitView DisplayMode:"));
+        ctrlStack.AddChild(modeLabel);
+
+        var modeCombo = new ComboBox { Font = _font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
+        var inlineItem = new ComboBoxItem("Inline");
+        var overlayItem = new ComboBoxItem("Overlay");
+        var compactInlineItem = new ComboBoxItem("CompactInline");
+        var compactOverlayItem = new ComboBoxItem("CompactOverlay");
+        modeCombo.Items.Add(inlineItem);
+        modeCombo.Items.Add(overlayItem);
+        modeCombo.Items.Add(compactInlineItem);
+        modeCombo.Items.Add(compactOverlayItem);
+        modeCombo.SelectedItem = compactInlineItem;
+        
+        modeCombo.SelectionChanged += (s, e) =>
+        {
+            if (modeCombo.SelectedItem != null)
+            {
+                splitView.DisplayMode = modeCombo.SelectedItem.Text switch
+                {
+                    "Inline" => SplitViewDisplayMode.Inline,
+                    "Overlay" => SplitViewDisplayMode.Overlay,
+                    "CompactInline" => SplitViewDisplayMode.CompactInline,
+                    "CompactOverlay" => SplitViewDisplayMode.CompactOverlay,
+                    _ => SplitViewDisplayMode.Inline
+                };
+            }
+        };
+        ctrlStack.AddChild(modeCombo);
+
+        // ComboBox for Placement
+        var placeLabel = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        placeLabel.Inlines.Add(new Run("Pane Placement:"));
+        ctrlStack.AddChild(placeLabel);
+
+        var placeCombo = new ComboBox { Font = _font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
+        var leftItem = new ComboBoxItem("Left");
+        var rightItem = new ComboBoxItem("Right");
+        placeCombo.Items.Add(leftItem);
+        placeCombo.Items.Add(rightItem);
+        placeCombo.SelectedItem = leftItem;
+
+        placeCombo.SelectionChanged += (s, e) =>
+        {
+            if (placeCombo.SelectedItem != null)
+            {
+                splitView.PanePlacement = placeCombo.SelectedItem.Text switch
+                {
+                    "Left" => PanePlacement.Left,
+                    "Right" => PanePlacement.Right,
+                    _ => PanePlacement.Left
+                };
+                paneBorder.BorderThickness = splitView.PanePlacement == PanePlacement.Left ? new Thickness(0, 0, 1f, 0) : new Thickness(1f, 0, 0, 0);
+            }
+        };
+        ctrlStack.AddChild(placeCombo);
+
+        contentGrid.AddChild(ctrlStack);
+        ProGPU.WinUI.Grid.SetColumn(ctrlStack, 0);
+
+        // Preview Card
+        var previewCard = new Border
+        {
+            Background = new SolidColorBrush(0x1F1F24FA),
+            BorderBrush = new SolidColorBrush(0xFFFFFF15),
+            BorderThickness = new Thickness(1f),
+            CornerRadius = 8f,
+            Padding = new Thickness(24f),
+            Margin = new Thickness(10),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        var previewText = new RichTextBlock
+        {
+            Font = _font,
+            FontSize = 13f,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        previewText.Inlines.Add(new Bold(new Run("Layout Workspace Canvas\n\n")));
+        previewText.Inlines.Add(new Run("Observe how the main Content area dynamically scales and translates depending on the collapsible pane's metrics and display configurations. In overlay modes, the pane hovers above this content without pushing it."));
+        previewCard.Child = previewText;
+        contentGrid.AddChild(previewCard);
+        ProGPU.WinUI.Grid.SetColumn(previewCard, 1);
+
+        splitView.Content = contentGrid;
+        grid.AddChild(splitView);
+        ProGPU.WinUI.Grid.SetRow(splitView, 1);
+
+        return grid;
+    }
+
+    private static int _repeatCount = 0;
+
+    private static FrameworkElement CreateImageRepeatShowcaseView()
+    {
+        var grid = new ProGPU.WinUI.Grid { Margin = new Thickness(12) };
+        grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
+        grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main content Grid
+
+        var descText = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+        descText.Inlines.Add(new Bold(new Run("Image Stretching & Button Extensions Showcase\n")));
+        descText.Inlines.Add(new Run("Exhibits the uncompressed BMP local loader supporting None, Fill, Uniform, UniformToFill stretch structures, together with high-fidelity RepeatButtons and HyperlinkButtons."));
+        grid.AddChild(descText);
+        ProGPU.WinUI.Grid.SetRow(descText, 0);
+
+        var contentGrid = new ProGPU.WinUI.Grid();
+        contentGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star)); // Left column: Image Stretch
+        contentGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star)); // Right column: Buttons
+
+        // COLUMN 0: IMAGE STRETCH CARD
+        var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(6) };
+        var imgCard = new Border
+        {
+            Background = new SolidColorBrush(0x1F1F24FA),
+            BorderBrush = new SolidColorBrush(0xFFFFFF15),
+            BorderThickness = new Thickness(1f),
+            CornerRadius = 8f,
+            Padding = new Thickness(16f),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var imgStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var imgHeader = new RichTextBlock { Font = _font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+        imgHeader.Inlines.Add(new Bold(new Run("Pure C# BMP Rendering & Stretching")));
+        imgStack.AddChild(imgHeader);
+
+        // Instantiate Image control
+        var testImage = new Image
+        {
+            Width = 300f,
+            Height = 200f,
+            Stretch = Stretch.Uniform,
+            Margin = new Thickness(0, 0, 0, 15)
+        };
+
+        // Pass _canvasSourceTexture as the fallback source texture
+        testImage.Source = _canvasSourceTexture;
+
+        imgStack.AddChild(testImage);
+
+        // ComboBox for Stretch Mode
+        var stretchLabel = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        stretchLabel.Inlines.Add(new Run("Image Stretch Mode:"));
+        imgStack.AddChild(stretchLabel);
+
+        var stretchCombo = new ComboBox { Font = _font, Width = 200f, Margin = new Thickness(0, 0, 0, 10) };
+        var noneItem = new ComboBoxItem("None");
+        var fillItem = new ComboBoxItem("Fill");
+        var uniformItem = new ComboBoxItem("Uniform");
+        var uniformToFillItem = new ComboBoxItem("UniformToFill");
+        stretchCombo.Items.Add(noneItem);
+        stretchCombo.Items.Add(fillItem);
+        stretchCombo.Items.Add(uniformItem);
+        stretchCombo.Items.Add(uniformToFillItem);
+        stretchCombo.SelectedItem = uniformItem;
+
+        stretchCombo.SelectionChanged += (s, e) =>
+        {
+            if (stretchCombo.SelectedItem != null)
+            {
+                testImage.Stretch = stretchCombo.SelectedItem.Text switch
+                {
+                    "None" => Stretch.None,
+                    "Fill" => Stretch.Fill,
+                    "Uniform" => Stretch.Uniform,
+                    "UniformToFill" => Stretch.UniformToFill,
+                    _ => Stretch.Uniform
+                };
+            }
+        };
+        imgStack.AddChild(stretchCombo);
+        
+        imgCard.Child = imgStack;
+        leftStack.AddChild(imgCard);
+        contentGrid.AddChild(leftStack);
+        ProGPU.WinUI.Grid.SetColumn(leftStack, 0);
+
+        // COLUMN 1: EXTENSION BUTTONS CARD
+        var rightStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(6) };
+        var btnCard = new Border
+        {
+            Background = new SolidColorBrush(0x1F1F24FA),
+            BorderBrush = new SolidColorBrush(0xFFFFFF15),
+            BorderThickness = new Thickness(1f),
+            CornerRadius = 8f,
+            Padding = new Thickness(16f),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var btnStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var btnHeader = new RichTextBlock { Font = _font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+        btnHeader.Inlines.Add(new Bold(new Run("Interactive Button Extensions")));
+        btnStack.AddChild(btnHeader);
+
+        // RepeatButton demonstration
+        var repeatLabel = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
+        repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {_repeatCount}")));
+        btnStack.AddChild(repeatLabel);
+
+        var repeatBtnStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
+        
+        var decBtn = new RepeatButton { Width = 80f, Height = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 8, 0) };
+        var decLabel = new RichTextBlock { Font = _font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        decLabel.Inlines.Add(new Run("- Decrement"));
+        decBtn.Content = decLabel;
+        decBtn.Click += (s, e) =>
+        {
+            _repeatCount--;
+            repeatLabel.Inlines.Clear();
+            repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {_repeatCount}")));
+            repeatLabel.Invalidate();
+        };
+        repeatBtnStack.AddChild(decBtn);
+
+        var incBtn = new RepeatButton { Width = 80f, Height = 32f, CornerRadius = 4f };
+        var incLabel = new RichTextBlock { Font = _font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        incLabel.Inlines.Add(new Run("+ Increment"));
+        incBtn.Content = incLabel;
+        incBtn.Click += (s, e) =>
+        {
+            _repeatCount++;
+            repeatLabel.Inlines.Clear();
+            repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {_repeatCount}")));
+            repeatLabel.Invalidate();
+        };
+        repeatBtnStack.AddChild(incBtn);
+        btnStack.AddChild(repeatBtnStack);
+
+        // HyperlinkButton demonstration
+        var linkLabel = new RichTextBlock { Font = _font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
+        linkLabel.Inlines.Add(new Bold(new Run("Hyperlink Button Hover & Click:")));
+        btnStack.AddChild(linkLabel);
+
+        var hyperBtn = new HyperlinkButton { Height = 28f, Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
+        var hyperText = new RichTextBlock { Font = _font, FontSize = 12f, Foreground = ThemeManager.GetBrush("SystemAccentColor") };
+        hyperText.Inlines.Add(new Run("Visit ProGPU cross-platform github hub"));
+        hyperBtn.Content = hyperText;
+
+        var clickFeedback = new RichTextBlock { Font = _font, FontSize = 11f, Foreground = new SolidColorBrush(0x00E5FF25) };
+        clickFeedback.Inlines.Add(new Run(""));
+        
+        hyperBtn.Click += (s, e) =>
+        {
+            clickFeedback.Inlines.Clear();
+            clickFeedback.Inlines.Add(new Run("Routed hyperlink event triggered successfully!"));
+            clickFeedback.Invalidate();
+        };
+
+        btnStack.AddChild(hyperBtn);
+        btnStack.AddChild(clickFeedback);
+
+        btnCard.Child = btnStack;
+        rightStack.AddChild(btnCard);
+        contentGrid.AddChild(rightStack);
+        ProGPU.WinUI.Grid.SetColumn(rightStack, 1);
+
+        grid.AddChild(contentGrid);
+        ProGPU.WinUI.Grid.SetRow(contentGrid, 1);
 
         return grid;
     }

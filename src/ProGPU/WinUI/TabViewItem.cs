@@ -130,19 +130,19 @@ public class TabViewItem : Control
         if (IsSelected)
         {
             // Selected active tab: deeper dark or distinct grey, matching open tab
-            bg = new SolidColorBrush(0x202020FF);
+            bg = Background ?? ThemeManager.GetBrush("CardBackground");
             // Subtle top/left/right border for tabs
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsPointerOver)
         {
             // Hover tab: slightly translucent white overlay
-            bg = new SolidColorBrush(0xFFFFFF10);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackgroundHover");
         }
         else
         {
             // Inactive idle tab: translucent background
-            bg = new SolidColorBrush(0xFFFFFF05);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
         }
 
         // Draw header background (only round top corners)
@@ -160,7 +160,7 @@ public class TabViewItem : Control
         // 2. Draw Active Segoe Blue Bottom accent indicator line
         if (IsSelected && IsEnabled)
         {
-            var activeAccent = new SolidColorBrush(0x0078D4FF); // Segoe Blue accent
+            var activeAccent = ThemeManager.GetBrush("SystemAccentColor"); // Segoe Blue accent
             context.DrawRectangle(activeAccent, null, new Rect(4f, Size.Y - 2f, Size.X - 8f, 2f));
         }
 
@@ -169,7 +169,9 @@ public class TabViewItem : Control
         if (activeFont != null)
         {
             float textY = (Size.Y - 14f) / 2f;
-            var textBrush = IsSelected ? new SolidColorBrush(0xFFFFFFFF) : new SolidColorBrush(0xFFFFFF90);
+            var textBrush = IsSelected 
+                ? (Foreground ?? ThemeManager.GetBrush("TextPrimary")) 
+                : ThemeManager.GetBrush("TextSecondary");
             context.DrawText(HeaderText, activeFont, 13f, textBrush, new Vector2(Padding.Left, textY));
 
             // 4. Draw Close (x) button on the right side
@@ -180,14 +182,16 @@ public class TabViewItem : Control
 
             var closeBrush = _isCloseHovered 
                 ? new SolidColorBrush(0xFF5555FF) // Reddish close highlight
-                : (IsPointerOver || IsSelected ? new SolidColorBrush(0xFFFFFF90) : new SolidColorBrush(0x00000000));
+                : (IsPointerOver || IsSelected 
+                    ? (Foreground ?? ThemeManager.GetBrush("TextSecondary")) 
+                    : new SolidColorBrush(0x00000000));
 
             if (_isCloseHovered || IsPointerOver || IsSelected)
             {
                 if (_isCloseHovered)
                 {
                     // Draw highlight backdrop circle behind the 'x'
-                    var closeBackdrop = new SolidColorBrush(0xFFFFFF20);
+                    var closeBackdrop = ThemeManager.GetBrush("ControlBackgroundHover");
                     var backdropRect = new Rect(closeX - 3f, closeY - 3f, closeSize + 6f, closeSize + 6f);
                     var backdropPath = CreateRoundedRectPath(backdropRect, 4f);
                     context.DrawPath(closeBackdrop, null, backdropPath);

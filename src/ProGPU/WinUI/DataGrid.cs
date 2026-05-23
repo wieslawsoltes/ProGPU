@@ -126,7 +126,6 @@ public class DataGrid : Control
 
     public DataGrid()
     {
-        Background = new SolidColorBrush(0x0C0C12FF);
         Padding = new Thickness(0);
         WidthConstraint = 600f;
         HeightConstraint = 350f;
@@ -427,18 +426,16 @@ public class DataGrid : Control
 
         // 1. Draw DataGrid outer card background & border
         Pen outerPen = IsFocused 
-            ? new Pen(new SolidColorBrush(0x0078D4FF), 2f) // Glowing Segoe Blue active focus ring
-            : new Pen(new SolidColorBrush(0xFFFFFF15), 1f); // Thin translucent outline
+            ? new Pen(BorderBrush ?? ThemeManager.GetBrush("SystemAccentColor"), 2f) // Glowing Segoe Blue active focus ring
+            : new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f); // Thin outline
 
-        if (Background != null)
-        {
-            context.DrawRectangle(Background, outerPen, new Rect(Vector2.Zero, Size));
-        }
+        var bg = Background ?? ThemeManager.GetBrush("CardBackground");
+        context.DrawRectangle(bg, outerPen, new Rect(Vector2.Zero, Size));
 
         // 2. Draw Column Headers
         float runningX = Padding.Left;
-        Brush headerBg = new SolidColorBrush(0x1A1A26FF); // Fluent Header dark plate
-        Pen colBorder = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+        Brush headerBg = ThemeManager.GetBrush("HeaderBackground"); // Fluent Header plate
+        Pen colBorder = new Pen(ThemeManager.GetBrush("ControlBorder"), 1f);
 
         context.DrawRectangle(headerBg, null, new Rect(0, 0, Size.X, _headerHeight));
 
@@ -450,21 +447,21 @@ public class DataGrid : Control
 
             // Draw Header Text
             float textY = (_headerHeight - FontSize) / 2f;
-            context.DrawText(col.Header, Font, FontSize, new SolidColorBrush(0xFFFFFFC0), new Vector2(runningX + 8f, textY));
+            context.DrawText(col.Header, Font, FontSize, ThemeManager.GetBrush("TextPrimary"), new Vector2(runningX + 8f, textY));
 
             // Draw Sorting indicator if active sorting
             if (SortingColumn == col)
             {
                 string sortIndicator = col.IsAscending ? " ▲" : " ▼";
                 float headerTextW = col.Header.Length * (FontSize * 0.6f); // approximate width
-                context.DrawText(sortIndicator, Font, FontSize - 2f, new SolidColorBrush(0x0078D4FF), new Vector2(runningX + 8f + headerTextW, textY));
+                context.DrawText(sortIndicator, Font, FontSize - 2f, ThemeManager.GetBrush("SystemAccentColor"), new Vector2(runningX + 8f + headerTextW, textY));
             }
 
             // Draw highlight if this separator is hovered or being resized
             if (i == _hoveredSeparatorIndex || i == _resizingColumnIndex)
             {
                 float separatorX = runningX + col.Width;
-                context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, new Rect(separatorX - 1f, 0f, 2f, _headerHeight));
+                context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, new Rect(separatorX - 1f, 0f, 2f, _headerHeight));
             }
 
             runningX += col.Width;
@@ -488,15 +485,15 @@ public class DataGrid : Control
             Brush? rowBg = null;
             if (r == SelectedIndex)
             {
-                rowBg = new SolidColorBrush(0x0078D420); // Premium translucent Segoe Blue selection
+                rowBg = ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
             }
             else if (r == _hoveredRowIndex)
             {
-                rowBg = new SolidColorBrush(0xFFFFFF10); // Hover state row highlight
+                rowBg = ThemeManager.GetBrush("ControlBackgroundHover"); // Hover state row highlight
             }
             else if (r % 2 == 1)
             {
-                rowBg = new SolidColorBrush(0xFFFFFF0C); // Subtle translucent visual overlay background on odd-indexed rows
+                rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
             }
 
             Rect rowRect = new Rect(0, rowY, Size.X, _rowHeight);
@@ -509,7 +506,7 @@ public class DataGrid : Control
             if (r == SelectedIndex)
             {
                 Rect selectionStripe = new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f);
-                context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, selectionStripe);
+                context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
             }
 
             // Draw cell text grid columns
@@ -527,13 +524,13 @@ public class DataGrid : Control
                 {
                     string val = GetCellValue(item, col.PropertyName);
                     float cellTextY = rowY + (_rowHeight - FontSize) / 2f;
-                    context.DrawText(val, Font, FontSize, new SolidColorBrush(0xE0E0E0FF), new Vector2(colX + 8f, cellTextY));
+                    context.DrawText(val, Font, FontSize, ThemeManager.GetBrush("TextPrimary"), new Vector2(colX + 8f, cellTextY));
                 }
                 colX += colWidth;
             }
 
             // Draw thin grid lines
-            context.DrawRectangle(null, new Pen(new SolidColorBrush(0xFFFFFF0A), 0.5f), new Rect(0, rowY, Size.X, _rowHeight));
+            context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, _rowHeight));
         }
 
         context.PopClip();
@@ -553,14 +550,14 @@ public class DataGrid : Control
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingScroll) 
-                ? new SolidColorBrush(0xFFFFFF0D) 
-                : new SolidColorBrush(0xFFFFFF05);
+                ? ThemeManager.GetBrush("ControlBackgroundHover") 
+                : ThemeManager.GetBrush("ControlBackground");
             context.DrawRectangle(trackBg, null, trackRect);
 
             // Draw thumb (glassmorphic capsule)
-            Brush thumbBg = _isDraggingScroll 
-                ? new SolidColorBrush(0xFFFFFF60) 
-                : (_isPointerOverScrollbar ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
+            Brush thumbBg = (_isPointerOverScrollbar || _isDraggingScroll)
+                ? ThemeManager.GetBrush("ScrollbarThumbHover")
+                : ThemeManager.GetBrush("ScrollbarThumb");
             
             var roundedThumb = CreateRoundedRectPath(thumbRect, scrollbarWidth / 2f);
             context.DrawPath(thumbBg, null, roundedThumb);

@@ -145,8 +145,8 @@ public class ComboBox : Control
 
                 _dropDownPopup = new Border
                 {
-                    Background = new SolidColorBrush(0x1F1F1FFF),
-                    BorderBrush = new SolidColorBrush(0xFFFFFF1F),
+                    Background = ThemeManager.GetBrush("CardBackground"),
+                    BorderBrush = ThemeManager.GetBrush("ControlBorder"),
                     BorderThickness = new Thickness(1f),
                     CornerRadius = 4f,
                     Child = stack
@@ -302,23 +302,23 @@ public class ComboBox : Control
 
         if (!IsEnabled)
         {
-            bg = new SolidColorBrush(0x2A2A3540);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsDropDownOpen || IsFocused)
         {
-            bg = new SolidColorBrush(0x13131AFF);
-            borderPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Segoe Blue active focus ring/active state
+            bg = Background ?? ThemeManager.GetBrush("CardBackground");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("SystemAccentColor"), 2f); // Segoe Blue active focus ring/active state
         }
         else if (IsPointerOver)
         {
-            bg = new SolidColorBrush(0xFFFFFF15);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackgroundHover");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorderHover"), 1f);
         }
         else
         {
-            bg = new SolidColorBrush(0xFFFFFF0A);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
 
         // Draw header background shape
@@ -339,13 +339,13 @@ public class ComboBox : Control
             float textY = (headerH - FontSize) / 2f;
             string textToDraw = SelectedItem != null ? SelectedItem.Text : PlaceholderText;
             Brush textBrush = SelectedItem != null 
-                ? new SolidColorBrush(0xFFFFFFFF) 
-                : new SolidColorBrush(0xFFFFFF50);
+                ? (Foreground ?? ThemeManager.GetBrush("TextPrimary")) 
+                : ThemeManager.GetBrush("TextSecondary");
 
             context.DrawText(textToDraw, activeFont, FontSize, textBrush, new Vector2(Padding.Left, textY));
 
             // Draw Down Arrow (▼) character
-            context.DrawText("▼", activeFont, FontSize - 2f, new SolidColorBrush(0xFFFFFFB0), new Vector2(Size.X - 22f, textY + 1f));
+            context.DrawText("▼", activeFont, FontSize - 2f, ThemeManager.GetBrush("TextSecondary"), new Vector2(Size.X - 22f, textY + 1f));
         }
 
         base.OnRender(context);

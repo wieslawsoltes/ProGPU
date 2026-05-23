@@ -16,6 +16,8 @@ public static class InputSystem
     private static FrameworkElement? _capturedElement;
     private static bool _isShiftPressed;
 
+    public static bool IsKeyboardFocusActive { get; set; } = false;
+
     private static System.Threading.CancellationTokenSource? _hoverCancellation;
     private static ToolTip? _activeToolTip;
     private static FrameworkElement? _hoveredElementForTimer;
@@ -270,6 +272,7 @@ public static class InputSystem
 
     private static void OnMouseDown(MouseButton button)
     {
+        IsKeyboardFocusActive = false;
         _hoverCancellation?.Cancel();
         _hoverCancellation = null;
         DismissToolTip();
@@ -441,6 +444,7 @@ public static class InputSystem
 
     public static void CycleFocus(bool reverse)
     {
+        IsKeyboardFocusActive = true;
         if (_root == null) return;
 
         var list = new List<FrameworkElement>();
@@ -482,7 +486,7 @@ public static class InputSystem
         if (visual is not FrameworkElement fe || !fe.IsEnabled)
             return;
 
-        if (fe is Control)
+        if (fe is Control ctrl && ctrl.IsTabStop)
         {
             list.Add(fe);
         }

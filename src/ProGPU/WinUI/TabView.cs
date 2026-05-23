@@ -22,7 +22,6 @@ public class TabView : FrameworkElement
             { 
                 Text = "+", 
                 FontSize = 16f, 
-                Brush = new SolidColorBrush(0xFFFFFFFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -239,7 +238,7 @@ public class TabView : FrameworkElement
         float headerH = 40f;
 
         // Draw a clean modern Fluent horizontal divider below headers
-        var dividerBrush = new SolidColorBrush(0xFFFFFF15);
+        var dividerBrush = ThemeManager.GetBrush("ControlBorder");
         context.DrawRectangle(dividerBrush, null, new Rect(0f, headerH - 1f, Size.X, 1f));
 
         base.OnRender(context);

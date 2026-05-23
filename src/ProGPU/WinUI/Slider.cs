@@ -124,7 +124,7 @@ public class Slider : Control
 
         // 1. Draw Inactive Track (Right side)
         Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
-        Brush inactiveBg = new SolidColorBrush(0xFFFFFF20); // translucent grey
+        Brush inactiveBg = Background ?? ThemeManager.GetBrush("ControlBorder");
         context.DrawRectangle(inactiveBg, null, inactiveRect);
 
         // 2. Draw Active Track (Left side)
@@ -134,19 +134,19 @@ public class Slider : Control
             Brush activeBg;
             if (!IsEnabled)
             {
-                activeBg = new SolidColorBrush(0x2A2A3540);
+                activeBg = ThemeManager.GetBrush("ControlBackground");
             }
             else if (_isDragging)
             {
-                activeBg = new SolidColorBrush(0x005A9EFF); // pressed accent
+                activeBg = ThemeManager.GetBrush("SystemAccentColorDark1"); // pressed accent
             }
             else if (IsPointerOver)
             {
-                activeBg = new SolidColorBrush(0x2B88D8FF); // hover accent
+                activeBg = ThemeManager.GetBrush("SystemAccentColorLight1"); // hover accent
             }
             else
             {
-                activeBg = new SolidColorBrush(0x0078D4FF); // Segoe Blue
+                activeBg = ThemeManager.GetBrush("SystemAccentColor"); // Segoe Blue
             }
             context.DrawRectangle(activeBg, null, activeRect);
         }
@@ -158,23 +158,23 @@ public class Slider : Control
 
         if (!IsEnabled)
         {
-            thumbBg = new SolidColorBrush(0x2A2A35FF);
-            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            thumbBg = ThemeManager.GetBrush("ControlBackground");
+            thumbBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (_isDragging)
         {
-            thumbBg = new SolidColorBrush(0x005A9EFF); // Pressed Accent Segoe Blue
-            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFFFF), 1.5f);
+            thumbBg = ThemeManager.GetBrush("SystemAccentColorDark1"); // Pressed Accent Segoe Blue
+            thumbBorder = new Pen(ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary"), 1.5f);
         }
         else if (IsPointerOver)
         {
-            thumbBg = new SolidColorBrush(0xFFFFFFFF); // bright white
-            thumbBorder = new Pen(new SolidColorBrush(0x2B88D8FF), 1f); // hover accent border
+            thumbBg = ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary"); // bright white or primary text
+            thumbBorder = new Pen(ThemeManager.GetBrush("SystemAccentColorLight1"), 1f); // hover accent border
         }
         else
         {
-            thumbBg = new SolidColorBrush(0xFFFFFFFF); // bright white
-            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFF20), 1f);
+            thumbBg = ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary"); // bright white or primary text
+            thumbBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
 
         // Standard Circle rendering using rounded rect path (radius = drawThumbRadius)
@@ -184,7 +184,7 @@ public class Slider : Control
         // Draw active focus ring indicator around thumb
         if (IsEnabled && IsFocused)
         {
-            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 1.5f);
+            var focusPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 1.5f);
             Rect focusRect = new Rect(thumbRect.X - 2.5f, thumbRect.Y - 2.5f, thumbRect.Width + 5f, thumbRect.Height + 5f);
             var focusPath = CreateRoundedRectPath(focusRect, drawThumbRadius + 2.5f);
             context.DrawPath(null, focusPen, focusPath);

@@ -204,23 +204,23 @@ public class TextBox : Control
 
         if (!IsEnabled)
         {
-            bg = new SolidColorBrush(0x2A2A3540);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsFocused)
         {
-            bg = new SolidColorBrush(0x13131AFF); // Mica/deep dark card
-            borderPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Sharp Segoe Blue active focus ring
+            bg = Background ?? ThemeManager.GetBrush("CardBackground"); // Mica/deep dark card
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("SystemAccentColor"), 2f); // Sharp Segoe Blue active focus ring
         }
         else if (IsPointerOver)
         {
-            bg = new SolidColorBrush(0xFFFFFF15);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackgroundHover");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorderHover"), 1f);
         }
         else
         {
-            bg = new SolidColorBrush(0xFFFFFF0A);
-            borderPen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            borderPen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
 
         // Draw soft 3D elevation shadows (ambient & penumbra layers)
@@ -274,13 +274,13 @@ public class TextBox : Control
                 // Draw placeholder
                 if (!string.IsNullOrEmpty(PlaceholderText))
                 {
-                    context.DrawText(PlaceholderText, Font, FontSize, new SolidColorBrush(0xFFFFFF50), new Vector2(Padding.Left, textY));
+                    context.DrawText(PlaceholderText, Font, FontSize, ThemeManager.GetBrush("TextSecondary"), new Vector2(Padding.Left, textY));
                 }
             }
             else
             {
                 // Draw normal text
-                var fgBrush = Foreground ?? new SolidColorBrush(0xFFFFFFFF);
+                var fgBrush = Foreground ?? ThemeManager.GetBrush("TextPrimary");
                 context.DrawText(Text, Font, FontSize, fgBrush, new Vector2(Padding.Left, textY));
             }
 
@@ -289,7 +289,7 @@ public class TextBox : Control
             {
                 float caretX = GetCaretX();
                 Rect caretRect = new Rect(caretX, textY - 1f, 1.5f, FontSize + 2f);
-                context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, caretRect);
+                context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, caretRect);
             }
         }
 

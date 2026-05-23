@@ -69,7 +69,6 @@ public class ScrollViewer : Control
 
     public ScrollViewer()
     {
-        Background = new SolidColorBrush(0x13131AFF); // Mica/Deep Dark styling
         Padding = new Thickness(0);
     }
 
@@ -195,10 +194,8 @@ public class ScrollViewer : Control
     public override void OnRender(DrawingContext context)
     {
         // Draw main background
-        if (Background != null)
-        {
-            context.DrawRectangle(Background, null, new Rect(Vector2.Zero, Size));
-        }
+        var bg = Background ?? ThemeManager.GetBrush("PageBackground");
+        context.DrawRectangle(bg, null, new Rect(Vector2.Zero, Size));
 
         context.PushClip(new Rect(Vector2.Zero, Size));
         base.OnRender(context);
@@ -223,14 +220,14 @@ public class ScrollViewer : Control
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingVert) 
-                ? new SolidColorBrush(0xFFFFFF0D) 
-                : new SolidColorBrush(0xFFFFFF05);
+                ? ThemeManager.GetBrush("ControlBackgroundHover") 
+                : ThemeManager.GetBrush("ControlBackground");
             context.DrawRectangle(trackBg, null, trackRect);
 
             // Draw thumb (glassmorphic capsule)
-            Brush thumbBg = _isDraggingVert 
-                ? new SolidColorBrush(0xFFFFFF60) 
-                : (_isPointerOverScrollbar ? new SolidColorBrush(0xFFFFFF40) : new SolidColorBrush(0xFFFFFF20));
+            Brush thumbBg = (_isPointerOverScrollbar || _isDraggingVert)
+                ? ThemeManager.GetBrush("ScrollbarThumbHover")
+                : ThemeManager.GetBrush("ScrollbarThumb");
             
             var roundedThumb = CreateRoundedRectPath(thumbRect, scrollbarWidth / 2f);
             context.DrawPath(thumbBg, null, roundedThumb);

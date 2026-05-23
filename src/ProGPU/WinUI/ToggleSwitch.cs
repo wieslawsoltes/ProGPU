@@ -124,26 +124,22 @@ public class ToggleSwitch : Control
 
         if (!IsEnabled)
         {
-            trackBg = new SolidColorBrush(0x2A2A3540);
-            trackBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            trackBg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            trackBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsOn)
         {
             // Filled Segoe Blue
             trackBg = IsPointerPressed
-                ? new SolidColorBrush(0x005A9EFF)
-                : (IsPointerOver ? new SolidColorBrush(0x2B88D8FF) : new SolidColorBrush(0x0078D4FF));
+                ? ThemeManager.GetBrush("SystemAccentColorDark1")
+                : (IsPointerOver ? ThemeManager.GetBrush("SystemAccentColorLight1") : ThemeManager.GetBrush("SystemAccentColor"));
         }
         else
         {
             // Off: Outlined or dark translucent capsule
-            trackBg = IsPointerPressed
-                ? new SolidColorBrush(0xFFFFFF0D)
-                : (IsPointerOver ? new SolidColorBrush(0xFFFFFF25) : new SolidColorBrush(0xFFFFFF15));
+            trackBg = Background ?? ThemeManager.GetBrush(IsPointerPressed ? "ControlBackgroundPressed" : IsPointerOver ? "ControlBackgroundHover" : "ControlBackground");
 
-            trackBorder = IsPointerOver
-                ? new Pen(new SolidColorBrush(0xFFFFFF30), 1f)
-                : new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+            trackBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush(IsPointerOver ? "ControlBorderHover" : "ControlBorder"), 1f);
         }
 
         // Draw capsule track
@@ -169,18 +165,21 @@ public class ToggleSwitch : Control
 
         if (!IsEnabled)
         {
-            thumbBg = new SolidColorBrush(0x2A2A35FF);
-            thumbBorder = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            thumbBg = ThemeManager.GetBrush("ControlBackground");
+            thumbBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
         else if (IsOn)
         {
             // Fluent Switch: White thumb when active On
-            thumbBg = new SolidColorBrush(0xFFFFFFFF);
+            thumbBg = ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary");
         }
         else
         {
             // Muted white / light grey thumb when Off
-            thumbBg = IsPointerOver ? new SolidColorBrush(0xFFFFFFFF) : new SolidColorBrush(0xCCCCCCFF);
+            thumbBg = IsPointerOver 
+                ? (ThemeManager.CurrentTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground") : ThemeManager.GetBrush("TextPrimary"))
+                : ThemeManager.GetBrush("TextSecondary");
+            thumbBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
         }
 
         var thumbPath = CreateRoundedRectPath(thumbRect, thumbRadius);
@@ -189,7 +188,7 @@ public class ToggleSwitch : Control
         // Draw focus ring around track
         if (IsEnabled && IsFocused)
         {
-            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f);
+            var focusPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 2f);
             Rect focusRect = new Rect(trackRect.X - 2f, trackRect.Y - 2f, trackRect.Width + 4f, trackRect.Height + 4f);
             var focusPath = CreateRoundedRectPath(focusRect, CornerRadius + 2f);
             context.DrawPath(null, focusPen, focusPath);

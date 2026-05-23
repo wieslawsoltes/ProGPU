@@ -110,8 +110,8 @@ public class DevTools : Border
         _instance = this;
         Name = "DevToolsPanel";
 
-        Background = new SolidColorBrush(0x13131DFA); // Dark Mica translucent
-        BorderBrush = new SolidColorBrush(0xFFFFFF15);
+        Background = Background ?? ThemeManager.GetBrush("CardBackground");
+        BorderBrush = BorderBrush ?? ThemeManager.GetBrush("ControlBorder");
         BorderThickness = new Thickness(1f, 0, 0, 0);
 
         _mainGrid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
@@ -132,14 +132,13 @@ public class DevTools : Border
         {
             Text = "Inspect",
             FontSize = 10f,
-            Brush = new SolidColorBrush(0xFFFFFFFF),
             VerticalAlignment = VerticalAlignment.Center
         });
 
         _inspectBtn = new Button
         {
             Content = inspectStack,
-            Background = new SolidColorBrush(0xFFFFFF10)
+            Background = ThemeManager.GetBrush("ControlBackground")
         };
         _inspectBtn.Click += (s, e) =>
         {
@@ -158,12 +157,11 @@ public class DevTools : Border
             {
                 Text = "Visual Tree",
                 FontSize = 10f,
-                Brush = new SolidColorBrush(0xFFFFFFFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             },
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(0x0078D440)
+            Background = ThemeManager.GetBrush("SystemAccentColor")
         };
 
         _propTabBtn = new Button
@@ -172,12 +170,11 @@ public class DevTools : Border
             {
                 Text = "Properties",
                 FontSize = 10f,
-                Brush = new SolidColorBrush(0xFFFFFFFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             },
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(0xFFFFFF10)
+            Background = ThemeManager.GetBrush("ControlBackground")
         };
 
         _perfTabBtn = new Button
@@ -186,12 +183,11 @@ public class DevTools : Border
             {
                 Text = "Performance",
                 FontSize = 10f,
-                Brush = new SolidColorBrush(0xFFFFFFFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             },
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(0xFFFFFF10)
+            Background = ThemeManager.GetBrush("ControlBackground")
         };
 
         _treeTabBtn.Click += (s, e) => SwitchTab("tree");
@@ -270,8 +266,8 @@ public class DevTools : Border
     private void UpdateInspectButtonState()
     {
         _inspectBtn.Background = DevToolsService.IsInspectModeActive 
-            ? new SolidColorBrush(0x4CAF5080)  // Active green background
-            : new SolidColorBrush(0xFFFFFF10); // Standard background
+            ? ThemeManager.GetBrush("SystemAccentColor")  // Fluent Accent
+            : ThemeManager.GetBrush("ControlBackground"); // Standard background
     }
 
     private void SwitchTab(string tab)
@@ -296,9 +292,9 @@ public class DevTools : Border
             Grid.SetRow(_perfTabContent, 1);
         }
 
-        _treeTabBtn.Background = tab == "tree" ? new SolidColorBrush(0x0078D440) : new SolidColorBrush(0xFFFFFF10);
-        _propTabBtn.Background = tab == "prop" ? new SolidColorBrush(0x0078D440) : new SolidColorBrush(0xFFFFFF10);
-        _perfTabBtn.Background = tab == "perf" ? new SolidColorBrush(0x0078D440) : new SolidColorBrush(0xFFFFFF10);
+        _treeTabBtn.Background = tab == "tree" ? ThemeManager.GetBrush("SystemAccentColor") : ThemeManager.GetBrush("ControlBackground");
+        _propTabBtn.Background = tab == "prop" ? ThemeManager.GetBrush("SystemAccentColor") : ThemeManager.GetBrush("ControlBackground");
+        _perfTabBtn.Background = tab == "perf" ? ThemeManager.GetBrush("SystemAccentColor") : ThemeManager.GetBrush("ControlBackground");
 
         _mainGrid.Invalidate();
         Invalidate();
@@ -414,7 +410,7 @@ public class DevTools : Border
         if (DevToolsService.IsDevToolsActive)
         {
             _perfTextBlock.Inlines.Clear();
-            _perfTextBlock.Inlines.Add(new Bold(new Run("Runtime Performance Diagnostics\n\n")) { Foreground = new SolidColorBrush(0x0078D4FF) });
+            _perfTextBlock.Inlines.Add(new Bold(new Run("Runtime Performance Diagnostics\n\n")) { Foreground = ThemeManager.GetBrush("SystemAccentColor") });
             
             _perfTextBlock.Inlines.Add(new Run("Real-time Frame Rate: "));
             _perfTextBlock.Inlines.Add(new Bold(new Run($"{fps:F1} FPS\n")) { Foreground = fps >= 55f ? new SolidColorBrush(0x4CAF50FF) : new SolidColorBrush(0xF44336FF) });
@@ -428,7 +424,7 @@ public class DevTools : Border
             _perfTextBlock.Inlines.Add(new Run("Batched Draw Calls: "));
             _perfTextBlock.Inlines.Add(new Bold(new Run($"{drawCalls:N0} calls\n\n")));
 
-            _perfTextBlock.Inlines.Add(new Bold(new Run("Adorner Layer System:\n")) { Foreground = new SolidColorBrush(0xFFFFFFC0) });
+            _perfTextBlock.Inlines.Add(new Bold(new Run("Adorner Layer System:\n")) { Foreground = ThemeManager.GetBrush("TextSecondary") });
             _perfTextBlock.Inlines.Add(new Run("• Inspect Mode: Enables colored layouts bounds visual annotations on hover.\n"));
             _perfTextBlock.Inlines.Add(new Run("• Blue highlight represents Selected Element boundaries.\n"));
             _perfTextBlock.Inlines.Add(new Run("• Green highlight represents Hovered Element inspection.\n"));
@@ -450,7 +446,7 @@ public class MagnifyingGlassVisual : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
-        var strokeBrush = new SolidColorBrush(0xFFFFFFFF);
+        var strokeBrush = ThemeManager.GetBrush("TextPrimary");
         var pen = new Pen(strokeBrush, 1.5f);
         
         var path = new PathGeometry();
@@ -482,7 +478,7 @@ public class CloseIconVisual : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
-        var strokeBrush = new SolidColorBrush(0xFFFFFFFF);
+        var strokeBrush = ThemeManager.GetBrush("TextPrimary");
         var pen = new Pen(strokeBrush, 1.5f);
         
         var path = new PathGeometry();

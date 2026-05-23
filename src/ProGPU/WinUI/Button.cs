@@ -97,27 +97,25 @@ public class Button : Control
         // Base background and border brush/pen
         if (!IsEnabled)
         {
-            bg = new SolidColorBrush(0x2A2A3540);
-            pen = new Pen(new SolidColorBrush(0xFFFFFF08), 1f);
+            bg = Background ?? ThemeManager.GetBrush("ControlBackground");
+            pen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
         }
         else
         {
-            bg = Background ?? new SolidColorBrush(0xFFFFFF15);
+            bg = Background ?? ThemeManager.GetBrush(IsPointerPressed ? "ControlBackgroundPressed" : IsPointerOver ? "ControlBackgroundHover" : "ControlBackground");
             
             // Border brush/pen based on visual states
             if (IsPointerPressed)
             {
-                pen = new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+                pen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
             }
             else if (IsPointerOver)
             {
-                pen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+                pen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorderHover"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
             }
             else
             {
-                pen = BorderBrush != null && BorderThickness.Left > 0 
-                    ? new Pen(BorderBrush, BorderThickness.Left) 
-                    : new Pen(new SolidColorBrush(0xFFFFFF15), 1f);
+                pen = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
             }
         }
 
@@ -170,11 +168,15 @@ public class Button : Control
             Brush? overlayBrush = null;
             if (IsPointerPressed)
             {
-                overlayBrush = new SolidColorBrush(0x00000015); // Translucent black overlay for pressed state
+                overlayBrush = ThemeManager.CurrentTheme == ElementTheme.Light
+                    ? new SolidColorBrush(0x0000001F)
+                    : new SolidColorBrush(0x00000015);
             }
             else if (IsPointerOver)
             {
-                overlayBrush = new SolidColorBrush(0xFFFFFF10); // Translucent white overlay for hover state
+                overlayBrush = ThemeManager.CurrentTheme == ElementTheme.Light
+                    ? new SolidColorBrush(0x0000000A)
+                    : new SolidColorBrush(0xFFFFFF10);
             }
 
             if (overlayBrush != null)
@@ -194,7 +196,7 @@ public class Button : Control
         // Draw active focus ring indicator
         if (IsEnabled && IsFocused)
         {
-            var focusPen = new Pen(new SolidColorBrush(0x0078D4FF), 2f); // Sharp Segoe Blue active focus ring
+            var focusPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 2f); // Sharp Segoe Blue active focus ring
             // Slightly inset focus ring for clean aesthetics
             float inset = 1.5f;
             var focusRect = new Rect(inset, inset, Size.X - 2 * inset, Size.Y - 2 * inset);

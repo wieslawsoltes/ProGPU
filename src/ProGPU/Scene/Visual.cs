@@ -484,7 +484,7 @@ public class TextVisual : ProGPU.WinUI.FrameworkElement
         var resolvedFont = ResolveFont();
         if (string.IsNullOrEmpty(Text) || resolvedFont == null) return;
         
-        var resolvedBrush = Brush ?? new SolidColorBrush(0xFFFFFFFF);
+        var resolvedBrush = Brush ?? ProGPU.WinUI.ThemeManager.GetBrush("TextPrimary");
 
         // Add single drawing run command; compositor will dynamically compile coordinates
         context.Commands.Add(new RenderCommand
