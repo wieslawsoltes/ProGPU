@@ -74,8 +74,7 @@ public class ProgressBar : Control
     {
         // 1. Draw flat track background
         var rect = new Rect(Vector2.Zero, Size);
-        var trackPath = CreateRoundedRect(rect.X, rect.Y, rect.Width, rect.Height, rect.Height / 2f);
-        context.DrawPath(Background, null, trackPath);
+        context.FillRoundedRectangle(Background ?? new SolidColorBrush(0xFFFFFF15), rect, rect.Height / 2f);
 
         // 2. Draw progress segment
         if (IsIndeterminate)
@@ -90,8 +89,7 @@ public class ProgressBar : Control
 
             if (renderW > 0f)
             {
-                var progressPath = CreateRoundedRect(renderX, rect.Y, renderW, rect.Height, rect.Height / 2f);
-                context.DrawPath(BorderBrush, null, progressPath);
+                context.FillRoundedRectangle(BorderBrush ?? new SolidColorBrush(0x0078D4FF), new Rect(renderX, rect.Y, renderW, rect.Height), rect.Height / 2f);
             }
 
             // Animate offset smoothly at 60 FPS
@@ -113,16 +111,10 @@ public class ProgressBar : Control
 
             if (fillWidth > 0f)
             {
-                var progressPath = CreateRoundedRect(rect.X, rect.Y, fillWidth, rect.Height, rect.Height / 2f);
-                context.DrawPath(BorderBrush, null, progressPath);
+                context.FillRoundedRectangle(BorderBrush ?? new SolidColorBrush(0x0078D4FF), new Rect(rect.X, rect.Y, fillWidth, rect.Height), rect.Height / 2f);
             }
         }
 
         base.OnRender(context);
-    }
-
-    private static PathGeometry CreateRoundedRect(float x, float y, float w, float h, float r)
-    {
-        return PathGeometry.Parse(System.FormattableString.Invariant($"M {x+r} {y} H {x+w-r} Q {x+w} {y} {x+w} {y+r} V {y+h-r} Q {x+w} {y+h} {x+w-r} {y+h} H {x+r} Q {x} {y+h} {x} {y+h-r} V {y+r} Q {x} {y} {x+r} {y} Z"));
     }
 }

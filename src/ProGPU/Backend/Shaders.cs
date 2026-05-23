@@ -51,7 +51,50 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = uniforms.projection * vec4<f32>(input.position, 0.0, 1.0);
+    let sType = u32(round(input.shapeType));
+    var worldPos = input.position;
+
+    if (sType == 3u) {
+        // GPU Stroke Expansion
+        var miterN = vec2<f32>(0.0, 0.0);
+        var miterScale: f32 = 1.0;
+        let len1 = length(input.position - input.texCoord);
+        let len2 = length(input.shapeSize - input.position);
+
+        if (len1 < 0.001) {
+            if (len2 > 0.001) {
+                let dir = normalize(input.shapeSize - input.position);
+                miterN = vec2<f32>(-dir.y, dir.x);
+            }
+        } else if (len2 < 0.001) {
+            let dir = normalize(input.position - input.texCoord);
+            miterN = vec2<f32>(-dir.y, dir.x);
+        } else {
+            let dir1 = normalize(input.position - input.texCoord);
+            let dir2 = normalize(input.shapeSize - input.position);
+            let n1 = vec2<f32>(-dir1.y, dir1.x);
+            let n2 = vec2<f32>(-dir2.y, dir2.x);
+            miterN = normalize(n1 + n2);
+            miterScale = clamp(1.0 / max(dot(miterN, n1), 0.0001), 0.5, 4.0);
+        }
+        let offset = miterN * (input.strokeThickness * 0.5) * miterScale * input.cornerRadius;
+        worldPos = input.position + offset;
+    } else if (sType == 5u) {
+        // GPU Bezier Curve Evaluation
+        let t = input.brushIndex;
+        let oneMinusT = 1.0 - t;
+        let pos = oneMinusT * oneMinusT * input.position + 2.0 * oneMinusT * t * input.texCoord + t * t * input.shapeSize;
+        let tangent = 2.0 * oneMinusT * (input.texCoord - input.position) + 2.0 * t * (input.shapeSize - input.texCoord);
+        let len = length(tangent);
+        var normal = vec2<f32>(0.0, 0.0);
+        if (len > 0.0001) {
+            normal = vec2<f32>(-tangent.y, tangent.x) / len;
+        }
+        let offset = normal * (input.strokeThickness * 0.5) * input.cornerRadius;
+        worldPos = pos + offset;
+    }
+
+    output.position = uniforms.projection * vec4<f32>(worldPos, 0.0, 1.0);
     output.color = input.color;
     output.texCoord = input.texCoord;
     output.brushIndex = input.brushIndex;

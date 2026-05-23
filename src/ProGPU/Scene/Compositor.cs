@@ -915,33 +915,27 @@ public unsafe class Compositor : IDisposable
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
 
-        var path = new List<Vector2> { cmd.Position, cmd.Position2 };
-        var transPath = new List<Vector2>
-        {
-            Vector2.Transform(path[0], transform),
-            Vector2.Transform(path[1], transform)
-        };
+        var p0_pos = Vector2.Transform(cmd.Position, transform);
+        var p1_pos = Vector2.Transform(cmd.Position2, transform);
+        float thickness = cmd.Pen.Thickness;
 
-        StrokeTessellator.TessellateStroke(
-            transPath,
-            cmd.Pen.Thickness,
-            penSolidColor,
-            isClosed: false,
-            _vectorVerticesList,
-            _vectorIndicesList
-        );
+        ushort idxStart = (ushort)_vectorVerticesList.Count;
 
-        if (Matrix4x4.Invert(transform, out var invTransform))
-        {
-            for (int i = startIndex; i < _vectorVerticesList.Count; i++)
-            {
-                var v = _vectorVerticesList[i];
-                v.TexCoord = Vector2.Transform(v.Position, invTransform);
-                v.BrushIndex = penBrushIdx;
-                v.ShapeType = 4f;
-                _vectorVerticesList[i] = v;
-            }
-        }
+        // Start point P0 (Left + Right offsets)
+        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f));
+        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f));
+
+        // End point P1 (Left + Right offsets)
+        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f));
+        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f));
+
+        _vectorIndicesList.Add(idxStart);
+        _vectorIndicesList.Add((ushort)(idxStart + 1));
+        _vectorIndicesList.Add((ushort)(idxStart + 2));
+
+        _vectorIndicesList.Add((ushort)(idxStart + 1));
+        _vectorIndicesList.Add((ushort)(idxStart + 3));
+        _vectorIndicesList.Add((ushort)(idxStart + 2));
 
         if (_activeClipRect.HasValue)
         {

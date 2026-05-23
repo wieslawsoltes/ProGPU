@@ -81,11 +81,10 @@ public class ToolTip : Control
     {
         // 1. Draw rounded container card background and borders
         var rect = new Rect(Vector2.Zero, Size);
-        var bgPath = CreateRoundedRect(rect.X, rect.Y, rect.Width, rect.Height, CornerRadius);
         
         // Soft ambient and shadow overlays
-        context.DrawPath(new SolidColorBrush(0x0000002A), null, CreateRoundedRect(rect.X, rect.Y + 2f, rect.Width, rect.Height, CornerRadius));
-        context.DrawPath(Background, new Pen(BorderBrush ?? new SolidColorBrush(0xFFFFFF15), BorderThickness.Left), bgPath);
+        context.FillRoundedRectangle(new SolidColorBrush(0x0000002A), new Rect(rect.X, rect.Y + 2f, rect.Width, rect.Height), CornerRadius);
+        context.DrawRoundedRectangle(Background, new Pen(BorderBrush ?? new SolidColorBrush(0xFFFFFF15), BorderThickness.Left), rect, CornerRadius);
 
         // 2. Render content
         if (Content != null)
@@ -108,10 +107,5 @@ public class ToolTip : Control
         }
 
         base.OnRender(context);
-    }
-
-    private static PathGeometry CreateRoundedRect(float x, float y, float w, float h, float r)
-    {
-        return PathGeometry.Parse(System.FormattableString.Invariant($"M {x+r} {y} H {x+w-r} Q {x+w} {y} {x+w} {y+r} V {y+h-r} Q {x+w} {y+h} {x+w-r} {y+h} H {x+r} Q {x} {y+h} {x} {y+h-r} V {y+r} Q {x} {y} {x+r} {y} Z"));
     }
 }
