@@ -39,7 +39,8 @@ struct VertexInput {
     @location(5) cornerRadius: f32,
     @location(6) strokeThickness: f32,
     @location(7) shapeType: f32,
-    @location(8) gridIndex: f32,
+    @location(8) animAmp: vec4<f32>,
+    @location(9) animFreqPhase: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -54,6 +55,37 @@ struct VertexOutput {
     @location(7) gridIndex: f32,
 };
 
+fn getWobble(amp: vec2<f32>, freqPhase: vec4<f32>, component: u32) -> vec2<f32> {
+    if (length(amp) == 0.0) {
+        return vec2<f32>(0.0, 0.0);
+    }
+    let time = uniforms.time;
+    let freq = freqPhase.x;
+    let phaseScale = freqPhase.y;
+    let gIdx = freqPhase.z;
+
+    let phase = time * freq + gIdx * phaseScale;
+    
+    var speedX = 1.0;
+    var speedY = 0.7;
+    
+    if (component == 1u) {
+        speedX = 1.3;
+        speedY = 0.9;
+    } else if (component == 2u) {
+        speedX = 0.6;
+        speedY = 0.8;
+    } else if (component == 3u) {
+        speedX = 0.5;
+        speedY = 0.7;
+    } else if (component == 4u) {
+        // Cosine/sine swapped component (used for cubic Bezier second control point)
+        return vec2<f32>(cos(phase * 0.6) * amp.x, sin(phase * 0.8) * amp.y);
+    }
+    
+    return vec2<f32>(sin(phase * speedX) * amp.x, cos(phase * speedY) * amp.y);
+}
+
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
@@ -61,20 +93,16 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var worldPos = input.position;
 
     if (sType == 3u) {
-        // GPU Stroke Expansion + GPU Coordinate Wobbling
+        // GPU Stroke Expansion + Generic GPU Coordinate Wobbling
         var miterN = vec2<f32>(0.0, 0.0);
         var miterScale: f32 = 1.0;
         
         var p0 = input.texCoord;
         var p1 = input.shapeSize;
         
-        if (input.gridIndex > 0.0) {
-            let gIdx = input.gridIndex - 1.0;
-            let phase = uniforms.time * 2.5 + gIdx * 0.04;
-            let offsetStart = vec2<f32>(sin(phase) * 12.0, cos(phase * 0.7) * 12.0);
-            let offsetEnd = vec2<f32>(sin(phase * 1.3) * 12.0, cos(phase * 0.9) * 12.0);
-            p0 = p0 + offsetStart;
-            p1 = p1 + offsetEnd;
+        if (input.animFreqPhase.x > 0.0) {
+            p0 = p0 + getWobble(input.animAmp.xy, input.animFreqPhase, 0u);
+            p1 = p1 + getWobble(input.animAmp.zw, input.animFreqPhase, 1u);
         }
 
         let isStart = length(input.position - input.texCoord) < 0.001;
@@ -102,21 +130,15 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         let offset = miterN * (input.strokeThickness * 0.5) * miterScale * input.cornerRadius;
         worldPos = worldPos + offset;
     } else if (sType == 5u) {
-        // GPU Quadratic Bezier Curve Evaluation + GPU Coordinate Wobbling
+        // GPU Quadratic Bezier Curve Evaluation + Generic GPU Coordinate Wobbling
         var p0 = input.position;
         var p1 = input.texCoord;
         var p2 = input.shapeSize;
         
-        if (input.gridIndex > 0.0) {
-            let gIdx = input.gridIndex - 1.0;
-            let phase = uniforms.time * 2.5 + gIdx * 0.04;
-            let offsetStart = vec2<f32>(sin(phase) * 12.0, cos(phase * 0.7) * 12.0);
-            let offsetEnd = vec2<f32>(sin(phase * 1.3) * 12.0, cos(phase * 0.9) * 12.0);
-            let ctrlOffset = vec2<f32>(sin(phase * 0.6) * 15.0, cos(phase * 0.8) * 15.0);
-            
-            p0 = p0 + offsetStart;
-            p1 = p1 + ctrlOffset;
-            p2 = p2 + offsetEnd;
+        if (input.animFreqPhase.x > 0.0) {
+            p0 = p0 + getWobble(input.animAmp.xy, input.animFreqPhase, 0u);
+            p1 = p1 + getWobble(input.animAmp.zw, input.animFreqPhase, 2u);
+            p2 = p2 + getWobble(input.animAmp.xy, input.animFreqPhase, 1u);
         }
 
         let t = input.color.b;
@@ -132,24 +154,17 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         let offset = normal * (input.strokeThickness * 0.5) * signVal;
         worldPos = pos + offset;
     } else if (sType == 6u) {
-        // GPU Cubic Bezier Curve Evaluation + GPU Coordinate Wobbling
+        // GPU Cubic Bezier Curve Evaluation + Generic GPU Coordinate Wobbling
         var p0 = input.position;
         var p1 = input.texCoord;
         var p2 = input.shapeSize;
         var p3 = input.color.rg;
         
-        if (input.gridIndex > 0.0) {
-            let gIdx = input.gridIndex - 1.0;
-            let phase = uniforms.time * 2.5 + gIdx * 0.04;
-            let offsetStart = vec2<f32>(sin(phase) * 12.0, cos(phase * 0.7) * 12.0);
-            let offsetEnd = vec2<f32>(sin(phase * 1.3) * 12.0, cos(phase * 0.9) * 12.0);
-            let ctrlOffset1 = vec2<f32>(sin(phase * 0.5) * 15.0, cos(phase * 0.7) * 15.0);
-            let ctrlOffset2 = vec2<f32>(cos(phase * 0.6) * 15.0, sin(phase * 0.8) * 15.0);
-            
-            p0 = p0 + offsetStart;
-            p1 = p1 + ctrlOffset1;
-            p2 = p2 + ctrlOffset2;
-            p3 = p3 + offsetEnd;
+        if (input.animFreqPhase.x > 0.0) {
+            p0 = p0 + getWobble(input.animAmp.xy, input.animFreqPhase, 0u);
+            p1 = p1 + getWobble(input.animAmp.zw, input.animFreqPhase, 3u);
+            p2 = p2 + getWobble(input.animAmp.zw, input.animFreqPhase, 4u);
+            p3 = p3 + getWobble(input.animAmp.xy, input.animFreqPhase, 1u);
         }
 
         let t = input.color.b;
@@ -182,7 +197,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.cornerRadius = input.cornerRadius;
     output.strokeThickness = input.strokeThickness;
     output.shapeType = input.shapeType;
-    output.gridIndex = input.gridIndex;
+    output.gridIndex = input.animFreqPhase.z;
     return output;
 }
 

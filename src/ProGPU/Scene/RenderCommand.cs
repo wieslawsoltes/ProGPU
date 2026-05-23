@@ -82,6 +82,8 @@ public struct RenderCommand
     public float RadiusX;
     public float RadiusY;
     public float CornerRadius;
+    public Vector4 AnimAmp;
+    public Vector4 AnimFreqPhase;
 }
 
 public class DrawingContext
@@ -163,7 +165,7 @@ public class DrawingContext
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity });
     }
 
-    public void DrawLine(Pen pen, Vector2 p1, Vector2 p2, float gridIndex = 0f)
+    public void DrawLine(Pen pen, Vector2 p1, Vector2 p2, Vector4 animAmp = default, Vector4 animFreqPhase = default)
     {
         Commands.Add(new RenderCommand
         {
@@ -171,7 +173,8 @@ public class DrawingContext
             Pen = pen,
             Position = p1,
             Position2 = p2,
-            CornerRadius = gridIndex
+            AnimAmp = animAmp,
+            AnimFreqPhase = animFreqPhase
         });
     }
 
@@ -227,7 +230,7 @@ public class DrawingContext
         DrawRoundedRectangle(brush, null, rect, radius);
     }
 
-    public void DrawQuadraticBezier(Pen pen, Vector2 p0, Vector2 p1, Vector2 p2, float gridIndex = 0f)
+    public void DrawQuadraticBezier(Pen pen, Vector2 p0, Vector2 p1, Vector2 p2, Vector4 animAmp = default, Vector4 animFreqPhase = default)
     {
         Commands.Add(new RenderCommand
         {
@@ -236,11 +239,12 @@ public class DrawingContext
             Position = p0,
             Position2 = p1,
             Position3 = p2,
-            CornerRadius = gridIndex
+            AnimAmp = animAmp,
+            AnimFreqPhase = animFreqPhase
         });
     }
 
-    public void DrawCubicBezier(Pen pen, Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float gridIndex = 0f)
+    public void DrawCubicBezier(Pen pen, Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, Vector4 animAmp = default, Vector4 animFreqPhase = default)
     {
         Commands.Add(new RenderCommand
         {
@@ -250,7 +254,8 @@ public class DrawingContext
             Position2 = p1,
             Position3 = p2,
             Position4 = p3,
-            CornerRadius = gridIndex
+            AnimAmp = animAmp,
+            AnimFreqPhase = animFreqPhase
         });
     }
 

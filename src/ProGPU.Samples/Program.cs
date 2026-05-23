@@ -3889,19 +3889,22 @@ public class MotionMarkShowcaseVisual : FrameworkElement
                 var element = _elements[i];
                 var pen = element.CachedPen ?? new Pen(element.CachedBrush ?? new SolidColorBrush(element.Color), element.Width * StrokeThicknessMultiplier);
 
-                float gridIndexGpu = element.GridIndex + 1f;
+                var freqPhase = new Vector4(2.5f, 0.04f, element.GridIndex, 0f);
 
                 if (element.OriginalSeg is LineSegment line)
                 {
-                    context.DrawLine(pen, element.OriginalStartPoint, line.Point, gridIndexGpu);
+                    var amp = new Vector4(12f, 12f, 12f, 12f);
+                    context.DrawLine(pen, element.OriginalStartPoint, line.Point, amp, freqPhase);
                 }
                 else if (element.OriginalSeg is QuadraticBezierSegment quad)
                 {
-                    context.DrawQuadraticBezier(pen, element.OriginalStartPoint, quad.ControlPoint, quad.Point, gridIndexGpu);
+                    var amp = new Vector4(12f, 12f, 15f, 15f);
+                    context.DrawQuadraticBezier(pen, element.OriginalStartPoint, quad.ControlPoint, quad.Point, amp, freqPhase);
                 }
                 else if (element.OriginalSeg is CubicBezierSegment cubic)
                 {
-                    context.DrawCubicBezier(pen, element.OriginalStartPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, gridIndexGpu);
+                    var amp = new Vector4(12f, 12f, 15f, 15f);
+                    context.DrawCubicBezier(pen, element.OriginalStartPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, amp, freqPhase);
                 }
             }
         }

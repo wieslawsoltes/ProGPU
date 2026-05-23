@@ -216,7 +216,8 @@ public unsafe class Compositor : IDisposable
             new() { Format = VertexFormat.Float32, Offset = 44, ShaderLocation = 5 }, // CornerRadius
             new() { Format = VertexFormat.Float32, Offset = 48, ShaderLocation = 6 }, // StrokeThickness
             new() { Format = VertexFormat.Float32, Offset = 52, ShaderLocation = 7 }, // ShapeType
-            new() { Format = VertexFormat.Float32, Offset = 56, ShaderLocation = 8 } // GridIndex
+            new() { Format = VertexFormat.Float32x4, Offset = 56, ShaderLocation = 8 }, // AnimAmp
+            new() { Format = VertexFormat.Float32x4, Offset = 72, ShaderLocation = 9 } // AnimFreqPhase
         };
 
         fixed (VertexAttribute* attribsPtr = vertexAttribs)
@@ -225,7 +226,7 @@ public unsafe class Compositor : IDisposable
             {
                 ArrayStride = (uint)Marshal.SizeOf<VectorVertex>(),
                 StepMode = VertexStepMode.Vertex,
-                AttributeCount = 9,
+                AttributeCount = 10,
                 Attributes = attribsPtr
             };
 
@@ -1083,12 +1084,12 @@ public unsafe class Compositor : IDisposable
         uint idxStart = (uint)_vectorVerticesList.Count;
 
         // Start point P0 (Left + Right offsets)
-        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f, cmd.CornerRadius));
-        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f, cmd.CornerRadius));
+        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f, cmd.AnimAmp, cmd.AnimFreqPhase));
+        _vectorVerticesList.Add(new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f, cmd.AnimAmp, cmd.AnimFreqPhase));
 
         // End point P1 (Left + Right offsets)
-        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f, cmd.CornerRadius));
-        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f, cmd.CornerRadius));
+        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, 3f, cmd.AnimAmp, cmd.AnimFreqPhase));
+        _vectorVerticesList.Add(new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f, cmd.AnimAmp, cmd.AnimFreqPhase));
 
         _vectorIndicesList.Add(idxStart);
         _vectorIndicesList.Add((uint)(idxStart + 1));
@@ -1130,8 +1131,8 @@ public unsafe class Compositor : IDisposable
             // Emit left (+1) and right (-1) offset vertices
             var pColorLeft = new Vector4(1f, 1f, t, 1f);
             var pColorRight = new Vector4(1f, 1f, t, -1f);
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f, cmd.CornerRadius));
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f, cmd.CornerRadius));
+            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f, cmd.AnimAmp, cmd.AnimFreqPhase));
+            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f, cmd.AnimAmp, cmd.AnimFreqPhase));
         }
 
         for (int i = 0; i < N; i++)
@@ -1183,8 +1184,8 @@ public unsafe class Compositor : IDisposable
             // Emit left (+1) and right (-1) offset vertices
             var pColorLeft = new Vector4(p3_trans.X, p3_trans.Y, t, 1f);
             var pColorRight = new Vector4(p3_trans.X, p3_trans.Y, t, -1f);
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f, cmd.CornerRadius));
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f, cmd.CornerRadius));
+            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f, cmd.AnimAmp, cmd.AnimFreqPhase));
+            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f, cmd.AnimAmp, cmd.AnimFreqPhase));
         }
 
         for (int i = 0; i < N; i++)
