@@ -30,6 +30,8 @@ public static unsafe class Program
 
     private static TtfFont? _font;
     private static ProGPU.WinUI.Grid? _rootGrid;
+    private static ProGPU.WinUI.Grid? _topLevelGrid;
+    private static ProGPU.WinUI.DevTools? _devToolsPanel;
 
     // Active diagnostic metric stats
     private static RichTextBlock? _statsText;
@@ -283,6 +285,39 @@ public static unsafe class Program
         statusBar.Child = _statsText;
         _rootGrid.AddChild(statusBar);
         ProGPU.WinUI.Grid.SetRow(statusBar, 2);
+
+        // 5. TOP LEVEL CONTAINER GRID (App + Collapsible DevTools Dock)
+        _topLevelGrid = new ProGPU.WinUI.Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        _topLevelGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _topLevelGrid.ColumnDefinitions.Add(new GridLength(0f, GridUnitType.Absolute)); // Collapsed by default
+
+        _topLevelGrid.AddChild(_rootGrid);
+        ProGPU.WinUI.Grid.SetColumn(_rootGrid, 0);
+
+        _devToolsPanel = new ProGPU.WinUI.DevTools
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        _topLevelGrid.AddChild(_devToolsPanel);
+        ProGPU.WinUI.Grid.SetColumn(_devToolsPanel, 1);
+
+        DevToolsService.StateChanged += (s, ev) =>
+        {
+            if (DevToolsService.IsDevToolsActive)
+            {
+                _topLevelGrid.ColumnDefinitions[1] = new GridLength(450f, GridUnitType.Absolute);
+            }
+            else
+            {
+                _topLevelGrid.ColumnDefinitions[1] = new GridLength(0f, GridUnitType.Absolute);
+            }
+            _topLevelGrid.Invalidate();
+        };
     }
 
     // ===================================================
@@ -1044,15 +1079,15 @@ public static unsafe class Program
 
     private static void SetupInput()
     {
-        if (_window == null || _rootGrid == null) return;
+        if (_window == null || _topLevelGrid == null) return;
 
         var input = _window.CreateInput();
         
-        // Initialize WinUI Input Routing System with root grid scene node
-        InputSystem.Initialize(input, _rootGrid);
+        // Initialize WinUI Input Routing System with top level container grid scene node
+        InputSystem.Initialize(input, _topLevelGrid);
 
-        // Bubble-up PointerMoved coordinate tracking in root grid status
-        _rootGrid.PointerMoved += (sender, args) =>
+        // Bubble-up PointerMoved coordinate tracking in top level container grid status
+        _topLevelGrid.PointerMoved += (sender, args) =>
         {
             _mousePos = args.Position;
         };
@@ -1087,7 +1122,7 @@ public static unsafe class Program
 
     private static void OnWindowRender(double delta)
     {
-        if (_rootGrid == null || _wgpuContext == null || _window == null) return;
+        if (_rootGrid == null || _topLevelGrid == null || _wgpuContext == null || _window == null) return;
         if (_screenCompositor == null || _offscreenCompositor == null || _compute == null) return;
 
         OnWindowUpdate(delta);
@@ -1095,8 +1130,8 @@ public static unsafe class Program
         _frameStopwatch.Restart();
 
         // 1. Size negotiation: Measure & Arrange entire WinUI graph
-        _rootGrid.Measure(new Vector2(_window.Size.X, _window.Size.Y));
-        _rootGrid.Arrange(new Rect(0, 0, _window.Size.X, _window.Size.Y));
+        _topLevelGrid.Measure(new Vector2(_window.Size.X, _window.Size.Y));
+        _topLevelGrid.Arrange(new Rect(0, 0, _window.Size.X, _window.Size.Y));
 
         // Update animated cogs if currently in Compute FX Showcase View
         if (_activeCategory == "Compute FX" && _gearCanvasVisual != null)
@@ -1186,7 +1221,14 @@ public static unsafe class Program
 
         if (targetView != null)
         {
-            _screenCompositor.RenderScene(_rootGrid, (uint)_window.Size.X, (uint)_window.Size.Y, targetView);
+            _screenCompositor.RenderScene(_topLevelGrid, (uint)_window.Size.X, (uint)_window.Size.Y, targetView);
+
+            if (_devToolsPanel != null && DevToolsService.IsDevToolsActive)
+            {
+                uint totalVertices = (uint)(_screenCompositor.VectorVertexCount + _screenCompositor.TextVertexCount + _screenCompositor.TextureVertexCount);
+                uint totalDrawCalls = (uint)(_screenCompositor.TextureDrawCallCount + 1); // Fills + Texts + Textures
+                _devToolsPanel.UpdatePerfPanel((float)_currentFps, (float)_cpuFrameTimeMs, totalVertices, totalDrawCalls);
+            }
             
             _wgpuContext.Wgpu.SurfacePresent(_wgpuContext.Surface);
             _wgpuContext.Wgpu.TextureViewRelease(targetView);
@@ -1197,7 +1239,7 @@ public static unsafe class Program
     {
         if (_wgpuContext == null) return;
         _wgpuContext.ConfigureSwapChain((uint)newSize.X, (uint)newSize.Y);
-        _rootGrid?.Invalidate();
+        _topLevelGrid?.Invalidate();
     }
 
     private static void Cleanup()

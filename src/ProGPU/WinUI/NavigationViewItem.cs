@@ -265,6 +265,52 @@ public class NavigationViewItem : Control
 
                     drewCustomIcon = true;
                 }
+                else if (Icon == "🎬" || Text == "Motion & Animations")
+                {
+                    // Slate (clapboard) base body
+                    var baseOutline = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 6} H {startX + 14} V {startY + 15} H {startX + 2} Z"));
+                    // Slate slanted cap
+                    var capOutline = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 14} L {startX + 12} {startY + 5} H {startX + 4} Z"));
+                    // Clapper stripes
+                    var clapperStripes = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 1} L {startX + 3} {startY + 5} M {startX + 9} {startY + 1} L {startX + 7} {startY + 5} M {startX + 13} {startY + 1} L {startX + 11} {startY + 5}"));
+                    // Play symbol inside body
+                    var playTriangle = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 8} L {startX + 11} {startY + 10.5f} L {startX + 6} {startY + 13} Z"));
+
+                    var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
+                    context.DrawPath(new SolidColorBrush(0xFFFFFF15), pen, baseOutline);
+                    context.DrawPath(new SolidColorBrush(0xFFFFFF30), pen, capOutline);
+                    context.DrawPath(null, pen, clapperStripes);
+                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), null, playTriangle);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "🛠" || Text == "Advanced Controls")
+                {
+                    // Crossed screwdriver and wrench
+                    // 1. Screwdriver (slanted handle and shaft)
+                    var sdHandle = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 6} {startY + 10}"));
+                    var sdShaft = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 10} L {startX + 12} {startY + 4}"));
+                    var sdTip = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 4} L {startX + 14} {startY + 2}"));
+
+                    // 2. Wrench (slanted handle and open jaw head)
+                    var wrHandle = PathGeometry.Parse(Invariant($"M {startX + 14} {startY + 14} L {startX + 8} {startY + 8}"));
+                    var wrHead = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 6} {startY + 6} Q {startX + 2} {startY + 6} {startX + 2} {startY + 2} Q {startX + 6} {startY + 2} {startX + 6} {startY + 6} Z"));
+                    
+                    var penThickness1 = new Pen(new SolidColorBrush(0xFFFFFFC0), 1f);
+                    var penThickness2 = new Pen(new SolidColorBrush(0xFFFFFFFF), 2f);
+                    var penActive = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
+
+                    // Draw screwdriver
+                    context.DrawPath(null, new Pen(new SolidColorBrush(0x0078D4FF), 3f), sdHandle); // Blue handle
+                    context.DrawPath(null, penThickness1, sdShaft); // Metal shaft
+                    context.DrawPath(null, penThickness2, sdTip); // Tip
+
+                    // Draw wrench
+                    context.DrawPath(null, penThickness2, wrHandle); // Wrench handle
+                    context.DrawPath(new SolidColorBrush(0xFFFFFF30), penActive, wrHead); // Open jaw head
+
+                    drewCustomIcon = true;
+                }
 
                 if (!drewCustomIcon)
                 {

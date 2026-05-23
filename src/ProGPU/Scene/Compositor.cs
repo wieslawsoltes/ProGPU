@@ -65,6 +65,14 @@ public unsafe class Compositor : IDisposable
     private readonly Stack<Rect> _clipStack = new();
     private Rect? _activeClipRect;
 
+    public int VectorVertexCount => _vectorVerticesList.Count;
+    public int VectorIndexCount => _vectorIndicesList.Count;
+    public int TextVertexCount => _textVerticesList.Count;
+    public int TextIndexCount => _textIndicesList.Count;
+    public int TextureVertexCount => _textureVerticesList.Count;
+    public int TextureIndexCount => _textureIndicesList.Count;
+    public int TextureDrawCallCount => _textureDrawCalls.Count;
+
     public GlyphAtlas Atlas => _atlas;
     public TextureFormat RenderFormat { get; private set; }
 
@@ -320,6 +328,28 @@ public unsafe class Compositor : IDisposable
         foreach (var popup in ProGPU.WinUI.PopupService.ActivePopups)
         {
             CompileVisualTree(popup, Matrix4x4.Identity);
+        }
+
+        // Compile AdornerLayer bounds highlights topmost
+        if (ProGPU.WinUI.DevToolsService.IsDevToolsActive)
+        {
+            var diagContext = new DrawingContext();
+            ProGPU.WinUI.AdornerLayer.Render(diagContext, width, height);
+            foreach (var cmd in diagContext.Commands)
+            {
+                switch (cmd.Type)
+                {
+                    case RenderCommandType.DrawRect:
+                        CompileRectCommand(cmd, Matrix4x4.Identity);
+                        break;
+                    case RenderCommandType.DrawPath:
+                        CompilePathCommand(cmd, Matrix4x4.Identity);
+                        break;
+                    case RenderCommandType.DrawText:
+                        CompileTextCommand(cmd, null, Matrix4x4.Identity);
+                        break;
+                }
+            }
         }
 
         // 4. Upload CPU batches to dynamic GPU buffers

@@ -160,6 +160,27 @@ public static class InputSystem
     {
         _lastMousePos = screenPos;
 
+        if (DevToolsService.IsInspectModeActive)
+        {
+            var inspectHit = HitTest(screenPos);
+            bool isInsideDevTools = false;
+            var current = inspectHit;
+            while (current != null)
+            {
+                if (current.Name == "DevToolsPanel")
+                {
+                    isInsideDevTools = true;
+                    break;
+                }
+                current = current.Parent as FrameworkElement;
+            }
+            DevToolsService.HoveredElement = isInsideDevTools ? null : inspectHit;
+            if (!isInsideDevTools)
+            {
+                return;
+            }
+        }
+
         if (_capturedElement != null)
         {
             _capturedElement.OnPointerMoved(new PointerRoutedEventArgs
@@ -233,6 +254,31 @@ public static class InputSystem
         if (button != MouseButton.Left) return;
 
         var hit = HitTest(_lastMousePos);
+
+        if (DevToolsService.IsInspectModeActive)
+        {
+            bool isInsideDevTools = false;
+            var current = hit;
+            while (current != null)
+            {
+                if (current.Name == "DevToolsPanel")
+                {
+                    isInsideDevTools = true;
+                    break;
+                }
+                current = current.Parent as FrameworkElement;
+            }
+
+            if (!isInsideDevTools)
+            {
+                if (hit != null)
+                {
+                    DevToolsService.InspectedElement = hit;
+                    DevToolsService.IsInspectModeActive = false;
+                }
+                return;
+            }
+        }
 
         // Click-outside auto-dismissal for popups
         if (PopupService.ActivePopups.Count > 0)
@@ -325,6 +371,12 @@ public static class InputSystem
         _hoverCancellation?.Cancel();
         _hoverCancellation = null;
         DismissToolTip();
+
+        if (key == Key.F12)
+        {
+            DevToolsService.ToggleDevTools();
+            return;
+        }
 
         if (key == Key.ShiftLeft || key == Key.ShiftRight)
         {
