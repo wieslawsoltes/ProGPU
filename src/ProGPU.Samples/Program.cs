@@ -3800,58 +3800,41 @@ public class MotionMarkShowcaseVisual : FrameworkElement
             }
         }
 
-        if (FillShapes)
+        // 2. Batch path rendering based on splits (matches Vello's exact stroke/color animation grouping)
+        var path = new PathGeometry();
+        PathFigure? fig = null;
+
+        for (int i = 0; i < _elements.Count; i++)
         {
-            // 2. Batch path rendering based on splits (used for path fills)
-            var path = new PathGeometry();
-            PathFigure? fig = null;
+            var element = _elements[i];
 
-            for (int i = 0; i < _elements.Count; i++)
+            if (fig == null)
             {
-                var element = _elements[i];
+                fig = new PathFigure(element.OriginalStartPoint);
+            }
 
-                if (fig == null)
-                {
-                    fig = new PathFigure(element.OriginalStartPoint);
-                }
+            if (element.OriginalSeg != null)
+            {
+                fig.Segments.Add(element.OriginalSeg);
+            }
 
-                if (element.OriginalSeg != null)
+            if (element.IsSplit || i == _elements.Count - 1)
+            {
+                path.Figures.Add(fig);
+                
+                if (FillShapes)
                 {
-                    fig.Segments.Add(element.OriginalSeg);
-                }
-
-                if (element.IsSplit || i == _elements.Count - 1)
-                {
-                    path.Figures.Add(fig);
-                    
                     var brush = element.CachedBrush ?? new SolidColorBrush(element.Color);
                     context.DrawPath(brush, null, path);
+                }
+                else
+                {
+                    var pen = element.CachedPen ?? new Pen(element.CachedBrush ?? new SolidColorBrush(element.Color), element.Width * StrokeThicknessMultiplier);
+                    context.DrawPath(null, pen, path);
+                }
 
-                    path = new PathGeometry();
-                    fig = null;
-                }
-            }
-        }
-        else
-        {
-            // 2b. Ultra-fast direct primitive rendering for outline strokes (ZERO allocations!)
-            for (int i = 0; i < _elements.Count; i++)
-            {
-                var element = _elements[i];
-                var pen = element.CachedPen ?? new Pen(element.CachedBrush ?? new SolidColorBrush(element.Color), element.Width * StrokeThicknessMultiplier);
-
-                if (element.OriginalSeg is LineSegment line)
-                {
-                    context.DrawLine(pen, element.OriginalStartPoint, line.Point);
-                }
-                else if (element.OriginalSeg is QuadraticBezierSegment quad)
-                {
-                    context.DrawQuadraticBezier(pen, element.OriginalStartPoint, quad.ControlPoint, quad.Point);
-                }
-                else if (element.OriginalSeg is CubicBezierSegment cubic)
-                {
-                    context.DrawCubicBezier(pen, element.OriginalStartPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point);
-                }
+                path = new PathGeometry();
+                fig = null;
             }
         }
 
