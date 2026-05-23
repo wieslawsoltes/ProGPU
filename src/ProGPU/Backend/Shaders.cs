@@ -50,10 +50,11 @@ struct VertexOutput {
 };
 
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
+fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var output: VertexOutput;
     let sType = u32(round(input.shapeType));
     var worldPos = input.position;
+    var texCoord = input.texCoord;
 
     if (sType == 3u) {
         // GPU Stroke Expansion
@@ -93,8 +94,12 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         let p1 = input.texCoord;
         let p2 = input.shapeSize;
         
-        let t = input.color.b;
-        let signVal = input.color.a;
+        let idxStart = u32(round(input.cornerRadius));
+        let localIndex = vertexIndex - idxStart;
+        let N = clamp(u32(round(input.strokeThickness * 1.5 + 8.0)), 8u, 24u);
+        let t = f32(localIndex / 2u) / f32(N);
+        let signVal = select(-1.0, 1.0, (localIndex % 2u) == 0u);
+        
         let oneMinusT = 1.0 - t;
         let pos = oneMinusT * oneMinusT * p0 + 2.0 * oneMinusT * t * p1 + t * t * p2;
         let tangent = 2.0 * oneMinusT * (p1 - p0) + 2.0 * t * (p2 - p1);
@@ -105,6 +110,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         }
         let offset = normal * (input.strokeThickness * 0.5) * signVal;
         worldPos = pos + offset;
+        texCoord = pos;
     } else if (sType == 6u) {
         // GPU Cubic Bezier Curve Evaluation
         let p0 = input.position;
@@ -112,8 +118,12 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         let p2 = input.shapeSize;
         let p3 = input.color.rg;
         
-        let t = input.color.b;
-        let signVal = input.color.a;
+        let idxStart = u32(round(input.cornerRadius));
+        let localIndex = vertexIndex - idxStart;
+        let N = clamp(u32(round(input.strokeThickness * 1.5 + 8.0)), 8u, 24u);
+        let t = f32(localIndex / 2u) / f32(N);
+        let signVal = select(-1.0, 1.0, (localIndex % 2u) == 0u);
+        
         let oneMinusT = 1.0 - t;
         
         let pos = oneMinusT * oneMinusT * oneMinusT * p0 
@@ -132,11 +142,12 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         }
         let offset = normal * (input.strokeThickness * 0.5) * signVal;
         worldPos = pos + offset;
+        texCoord = pos;
     }
 
     output.position = uniforms.projection * vec4<f32>(worldPos, 0.0, 1.0);
     output.color = input.color;
-    output.texCoord = input.texCoord;
+    output.texCoord = texCoord;
     output.brushIndex = input.brushIndex;
     output.shapeSize = input.shapeSize;
     output.cornerRadius = input.cornerRadius;

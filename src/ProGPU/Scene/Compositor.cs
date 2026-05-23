@@ -967,13 +967,10 @@ public unsafe class Compositor : IDisposable
                         int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
                         uint idxStart = (uint)_vectorVerticesList.Count;
 
-                        for (int i = 0; i <= N; i++)
+                        var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, 5f);
+                        for (int i = 0; i < 2 * (N + 1); i++)
                         {
-                            float t = i / (float)N;
-                            var pColorLeft = new Vector4(1f, 1f, t, 1f);
-                            var pColorRight = new Vector4(1f, 1f, t, -1f);
-                            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f));
-                            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f));
+                            _vectorVerticesList.Add(baseVertex);
                         }
 
                         for (int i = 0; i < N; i++)
@@ -1004,13 +1001,10 @@ public unsafe class Compositor : IDisposable
                         int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
                         uint idxStart = (uint)_vectorVerticesList.Count;
 
-                        for (int i = 0; i <= N; i++)
+                        var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, 6f);
+                        for (int i = 0; i < 2 * (N + 1); i++)
                         {
-                            float t = i / (float)N;
-                            var pColorLeft = new Vector4(p3_trans.X, p3_trans.Y, t, 1f);
-                            var pColorRight = new Vector4(p3_trans.X, p3_trans.Y, t, -1f);
-                            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f));
-                            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f));
+                            _vectorVerticesList.Add(baseVertex);
                         }
 
                         for (int i = 0; i < N; i++)
@@ -1122,14 +1116,10 @@ public unsafe class Compositor : IDisposable
         int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
         uint idxStart = (uint)_vectorVerticesList.Count;
 
-        for (int i = 0; i <= N; i++)
+        var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, 5f);
+        for (int i = 0; i < 2 * (N + 1); i++)
         {
-            float t = i / (float)N;
-            // Emit left (+1) and right (-1) offset vertices
-            var pColorLeft = new Vector4(1f, 1f, t, 1f);
-            var pColorRight = new Vector4(1f, 1f, t, -1f);
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f));
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 5f));
+            _vectorVerticesList.Add(baseVertex);
         }
 
         for (int i = 0; i < N; i++)
@@ -1175,14 +1165,10 @@ public unsafe class Compositor : IDisposable
         int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
         uint idxStart = (uint)_vectorVerticesList.Count;
 
-        for (int i = 0; i <= N; i++)
+        var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, 6f);
+        for (int i = 0; i < 2 * (N + 1); i++)
         {
-            float t = i / (float)N;
-            // Emit left (+1) and right (-1) offset vertices
-            var pColorLeft = new Vector4(p3_trans.X, p3_trans.Y, t, 1f);
-            var pColorRight = new Vector4(p3_trans.X, p3_trans.Y, t, -1f);
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorLeft, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f));
-            _vectorVerticesList.Add(new VectorVertex(p0_trans, pColorRight, p1_trans, penBrushIdx, p2_trans, 0f, thickness, 6f));
+            _vectorVerticesList.Add(baseVertex);
         }
 
         for (int i = 0; i < N; i++)
