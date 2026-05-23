@@ -11,23 +11,23 @@ using ProGPU.WinUI;
 
 namespace ProGPU.Scene;
 
-[StructLayout(LayoutKind.Sequential, Pack = 16)]
+[StructLayout(LayoutKind.Explicit, Size = 128)]
 public struct GpuBrush
 {
-    public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial
-    public float Opacity;
-    public Vector2 StartPoint;
-    public Vector2 EndPoint;
-    public Vector2 Center;
-    public float Radius;
-    public uint StopCount;
-    public uint Pad;
+    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial
+    [FieldOffset(4)] public float Opacity;
+    [FieldOffset(8)] public Vector2 StartPoint;
+    [FieldOffset(16)] public Vector2 EndPoint;
+    [FieldOffset(24)] public Vector2 Center;
+    [FieldOffset(32)] public float Radius;
+    [FieldOffset(36)] public uint StopCount;
+    [FieldOffset(40)] public uint Pad;
     
-    public Vector4 Color0;
-    public Vector4 Color1;
-    public Vector4 Color2;
-    public Vector4 Color3;
-    public Vector4 Offsets;
+    [FieldOffset(48)] public Vector4 Color0;
+    [FieldOffset(64)] public Vector4 Color1;
+    [FieldOffset(80)] public Vector4 Color2;
+    [FieldOffset(96)] public Vector4 Color3;
+    [FieldOffset(112)] public Vector4 Offsets;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
