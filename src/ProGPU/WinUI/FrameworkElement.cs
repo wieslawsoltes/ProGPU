@@ -38,6 +38,59 @@ public class FrameworkElement : LayoutNode
     public bool IsEnabled { get; set; } = true;
     public object? ToolTip { get; set; }
 
+    private Style? _style;
+    public Style? Style
+    {
+        get => _style;
+        set
+        {
+            if (_style != value)
+            {
+                _style = value;
+                ApplyStyle();
+            }
+        }
+    }
+
+    private void ApplyStyle()
+    {
+        if (_style == null) return;
+        if (!_style.TargetType.IsAssignableFrom(GetType())) return;
+
+        foreach (var setter in _style.Setters)
+        {
+            if (string.IsNullOrEmpty(setter.Property)) continue;
+
+            var prop = GetType().GetProperty(setter.Property);
+            if (prop != null && prop.CanWrite)
+            {
+                try
+                {
+                    prop.SetValue(this, setter.Value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error applying style property '{setter.Property}' on {GetType().Name}: {ex.Message}");
+                }
+            }
+            else
+            {
+                var field = GetType().GetField(setter.Property);
+                if (field != null)
+                {
+                    try
+                    {
+                        field.SetValue(this, setter.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error applying style field '{setter.Property}' on {GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
     public float Width
     {
         get => WidthConstraint ?? float.NaN;

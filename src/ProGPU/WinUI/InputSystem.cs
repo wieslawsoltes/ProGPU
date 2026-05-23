@@ -7,30 +7,56 @@ using ProGPU.Vector;
 
 namespace ProGPU.WinUI;
 
+public class WindowInputState
+{
+    public FrameworkElement? Root;
+    public FrameworkElement? HoveredElement;
+    public FrameworkElement? FocusedElement;
+    public Vector2 LastMousePos;
+    public FrameworkElement? CapturedElement;
+    public bool IsShiftPressed;
+    public bool IsKeyboardFocusActive;
+    public System.Threading.CancellationTokenSource? HoverCancellation;
+    public ToolTip? ActiveToolTip;
+    public FrameworkElement? HoveredElementForTimer;
+}
+
 public static class InputSystem
 {
-    private static FrameworkElement? _root;
-    private static FrameworkElement? _hoveredElement;
-    private static FrameworkElement? _focusedElement;
-    private static Vector2 _lastMousePos;
-    private static FrameworkElement? _capturedElement;
-    private static bool _isShiftPressed;
+    [ThreadStatic]
+    private static WindowInputState? _currentState;
 
-    public static bool IsKeyboardFocusActive { get; set; } = false;
+    public static WindowInputState Current
+    {
+        get => _currentState ??= new WindowInputState();
+        set => _currentState = value;
+    }
 
-    private static System.Threading.CancellationTokenSource? _hoverCancellation;
-    private static ToolTip? _activeToolTip;
-    private static FrameworkElement? _hoveredElementForTimer;
+    private static FrameworkElement? _root { get => Current.Root; set => Current.Root = value; }
+    private static FrameworkElement? _hoveredElement { get => Current.HoveredElement; set => Current.HoveredElement = value; }
+    private static FrameworkElement? _focusedElement { get => Current.FocusedElement; set => Current.FocusedElement = value; }
+    private static Vector2 _lastMousePos { get => Current.LastMousePos; set => Current.LastMousePos = value; }
+    private static FrameworkElement? _capturedElement { get => Current.CapturedElement; set => Current.CapturedElement = value; }
+    private static bool _isShiftPressed { get => Current.IsShiftPressed; set => Current.IsShiftPressed = value; }
+    private static System.Threading.CancellationTokenSource? _hoverCancellation { get => Current.HoverCancellation; set => Current.HoverCancellation = value; }
+    private static ToolTip? _activeToolTip { get => Current.ActiveToolTip; set => Current.ActiveToolTip = value; }
+    private static FrameworkElement? _hoveredElementForTimer { get => Current.HoveredElementForTimer; set => Current.HoveredElementForTimer = value; }
 
     public static FrameworkElement? Root
     {
-        get => _root;
-        set => _root = value;
+        get => Current.Root;
+        set => Current.Root = value;
     }
 
     public static FrameworkElement? HoveredElement => _hoveredElement;
     public static FrameworkElement? FocusedElement => _focusedElement;
     public static Vector2 LastMousePosition => _lastMousePos;
+
+    public static bool IsKeyboardFocusActive
+    {
+        get => Current.IsKeyboardFocusActive;
+        set => Current.IsKeyboardFocusActive = value;
+    }
 
     public static ToolTip? ActiveToolTip
     {
@@ -72,24 +98,47 @@ public static class InputSystem
         DevToolsInputSystem.ReleasePointerCapture();
     }
 
-    public static void Initialize(IInputContext input, FrameworkElement? root = null)
+    public static WindowInputState Initialize(IInputContext input, FrameworkElement? root = null)
     {
-        _root = root;
+        var state = new WindowInputState { Root = root };
 
         foreach (var mouse in input.Mice)
         {
-            mouse.MouseMove += (m, pos) => OnMouseMove(new Vector2(pos.X, pos.Y));
-            mouse.MouseDown += (m, btn) => OnMouseDown(btn);
-            mouse.MouseUp += (m, btn) => OnMouseUp(btn);
-            mouse.Scroll += (m, scroll) => OnMouseScroll(new Vector2(scroll.X, scroll.Y));
+            mouse.MouseMove += (m, pos) => {
+                _currentState = state;
+                OnMouseMove(new Vector2(pos.X, pos.Y));
+            };
+            mouse.MouseDown += (m, btn) => {
+                _currentState = state;
+                OnMouseDown(btn);
+            };
+            mouse.MouseUp += (m, btn) => {
+                _currentState = state;
+                OnMouseUp(btn);
+            };
+            mouse.Scroll += (m, scroll) => {
+                _currentState = state;
+                OnMouseScroll(new Vector2(scroll.X, scroll.Y));
+            };
         }
 
         foreach (var keyboard in input.Keyboards)
         {
-            keyboard.KeyDown += (kb, key, code) => OnKeyDown(key);
-            keyboard.KeyUp += (kb, key, code) => OnKeyUp(key);
-            keyboard.KeyChar += (kb, c) => OnKeyChar(c);
+            keyboard.KeyDown += (kb, key, code) => {
+                _currentState = state;
+                OnKeyDown(key);
+            };
+            keyboard.KeyUp += (kb, key, code) => {
+                _currentState = state;
+                OnKeyUp(key);
+            };
+            keyboard.KeyChar += (kb, c) => {
+                _currentState = state;
+                OnKeyChar(c);
+            };
         }
+
+        return state;
     }
 
     public static void SetFocus(FrameworkElement? element)

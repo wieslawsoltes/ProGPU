@@ -15,7 +15,11 @@ public enum RenderCommandType
     PushClip,
     PopClip,
     PushOpacity,
-    PopOpacity
+    PopOpacity,
+    DrawLine,
+    DrawEllipse,
+    DrawCircle,
+    DrawRoundedRect
 }
 
 public struct Rect
@@ -68,6 +72,11 @@ public struct RenderCommand
 
     // Texture properties
     public GpuTexture? Texture;
+
+    // Advanced geometries
+    public Vector2 Position2;
+    public float RadiusX;
+    public float RadiusY;
 }
 
 public class DrawingContext
@@ -140,13 +149,76 @@ public class DrawingContext
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.PushOpacity,
-            FontSize = opacity // Reuse float field for opacity value
+            FontSize = opacity
         });
     }
 
     public void PopOpacity()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity });
+    }
+
+    public void DrawLine(Pen pen, Vector2 p1, Vector2 p2)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine,
+            Pen = pen,
+            Position = p1,
+            Position2 = p2
+        });
+    }
+
+    public void DrawEllipse(Brush? brush, Pen? pen, Vector2 center, float radiusX, float radiusY)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawEllipse,
+            Brush = brush,
+            Pen = pen,
+            Position2 = center,
+            RadiusX = radiusX,
+            RadiusY = radiusY
+        });
+    }
+
+    public void FillEllipse(Brush brush, Vector2 center, float radiusX, float radiusY)
+    {
+        DrawEllipse(brush, null, center, radiusX, radiusY);
+    }
+
+    public void DrawCircle(Brush? brush, Pen? pen, Vector2 center, float radius)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawCircle,
+            Brush = brush,
+            Pen = pen,
+            Position2 = center,
+            RadiusX = radius
+        });
+    }
+
+    public void FillCircle(Brush brush, Vector2 center, float radius)
+    {
+        DrawCircle(brush, null, center, radius);
+    }
+
+    public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawRoundedRect,
+            Brush = brush,
+            Pen = pen,
+            Rect = rect,
+            RadiusX = radius
+        });
+    }
+
+    public void FillRoundedRectangle(Brush brush, Rect rect, float radius)
+    {
+        DrawRoundedRectangle(brush, null, rect, radius);
     }
 
     public void Clear()

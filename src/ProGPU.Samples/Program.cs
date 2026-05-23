@@ -97,7 +97,7 @@ public static unsafe class Program
         options.Title = "ProGPU Substrate - High-Performance WinUI Gallery Dashboard";
         options.API = GraphicsAPI.None;
 
-        _window = Window.Create(options);
+        _window = Silk.NET.Windowing.Window.Create(options);
 
         _window.Load += OnWindowLoad;
         _window.Render += OnWindowRender;
@@ -277,6 +277,9 @@ public static unsafe class Program
         var compositorItem = new NavigationViewItem("Compositor API", "🎨", CreateCompositorShowcaseView());
         var splitViewItem = new NavigationViewItem("SplitView Layout", "🪟", CreateSplitViewShowcaseView());
         var imageRepeatItem = new NavigationViewItem("Image & Buttons", "🖼️", CreateImageRepeatShowcaseView());
+        var drawingContextItem = new NavigationViewItem("Drawing Context", "📐", SamplePagePresenter.CreateDrawingContextShowcaseView());
+        var fileStorageItem = new NavigationViewItem("File Storage", "📁", SamplePagePresenter.CreateFileStorageShowcaseView());
+        var stylesShowcaseItem = new NavigationViewItem("Styles Showcase", "💅", SamplePagePresenter.CreateStylesShowcaseView());
 
         _navigationView.MenuItems.Add(basicInputItem);
         _navigationView.MenuItems.Add(panelsItem);
@@ -288,6 +291,9 @@ public static unsafe class Program
         _navigationView.MenuItems.Add(compositorItem);
         _navigationView.MenuItems.Add(splitViewItem);
         _navigationView.MenuItems.Add(imageRepeatItem);
+        _navigationView.MenuItems.Add(drawingContextItem);
+        _navigationView.MenuItems.Add(fileStorageItem);
+        _navigationView.MenuItems.Add(stylesShowcaseItem);
 
         _navigationView.SelectionChanged += (s, e) =>
         {
@@ -1338,7 +1344,7 @@ public static unsafe class Program
         options.Title = "ProGPU Developer Tools";
         options.API = GraphicsAPI.None;
 
-        _devToolsWindow = Window.Create(options);
+        _devToolsWindow = Silk.NET.Windowing.Window.Create(options);
 
         _devToolsWindow.Load += OnDevToolsWindowLoad;
         _devToolsWindow.Render += OnDevToolsWindowRender;
@@ -2330,11 +2336,12 @@ public static unsafe class Program
         contentGrid.AddChild(rightStack);
         ProGPU.WinUI.Grid.SetColumn(rightStack, 1);
 
-        grid.AddChild(contentGrid);
+            grid.AddChild(contentGrid);
         ProGPU.WinUI.Grid.SetRow(contentGrid, 1);
 
         return grid;
     }
+
 }
 
 // ==========================================
@@ -2997,6 +3004,333 @@ public static class DialogPresenter
         var run = new Run { Text = "Last Dialog Response: " + res.ToString() };
         dialogResultText.Inlines.Add(run);
         dialogResultText.Invalidate();
+    }
+}
+
+public class DrawingShowcaseVisual : FrameworkElement
+{
+    public DrawingShowcaseVisual()
+    {
+        HorizontalAlignment = HorizontalAlignment.Stretch;
+        VerticalAlignment = VerticalAlignment.Stretch;
+        HeightConstraint = 350f;
+    }
+
+    public override void OnRender(DrawingContext context)
+    {
+        // background border
+        context.DrawRectangle(ThemeManager.GetBrush("CardBackground"), new Pen(ThemeManager.GetBrush("ControlBorder"), 1f), new Rect(0, 0, Size.X, Size.Y));
+
+        // Let's divide into regions to draw different shapes
+        float cellWidth = Size.X / 4f;
+        float centerY = Size.Y / 2f;
+
+        // 1. Drawing Lines (Cell 0)
+        float x0 = 0f;
+        context.DrawText("Lines", Program.GetFont(), 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(x0 + 10f, 10f));
+        context.DrawLine(new Pen(ThemeManager.GetBrush("SystemAccentColor"), 3f), new Vector2(x0 + 20f, centerY - 50f), new Vector2(x0 + cellWidth - 20f, centerY + 50f));
+        context.DrawLine(new Pen(ThemeManager.GetBrush("TextPrimary"), 1f), new Vector2(x0 + 20f, centerY + 50f), new Vector2(x0 + cellWidth - 20f, centerY - 50f));
+
+        // 2. Drawing Rounded Rectangles (Cell 1)
+        float x1 = cellWidth;
+        context.DrawText("Rounded Rects", Program.GetFont(), 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(x1 + 10f, 10f));
+        
+        var linearGrad = new LinearGradientBrush(
+            new Vector2(0f, 0f), new Vector2(1f, 1f),
+            new GradientStop[] {
+                new GradientStop(new Vector4(0f, 0.47f, 0.83f, 1f), 0f),      // Blue
+                new GradientStop(new Vector4(0.5f, 0.1f, 0.8f, 1f), 0.5f),    // Purple
+                new GradientStop(new Vector4(0.9f, 0.2f, 0.4f, 1f), 1f)       // Magenta
+            }
+        );
+        context.DrawRoundedRectangle(linearGrad, new Pen(ThemeManager.GetBrush("TextPrimary"), 2f), new Rect(x1 + 20f, centerY - 60f, cellWidth - 40f, 120f), 15f);
+
+        // 3. Drawing Circles & Ellipses (Cell 2)
+        float x2 = cellWidth * 2f;
+        context.DrawText("Circles & Ellipses", Program.GetFont(), 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(x2 + 10f, 10f));
+        
+        var radialGrad = new RadialGradientBrush(
+            new Vector2(0.5f, 0.5f), 0.5f,
+            new GradientStop[] {
+                new GradientStop(new Vector4(1f, 0.8f, 0.2f, 1f), 0f),       // Yellow
+                new GradientStop(new Vector4(1f, 0.4f, 0.1f, 1f), 0.6f),     // Orange
+                new GradientStop(new Vector4(0.8f, 0.1f, 0.1f, 1f), 1f)      // Red
+            }
+        );
+        context.DrawCircle(radialGrad, new Pen(ThemeManager.GetBrush("TextPrimary"), 1.5f), new Vector2(x2 + cellWidth / 2f, centerY - 30f), 40f);
+        context.DrawEllipse(ThemeManager.GetBrush("SystemAccentColor"), new Pen(ThemeManager.GetBrush("TextPrimary"), 1f), new Vector2(x2 + cellWidth / 2f, centerY + 45f), 55f, 25f);
+
+        // 4. Combined Graphics Art (Cell 3)
+        float x3 = cellWidth * 3f;
+        context.DrawText("Dynamic WebGPU Art", Program.GetFont(), 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(x3 + 10f, 10f));
+        
+        // Multi-layered visual geometry overlay using radial & linear brushes
+        var artBg = new LinearGradientBrush(
+            new Vector2(0f, 1f), new Vector2(0f, 0f),
+            new GradientStop[] {
+                new GradientStop(new Vector4(0.1f, 0.1f, 0.15f, 0.9f), 0f),
+                new GradientStop(new Vector4(0.05f, 0.05f, 0.08f, 0.9f), 1f)
+            }
+        );
+        context.DrawRoundedRectangle(artBg, null, new Rect(x3 + 20f, centerY - 70f, cellWidth - 40f, 140f), 8f);
+        
+        // Dynamic circles intersecting
+        context.DrawCircle(new SolidColorBrush(new Vector4(0f, 0.8f, 0.6f, 0.4f)), null, new Vector2(x3 + cellWidth / 2f - 15f, centerY), 35f);
+        context.DrawCircle(new SolidColorBrush(new Vector4(0f, 0.4f, 0.9f, 0.4f)), null, new Vector2(x3 + cellWidth / 2f + 15f, centerY), 35f);
+    }
+}
+
+public static class SamplePagePresenter
+{
+    public static FrameworkElement CreateDrawingContextShowcaseView()
+    {
+        var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
+
+        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        title.Inlines.Add(new Bold(new Run("WebGPU Shaders & DrawingContext Vector APIs")));
+        stack.AddChild(title);
+
+        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        description.Inlines.Add(new Run("This page showcases the full GPU-accelerated drawing context. Gradients are computed smoothly in parallel per-pixel in WebGPU WGSL shaders. Shapes are dynamically tessellated on the GPU at maximum framerates."));
+        stack.AddChild(description);
+
+        var visual = new DrawingShowcaseVisual();
+        stack.AddChild(visual);
+
+        return stack;
+    }
+
+    public static FrameworkElement CreateFileStorageShowcaseView()
+    {
+        var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
+
+        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        title.Inlines.Add(new Bold(new Run("Native Storage File Pickers & Async I/O")));
+        stack.AddChild(title);
+
+        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker) to query system dialogs. Reads and writes files asynchronously using WinUI's StorageFile platform subsystem."));
+        stack.AddChild(description);
+
+        var actionsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15) };
+        
+        var openBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
+        var openBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        openBtnText.Inlines.Add(new Run("Open Text File..."));
+        openBtn.Content = openBtnText;
+
+        var saveBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
+        var saveBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        saveBtnText.Inlines.Add(new Run("Save Copy As..."));
+        saveBtn.Content = saveBtnText;
+
+        var folderBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f };
+        var folderBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        folderBtnText.Inlines.Add(new Run("Select Folder..."));
+        folderBtn.Content = folderBtnText;
+
+        actionsRow.AddChild(openBtn);
+        actionsRow.AddChild(saveBtn);
+        actionsRow.AddChild(folderBtn);
+        stack.AddChild(actionsRow);
+
+        var statusHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 13f, Margin = new Thickness(0, 10, 0, 5) };
+        statusHeader.Inlines.Add(new Bold(new Run("Subsystem Status:")));
+        stack.AddChild(statusHeader);
+
+        var statusText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, Margin = new Thickness(0, 0, 0, 15), Foreground = ThemeManager.GetBrush("TextSecondary") };
+        statusText.Inlines.Add(new Run("Idle. Waiting for picker interaction."));
+        stack.AddChild(statusText);
+
+        var contentHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 13f, Margin = new Thickness(0, 5, 0, 5) };
+        contentHeader.Inlines.Add(new Bold(new Run("Storage File Content Workspace:")));
+        stack.AddChild(contentHeader);
+
+        var editorBorder = new Border
+        {
+            Background = ThemeManager.GetBrush("ControlBackground"),
+            BorderBrush = ThemeManager.GetBrush("ControlBorder"),
+            BorderThickness = new Thickness(1f),
+            CornerRadius = 6f,
+            Padding = new Thickness(12f),
+            HeightConstraint = 200f
+        };
+        var editorText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        editorText.Inlines.Add(new Run("Open a file to load its raw text contents into this workspace..."));
+        editorBorder.Child = editorText;
+        stack.AddChild(editorBorder);
+
+        // Async event hookups
+        openBtn.Click += async (s, e) =>
+        {
+            statusText.Inlines.Clear();
+            statusText.Inlines.Add(new Run("Launching system file dialog..."));
+            statusText.Invalidate();
+
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".txt");
+            picker.FileTypeFilter.Add(".json");
+            var file = await picker.PickSingleFileAsync();
+
+            if (file != null)
+            {
+                statusText.Inlines.Clear();
+                statusText.Inlines.Add(new Run($"Successfully loaded file: {file.Path}"));
+                statusText.Invalidate();
+
+                try
+                {
+                    string txt = await file.ReadTextAsync();
+                    editorText.Inlines.Clear();
+                    editorText.Inlines.Add(new Run(txt));
+                    editorText.Invalidate();
+                }
+                catch (Exception ex)
+                {
+                    editorText.Inlines.Clear();
+                    editorText.Inlines.Add(new Run($"Error reading file contents: {ex.Message}"));
+                    editorText.Invalidate();
+                }
+            }
+            else
+            {
+                statusText.Inlines.Clear();
+                statusText.Inlines.Add(new Run("User cancelled file dialog operation."));
+                statusText.Invalidate();
+            }
+        };
+
+        saveBtn.Click += async (s, e) =>
+        {
+            statusText.Inlines.Clear();
+            statusText.Inlines.Add(new Run("Launching save dialog..."));
+            statusText.Invalidate();
+
+            var picker = new FileSavePicker();
+            picker.FileTypeChoices.Add("Text Files", new List<string> { ".txt" });
+            picker.SuggestedFileName = "my_progpu_file.txt";
+            var file = await picker.PickSaveFileAsync();
+
+            if (file != null)
+            {
+                try
+                {
+                    string textToSave = editorText.Inlines.Count > 0 ? ((Run)editorText.Inlines[0]).Text : string.Empty;
+                    await file.WriteTextAsync(textToSave);
+                    statusText.Inlines.Clear();
+                    statusText.Inlines.Add(new Run($"Successfully saved file to: {file.Path}"));
+                    statusText.Invalidate();
+                }
+                catch (Exception ex)
+                {
+                    statusText.Inlines.Clear();
+                    statusText.Inlines.Add(new Run($"Error saving file: {ex.Message}"));
+                    statusText.Invalidate();
+                }
+            }
+            else
+            {
+                statusText.Inlines.Clear();
+                statusText.Inlines.Add(new Run("User cancelled save dialog."));
+                statusText.Invalidate();
+            }
+        };
+
+        folderBtn.Click += async (s, e) =>
+        {
+            statusText.Inlines.Clear();
+            statusText.Inlines.Add(new Run("Launching folder selection dialog..."));
+            statusText.Invalidate();
+
+            var picker = new FolderPicker();
+            var folder = await picker.PickSingleFolderAsync();
+
+            if (folder != null)
+            {
+                statusText.Inlines.Clear();
+                statusText.Inlines.Add(new Run($"Successfully selected directory: {folder.Path}"));
+                statusText.Invalidate();
+            }
+            else
+            {
+                statusText.Inlines.Clear();
+                statusText.Inlines.Add(new Run("User cancelled folder dialog."));
+                statusText.Invalidate();
+            }
+        };
+
+        return stack;
+    }
+
+    public static FrameworkElement CreateStylesShowcaseView()
+    {
+        var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
+
+        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        title.Inlines.Add(new Bold(new Run("Fluent WinUI Styles & Setter Engine")));
+        stack.AddChild(title);
+
+        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        description.Inlines.Add(new Run("Assign uniform looks to visual panels and buttons using C# styles. Below is a comparison between standard controls, and styled controls styled with setter objects."));
+        stack.AddChild(description);
+
+        var containerGrid = new ProGPU.WinUI.Grid();
+        containerGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        containerGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        // Column 0: Standard Unstyled Controls
+        var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(10f) };
+        var leftHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
+        leftHeader.Inlines.Add(new Bold(new Run("Standard Controls")));
+        leftStack.AddChild(leftHeader);
+
+        var normalBtn1 = new Button { Width = 160f, Height = 36f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 10f) };
+        var normalBtnText1 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        normalBtnText1.Inlines.Add(new Run("Default Button 1"));
+        normalBtn1.Content = normalBtnText1;
+        leftStack.AddChild(normalBtn1);
+
+        var normalBtn2 = new Button { Width = 160f, Height = 36f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 10f) };
+        var normalBtnText2 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        normalBtnText2.Inlines.Add(new Run("Default Button 2"));
+        normalBtn2.Content = normalBtnText2;
+        leftStack.AddChild(normalBtn2);
+
+        containerGrid.AddChild(leftStack);
+        ProGPU.WinUI.Grid.SetColumn(leftStack, 0);
+
+        // Column 1: Styled Controls
+        var rightStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(10f) };
+        var rightHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
+        rightHeader.Inlines.Add(new Bold(new Run("Styled via Reflection Setters")));
+        rightStack.AddChild(rightHeader);
+
+        // Create the Style instance
+        var buttonStyle = new Style(typeof(Button));
+        buttonStyle.Setters.Add(new Setter("Width", 200f));
+        buttonStyle.Setters.Add(new Setter("Height", 44f));
+        buttonStyle.Setters.Add(new Setter("CornerRadius", 10f));
+
+        var styledBtn1 = new Button { Margin = new Thickness(0, 0, 0, 10f) };
+        var styledBtnText1 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        styledBtnText1.Inlines.Add(new Run("Styled Premium Button 1"));
+        styledBtn1.Content = styledBtnText1;
+        styledBtn1.Style = buttonStyle; // Apply style
+        rightStack.AddChild(styledBtn1);
+
+        var styledBtn2 = new Button { Margin = new Thickness(0, 0, 0, 10f) };
+        var styledBtnText2 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        styledBtnText2.Inlines.Add(new Run("Styled Premium Button 2"));
+        styledBtn2.Content = styledBtnText2;
+        styledBtn2.Style = buttonStyle; // Apply style
+        rightStack.AddChild(styledBtn2);
+
+        containerGrid.AddChild(rightStack);
+        ProGPU.WinUI.Grid.SetColumn(rightStack, 1);
+
+        stack.AddChild(containerGrid);
+
+        return stack;
     }
 }
 

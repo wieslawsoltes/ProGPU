@@ -123,20 +123,33 @@ public class NavigationViewItem : Control
         var nav = FindParentNavigationView();
         bool isPaneOpen = nav?.IsPaneOpen ?? false;
         
+        var textPrimary = ThemeManager.GetBrush("TextPrimary");
+        var textSecondary = ThemeManager.GetBrush("TextSecondary");
+        var accentBrush = ThemeManager.GetBrush("SystemAccentColor");
+
+        var bgSelect = new SolidColorBrush(ThemeManager.CurrentTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.08f) : new Vector4(1f, 1f, 1f, 0.07f));
+        var bgHover = new SolidColorBrush(ThemeManager.CurrentTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.05f) : new Vector4(1f, 1f, 1f, 0.05f));
+
+        var primaryPen = new Pen(textPrimary, 1f);
+        var secondaryPen = new Pen(textSecondary, 1f);
+        var translucentPen = new Pen(new SolidColorBrush(ThemeManager.CurrentTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.4f) : new Vector4(1f, 1f, 1f, 0.4f)), 1f);
+        var translucentBrush = new SolidColorBrush(ThemeManager.CurrentTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.15f) : new Vector4(1f, 1f, 1f, 0.15f));
+        var translucentHeavyBrush = new SolidColorBrush(ThemeManager.CurrentTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.5f) : new Vector4(1f, 1f, 1f, 0.5f));
+
         // 1. Draw modern backgrounds depending on active selection or hover
         if (IsSelected)
         {
-            context.DrawRectangle(new SolidColorBrush(0xFFFFFF12), null, new Rect(0f, 0f, Size.X, Size.Y));
+            context.DrawRectangle(bgSelect, null, new Rect(0f, 0f, Size.X, Size.Y));
         }
         else if (IsPointerOver)
         {
-            context.DrawRectangle(new SolidColorBrush(0xFFFFFF0F), null, new Rect(0f, 0f, Size.X, Size.Y));
+            context.DrawRectangle(bgHover, null, new Rect(0f, 0f, Size.X, Size.Y));
         }
 
         // 2. Draw 3px left accent stripe indicator
         if (IsSelected)
         {
-            context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, new Rect(3f, 6f, 3f, Size.Y - 12f));
+            context.DrawRectangle(accentBrush, null, new Rect(3f, 6f, 3f, Size.Y - 12f));
         }
 
         var font = nav?.GetActiveFont();
@@ -145,7 +158,7 @@ public class NavigationViewItem : Control
             float startX = 16f + (Level * 16f); // nesting indentation
             float textY = (Size.Y - 14f) / 2f;
 
-            // 3. Draw Icon in white
+            // 3. Draw Icon
             if (!string.IsNullOrEmpty(Icon))
             {
                 float startY = (Size.Y - 16f) / 2f;
@@ -154,34 +167,30 @@ public class NavigationViewItem : Control
                 if (Icon == "🖱" || Text == "Basic Input")
                 {
                     // Clean computer mouse outline (rounded rect) with a scroll wheel line and active left click panel
-                    var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
                     var mouseOutline = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 10} Q {startX + 13} {startY + 1} {startX + 13} {startY + 4} V {startY + 12} Q {startX + 13} {startY + 15} {startX + 10} {startY + 15} H {startX + 6} Q {startX + 3} {startY + 15} {startX + 3} {startY + 12} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF15), pen, mouseOutline);
+                    context.DrawPath(translucentBrush, primaryPen, mouseOutline);
 
                     // Active left click panel (semi-translucent fill)
                     var leftClick = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 8} V {startY + 8} H {startX + 3} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF80), null, leftClick);
+                    context.DrawPath(translucentHeavyBrush, null, leftClick);
 
                     // Horizontal and vertical split lines
                     var splitLines = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 8} H {startX + 13} M {startX + 8} {startY + 1} V {startY + 8}"));
-                    context.DrawPath(null, pen, splitLines);
+                    context.DrawPath(null, primaryPen, splitLines);
 
                     // Scroll wheel
                     var wheel = PathGeometry.Parse(Invariant($"M {startX + 7.2f} {startY + 3} H {startX + 8.8f} V {startY + 6} H {startX + 7.2f} Z"));
-                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), null, wheel);
+                    context.DrawPath(textPrimary, null, wheel);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🔲" || Text == "Layout Panels")
                 {
                     // 2x2 grid of small rounded rectangles
-                    var gridBrush = new SolidColorBrush(0xFFFFFF30);
-                    var gridPen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
-
-                    context.DrawPath(gridBrush, gridPen, CreateRoundedRect(startX + 1f, startY + 1f, 6f, 6f, 1.5f));
-                    context.DrawPath(gridBrush, gridPen, CreateRoundedRect(startX + 9f, startY + 1f, 6f, 6f, 1.5f));
-                    context.DrawPath(gridBrush, gridPen, CreateRoundedRect(startX + 1f, startY + 9f, 6f, 6f, 1.5f));
-                    context.DrawPath(gridBrush, gridPen, CreateRoundedRect(startX + 9f, startY + 9f, 6f, 6f, 1.5f));
+                    context.DrawPath(translucentBrush, primaryPen, CreateRoundedRect(startX + 1f, startY + 1f, 6f, 6f, 1.5f));
+                    context.DrawPath(translucentBrush, primaryPen, CreateRoundedRect(startX + 9f, startY + 1f, 6f, 6f, 1.5f));
+                    context.DrawPath(translucentBrush, primaryPen, CreateRoundedRect(startX + 1f, startY + 9f, 6f, 6f, 1.5f));
+                    context.DrawPath(translucentBrush, primaryPen, CreateRoundedRect(startX + 9f, startY + 9f, 6f, 6f, 1.5f));
 
                     drewCustomIcon = true;
                 }
@@ -192,23 +201,21 @@ public class NavigationViewItem : Control
                     var docFold = PathGeometry.Parse(Invariant($"M {startX + 10} {startY + 1} V {startY + 5} H {startX + 14} Z"));
                     var docLines = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 8} H {startX + 12} M {startX + 4} {startY + 10} H {startX + 12} M {startX + 4} {startY + 12} H {startX + 9}"));
 
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF15), new Pen(new SolidColorBrush(0xFFFFFFFF), 1f), docOutline);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), new Pen(new SolidColorBrush(0xFFFFFFFF), 1f), docFold);
-                    context.DrawPath(null, new Pen(new SolidColorBrush(0xFFFFFFB0), 1f), docLines);
+                    context.DrawPath(translucentBrush, primaryPen, docOutline);
+                    context.DrawPath(textPrimary, primaryPen, docFold);
+                    context.DrawPath(null, translucentPen, docLines);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "📊" || Text == "Data Virtualization")
                 {
                     // Bar chart showing 3 ascending bars
-                    var axisPen = new Pen(new SolidColorBrush(0xFFFFFF60), 1f);
                     var axis = PathGeometry.Parse(Invariant($"M {startX} {startY + 15} H {startX + 16}"));
-                    context.DrawPath(null, axisPen, axis);
+                    context.DrawPath(null, secondaryPen, axis);
 
-                    var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF60), pen, CreateRoundedRect(startX + 1f, startY + 10f, 3f, 5f, 1f));
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF90), pen, CreateRoundedRect(startX + 6f, startY + 5f, 3f, 10f, 1f));
-                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), pen, CreateRoundedRect(startX + 11f, startY + 1f, 3f, 14f, 1f));
+                    context.DrawPath(translucentBrush, primaryPen, CreateRoundedRect(startX + 1f, startY + 10f, 3f, 5f, 1f));
+                    context.DrawPath(translucentHeavyBrush, primaryPen, CreateRoundedRect(startX + 6f, startY + 5f, 3f, 10f, 1f));
+                    context.DrawPath(textPrimary, primaryPen, CreateRoundedRect(startX + 11f, startY + 1f, 3f, 14f, 1f));
 
                     drewCustomIcon = true;
                 }
@@ -257,11 +264,11 @@ public class NavigationViewItem : Control
                     }
                     gearGeo.Figures.Add(gearFig);
 
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF30), new Pen(new SolidColorBrush(0xFFFFFFFF), 1f), gearGeo);
+                    context.DrawPath(translucentBrush, primaryPen, gearGeo);
 
                     // Draw inner hole circle of the gear:
                     var innerHole = PathGeometry.Parse(Invariant($"M {cx - 2f} {cy} Q {cx - 2f} {cy - 2f} {cx} {cy - 2f} Q {cx + 2f} {cy - 2f} {cx + 2f} {cy} Q {cx + 2f} {cy + 2f} {cx} {cy + 2f} Q {cx - 2f} {cy + 2f} {cx - 2f} {cy} Z"));
-                    context.DrawPath(null, new Pen(new SolidColorBrush(0xFFFFFFFF), 1f), innerHole);
+                    context.DrawPath(null, primaryPen, innerHole);
 
                     drewCustomIcon = true;
                 }
@@ -276,38 +283,31 @@ public class NavigationViewItem : Control
                     // Play symbol inside body
                     var playTriangle = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 8} L {startX + 11} {startY + 10.5f} L {startX + 6} {startY + 13} Z"));
 
-                    var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF15), pen, baseOutline);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF30), pen, capOutline);
-                    context.DrawPath(null, pen, clapperStripes);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), null, playTriangle);
+                    context.DrawPath(translucentBrush, primaryPen, baseOutline);
+                    context.DrawPath(translucentBrush, primaryPen, capOutline);
+                    context.DrawPath(null, primaryPen, clapperStripes);
+                    context.DrawPath(textPrimary, null, playTriangle);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🛠" || Text == "Advanced Controls")
                 {
                     // Crossed screwdriver and wrench
-                    // 1. Screwdriver (slanted handle and shaft)
                     var sdHandle = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 6} {startY + 10}"));
                     var sdShaft = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 10} L {startX + 12} {startY + 4}"));
                     var sdTip = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 4} L {startX + 14} {startY + 2}"));
 
-                    // 2. Wrench (slanted handle and open jaw head)
                     var wrHandle = PathGeometry.Parse(Invariant($"M {startX + 14} {startY + 14} L {startX + 8} {startY + 8}"));
                     var wrHead = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 6} {startY + 6} Q {startX + 2} {startY + 6} {startX + 2} {startY + 2} Q {startX + 6} {startY + 2} {startX + 6} {startY + 6} Z"));
                     
-                    var penThickness1 = new Pen(new SolidColorBrush(0xFFFFFFC0), 1f);
-                    var penThickness2 = new Pen(new SolidColorBrush(0xFFFFFFFF), 2f);
-                    var penActive = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
+                    var penThickness2 = new Pen(textPrimary, 2f);
 
-                    // Draw screwdriver
-                    context.DrawPath(null, new Pen(new SolidColorBrush(0x0078D4FF), 3f), sdHandle); // Blue handle
-                    context.DrawPath(null, penThickness1, sdShaft); // Metal shaft
+                    context.DrawPath(null, new Pen(accentBrush, 3f), sdHandle); // Accent handle
+                    context.DrawPath(null, translucentPen, sdShaft); // Metal shaft
                     context.DrawPath(null, penThickness2, sdTip); // Tip
 
-                    // Draw wrench
                     context.DrawPath(null, penThickness2, wrHandle); // Wrench handle
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF30), penActive, wrHead); // Open jaw head
+                    context.DrawPath(translucentBrush, primaryPen, wrHead); // Open jaw head
 
                     drewCustomIcon = true;
                 }
@@ -319,11 +319,69 @@ public class NavigationViewItem : Control
                     var blob2 = CreateRoundedRect(startX + 10f, startY + 5f, 2.5f, 2.5f, 1f);
                     var blob3 = CreateRoundedRect(startX + 9f, startY + 10f, 2.5f, 2.5f, 1f);
 
-                    var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFF15), pen, palette);
-                    context.DrawPath(new SolidColorBrush(0x0078D4FF), null, blob1);
-                    context.DrawPath(new SolidColorBrush(0x2B88D8FF), null, blob2);
-                    context.DrawPath(new SolidColorBrush(0xFFFFFFFF), null, blob3);
+                    context.DrawPath(translucentBrush, primaryPen, palette);
+                    context.DrawPath(accentBrush, null, blob1);
+                    context.DrawPath(new SolidColorBrush(new Vector4(0.2f, 0.7f, 0.3f, 1.0f)), null, blob2);
+                    context.DrawPath(textPrimary, null, blob3);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "🪟" || Text == "SplitView Layout")
+                {
+                    // Split panel layout: outer rect, vertical divider, right content lines
+                    var outer = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 2} H {startX + 14} V {startY + 14} H {startX + 2} Z"));
+                    var split = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 2} V {startY + 14}"));
+                    var lines = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 5} H {startX + 12} M {startX + 8} {startY + 8} H {startX + 12} M {startX + 8} {startY + 11} H {startX + 11}"));
+
+                    context.DrawPath(translucentBrush, primaryPen, outer);
+                    context.DrawPath(null, primaryPen, split);
+                    context.DrawPath(null, translucentPen, lines);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "🖼" || Icon == "🖼️" || Text == "Image & Buttons")
+                {
+                    // Mountain range image frame with a solid sun
+                    var outer = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 2} H {startX + 15} V {startY + 14} H {startX + 1} Z"));
+                    var mountains = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 11} L {startX + 6} {startY + 6} L {startX + 10} {startY + 10} L {startX + 13} {startY + 7} L {startX + 15} {startY + 9}"));
+                    var sun = PathGeometry.Parse(Invariant($"M {startX + 11} {startY + 5} Q {startX + 11} {startY + 3.5f} {startX + 12.5f} {startY + 3.5f} Q {startX + 14} {startY + 3.5f} {startX + 14} {startY + 5} Q {startX + 14} {startY + 6.5f} {startX + 12.5f} {startY + 6.5f} Q {startX + 11} {startY + 6.5f} {startX + 11} {startY + 5} Z"));
+
+                    context.DrawPath(translucentBrush, primaryPen, outer);
+                    context.DrawPath(null, primaryPen, mountains);
+                    context.DrawPath(textSecondary, null, sun);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "📐" || Text == "Drawing Context")
+                {
+                    // Ruler set-square triangle geometry
+                    var outer = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 14} V {startY + 2} L {startX + 13} {startY + 14} Z"));
+                    var inner = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 11} V {startY + 5} L {startX + 10} {startY + 11} Z"));
+
+                    context.DrawPath(translucentBrush, primaryPen, outer);
+                    context.DrawPath(null, primaryPen, inner);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "📁" || Text == "File Storage")
+                {
+                    // standard folder vector path
+                    var folder = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 3} H {startX + 6} L {startX + 8} {startY + 5} H {startX + 15} V {startY + 13} H {startX + 1} Z"));
+                    var line = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 6} H {startX + 15}"));
+
+                    context.DrawPath(translucentBrush, primaryPen, folder);
+                    context.DrawPath(null, translucentPen, line);
+
+                    drewCustomIcon = true;
+                }
+                else if (Icon == "💅" || Text == "Styles Showcase")
+                {
+                    // Paint brush shape
+                    var handle = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 8} {startY + 8}"));
+                    var head = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 12} {startY + 4} Q {startX + 15} {startY + 1} {startX + 15} {startY + 3} Q {startX + 13} {startY + 6} {startX + 10} {startY + 8} Z"));
+
+                    context.DrawPath(null, primaryPen, handle);
+                    context.DrawPath(accentBrush, primaryPen, head);
 
                     drewCustomIcon = true;
                 }
@@ -331,16 +389,16 @@ public class NavigationViewItem : Control
                 if (!drewCustomIcon)
                 {
                     // Fallback to text icon if not matched
-                    context.DrawText(Icon, font, 16f, new SolidColorBrush(0xFFFFFFFF), new Vector2(startX, startY));
+                    context.DrawText(Icon, font, 16f, textPrimary, new Vector2(startX, startY));
                 }
 
                 startX += 28f;
             }
 
-            // 4. Draw label text in white (or semi-translucent if unselected)
+            // 4. Draw label text in theme colors
             if (isPaneOpen && !string.IsNullOrEmpty(Text))
             {
-                var textBrush = IsSelected ? new SolidColorBrush(0xFFFFFFFF) : new SolidColorBrush(0xFFFFFFD0);
+                var textBrush = IsSelected ? textPrimary : textSecondary;
                 context.DrawText(Text, font, 14f, textBrush, new Vector2(startX, textY));
             }
 
@@ -348,7 +406,7 @@ public class NavigationViewItem : Control
             if (isPaneOpen && Items.Count > 0)
             {
                 string arrow = IsExpanded ? "▼" : "▶";
-                context.DrawText(arrow, font, 10f, new SolidColorBrush(0xFFFFFF80), new Vector2(Size.X - 24f, (Size.Y - 10f) / 2f));
+                context.DrawText(arrow, font, 10f, translucentHeavyBrush, new Vector2(Size.X - 24f, (Size.Y - 10f) / 2f));
             }
         }
 

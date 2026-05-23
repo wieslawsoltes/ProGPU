@@ -7,8 +7,50 @@ using Silk.NET.WebGPU;
 using ProGPU.Backend;
 using ProGPU.Text;
 using ProGPU.Vector;
+using ProGPU.WinUI;
 
 namespace ProGPU.Scene;
+
+[StructLayout(LayoutKind.Sequential, Pack = 16)]
+public struct GpuBrush
+{
+    public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial
+    public float Opacity;
+    public Vector2 StartPoint;
+    public Vector2 EndPoint;
+    public Vector2 Center;
+    public float Radius;
+    public uint StopCount;
+    public uint Pad;
+    
+    public Vector4 Color0;
+    public Vector4 Color1;
+    public Vector4 Color2;
+    public Vector4 Color3;
+    public Vector4 Offsets;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 16)]
+public struct GpuUniforms
+{
+    public Matrix4x4 Projection;
+    public GpuBrush Brush0;
+    public GpuBrush Brush1;
+    public GpuBrush Brush2;
+    public GpuBrush Brush3;
+    public GpuBrush Brush4;
+    public GpuBrush Brush5;
+    public GpuBrush Brush6;
+    public GpuBrush Brush7;
+    public GpuBrush Brush8;
+    public GpuBrush Brush9;
+    public GpuBrush Brush10;
+    public GpuBrush Brush11;
+    public GpuBrush Brush12;
+    public GpuBrush Brush13;
+    public GpuBrush Brush14;
+    public GpuBrush Brush15;
+}
 
 public unsafe class Compositor : IDisposable
 {
@@ -73,6 +115,7 @@ public unsafe class Compositor : IDisposable
     private readonly List<ushort> _textureIndicesList = new();
     private readonly List<CompositorDrawCall> _drawCalls = new();
     private readonly Dictionary<nint, nint> _textureBindGroups = new();
+    private readonly List<GpuBrush> _activeBrushes = new();
 
     private bool _isDisposed;
 
@@ -110,12 +153,12 @@ public unsafe class Compositor : IDisposable
         // 1. Initialize Glyph Atlas (1024x1024)
         _atlas = new GlyphAtlas(_context, 1024);
 
-        // 2. Uniform Buffer allocation (projection matrix - 64 bytes)
+        // 2. Uniform Buffer allocation (Projection Matrix & 16 Brushes - 2112 bytes)
         _uniformBuffer = new GpuBuffer(
             _context, 
-            64, 
+            2112, 
             BufferUsage.Uniform | BufferUsage.CopyDst, 
-            "Compositor Uniform Projection Buffer"
+            "Compositor Uniform Projection & Brushes Buffer"
         );
 
         // 3. Dynamic mesh buffer setup (Vertex format: VectorVertex)
@@ -157,12 +200,13 @@ public unsafe class Compositor : IDisposable
         var textShaderModule = _pipelineCache.GetOrCreateShader("Text", Shaders.TextShader, "TextShader");
         var texShaderModule = _pipelineCache.GetOrCreateShader("Texture", Shaders.TextureShader, "TextureShader");
 
-        // 6. Define Vertex Buffer Layout descriptors
+        // 6. Define Vertex Buffer Layout descriptors (format stride 36 bytes)
         var vertexAttribs = new VertexAttribute[]
         {
             new() { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }, // Position
             new() { Format = VertexFormat.Float32x4, Offset = 8, ShaderLocation = 1 }, // Color
-            new() { Format = VertexFormat.Float32x2, Offset = 24, ShaderLocation = 2 } // TexCoord
+            new() { Format = VertexFormat.Float32x2, Offset = 24, ShaderLocation = 2 }, // TexCoord
+            new() { Format = VertexFormat.Float32, Offset = 32, ShaderLocation = 3 } // BrushIndex
         };
 
         fixed (VertexAttribute* attribsPtr = vertexAttribs)
@@ -171,7 +215,7 @@ public unsafe class Compositor : IDisposable
             {
                 ArrayStride = (uint)Marshal.SizeOf<VectorVertex>(),
                 StepMode = VertexStepMode.Vertex,
-                AttributeCount = 3,
+                AttributeCount = 4,
                 Attributes = attribsPtr
             };
 
@@ -225,7 +269,7 @@ public unsafe class Compositor : IDisposable
             Binding = 0,
             Buffer = _uniformBuffer.BufferPtr,
             Offset = 0,
-            Size = 64
+            Size = 2112
         };
 
         var uDescVector = new BindGroupDescriptor
@@ -296,10 +340,8 @@ public unsafe class Compositor : IDisposable
             -1.0f, 1.0f, 0f, 1.0f
         );
 
-        // Write projection matrix to uniform buffer
-        _uniformBuffer.WriteSingle(projection);
-
-        // 2. Clear CPU collection batch lists
+        // 2. Clear CPU collection batch lists and active brushes
+        _activeBrushes.Clear();
         _vectorVerticesList.Clear();
         _vectorIndicesList.Clear();
         _textVerticesList.Clear();
@@ -429,40 +471,34 @@ public unsafe class Compositor : IDisposable
         // Upload CPU batches to dynamic GPU buffers
         if (_vectorVerticesList.Count > 0)
         {
-            if (_vectorIndicesList.Count % 2 == 1)
-            {
-                _vectorIndicesList.Add(_vectorIndicesList.Count > 0 ? _vectorIndicesList[^1] : (ushort)0);
-            }
             EnsureBufferSize(ref _vectorVertexBuffer, (uint)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
-            EnsureBufferSize(ref _vectorIndexBuffer, (uint)_vectorIndicesList.Count * 2, BufferUsage.Index);
-            
             _vectorVertexBuffer.Write(CollectionsMarshal.AsSpan(_vectorVerticesList));
+        }
+        if (_vectorIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _vectorIndexBuffer, (uint)_vectorIndicesList.Count * 2, BufferUsage.Index);
             _vectorIndexBuffer.Write(CollectionsMarshal.AsSpan(_vectorIndicesList));
         }
 
         if (_textVerticesList.Count > 0)
         {
-            if (_textIndicesList.Count % 2 == 1)
-            {
-                _textIndicesList.Add(_textIndicesList.Count > 0 ? _textIndicesList[^1] : (ushort)0);
-            }
             EnsureBufferSize(ref _textVertexBuffer, (uint)_textVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
-            EnsureBufferSize(ref _textIndexBuffer, (uint)_textIndicesList.Count * 2, BufferUsage.Index);
-
             _textVertexBuffer.Write(CollectionsMarshal.AsSpan(_textVerticesList));
+        }
+        if (_textIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textIndexBuffer, (uint)_textIndicesList.Count * 2, BufferUsage.Index);
             _textIndexBuffer.Write(CollectionsMarshal.AsSpan(_textIndicesList));
         }
 
         if (_textureVerticesList.Count > 0)
         {
-            if (_textureIndicesList.Count % 2 == 1)
-            {
-                _textureIndicesList.Add(_textureIndicesList.Count > 0 ? _textureIndicesList[^1] : (ushort)0);
-            }
             EnsureBufferSize(ref _textureVertexBuffer, (uint)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
-            EnsureBufferSize(ref _textureIndexBuffer, (uint)_textureIndicesList.Count * 2, BufferUsage.Index);
-
             _textureVertexBuffer.Write(CollectionsMarshal.AsSpan(_textureVerticesList));
+        }
+        if (_textureIndicesList.Count > 0)
+        {
+            EnsureBufferSize(ref _textureIndexBuffer, (uint)_textureIndicesList.Count * 2, BufferUsage.Index);
             _textureIndexBuffer.Write(CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
@@ -478,13 +514,14 @@ public unsafe class Compositor : IDisposable
         var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
+        var bgColor = ThemeManager.GetColor("PageBackground");
         var colorAttachment = new RenderPassColorAttachment
         {
             View = _msaaTextureView,
             ResolveTarget = targetView,
             LoadOp = LoadOp.Clear,
             StoreOp = StoreOp.Store,
-            ClearValue = new Color { R = 0.08, G = 0.08, B = 0.1, A = 1.0 } // Elegant dark blue UI background
+            ClearValue = new Color { R = bgColor.X, G = bgColor.Y, B = bgColor.Z, A = bgColor.W }
         };
 
         var passDesc = new RenderPassDescriptor
@@ -497,6 +534,7 @@ public unsafe class Compositor : IDisposable
         var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
 
         DrawCallType? currentType = null;
+        var textureEntries = stackalloc BindGroupEntry[2];
 
         foreach (var dc in _drawCalls)
         {
@@ -553,17 +591,17 @@ public unsafe class Compositor : IDisposable
 
                 if (!_textureBindGroups.TryGetValue(viewKey, out var bgPtrVal))
                 {
-                    var samplerEntry = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
-                    var viewEntry = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
-                    var entries = new BindGroupEntry[2] { samplerEntry, viewEntry };
+                    textureEntries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
+                    textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
 
-                    fixed (BindGroupEntry* pEntries = entries)
+                    var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = textureEntries };
+                    var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                    if (bg == null)
                     {
-                        var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = pEntries };
-                        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
-                        bgPtrVal = (nint)bg;
-                        _textureBindGroups[viewKey] = bgPtrVal;
+                        System.Console.WriteLine($"[Compositor Error] Failed to create BindGroup for TextureView {(nint)viewPtr}");
                     }
+                    bgPtrVal = (nint)bg;
+                    _textureBindGroups[viewKey] = bgPtrVal;
                 }
 
                 var bindGroup = (BindGroup*)bgPtrVal;
@@ -584,6 +622,16 @@ public unsafe class Compositor : IDisposable
 
         _context.Wgpu.CommandBufferRelease(cmdBuffer);
         _context.Wgpu.CommandEncoderRelease(encoder);
+
+        // Release and clear dynamic texture bind groups to avoid leaking or using stale view pointers on next frame
+        foreach (var bgVal in _textureBindGroups.Values)
+        {
+            if (bgVal != 0)
+            {
+                _context.Wgpu.BindGroupRelease((BindGroup*)bgVal);
+            }
+        }
+        _textureBindGroups.Clear();
     }
 
     private void PushClipRect(Rect localClip, Matrix4x4 transform)
@@ -661,6 +709,18 @@ public unsafe class Compositor : IDisposable
                 case RenderCommandType.PopClip:
                     PopClipRect();
                     break;
+                case RenderCommandType.DrawLine:
+                    CompileLineCommand(cmd, globalTransform);
+                    break;
+                case RenderCommandType.DrawEllipse:
+                    CompileEllipseCommand(cmd, globalTransform);
+                    break;
+                case RenderCommandType.DrawCircle:
+                    CompileCircleCommand(cmd, globalTransform);
+                    break;
+                case RenderCommandType.DrawRoundedRect:
+                    CompileRoundedRectCommand(cmd, globalTransform);
+                    break;
             }
         }
 
@@ -686,30 +746,30 @@ public unsafe class Compositor : IDisposable
 
         if (cmd.Brush != null)
         {
-            // Triangulate fill corners
+            float bIdx = RegisterBrush(cmd.Brush);
+            var solidColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
             var v0 = Vector2.Transform(new Vector2(r.X, r.Y), transform);
             var v1 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y), transform);
             var v2 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y + r.Height), transform);
             var v3 = Vector2.Transform(new Vector2(r.X, r.Y + r.Height), transform);
 
+            var local0 = new Vector2(r.X, r.Y);
+            var local1 = new Vector2(r.X + r.Width, r.Y);
+            var local2 = new Vector2(r.X + r.Width, r.Y + r.Height);
+            var local3 = new Vector2(r.X, r.Y + r.Height);
+
             ushort idxStart = (ushort)_vectorVerticesList.Count;
 
-            var c0 = ResolveGradientColor(cmd.Brush, new Vector2(r.X, r.Y));
-            var c1 = ResolveGradientColor(cmd.Brush, new Vector2(r.X + r.Width, r.Y));
-            var c2 = ResolveGradientColor(cmd.Brush, new Vector2(r.X + r.Width, r.Y + r.Height));
-            var c3 = ResolveGradientColor(cmd.Brush, new Vector2(r.X, r.Y + r.Height));
+            _vectorVerticesList.Add(new VectorVertex(v0, solidColor, local0, bIdx));
+            _vectorVerticesList.Add(new VectorVertex(v1, solidColor, local1, bIdx));
+            _vectorVerticesList.Add(new VectorVertex(v2, solidColor, local2, bIdx));
+            _vectorVerticesList.Add(new VectorVertex(v3, solidColor, local3, bIdx));
 
-            _vectorVerticesList.Add(new VectorVertex(v0, c0, Vector2.Zero));
-            _vectorVerticesList.Add(new VectorVertex(v1, c1, Vector2.Zero));
-            _vectorVerticesList.Add(new VectorVertex(v2, c2, Vector2.Zero));
-            _vectorVerticesList.Add(new VectorVertex(v3, c3, Vector2.Zero));
-
-            // Triangle 1
             _vectorIndicesList.Add(idxStart);
             _vectorIndicesList.Add((ushort)(idxStart + 1));
             _vectorIndicesList.Add((ushort)(idxStart + 2));
 
-            // Triangle 2
             _vectorIndicesList.Add(idxStart);
             _vectorIndicesList.Add((ushort)(idxStart + 2));
             _vectorIndicesList.Add((ushort)(idxStart + 3));
@@ -718,6 +778,9 @@ public unsafe class Compositor : IDisposable
         if (cmd.Pen != null)
         {
             int penStartIndex = _vectorVerticesList.Count;
+            float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(1f, 1f, 1f, 1f);
+
             var outline = new List<Vector2>
             {
                 new(r.X, r.Y),
@@ -726,10 +789,6 @@ public unsafe class Compositor : IDisposable
                 new(r.X, r.Y + r.Height)
             };
 
-            var penBrush = cmd.Pen.Brush as SolidColorBrush;
-            var penColor = penBrush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
-
-            // CPU-side transform of outlines
             var transformedOutline = new List<Vector2>(outline.Count);
             foreach (var p in outline)
             {
@@ -739,7 +798,7 @@ public unsafe class Compositor : IDisposable
             StrokeTessellator.TessellateStroke(
                 transformedOutline,
                 cmd.Pen.Thickness,
-                penColor,
+                penSolidColor,
                 isClosed: true,
                 _vectorVerticesList,
                 _vectorIndicesList
@@ -750,8 +809,8 @@ public unsafe class Compositor : IDisposable
                 for (int i = penStartIndex; i < _vectorVerticesList.Count; i++)
                 {
                     var v = _vectorVerticesList[i];
-                    var localPt = Vector2.Transform(v.Position, invTransform);
-                    v.Color = ResolveGradientColor(cmd.Pen.Brush, localPt);
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = penBrushIdx;
                     _vectorVerticesList[i] = v;
                 }
             }
@@ -776,8 +835,8 @@ public unsafe class Compositor : IDisposable
 
         if (cmd.Brush != null)
         {
-            var brush = cmd.Brush as SolidColorBrush;
-            var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
+            float bIdx = RegisterBrush(cmd.Brush);
+            var solidColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
 
             foreach (var contour in flattened)
             {
@@ -789,7 +848,7 @@ public unsafe class Compositor : IDisposable
 
                 FillTessellator.TessellateFill(
                     transContour,
-                    color,
+                    solidColor,
                     _vectorVerticesList,
                     _vectorIndicesList
                 );
@@ -800,8 +859,8 @@ public unsafe class Compositor : IDisposable
                 for (int i = startIndex; i < _vectorVerticesList.Count; i++)
                 {
                     var v = _vectorVerticesList[i];
-                    var localPt = Vector2.Transform(v.Position, invTransform);
-                    v.Color = ResolveGradientColor(cmd.Brush, localPt);
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = bIdx;
                     _vectorVerticesList[i] = v;
                 }
             }
@@ -810,8 +869,8 @@ public unsafe class Compositor : IDisposable
         if (cmd.Pen != null)
         {
             int penStartIndex = _vectorVerticesList.Count;
-            var penBrush = cmd.Pen.Brush as SolidColorBrush;
-            var penColor = penBrush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
+            float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
 
             foreach (var figure in cmd.Path.Figures)
             {
@@ -825,7 +884,7 @@ public unsafe class Compositor : IDisposable
                 StrokeTessellator.TessellateStroke(
                     transContour,
                     cmd.Pen.Thickness,
-                    penColor,
+                    penSolidColor,
                     figure.IsClosed,
                     _vectorVerticesList,
                     _vectorIndicesList
@@ -837,8 +896,8 @@ public unsafe class Compositor : IDisposable
                 for (int i = penStartIndex; i < _vectorVerticesList.Count; i++)
                 {
                     var v = _vectorVerticesList[i];
-                    var localPt = Vector2.Transform(v.Position, invTransform);
-                    v.Color = ResolveGradientColor(cmd.Pen.Brush, localPt);
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = penBrushIdx;
                     _vectorVerticesList[i] = v;
                 }
             }
@@ -853,6 +912,318 @@ public unsafe class Compositor : IDisposable
                 _vectorVerticesList[i] = v;
             }
         }
+    }
+
+    private void CompileLineCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Pen == null) return;
+        int startIndex = _vectorVerticesList.Count;
+        float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+        var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+        var path = new List<Vector2> { cmd.Position, cmd.Position2 };
+        var transPath = new List<Vector2>
+        {
+            Vector2.Transform(path[0], transform),
+            Vector2.Transform(path[1], transform)
+        };
+
+        StrokeTessellator.TessellateStroke(
+            transPath,
+            cmd.Pen.Thickness,
+            penSolidColor,
+            isClosed: false,
+            _vectorVerticesList,
+            _vectorIndicesList
+        );
+
+        if (Matrix4x4.Invert(transform, out var invTransform))
+        {
+            for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+            {
+                var v = _vectorVerticesList[i];
+                v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                v.BrushIndex = penBrushIdx;
+                _vectorVerticesList[i] = v;
+            }
+        }
+
+        if (_activeClipRect.HasValue)
+        {
+            for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+            {
+                var v = _vectorVerticesList[i];
+                v.Position = ClampToClip(v.Position);
+                _vectorVerticesList[i] = v;
+            }
+        }
+    }
+
+    private void CompileEllipseCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        int startIndex = _vectorVerticesList.Count;
+        var center = cmd.Position2;
+        var rx = cmd.RadiusX;
+        var ry = cmd.RadiusY;
+
+        var points = new List<Vector2>(64);
+        for (int i = 0; i < 64; i++)
+        {
+            float angle = (float)(i * 2 * Math.PI / 64);
+            points.Add(new Vector2(center.X + rx * (float)Math.Cos(angle), center.Y + ry * (float)Math.Sin(angle)));
+        }
+
+        if (cmd.Brush != null)
+        {
+            float bIdx = RegisterBrush(cmd.Brush);
+            var solidColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+            var transPoints = new List<Vector2>(64);
+            foreach (var pt in points) transPoints.Add(Vector2.Transform(pt, transform));
+
+            FillTessellator.TessellateFill(transPoints, solidColor, _vectorVerticesList, _vectorIndicesList);
+
+            if (Matrix4x4.Invert(transform, out var invTransform))
+            {
+                for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+                {
+                    var v = _vectorVerticesList[i];
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = bIdx;
+                    _vectorVerticesList[i] = v;
+                }
+            }
+        }
+
+        if (cmd.Pen != null)
+        {
+            int penStartIndex = _vectorVerticesList.Count;
+            float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+            var transPoints = new List<Vector2>(64);
+            foreach (var pt in points) transPoints.Add(Vector2.Transform(pt, transform));
+
+            StrokeTessellator.TessellateStroke(
+                transPoints,
+                cmd.Pen.Thickness,
+                penSolidColor,
+                isClosed: true,
+                _vectorVerticesList,
+                _vectorIndicesList
+            );
+
+            if (Matrix4x4.Invert(transform, out var invTransform))
+            {
+                for (int i = penStartIndex; i < _vectorVerticesList.Count; i++)
+                {
+                    var v = _vectorVerticesList[i];
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = penBrushIdx;
+                    _vectorVerticesList[i] = v;
+                }
+            }
+        }
+
+        if (_activeClipRect.HasValue)
+        {
+            for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+            {
+                var v = _vectorVerticesList[i];
+                v.Position = ClampToClip(v.Position);
+                _vectorVerticesList[i] = v;
+            }
+        }
+    }
+
+    private void CompileCircleCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        cmd.RadiusY = cmd.RadiusX;
+        CompileEllipseCommand(cmd, transform);
+    }
+
+    private void CompileRoundedRectCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        int startIndex = _vectorVerticesList.Count;
+        var r = cmd.Rect;
+        var radius = Math.Min(cmd.RadiusX, Math.Min(r.Width / 2f, r.Height / 2f));
+
+        if (radius <= 0f)
+        {
+            CompileRectCommand(cmd, transform);
+            return;
+        }
+
+        var points = new List<Vector2>(32);
+        
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = (float)(Math.PI + i * Math.PI / 2.0 / 7.0);
+            points.Add(new Vector2(r.X + radius + radius * (float)Math.Cos(angle), r.Y + radius + radius * (float)Math.Sin(angle)));
+        }
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = (float)(1.5 * Math.PI + i * Math.PI / 2.0 / 7.0);
+            points.Add(new Vector2(r.X + r.Width - radius + radius * (float)Math.Cos(angle), r.Y + radius + radius * (float)Math.Sin(angle)));
+        }
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = (float)(0.0 + i * Math.PI / 2.0 / 7.0);
+            points.Add(new Vector2(r.X + r.Width - radius + radius * (float)Math.Cos(angle), r.Y + r.Height - radius + radius * (float)Math.Sin(angle)));
+        }
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = (float)(0.5 * Math.PI + i * Math.PI / 2.0 / 7.0);
+            points.Add(new Vector2(r.X + radius + radius * (float)Math.Cos(angle), r.Y + r.Height - radius + radius * (float)Math.Sin(angle)));
+        }
+
+        if (cmd.Brush != null)
+        {
+            float bIdx = RegisterBrush(cmd.Brush);
+            var solidColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+            var transPoints = new List<Vector2>(32);
+            foreach (var pt in points) transPoints.Add(Vector2.Transform(pt, transform));
+
+            FillTessellator.TessellateFill(transPoints, solidColor, _vectorVerticesList, _vectorIndicesList);
+
+            if (Matrix4x4.Invert(transform, out var invTransform))
+            {
+                for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+                {
+                    var v = _vectorVerticesList[i];
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = bIdx;
+                    _vectorVerticesList[i] = v;
+                }
+            }
+        }
+
+        if (cmd.Pen != null)
+        {
+            int penStartIndex = _vectorVerticesList.Count;
+            float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+            var transPoints = new List<Vector2>(32);
+            foreach (var pt in points) transPoints.Add(Vector2.Transform(pt, transform));
+
+            StrokeTessellator.TessellateStroke(
+                transPoints,
+                cmd.Pen.Thickness,
+                penSolidColor,
+                isClosed: true,
+                _vectorVerticesList,
+                _vectorIndicesList
+            );
+
+            if (Matrix4x4.Invert(transform, out var invTransform))
+            {
+                for (int i = penStartIndex; i < _vectorVerticesList.Count; i++)
+                {
+                    var v = _vectorVerticesList[i];
+                    v.TexCoord = Vector2.Transform(v.Position, invTransform);
+                    v.BrushIndex = penBrushIdx;
+                    _vectorVerticesList[i] = v;
+                }
+            }
+        }
+
+        if (_activeClipRect.HasValue)
+        {
+            for (int i = startIndex; i < _vectorVerticesList.Count; i++)
+            {
+                var v = _vectorVerticesList[i];
+                v.Position = ClampToClip(v.Position);
+                _vectorVerticesList[i] = v;
+            }
+        }
+    }
+
+    private float RegisterBrush(Brush? brush)
+    {
+        if (brush == null) return 0f;
+        
+        GpuBrush gpuBrush = new GpuBrush();
+        gpuBrush.Opacity = brush.Opacity;
+
+        if (brush is SolidColorBrush solid)
+        {
+            gpuBrush.Type = 0;
+            gpuBrush.Color0 = solid.Color;
+        }
+        else if (brush is LinearGradientBrush linear)
+        {
+            gpuBrush.Type = 1;
+            gpuBrush.StartPoint = linear.StartPoint;
+            gpuBrush.EndPoint = linear.EndPoint;
+            if (linear.Stops != null)
+            {
+                gpuBrush.StopCount = (uint)Math.Min(4, linear.Stops.Length);
+                if (gpuBrush.StopCount > 0) gpuBrush.Color0 = linear.Stops[0].Color;
+                if (gpuBrush.StopCount > 1) gpuBrush.Color1 = linear.Stops[1].Color;
+                if (gpuBrush.StopCount > 2) gpuBrush.Color2 = linear.Stops[2].Color;
+                if (gpuBrush.StopCount > 3) gpuBrush.Color3 = linear.Stops[3].Color;
+
+                float o0 = gpuBrush.StopCount > 0 ? linear.Stops[0].Offset : 0f;
+                float o1 = gpuBrush.StopCount > 1 ? linear.Stops[1].Offset : 1f;
+                float o2 = gpuBrush.StopCount > 2 ? linear.Stops[2].Offset : 1f;
+                float o3 = gpuBrush.StopCount > 3 ? linear.Stops[3].Offset : 1f;
+                gpuBrush.Offsets = new Vector4(o0, o1, o2, o3);
+            }
+        }
+        else if (brush is RadialGradientBrush radial)
+        {
+            gpuBrush.Type = 2;
+            gpuBrush.Center = radial.Center;
+            gpuBrush.Radius = radial.Radius;
+            if (radial.Stops != null)
+            {
+                gpuBrush.StopCount = (uint)Math.Min(4, radial.Stops.Length);
+                if (gpuBrush.StopCount > 0) gpuBrush.Color0 = radial.Stops[0].Color;
+                if (gpuBrush.StopCount > 1) gpuBrush.Color1 = radial.Stops[1].Color;
+                if (gpuBrush.StopCount > 2) gpuBrush.Color2 = radial.Stops[2].Color;
+                if (gpuBrush.StopCount > 3) gpuBrush.Color3 = radial.Stops[3].Color;
+
+                float o0 = gpuBrush.StopCount > 0 ? radial.Stops[0].Offset : 0f;
+                float o1 = gpuBrush.StopCount > 1 ? radial.Stops[1].Offset : 1f;
+                float o2 = gpuBrush.StopCount > 2 ? radial.Stops[2].Offset : 1f;
+                float o3 = gpuBrush.StopCount > 3 ? radial.Stops[3].Offset : 1f;
+                gpuBrush.Offsets = new Vector4(o0, o1, o2, o3);
+            }
+        }
+
+        for (int i = 0; i < _activeBrushes.Count; i++)
+        {
+            if (BrushesEqual(_activeBrushes[i], gpuBrush))
+            {
+                return (float)i;
+            }
+        }
+
+        if (_activeBrushes.Count < 16)
+        {
+            _activeBrushes.Add(gpuBrush);
+            return (float)(_activeBrushes.Count - 1);
+        }
+
+        return 0f;
+    }
+
+    private bool BrushesEqual(GpuBrush a, GpuBrush b)
+    {
+        return a.Type == b.Type &&
+               a.Opacity == b.Opacity &&
+               a.StartPoint == b.StartPoint &&
+               a.EndPoint == b.EndPoint &&
+               a.Center == b.Center &&
+               a.Radius == b.Radius &&
+               a.StopCount == b.StopCount &&
+               a.Color0 == b.Color0 &&
+               a.Color1 == b.Color1 &&
+               a.Color2 == b.Color2 &&
+               a.Color3 == b.Color3 &&
+               a.Offsets == b.Offsets;
     }
 
     private void CompileTextCommand(RenderCommand cmd, TextVisual? textNode, Matrix4x4 transform)
@@ -872,6 +1243,7 @@ public unsafe class Compositor : IDisposable
 
         if (layout == null) return;
 
+        float bIdx = RegisterBrush(cmd.Brush);
         var brush = cmd.Brush as SolidColorBrush;
         var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
 
@@ -953,10 +1325,10 @@ public unsafe class Compositor : IDisposable
                     v3 = new Vector2(cx1, cy2);
                 }
 
-                _textVerticesList.Add(new VectorVertex(v0, color, uv0));
-                _textVerticesList.Add(new VectorVertex(v1, color, uv1));
-                _textVerticesList.Add(new VectorVertex(v2, color, uv2));
-                _textVerticesList.Add(new VectorVertex(v3, color, uv3));
+                _textVerticesList.Add(new VectorVertex(v0, color, uv0, bIdx));
+                _textVerticesList.Add(new VectorVertex(v1, color, uv1, bIdx));
+                _textVerticesList.Add(new VectorVertex(v2, color, uv2, bIdx));
+                _textVerticesList.Add(new VectorVertex(v3, color, uv3, bIdx));
 
                 // Quads Triangle Indices
                 _textIndicesList.Add(idxStart);
@@ -1042,7 +1414,6 @@ public unsafe class Compositor : IDisposable
     {
         if (buffer.Size >= requiredSize) return;
 
-        // Resize buffer (double or pad size)
         uint newSize = Math.Max(buffer.Size * 2, requiredSize);
         buffer.Dispose();
         
@@ -1162,68 +1533,6 @@ public unsafe class Compositor : IDisposable
         float x = Math.Max(r.X, Math.Min(r.X + r.Width, p.X));
         float y = Math.Max(r.Y, Math.Min(r.Y + r.Height, p.Y));
         return new Vector2(x, y);
-    }
-
-    private Vector4 ResolveGradientColor(Brush brush, Vector2 localPos)
-    {
-        if (brush is SolidColorBrush solid)
-        {
-            return solid.Color;
-        }
-        else if (brush is LinearGradientBrush linear)
-        {
-            if (linear.Stops == null || linear.Stops.Length == 0) return new Vector4(1f, 1f, 1f, 1f);
-            if (linear.Stops.Length == 1) return linear.Stops[0].Color;
-
-            var start = linear.StartPoint;
-            var end = linear.EndPoint;
-            var gradVec = end - start;
-            float lenSq = gradVec.LengthSquared();
-            if (lenSq < 1e-6f) return linear.Stops[0].Color;
-
-            float t = Vector2.Dot(localPos - start, gradVec) / lenSq;
-            t = Math.Clamp(t, 0f, 1f);
-
-            return InterpolateStops(linear.Stops, t) * linear.Opacity;
-        }
-        else if (brush is RadialGradientBrush radial)
-        {
-            if (radial.Stops == null || radial.Stops.Length == 0) return new Vector4(1f, 1f, 1f, 1f);
-            if (radial.Stops.Length == 1) return radial.Stops[0].Color;
-
-            float dist = Vector2.Distance(localPos, radial.Center);
-            float r = radial.Radius;
-            float t = r > 1e-6f ? dist / r : 0f;
-            t = Math.Clamp(t, 0f, 1f);
-
-            return InterpolateStops(radial.Stops, t) * radial.Opacity;
-        }
-
-        return new Vector4(1f, 1f, 1f, 1f);
-    }
-
-    private Vector4 InterpolateStops(GradientStop[] stops, float t)
-    {
-        int n = stops.Length;
-        GradientStop lower = stops[0];
-        GradientStop upper = stops[n - 1];
-
-        if (t <= lower.Offset) return lower.Color;
-        if (t >= upper.Offset) return upper.Color;
-
-        for (int i = 0; i < n - 1; i++)
-        {
-            if (t >= stops[i].Offset && t <= stops[i+1].Offset)
-            {
-                lower = stops[i];
-                upper = stops[i+1];
-                break;
-            }
-        }
-
-        float range = upper.Offset - lower.Offset;
-        float factor = range > 1e-6f ? (t - lower.Offset) / range : 0f;
-        return Vector4.Lerp(lower.Color, upper.Color, factor);
     }
 
     ~Compositor()

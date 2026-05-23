@@ -1,0 +1,328 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ProGPU.WinUI;
+
+public class StorageFile
+{
+    public string Path { get; }
+    public string Name => System.IO.Path.GetFileName(Path);
+    public string FileType => System.IO.Path.GetExtension(Path);
+
+    public StorageFile(string path)
+    {
+        Path = path;
+    }
+
+    public async Task<string> ReadTextAsync()
+    {
+        return await File.ReadAllTextAsync(Path);
+    }
+
+    public async Task WriteTextAsync(string text)
+    {
+        await File.WriteAllTextAsync(Path, text);
+    }
+
+    public static Task<StorageFile> GetFileFromPathAsync(string path)
+    {
+        return Task.FromResult(new StorageFile(path));
+    }
+}
+
+public class StorageFolder
+{
+    public string Path { get; }
+    public string Name => System.IO.Path.GetFileName(Path);
+
+    public StorageFolder(string path)
+    {
+        Path = path;
+    }
+
+    public Task<IReadOnlyList<StorageFile>> GetFilesAsync()
+    {
+        var files = new List<StorageFile>();
+        if (Directory.Exists(Path))
+        {
+            foreach (var file in Directory.GetFiles(Path))
+            {
+                files.Add(new StorageFile(file));
+            }
+        }
+        return Task.FromResult<IReadOnlyList<StorageFile>>(files);
+    }
+
+    public Task<IReadOnlyList<StorageFolder>> GetFoldersAsync()
+    {
+        var folders = new List<StorageFolder>();
+        if (Directory.Exists(Path))
+        {
+            foreach (var dir in Directory.GetDirectories(Path))
+            {
+                folders.Add(new StorageFolder(dir));
+            }
+        }
+        return Task.FromResult<IReadOnlyList<StorageFolder>>(folders);
+    }
+
+    public async Task<StorageFile> CreateFileAsync(string desiredName)
+    {
+        var fullPath = System.IO.Path.Combine(Path, desiredName);
+        await File.WriteAllTextAsync(fullPath, string.Empty);
+        return new StorageFile(fullPath);
+    }
+
+    public static Task<StorageFolder> GetFolderFromPathAsync(string path)
+    {
+        return Task.FromResult(new StorageFolder(path));
+    }
+}
+
+public class FileOpenPicker
+{
+    public List<string> FileTypeFilter { get; } = new();
+    public string SuggestedStartLocation { get; set; } = string.Empty;
+
+    public async Task<StorageFile?> PickSingleFileAsync()
+    {
+        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Open, FileTypeFilter);
+        return string.IsNullOrEmpty(result) ? null : new StorageFile(result);
+    }
+}
+
+public class FileSavePicker
+{
+    public Dictionary<string, IList<string>> FileTypeChoices { get; } = new();
+    public string SuggestedFileName { get; set; } = "untitled.txt";
+    public string SuggestedStartLocation { get; set; } = string.Empty;
+
+    public async Task<StorageFile?> PickSaveFileAsync()
+    {
+        var allowedTypes = new List<string>();
+        foreach (var choice in FileTypeChoices.Values)
+        {
+            allowedTypes.AddRange(choice);
+        }
+        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Save, allowedTypes, SuggestedFileName);
+        return string.IsNullOrEmpty(result) ? null : new StorageFile(result);
+    }
+}
+
+public class FolderPicker
+{
+    public List<string> FileTypeFilter { get; } = new();
+    public string SuggestedStartLocation { get; set; } = string.Empty;
+
+    public async Task<StorageFolder?> PickSingleFolderAsync()
+    {
+        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Folder, null);
+        return string.IsNullOrEmpty(result) ? null : new StorageFolder(result);
+    }
+}
+
+internal enum PickerMode
+{
+    Open,
+    Save,
+    Folder
+}
+
+internal static class StoragePickerHelper
+{
+    public static async Task<string?> RunPickerAsync(PickerMode mode, List<string>? fileTypes, string? defaultName = null)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return await RunMacPickerAsync(mode, fileTypes, defaultName);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return await RunWindowsPickerAsync(mode, fileTypes, defaultName);
+        }
+        else
+        {
+            return await RunLinuxPickerAsync(mode, fileTypes, defaultName);
+        }
+    }
+
+    private static async Task<string?> RunMacPickerAsync(PickerMode mode, List<string>? fileTypes, string? defaultName)
+    {
+        string script = "";
+        if (mode == PickerMode.Open)
+        {
+            var typesStr = "";
+            if (fileTypes != null && fileTypes.Count > 0 && !fileTypes.Contains("*"))
+            {
+                var cleanTypes = new List<string>();
+                foreach (var t in fileTypes)
+                {
+                    var ct = t.Replace(".", "").Trim();
+                    if (!string.IsNullOrEmpty(ct)) cleanTypes.Add($"\"{ct}\"");
+                }
+                if (cleanTypes.Count > 0)
+                {
+                    typesStr = $"of type {{{string.Join(", ", cleanTypes)}}} ";
+                }
+            }
+            script = $"POSIX path of (choose file {typesStr}with prompt \"Select a file\")";
+        }
+        else if (mode == PickerMode.Save)
+        {
+            var df = defaultName ?? "untitled.txt";
+            script = $"POSIX path of (choose file name default name \"{df}\" with prompt \"Save As\")";
+        }
+        else if (mode == PickerMode.Folder)
+        {
+            script = "POSIX path of (choose folder with prompt \"Select a folder\")";
+        }
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "osascript",
+                    Arguments = $"-e \"{script.Replace("\"", "\\\"")}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode == 0)
+            {
+                return output.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Mac File Picker failed: {ex.Message}");
+        }
+        return null;
+    }
+
+    private static async Task<string?> RunWindowsPickerAsync(PickerMode mode, List<string>? fileTypes, string? defaultName)
+    {
+        var psCommand = new StringBuilder();
+        psCommand.Append("Add-Type -AssemblyName System.Windows.Forms; ");
+        if (mode == PickerMode.Open)
+        {
+            psCommand.Append("$f = New-Object System.Windows.Forms.OpenFileDialog; ");
+            var filter = "All Files (*.*)|*.*";
+            if (fileTypes != null && fileTypes.Count > 0)
+            {
+                var extensions = string.Join(";", fileTypes);
+                filter = $"Selected Files ({extensions})|{extensions}|All Files (*.*)|*.*";
+            }
+            psCommand.Append($"$f.Filter = '{filter}'; ");
+            psCommand.Append("if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }");
+        }
+        else if (mode == PickerMode.Save)
+        {
+            psCommand.Append("$f = New-Object System.Windows.Forms.SaveFileDialog; ");
+            if (!string.IsNullOrEmpty(defaultName))
+            {
+                psCommand.Append($"$f.FileName = '{defaultName}'; ");
+            }
+            psCommand.Append("if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }");
+        }
+        else if (mode == PickerMode.Folder)
+        {
+            psCommand.Append("$f = New-Object System.Windows.Forms.FolderBrowserDialog; ");
+            psCommand.Append("if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }");
+        }
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "powershell",
+                    Arguments = $"-NoProfile -NonInteractive -Command \"{psCommand}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode == 0)
+            {
+                return output.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Windows PowerShell File Picker failed: {ex.Message}");
+        }
+        return null;
+    }
+
+    private static async Task<string?> RunLinuxPickerAsync(PickerMode mode, List<string>? fileTypes, string? defaultName)
+    {
+        var args = new List<string> { "--file-selection" };
+        if (mode == PickerMode.Open)
+        {
+            args.Add("--title=\"Select a file\"");
+        }
+        else if (mode == PickerMode.Save)
+        {
+            args.Add("--save");
+            args.Add("--confirm-overwrite");
+            args.Add("--title=\"Save As\"");
+            if (!string.IsNullOrEmpty(defaultName))
+            {
+                args.Add($"--filename=\"{defaultName}\"");
+            }
+        }
+        else if (mode == PickerMode.Folder)
+        {
+            args.Add("--directory");
+            args.Add("--title=\"Select a folder\"");
+        }
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "zenity",
+                    Arguments = string.Join(" ", args),
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode == 0)
+            {
+                return output.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Linux Zenity File Picker failed: {ex.Message}");
+        }
+        return null;
+    }
+}
