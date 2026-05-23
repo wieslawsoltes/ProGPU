@@ -502,6 +502,27 @@ public unsafe class Compositor : IDisposable
             _textureIndexBuffer.Write(CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
+        // Upload unified projection matrix and compiled brushes to GpuUniforms
+        var uniforms = new GpuUniforms();
+        uniforms.Projection = projection;
+        if (_activeBrushes.Count > 0) uniforms.Brush0 = _activeBrushes[0];
+        if (_activeBrushes.Count > 1) uniforms.Brush1 = _activeBrushes[1];
+        if (_activeBrushes.Count > 2) uniforms.Brush2 = _activeBrushes[2];
+        if (_activeBrushes.Count > 3) uniforms.Brush3 = _activeBrushes[3];
+        if (_activeBrushes.Count > 4) uniforms.Brush4 = _activeBrushes[4];
+        if (_activeBrushes.Count > 5) uniforms.Brush5 = _activeBrushes[5];
+        if (_activeBrushes.Count > 6) uniforms.Brush6 = _activeBrushes[6];
+        if (_activeBrushes.Count > 7) uniforms.Brush7 = _activeBrushes[7];
+        if (_activeBrushes.Count > 8) uniforms.Brush8 = _activeBrushes[8];
+        if (_activeBrushes.Count > 9) uniforms.Brush9 = _activeBrushes[9];
+        if (_activeBrushes.Count > 10) uniforms.Brush10 = _activeBrushes[10];
+        if (_activeBrushes.Count > 11) uniforms.Brush11 = _activeBrushes[11];
+        if (_activeBrushes.Count > 12) uniforms.Brush12 = _activeBrushes[12];
+        if (_activeBrushes.Count > 13) uniforms.Brush13 = _activeBrushes[13];
+        if (_activeBrushes.Count > 14) uniforms.Brush14 = _activeBrushes[14];
+        if (_activeBrushes.Count > 15) uniforms.Brush15 = _activeBrushes[15];
+        _uniformBuffer.WriteSingle(uniforms);
+
         // Recreate MSAA resources if needed (handles initialization and window resizing)
         if (_msaaTexture == null || _msaaWidth != width || _msaaHeight != height)
         {
