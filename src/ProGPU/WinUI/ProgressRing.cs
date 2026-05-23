@@ -28,6 +28,8 @@ public class ProgressRing : Control
     {
         Width = 32f;
         Height = 32f;
+        HorizontalAlignment = HorizontalAlignment.Center;
+        VerticalAlignment = VerticalAlignment.Center;
         Background = new SolidColorBrush(0x00000000); // Fully transparent container
         BorderBrush = new SolidColorBrush(0x0078D4FF); // Segoe Accent Blue dots
     }

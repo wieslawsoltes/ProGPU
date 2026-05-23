@@ -1061,6 +1061,7 @@ public static unsafe class Program
     private static void OnWindowUpdate(double delta)
     {
         _rootGrid?.UpdateAnimations((float)delta);
+        _rootGrid?.UpdateSampleAnimations((float)delta);
         _rootGrid?.Invalidate();
 
         if (_animateGear)
@@ -1568,7 +1569,7 @@ public interface IAnimatedElement
 
 public static class VisualExtensions
 {
-    public static void UpdateAnimations(this Visual visual, float delta)
+    public static void UpdateSampleAnimations(this Visual visual, float delta)
     {
         if (visual == null) return;
 
@@ -1584,7 +1585,7 @@ public static class VisualExtensions
             {
                 if (i < container.Children.Count)
                 {
-                    container.Children[i].UpdateAnimations(delta);
+                    container.Children[i].UpdateSampleAnimations(delta);
                 }
             }
         }

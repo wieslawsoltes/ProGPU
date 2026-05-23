@@ -42,6 +42,7 @@ public class ScrollViewer : Control
             if (_verticalOffset != clamped)
             {
                 _verticalOffset = clamped;
+                PopupService.DismissNonDialogPopups();
                 Invalidate();
             }
         }
@@ -57,6 +58,7 @@ public class ScrollViewer : Control
             if (_horizontalOffset != clamped)
             {
                 _horizontalOffset = clamped;
+                PopupService.DismissNonDialogPopups();
                 Invalidate();
             }
         }
@@ -187,6 +189,7 @@ public class ScrollViewer : Control
             );
             Content.Arrange(childRect);
         }
+        ClipBounds = new Rect(0f, 0f, Size.X, Size.Y);
     }
 
     public override void OnRender(DrawingContext context)

@@ -505,11 +505,54 @@ public unsafe class Compositor : IDisposable
         _context.Wgpu.CommandEncoderRelease(encoder);
     }
 
+    private void PushClipRect(Rect localClip, Matrix4x4 transform)
+    {
+        var vTopLeft = Vector2.Transform(new Vector2(localClip.X, localClip.Y), transform);
+        var vBottomRight = Vector2.Transform(new Vector2(localClip.X + localClip.Width, localClip.Y + localClip.Height), transform);
+        
+        float x1 = Math.Min(vTopLeft.X, vBottomRight.X);
+        float y1 = Math.Min(vTopLeft.Y, vBottomRight.Y);
+        float x2 = Math.Max(vTopLeft.X, vBottomRight.X);
+        float y2 = Math.Max(vTopLeft.Y, vBottomRight.Y);
+        
+        var screenClip = new Rect(x1, y1, x2 - x1, y2 - y1);
+
+        if (_activeClipRect.HasValue)
+        {
+            float cx1 = Math.Max(_activeClipRect.Value.X, screenClip.X);
+            float cy1 = Math.Max(_activeClipRect.Value.Y, screenClip.Y);
+            float cx2 = Math.Min(_activeClipRect.Value.X + _activeClipRect.Value.Width, screenClip.X + screenClip.Width);
+            float cy2 = Math.Min(_activeClipRect.Value.Y + _activeClipRect.Value.Height, screenClip.Y + screenClip.Height);
+            _activeClipRect = new Rect(cx1, cy1, Math.Max(0f, cx2 - cx1), Math.Max(0f, cy2 - cy1));
+        }
+        else
+        {
+            _activeClipRect = screenClip;
+        }
+        _clipStack.Push(_activeClipRect.Value);
+    }
+
+    private void PopClipRect()
+    {
+        if (_clipStack.Count > 0)
+        {
+            _clipStack.Pop();
+            _activeClipRect = _clipStack.Count > 0 ? _clipStack.Peek() : null;
+        }
+    }
+
     private void CompileVisualTree(Visual node, Matrix4x4 parentTransform)
     {
         // 1. Calculate global transform
         var localTransform = node.GetLocalTransform();
         var globalTransform = localTransform * parentTransform;
+
+        bool pushedClip = false;
+        if (node.ClipBounds.HasValue)
+        {
+            PushClipRect(node.ClipBounds.Value, globalTransform);
+            pushedClip = true;
+        }
 
         // 2. Playback recorded commands
         var ctx = new DrawingContext();
@@ -532,41 +575,10 @@ public unsafe class Compositor : IDisposable
                     CompileTextureCommand(cmd, globalTransform);
                     break;
                 case RenderCommandType.PushClip:
-                    {
-                        var localClip = cmd.Rect;
-                        var vTopLeft = Vector2.Transform(new Vector2(localClip.X, localClip.Y), globalTransform);
-                        var vBottomRight = Vector2.Transform(new Vector2(localClip.X + localClip.Width, localClip.Y + localClip.Height), globalTransform);
-                        
-                        float x1 = Math.Min(vTopLeft.X, vBottomRight.X);
-                        float y1 = Math.Min(vTopLeft.Y, vBottomRight.Y);
-                        float x2 = Math.Max(vTopLeft.X, vBottomRight.X);
-                        float y2 = Math.Max(vTopLeft.Y, vBottomRight.Y);
-                        
-                        var screenClip = new Rect(x1, y1, x2 - x1, y2 - y1);
-
-                        if (_activeClipRect.HasValue)
-                        {
-                            float cx1 = Math.Max(_activeClipRect.Value.X, screenClip.X);
-                            float cy1 = Math.Max(_activeClipRect.Value.Y, screenClip.Y);
-                            float cx2 = Math.Min(_activeClipRect.Value.X + _activeClipRect.Value.Width, screenClip.X + screenClip.Width);
-                            float cy2 = Math.Min(_activeClipRect.Value.Y + _activeClipRect.Value.Height, screenClip.Y + screenClip.Height);
-                            _activeClipRect = new Rect(cx1, cy1, Math.Max(0f, cx2 - cx1), Math.Max(0f, cy2 - cy1));
-                        }
-                        else
-                        {
-                            _activeClipRect = screenClip;
-                        }
-                        _clipStack.Push(_activeClipRect.Value);
-                    }
+                    PushClipRect(cmd.Rect, globalTransform);
                     break;
                 case RenderCommandType.PopClip:
-                    {
-                        if (_clipStack.Count > 0)
-                        {
-                            _clipStack.Pop();
-                            _activeClipRect = _clipStack.Count > 0 ? _clipStack.Peek() : null;
-                        }
-                    }
+                    PopClipRect();
                     break;
             }
         }
@@ -578,6 +590,11 @@ public unsafe class Compositor : IDisposable
             {
                 CompileVisualTree(child, globalTransform);
             }
+        }
+
+        if (pushedClip)
+        {
+            PopClipRect();
         }
     }
 

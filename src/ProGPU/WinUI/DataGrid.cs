@@ -111,6 +111,7 @@ public class DataGrid : Control
                 {
                     UpdateCellEditorLayout();
                 }
+                PopupService.DismissNonDialogPopups();
                 Invalidate();
             }
         }
@@ -739,6 +740,7 @@ public class DataGrid : Control
                 _cellEditor.HeightConstraint = 0f;
                 _cellEditor.Measure(new Vector2(0, 0));
                 _cellEditor.Arrange(new Rect(0, 0, 0, 0));
+                _cellEditor.ClipBounds = null;
             }
             else
             {
@@ -746,6 +748,21 @@ public class DataGrid : Control
                 _cellEditor.HeightConstraint = _rowHeight;
                 _cellEditor.Measure(new Vector2(colWidth, _rowHeight));
                 _cellEditor.Arrange(new Rect(colX, rowY, colWidth, _rowHeight));
+
+                if (rowY < _headerHeight)
+                {
+                    float clipY = _headerHeight - rowY;
+                    _cellEditor.ClipBounds = new Rect(0f, clipY, colWidth, _rowHeight - clipY);
+                }
+                else if (rowY + _rowHeight > Size.Y)
+                {
+                    float clipH = Size.Y - rowY;
+                    _cellEditor.ClipBounds = new Rect(0f, 0f, colWidth, clipH);
+                }
+                else
+                {
+                    _cellEditor.ClipBounds = null;
+                }
             }
         }
         else
@@ -754,6 +771,7 @@ public class DataGrid : Control
             _cellEditor.HeightConstraint = 0f;
             _cellEditor.Measure(new Vector2(0, 0));
             _cellEditor.Arrange(new Rect(0, 0, 0, 0));
+            _cellEditor.ClipBounds = null;
         }
     }
 

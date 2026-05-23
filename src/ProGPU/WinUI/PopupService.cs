@@ -53,6 +53,18 @@ public static class PopupService
         }
     }
 
+    public static void DismissNonDialogPopups()
+    {
+        for (int i = ActivePopups.Count - 1; i >= 0; i--)
+        {
+            var popup = ActivePopups[i];
+            if (popup is not ContentDialog)
+            {
+                HidePopup(popup);
+            }
+        }
+    }
+
     public static void Clear()
     {
         if (ActivePopups.Count > 0)
