@@ -959,7 +959,7 @@ public unsafe class Compositor : IDisposable
                         var p1_trans = Vector2.Transform(quad.ControlPoint, transform);
                         var p2_trans = Vector2.Transform(quad.Point, transform);
 
-                        int N = 32;
+                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
                         uint idxStart = (uint)_vectorVerticesList.Count;
 
                         for (int i = 0; i <= N; i++)
@@ -996,7 +996,7 @@ public unsafe class Compositor : IDisposable
                         var p2_trans = Vector2.Transform(cubic.ControlPoint2, transform);
                         var p3_trans = Vector2.Transform(cubic.Point, transform);
 
-                        int N = 32;
+                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
                         uint idxStart = (uint)_vectorVerticesList.Count;
 
                         for (int i = 0; i <= N; i++)
@@ -1114,7 +1114,7 @@ public unsafe class Compositor : IDisposable
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
         var p2_trans = Vector2.Transform(cmd.Position3, transform);
 
-        int N = 32; // 32 steps for ultra-smooth curves
+        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
         uint idxStart = (uint)_vectorVerticesList.Count;
 
         for (int i = 0; i <= N; i++)
@@ -1167,7 +1167,7 @@ public unsafe class Compositor : IDisposable
         var p2_trans = Vector2.Transform(cmd.Position3, transform);
         var p3_trans = Vector2.Transform(cmd.Position4, transform);
 
-        int N = 32; // 32 steps for ultra-smooth curves
+        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
         uint idxStart = (uint)_vectorVerticesList.Count;
 
         for (int i = 0; i <= N; i++)

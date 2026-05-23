@@ -3397,6 +3397,7 @@ public static class SamplePagePresenter
         var strokeSlider = new ProGPU.WinUI.Slider { Minimum = 0.1f, Maximum = 5.0f, Value = 1.0f, Margin = new Thickness(0, 0, 0, 16) };
         strokeSlider.ValueChanged += (s, e) => {
             visual.StrokeThicknessMultiplier = strokeSlider.Value;
+            visual.UpdateCachedPens();
             strokeLabel.Inlines.Clear();
             strokeLabel.Inlines.Add(new Bold(new Run($"Stroke Scale: {strokeSlider.Value:F1}x")));
             strokeLabel.Invalidate();
@@ -3524,6 +3525,8 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         public bool IsSplit;
         public GridPoint GP;
         public int GridIndex;
+        public SolidColorBrush? CachedBrush;
+        public Pen? CachedPen;
     }
 
     public struct GridPoint
@@ -3668,6 +3671,20 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         foreach (var elem in _elements)
         {
             elem.Color = GetColorForScheme();
+            elem.CachedBrush = new SolidColorBrush(elem.Color);
+            elem.CachedPen = new Pen(elem.CachedBrush, elem.Width * StrokeThicknessMultiplier);
+        }
+        Invalidate();
+    }
+
+    public void UpdateCachedPens()
+    {
+        foreach (var elem in _elements)
+        {
+            if (elem.CachedBrush != null)
+            {
+                elem.CachedPen = new Pen(elem.CachedBrush, elem.Width * StrokeThicknessMultiplier);
+            }
         }
         Invalidate();
     }
@@ -3676,6 +3693,14 @@ public class MotionMarkShowcaseVisual : FrameworkElement
     {
         _elements.Clear();
         Resize(ElementCount);
+    }
+
+    private PathSegment DuplicateSegment(PathSegment seg)
+    {
+        if (seg is LineSegment line) return new LineSegment(line.Point);
+        if (seg is QuadraticBezierSegment quad) return new QuadraticBezierSegment(quad.ControlPoint, quad.Point);
+        if (seg is CubicBezierSegment cubic) return new CubicBezierSegment(cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point);
+        return seg;
     }
 
     private PathSegmentElement CreateElement(GridPoint last, ref GridPoint current, int gridIndex)
@@ -3716,18 +3741,22 @@ public class MotionMarkShowcaseVisual : FrameworkElement
 
         var color = GetColorForScheme();
         float width = (float)Math.Pow(_rand.NextDouble(), 5) * 20f + 1f;
+        var brush = new SolidColorBrush(color);
+        var pen = new Pen(brush, width * StrokeThicknessMultiplier);
 
         return new PathSegmentElement
         {
             OriginalSeg = seg,
-            WobbledSeg = seg,
+            WobbledSeg = DuplicateSegment(seg),
             OriginalStartPoint = startPt,
             WobbledStartPoint = startPt,
             Color = color,
             Width = width,
             IsSplit = _rand.NextDouble() < SplitProbability,
             GP = current,
-            GridIndex = gridIndex
+            GridIndex = gridIndex,
+            CachedBrush = brush,
+            CachedPen = pen
         };
     }
 
@@ -3782,59 +3811,78 @@ public class MotionMarkShowcaseVisual : FrameworkElement
 
             elem.WobbledStartPoint = elem.OriginalStartPoint + offsetStart;
 
-            if (elem.OriginalSeg is LineSegment line)
+            if (elem.OriginalSeg is LineSegment line && elem.WobbledSeg is LineSegment wLine)
             {
-                elem.WobbledSeg = new LineSegment(line.Point + offsetEnd);
+                wLine.Point = line.Point + offsetEnd;
             }
-            else if (elem.OriginalSeg is QuadraticBezierSegment quad)
+            else if (elem.OriginalSeg is QuadraticBezierSegment quad && elem.WobbledSeg is QuadraticBezierSegment wQuad)
             {
                 var ctrlOffset = new Vector2((float)Math.Sin(phase * 0.6f) * 15f, (float)Math.Cos(phase * 0.8f) * 15f);
-                elem.WobbledSeg = new QuadraticBezierSegment(quad.ControlPoint + ctrlOffset, quad.Point + offsetEnd);
+                wQuad.ControlPoint = quad.ControlPoint + ctrlOffset;
+                wQuad.Point = quad.Point + offsetEnd;
             }
-            else if (elem.OriginalSeg is CubicBezierSegment cubic)
+            else if (elem.OriginalSeg is CubicBezierSegment cubic && elem.WobbledSeg is CubicBezierSegment wCubic)
             {
                 var ctrlOffset1 = new Vector2((float)Math.Sin(phase * 0.5f) * 15f, (float)Math.Cos(phase * 0.7f) * 15f);
                 var ctrlOffset2 = new Vector2((float)Math.Cos(phase * 0.6f) * 15f, (float)Math.Sin(phase * 0.8f) * 15f);
-                elem.WobbledSeg = new CubicBezierSegment(cubic.ControlPoint1 + ctrlOffset1, cubic.ControlPoint2 + ctrlOffset2, cubic.Point + offsetEnd);
+                wCubic.ControlPoint1 = cubic.ControlPoint1 + ctrlOffset1;
+                wCubic.ControlPoint2 = cubic.ControlPoint2 + ctrlOffset2;
+                wCubic.Point = cubic.Point + offsetEnd;
             }
         }
 
-        // 3. Batch path rendering based on Vello's mmark splits
-        var path = new PathGeometry();
-        PathFigure? fig = null;
-
-        for (int i = 0; i < _elements.Count; i++)
+        if (FillShapes)
         {
-            var element = _elements[i];
+            // 3. Batch path rendering based on splits (used for path fills)
+            var path = new PathGeometry();
+            PathFigure? fig = null;
 
-            if (fig == null)
+            for (int i = 0; i < _elements.Count; i++)
             {
-                fig = new PathFigure(element.WobbledStartPoint);
-            }
+                var element = _elements[i];
 
-            if (element.WobbledSeg != null)
-            {
-                fig.Segments.Add(element.WobbledSeg);
-            }
-
-            if (element.IsSplit || i == _elements.Count - 1)
-            {
-                path.Figures.Add(fig);
-                
-                var brush = new SolidColorBrush(element.Color);
-                var pen = new Pen(brush, element.Width * StrokeThicknessMultiplier);
-
-                if (FillShapes)
+                if (fig == null)
                 {
+                    fig = new PathFigure(element.WobbledStartPoint);
+                }
+
+                if (element.WobbledSeg != null)
+                {
+                    fig.Segments.Add(element.WobbledSeg);
+                }
+
+                if (element.IsSplit || i == _elements.Count - 1)
+                {
+                    path.Figures.Add(fig);
+                    
+                    var brush = element.CachedBrush ?? new SolidColorBrush(element.Color);
                     context.DrawPath(brush, null, path);
-                }
-                else
-                {
-                    context.DrawPath(null, pen, path);
-                }
 
-                path = new PathGeometry();
-                fig = null;
+                    path = new PathGeometry();
+                    fig = null;
+                }
+            }
+        }
+        else
+        {
+            // 3b. Ultra-fast direct primitive rendering for outline strokes (ZERO allocations!)
+            for (int i = 0; i < _elements.Count; i++)
+            {
+                var element = _elements[i];
+                var pen = element.CachedPen ?? new Pen(element.CachedBrush ?? new SolidColorBrush(element.Color), element.Width * StrokeThicknessMultiplier);
+
+                if (element.WobbledSeg is LineSegment line)
+                {
+                    context.DrawLine(pen, element.WobbledStartPoint, line.Point);
+                }
+                else if (element.WobbledSeg is QuadraticBezierSegment quad)
+                {
+                    context.DrawQuadraticBezier(pen, element.WobbledStartPoint, quad.ControlPoint, quad.Point);
+                }
+                else if (element.WobbledSeg is CubicBezierSegment cubic)
+                {
+                    context.DrawCubicBezier(pen, element.WobbledStartPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point);
+                }
             }
         }
 
