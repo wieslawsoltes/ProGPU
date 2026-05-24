@@ -68,6 +68,8 @@ public unsafe class Compositor : IDisposable
     private readonly PathAtlas _pathAtlas;
     private BindGroupLayout* _pathAtlasBindGroupLayout;
     private BindGroup* _pathAtlasBindGroup;
+    private BindGroupLayout* _pathAtlasBindGroupLayoutOffscreen;
+    private BindGroup* _pathAtlasBindGroupOffscreen;
 
     // MSAA color target resources
     private Texture* _msaaTexture;
@@ -84,10 +86,19 @@ public unsafe class Compositor : IDisposable
     private BindGroupLayout* _textUniformBindGroupLayout;
     private BindGroupLayout* _textureUniformBindGroupLayout;
 
+    private BindGroup* _vectorUniformBindGroupOffscreen;
+    private BindGroup* _textUniformBindGroupOffscreen;
+    private BindGroup* _textureUniformBindGroupOffscreen;
+    private BindGroupLayout* _vectorUniformBindGroupLayoutOffscreen;
+    private BindGroupLayout* _textUniformBindGroupLayoutOffscreen;
+    private BindGroupLayout* _textureUniformBindGroupLayoutOffscreen;
+
     // Sampler & Texture Bind Group for Typography
     private Sampler* _atlasSampler;
     private BindGroup* _atlasBindGroup;
     private BindGroupLayout* _atlasBindGroupLayout;
+    private BindGroup* _atlasBindGroupOffscreen;
+    private BindGroupLayout* _atlasBindGroupLayoutOffscreen;
 
     // Render Pipelines
     private RenderPipeline* _vectorPipeline;
@@ -97,6 +108,7 @@ public unsafe class Compositor : IDisposable
     private RenderPipeline* _textPipelineOffscreen;
     private RenderPipeline* _texturePipelineOffscreen;
     private BindGroupLayout* _textureBindGroupLayout;
+    private BindGroupLayout* _textureBindGroupLayoutOffscreen;
 
     // Batch buffers (Dynamic GPU vertex & index buffers)
     private GpuBuffer _vectorVertexBuffer;
@@ -321,12 +333,17 @@ public unsafe class Compositor : IDisposable
         }
 
         _textureBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipeline, 1);
+        _textureBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipelineOffscreen, 1);
 
         // 7. Uniform bind groups structure configuration
         _vectorUniformBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_vectorPipeline, 0);
         _textUniformBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_textPipeline, 0);
         _textureUniformBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipeline, 0);
         
+        _vectorUniformBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_vectorPipelineOffscreen, 0);
+        _textUniformBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_textPipelineOffscreen, 0);
+        _textureUniformBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipelineOffscreen, 0);
+
         var uBufferEntry = new BindGroupEntry
         {
             Binding = 0,
@@ -343,6 +360,14 @@ public unsafe class Compositor : IDisposable
         };
         _vectorUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVector);
 
+        var uDescVectorOffscreen = new BindGroupDescriptor
+        {
+            Layout = _vectorUniformBindGroupLayoutOffscreen,
+            EntryCount = 1,
+            Entries = &uBufferEntry
+        };
+        _vectorUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
+
         var uDescText = new BindGroupDescriptor
         {
             Layout = _textUniformBindGroupLayout,
@@ -350,6 +375,14 @@ public unsafe class Compositor : IDisposable
             Entries = &uBufferEntry
         };
         _textUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescText);
+
+        var uDescTextOffscreen = new BindGroupDescriptor
+        {
+            Layout = _textUniformBindGroupLayoutOffscreen,
+            EntryCount = 1,
+            Entries = &uBufferEntry
+        };
+        _textUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
 
         var uDescTexture = new BindGroupDescriptor
         {
@@ -359,8 +392,17 @@ public unsafe class Compositor : IDisposable
         };
         _textureUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTexture);
 
+        var uDescTextureOffscreen = new BindGroupDescriptor
+        {
+            Layout = _textureUniformBindGroupLayoutOffscreen,
+            EntryCount = 1,
+            Entries = &uBufferEntry
+        };
+        _textureUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTextureOffscreen);
+
         // 8. Atlas bind group structure configuration
         _atlasBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_textPipeline, 1);
+        _atlasBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_textPipelineOffscreen, 1);
 
         var samplerEntry = new BindGroupEntry
         {
@@ -386,8 +428,18 @@ public unsafe class Compositor : IDisposable
         };
         _atlasBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &atlasDesc);
 
+        var atlasDescOffscreen = new BindGroupDescriptor
+        {
+            Layout = _atlasBindGroupLayoutOffscreen,
+            EntryCount = 2,
+            Entries = atlasEntries
+        };
+        _atlasBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &atlasDescOffscreen);
+
         // Initialize Path Atlas bind group
         _pathAtlasBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_vectorPipeline, 1);
+        _pathAtlasBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_vectorPipelineOffscreen, 1);
+
         var pathViewEntry = new BindGroupEntry
         {
             Binding = 1,
@@ -396,6 +448,7 @@ public unsafe class Compositor : IDisposable
         var pathAtlasEntries = stackalloc BindGroupEntry[2];
         pathAtlasEntries[0] = samplerEntry;
         pathAtlasEntries[1] = pathViewEntry;
+
         var pathAtlasDesc = new BindGroupDescriptor
         {
             Layout = _pathAtlasBindGroupLayout,
@@ -403,6 +456,14 @@ public unsafe class Compositor : IDisposable
             Entries = pathAtlasEntries
         };
         _pathAtlasBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &pathAtlasDesc);
+
+        var pathAtlasDescOffscreen = new BindGroupDescriptor
+        {
+            Layout = _pathAtlasBindGroupLayoutOffscreen,
+            EntryCount = 2,
+            Entries = pathAtlasEntries
+        };
+        _pathAtlasBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &pathAtlasDescOffscreen);
     }
 
     public void RenderScene(Visual root, uint width, uint height, TextureView* targetView)
@@ -1973,6 +2034,8 @@ public unsafe class Compositor : IDisposable
         _pathAtlas.Dispose();
         if (_pathAtlasBindGroup != null) _context.Wgpu.BindGroupRelease(_pathAtlasBindGroup);
         if (_pathAtlasBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_pathAtlasBindGroupLayout);
+        if (_pathAtlasBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(_pathAtlasBindGroupOffscreen);
+        if (_pathAtlasBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_pathAtlasBindGroupLayoutOffscreen);
         _pipelineCache.Dispose();
         _compute.Dispose();
         foreach (var tuple in _effectTextures.Values)
@@ -1986,18 +2049,27 @@ public unsafe class Compositor : IDisposable
         if (_atlasSampler != null) _context.Wgpu.SamplerRelease(_atlasSampler);
 
         if (_vectorUniformBindGroup != null) _context.Wgpu.BindGroupRelease(_vectorUniformBindGroup);
+        if (_vectorUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(_vectorUniformBindGroupOffscreen);
         if (_textUniformBindGroup != null) _context.Wgpu.BindGroupRelease(_textUniformBindGroup);
+        if (_textUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(_textUniformBindGroupOffscreen);
         if (_textureUniformBindGroup != null) _context.Wgpu.BindGroupRelease(_textureUniformBindGroup);
+        if (_textureUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(_textureUniformBindGroupOffscreen);
 
         if (_vectorUniformBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_vectorUniformBindGroupLayout);
+        if (_vectorUniformBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_vectorUniformBindGroupLayoutOffscreen);
         if (_textUniformBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_textUniformBindGroupLayout);
+        if (_textUniformBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_textUniformBindGroupLayoutOffscreen);
         if (_textureUniformBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_textureUniformBindGroupLayout);
+        if (_textureUniformBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_textureUniformBindGroupLayoutOffscreen);
 
         if (_atlasBindGroup != null) _context.Wgpu.BindGroupRelease(_atlasBindGroup);
+        if (_atlasBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(_atlasBindGroupOffscreen);
         if (_atlasBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_atlasBindGroupLayout);
+        if (_atlasBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_atlasBindGroupLayoutOffscreen);
 
         if (_texturePipeline != null) _context.Wgpu.RenderPipelineRelease(_texturePipeline);
         if (_textureBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_textureBindGroupLayout);
+        if (_textureBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_textureBindGroupLayoutOffscreen);
 
         foreach (var bgVal in _textureBindGroups.Values)
         {
@@ -2122,7 +2194,7 @@ public unsafe class Compositor : IDisposable
         // 2. Apply compute shader accelerator filter
         if (fe.Effect is BlurEffect blur)
         {
-            _compute.ApplyGaussianBlur(textures.Source, textures.Temp, textures.Destination);
+            _compute.ApplyGaussianBlur(textures.Source, textures.Temp, textures.Destination, blur.BlurRadius);
             
             // Draw the blurred result back onto the main screen
             var controlRect = new Rect(fe.Offset, fe.Size);
@@ -2288,9 +2360,13 @@ public unsafe class Compositor : IDisposable
                 if (currentType != DrawCallType.Vector)
                 {
                     _context.Wgpu.RenderPassEncoderSetPipeline(pass, _vectorPipelineOffscreen);
-                    fixed (BindGroup** pGrp = &_vectorUniformBindGroup)
+                    fixed (BindGroup** pGrp = &_vectorUniformBindGroupOffscreen)
                     {
                         _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                    }
+                    fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroupOffscreen)
+                    {
+                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                     }
                     var buffer = _vectorVertexBuffer.BufferPtr;
                     _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
@@ -2304,11 +2380,11 @@ public unsafe class Compositor : IDisposable
                 if (currentType != DrawCallType.Text)
                 {
                     _context.Wgpu.RenderPassEncoderSetPipeline(pass, _textPipelineOffscreen);
-                    fixed (BindGroup** pGrp = &_textUniformBindGroup)
+                    fixed (BindGroup** pGrp = &_textUniformBindGroupOffscreen)
                     {
                         _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
-                    fixed (BindGroup** pAtlas = &_atlasBindGroup)
+                    fixed (BindGroup** pAtlas = &_atlasBindGroupOffscreen)
                     {
                         _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
                     }
@@ -2322,7 +2398,7 @@ public unsafe class Compositor : IDisposable
             else if (dc.Type == DrawCallType.Texture && dc.Texture != null)
             {
                 _context.Wgpu.RenderPassEncoderSetPipeline(pass, _texturePipelineOffscreen);
-                fixed (BindGroup** pGrp = &_textureUniformBindGroup)
+                fixed (BindGroup** pGrp = &_textureUniformBindGroupOffscreen)
                 {
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                 }
@@ -2339,7 +2415,7 @@ public unsafe class Compositor : IDisposable
                     textureEntries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
                     textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
 
-                    var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = textureEntries };
+                    var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayoutOffscreen, EntryCount = 2, Entries = textureEntries };
                     var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
                     bgPtrVal = (nint)bg;
                     _textureBindGroups[viewKey] = bgPtrVal;
