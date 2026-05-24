@@ -35,7 +35,19 @@ public struct GridLength
 
 public class StackPanel : LayoutNode
 {
-    public Orientation Orientation { get; set; } = Orientation.Vertical;
+    private Orientation _orientation = Orientation.Vertical;
+    public Orientation Orientation
+    {
+        get => _orientation;
+        set
+        {
+            if (_orientation != value)
+            {
+                _orientation = value;
+                InvalidateMeasure();
+            }
+        }
+    }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
@@ -105,6 +117,7 @@ public class GridPanel : LayoutNode
         var (currentRow, currentCol) = _cellMappings.TryGetValue(child, out var mapping) ? mapping : (0, 0);
         _cellMappings[child] = (row, currentCol);
         Invalidate();
+        InvalidateMeasure();
     }
 
     public void SetColumn(Visual child, int col)
@@ -112,6 +125,7 @@ public class GridPanel : LayoutNode
         var (currentRow, currentCol) = _cellMappings.TryGetValue(child, out var mapping) ? mapping : (0, 0);
         _cellMappings[child] = (currentRow, col);
         Invalidate();
+        InvalidateMeasure();
     }
 
     private (int row, int col) GetCell(Visual child)
