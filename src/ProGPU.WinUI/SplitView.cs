@@ -68,6 +68,7 @@ public class SplitView : FrameworkElement
             {
                 _isPaneOpen = value;
                 Invalidate();
+                InvalidateMeasure();
             }
         }
     }
@@ -81,6 +82,7 @@ public class SplitView : FrameworkElement
             {
                 _paneWidth = value;
                 Invalidate();
+                InvalidateMeasure();
             }
         }
     }
@@ -94,6 +96,7 @@ public class SplitView : FrameworkElement
             {
                 _compactPaneLength = value;
                 Invalidate();
+                InvalidateMeasure();
             }
         }
     }
@@ -107,6 +110,7 @@ public class SplitView : FrameworkElement
             {
                 _panePlacement = value;
                 Invalidate();
+                InvalidateMeasure();
             }
         }
     }
@@ -120,6 +124,7 @@ public class SplitView : FrameworkElement
             {
                 _displayMode = value;
                 Invalidate();
+                InvalidateMeasure();
             }
         }
     }
