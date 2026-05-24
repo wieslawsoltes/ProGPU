@@ -190,17 +190,6 @@ public class FlowDocument : FrameworkElement
 
             while (i < charList.Count)
             {
-                if (cursorY + lineSpacing > Padding.Top + colHeight)
-                {
-                    currentColumn++;
-                    if (currentColumn >= ColumnCount)
-                    {
-                        break;
-                    }
-                    cursorX = Padding.Left + currentColumn * (colWidth + ColumnGap);
-                    cursorY = Padding.Top;
-                }
-
                 var lineChars = new List<RichChar>();
                 float lineW = 0f;
                 int lastWordIdx = -1;
@@ -262,6 +251,32 @@ public class FlowDocument : FrameworkElement
 
                 if (lineChars.Count > 0)
                 {
+                    // 1. Calculate dynamic line height
+                    float lineMaxH = lineSpacing;
+                    foreach (var rc in lineChars)
+                    {
+                        if (rc.EmbeddedElement != null)
+                        {
+                            lineMaxH = Math.Max(lineMaxH, rc.EmbeddedElement.DesiredSize.Y);
+                        }
+                        else
+                        {
+                            lineMaxH = Math.Max(lineMaxH, rc.FontSize);
+                        }
+                    }
+
+                    // 2. Perform column overflow check using dynamic height
+                    if (cursorY + lineMaxH > Padding.Top + colHeight && cursorY > Padding.Top)
+                    {
+                        currentColumn++;
+                        if (currentColumn >= ColumnCount)
+                        {
+                            break;
+                        }
+                        cursorX = Padding.Left + currentColumn * (colWidth + ColumnGap);
+                        cursorY = Padding.Top;
+                    }
+
                     var currentLine = new List<PositionedRichChar>();
                     float runningX = cursorX;
                     hasResetLineIndent = false;
@@ -269,14 +284,17 @@ public class FlowDocument : FrameworkElement
                     foreach (var rc in lineChars)
                     {
                         float advance = 0f;
+                        float elementH = 0f;
                         if (rc.EmbeddedElement != null)
                         {
                             advance = rc.EmbeddedElement.DesiredSize.X + 4f;
+                            elementH = rc.EmbeddedElement.DesiredSize.Y;
                         }
                         else
                         {
                             ushort gIdx = Font.GetGlyphIndex(rc.Character);
                             advance = Font.GetAdvanceWidth(gIdx, rc.FontSize);
+                            elementH = rc.FontSize;
                         }
 
                         if (rc.BulletOffset == 0 && !hasResetLineIndent)
@@ -291,16 +309,19 @@ public class FlowDocument : FrameworkElement
                             finalX = cursorX + rc.LeftIndent - rc.BulletOffset + (runningX - cursorX);
                         }
 
+                        // Align standard text/embedded elements symmetrically within the computed line height
+                        float yOffset = (lineMaxH - elementH) / 2f;
+
                         currentLine.Add(new PositionedRichChar
                         {
                             Info = rc,
-                            Position = new Vector2(finalX, cursorY)
+                            Position = new Vector2(finalX, cursorY + yOffset)
                         });
                         runningX += advance;
                     }
 
                     paragraphLines.Add(currentLine);
-                    cursorY += lineSpacing;
+                    cursorY += lineMaxH;
                 }
 
                 if (i < charList.Count && charList[i].Character == '\uFFFD' && charList[i].SourceInline is Table tbl)
