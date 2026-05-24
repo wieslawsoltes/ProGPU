@@ -7,57 +7,54 @@ using ProGPU.WinUI;
 
 namespace ProGPU.Samples;
 
+public enum SegmentKind : byte
+{
+    Line,
+    Quad,
+    Cubic
+}
+
+public struct GridPoint
+{
+    public int X;
+    public int Y;
+
+    public GridPoint(int x, int y)
+    {
+        X = x;
+        Y = y;
+    }
+}
+
+public struct Element
+{
+    public SegmentKind Kind;
+    public GridPoint Start;
+    public GridPoint Control1;
+    public GridPoint Control2;
+    public GridPoint End;
+    public Vector4 Color;
+    public float Width;
+    public bool Split;
+    public SolidColorBrush CachedBrush;
+    public Pen CachedPen;
+}
+
 public class MotionMarkShowcaseVisual : FrameworkElement
 {
-    public class PathSegmentElement
-    {
-        public PathSegment? OriginalSeg;
-        public PathSegment? WobbledSeg;
-        public Vector2 OriginalStartPoint;
-        public Vector2 WobbledStartPoint;
-        public Vector4 Color;
-        public float Width;
-        public bool IsSplit;
-        public GridPoint GP;
-        public int GridIndex;
-        public SolidColorBrush? CachedBrush;
-        public Pen? CachedPen;
-    }
-
-    public struct GridPoint
-    {
-        public int X;
-        public int Y;
-
-        public GridPoint(int x, int y)
-        {
-            X = x;
-            Y = y;
-        }
-
-        public Vector2 ToCoordinate(float width, float height)
-        {
-            float w = float.IsInfinity(width) || float.IsNaN(width) || width <= 0f ? 800f : width;
-            float h = float.IsInfinity(height) || float.IsNaN(height) || height <= 0f ? 520f : height;
-            float scaleX = w / 81f;
-            float scaleY = (h - 60f) / 41f;
-            return new Vector2((X + 0.5f) * scaleX, 30f + (Y + 0.5f) * scaleY);
-        }
-    }
-
-    private readonly List<PathSegmentElement> _elements = new();
+    private readonly List<Element> _elements = new();
     private readonly Random _rand = new();
 
     // Exposed settings
     public int ElementCount = 1000;
     public float StrokeThicknessMultiplier = 1.0f;
     public float SplitProbability = 0.5f;
-    public float AnimationSpeed = 1.0f;
     public int ColorMode = 0;
     public bool FillShapes = false;
     public bool EnableLines = true;
     public bool EnableQuadBeziers = true;
     public bool EnableCubicBeziers = true;
+    public bool DirectGpuMode = true; // High-performance Direct GPU primitives mode
 
     private static readonly (int, int)[] Offsets = { (-4, 0), (2, 0), (1, -2), (1, 2) };
 
@@ -88,7 +85,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement
 
     public MotionMarkShowcaseVisual()
     {
-        HeightConstraint = 520f;
+        HeightConstraint = 620f;
         HorizontalAlignment = ProGPU.Layout.HorizontalAlignment.Stretch;
     }
 
@@ -150,10 +147,10 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         }
         else if (n > oldN)
         {
-            var lastGP = _elements.Count > 0 ? _elements[^1].GP : new GridPoint(40, 20);
+            var lastGP = _elements.Count > 0 ? _elements[^1].End : new GridPoint(40, 20);
             for (int i = oldN; i < n; i++)
             {
-                var elem = CreateElement(lastGP, ref lastGP, i);
+                var elem = CreateElement(lastGP, ref lastGP);
                 _elements.Add(elem);
             }
         }
@@ -162,22 +159,26 @@ public class MotionMarkShowcaseVisual : FrameworkElement
 
     public void RegenerateColors()
     {
-        foreach (var elem in _elements)
+        for (int i = 0; i < _elements.Count; i++)
         {
+            var elem = _elements[i];
             elem.Color = GetColorForScheme();
             elem.CachedBrush = new SolidColorBrush(elem.Color);
             elem.CachedPen = new Pen(elem.CachedBrush, elem.Width * StrokeThicknessMultiplier);
+            _elements[i] = elem;
         }
         Invalidate();
     }
 
     public void UpdateCachedPens()
     {
-        foreach (var elem in _elements)
+        for (int i = 0; i < _elements.Count; i++)
         {
+            var elem = _elements[i];
             if (elem.CachedBrush != null)
             {
                 elem.CachedPen = new Pen(elem.CachedBrush, elem.Width * StrokeThicknessMultiplier);
+                _elements[i] = elem;
             }
         }
         Invalidate();
@@ -189,15 +190,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         Resize(ElementCount);
     }
 
-    private PathSegment DuplicateSegment(PathSegment seg)
-    {
-        if (seg is LineSegment line) return new LineSegment(line.Point);
-        if (seg is QuadraticBezierSegment quad) return new QuadraticBezierSegment(quad.ControlPoint, quad.Point);
-        if (seg is CubicBezierSegment cubic) return new CubicBezierSegment(cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point);
-        return seg;
-    }
-
-    private PathSegmentElement CreateElement(GridPoint last, ref GridPoint current, int gridIndex)
+    private Element CreateElement(GridPoint last, ref GridPoint current)
     {
         var activeTypes = new List<int>();
         if (EnableLines) activeTypes.Add(0);
@@ -210,54 +203,51 @@ public class MotionMarkShowcaseVisual : FrameworkElement
             segType = activeTypes[_rand.Next(activeTypes.Count)];
         }
 
-        var startPt = current.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f);
-        var next = GetRandomPoint(current);
-        PathSegment seg;
+        Element element = new Element();
+        element.Start = last;
 
         if (segType == 0) // Line
         {
-            seg = new LineSegment(next.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f));
+            var next = GetRandomPoint(current);
+            element.Kind = SegmentKind.Line;
+            element.End = next;
             current = next;
         }
         else if (segType == 1) // Quad Bezier
         {
+            var next = GetRandomPoint(current);
             var p2 = GetRandomPoint(next);
-            seg = new QuadraticBezierSegment(next.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f), p2.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f));
+            element.Kind = SegmentKind.Quad;
+            element.Control1 = next;
+            element.End = p2;
             current = p2;
         }
         else // Cubic Bezier
         {
+            var next = GetRandomPoint(current);
             var p2 = GetRandomPoint(next);
             var p3 = GetRandomPoint(next);
-            seg = new CubicBezierSegment(next.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f), p2.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f), p3.ToCoordinate(Size.X > 0 ? Size.X : 1000f, Size.Y > 0 ? Size.Y : 520f));
+            element.Kind = SegmentKind.Cubic;
+            element.Control1 = next;
+            element.Control2 = p2;
+            element.End = p3;
             current = p3;
         }
 
-        var color = GetColorForScheme();
-        float width = (float)Math.Pow(_rand.NextDouble(), 5) * 20f + 1f;
-        var brush = new SolidColorBrush(color);
-        var pen = new Pen(brush, width * StrokeThicknessMultiplier);
+        element.Color = GetColorForScheme();
+        element.Width = (float)Math.Pow(_rand.NextDouble(), 5) * 20f + 1f;
+        element.Split = _rand.NextDouble() < SplitProbability;
 
-        return new PathSegmentElement
-        {
-            OriginalSeg = seg,
-            WobbledSeg = DuplicateSegment(seg),
-            OriginalStartPoint = startPt,
-            WobbledStartPoint = startPt,
-            Color = color,
-            Width = width,
-            IsSplit = _rand.NextDouble() < SplitProbability,
-            GP = current,
-            GridIndex = gridIndex,
-            CachedBrush = brush,
-            CachedPen = pen
-        };
+        element.CachedBrush = new SolidColorBrush(element.Color);
+        element.CachedPen = new Pen(element.CachedBrush, element.Width * StrokeThicknessMultiplier);
+
+        return element;
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         float w = availableSize.X;
-        float h = HeightConstraint ?? 520f;
+        float h = HeightConstraint ?? 620f;
         if (float.IsInfinity(w)) w = 800f;
         return new Vector2(w, h);
     }
@@ -267,7 +257,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         float w = arrangeRect.Width;
         float h = arrangeRect.Height;
         if (float.IsInfinity(w) || float.IsNaN(w) || w <= 0f) w = 800f;
-        if (float.IsInfinity(h) || float.IsNaN(h) || h <= 0f) h = 520f;
+        if (float.IsInfinity(h) || float.IsNaN(h) || h <= 0f) h = 620f;
 
         bool sizeChanged = Size.X != w || Size.Y != h;
         Size = new Vector2(w, h);
@@ -275,6 +265,13 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         {
             RegenerateSegments();
         }
+    }
+
+    private static Vector2 MapGridPoint(GridPoint pt, float scale, float offsetX, float offsetY)
+    {
+        float px = offsetX + (pt.X + 0.5f) * scale;
+        float py = offsetY + (pt.Y + 0.5f) * scale;
+        return new Vector2(px, py);
     }
 
     public override void OnRender(DrawingContext context)
@@ -291,45 +288,117 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         {
             if (_rand.NextDouble() > 0.995)
             {
-                _elements[i].IsSplit ^= true;
+                var elem = _elements[i];
+                elem.Split ^= true;
+                _elements[i] = elem;
             }
         }
 
-        // 2. Batch path rendering based on splits (matches Vello's exact stroke/color animation grouping)
-        var path = new PathGeometry();
-        PathFigure? fig = null;
+        // Calculate aspect ratio scale and offsets (centers the 80x40 grid)
+        float scaleX = Size.X / (80f + 1f);
+        float scaleY = Size.Y / (40f + 1f);
+        float uniformScale = Math.Max(0.0f, Math.Min(scaleX, scaleY));
 
-        for (int i = 0; i < _elements.Count; i++)
+        if (uniformScale <= 0f) return;
+
+        float offsetX = (Size.X - uniformScale * (80f + 1f)) * 0.5f;
+        float offsetY = (Size.Y - uniformScale * (40f + 1f)) * 0.5f;
+
+        if (DirectGpuMode)
         {
-            var element = _elements[i];
-
-            if (fig == null)
+            // Direct GPU Mode: highly optimized, zero path rasterizer allocations
+            int i = 0;
+            while (i < _elements.Count)
             {
-                fig = new PathFigure(element.OriginalStartPoint);
-            }
-
-            if (element.OriginalSeg != null)
-            {
-                fig.Segments.Add(element.OriginalSeg);
-            }
-
-            if (element.IsSplit || i == _elements.Count - 1)
-            {
-                path.Figures.Add(fig);
-                
-                if (FillShapes)
+                // Find the end of the current connected path group
+                int groupEnd = i;
+                while (groupEnd < _elements.Count - 1 && !_elements[groupEnd].Split)
                 {
-                    var brush = element.CachedBrush ?? new SolidColorBrush(element.Color);
-                    context.DrawPath(brush, null, path);
-                }
-                else
-                {
-                    var pen = element.CachedPen ?? new Pen(element.CachedBrush ?? new SolidColorBrush(element.Color), element.Width * StrokeThicknessMultiplier);
-                    context.DrawPath(null, pen, path);
+                    groupEnd++;
                 }
 
-                path = new PathGeometry();
-                fig = null;
+                // The style (pen) for all elements in this group is determined by the groupEnd element
+                var groupStyleElement = _elements[groupEnd];
+                var pen = groupStyleElement.CachedPen;
+
+                // Draw all segments in the group with this style
+                for (int k = i; k <= groupEnd; k++)
+                {
+                    var elem = _elements[k];
+                    var startPt = MapGridPoint(elem.Start, uniformScale, offsetX, offsetY);
+                    var endPt = MapGridPoint(elem.End, uniformScale, offsetX, offsetY);
+
+                    switch (elem.Kind)
+                    {
+                        case SegmentKind.Line:
+                            context.DrawLine(pen, startPt, endPt);
+                            break;
+                        case SegmentKind.Quad:
+                            var c1 = MapGridPoint(elem.Control1, uniformScale, offsetX, offsetY);
+                            context.DrawQuadraticBezier(pen, startPt, c1, endPt);
+                            break;
+                        case SegmentKind.Cubic:
+                            var cc1 = MapGridPoint(elem.Control1, uniformScale, offsetX, offsetY);
+                            var cc2 = MapGridPoint(elem.Control2, uniformScale, offsetX, offsetY);
+                            context.DrawCubicBezier(pen, startPt, cc1, cc2, endPt);
+                            break;
+                    }
+                }
+
+                i = groupEnd + 1;
+            }
+        }
+        else
+        {
+            // Path Geometry Mode: Optimized path batching based on splits
+            var path = new PathGeometry();
+            PathFigure? fig = null;
+
+            for (int i = 0; i < _elements.Count; i++)
+            {
+                var elem = _elements[i];
+                var startPt = MapGridPoint(elem.Start, uniformScale, offsetX, offsetY);
+                var endPt = MapGridPoint(elem.End, uniformScale, offsetX, offsetY);
+
+                if (fig == null)
+                {
+                    fig = new PathFigure(startPt);
+                }
+
+                switch (elem.Kind)
+                {
+                    case SegmentKind.Line:
+                        fig.Segments.Add(new LineSegment(endPt));
+                        break;
+                    case SegmentKind.Quad:
+                        var c1 = MapGridPoint(elem.Control1, uniformScale, offsetX, offsetY);
+                        fig.Segments.Add(new QuadraticBezierSegment(c1, endPt));
+                        break;
+                    case SegmentKind.Cubic:
+                        var cc1 = MapGridPoint(elem.Control1, uniformScale, offsetX, offsetY);
+                        var cc2 = MapGridPoint(elem.Control2, uniformScale, offsetX, offsetY);
+                        fig.Segments.Add(new CubicBezierSegment(cc1, cc2, endPt));
+                        break;
+                }
+
+                if (elem.Split || i == _elements.Count - 1)
+                {
+                    path.Figures.Add(fig);
+
+                    if (FillShapes)
+                    {
+                        var brush = elem.CachedBrush;
+                        context.DrawPath(brush, null, path);
+                    }
+                    else
+                    {
+                        var pen = elem.CachedPen;
+                        context.DrawPath(null, pen, path);
+                    }
+
+                    path = new PathGeometry();
+                    fig = null;
+                }
             }
         }
 
@@ -337,13 +406,15 @@ public class MotionMarkShowcaseVisual : FrameworkElement
         if (AppState.GetFont() != null)
         {
             var hudBrush = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.6f));
-            var hudRect = new Rect(15f, 15f, 250f, 85f);
+            var hudRect = new Rect(15f, 15f, 260f, 85f);
             context.DrawRoundedRectangle(hudBrush, new Pen(new SolidColorBrush(0xFFFFFF30), 1f), hudRect, 6f);
 
             string typText = (EnableLines ? "L " : "") + (EnableQuadBeziers ? "Q " : "") + (EnableCubicBeziers ? "C " : "");
+            string pipelineText = DirectGpuMode ? "Direct GPU Shader Pipeline" : "Path Compute-Rasterizer";
+
             context.DrawText($"Active Shapes: {_elements.Count:N0}", AppState.GetFont()!, 11.5f, new SolidColorBrush(Vector4.One), new Vector2(25f, 25f));
             context.DrawText($"Modes Mix: {typText}", AppState.GetFont()!, 11f, new SolidColorBrush(new Vector4(0.8f, 0.8f, 0.8f, 1.0f)), new Vector2(25f, 43f));
-            context.DrawText("Pipeline: ProGPU 100% GPU-Bound", AppState.GetFont()!, 11f, ThemeManager.GetBrush("SystemAccentColor"), new Vector2(25f, 61f));
+            context.DrawText($"Pipeline: {pipelineText}", AppState.GetFont()!, 11f, ThemeManager.GetBrush("SystemAccentColor"), new Vector2(25f, 61f));
         }
 
         // Re-invalidate to animate smoothly at max monitor refresh rate
