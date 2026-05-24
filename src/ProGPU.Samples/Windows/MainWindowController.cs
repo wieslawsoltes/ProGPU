@@ -244,6 +244,7 @@ public static unsafe class MainWindowController
         var motionMarkItem = new NavigationViewItem("MotionMark Showcase", "🏁", SamplePagePresenter.CreateMotionMarkShowcaseView());
         var scriptsItem = new NavigationViewItem("Typography & Scripts", "🔤", SamplePagePresenter.CreateTypographyScriptsView());
         var textInputItem = new NavigationViewItem("Interactive Input", "⌨️", SamplePagePresenter.CreateInteractiveInputView());
+        var lolsItem = new NavigationViewItem("LOL/s Benchmark", "💥", LolsPage.Create());
 
         AppState._navigationView.MenuItems.Add(basicInputItem);
         AppState._navigationView.MenuItems.Add(panelsItem);
@@ -262,12 +263,17 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(motionMarkItem);
         AppState._navigationView.MenuItems.Add(scriptsItem);
         AppState._navigationView.MenuItems.Add(textInputItem);
+        AppState._navigationView.MenuItems.Add(lolsItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
             if (AppState._navigationView.SelectedItem != null)
             {
                 AppState._activeCategory = AppState._navigationView.SelectedItem.Text;
+            }
+            if (AppState._activeCategory != "LOL/s Benchmark")
+            {
+                LolsPage.ResetAndStop();
             }
             AppState._rootGrid?.Invalidate();
         };
@@ -362,6 +368,8 @@ public static unsafe class MainWindowController
 
     private static void OnWindowUpdate(double delta)
     {
+        UIThread.RunPending();
+
         AppState._rootGrid?.UpdateAnimations((float)delta);
         AppState._rootGrid?.UpdateSampleAnimations((float)delta);
         AppState._rootGrid?.Invalidate();
