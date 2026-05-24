@@ -22,11 +22,11 @@ public static class SamplePagePresenter
     {
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
 
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
         title.Inlines.Add(new Bold(new Run("WebGPU Shaders & DrawingContext Vector APIs")));
         stack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
         description.Inlines.Add(new Run("This page showcases the full GPU-accelerated drawing context. Gradients are computed smoothly in parallel per-pixel in WebGPU WGSL shaders. Shapes are dynamically tessellated on the GPU at maximum framerates."));
         stack.AddChild(description);
 
@@ -40,28 +40,28 @@ public static class SamplePagePresenter
     {
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
 
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
         title.Inlines.Add(new Bold(new Run("Native Storage File Pickers & Async I/O")));
         stack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
         description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker) to query system dialogs. Reads and writes files asynchronously using WinUI's StorageFile platform subsystem."));
         stack.AddChild(description);
 
         var actionsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15) };
         
         var openBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
-        var openBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var openBtnText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         openBtnText.Inlines.Add(new Run("Open Text File..."));
         openBtn.Content = openBtnText;
 
         var saveBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
-        var saveBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var saveBtnText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         saveBtnText.Inlines.Add(new Run("Save Copy As..."));
         saveBtn.Content = saveBtnText;
 
         var folderBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f };
-        var folderBtnText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var folderBtnText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         folderBtnText.Inlines.Add(new Run("Select Folder..."));
         folderBtn.Content = folderBtnText;
 
@@ -70,15 +70,15 @@ public static class SamplePagePresenter
         actionsRow.AddChild(folderBtn);
         stack.AddChild(actionsRow);
 
-        var statusHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 13f, Margin = new Thickness(0, 10, 0, 5) };
+        var statusHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 13f, Margin = new Thickness(0, 10, 0, 5) };
         statusHeader.Inlines.Add(new Bold(new Run("Subsystem Status:")));
         stack.AddChild(statusHeader);
 
-        var statusText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, Margin = new Thickness(0, 0, 0, 15), Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var statusText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, Margin = new Thickness(0, 0, 0, 15), Foreground = ThemeManager.GetBrush("TextSecondary") };
         statusText.Inlines.Add(new Run("Idle. Waiting for picker interaction."));
         stack.AddChild(statusText);
 
-        var contentHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 13f, Margin = new Thickness(0, 5, 0, 5) };
+        var contentHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 13f, Margin = new Thickness(0, 5, 0, 5) };
         contentHeader.Inlines.Add(new Bold(new Run("Storage File Content Workspace:")));
         stack.AddChild(contentHeader);
 
@@ -91,7 +91,7 @@ public static class SamplePagePresenter
             Padding = new Thickness(12f),
             HeightConstraint = 200f
         };
-        var editorText = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        var editorText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
         editorText.Inlines.Add(new Run("Open a file to load its raw text contents into this workspace..."));
         editorBorder.Child = editorText;
         stack.AddChild(editorBorder);
@@ -202,11 +202,11 @@ public static class SamplePagePresenter
     {
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
 
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
         title.Inlines.Add(new Bold(new Run("Fluent WinUI Styles & Setter Engine")));
         stack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
         description.Inlines.Add(new Run("Assign uniform looks to visual panels and buttons using C# styles. Below is a comparison between standard controls, and styled controls styled with setter objects."));
         stack.AddChild(description);
 
@@ -216,18 +216,18 @@ public static class SamplePagePresenter
 
         // Column 0: Standard Unstyled Controls
         var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(10f) };
-        var leftHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
+        var leftHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
         leftHeader.Inlines.Add(new Bold(new Run("Standard Controls")));
         leftStack.AddChild(leftHeader);
 
         var normalBtn1 = new Button { Width = 160f, Height = 36f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 10f) };
-        var normalBtnText1 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var normalBtnText1 = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         normalBtnText1.Inlines.Add(new Run("Default Button 1"));
         normalBtn1.Content = normalBtnText1;
         leftStack.AddChild(normalBtn1);
 
         var normalBtn2 = new Button { Width = 160f, Height = 36f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 10f) };
-        var normalBtnText2 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var normalBtnText2 = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         normalBtnText2.Inlines.Add(new Run("Default Button 2"));
         normalBtn2.Content = normalBtnText2;
         leftStack.AddChild(normalBtn2);
@@ -237,7 +237,7 @@ public static class SamplePagePresenter
 
         // Column 1: Styled Controls
         var rightStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(10f) };
-        var rightHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
+        var rightHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 14f, Margin = new Thickness(0, 0, 0, 15) };
         rightHeader.Inlines.Add(new Bold(new Run("Styled via Reflection Setters")));
         rightStack.AddChild(rightHeader);
 
@@ -248,14 +248,14 @@ public static class SamplePagePresenter
         buttonStyle.Setters.Add(new Setter("CornerRadius", 10f));
 
         var styledBtn1 = new Button { Margin = new Thickness(0, 0, 0, 10f) };
-        var styledBtnText1 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var styledBtnText1 = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         styledBtnText1.Inlines.Add(new Run("Styled Premium Button 1"));
         styledBtn1.Content = styledBtnText1;
         styledBtn1.Style = buttonStyle; // Apply style
         rightStack.AddChild(styledBtn1);
 
         var styledBtn2 = new Button { Margin = new Thickness(0, 0, 0, 10f) };
-        var styledBtnText2 = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var styledBtnText2 = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         styledBtnText2.Inlines.Add(new Run("Styled Premium Button 2"));
         styledBtn2.Content = styledBtnText2;
         styledBtn2.Style = buttonStyle; // Apply style
@@ -272,11 +272,11 @@ public static class SamplePagePresenter
     {
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
 
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 10) };
         title.Inlines.Add(new Bold(new Run("GPU Vector Benchmark - MotionMark Showcase")));
         stack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 15) };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 15) };
         description.Inlines.Add(new Run("This page implements a native high-performance GPU vector graphics benchmark based on the MotionMark suite. Renders thousands of dynamic shapes (lines, circles, and direct GPU Beziers) with zero CPU triangulation or flattening, achieving ultimate frame rates."));
         stack.AddChild(description);
 
@@ -299,7 +299,7 @@ public static class SamplePagePresenter
         settingsCard.Child = settingsStack;
 
         // Element Count
-        var countLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var countLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         countLabel.Inlines.Add(new Bold(new Run("Element Count: 1,000")));
         settingsStack.AddChild(countLabel);
         
@@ -324,7 +324,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(countSlider);
 
         // Stroke Width
-        var strokeLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var strokeLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         strokeLabel.Inlines.Add(new Bold(new Run("Stroke Scale: 1.0x")));
         settingsStack.AddChild(strokeLabel);
         
@@ -339,7 +339,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(strokeSlider);
 
         // Animation Speed
-        var animLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var animLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         animLabel.Inlines.Add(new Bold(new Run("Wobble Animation Speed: 1.0x")));
         settingsStack.AddChild(animLabel);
         
@@ -353,7 +353,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(animSlider);
 
         // Split Chance
-        var splitLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var splitLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         splitLabel.Inlines.Add(new Bold(new Run("Segment Split Chance: 50%")));
         settingsStack.AddChild(splitLabel);
         
@@ -367,11 +367,11 @@ public static class SamplePagePresenter
         settingsStack.AddChild(splitSlider);
 
         // Color Palette
-        var colorLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var colorLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         colorLabel.Inlines.Add(new Bold(new Run("Color Palette:")));
         settingsStack.AddChild(colorLabel);
         
-        var colorCombo = new ComboBox { Font = Program.GetFont(), WidthConstraint = 260f, Margin = new Thickness(0, 0, 0, 16) };
+        var colorCombo = new ComboBox { Font = AppState.GetFont(), WidthConstraint = 260f, Margin = new Thickness(0, 0, 0, 16) };
         colorCombo.Items.Add(new ComboBoxItem("Standard Classical"));
         colorCombo.Items.Add(new ComboBoxItem("Fluent Vibrant"));
         colorCombo.Items.Add(new ComboBoxItem("Rainbow / Hue Wave"));
@@ -391,11 +391,11 @@ public static class SamplePagePresenter
         settingsStack.AddChild(colorCombo);
 
         // Segment Mix Checkboxes
-        var typeLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8) };
+        var typeLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8) };
         typeLabel.Inlines.Add(new Bold(new Run("Segment Types Mix:")));
         settingsStack.AddChild(typeLabel);
 
-        var lineCheckText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f };
+        var lineCheckText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f };
         lineCheckText.Inlines.Add(new Run("Lines"));
         var lineCheck = new CheckBox { Content = lineCheckText, IsChecked = true, Margin = new Thickness(0, 0, 0, 8) };
         lineCheck.CheckedChanged += (s, e) => {
@@ -404,7 +404,7 @@ public static class SamplePagePresenter
         };
         settingsStack.AddChild(lineCheck);
 
-        var quadCheckText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f };
+        var quadCheckText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f };
         quadCheckText.Inlines.Add(new Run("Quadratic Curves"));
         var quadCheck = new CheckBox { Content = quadCheckText, IsChecked = true, Margin = new Thickness(0, 0, 0, 8) };
         quadCheck.CheckedChanged += (s, e) => {
@@ -413,7 +413,7 @@ public static class SamplePagePresenter
         };
         settingsStack.AddChild(quadCheck);
 
-        var cubicCheckText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f };
+        var cubicCheckText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f };
         cubicCheckText.Inlines.Add(new Run("Cubic Curves"));
         var cubicCheck = new CheckBox { Content = cubicCheckText, IsChecked = true, Margin = new Thickness(0, 0, 0, 16) };
         cubicCheck.CheckedChanged += (s, e) => {
@@ -423,7 +423,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(cubicCheck);
 
         // Fills vs Strokes
-        var fillToggleLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var fillToggleLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         fillToggleLabel.Inlines.Add(new Bold(new Run("Render Path Fills instead of Strokes:")));
         settingsStack.AddChild(fillToggleLabel);
         
@@ -451,11 +451,11 @@ public static class SamplePagePresenter
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(16) };
         scroll.Content = stack;
 
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
         title.Inlines.Add(new Bold(new Run("🔤 Advanced Typography, Unicode & Language Scripts")));
         stack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20), Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20), Foreground = ThemeManager.GetBrush("TextSecondary") };
         description.Inlines.Add(new Run("This page showcases the high-performance rendering of different language scripts, custom system fonts, and Unicode symbol outlines on the GPU. Settings altered in the configuration card apply dynamically to all script panels."));
         stack.AddChild(description);
 
@@ -478,11 +478,11 @@ public static class SamplePagePresenter
         settingsCard.Child = settingsStack;
 
         // ComboBox for Font Family
-        var fontLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
+        var fontLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
         fontLabel.Inlines.Add(new Bold(new Run("Choose Font Family:")));
         settingsStack.AddChild(fontLabel);
 
-        var fontCombo = new ComboBox { Font = Program.GetFont(), WidthConstraint = 240f, Margin = new Thickness(0, 0, 0, 16) };
+        var fontCombo = new ComboBox { Font = AppState.GetFont(), WidthConstraint = 240f, Margin = new Thickness(0, 0, 0, 16) };
         var itemArial = new ComboBoxItem("Arial (Primary)");
         var itemTimes = new ComboBoxItem("Times New Roman");
         var itemCourier = new ComboBoxItem("Courier New");
@@ -497,7 +497,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(fontCombo);
 
         // Slider for Size
-        var sizeLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var sizeLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         sizeLabel.Inlines.Add(new Bold(new Run("Global Font Size: 16")));
         settingsStack.AddChild(sizeLabel);
 
@@ -505,11 +505,11 @@ public static class SamplePagePresenter
         settingsStack.AddChild(sizeSlider);
 
         // ComboBox for Alignment
-        var alignLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
+        var alignLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
         alignLabel.Inlines.Add(new Bold(new Run("Text Alignment:")));
         settingsStack.AddChild(alignLabel);
 
-        var alignCombo = new ComboBox { Font = Program.GetFont(), WidthConstraint = 240f, Margin = new Thickness(0, 0, 0, 16) };
+        var alignCombo = new ComboBox { Font = AppState.GetFont(), WidthConstraint = 240f, Margin = new Thickness(0, 0, 0, 16) };
         var alignLeft = new ComboBoxItem("Left");
         var alignCenter = new ComboBoxItem("Center");
         var alignRight = new ComboBoxItem("Right");
@@ -522,7 +522,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(alignCombo);
 
         // Slider for Contrast (Font Smoothing)
-        var contrastLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var contrastLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         contrastLabel.Inlines.Add(new Bold(new Run($"Font Contrast/Dilation: {Compositor.DefaultTextContrast:F2}")));
         settingsStack.AddChild(contrastLabel);
 
@@ -530,7 +530,7 @@ public static class SamplePagePresenter
         settingsStack.AddChild(contrastSlider);
 
         // Slider for Gamma Correction
-        var gammaLabel = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+        var gammaLabel = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
         gammaLabel.Inlines.Add(new Bold(new Run($"Font Gamma: {Compositor.DefaultTextGamma:F2}")));
         settingsStack.AddChild(gammaLabel);
 
@@ -559,10 +559,10 @@ public static class SamplePagePresenter
         };
         var latinStack = new StackPanel { Orientation = Orientation.Vertical };
         latinCard.Child = latinStack;
-        var latinHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var latinHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         latinHeader.Inlines.Add(new Bold(new Run("Latin & English Formatted Runs")));
         latinStack.AddChild(latinHeader);
-        var latinBody = new RichTextBlock { Font = Program.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var latinBody = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
         latinBody.Inlines.Add(new Run("Standard Roman characters can be formatted into custom runs: "));
         latinBody.Inlines.Add(new Bold(new Run("Bold weight run, ")));
         latinBody.Inlines.Add(new Italic(new Run("Italicized slant run, ")));
@@ -584,10 +584,10 @@ public static class SamplePagePresenter
         };
         var cyrillicStack = new StackPanel { Orientation = Orientation.Vertical };
         cyrillicCard.Child = cyrillicStack;
-        var cyrillicHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var cyrillicHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         cyrillicHeader.Inlines.Add(new Bold(new Run("Cyrillic Script (Russian Poetry & Pangram)")));
         cyrillicStack.AddChild(cyrillicHeader);
-        var cyrillicBody = new RichTextBlock { Font = Program.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var cyrillicBody = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
         cyrillicBody.Inlines.Add(new Run("Съешь же ещё этих мягких французских булок, да выпей чаю. Широкая электрификация южных губерний даст мощный толчок подъёму сельского хозяйства."));
         cyrillicStack.AddChild(cyrillicBody);
         textBlocks.Add(cyrillicBody);
@@ -605,10 +605,10 @@ public static class SamplePagePresenter
         };
         var greekStack = new StackPanel { Orientation = Orientation.Vertical };
         greekCard.Child = greekStack;
-        var greekHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var greekHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         greekHeader.Inlines.Add(new Bold(new Run("Hellenic / Greek Script & Mathematical Formulas")));
         greekStack.AddChild(greekHeader);
-        var greekBody = new RichTextBlock { Font = Program.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var greekBody = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
         greekBody.Inlines.Add(new Run("Φύλλα δάφνης στην κεφαλή των ποιητών. E = mc² | ∫(x²)dx = x³/3 | e^(iπ) + 1 = 0 | Σ(n) for n=1 to ∞."));
         greekStack.AddChild(greekBody);
         textBlocks.Add(greekBody);
@@ -626,10 +626,10 @@ public static class SamplePagePresenter
         };
         var cjkStack = new StackPanel { Orientation = Orientation.Vertical };
         cjkCard.Child = cjkStack;
-        var cjkHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var cjkHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         cjkHeader.Inlines.Add(new Bold(new Run("Japanese CJK Outlines (Hiragana, Katakana & Kanji)")));
         cjkStack.AddChild(cjkHeader);
-        var cjkBody = new RichTextBlock { Font = Program.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var cjkBody = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
         cjkBody.Inlines.Add(new Run("色は匂へと散りぬるを我が世誰ぞ常ならむ有為の奥山今日越えて浅き夢見じ酔ひもせず。プロジーピーユーへようこそ！"));
         cjkStack.AddChild(cjkBody);
         textBlocks.Add(cjkBody);
@@ -647,10 +647,10 @@ public static class SamplePagePresenter
         };
         var emojiStack = new StackPanel { Orientation = Orientation.Vertical };
         emojiCard.Child = emojiStack;
-        var emojiHeader = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var emojiHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         emojiHeader.Inlines.Add(new Bold(new Run("Real Font-Driven Color Emoji / Unicode Outlines")));
         emojiStack.AddChild(emojiHeader);
-        var emojiBody = new RichTextBlock { Font = Program.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var emojiBody = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Foreground = ThemeManager.GetBrush("TextSecondary") };
         emojiBody.Inlines.Add(new Run("Unicode premium symbols: ★, ♠, ♦, ♣, ♥, ✔, ▲, ▼ parsed directly from the system TTF binary and rendered onto the GPU canvas with zero CPU triangulation overhead!"));
         emojiStack.AddChild(emojiBody);
         textBlocks.Add(emojiBody);
@@ -661,12 +661,12 @@ public static class SamplePagePresenter
         {
             TtfFont f = fontCombo.SelectedItem?.Text switch
             {
-                "Arial (Primary)" => Program.GetFont()!,
-                "Times New Roman" => Program.GetFontTimes() ?? Program.GetFont()!,
-                "Courier New" => Program.GetFontCourier() ?? Program.GetFont()!,
-                "Georgia" => Program.GetFontGeorgia() ?? Program.GetFont()!,
-                "Comic Sans MS" => Program.GetFontComic() ?? Program.GetFont()!,
-                _ => Program.GetFont()!
+                "Arial (Primary)" => AppState.GetFont()!,
+                "Times New Roman" => AppState.GetFontTimes() ?? AppState.GetFont()!,
+                "Courier New" => AppState.GetFontCourier() ?? AppState.GetFont()!,
+                "Georgia" => AppState.GetFontGeorgia() ?? AppState.GetFont()!,
+                "Comic Sans MS" => AppState.GetFontComic() ?? AppState.GetFont()!,
+                _ => AppState.GetFont()!
             };
 
             float sz = sizeSlider.Value;
@@ -730,11 +730,11 @@ public static class SamplePagePresenter
         ProGPU.WinUI.Grid.SetColumn(rightStack, 1);
 
         // Title and Header
-        var title = new RichTextBlock { Font = Program.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
+        var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
         title.Inlines.Add(new Bold(new Run("⌨️ Multi-Script Interactive Text Input")));
         rightStack.AddChild(title);
 
-        var description = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20), Foreground = ThemeManager.GetBrush("TextSecondary") };
+        var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20), Foreground = ThemeManager.GetBrush("TextSecondary") };
         description.Inlines.Add(new Run("Type, edit, and navigate through different scripts interactively. The caret details HUD decodes Unicode surrogate-pairs behind the cursor in real-time."));
         rightStack.AddChild(description);
 
@@ -753,14 +753,14 @@ public static class SamplePagePresenter
         var templatesStack = new StackPanel { Orientation = Orientation.Vertical };
         templatesCard.Child = templatesStack;
 
-        var sidebarTitle = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 12f) };
+        var sidebarTitle = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 12f) };
         sidebarTitle.Inlines.Add(new Bold(new Run("Load Sample Template:")));
         templatesStack.AddChild(sidebarTitle);
 
         // Inputs Setup
         var inputBox = new TextBox 
         { 
-            Font = Program.GetFont(), 
+            Font = AppState.GetFont(), 
             Text = "Type or choose a visual template...", 
             WidthConstraint = 480f, 
             HeightConstraint = 36f, 
@@ -770,7 +770,7 @@ public static class SamplePagePresenter
 
         var richPlayground = new RichEditBox 
         { 
-            Font = Program.GetFont(), 
+            Font = AppState.GetFont(), 
             WidthConstraint = 480f, 
             HeightConstraint = 160f,
             FontSize = 14f,
@@ -779,31 +779,31 @@ public static class SamplePagePresenter
 
         // Templates Action Buttons
         var btnLatin = new Button { WidthConstraint = 210f, HeightConstraint = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 8) };
-        var btnLatinText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var btnLatinText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         btnLatinText.Inlines.Add(new Run("Standard English"));
         btnLatin.Content = btnLatinText;
         templatesStack.AddChild(btnLatin);
 
         var btnCyrillic = new Button { WidthConstraint = 210f, HeightConstraint = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 8) };
-        var btnCyrillicText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var btnCyrillicText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         btnCyrillicText.Inlines.Add(new Run("Russian (Cyrillic)"));
         btnCyrillic.Content = btnCyrillicText;
         templatesStack.AddChild(btnCyrillic);
 
         var btnGreek = new Button { WidthConstraint = 210f, HeightConstraint = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 8) };
-        var btnGreekText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var btnGreekText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         btnGreekText.Inlines.Add(new Run("Greek (Hellenic)"));
         btnGreek.Content = btnGreekText;
         templatesStack.AddChild(btnGreek);
 
         var btnJapanese = new Button { WidthConstraint = 210f, HeightConstraint = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 8) };
-        var btnJapaneseText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var btnJapaneseText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         btnJapaneseText.Inlines.Add(new Run("Japanese CJK"));
         btnJapanese.Content = btnJapaneseText;
         templatesStack.AddChild(btnJapanese);
 
         var btnSymbols = new Button { WidthConstraint = 210f, HeightConstraint = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 0, 8) };
-        var btnSymbolsText = new RichTextBlock { Font = Program.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var btnSymbolsText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         btnSymbolsText.Inlines.Add(new Run("Unicode Symbols"));
         btnSymbols.Content = btnSymbolsText;
         templatesStack.AddChild(btnSymbols);
@@ -816,12 +816,12 @@ public static class SamplePagePresenter
         btnSymbols.Click += (s, e) => { inputBox.Text = "Dynamic symbols: ★ ♠ ♦ ♣ ♥ ✔ ▲ ▼ outlines parsed on GPU!"; inputBox.CaretIndex = inputBox.Text.Length; };
 
         // Right Content: TextBox & RichEditBox
-        var labelInput = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
+        var labelInput = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
         labelInput.Inlines.Add(new Bold(new Run("Interactive TextBox (Single-Line Inputs):")));
         rightStack.AddChild(labelInput);
         rightStack.AddChild(inputBox);
 
-        var labelRich = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
+        var labelRich = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6) };
         labelRich.Inlines.Add(new Bold(new Run("Interactive RichEditBox Playground (Select and format text with Ctrl+B/I/U):")));
         rightStack.AddChild(labelRich);
         rightStack.AddChild(richPlayground);
@@ -839,19 +839,19 @@ public static class SamplePagePresenter
         var hudStack = new StackPanel { Orientation = Orientation.Vertical };
         hudPanel.Child = hudStack;
 
-        var hudTitle = new RichTextBlock { Font = Program.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
+        var hudTitle = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 8f) };
         hudTitle.Inlines.Add(new Bold(new Run("Caret HUD Status Subsystem")));
         hudStack.AddChild(hudTitle);
 
-        var hudCharCount = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("TextSecondary"), Margin = new Thickness(0, 0, 0, 4f) };
+        var hudCharCount = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("TextSecondary"), Margin = new Thickness(0, 0, 0, 4f) };
         hudCharCount.Inlines.Add(new Run("Text Length: 0 characters"));
         hudStack.AddChild(hudCharCount);
 
-        var hudCaretPos = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("TextSecondary"), Margin = new Thickness(0, 0, 0, 4f) };
+        var hudCaretPos = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("TextSecondary"), Margin = new Thickness(0, 0, 0, 4f) };
         hudCaretPos.Inlines.Add(new Run("Caret Position: 0"));
         hudStack.AddChild(hudCaretPos);
 
-        var hudCodePoint = new RichTextBlock { Font = Program.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("SystemAccentColor") };
+        var hudCodePoint = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, Foreground = ThemeManager.GetBrush("SystemAccentColor") };
         hudCodePoint.Inlines.Add(new Run("Active CodePoint behind cursor: U+0000 ('N/A')"));
         hudStack.AddChild(hudCodePoint);
 

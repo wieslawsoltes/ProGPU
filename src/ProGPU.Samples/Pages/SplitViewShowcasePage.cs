@@ -24,7 +24,7 @@ public static class SplitViewShowcasePage
             grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main workspace
     
-            var descText = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+            var descText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
             descText.Inlines.Add(new Bold(new Run("SplitView Responsive Layout Demonstration\n")));
             descText.Inlines.Add(new Run("Demonstrates collapsible navigation side panes with customizable display modes, positioning, and width metrics. Adjust states in real time."));
             grid.AddChild(descText);
@@ -52,7 +52,7 @@ public static class SplitViewShowcasePage
                 VerticalAlignment = VerticalAlignment.Stretch
             };
             var paneStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var paneHeader = new RichTextBlock { Font = Program._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 10) };
+            var paneHeader = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 10) };
             paneHeader.Inlines.Add(new Bold(new Run("Navigation Pane")));
             paneStack.AddChild(paneHeader);
     
@@ -66,7 +66,7 @@ public static class SplitViewShowcasePage
                     Margin = new Thickness(0, 0, 0, 8),
                     HorizontalAlignment = HorizontalAlignment.Left
                 };
-                var btnLabel = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                var btnLabel = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 btnLabel.Inlines.Add(new Run($"Pane Option {i}"));
                 pBtn.Content = btnLabel;
                 paneStack.AddChild(pBtn);
@@ -81,13 +81,13 @@ public static class SplitViewShowcasePage
     
             var ctrlStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
             
-            var ctrlTitle = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+            var ctrlTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
             ctrlTitle.Inlines.Add(new Bold(new Run("SplitView Controllers")));
             ctrlStack.AddChild(ctrlTitle);
     
             // Toggle Pane Button
             var togglePaneBtn = new Button { Width = 200f, Height = 32f, CornerRadius = 6f, Margin = new Thickness(0, 0, 0, 15) };
-            var toggleText = new RichTextBlock { Font = Program._font, FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var toggleText = new RichTextBlock { Font = AppState._font, FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             toggleText.Inlines.Add(new Run("Collapse / Expand Pane"));
             togglePaneBtn.Content = toggleText;
             togglePaneBtn.Click += (s, e) =>
@@ -97,11 +97,11 @@ public static class SplitViewShowcasePage
             ctrlStack.AddChild(togglePaneBtn);
     
             // ComboBox for DisplayMode
-            var modeLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+            var modeLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
             modeLabel.Inlines.Add(new Run("SplitView DisplayMode:"));
             ctrlStack.AddChild(modeLabel);
     
-            var modeCombo = new ComboBox { Font = Program._font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
+            var modeCombo = new ComboBox { Font = AppState._font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
             var inlineItem = new ComboBoxItem("Inline");
             var overlayItem = new ComboBoxItem("Overlay");
             var compactInlineItem = new ComboBoxItem("CompactInline");
@@ -129,11 +129,11 @@ public static class SplitViewShowcasePage
             ctrlStack.AddChild(modeCombo);
     
             // ComboBox for Placement
-            var placeLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+            var placeLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
             placeLabel.Inlines.Add(new Run("Pane Placement:"));
             ctrlStack.AddChild(placeLabel);
     
-            var placeCombo = new ComboBox { Font = Program._font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
+            var placeCombo = new ComboBox { Font = AppState._font, Width = 200f, Margin = new Thickness(0, 0, 0, 15) };
             var leftItem = new ComboBoxItem("Left");
             var rightItem = new ComboBoxItem("Right");
             placeCombo.Items.Add(leftItem);
@@ -172,7 +172,7 @@ public static class SplitViewShowcasePage
             };
             var previewText = new RichTextBlock
             {
-                Font = Program._font,
+                Font = AppState._font,
                 FontSize = 13f,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center

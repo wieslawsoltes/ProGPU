@@ -24,7 +24,7 @@ public static class LayoutPanelsPage
             grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1, GridUnitType.Star));       // Pivot tab showcase
     
-            var descText = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+            var descText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
             descText.Inlines.Add(new Run("This page showcases standard WinUI layout panels enclosed inside a premium sliding "));
             descText.Inlines.Add(new Bold(new Run("Pivot")));
             descText.Inlines.Add(new Run(" control. Hover tabs or click to switch with smooth slide animations."));
@@ -34,7 +34,7 @@ public static class LayoutPanelsPage
             // 1. Pivot Control
             var pivot = new Pivot
             {
-                Font = Program._font,
+                Font = AppState._font,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
@@ -52,7 +52,7 @@ public static class LayoutPanelsPage
             innerGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
     
             var card1 = new Border { Margin = new Thickness(4), Background = new SolidColorBrush(0xFF555520), CornerRadius = 6f };
-            var cardText1 = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var cardText1 = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             cardText1.Inlines.Add(new Run("Cell (0, 0)"));
             card1.Child = cardText1;
             innerGrid.AddChild(card1);
@@ -60,7 +60,7 @@ public static class LayoutPanelsPage
             ProGPU.WinUI.Grid.SetColumn(card1, 0);
     
             var card2 = new Border { Margin = new Thickness(4), Background = new SolidColorBrush(0x00FF8820), CornerRadius = 6f };
-            var cardText2 = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var cardText2 = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             cardText2.Inlines.Add(new Run("Cell (0, 1)"));
             card2.Child = cardText2;
             innerGrid.AddChild(card2);
@@ -68,7 +68,7 @@ public static class LayoutPanelsPage
             ProGPU.WinUI.Grid.SetColumn(card2, 1);
     
             var card3 = new Border { Margin = new Thickness(4), Background = new SolidColorBrush(0x00E5FF20), CornerRadius = 6f };
-            var cardText3 = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var cardText3 = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             cardText3.Inlines.Add(new Run("Cell (1, 0)"));
             card3.Child = cardText3;
             innerGrid.AddChild(card3);
@@ -76,7 +76,7 @@ public static class LayoutPanelsPage
             ProGPU.WinUI.Grid.SetColumn(card3, 0);
     
             var card4 = new Border { Margin = new Thickness(4), Background = new SolidColorBrush(0xA100FF20), CornerRadius = 6f };
-            var cardText4 = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var cardText4 = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             cardText4.Inlines.Add(new Run("Cell (1, 1)"));
             card4.Child = cardText4;
             innerGrid.AddChild(card4);
@@ -100,7 +100,7 @@ public static class LayoutPanelsPage
     
             // Column 1: StackPanel layout
             var rightStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var stackTitle = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(8, 0, 0, 8) };
+            var stackTitle = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(8, 0, 0, 8) };
             stackTitle.Inlines.Add(new Bold(new Run("Vertical Stack Panel")));
             rightStack.AddChild(stackTitle);
     
@@ -114,13 +114,13 @@ public static class LayoutPanelsPage
                     CornerRadius = 4f,
                     HorizontalAlignment = HorizontalAlignment.Stretch
                 };
-                var itemText = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(10, 8, 0, 0) };
+                var itemText = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(10, 8, 0, 0) };
                 itemText.Inlines.Add(new Run($"Stack Item #{i}"));
                 item.Child = itemText;
                 rightStack.AddChild(item);
             }
     
-            var horizontalStackTitle = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(8, 12, 0, 8) };
+            var horizontalStackTitle = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(8, 12, 0, 8) };
             horizontalStackTitle.Inlines.Add(new Bold(new Run("Horizontal Flow Row")));
             rightStack.AddChild(horizontalStackTitle);
     
@@ -135,7 +135,7 @@ public static class LayoutPanelsPage
                     Background = new SolidColorBrush(0x00E5FF25),
                     CornerRadius = 4f
                 };
-                var itemText = new RichTextBlock { Font = Program._font, FontSize = 10f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                var itemText = new RichTextBlock { Font = AppState._font, FontSize = 10f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 itemText.Inlines.Add(new Run($"Flow #{i}"));
                 item.Child = itemText;
                 horzFlow.AddChild(item);
@@ -162,7 +162,7 @@ public static class LayoutPanelsPage
     
             // Tab 2: Canvas Absolute Layout
             var canvasPanel = new Canvas { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
-            var canvasDesc = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(8, 4, 0, 0) };
+            var canvasDesc = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(8, 4, 0, 0) };
             canvasDesc.Inlines.Add(new Bold(new Run("Absolute Canvas Coordinates:")));
             canvasPanel.AddChild(canvasDesc);
             Canvas.SetLeft(canvasDesc, 8f);
@@ -179,7 +179,7 @@ public static class LayoutPanelsPage
                     Background = new SolidColorBrush(cardColors[i]),
                     CornerRadius = 6f
                 };
-                var overlappingText = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(12, 20, 0, 0) };
+                var overlappingText = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(12, 20, 0, 0) };
                 overlappingText.Inlines.Add(new Bold(new Run($"Absolute Panel #{i + 1}")));
                 overlappingCard.Child = overlappingText;
                 
@@ -206,7 +206,7 @@ public static class LayoutPanelsPage
             // Tab 3: TabView Control
             var tabViewContainer = new TabView
             {
-                Font = Program._font,
+                Font = AppState._font,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
@@ -221,7 +221,7 @@ public static class LayoutPanelsPage
                     Padding = new Thickness(20),
                     Child = new RichTextBlock
                     {
-                        Font = Program._font,
+                        Font = AppState._font,
                         FontSize = 14f,
                         Inlines = { new Bold(new Run("Welcome to your TabView Home Page!\n\n")), new Run("This TabView supports adding new tabs by clicking the '+' button on the right, and closing existing ones using the 'x' close buttons.") }
                     }
@@ -237,7 +237,7 @@ public static class LayoutPanelsPage
                     Padding = new Thickness(20),
                     Child = new RichTextBlock
                     {
-                        Font = Program._font,
+                        Font = AppState._font,
                         FontSize = 14f,
                         Inlines = { new Bold(new Run("Real-Time Graphics Analytics Data\n\n")), new Run("WebGL/WebGPU performance is locked at a stable 60 FPS under massive parallel draw call buffers.") }
                     }
@@ -259,7 +259,7 @@ public static class LayoutPanelsPage
                         Padding = new Thickness(20),
                         Child = new RichTextBlock
                         {
-                            Font = Program._font,
+                            Font = AppState._font,
                             FontSize = 14f,
                             Inlines = { new Bold(new Run($"Active Dynamic Tab Room #{nextTabId}\n\n")), new Run("TabView leverages viewport virtualization logic to dynamically balance graphics render loads.") }
                         }

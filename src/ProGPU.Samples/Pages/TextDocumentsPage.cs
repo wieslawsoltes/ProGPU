@@ -27,22 +27,22 @@ public static class TextDocumentsPage
             // Column 0: Interactive text typing editors
             var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
             
-            var editorTitle = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
+            var editorTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
             editorTitle.Inlines.Add(new Bold(new Run("Caret-Interactive Input Arenas")));
             leftStack.AddChild(editorTitle);
     
-            var editorDesc = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(0, 0, 0, 15) };
+            var editorDesc = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(0, 0, 0, 15) };
             editorDesc.Inlines.Add(new Run("Input focus is obtained on clicking, enabling caret positioning, arrow-key navigation, backspace deletions, and live character typing."));
             leftStack.AddChild(editorDesc);
     
             // TextBox (Single line)
-            var textboxLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+            var textboxLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
             textboxLabel.Inlines.Add(new Bold(new Run("Standard TextBox (Single Line)")));
             leftStack.AddChild(textboxLabel);
     
             var textEntry = new TextBox 
             { 
-                Font = Program._font, 
+                Font = AppState._font, 
                 Text = "ProGPU typing", 
                 Width = 300f, 
                 Height = 32f, 
@@ -51,13 +51,13 @@ public static class TextDocumentsPage
             leftStack.AddChild(textEntry);
     
             // RichEditBox (Multi line)
-            var richeditLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+            var richeditLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
             richeditLabel.Inlines.Add(new Bold(new Run("Interactive RichEditBox (Formatted Runs)")));
             leftStack.AddChild(richeditLabel);
     
             var richEntry = new RichEditBox 
             { 
-                Font = Program._font, 
+                Font = AppState._font, 
                 Width = 320f, 
                 Height = 180f 
             };
@@ -124,13 +124,13 @@ public static class TextDocumentsPage
     
             // Column 1: Multi-column FlowDocument
             var rightStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
-            var docTitle = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(8, 0, 0, 5) };
+            var docTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(8, 0, 0, 5) };
             docTitle.Inlines.Add(new Bold(new Run("Multi-Column Structured FlowDocument")));
             rightStack.AddChild(docTitle);
     
             var flowDoc = new FlowDocument 
             { 
-                Font = Program._font, 
+                Font = AppState._font, 
                 FontSize = 11.5f, 
                 ColumnCount = 2, 
                 ColumnGap = 22f,

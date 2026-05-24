@@ -24,7 +24,7 @@ public static class CompositorShowcasePage
             grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Columns
     
-            var descText = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+            var descText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
             descText.Inlines.Add(new Bold(new Run("Composition Subsystem & Multi-Column Document Nesting\n")));
             descText.Inlines.Add(new Run("This page showcases CPU-tessellated multi-stop gradients, dynamic clipping masks, real-time spring transformations, and interactive UI controls seamlessly embedded inline using the FlowDocument InlineUIContainer pipeline."));
             grid.AddChild(descText);
@@ -47,11 +47,11 @@ public static class CompositorShowcasePage
                 Margin = new Thickness(0, 0, 0, 12)
             };
             var artStack = new StackPanel { Orientation = Orientation.Vertical };
-            var artHeader = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
+            var artHeader = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
             artHeader.Inlines.Add(new Bold(new Run("High-Performance Tessellated Vector Gradients")));
             artStack.AddChild(artHeader);
     
-            var artVisual = new Program.GradientArtVisual();
+            var artVisual = new GradientArtVisual();
             artStack.AddChild(artVisual);
             artCard.Child = artStack;
             leftStack.AddChild(artCard);
@@ -66,11 +66,11 @@ public static class CompositorShowcasePage
                 Padding = new Thickness(16f)
             };
             var springStack = new StackPanel { Orientation = Orientation.Vertical };
-            var springHeader = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
+            var springHeader = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
             springHeader.Inlines.Add(new Bold(new Run("Spring & Matrix Composition Transformation")));
             springStack.AddChild(springHeader);
     
-            var springWidget = new Program.SpringInteractiveCardWidget(Program._font!);
+            var springWidget = new SpringInteractiveCardWidget(AppState._font!);
             springStack.AddChild(springWidget);
             springCard.Child = springStack;
             leftStack.AddChild(springCard);
@@ -91,13 +91,13 @@ public static class CompositorShowcasePage
                 VerticalAlignment = VerticalAlignment.Stretch
             };
             var docStack = new StackPanel { Orientation = Orientation.Vertical };
-            var docHeader = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
+            var docHeader = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 8) };
             docHeader.Inlines.Add(new Bold(new Run("FlowDocument Interactive Nesting")));
             docStack.AddChild(docHeader);
     
             var flowDoc = new FlowDocument
             {
-                Font = Program._font,
+                Font = AppState._font,
                 FontSize = 11.5f,
                 ColumnCount = 2,
                 ColumnGap = 16f,
@@ -107,7 +107,7 @@ public static class CompositorShowcasePage
     
             // Embedded Controls definitions
             var embedBtn = new Button { Width = 80f, Height = 22f, CornerRadius = 4f, Margin = new Thickness(0) };
-            embedBtn.Content = new RichTextBlock { Font = Program._font, FontSize = 10f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            embedBtn.Content = new RichTextBlock { Font = AppState._font, FontSize = 10f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             ((RichTextBlock)embedBtn.Content).Inlines.Add(new Run("Click Me!"));
             embedBtn.Click += (s, e) => {
                 System.Console.WriteLine("Embedded Button Clicked!");

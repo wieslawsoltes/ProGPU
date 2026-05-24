@@ -24,7 +24,7 @@ public static class ImageRepeatShowcasePage
             grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main content Grid
     
-            var descText = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+            var descText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
             descText.Inlines.Add(new Bold(new Run("Image Stretching & Button Extensions Showcase\n")));
             descText.Inlines.Add(new Run("Exhibits the uncompressed BMP local loader supporting None, Fill, Uniform, UniformToFill stretch structures, together with high-fidelity RepeatButtons and HyperlinkButtons."));
             grid.AddChild(descText);
@@ -46,7 +46,7 @@ public static class ImageRepeatShowcasePage
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var imgStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var imgHeader = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+            var imgHeader = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
             imgHeader.Inlines.Add(new Bold(new Run("Pure C# BMP Rendering & Stretching")));
             imgStack.AddChild(imgHeader);
     
@@ -59,17 +59,17 @@ public static class ImageRepeatShowcasePage
                 Margin = new Thickness(0, 0, 0, 15)
             };
     
-            // Pass Program._canvasSourceTexture as the fallback source texture
-            testImage.Source = Program._canvasSourceTexture;
+            // Pass AppState._canvasSourceTexture as the fallback source texture
+            testImage.Source = AppState._canvasSourceTexture;
     
             imgStack.AddChild(testImage);
     
             // ComboBox for Stretch Mode
-            var stretchLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
+            var stretchLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
             stretchLabel.Inlines.Add(new Run("Image Stretch Mode:"));
             imgStack.AddChild(stretchLabel);
     
-            var stretchCombo = new ComboBox { Font = Program._font, Width = 200f, Margin = new Thickness(0, 0, 0, 10) };
+            var stretchCombo = new ComboBox { Font = AppState._font, Width = 200f, Margin = new Thickness(0, 0, 0, 10) };
             var noneItem = new ComboBoxItem("None");
             var fillItem = new ComboBoxItem("Fill");
             var uniformItem = new ComboBoxItem("Uniform");
@@ -113,55 +113,55 @@ public static class ImageRepeatShowcasePage
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var btnStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var btnHeader = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
+            var btnHeader = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 10) };
             btnHeader.Inlines.Add(new Bold(new Run("Interactive Button Extensions")));
             btnStack.AddChild(btnHeader);
     
             // RepeatButton demonstration
-            var repeatLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
-            repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {Program._repeatCount}")));
+            var repeatLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
+            repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {AppState._repeatCount}")));
             btnStack.AddChild(repeatLabel);
     
             var repeatBtnStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
             
             var decBtn = new RepeatButton { Width = 80f, Height = 32f, CornerRadius = 4f, Margin = new Thickness(0, 0, 8, 0) };
-            var decLabel = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var decLabel = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             decLabel.Inlines.Add(new Run("- Decrement"));
             decBtn.Content = decLabel;
             decBtn.Click += (s, e) =>
             {
-                Program._repeatCount--;
+                AppState._repeatCount--;
                 repeatLabel.Inlines.Clear();
-                repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {Program._repeatCount}")));
+                repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {AppState._repeatCount}")));
                 repeatLabel.Invalidate();
             };
             repeatBtnStack.AddChild(decBtn);
     
             var incBtn = new RepeatButton { Width = 80f, Height = 32f, CornerRadius = 4f };
-            var incLabel = new RichTextBlock { Font = Program._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var incLabel = new RichTextBlock { Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             incLabel.Inlines.Add(new Run("+ Increment"));
             incBtn.Content = incLabel;
             incBtn.Click += (s, e) =>
             {
-                Program._repeatCount++;
+                AppState._repeatCount++;
                 repeatLabel.Inlines.Clear();
-                repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {Program._repeatCount}")));
+                repeatLabel.Inlines.Add(new Bold(new Run($"Hold button counter: {AppState._repeatCount}")));
                 repeatLabel.Invalidate();
             };
             repeatBtnStack.AddChild(incBtn);
             btnStack.AddChild(repeatBtnStack);
     
             // HyperlinkButton demonstration
-            var linkLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
+            var linkLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 4) };
             linkLabel.Inlines.Add(new Bold(new Run("Hyperlink Button Hover & Click:")));
             btnStack.AddChild(linkLabel);
     
             var hyperBtn = new HyperlinkButton { Height = 28f, Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
-            var hyperText = new RichTextBlock { Font = Program._font, FontSize = 12f, Foreground = ThemeManager.GetBrush("SystemAccentColor") };
+            var hyperText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Foreground = ThemeManager.GetBrush("SystemAccentColor") };
             hyperText.Inlines.Add(new Run("Visit ProGPU cross-platform github hub"));
             hyperBtn.Content = hyperText;
     
-            var clickFeedback = new RichTextBlock { Font = Program._font, FontSize = 11f, Foreground = new SolidColorBrush(0x00E5FF25) };
+            var clickFeedback = new RichTextBlock { Font = AppState._font, FontSize = 11f, Foreground = new SolidColorBrush(0x00E5FF25) };
             clickFeedback.Inlines.Add(new Run(""));
             
             hyperBtn.Click += (s, e) =>

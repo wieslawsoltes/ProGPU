@@ -25,82 +25,82 @@ public static class ComputeFxPage
             grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // WebGPU offscreen effect canvas
     
             var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
-            var computeTitle = new RichTextBlock { Font = Program._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
+            var computeTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
             computeTitle.Inlines.Add(new Bold(new Run("WGSL Compute Accelerator")));
             leftStack.AddChild(computeTitle);
     
-            var computeDesc = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(0, 0, 0, 15) };
+            var computeDesc = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(0, 0, 0, 15) };
             computeDesc.Inlines.Add(new Run("Adjust dynamic WGSL pixel processors running in parallel with the scene compositing passes."));
             leftStack.AddChild(computeDesc);
     
             // Sliders for compute
-            var blurLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
-            blurLabel.Inlines.Add(new Bold(new Run($"Backdrop Blur: {Program._blurRadius:F1} px")));
+            var blurLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
+            blurLabel.Inlines.Add(new Bold(new Run($"Backdrop Blur: {AppState._blurRadius:F1} px")));
             leftStack.AddChild(blurLabel);
     
-            var blurSlider = new ProGPU.WinUI.Slider { Minimum = 0f, Maximum = 20f, Value = Program._blurRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
+            var blurSlider = new ProGPU.WinUI.Slider { Minimum = 0f, Maximum = 20f, Value = AppState._blurRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             blurSlider.ValueChanged += (s, e) =>
             {
-                Program._blurRadius = blurSlider.Value;
+                AppState._blurRadius = blurSlider.Value;
                 blurLabel.Inlines.Clear();
-                blurLabel.Inlines.Add(new Bold(new Run($"Backdrop Blur: {Program._blurRadius:F1} px")));
+                blurLabel.Inlines.Add(new Bold(new Run($"Backdrop Blur: {AppState._blurRadius:F1} px")));
                 blurLabel.Invalidate();
             };
             leftStack.AddChild(blurSlider);
     
-            var shadowLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
-            shadowLabel.Inlines.Add(new Bold(new Run($"Shadow Radius: {Program._shadowRadius:F1} px")));
+            var shadowLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
+            shadowLabel.Inlines.Add(new Bold(new Run($"Shadow Radius: {AppState._shadowRadius:F1} px")));
             leftStack.AddChild(shadowLabel);
     
-            var shadowSlider = new ProGPU.WinUI.Slider { Minimum = 0f, Maximum = 20f, Value = Program._shadowRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
+            var shadowSlider = new ProGPU.WinUI.Slider { Minimum = 0f, Maximum = 20f, Value = AppState._shadowRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             shadowSlider.ValueChanged += (s, e) =>
             {
-                Program._shadowRadius = shadowSlider.Value;
+                AppState._shadowRadius = shadowSlider.Value;
                 shadowLabel.Inlines.Clear();
-                shadowLabel.Inlines.Add(new Bold(new Run($"Shadow Radius: {Program._shadowRadius:F1} px")));
+                shadowLabel.Inlines.Add(new Bold(new Run($"Shadow Radius: {AppState._shadowRadius:F1} px")));
                 shadowLabel.Invalidate();
             };
             leftStack.AddChild(shadowSlider);
     
-            var offsetXLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
-            offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {Program._shadowOffset.X:F1} px")));
+            var offsetXLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
+            offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {AppState._shadowOffset.X:F1} px")));
             leftStack.AddChild(offsetXLabel);
     
-            var offsetXSlider = new ProGPU.WinUI.Slider { Minimum = -20f, Maximum = 20f, Value = Program._shadowOffset.X, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
+            var offsetXSlider = new ProGPU.WinUI.Slider { Minimum = -20f, Maximum = 20f, Value = AppState._shadowOffset.X, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             offsetXSlider.ValueChanged += (s, e) =>
             {
-                Program._shadowOffset.X = offsetXSlider.Value;
+                AppState._shadowOffset.X = offsetXSlider.Value;
                 offsetXLabel.Inlines.Clear();
-                offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {Program._shadowOffset.X:F1} px")));
+                offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {AppState._shadowOffset.X:F1} px")));
                 offsetXLabel.Invalidate();
             };
             leftStack.AddChild(offsetXSlider);
     
-            var offsetYLabel = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
-            offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {Program._shadowOffset.Y:F1} px")));
+            var offsetYLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 5, 0, 2) };
+            offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {AppState._shadowOffset.Y:F1} px")));
             leftStack.AddChild(offsetYLabel);
     
-            var offsetYSlider = new ProGPU.WinUI.Slider { Minimum = -20f, Maximum = 20f, Value = Program._shadowOffset.Y, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
+            var offsetYSlider = new ProGPU.WinUI.Slider { Minimum = -20f, Maximum = 20f, Value = AppState._shadowOffset.Y, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             offsetYSlider.ValueChanged += (s, e) =>
             {
-                Program._shadowOffset.Y = offsetYSlider.Value;
+                AppState._shadowOffset.Y = offsetYSlider.Value;
                 offsetYLabel.Inlines.Clear();
-                offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {Program._shadowOffset.Y:F1} px")));
+                offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {AppState._shadowOffset.Y:F1} px")));
                 offsetYLabel.Invalidate();
             };
             leftStack.AddChild(offsetYSlider);
     
             // Toggle Cogs Animation Button
             var toggleAnimBtn = new Button { Width = 185f, Height = 34f, CornerRadius = 6f, Margin = new Thickness(0, 10, 0, 0) };
-            var toggleBtnText = new RichTextBlock { Font = Program._font, FontSize = 12f };
-            toggleBtnText.Inlines.Add(new Run(Program._animateGear ? "Stop Vector Rotation" : "Start Vector Rotation"));
+            var toggleBtnText = new RichTextBlock { Font = AppState._font, FontSize = 12f };
+            toggleBtnText.Inlines.Add(new Run(AppState._animateGear ? "Stop Vector Rotation" : "Start Vector Rotation"));
             toggleAnimBtn.Content = toggleBtnText;
     
             toggleAnimBtn.Click += (s, e) =>
             {
-                Program._animateGear = !Program._animateGear;
+                AppState._animateGear = !AppState._animateGear;
                 toggleBtnText.Inlines.Clear();
-                toggleBtnText.Inlines.Add(new Run(Program._animateGear ? "Stop Vector Rotation" : "Start Vector Rotation"));
+                toggleBtnText.Inlines.Add(new Run(AppState._animateGear ? "Stop Vector Rotation" : "Start Vector Rotation"));
                 toggleBtnText.Invalidate();
             };
             leftStack.AddChild(toggleAnimBtn);
@@ -109,13 +109,13 @@ public static class ComputeFxPage
             ProGPU.WinUI.Grid.SetColumn(leftStack, 0);
     
             // Center WebGPU texture offscreen render Canvas (Column 1)
-            Program._gearCanvasVisual = new GearCanvasVisual(Program._font!)
+            AppState._gearCanvasVisual = new GearCanvasVisual(AppState._font!)
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
     
-            var displayCanvas = new GpuTextureCanvas(Program._canvasSourceTexture!, Program._canvasShadowTexture!, Program._canvasBlurTexture!);
+            var displayCanvas = new GpuTextureCanvas(AppState._canvasSourceTexture!, AppState._canvasShadowTexture!, AppState._canvasBlurTexture!);
             
             var canvasContainer = new Border
             {

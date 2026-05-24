@@ -25,11 +25,11 @@ public static class DataVirtualizationPage
             grid.RowDefinitions.Add(new GridLength(1, GridUnitType.Star));       // Recycled Grid
     
             var descStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
-            var listTitle = new RichTextBlock { Font = Program._font, FontSize = 14f };
+            var listTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f };
             listTitle.Inlines.Add(new Bold(new Run("10,000 Record Virtualized DataGrid")));
             descStack.AddChild(listTitle);
     
-            var listDesc = new RichTextBlock { Font = Program._font, FontSize = 11f, Margin = new Thickness(0, 2, 0, 0) };
+            var listDesc = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(0, 2, 0, 0) };
             listDesc.Inlines.Add(new Run("Ultra-fast vertical scroll recycling displays massive datasets at locked 60 FPS. Click on any header column to "));
             listDesc.Inlines.Add(new Bold(new Run("sort alphanumerically")));
             listDesc.Inlines.Add(new Run(", and click rows to change selected indices. Double-click any cell (or press Enter on selection) to "));
@@ -43,7 +43,7 @@ public static class DataVirtualizationPage
             // Virtualized DataGrid setup
             var dataGrid = new ProGPU.WinUI.DataGrid
             {
-                Font = Program._font,
+                Font = AppState._font,
                 RowHeight = 28f,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
@@ -59,7 +59,7 @@ public static class DataVirtualizationPage
             // Setup direct, reflection-free binding for maximum speed
             dataGrid.CellValueBinding = (item, prop) =>
             {
-                if (item is Program.LogItem log)
+                if (item is LogItem log)
                 {
                     return prop switch
                     {
@@ -74,7 +74,7 @@ public static class DataVirtualizationPage
             };
     
             // Populate logs
-            foreach (var log in Program._logItems)
+            foreach (var log in AppState._logItems)
             {
                 dataGrid.AddItem(log);
             }

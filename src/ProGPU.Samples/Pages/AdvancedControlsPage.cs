@@ -24,7 +24,7 @@ public static class AdvancedControlsPage
             grid.RowDefinitions.Add(new GridLength(50f, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Showcase column grids
     
-            var descText = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
+            var descText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 10) };
             descText.Inlines.Add(new Run("This page showcases advanced WinUI controls including dialog modals, absolute dropdown calendars, DatePickers, tooltips service delays, and determinate/indeterminate progress systems."));
             grid.AddChild(descText);
             ProGPU.WinUI.Grid.SetRow(descText, 0);
@@ -46,14 +46,14 @@ public static class AdvancedControlsPage
                 Child = col1Stack
             };
     
-            var header1 = new RichTextBlock { Font = Program._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
+            var header1 = new RichTextBlock { Font = AppState._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
             header1.Inlines.Add(new Bold(new Run("ContentDialog & ToolTips")));
             col1Stack.AddChild(header1);
     
-            var dialogResultText = new RichTextBlock { Font = Program._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFF80), Margin = new Thickness(0f, 0f, 0f, 12f) };
+            var dialogResultText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFF80), Margin = new Thickness(0f, 0f, 0f, 12f) };
             dialogResultText.Inlines.Add(new Run("Last Dialog Response: None"));
     
-            var triggerDialogBtnText = new RichTextBlock { Font = Program._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
+            var triggerDialogBtnText = new RichTextBlock { Font = AppState._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
             triggerDialogBtnText.Inlines.Add(new Run("Trigger Modal Dialog"));
     
             var triggerDialogBtn = new Button
@@ -74,11 +74,11 @@ public static class AdvancedControlsPage
             col1Stack.AddChild(dialogResultText);
     
             // ToolTip description
-            var tooltipDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 16f, 0f, 8f) };
+            var tooltipDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 16f, 0f, 8f) };
             tooltipDesc.Inlines.Add(new Run("Hover these buttons for 500ms to test ToolTips:"));
             col1Stack.AddChild(tooltipDesc);
     
-            var tipBtn1Text = new RichTextBlock { Font = Program._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
+            var tipBtn1Text = new RichTextBlock { Font = AppState._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
             tipBtn1Text.Inlines.Add(new Run("Hover Primary Action"));
             var tipBtn1 = new Button
             {
@@ -91,7 +91,7 @@ public static class AdvancedControlsPage
             };
             col1Stack.AddChild(tipBtn1);
     
-            var tipBtn2Text = new RichTextBlock { Font = Program._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
+            var tipBtn2Text = new RichTextBlock { Font = AppState._font, FontSize = 12f, Foreground = new SolidColorBrush(0xFFFFFFFF) };
             tipBtn2Text.Inlines.Add(new Run("Hover Warning Info"));
             var tipBtn2 = new Button
             {
@@ -119,12 +119,12 @@ public static class AdvancedControlsPage
                 Child = col2Stack
             };
     
-            var header2 = new RichTextBlock { Font = Program._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
+            var header2 = new RichTextBlock { Font = AppState._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
             header2.Inlines.Add(new Bold(new Run("Calendar & Date Selection")));
             col2Stack.AddChild(header2);
     
             // DatePicker input dropdown trigger
-            var datePickerDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
+            var datePickerDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
             datePickerDesc.Inlines.Add(new Run("Dropdown DatePicker selector:"));
             col2Stack.AddChild(datePickerDesc);
     
@@ -132,7 +132,7 @@ public static class AdvancedControlsPage
             col2Stack.AddChild(datePicker);
     
             // Standalone calendar view grid
-            var calendarDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
+            var calendarDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
             calendarDesc.Inlines.Add(new Run("Standalone Calendar month grid:"));
             col2Stack.AddChild(calendarDesc);
     
@@ -154,12 +154,12 @@ public static class AdvancedControlsPage
                 Child = col3Stack
             };
     
-            var header3 = new RichTextBlock { Font = Program._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
+            var header3 = new RichTextBlock { Font = AppState._font, FontSize = 16f, Margin = new Thickness(0f, 0f, 0f, 16f) };
             header3.Inlines.Add(new Bold(new Run("Progress Status Loaders")));
             col3Stack.AddChild(header3);
     
             // Determinate progress section
-            var detDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
+            var detDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
             detDesc.Inlines.Add(new Run("Determinate progress (controlled by slider):"));
             col3Stack.AddChild(detDesc);
     
@@ -174,14 +174,14 @@ public static class AdvancedControlsPage
             col3Stack.AddChild(slider);
     
             // Indeterminate progress sections
-            var indetDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
+            var indetDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
             indetDesc.Inlines.Add(new Run("Indeterminate sliding ProgressBar track:"));
             col3Stack.AddChild(indetDesc);
     
             var indetBar = new ProgressBar { IsIndeterminate = true, Margin = new Thickness(0f, 0f, 0f, 24f) };
             col3Stack.AddChild(indetBar);
     
-            var ringDesc = new RichTextBlock { Font = Program._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
+            var ringDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0f, 0f, 0f, 8f) };
             ringDesc.Inlines.Add(new Run("Indeterminate spinning ProgressRing loading dots:"));
             col3Stack.AddChild(ringDesc);
     
