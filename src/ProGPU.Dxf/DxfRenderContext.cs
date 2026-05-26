@@ -17,6 +17,9 @@ public class DxfRenderContext
     public Vector2 Center { get; set; } = Vector2.Zero;
     public Vector2 ScreenCenter { get; set; } = Vector2.Zero;
     
+    // Active document reference for layout and space rendering
+    public netDxf.DxfDocument? Document { get; set; }
+    
     // Font and Styling fallback
     public TtfFont Font { get; set; }
     public Brush FallbackBrush { get; set; } = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));

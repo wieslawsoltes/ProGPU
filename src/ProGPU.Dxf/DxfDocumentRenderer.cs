@@ -44,12 +44,17 @@ public static class DxfDocumentRenderer
         // Leaders and Hatches support
         { typeof(Leader), new DxfLeaderRenderer() },
         { typeof(Hatch), new DxfHatchRenderer() },
-        { typeof(Image), new DxfImageRenderer() }
+        { typeof(Image), new DxfImageRenderer() },
+        
+        // Viewport and Attribute support
+        { typeof(netDxf.Entities.Viewport), new DxfViewportRenderer() }
+        // { typeof(netDxf.Entities.Attribute), new DxfTextRenderer() }
     };
 
     public static void Render(DxfDocument doc, DxfRenderContext context)
     {
         context.Reset();
+        context.Document = doc;
         
         bool renderedFromLayout = false;
         if (doc.Layouts != null && !string.IsNullOrEmpty(doc.ActiveLayout) && doc.Layouts.Contains(doc.ActiveLayout))
@@ -232,6 +237,20 @@ public static class DxfDocumentRenderer
             AccumulateEntityBounds(image, Matrix4x4.Identity, ref min, ref max, ref hasData);
     }
 
+    public static void AccumulateAttributeBounds(netDxf.Entities.Attribute attr, Matrix4x4 transform, ref Vector2 min, ref Vector2 max, ref bool hasData)
+    {
+        var v3 = new Vector3((float)attr.Position.X, (float)attr.Position.Y, 0f);
+        var v3Transformed = Vector3.Transform(v3, transform);
+        
+        min.X = Math.Min(min.X, v3Transformed.X);
+        min.Y = Math.Min(min.Y, v3Transformed.Y);
+        
+        max.X = Math.Max(max.X, v3Transformed.X);
+        max.Y = Math.Max(max.Y, v3Transformed.Y);
+        
+        hasData = true;
+    }
+
     private static void AccumulateEntityBounds(EntityObject entity, Matrix4x4 transform, ref Vector2 min, ref Vector2 max, ref bool hasData)
     {
         if (entity is Line line)
@@ -310,6 +329,10 @@ public static class DxfDocumentRenderer
             {
                 AccumulateEntityBounds(childEntity, combinedMat, ref min, ref max, ref hasData);
             }
+            foreach (var attr in insert.Attributes)
+            {
+                AccumulateAttributeBounds(attr, combinedMat, ref min, ref max, ref hasData);
+            }
         }
         else if (entity is netDxf.Entities.Solid solid)
         {
@@ -353,6 +376,16 @@ public static class DxfDocumentRenderer
         {
             UpdateBounds(new Vector2((float)image.Position.X, (float)image.Position.Y), transform, ref min, ref max, ref hasData);
             UpdateBounds(new Vector2((float)(image.Position.X + image.Width), (float)(image.Position.Y + image.Height)), transform, ref min, ref max, ref hasData);
+        }
+        else if (entity is netDxf.Entities.Viewport vp)
+        {
+            if (vp.Width > 0 && vp.Height > 0)
+            {
+                float halfW = (float)(vp.Width * 0.5);
+                float halfH = (float)(vp.Height * 0.5);
+                UpdateBounds(new Vector2((float)(vp.Center.X - halfW), (float)(vp.Center.Y - halfH)), transform, ref min, ref max, ref hasData);
+                UpdateBounds(new Vector2((float)(vp.Center.X + halfW), (float)(vp.Center.Y + halfH)), transform, ref min, ref max, ref hasData);
+            }
         }
     }
 

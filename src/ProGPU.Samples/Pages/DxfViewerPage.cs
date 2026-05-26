@@ -195,6 +195,7 @@ public static class DxfViewerPage
     private static DxfCanvasControl? _canvas;
     private static StackPanel? _layersPanel;
     private static RichTextBlock? _statusText;
+    private static ComboBox? _layoutCombo;
 
     public static FrameworkElement Create()
     {
@@ -248,6 +249,34 @@ public static class DxfViewerPage
         fitBtn.Content = fitBtnText;
         sidebarStack.AddChild(fitBtn);
 
+        // Layout Space Selection section header
+        var layoutsHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 13f, Margin = new Thickness(0, 8, 0, 8) };
+        layoutsHeader.Inlines.Add(new Bold(new Run("Layout Space Selection:")));
+        sidebarStack.AddChild(layoutsHeader);
+
+        _layoutCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            WidthConstraint = 248f,
+            Margin = new Thickness(0, 0, 0, 16f),
+            PlaceholderText = "Select Layout..."
+        };
+        _layoutCombo.SelectionChanged += (s, e) =>
+        {
+            if (_layoutCombo.SelectedItem != null && _canvas != null && _canvas.Document != null)
+            {
+                string selectedLayout = _layoutCombo.SelectedItem.Text;
+                if (_canvas.Document.Layouts.Contains(selectedLayout))
+                {
+                    _canvas.Document.ActiveLayout = selectedLayout;
+                    _canvas.ZoomToFit();
+                    _canvas.Invalidate();
+                    UpdateStatus($"Layout changed to: {selectedLayout}");
+                }
+            }
+        };
+        sidebarStack.AddChild(_layoutCombo);
+
         // Layers section header
         var layersHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 13f, Margin = new Thickness(0, 8, 0, 8) };
         layersHeader.Inlines.Add(new Bold(new Run("Layers Control:")));
@@ -288,6 +317,7 @@ public static class DxfViewerPage
             var sampleDoc = SampleDxfGenerator.GenerateSample();
             _canvas.LoadDocument(sampleDoc);
             PopulateLayers(sampleDoc);
+            PopulateLayouts(sampleDoc);
             UpdateStatus("Sample DXF loaded successfully!");
         };
 
@@ -318,6 +348,7 @@ public static class DxfViewerPage
                     {
                         _canvas.LoadDocument(doc);
                         PopulateLayers(doc);
+                        PopulateLayouts(doc);
                         UpdateStatus($"Loaded: {Path.GetFileName(file.Path)}");
                     }
                     else
@@ -340,8 +371,37 @@ public static class DxfViewerPage
         var initialDoc = SampleDxfGenerator.GenerateSample();
         _canvas.LoadDocument(initialDoc);
         PopulateLayers(initialDoc);
+        PopulateLayouts(initialDoc);
 
         return grid;
+    }
+
+    private static void PopulateLayouts(DxfDocument doc)
+    {
+        if (_layoutCombo == null) return;
+
+        _layoutCombo.Items.Clear();
+
+        ComboBoxItem? activeItem = null;
+        foreach (var layout in doc.Layouts)
+        {
+            var item = new ComboBoxItem(layout.Name);
+            _layoutCombo.Items.Add(item);
+
+            if (layout.Name == doc.ActiveLayout)
+            {
+                activeItem = item;
+            }
+        }
+
+        if (activeItem != null)
+        {
+            _layoutCombo.SelectedItem = activeItem;
+        }
+        else if (_layoutCombo.Items.Count > 0)
+        {
+            _layoutCombo.SelectedItem = _layoutCombo.Items[0];
+        }
     }
 
     private static void PopulateLayers(DxfDocument doc)

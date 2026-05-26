@@ -456,6 +456,102 @@ public class DxfSplineRenderer : IDxfEntityRenderer
 
 public class DxfTextRenderer : IDxfEntityRenderer
 {
+    public static void RenderAttribute(netDxf.Entities.Attribute attr, DxfRenderContext context, Matrix4x4 transform)
+    {
+        string valStr = attr.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(valStr)) return;
+
+        var origin = new Vector2((float)attr.Position.X, (float)attr.Position.Y);
+        var screenPos = context.Transform(origin, transform);
+
+        float screenFontSize = (float)attr.Height * context.Zoom;
+        if (screenFontSize < 4f) return;
+
+        float horizontalShiftMultiplier = 0f;
+        float verticalShiftMultiplier = 0f;
+
+        switch (attr.Alignment)
+        {
+            case netDxf.Entities.TextAlignment.TopLeft:
+                horizontalShiftMultiplier = 0f;
+                verticalShiftMultiplier = 1.0f;
+                break;
+            case netDxf.Entities.TextAlignment.TopCenter:
+                horizontalShiftMultiplier = 0.5f;
+                verticalShiftMultiplier = 1.0f;
+                break;
+            case netDxf.Entities.TextAlignment.TopRight:
+                horizontalShiftMultiplier = 1.0f;
+                verticalShiftMultiplier = 1.0f;
+                break;
+            case netDxf.Entities.TextAlignment.MiddleLeft:
+                horizontalShiftMultiplier = 0f;
+                verticalShiftMultiplier = 0.5f;
+                break;
+            case netDxf.Entities.TextAlignment.MiddleCenter:
+            case netDxf.Entities.TextAlignment.Middle:
+                horizontalShiftMultiplier = 0.5f;
+                verticalShiftMultiplier = 0.5f;
+                break;
+            case netDxf.Entities.TextAlignment.MiddleRight:
+                horizontalShiftMultiplier = 1.0f;
+                verticalShiftMultiplier = 0.5f;
+                break;
+            case netDxf.Entities.TextAlignment.BottomLeft:
+            case netDxf.Entities.TextAlignment.BaselineLeft:
+                horizontalShiftMultiplier = 0f;
+                verticalShiftMultiplier = 0f;
+                break;
+            case netDxf.Entities.TextAlignment.BottomCenter:
+            case netDxf.Entities.TextAlignment.BaselineCenter:
+            case netDxf.Entities.TextAlignment.Aligned:
+            case netDxf.Entities.TextAlignment.Fit:
+                horizontalShiftMultiplier = 0.5f;
+                verticalShiftMultiplier = 0f;
+                break;
+            case netDxf.Entities.TextAlignment.BottomRight:
+            case netDxf.Entities.TextAlignment.BaselineRight:
+                horizontalShiftMultiplier = 1.0f;
+                verticalShiftMultiplier = 0f;
+                break;
+        }
+
+        // Measure text width using 0.55f as font size ratio
+        float screenWidth = valStr.Length * screenFontSize * 0.55f;
+        float shiftX = -screenWidth * horizontalShiftMultiplier;
+        float shiftY = screenFontSize * verticalShiftMultiplier;
+
+        float maxDim = Math.Max(screenWidth, screenFontSize) * 1.5f;
+        var minPt = new Vector2(screenPos.X - maxDim, screenPos.Y - maxDim);
+        var maxPt = new Vector2(screenPos.X + maxDim, screenPos.Y + maxDim);
+        if (context.IsOffScreen(minPt, maxPt)) return;
+
+        // Resolve Brush
+        var color = new Vector4(1f, 1f, 1f, 1f); // Default white/fallback
+        if (attr.Color.IsByLayer)
+        {
+            if (context.LayerColors.TryGetValue(attr.Layer.Name, out var lColor))
+            {
+                color = lColor;
+            }
+            else
+            {
+                var aci = attr.Layer.Color;
+                color = new Vector4(aci.R / 255f, aci.G / 255f, aci.B / 255f, 1f);
+            }
+        }
+        else
+        {
+            var aci = attr.Color;
+            color = new Vector4(aci.R / 255f, aci.G / 255f, aci.B / 255f, 1f);
+        }
+        var brush = new SolidColorBrush(color);
+
+        var drawPos = new Vector2(screenPos.X + shiftX, screenPos.Y + shiftY);
+        float rotationRad = (float)(attr.Rotation * Math.PI / 180.0);
+        context.DrawingContext.DrawText(valStr, context.Font, screenFontSize, brush, drawPos, rotation: rotationRad);
+    }
+
     public void Render(EntityObject entity, DxfRenderContext context, Matrix4x4 transform)
     {
         var brush = context.GetCachedBrush(entity);
@@ -685,7 +781,78 @@ public class DxfInsertRenderer : IDxfEntityRenderer
             DxfDocumentRenderer.RenderEntity(childEntity, context, activeMatrix);
         }
 
+        // Render block insert attributes (tags, labels, etc.) using the insert's local matrix
+        foreach (var attr in insert.Attributes)
+        {
+            DxfTextRenderer.RenderAttribute(attr, context, activeMatrix);
+        }
+
         context.PopTransform();
+    }
+}
+
+public class DxfViewportRenderer : IDxfEntityRenderer
+{
+    public void Render(EntityObject entity, DxfRenderContext context, Matrix4x4 transform)
+    {
+        if (entity is not netDxf.Entities.Viewport vp) return;
+
+        // Skip layout viewports that don't project model space
+        if (vp.ViewHeight <= 1e-4 || vp.Height <= 1e-4) return;
+        if (vp.Status.HasFlag(netDxf.Entities.ViewportStatusFlags.ViewportOff)) return;
+
+        // 1. Draw Viewport Outline Box on Paper
+        float halfW = (float)(vp.Width * 0.5);
+        float halfH = (float)(vp.Height * 0.5);
+
+        var pMinPaper = new Vector2((float)(vp.Center.X - halfW), (float)(vp.Center.Y - halfH));
+        var pMaxPaper = new Vector2((float)(vp.Center.X + halfW), (float)(vp.Center.Y + halfH));
+
+        var screenMin = context.TransformToScreen(pMinPaper);
+        var screenMax = context.TransformToScreen(pMaxPaper);
+
+        float clipX = Math.Min(screenMin.X, screenMax.X);
+        float clipY = Math.Min(screenMin.Y, screenMax.Y);
+        float clipW = Math.Abs(screenMax.X - screenMin.X);
+        float clipH = Math.Abs(screenMax.Y - screenMin.Y);
+
+        var clipRect = new Rect(clipX, clipY, clipW, clipH);
+
+        // Draw boundary border if layer is visible
+        var borderPen = context.GetCachedPen(vp, 1f);
+        context.DrawingContext.DrawRectangle(null, borderPen, clipRect);
+
+        // 2. Set Up Clipping Rect in Screen Space
+        context.DrawingContext.PushClip(clipRect);
+
+        // 3. Construct Model Space to Paper Space Matrix
+        float scale = (float)(vp.Height / vp.ViewHeight);
+        var viewportMatrix = Matrix4x4.CreateTranslation(-(float)vp.ViewCenter.X, -(float)vp.ViewCenter.Y, 0f) *
+                             Matrix4x4.CreateScale(scale, scale, 1f) *
+                             Matrix4x4.CreateTranslation((float)vp.Center.X, (float)vp.Center.Y, 0f);
+
+        var combinedTransform = viewportMatrix * transform;
+
+        // 4. Render All Model Space Entities inside this viewport
+        var doc = context.Document;
+        if (doc != null && doc.Layouts != null && doc.Layouts.Contains("Model"))
+        {
+            var modelLayout = doc.Layouts["Model"];
+            if (modelLayout.AssociatedBlock != null && modelLayout.AssociatedBlock.Entities != null)
+            {
+                foreach (var modelEntity in modelLayout.AssociatedBlock.Entities)
+                {
+                    if (modelEntity is netDxf.Entities.Viewport) continue;
+                    if (context.ActiveLayers.Contains(modelEntity.Layer.Name))
+                    {
+                        DxfDocumentRenderer.RenderEntity(modelEntity, context, combinedTransform);
+                    }
+                }
+            }
+        }
+
+        // 5. Pop Clip Rect
+        context.DrawingContext.PopClip();
     }
 }
 
