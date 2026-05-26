@@ -168,7 +168,7 @@ public static unsafe class MainWindowController
             CornerRadius = 6f,
             Background = new SolidColorBrush(0x00000000), // Transparent background
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Left
+            HorizontalAlignment = HorizontalAlignment.Center
         };
         hamburgerBtn.Content = new HamburgerIconVisual();
         hamburgerBtn.Click += (s, e) =>
@@ -352,6 +352,10 @@ public static unsafe class MainWindowController
                 AppState._screenCompositor.ClearColor = ThemeManager.GetColor("PageBackground");
             }
             AppState._topLevelGrid?.NotifyThemeChanged();
+            foreach (var popup in Microsoft.UI.Xaml.Controls.PopupService.ActivePopups)
+            {
+                popup.NotifyThemeChanged();
+            }
         };
 
         // 5. TOP LEVEL CONTAINER GRID (App container)
@@ -586,9 +590,11 @@ public class HamburgerIconVisual : FrameworkElement
     public override void OnRender(DrawingContext context)
     {
         var brush = ThemeManager.GetBrush("TextPrimary");
-        context.DrawRectangle(brush, null, new Rect(0f, 0f, 18f, 2f));
-        context.DrawRectangle(brush, null, new Rect(0f, 5f, 18f, 2f));
-        context.DrawRectangle(brush, null, new Rect(0f, 10f, 18f, 2f));
+        float startX = (Size.X - 18f) / 2f;
+        float startY = (Size.Y - 12f) / 2f;
+        context.DrawRectangle(brush, null, new Rect(startX, startY, 18f, 2f));
+        context.DrawRectangle(brush, null, new Rect(startX, startY + 5f, 18f, 2f));
+        context.DrawRectangle(brush, null, new Rect(startX, startY + 10f, 18f, 2f));
         base.OnRender(context);
     }
 }
