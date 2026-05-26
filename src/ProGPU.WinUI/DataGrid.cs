@@ -339,6 +339,7 @@ public class DataGrid : Control
                     UpdateCellEditorLayout();
                 }
 
+                InvalidateMeasure();
                 Invalidate();
                 e.Handled = true;
                 return;
