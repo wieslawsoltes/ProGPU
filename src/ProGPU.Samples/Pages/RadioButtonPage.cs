@@ -15,13 +15,10 @@ using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
 
 namespace ProGPU.Samples;
 
-public static class NewControlsShowcasePage
+public static class RadioButtonPage
 {
     private static string _implicitSelected = "Single Pane";
     private static string _explicitSelected = "Dynamic HSL Mica";
-    private static double _rating1 = 3.0;
-    private static double _rating2 = 7.0;
-    private static string _passwordText = "Antigravity100%";
 
     public static FrameworkElement Create()
     {
@@ -41,21 +38,18 @@ public static class NewControlsShowcasePage
 
         // Page Header
         var title = new RichTextBlock { Font = AppState._font, FontSize = 22f, Margin = new Thickness(0, 0, 0, 6) };
-        title.Inlines.Add(new Bold(new Run("New WinUI 3 Controls Showcase")));
+        title.Inlines.Add(new Bold(new Run("RadioButton Control")));
         stack.AddChild(title);
 
         var description = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 24) };
-        description.Inlines.Add(new Run("This page showcases the newly implemented high-performance, Fluent-styled WinUI 3 controls. These include RadioButton with implicit and explicit grouping, RatingControl with polar vector stars, and PasswordBox with clipboard secure mask entry."));
+        description.Inlines.Add(new Run("RadioButton allows a user to select one option from a mutually exclusive group of choices. It supports implicit grouping (among sibling controls) and explicit GroupName-based grouping."));
         stack.AddChild(description);
 
-        // ==========================================
-        // 1. RADIO BUTTON SECTION
-        // ==========================================
-        var radioCard = CreateShowcaseCard("RadioButton (Mutually Exclusive Grouping)");
+        var radioCard = CreateShowcaseCard("Group Mutual Exclusion & Keyboard Traversal");
         var radioStack = new StackPanel { Orientation = Orientation.Vertical };
 
         var radioDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 16) };
-        radioDesc.Inlines.Add(new Run("Radio buttons are grouped to present mutually exclusive choices. Use the "));
+        radioDesc.Inlines.Add(new Run("Use the "));
         radioDesc.Inlines.Add(new Bold(new Run("Arrow Keys")));
         radioDesc.Inlines.Add(new Run(" to navigate and auto-select buttons in the group, and "));
         radioDesc.Inlines.Add(new Bold(new Run("Tab")));
@@ -136,123 +130,6 @@ public static class NewControlsShowcasePage
 
         radioCard.Child = radioStack;
         stack.AddChild(radioCard);
-
-        // ==========================================
-        // 2. RATING CONTROL SECTION
-        // ==========================================
-        var ratingCard = CreateShowcaseCard("RatingControl (Vector 5-Point Stars)");
-        var ratingStack = new StackPanel { Orientation = Orientation.Vertical };
-
-        var ratingDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 16) };
-        ratingDesc.Inlines.Add(new Run("RatingControl renders interactive polar vector stars. Move the mouse to hover, click to select, or focus and use "));
-        ratingDesc.Inlines.Add(new Bold(new Run("Arrow Keys")));
-        ratingDesc.Inlines.Add(new Run(" to increment/decrement rating value."));
-        ratingStack.AddChild(ratingDesc);
-
-        // Rating A: Standard 5-star
-        var rc1Title = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 8) };
-        rc1Title.Inlines.Add(new Bold(new Run("Standard 5-Star Interactive Rating:")));
-        ratingStack.AddChild(rc1Title);
-
-        var rc1Container = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
-        var rc1 = new RatingControl { Value = _rating1, MaxRating = 5 };
-        var rc1Status = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(15, 6, 0, 0) };
-        rc1Status.Inlines.Add(new Run($"Rating: {rc1.Value:F1} / 5.0"));
-
-        rc1.ValueChanged += (s, val) =>
-        {
-            _rating1 = val;
-            rc1Status.Inlines.Clear();
-            rc1Status.Inlines.Add(new Run($"Rating: {_rating1:F1} / 5.0"));
-            rc1Status.Invalidate();
-        };
-
-        rc1Container.AddChild(rc1);
-        rc1Container.AddChild(rc1Status);
-        ratingStack.AddChild(rc1Container);
-
-        // Rating B: 10-star rating
-        var rc2Title = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 8) };
-        rc2Title.Inlines.Add(new Bold(new Run("High Capacity 10-Star Rating:")));
-        ratingStack.AddChild(rc2Title);
-
-        var rc2Container = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
-        var rc2 = new RatingControl { Value = _rating2, MaxRating = 10 };
-        var rc2Status = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(15, 6, 0, 0) };
-        rc2Status.Inlines.Add(new Run($"Score: {rc2.Value:F1} / 10.0"));
-
-        rc2.ValueChanged += (s, val) =>
-        {
-            _rating2 = val;
-            rc2Status.Inlines.Clear();
-            rc2Status.Inlines.Add(new Run($"Score: {_rating2:F1} / 10.0"));
-            rc2Status.Invalidate();
-        };
-
-        rc2Container.AddChild(rc2);
-        rc2Container.AddChild(rc2Status);
-        ratingStack.AddChild(rc2Container);
-
-        // Rating C: Read-only and placeholder
-        var rc3Title = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 8) };
-        rc3Title.Inlines.Add(new Bold(new Run("Read-only fractional rating with Placeholder stars:")));
-        ratingStack.AddChild(rc3Title);
-
-        var rc3 = new RatingControl { IsReadOnly = true, PlaceholderValue = 3.5, Value = 0.0, Margin = new Thickness(0, 0, 0, 8) };
-        var rc3Desc = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(0, 0, 0, 8) };
-        rc3Desc.Inlines.Add(new Run("Shows PlaceholderValue = 3.5. Disallows mouse clicks and keyboard focus."));
-
-        ratingStack.AddChild(rc3);
-        ratingStack.AddChild(rc3Desc);
-
-        ratingCard.Child = ratingStack;
-        stack.AddChild(ratingCard);
-
-        // ==========================================
-        // 3. PASSWORD BOX SECTION
-        // ==========================================
-        var passwordCard = CreateShowcaseCard("PasswordBox (Masked Entry & Reveal Button)");
-        var passwordStack = new StackPanel { Orientation = Orientation.Vertical };
-
-        var passDesc = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 16) };
-        passDesc.Inlines.Add(new Run("PasswordBox provides secure masking for credentials. It completely blocks Clipboard Copy and Cut operations to prevent leakage, and includes an interactive eye toggle icon to reveal plain text."));
-        passwordStack.AddChild(passDesc);
-
-        // Demo A: Standard PasswordBox
-        var pb1Title = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 8) };
-        pb1Title.Inlines.Add(new Bold(new Run("Standard Password Input Box:")));
-        passwordStack.AddChild(pb1Title);
-
-        var pb1 = new PasswordBox { Password = _passwordText, WidthConstraint = 300f, Margin = new Thickness(0, 0, 0, 8) };
-        var pb1Status = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
-        pb1Status.Inlines.Add(new Run("Actual plain password state: "));
-        pb1Status.Inlines.Add(new Bold(new Run(_passwordText)) { Foreground = new ThemeResourceBrush("SystemAccentColor") });
-
-        pb1.PasswordChanged += (s, e) =>
-        {
-            _passwordText = pb1.Password;
-            pb1Status.Inlines.Clear();
-            pb1Status.Inlines.Add(new Run("Actual plain password state: "));
-            pb1Status.Inlines.Add(new Bold(new Run(_passwordText)) { Foreground = new ThemeResourceBrush("SystemAccentColor") });
-            pb1Status.Invalidate();
-        };
-
-        passwordStack.AddChild(pb1);
-        passwordStack.AddChild(pb1Status);
-
-        // Demo B: Custom Asterisk Mask and Disabled Box
-        var pb2Title = new RichTextBlock { Font = AppState._font, FontSize = 13f, Margin = new Thickness(0, 0, 0, 8) };
-        pb2Title.Inlines.Add(new Bold(new Run("Custom Asterisk Mask (*) & Disabled state:")));
-        passwordStack.AddChild(pb2Title);
-
-        var customPassBox = new PasswordBox { Password = "SecureUserPass", PasswordChar = '*', WidthConstraint = 300f, Margin = new Thickness(0, 0, 0, 10) };
-        var disabledPassBox = new PasswordBox { Password = "DisabledPassWord", IsEnabled = false, WidthConstraint = 300f, Margin = new Thickness(0, 0, 0, 8) };
-
-        passwordStack.AddChild(customPassBox);
-        passwordStack.AddChild(disabledPassBox);
-
-        passwordCard.Child = passwordStack;
-        stack.AddChild(passwordCard);
 
         return scrollViewer;
     }
