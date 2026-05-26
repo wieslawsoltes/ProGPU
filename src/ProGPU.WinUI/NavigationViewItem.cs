@@ -137,6 +137,11 @@ public class NavigationViewItem : Control
                     InputSystem.SetFocus(items[^1]);
                     e.Handled = true;
                 }
+                else if (e.Key == Silk.NET.Input.Key.Down && items.Count > 0)
+                {
+                    InputSystem.SetFocus(items[0]);
+                    e.Handled = true;
+                }
                 else if (e.Key == Silk.NET.Input.Key.Enter || e.Key == Silk.NET.Input.Key.Space)
                 {
                     nav.SelectedItem = this;
@@ -170,6 +175,11 @@ public class NavigationViewItem : Control
                 if (index > 0)
                 {
                     InputSystem.SetFocus(items[index - 1]);
+                    e.Handled = true;
+                }
+                else if (index == 0 && nav.SettingsItem != null)
+                {
+                    InputSystem.SetFocus(nav.SettingsItem);
                     e.Handled = true;
                 }
                 return;
@@ -214,6 +224,16 @@ public class NavigationViewItem : Control
         }
 
         base.OnKeyDown(e);
+    }
+
+    protected override void RaisePropertyChanged(string propertyName)
+    {
+        base.RaisePropertyChanged(propertyName);
+        if (propertyName == "IsFocused")
+        {
+            var nav = FindParentNavigationView();
+            nav?.UpdateTabStops();
+        }
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -589,6 +609,11 @@ public class NavigationViewItem : Control
             }
         }
 
-        base.OnRender(context);
+        // 6. Draw modern internal focus outline snugly inside the navigation item
+        if (IsFocused && InputSystem.IsKeyboardFocusActive)
+        {
+            var focusPen = new Pen(accentBrush, 1.5f);
+            context.DrawRoundedRectangle(null, focusPen, new Rect(2f, 2f, Size.X - 4f, Size.Y - 4f), 4f);
+        }
     }
 }
