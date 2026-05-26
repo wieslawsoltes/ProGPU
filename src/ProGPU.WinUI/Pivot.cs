@@ -323,9 +323,12 @@ public class Pivot : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
+        var activeTheme = this.ActualTheme;
+        
         // 1. Draw solid line separator separating headers from content
         float sepY = Padding.Top + 40f;
-        context.DrawRectangle(new SolidColorBrush(0xFFFFFF15), null, new Rect(0f, sepY, Size.X, 1f));
+        var sepBrush = ThemeManager.GetBrush("ControlBorder", activeTheme);
+        context.DrawRectangle(sepBrush, null, new Rect(0f, sepY, Size.X, 1f));
 
         var font = GetActiveFont();
         
@@ -339,7 +342,7 @@ public class Pivot : FrameworkElement
             // Draw hover/active backgrounds
             if (i == _hoveredHeaderIndex)
             {
-                var hoverBrush = new SolidColorBrush(0xFFFFFF0F);
+                var hoverBrush = ThemeManager.GetBrush("ControlBackgroundHover", activeTheme);
                 context.DrawRoundedRectangle(hoverBrush, null, new Rect(rect.X, rect.Y, rect.Width, rect.Height - 2f), 4f);
             }
 
@@ -347,7 +350,9 @@ public class Pivot : FrameworkElement
             if (font != null)
             {
                 var text = Items[i].Header?.ToString() ?? $"Item {i + 1}";
-                var textBrush = (i == SelectedIndex) ? new SolidColorBrush(0xFFFFFFFF) : new SolidColorBrush(0xFFFFFF90);
+                var textBrush = (i == SelectedIndex) 
+                    ? ThemeManager.GetBrush("TextPrimary", activeTheme) 
+                    : ThemeManager.GetBrush("TextSecondary", activeTheme);
                 
                 // Center text within header rect
                 var layout = new TextLayout(text, font, 15f, float.PositiveInfinity, TextAlignment.Left, null);
@@ -380,7 +385,8 @@ public class Pivot : FrameworkElement
 
             // Accent bar centered below the text
             Rect activeStripe = new Rect(activeX + 12f, sepY - 2f, activeW - 24f, 3f);
-            context.DrawRectangle(new SolidColorBrush(0x0078D4FF), null, activeStripe);
+            var accentBrush = ThemeManager.GetBrush("SystemAccentColor", activeTheme);
+            context.DrawRectangle(accentBrush, null, activeStripe);
         }
 
         base.OnRender(context);

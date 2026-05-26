@@ -169,7 +169,7 @@ public class FlowDocument : FrameworkElement
         float cursorX = Padding.Left;
         float cursorY = Padding.Top;
 
-        var defaultFg = Foreground ?? new SolidColorBrush(0xFFFFFFFF);
+        var defaultFg = Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme);
 
         var currentChildren = new List<Visual>(Children);
         var encounteredChildren = new HashSet<Visual>();
@@ -626,7 +626,7 @@ public class FlowDocument : FrameworkElement
         if (Font == null) return positionedChars;
 
         var charList = new List<RichChar>();
-        var defaultFg = Foreground ?? new SolidColorBrush(0xFFFFFFFF);
+        var defaultFg = Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme);
         foreach (var inline in cell.Inlines)
         {
             AccumulateInlines(inline, charList, defaultFg, FontSize, false, false, false, null, 0f);

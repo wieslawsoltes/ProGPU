@@ -18,7 +18,6 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
 {
     private string _text = string.Empty;
     private float _fontSize = 12f;
-    private Brush? _brush;
     private TextAlignment _alignment = TextAlignment.Left;
     private TextLayout? _layout;
 
@@ -60,17 +59,17 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         }
     }
 
+    public static readonly DependencyProperty BrushProperty =
+        DependencyProperty.Register(
+            "Brush",
+            typeof(Brush),
+            typeof(TextVisual),
+            new PropertyMetadata(null, (d, e) => ((TextVisual)d).Invalidate()));
+
     public Brush? Brush
     {
-        get => _brush;
-        set
-        {
-            if (_brush != value)
-            {
-                _brush = value;
-                Invalidate();
-            }
-        }
+        get => GetValue(BrushProperty) as Brush;
+        set => SetValue(BrushProperty, value);
     }
 
     public TextAlignment Alignment
