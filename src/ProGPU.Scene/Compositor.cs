@@ -2628,6 +2628,8 @@ public unsafe class Compositor : IDisposable
         var savedActiveClipRect = _activeClipRect;
         var savedOpacityStack = _opacityStack.ToArray();
         var savedActiveOpacity = _activeOpacity;
+        var savedPendingVectorStart = _pendingVectorStart;
+        var savedPendingTextStart = _pendingTextStart;
 
         _vectorVerticesList.Clear();
         _vectorIndicesList.Clear();
@@ -2836,5 +2838,7 @@ public unsafe class Compositor : IDisposable
             _opacityStack.Push(savedOpacityStack[i]);
         }
         _activeOpacity = savedActiveOpacity;
+        _pendingVectorStart = savedPendingVectorStart;
+        _pendingTextStart = savedPendingTextStart;
     }
 }
