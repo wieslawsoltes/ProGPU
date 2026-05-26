@@ -389,7 +389,10 @@ Traditional GPU engines suffer from low-resolution stretch blurriness on macOS h
 * **DPI-Aware Physical Glyph Caching**: Computes the high-DPI scaling factor dynamically (`dpiScale = FramebufferSize.X / Size.X`) and pre-rasterizes glyphs in the `GlyphAtlas` at their **actual physical pixel font size** (`cmd.FontSize * dpiScale`), ensuring that the atlas contains the high-resolution 2x textures.
 * **4x Physical Subpixel Snapping**: Snippets the screen-transformed baseline cursor position to physical device pixels (`transPos * dpiScale`) and snaps the horizontal coordinate to the nearest 1/4th *physical* pixel, completely eliminating subpixel blur on the screen.
 * **Retina Snap-Back logical mapping**: Snapped physical coordinates of the drawing quad are divided by `dpiScale` before writing them to the vertex buffer, mapping them back to logical space for the compositor's orthographic projection matrix. The GPU hardware then renders the logical quad exactly 1-to-1 with screen physical pixels!
-* **Exact Winding Curve Crossing Corrections**: Replaced the inclusive boundary crossing checks (`t >= 0.0 && t <= 1.0`) in the compute shader's quadratic Bezier solver with an exact half-open check (`t >= 0.0 && t < 1.0`). This guarantees that boundary extrema and join vertices are counted exactly once, completely preventing horizontal seam and drop-out artifacts at curve joins.
+* **Direction-Aware Winding Curve Crossing Corrections**: Replaced the static, direction-agnostic interval checks in both the quadratic and cubic Bezier crossing solvers with **Precise Direction-Aware Half-Open Winding Intervals** based on the vertical derivative sign (`deriv_y`):
+  * **Upward Crossing (`deriv_y > 0.0`)**: Valid range is `[0.0, 1.0)` (inclusive of start, exclusive of end).
+  * **Downward Crossing (`deriv_y < 0.0`)**: Valid range is `(0.0, 1.0]` (exclusive of start, inclusive of end).
+  This eliminates boundary vertex double-counting and zero-counting across all transition types (line-to-curve, curve-to-line, curve-to-curve) in both `GlyphRasterizer` and `PathRasterizer` shaders, completely preventing horizontal seam and drop-out artifacts at curve joins (such as on letters like `G`/`g`).
 
 ---
 
@@ -474,3 +477,22 @@ ProGPU routes all graphics and compute tasks directly to the GPU using specializ
   - Loops over a sliding window of size `[-blurRadius, blurRadius]`.
   - Extracts the source offscreen texture's alpha channel, averages the coverage, and outputs the shifted, blurred, and color-multiplied mask back to the destination buffer:
     $$\text{shadowColor} = \vec{C}_{\text{params}} \cdot (A_{\text{sum}} / \text{count})$$
+
+---
+
+## Development & Diagnostic Tools
+
+To support high-quality rendering diagnostics and verify glyph outlines, ProGPU includes a dedicated diagnostic utility:
+
+### 1. TrueType Font Outline Diagnostic Tool (`TtfDiag`)
+Located in `tools/TtfDiag/`, this is a generic console tool designed to inspect outline structures, endpoint coordinates, and control points of TrueType fonts. It is especially useful for diagnosing text rendering quality, drop-out artifacts, or glyph parsing inconsistencies.
+
+* **Usage**:
+  ```bash
+  # Run using the system's Arial font (supplemental) fallback to inspect specific glyphs (e.g. 'G' and 'g')
+  dotnet run --project tools/TtfDiag -- Arial Gg
+
+  # Run with an absolute path to a custom font and custom character sequence
+  dotnet run --project tools/TtfDiag -- /System/Library/Fonts/Supplemental/Georgia.ttf ABC
+  ```
+* **Output**: Dumps the exact TrueType outline geometry, closed/filled figure status, segment types (Lines/Quadratic Beziers), and precise coordinates using standard invariant decimal formatting.
