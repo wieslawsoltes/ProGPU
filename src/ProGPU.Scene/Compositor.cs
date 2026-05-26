@@ -1995,7 +1995,10 @@ public unsafe class Compositor : IDisposable
             }
 
             float physicalFontSize = cmd.FontSize * dpiScale;
-            bool isRotated = MathF.Abs(transform.M12) > 0.0001f || MathF.Abs(transform.M21) > 0.0001f;
+            bool isRotated = MathF.Abs(transform.M12) > 0.0001f ||
+                             MathF.Abs(transform.M21) > 0.0001f ||
+                             transform.M11 < 0.0f ||
+                             transform.M22 < 0.0f;
 
             // Compute subpixel positioning and snap vertices to integer pixels to avoid bilinear blur.
             Vector2 transPos = Vector2.Transform(new Vector2(baseCursorX + cmd.Position.X, baseCursorY + cmd.Position.Y), transform);
@@ -2199,7 +2202,10 @@ public unsafe class Compositor : IDisposable
         var uv2 = new Vector2(1f, 1f);
         var uv3 = new Vector2(0f, 1f);
 
-        bool isRotated = MathF.Abs(transform.M12) > 0.0001f || MathF.Abs(transform.M21) > 0.0001f;
+        bool isRotated = MathF.Abs(transform.M12) > 0.0001f ||
+                         MathF.Abs(transform.M21) > 0.0001f ||
+                         transform.M11 < 0.0f ||
+                         transform.M22 < 0.0f;
         if (_activeClipRect.HasValue)
         {
             if (isRotated)
