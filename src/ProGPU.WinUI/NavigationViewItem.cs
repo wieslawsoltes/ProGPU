@@ -17,12 +17,34 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class NavigationViewItem : Control
 {
+    private static readonly SolidColorBrush LightBgSelect = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.08f));
+    private static readonly SolidColorBrush DarkBgSelect = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.07f));
+    private static readonly SolidColorBrush LightBgHover = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.05f));
+    private static readonly SolidColorBrush DarkBgHover = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.05f));
+    private static readonly SolidColorBrush LightTranslucentBrush = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.15f));
+    private static readonly SolidColorBrush DarkTranslucentBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.15f));
+    private static readonly SolidColorBrush LightTranslucentHeavyBrush = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.5f));
+    private static readonly SolidColorBrush DarkTranslucentHeavyBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.5f));
+    private static readonly Pen LightTranslucentPen = new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.4f)), 1f);
+    private static readonly Pen DarkTranslucentPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.4f)), 1f);
+    private static readonly Pen RedPen = new Pen(new SolidColorBrush(0xFF5533FF), 1f);
+    private static readonly SolidColorBrush OrangeBrush = new SolidColorBrush(0xFF9900FF);
+
     private string _text = string.Empty;
     private string _icon = string.Empty;
     private bool _isSelected;
     private bool _isExpanded;
     private int _level;
     private FrameworkElement? _page;
+
+    private float _cachedIconStartX = -9999f;
+    private float _cachedIconStartY = -9999f;
+    private PathGeometry? _iconGeo1;
+    private PathGeometry? _iconGeo2;
+    private PathGeometry? _iconGeo3;
+    private PathGeometry? _iconGeo4;
+    private PathGeometry? _iconGeo5;
+    private PathGeometry? _iconGeo6;
 
     public string Text
     {
@@ -33,7 +55,15 @@ public class NavigationViewItem : Control
     public string Icon
     {
         get => _icon;
-        set { if (_icon != value) { _icon = value; Invalidate(); } }
+        set
+        {
+            if (_icon != value)
+            {
+                _icon = value;
+                _cachedIconStartX = -9999f;
+                Invalidate();
+            }
+        }
     }
 
     public bool IsSelected
@@ -258,14 +288,14 @@ public class NavigationViewItem : Control
         var textSecondary = ThemeManager.GetBrush("TextSecondary", activeTheme);
         var accentBrush = ThemeManager.GetBrush("SystemAccentColor", activeTheme);
 
-        var bgSelect = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.08f) : new Vector4(1f, 1f, 1f, 0.07f));
-        var bgHover = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.05f) : new Vector4(1f, 1f, 1f, 0.05f));
+        var bgSelect = activeTheme == ElementTheme.Light ? LightBgSelect : DarkBgSelect;
+        var bgHover = activeTheme == ElementTheme.Light ? LightBgHover : DarkBgHover;
 
-        var primaryPen = new Pen(textPrimary, 1f);
-        var secondaryPen = new Pen(textSecondary, 1f);
-        var translucentPen = new Pen(new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.4f) : new Vector4(1f, 1f, 1f, 0.4f)), 1f);
-        var translucentBrush = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.15f) : new Vector4(1f, 1f, 1f, 0.15f));
-        var translucentHeavyBrush = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0f, 0f, 0.5f) : new Vector4(1f, 1f, 1f, 0.5f));
+        var primaryPen = ThemeManager.GetPen("TextPrimary", 1f, activeTheme);
+        var secondaryPen = ThemeManager.GetPen("TextSecondary", 1f, activeTheme);
+        var translucentPen = activeTheme == ElementTheme.Light ? LightTranslucentPen : DarkTranslucentPen;
+        var translucentBrush = activeTheme == ElementTheme.Light ? LightTranslucentBrush : DarkTranslucentBrush;
+        var translucentHeavyBrush = activeTheme == ElementTheme.Light ? LightTranslucentHeavyBrush : DarkTranslucentHeavyBrush;
 
         // 1. Draw modern backgrounds depending on active selection or hover
         if (IsSelected)
@@ -295,23 +325,39 @@ public class NavigationViewItem : Control
                 float startY = (Size.Y - 16f) / 2f;
                 bool drewCustomIcon = false;
 
+                if (_cachedIconStartX != startX || _cachedIconStartY != startY)
+                {
+                    _cachedIconStartX = startX;
+                    _cachedIconStartY = startY;
+                    _iconGeo1 = null;
+                    _iconGeo2 = null;
+                    _iconGeo3 = null;
+                    _iconGeo4 = null;
+                    _iconGeo5 = null;
+                    _iconGeo6 = null;
+                }
+
                 if (Icon == "🖱" || Text == "Basic Input")
                 {
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 10} Q {startX + 13} {startY + 1} {startX + 13} {startY + 4} V {startY + 12} Q {startX + 13} {startY + 15} {startX + 10} {startY + 15} H {startX + 6} Q {startX + 3} {startY + 15} {startX + 3} {startY + 12} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 8} V {startY + 8} H {startX + 3} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 8} H {startX + 13} M {startX + 8} {startY + 1} V {startY + 8}"));
+                        _iconGeo4 = PathGeometry.Parse(Invariant($"M {startX + 7.2f} {startY + 3} H {startX + 8.8f} V {startY + 6} H {startX + 7.2f} Z"));
+                    }
+
                     // Clean computer mouse outline (rounded rect) with a scroll wheel line and active left click panel
-                    var mouseOutline = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 10} Q {startX + 13} {startY + 1} {startX + 13} {startY + 4} V {startY + 12} Q {startX + 13} {startY + 15} {startX + 10} {startY + 15} H {startX + 6} Q {startX + 3} {startY + 15} {startX + 3} {startY + 12} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
-                    context.DrawPath(translucentBrush, primaryPen, mouseOutline);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
 
                     // Active left click panel (semi-translucent fill)
-                    var leftClick = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 1} H {startX + 8} V {startY + 8} H {startX + 3} V {startY + 4} Q {startX + 3} {startY + 1} {startX + 6} {startY + 1} Z"));
-                    context.DrawPath(translucentHeavyBrush, null, leftClick);
+                    context.DrawPath(translucentHeavyBrush, null, _iconGeo2!);
 
                     // Horizontal and vertical split lines
-                    var splitLines = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 8} H {startX + 13} M {startX + 8} {startY + 1} V {startY + 8}"));
-                    context.DrawPath(null, primaryPen, splitLines);
+                    context.DrawPath(null, primaryPen, _iconGeo3!);
 
                     // Scroll wheel
-                    var wheel = PathGeometry.Parse(Invariant($"M {startX + 7.2f} {startY + 3} H {startX + 8.8f} V {startY + 6} H {startX + 7.2f} Z"));
-                    context.DrawPath(textPrimary, null, wheel);
+                    context.DrawPath(textPrimary, null, _iconGeo4!);
 
                     drewCustomIcon = true;
                 }
@@ -327,22 +373,29 @@ public class NavigationViewItem : Control
                 }
                 else if (Icon == "📄" || Text == "Text & Documents")
                 {
-                    // Document sheet with folded corner and horizontal lines
-                    var docOutline = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 10} L {startX + 14} {startY + 5} V {startY + 15} H {startX + 2} Z"));
-                    var docFold = PathGeometry.Parse(Invariant($"M {startX + 10} {startY + 1} V {startY + 5} H {startX + 14} Z"));
-                    var docLines = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 8} H {startX + 12} M {startX + 4} {startY + 10} H {startX + 12} M {startX + 4} {startY + 12} H {startX + 9}"));
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 10} L {startX + 14} {startY + 5} V {startY + 15} H {startX + 2} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 10} {startY + 1} V {startY + 5} H {startX + 14} Z"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 8} H {startX + 12} M {startX + 4} {startY + 10} H {startX + 12} M {startX + 4} {startY + 12} H {startX + 9}"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, docOutline);
-                    context.DrawPath(textPrimary, primaryPen, docFold);
-                    context.DrawPath(null, translucentPen, docLines);
+                    // Document sheet with folded corner and horizontal lines
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(textPrimary, primaryPen, _iconGeo2!);
+                    context.DrawPath(null, translucentPen, _iconGeo3!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "📊" || Text == "Data Virtualization")
                 {
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX} {startY + 15} H {startX + 16}"));
+                    }
+
                     // Bar chart showing 3 ascending bars
-                    var axis = PathGeometry.Parse(Invariant($"M {startX} {startY + 15} H {startX + 16}"));
-                    context.DrawPath(null, secondaryPen, axis);
+                    context.DrawPath(null, secondaryPen, _iconGeo1!);
 
                     context.DrawRoundedRectangle(translucentBrush, primaryPen, new Rect(startX + 1f, startY + 10f, 3f, 5f), 1f);
                     context.DrawRoundedRectangle(translucentHeavyBrush, primaryPen, new Rect(startX + 6f, startY + 5f, 3f, 10f), 1f);
@@ -352,101 +405,115 @@ public class NavigationViewItem : Control
                 }
                 else if (Icon == "⚙" || Text == "Compute FX" || Text == "Settings")
                 {
-                    // Gear cogwheel path using vector geometry
-                    var gearGeo = new PathGeometry();
-                    var gearFig = new PathFigure(Vector2.Zero) { IsClosed = true };
-                    int numTeeth = 8;
-                    float cx = startX + 8f;
-                    float cy = startY + 8f;
-                    for (int i = 0; i < numTeeth; i++)
+                    if (_iconGeo1 == null)
                     {
-                        float angleStart = (float)(i * 2 * Math.PI / numTeeth);
-                        float angleMid1 = angleStart + (float)(0.25 * 2 * Math.PI / numTeeth);
-                        float angleMid2 = angleStart + (float)(0.55 * 2 * Math.PI / numTeeth);
-                        float angleEnd = angleStart + (float)(0.8 * 2 * Math.PI / numTeeth);
-
-                        // Inner base start
-                        float x1 = cx + 5f * (float)Math.Cos(angleStart);
-                        float y1 = cy + 5f * (float)Math.Sin(angleStart);
-                        
-                        // Outer tooth start
-                        float x2 = cx + 7.5f * (float)Math.Cos(angleMid1);
-                        float y2 = cy + 7.5f * (float)Math.Sin(angleMid1);
-                        
-                        // Outer tooth end
-                        float x3 = cx + 7.5f * (float)Math.Cos(angleMid2);
-                        float y3 = cy + 7.5f * (float)Math.Sin(angleMid2);
-                        
-                        // Inner base end
-                        float x4 = cx + 5f * (float)Math.Cos(angleEnd);
-                        float y4 = cy + 5f * (float)Math.Sin(angleEnd);
-
-                        if (i == 0)
+                        // Gear cogwheel path using vector geometry
+                        var gearGeo = new PathGeometry();
+                        var gearFig = new PathFigure(Vector2.Zero) { IsClosed = true };
+                        int numTeeth = 8;
+                        float cx = startX + 8f;
+                        float cy = startY + 8f;
+                        for (int i = 0; i < numTeeth; i++)
                         {
-                            gearFig.StartPoint = new Vector2(x1, y1);
+                            float angleStart = (float)(i * 2 * Math.PI / numTeeth);
+                            float angleMid1 = angleStart + (float)(0.25 * 2 * Math.PI / numTeeth);
+                            float angleMid2 = angleStart + (float)(0.55 * 2 * Math.PI / numTeeth);
+                            float angleEnd = angleStart + (float)(0.8 * 2 * Math.PI / numTeeth);
+
+                            // Inner base start
+                            float x1 = cx + 5f * (float)Math.Cos(angleStart);
+                            float y1 = cy + 5f * (float)Math.Sin(angleStart);
+                            
+                            // Outer tooth start
+                            float x2 = cx + 7.5f * (float)Math.Cos(angleMid1);
+                            float y2 = cy + 7.5f * (float)Math.Sin(angleMid1);
+                            
+                            // Outer tooth end
+                            float x3 = cx + 7.5f * (float)Math.Cos(angleMid2);
+                            float y3 = cy + 7.5f * (float)Math.Sin(angleMid2);
+                            
+                            // Inner base end
+                            float x4 = cx + 5f * (float)Math.Cos(angleEnd);
+                            float y4 = cy + 5f * (float)Math.Sin(angleEnd);
+
+                            if (i == 0)
+                            {
+                                gearFig.StartPoint = new Vector2(x1, y1);
+                            }
+                            else
+                            {
+                                gearFig.Segments.Add(new LineSegment(new Vector2(x1, y1)));
+                            }
+                            gearFig.Segments.Add(new LineSegment(new Vector2(x2, y2)));
+                            gearFig.Segments.Add(new LineSegment(new Vector2(x3, y3)));
+                            gearFig.Segments.Add(new LineSegment(new Vector2(x4, y4)));
                         }
-                        else
-                        {
-                            gearFig.Segments.Add(new LineSegment(new Vector2(x1, y1)));
-                        }
-                        gearFig.Segments.Add(new LineSegment(new Vector2(x2, y2)));
-                        gearFig.Segments.Add(new LineSegment(new Vector2(x3, y3)));
-                        gearFig.Segments.Add(new LineSegment(new Vector2(x4, y4)));
+                        gearGeo.Figures.Add(gearFig);
+                        _iconGeo1 = gearGeo;
+
+                        // Draw inner hole circle of the gear:
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {cx - 2f} {cy} Q {cx - 2f} {cy - 2f} {cx} {cy - 2f} Q {cx + 2f} {cy - 2f} {cx + 2f} {cy} Q {cx + 2f} {cy + 2f} {cx} {cy + 2f} Q {cx - 2f} {cy + 2f} {cx - 2f} {cy} Z"));
                     }
-                    gearGeo.Figures.Add(gearFig);
 
-                    context.DrawPath(translucentBrush, primaryPen, gearGeo);
-
-                    // Draw inner hole circle of the gear:
-                    var innerHole = PathGeometry.Parse(Invariant($"M {cx - 2f} {cy} Q {cx - 2f} {cy - 2f} {cx} {cy - 2f} Q {cx + 2f} {cy - 2f} {cx + 2f} {cy} Q {cx + 2f} {cy + 2f} {cx} {cy + 2f} Q {cx - 2f} {cy + 2f} {cx - 2f} {cy} Z"));
-                    context.DrawPath(null, primaryPen, innerHole);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🎬" || Text == "Motion & Animations")
                 {
-                    // Slate (clapboard) base body
-                    var baseOutline = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 6} H {startX + 14} V {startY + 15} H {startX + 2} Z"));
-                    // Slate slanted cap
-                    var capOutline = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 14} L {startX + 12} {startY + 5} H {startX + 4} Z"));
-                    // Clapper stripes
-                    var clapperStripes = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 1} L {startX + 3} {startY + 5} M {startX + 9} {startY + 1} L {startX + 7} {startY + 5} M {startX + 13} {startY + 1} L {startX + 11} {startY + 5}"));
-                    // Play symbol inside body
-                    var playTriangle = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 8} L {startX + 11} {startY + 10.5f} L {startX + 6} {startY + 13} Z"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Slate (clapboard) base body
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 6} H {startX + 14} V {startY + 15} H {startX + 2} Z"));
+                        // Slate slanted cap
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 14} L {startX + 12} {startY + 5} H {startX + 4} Z"));
+                        // Clapper stripes
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 1} L {startX + 3} {startY + 5} M {startX + 9} {startY + 1} L {startX + 7} {startY + 5} M {startX + 13} {startY + 1} L {startX + 11} {startY + 5}"));
+                        // Play symbol inside body
+                        _iconGeo4 = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 8} L {startX + 11} {startY + 10.5f} L {startX + 6} {startY + 13} Z"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, baseOutline);
-                    context.DrawPath(translucentBrush, primaryPen, capOutline);
-                    context.DrawPath(null, primaryPen, clapperStripes);
-                    context.DrawPath(textPrimary, null, playTriangle);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo2!);
+                    context.DrawPath(null, primaryPen, _iconGeo3!);
+                    context.DrawPath(textPrimary, null, _iconGeo4!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🛠" || Text == "Advanced Controls")
                 {
-                    // Crossed screwdriver and wrench
-                    var sdHandle = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 6} {startY + 10}"));
-                    var sdShaft = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 10} L {startX + 12} {startY + 4}"));
-                    var sdTip = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 4} L {startX + 14} {startY + 2}"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Crossed screwdriver and wrench
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 6} {startY + 10}"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 10} L {startX + 12} {startY + 4}"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 4} L {startX + 14} {startY + 2}"));
 
-                    var wrHandle = PathGeometry.Parse(Invariant($"M {startX + 14} {startY + 14} L {startX + 8} {startY + 8}"));
-                    var wrHead = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 6} {startY + 6} Q {startX + 2} {startY + 6} {startX + 2} {startY + 2} Q {startX + 6} {startY + 2} {startX + 6} {startY + 6} Z"));
-                    
-                    var penThickness2 = new Pen(textPrimary, 2f);
+                        _iconGeo4 = PathGeometry.Parse(Invariant($"M {startX + 14} {startY + 14} L {startX + 8} {startY + 8}"));
+                        _iconGeo5 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 6} {startY + 6} Q {startX + 2} {startY + 6} {startX + 2} {startY + 2} Q {startX + 6} {startY + 2} {startX + 6} {startY + 6} Z"));
+                    }
 
-                    context.DrawPath(null, new Pen(accentBrush, 3f), sdHandle); // Accent handle
-                    context.DrawPath(null, translucentPen, sdShaft); // Metal shaft
-                    context.DrawPath(null, penThickness2, sdTip); // Tip
+                    var penThickness2 = ThemeManager.GetPen("TextPrimary", 2f, activeTheme);
 
-                    context.DrawPath(null, penThickness2, wrHandle); // Wrench handle
-                    context.DrawPath(translucentBrush, primaryPen, wrHead); // Open jaw head
+                    context.DrawPath(null, ThemeManager.GetPen("SystemAccentColor", 3f, activeTheme), _iconGeo1!); // Accent handle
+                    context.DrawPath(null, translucentPen, _iconGeo2!); // Metal shaft
+                    context.DrawPath(null, penThickness2, _iconGeo3!); // Tip
+
+                    context.DrawPath(null, penThickness2, _iconGeo4!); // Wrench handle
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo5!); // Open jaw head
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🎨" || Text == "Compositor API")
                 {
-                    // Clean artist palette outline with blending color blobs
-                    var palette = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 8} Q {startX + 2} {startY + 2} {startX + 8} {startY + 2} Q {startX + 14} {startY + 2} {startX + 14} {startY + 8} Q {startX + 14} {startY + 14} {startX + 8} {startY + 14} Q {startX + 5} {startY + 14} {startX + 5} {startY + 11} Q {startX + 5} {startY + 8} {startX + 2} {startY + 8} Z"));
-                    context.DrawPath(translucentBrush, primaryPen, palette);
+                    if (_iconGeo1 == null)
+                    {
+                        // Clean artist palette outline with blending color blobs
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 8} Q {startX + 2} {startY + 2} {startX + 8} {startY + 2} Q {startX + 14} {startY + 2} {startX + 14} {startY + 8} Q {startX + 14} {startY + 14} {startX + 8} {startY + 14} Q {startX + 5} {startY + 14} {startX + 5} {startY + 11} Q {startX + 5} {startY + 8} {startX + 2} {startY + 8} Z"));
+                    }
+
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
                     context.DrawRoundedRectangle(accentBrush, null, new Rect(startX + 5f, startY + 4f, 2.5f, 2.5f), 1f);
                     context.DrawRoundedRectangle(new SolidColorBrush(new Vector4(0.2f, 0.7f, 0.3f, 1.0f)), null, new Rect(startX + 10f, startY + 5f, 2.5f, 2.5f), 1f);
                     context.DrawRoundedRectangle(textPrimary, null, new Rect(startX + 9f, startY + 10f, 2.5f, 2.5f), 1f);
@@ -455,132 +522,162 @@ public class NavigationViewItem : Control
                 }
                 else if (Icon == "🪟" || Text == "SplitView Layout")
                 {
-                    // Split panel layout: outer rect, vertical divider, right content lines
-                    var outer = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 2} H {startX + 14} V {startY + 14} H {startX + 2} Z"));
-                    var split = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 2} V {startY + 14}"));
-                    var lines = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 5} H {startX + 12} M {startX + 8} {startY + 8} H {startX + 12} M {startX + 8} {startY + 11} H {startX + 11}"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Split panel layout: outer rect, vertical divider, right content lines
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 2} H {startX + 14} V {startY + 14} H {startX + 2} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 6} {startY + 2} V {startY + 14}"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 5} H {startX + 12} M {startX + 8} {startY + 8} H {startX + 12} M {startX + 8} {startY + 11} H {startX + 11}"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, outer);
-                    context.DrawPath(null, primaryPen, split);
-                    context.DrawPath(null, translucentPen, lines);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
+                    context.DrawPath(null, translucentPen, _iconGeo3!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🖼" || Icon == "🖼️" || Text == "Image & Buttons")
                 {
-                    // Mountain range image frame with a solid sun
-                    var outer = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 2} H {startX + 15} V {startY + 14} H {startX + 1} Z"));
-                    var mountains = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 11} L {startX + 6} {startY + 6} L {startX + 10} {startY + 10} L {startX + 13} {startY + 7} L {startX + 15} {startY + 9}"));
-                    var sun = PathGeometry.Parse(Invariant($"M {startX + 11} {startY + 5} Q {startX + 11} {startY + 3.5f} {startX + 12.5f} {startY + 3.5f} Q {startX + 14} {startY + 3.5f} {startX + 14} {startY + 5} Q {startX + 14} {startY + 6.5f} {startX + 12.5f} {startY + 6.5f} Q {startX + 11} {startY + 6.5f} {startX + 11} {startY + 5} Z"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Mountain range image frame with a solid sun
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 2} H {startX + 15} V {startY + 14} H {startX + 1} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 11} L {startX + 6} {startY + 6} L {startX + 10} {startY + 10} L {startX + 13} {startY + 7} L {startX + 15} {startY + 9}"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 11} {startY + 5} Q {startX + 11} {startY + 3.5f} {startX + 12.5f} {startY + 3.5f} Q {startX + 14} {startY + 3.5f} {startX + 14} {startY + 5} Q {startX + 14} {startY + 6.5f} {startX + 12.5f} {startY + 6.5f} Q {startX + 11} {startY + 6.5f} {startX + 11} {startY + 5} Z"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, outer);
-                    context.DrawPath(null, primaryPen, mountains);
-                    context.DrawPath(textSecondary, null, sun);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
+                    context.DrawPath(textSecondary, null, _iconGeo3!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "📐" || Text == "Drawing Context")
                 {
-                    // Ruler set-square triangle geometry
-                    var outer = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 14} V {startY + 2} L {startX + 13} {startY + 14} Z"));
-                    var inner = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 11} V {startY + 5} L {startX + 10} {startY + 11} Z"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Ruler set-square triangle geometry
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 14} V {startY + 2} L {startX + 13} {startY + 14} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 11} V {startY + 5} L {startX + 10} {startY + 11} Z"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, outer);
-                    context.DrawPath(null, primaryPen, inner);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "📁" || Text == "File Storage")
                 {
-                    // standard folder vector path
-                    var folder = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 3} H {startX + 6} L {startX + 8} {startY + 5} H {startX + 15} V {startY + 13} H {startX + 1} Z"));
-                    var line = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 6} H {startX + 15}"));
+                    if (_iconGeo1 == null)
+                    {
+                        // standard folder vector path
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 3} H {startX + 6} L {startX + 8} {startY + 5} H {startX + 15} V {startY + 13} H {startX + 1} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 6} H {startX + 15}"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, folder);
-                    context.DrawPath(null, translucentPen, line);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, translucentPen, _iconGeo2!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "💅" || Text == "Styles Showcase")
                 {
-                    // Paint brush shape
-                    var handle = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 8} {startY + 8}"));
-                    var head = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 12} {startY + 4} Q {startX + 15} {startY + 1} {startX + 15} {startY + 3} Q {startX + 13} {startY + 6} {startX + 10} {startY + 8} Z"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Paint brush shape
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 14} L {startX + 8} {startY + 8}"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 8} L {startX + 12} {startY + 4} Q {startX + 15} {startY + 1} {startX + 15} {startY + 3} Q {startX + 13} {startY + 6} {startX + 10} {startY + 8} Z"));
+                    }
 
-                    context.DrawPath(null, primaryPen, handle);
-                    context.DrawPath(accentBrush, primaryPen, head);
+                    context.DrawPath(null, primaryPen, _iconGeo1!);
+                    context.DrawPath(accentBrush, primaryPen, _iconGeo2!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🏁" || Text == "MotionMark Showcase")
                 {
-                    // Premium custom checkered flag vector icon
-                    
-                    // 1. Draw flagpole
-                    var flagpole = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 3.5f} V {startY + 15} H {startX + 2} Z"));
-                    context.DrawPath(translucentHeavyBrush, null, flagpole);
+                    if (_iconGeo1 == null)
+                    {
+                        // Premium custom checkered flag vector icon
+                        
+                        // 1. Draw flagpole
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 2} {startY + 1} H {startX + 3.5f} V {startY + 15} H {startX + 2} Z"));
 
-                    // Flagpole knob
-                    var knob = PathGeometry.Parse(Invariant($"M {startX + 1.5f} {startY + 1} Q {startX + 1.5f} {startY + 0} {startX + 2.75f} {startY + 0} Q {startX + 4} {startY + 0} {startX + 4} {startY + 1} Q {startX + 4} {startY + 2} {startX + 2.75f} {startY + 2} Q {startX + 1.5f} {startY + 2} {startX + 1.5f} {startY + 1} Z"));
-                    context.DrawPath(textPrimary, null, knob);
+                        // Flagpole knob
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 1.5f} {startY + 1} Q {startX + 1.5f} {startY + 0} {startX + 2.75f} {startY + 0} Q {startX + 4} {startY + 0} {startX + 4} {startY + 1} Q {startX + 4} {startY + 2} {startX + 2.75f} {startY + 2} Q {startX + 1.5f} {startY + 2} {startX + 1.5f} {startY + 1} Z"));
 
-                    // 2. Draw waving flag background (filled with translucentBrush for modern glass feel)
-                    var flagBg = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 2} Q {startX + 7.6f} {startY + 3.8f} {startX + 11.3f} {startY + 1.8f} Q {startX + 13.1f} {startY + 1.0f} {startX + 15} {startY + 2} V {startY + 9} Q {startX + 13.1f} {startY + 8.0f} {startX + 11.3f} {startY + 8.8f} Q {startX + 7.6f} {startY + 10.8f} {startX + 4} {startY + 9} Z"));
-                    context.DrawPath(translucentBrush, primaryPen, flagBg);
+                        // 2. Draw waving flag background (filled with translucentBrush for modern glass feel)
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 2} Q {startX + 7.6f} {startY + 3.8f} {startX + 11.3f} {startY + 1.8f} Q {startX + 13.1f} {startY + 1.0f} {startX + 15} {startY + 2} V {startY + 9} Q {startX + 13.1f} {startY + 8.0f} {startX + 11.3f} {startY + 8.8f} Q {startX + 7.6f} {startY + 10.8f} {startX + 4} {startY + 9} Z"));
 
-                    // 3. Draw checkered filled cells (filled with textPrimary)
-                    // Row 1, Col 1
-                    var cell1 = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 2} Q {startX + 5.8f} {startY + 2.9f} {startX + 7.6f} {startY + 2.8f} V {startY + 6.1f} Q {startX + 5.8f} {startY + 6.2f} {startX + 4} {startY + 5.5f} Z"));
-                    context.DrawPath(textPrimary, null, cell1);
+                        // 3. Draw checkered filled cells (filled with textPrimary)
+                        // Row 1, Col 1
+                        _iconGeo4 = PathGeometry.Parse(Invariant($"M {startX + 4} {startY + 2} Q {startX + 5.8f} {startY + 2.9f} {startX + 7.6f} {startY + 2.8f} V {startY + 6.1f} Q {startX + 5.8f} {startY + 6.2f} {startX + 4} {startY + 5.5f} Z"));
 
-                    // Row 1, Col 3
-                    var cell3 = PathGeometry.Parse(Invariant($"M {startX + 11.3f} {startY + 1.8f} Q {startX + 13.1f} {startY + 1.0f} {startX + 15} {startY + 2} V {startY + 5.5f} Q {startX + 13.1f} {startY + 4.5f} {startX + 11.3f} {startY + 5.0f} Z"));
-                    context.DrawPath(textPrimary, null, cell3);
+                        // Row 1, Col 3
+                        _iconGeo5 = PathGeometry.Parse(Invariant($"M {startX + 11.3f} {startY + 1.8f} Q {startX + 13.1f} {startY + 1.0f} {startX + 15} {startY + 2} V {startY + 5.5f} Q {startX + 13.1f} {startY + 4.5f} {startX + 11.3f} {startY + 5.0f} Z"));
 
-                    // Row 2, Col 2
-                    var cell5 = PathGeometry.Parse(Invariant($"M {startX + 7.6f} {startY + 6.1f} Q {startX + 9.5f} {startY + 6.1f} {startX + 11.3f} {startY + 5.0f} V {startY + 8.4f} Q {startX + 9.5f} {startY + 9.5f} {startX + 7.6f} {startY + 9.3f} Z"));
-                    context.DrawPath(textPrimary, null, cell5);
+                        // Row 2, Col 2
+                        _iconGeo6 = PathGeometry.Parse(Invariant($"M {startX + 7.6f} {startY + 6.1f} Q {startX + 9.5f} {startY + 6.1f} {startX + 11.3f} {startY + 5.0f} V {startY + 8.4f} Q {startX + 9.5f} {startY + 9.5f} {startX + 7.6f} {startY + 9.3f} Z"));
+                    }
+
+                    context.DrawPath(translucentHeavyBrush, null, _iconGeo1!);
+                    context.DrawPath(textPrimary, null, _iconGeo2!);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo3!);
+                    context.DrawPath(textPrimary, null, _iconGeo4!);
+                    context.DrawPath(textPrimary, null, _iconGeo5!);
+                    context.DrawPath(textPrimary, null, _iconGeo6!);
 
                     drewCustomIcon = true;
                 }
                 else if (Icon == "✨" || Text == "Framework Effects")
                 {
-                    var sparkle1 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 1} Q {startX + 8} {startY + 5} {startX + 12} {startY + 5} Q {startX + 8} {startY + 5} {startX + 8} {startY + 9} Q {startX + 8} {startY + 5} {startX + 4} {startY + 5} Q {startX + 8} {startY + 5} {startX + 8} {startY + 1} Z"));
-                    var sparkle2 = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 9} Q {startX + 12} {startY + 11} {startX + 14} {startY + 11} Q {startX + 12} {startY + 11} {startX + 12} {startY + 13} Q {startX + 12} {startY + 11} {startX + 10} {startY + 11} Q {startX + 12} {startY + 11} {startX + 12} {startY + 9} Z"));
-                    
-                    context.DrawPath(accentBrush, null, sparkle1);
-                    context.DrawPath(textPrimary, null, sparkle2);
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 1} Q {startX + 8} {startY + 5} {startX + 12} {startY + 5} Q {startX + 8} {startY + 5} {startX + 8} {startY + 9} Q {startX + 8} {startY + 5} {startX + 4} {startY + 5} Q {startX + 8} {startY + 5} {startX + 8} {startY + 1} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 12} {startY + 9} Q {startX + 12} {startY + 11} {startX + 14} {startY + 11} Q {startX + 12} {startY + 11} {startX + 12} {startY + 13} Q {startX + 12} {startY + 11} {startX + 10} {startY + 11} Q {startX + 12} {startY + 11} {startX + 12} {startY + 9} Z"));
+                    }
+
+                    context.DrawPath(accentBrush, null, _iconGeo1!);
+                    context.DrawPath(textPrimary, null, _iconGeo2!);
                     drewCustomIcon = true;
                 }
                 else if (Icon == "⌨️" || Icon == "⌨" || Text == "Keyboard & Focus" || Text == "Interactive Input")
                 {
-                    var keyboardFrame = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 4} H {startX + 15} V {startY + 12} H {startX + 1} Z"));
-                    context.DrawPath(translucentBrush, primaryPen, keyboardFrame);
-                    
-                    var spacebar = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 10} H {startX + 11}"));
-                    context.DrawPath(null, primaryPen, spacebar);
-                    
-                    var keys1 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 6} H {startX + 4} M {startX + 6} {startY + 6} H {startX + 7} M {startX + 9} {startY + 6} H {startX + 10} M {startX + 12} {startY + 6} H {startX + 13}"));
-                    var keys2 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 8} H {startX + 4} M {startX + 6} {startY + 8} H {startX + 7} M {startX + 9} {startY + 8} H {startX + 10} M {startX + 12} {startY + 8} H {startX + 13}"));
-                    context.DrawPath(null, translucentPen, keys1);
-                    context.DrawPath(null, translucentPen, keys2);
-                    
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 1} {startY + 4} H {startX + 15} V {startY + 12} H {startX + 1} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 10} H {startX + 11}"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 6} H {startX + 4} M {startX + 6} {startY + 6} H {startX + 7} M {startX + 9} {startY + 6} H {startX + 10} M {startX + 12} {startY + 6} H {startX + 13}"));
+                        _iconGeo4 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 8} H {startX + 4} M {startX + 6} {startY + 8} H {startX + 7} M {startX + 9} {startY + 8} H {startX + 10} M {startX + 12} {startY + 8} H {startX + 13}"));
+                    }
+
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
+                    context.DrawPath(null, translucentPen, _iconGeo3!);
+                    context.DrawPath(null, translucentPen, _iconGeo4!);
+
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🔤" || Text == "Typography & Scripts")
                 {
-                    var charA = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 14} L {startX + 8} {startY + 2} L {startX + 13} {startY + 14} M {startX + 5} {startY + 10} H {startX + 11}"));
-                    context.DrawPath(translucentBrush, primaryPen, charA);
-                    
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 14} L {startX + 8} {startY + 2} L {startX + 13} {startY + 14} M {startX + 5} {startY + 10} H {startX + 11}"));
+                    }
+
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+
                     drewCustomIcon = true;
                 }
                 else if (Icon == "💥" || Text == "LOL/s Benchmark")
                 {
-                    var burst = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 1} L {startX + 10} {startY + 4} L {startX + 14} {startY + 3} L {startX + 12} {startY + 7} L {startX + 15} {startY + 9} L {startX + 11} {startY + 10} L {startX + 12} {startY + 14} L {startX + 8} {startY + 11} L {startX + 5} {startY + 14} L {startX + 6} {startY + 10} L {startX + 2} {startY + 9} L {startX + 5} {startY + 7} L {startX + 3} {startY + 3} L {startX + 7} {startY + 4} Z"));
-                    var redPen = new Pen(new SolidColorBrush(0xFF5533FF), 1f);
-                    var orangeBrush = new SolidColorBrush(0xFF9900FF);
-                    context.DrawPath(orangeBrush, redPen, burst);
-                    
+                    if (_iconGeo1 == null)
+                    {
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 8} {startY + 1} L {startX + 10} {startY + 4} L {startX + 14} {startY + 3} L {startX + 12} {startY + 7} L {startX + 15} {startY + 9} L {startX + 11} {startY + 10} L {startX + 12} {startY + 14} L {startX + 8} {startY + 11} L {startX + 5} {startY + 14} L {startX + 6} {startY + 10} L {startX + 2} {startY + 9} L {startX + 5} {startY + 7} L {startX + 3} {startY + 3} L {startX + 7} {startY + 4} Z"));
+                    }
+
+                    context.DrawPath(OrangeBrush, RedPen, _iconGeo1!);
+
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🔘" || Text == "Radio Button")
@@ -588,55 +685,62 @@ public class NavigationViewItem : Control
                     // concentric/nested double circle vector: outer circle outline, inner active dot
                     float cx = startX + 8f;
                     float cy = startY + 8f;
-                    
+
                     context.DrawCircle(translucentBrush, primaryPen, new Vector2(cx, cy), 7f);
                     context.FillCircle(accentBrush, new Vector2(cx, cy), 3f);
-                    
+
                     drewCustomIcon = true;
                 }
                 else if (Icon == "⭐" || Text == "Rating Control")
                 {
-                    // 5-point star vector icon matching the rating system
-                    float cx = startX + 8f;
-                    float cy = startY + 8f;
-                    float r = 7.5f;
-                    
-                    var starGeo = new PathGeometry();
-                    var fig = new PathFigure(Vector2.Zero) { IsClosed = true };
-                    int points = 5;
-                    double innerRadius = r * 0.4;
-                    
-                    for (int i = 0; i < 2 * points; i++)
+                    if (_iconGeo1 == null)
                     {
-                        double angle = i * Math.PI / points - Math.PI / 2;
-                        double radius = (i % 2 == 0) ? r : innerRadius;
-                        float x = (float)(cx + radius * Math.Cos(angle));
-                        float y = (float)(cy + radius * Math.Sin(angle));
-                        
-                        if (i == 0)
-                        {
-                            fig.StartPoint = new Vector2(x, y);
-                        }
-                        else
-                        {
-                            fig.Segments.Add(new LineSegment(new Vector2(x, y)));
-                        }
-                    }
-                    starGeo.Figures.Add(fig);
+                        // 5-point star vector icon matching the rating system
+                        float cx = startX + 8f;
+                        float cy = startY + 8f;
+                        float r = 7.5f;
 
-                    context.DrawPath(translucentBrush, primaryPen, starGeo);
+                        var starGeo = new PathGeometry();
+                        var fig = new PathFigure(Vector2.Zero) { IsClosed = true };
+                        int points = 5;
+                        double innerRadius = r * 0.4;
+
+                        for (int i = 0; i < 2 * points; i++)
+                        {
+                            double angle = i * Math.PI / points - Math.PI / 2;
+                            double radius = (i % 2 == 0) ? r : innerRadius;
+                            float x = (float)(cx + radius * Math.Cos(angle));
+                            float y = (float)(cy + radius * Math.Sin(angle));
+
+                            if (i == 0)
+                            {
+                                fig.StartPoint = new Vector2(x, y);
+                            }
+                            else
+                            {
+                                fig.Segments.Add(new LineSegment(new Vector2(x, y)));
+                            }
+                        }
+                        starGeo.Figures.Add(fig);
+                        _iconGeo1 = starGeo;
+                    }
+
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
                     drewCustomIcon = true;
                 }
                 else if (Icon == "🔒" || Text == "Password Box")
                 {
-                    // Padlock vector icon with lock body, curved shackle, and keyhole
-                    var lockBody = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 7} H {startX + 13} Q {startX + 14} {startY + 7} {startX + 14} {startY + 8} V {startY + 13} Q {startX + 14} {startY + 14} {startX + 13} {startY + 14} H {startX + 3} Q {startX + 2} {startY + 14} {startX + 2} {startY + 13} V {startY + 8} Q {startX + 2} {startY + 7} {startX + 3} {startY + 7} Z"));
-                    var shackle = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 7} V {startY + 4} Q {startX + 5} {startY + 1} {startX + 8} {startY + 1} Q {startX + 11} {startY + 1} {startX + 11} {startY + 4} V {startY + 7}"));
-                    var keyhole = PathGeometry.Parse(Invariant($"M {startX + 7.2f} {startY + 9.5f} Q {startX + 7.2f} {startY + 8.7f} {startX + 8} {startY + 8.7f} Q {startX + 8.8f} {startY + 8.7f} {startX + 8.8f} {startY + 9.5f} Q {startX + 8.8f} {startY + 10.3f} {startX + 8} {startY + 10.3f} Q {startX + 7.2f} {startY + 10.3f} {startX + 7.2f} {startY + 9.5f} Z M {startX + 8} {startY + 10.3f} V {startY + 12f}"));
+                    if (_iconGeo1 == null)
+                    {
+                        // Padlock vector icon with lock body, curved shackle, and keyhole
+                        _iconGeo1 = PathGeometry.Parse(Invariant($"M {startX + 3} {startY + 7} H {startX + 13} Q {startX + 14} {startY + 7} {startX + 14} {startY + 8} V {startY + 13} Q {startX + 14} {startY + 14} {startX + 13} {startY + 14} H {startX + 3} Q {startX + 2} {startY + 14} {startX + 2} {startY + 13} V {startY + 8} Q {startX + 2} {startY + 7} {startX + 3} {startY + 7} Z"));
+                        _iconGeo2 = PathGeometry.Parse(Invariant($"M {startX + 5} {startY + 7} V {startY + 4} Q {startX + 5} {startY + 1} {startX + 8} {startY + 1} Q {startX + 11} {startY + 1} {startX + 11} {startY + 4} V {startY + 7}"));
+                        _iconGeo3 = PathGeometry.Parse(Invariant($"M {startX + 7.2f} {startY + 9.5f} Q {startX + 7.2f} {startY + 8.7f} {startX + 8} {startY + 8.7f} Q {startX + 8.8f} {startY + 8.7f} {startX + 8.8f} {startY + 9.5f} Q {startX + 8.8f} {startY + 10.3f} {startX + 8} {startY + 10.3f} Q {startX + 7.2f} {startY + 10.3f} {startX + 7.2f} {startY + 9.5f} Z M {startX + 8} {startY + 10.3f} V {startY + 12f}"));
+                    }
 
-                    context.DrawPath(translucentBrush, primaryPen, lockBody);
-                    context.DrawPath(null, primaryPen, shackle);
-                    context.DrawPath(textPrimary, primaryPen, keyhole);
+                    context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
+                    context.DrawPath(null, primaryPen, _iconGeo2!);
+                    context.DrawPath(textPrimary, primaryPen, _iconGeo3!);
                     drewCustomIcon = true;
                 }
 
@@ -669,7 +773,7 @@ public class NavigationViewItem : Control
         // 6. Draw modern internal focus outline snugly inside the navigation item
         if (IsFocused && InputSystem.IsKeyboardFocusActive)
         {
-            var focusPen = new Pen(accentBrush, 1.5f);
+            var focusPen = ThemeManager.GetPen("SystemAccentColor", 1.5f, activeTheme);
             context.DrawRoundedRectangle(null, focusPen, new Rect(2f, 2f, Size.X - 4f, Size.Y - 4f), 4f);
         }
     }
