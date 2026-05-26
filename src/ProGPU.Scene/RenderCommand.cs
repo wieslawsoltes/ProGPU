@@ -21,7 +21,9 @@ public enum RenderCommandType
     DrawCircle,
     DrawRoundedRect,
     DrawBezier,
-    DrawCubicBezier
+    DrawCubicBezier,
+    DrawPolyline,
+    DrawSpline
 }
 
 public struct Rect
@@ -96,6 +98,7 @@ public struct RenderCommand
     public Vector2 Position;
     public bool IsBold;
     public bool IsItalic;
+    public float Rotation;
 
     // Texture properties
     public GpuTexture? Texture;
@@ -107,6 +110,14 @@ public struct RenderCommand
     public float RadiusX;
     public float RadiusY;
     public float CornerRadius;
+
+    // Polyline properties
+    public Vector2[]? PolylinePoints;
+    public bool IsClosed;
+
+    // Spline properties
+    public double[]? SplineKnots;
+    public int SplineDegree;
 }
 
 public class DrawingContext
@@ -135,7 +146,7 @@ public class DrawingContext
         });
     }
 
-    public void DrawText(string text, TtfFont font, float fontSize, Brush brush, Vector2 position, bool isBold = false, bool isItalic = false)
+    public void DrawText(string text, TtfFont font, float fontSize, Brush brush, Vector2 position, bool isBold = false, bool isItalic = false, float rotation = 0f)
     {
         Commands.Add(new RenderCommand
         {
@@ -146,7 +157,8 @@ public class DrawingContext
             Brush = brush,
             Position = position,
             IsBold = isBold,
-            IsItalic = isItalic
+            IsItalic = isItalic,
+            Rotation = rotation
         });
     }
 
@@ -273,6 +285,29 @@ public class DrawingContext
             Position2 = p1,
             Position3 = p2,
             Position4 = p3
+        });
+    }
+
+    public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPolyline,
+            Pen = pen,
+            PolylinePoints = points,
+            IsClosed = isClosed
+        });
+    }
+
+    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, int degree)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawSpline,
+            Pen = pen,
+            PolylinePoints = controlPoints,
+            SplineKnots = knots,
+            SplineDegree = degree
         });
     }
 
