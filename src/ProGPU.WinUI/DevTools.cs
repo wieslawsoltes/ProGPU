@@ -78,7 +78,7 @@ public class PropertyItem
 
                 _propInfo.SetValue(_element, converted);
                 _element.Invalidate();
-                InputSystem.Root?.Invalidate();
+                DevToolsService.InvalidateAllMainWindows();
             }
             catch { }
         }
@@ -349,18 +349,61 @@ public class DevTools : Border
     public void RefreshVisualTree()
     {
         _treeView.Items.Clear();
-        if (InputSystem.Root != null)
+
+        // 1. Gather all active application windows (excluding DevTools itself)
+        var activeWindows = WindowManager.ActiveWindows;
+        for (int i = 0; i < activeWindows.Count; i++)
         {
-            string rootName = string.IsNullOrEmpty(InputSystem.Root.Name) ? InputSystem.Root.GetType().Name : $"{InputSystem.Root.GetType().Name} ({InputSystem.Root.Name})";
+            var window = activeWindows[i];
+            if (window.Content == null || window.Content == this || window.Title.Contains("Developer Tools"))
+            {
+                continue;
+            }
+
+            var root = window.Content;
+            string rootName = string.IsNullOrEmpty(root.Name) 
+                ? $"{window.Title} [{root.GetType().Name}]" 
+                : $"{window.Title} - {root.GetType().Name} ({root.Name})";
+
             var rootItem = new TreeViewItem(rootName)
             {
-                TagValue = InputSystem.Root,
+                TagValue = root,
                 IsExpanded = true
             };
             _treeView.Items.Add(rootItem);
-            PopulateVisualTree(InputSystem.Root, rootItem);
-            _treeView.RefreshTree();
+            PopulateVisualTree(root, rootItem);
         }
+
+        // 2. Gather all active floating popups and dialogs from PopupService
+        var activePopups = PopupService.ActivePopups;
+        if (activePopups.Count > 0)
+        {
+            var popupsRootItem = new TreeViewItem("Active Popups & Dialogs")
+            {
+                IsExpanded = true
+            };
+            _treeView.Items.Add(popupsRootItem);
+
+            for (int i = 0; i < activePopups.Count; i++)
+            {
+                var popup = activePopups[i];
+                if (popup == this) continue;
+
+                string popupName = string.IsNullOrEmpty(popup.Name) 
+                    ? popup.GetType().Name 
+                    : $"{popup.GetType().Name} ({popup.Name})";
+
+                var popupItem = new TreeViewItem(popupName)
+                {
+                    TagValue = popup,
+                    IsExpanded = true
+                };
+                popupsRootItem.Items.Add(popupItem);
+                PopulateVisualTree(popup, popupItem);
+            }
+        }
+
+        _treeView.RefreshTree();
     }
 
     private void PopulateVisualTree(Visual node, TreeViewItem parentItem)
@@ -501,9 +544,16 @@ public class DevTools : Border
 
             // Count total scene graph nodes dynamically!
             int totalNodes = 0;
-            if (InputSystem.Root != null)
+            Vector2 mainWinSize = Vector2.Zero;
+            var activeWindows = WindowManager.ActiveWindows;
+            for (int i = 0; i < activeWindows.Count; i++)
             {
-                totalNodes = CountSceneNodes(InputSystem.Root);
+                var window = activeWindows[i];
+                if (window.Content != null && window.Content != this && !window.Title.Contains("Developer Tools"))
+                {
+                    totalNodes += CountSceneNodes(window.Content);
+                    mainWinSize = window.Content.Size;
+                }
             }
             _perfTextBlock.Inlines.Add(new Run("Total Scene Graph Nodes: "));
             _perfTextBlock.Inlines.Add(new Bold(new Run($"{totalNodes:N0} nodes\n")));
@@ -513,10 +563,10 @@ public class DevTools : Border
             _perfTextBlock.Inlines.Add(new Run("Active Application Theme: "));
             _perfTextBlock.Inlines.Add(new Bold(new Run($"{activeTheme}\n")));
 
-            if (InputSystem.Root != null)
+            if (mainWinSize != Vector2.Zero)
             {
                 _perfTextBlock.Inlines.Add(new Run("Main Window Dimensions: "));
-                _perfTextBlock.Inlines.Add(new Bold(new Run($"{InputSystem.Root.Size.X:N0} × {InputSystem.Root.Size.Y:N0}\n")));
+                _perfTextBlock.Inlines.Add(new Bold(new Run($"{mainWinSize.X:N0} × {mainWinSize.Y:N0}\n")));
             }
 
             // GPU Backend context details

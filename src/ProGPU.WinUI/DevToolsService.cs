@@ -30,7 +30,7 @@ public static class DevToolsService
                     _inspectedElement = null;
                 }
                 StateChanged?.Invoke(null, EventArgs.Empty);
-                InputSystem.Root?.Invalidate();
+                InvalidateAllMainWindows();
             }
         }
     }
@@ -44,7 +44,7 @@ public static class DevToolsService
             {
                 _inspectedElement = value;
                 InspectedElementChanged?.Invoke(null, EventArgs.Empty);
-                InputSystem.Root?.Invalidate();
+                InvalidateAllMainWindows();
             }
         }
     }
@@ -57,7 +57,7 @@ public static class DevToolsService
             if (_hoveredElement != value)
             {
                 _hoveredElement = value;
-                InputSystem.Root?.Invalidate();
+                InvalidateAllMainWindows();
             }
         }
     }
@@ -74,12 +74,25 @@ public static class DevToolsService
                 {
                     _hoveredElement = null;
                 }
-                InputSystem.Root?.Invalidate();
+                InvalidateAllMainWindows();
             }
             else if (!value)
             {
                 _hoveredElement = null;
-                InputSystem.Root?.Invalidate();
+                InvalidateAllMainWindows();
+            }
+        }
+    }
+
+    public static void InvalidateAllMainWindows()
+    {
+        var windows = WindowManager.ActiveWindows;
+        for (int i = 0; i < windows.Count; i++)
+        {
+            var window = windows[i];
+            if (window.Content != null && !window.Title.Contains("Developer Tools"))
+            {
+                window.Content.Invalidate();
             }
         }
     }
