@@ -332,7 +332,7 @@ public static class ThemeManager
             return style;
         }
 
-        if (typeof(ContentDialog).IsAssignableFrom(controlType) || typeof(ToolTip).IsAssignableFrom(controlType) || typeof(DataGrid).IsAssignableFrom(controlType) || typeof(TreeView).IsAssignableFrom(controlType))
+        if (typeof(ContentDialog).IsAssignableFrom(controlType) || typeof(ToolTip).IsAssignableFrom(controlType) || typeof(DataGrid).IsAssignableFrom(controlType) || typeof(TreeView).IsAssignableFrom(controlType) || typeof(CalendarView).IsAssignableFrom(controlType))
         {
             AddControlChrome(style, "CardBackground", "TextPrimary", "ControlBorder", new Thickness(1f), 6f, new Thickness(12f));
             return style;

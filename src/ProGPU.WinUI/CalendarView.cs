@@ -53,10 +53,16 @@ public class CalendarView : Control
     {
         Width = 240f;
         Height = 270f;
-        Background = new SolidColorBrush(0x13131AFF); // Fluent v3 Acrylic-dark
-        BorderBrush = new SolidColorBrush(0xFFFFFF12); // Translucent border
+        Background = new ThemeResourceBrush("CardBackground");
+        BorderBrush = new ThemeResourceBrush("ControlBorder");
         BorderThickness = new Thickness(1f);
         CornerRadius = 6f;
+
+        var defaultStyle = ThemeManager.GetDefaultStyle(GetType());
+        if (defaultStyle != null)
+        {
+            Style = defaultStyle;
+        }
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -184,15 +190,15 @@ public class CalendarView : Control
         // 1. Render main container card backdrop and border outline
         var rect = new Rect(Vector2.Zero, Size);
         context.DrawRoundedRectangle(
-            Background, 
-            new Pen(BorderBrush ?? new SolidColorBrush(0xFFFFFF12), BorderThickness.Left), 
+            Background ?? ThemeManager.GetBrush("CardBackground"), 
+            new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left), 
             rect, 
             CornerRadius
         );
 
         // 2. Render month navigation header bar
         string monthTitle = _displayDate.ToString("MMMM yyyy");
-        context.DrawText(monthTitle, font, 14f, new SolidColorBrush(0xFFFFFFFF), new Vector2(16f, 12f));
+        context.DrawText(monthTitle, font, 14f, Foreground ?? ThemeManager.GetBrush("TextPrimary"), new Vector2(16f, 12f));
 
         // Arrow button rectangles
         float arrowY = 10f;
@@ -200,14 +206,14 @@ public class CalendarView : Control
         _nextBtnRect = new Rect(Size.X - 36f, arrowY, 24f, 24f);
 
         // Prev month button (◀)
-        var prevBrush = _isPrevHovered ? new SolidColorBrush(0xFFFFFF30) : new SolidColorBrush(0xFFFFFF10);
+        var prevBrush = _isPrevHovered ? ThemeManager.GetBrush("ControlBackgroundHover") : ThemeManager.GetBrush("ControlBackground");
         context.DrawRoundedRectangle(prevBrush, null, _prevBtnRect, 4f);
-        context.DrawText("◀", font, 10f, new SolidColorBrush(0xFFFFFFFF), new Vector2(_prevBtnRect.X + 7f, _prevBtnRect.Y + 6f));
+        context.DrawText("◀", font, 10f, Foreground ?? ThemeManager.GetBrush("TextPrimary"), new Vector2(_prevBtnRect.X + 7f, _prevBtnRect.Y + 6f));
 
         // Next month button (▶)
-        var nextBrush = _isNextHovered ? new SolidColorBrush(0xFFFFFF30) : new SolidColorBrush(0xFFFFFF10);
+        var nextBrush = _isNextHovered ? ThemeManager.GetBrush("ControlBackgroundHover") : ThemeManager.GetBrush("ControlBackground");
         context.DrawRoundedRectangle(nextBrush, null, _nextBtnRect, 4f);
-        context.DrawText("▶", font, 10f, new SolidColorBrush(0xFFFFFFFF), new Vector2(_nextBtnRect.X + 7f, _nextBtnRect.Y + 6f));
+        context.DrawText("▶", font, 10f, Foreground ?? ThemeManager.GetBrush("TextPrimary"), new Vector2(_nextBtnRect.X + 7f, _nextBtnRect.Y + 6f));
 
         // 3. Render day-of-week header column names
         string[] daysOfWeek = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" };
@@ -217,11 +223,11 @@ public class CalendarView : Control
         for (int i = 0; i < 7; i++)
         {
             float headerX = 8f + i * cellW + (cellW - 14f) / 2f;
-            context.DrawText(daysOfWeek[i], font, 11f, new SolidColorBrush(0xFFFFFF80), new Vector2(headerX, 48f));
+            context.DrawText(daysOfWeek[i], font, 11f, ThemeManager.GetBrush("TextSecondary"), new Vector2(headerX, 48f));
         }
 
         // Horizontal separator line under day names (1px thin rectangle)
-        context.DrawRectangle(new SolidColorBrush(0xFFFFFF10), null, new Rect(8f, 64f, Size.X - 16f, 1f));
+        context.DrawRectangle(ThemeManager.GetBrush("ControlBorder"), null, new Rect(8f, 64f, Size.X - 16f, 1f));
 
         // 4. Render month days grid
         var firstOfMonth = new DateTime(_displayDate.Year, _displayDate.Month, 1);
@@ -242,37 +248,37 @@ public class CalendarView : Control
             if (isSelected)
             {
                 // Active blue solid background
-                var fill = new SolidColorBrush(0x0078D4FF);
+                var fill = ThemeManager.GetBrush("SystemAccentColor");
                 context.DrawRoundedRectangle(fill, null, cellHighlightRect, 4f);
             }
             else if (isHovered)
             {
                 // Subtle glowing glass card border on hover
-                var fill = new SolidColorBrush(0xFFFFFF15);
-                var pen = new Pen(new SolidColorBrush(0xFFFFFF30), 1f);
+                var fill = ThemeManager.GetBrush("ControlBackgroundHover");
+                var pen = new Pen(ThemeManager.GetBrush("ControlBorderHover"), 1f);
                 context.DrawRoundedRectangle(fill, pen, cellHighlightRect, 4f);
             }
             else if (isToday)
             {
-                // White accent border for today
-                var pen = new Pen(new SolidColorBrush(0xFFFFFFFF), 1f);
+                // Accent border for today
+                var pen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 1f);
                 context.DrawRoundedRectangle(null, pen, cellHighlightRect, 4f);
             }
 
             // Foreground text color
-            SolidColorBrush textBrush;
+            Brush textBrush;
             if (isSelected)
             {
-                textBrush = new SolidColorBrush(0xFFFFFFFF);
+                textBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
             }
             else if (isCurrentMonth)
             {
-                textBrush = new SolidColorBrush(0xFFFFFFFF);
+                textBrush = ThemeManager.GetBrush("TextPrimary");
             }
             else
             {
                 // Muted/translucent grey for days outside the current month boundaries
-                textBrush = new SolidColorBrush(0xFFFFFF50);
+                textBrush = ThemeManager.GetBrush("TextSecondary");
             }
 
             string dayText = date.Day.ToString();
