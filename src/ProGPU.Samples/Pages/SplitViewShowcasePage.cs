@@ -49,8 +49,8 @@ public static class SplitViewShowcasePage
             // 1. Pane content
             var paneBorder = new Border
             {
-                Background = new SolidColorBrush(0x1F1F24FA),
-                BorderBrush = new SolidColorBrush(0xFFFFFF15),
+                Background = new ThemeResourceBrush("CardBackground"),
+                BorderBrush = new ThemeResourceBrush("ControlBorder"),
                 BorderThickness = new Thickness(0, 0, 1f, 0),
                 Padding = new Thickness(10),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -166,8 +166,8 @@ public static class SplitViewShowcasePage
             // Preview Card
             var previewCard = new Border
             {
-                Background = new SolidColorBrush(0x1F1F24FA),
-                BorderBrush = new SolidColorBrush(0xFFFFFF15),
+                Background = new ThemeResourceBrush("CardBackground"),
+                BorderBrush = new ThemeResourceBrush("ControlBorder"),
                 BorderThickness = new Thickness(1f),
                 CornerRadius = 8f,
                 Padding = new Thickness(24f),
