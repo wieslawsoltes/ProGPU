@@ -349,6 +349,7 @@ public class DevTools : Border
     public void RefreshVisualTree()
     {
         _treeView.Items.Clear();
+        var addedRoots = new HashSet<Visual>();
 
         // 1. Gather all active application windows (excluding DevTools itself)
         var activeWindows = WindowManager.ActiveWindows;
@@ -361,9 +362,31 @@ public class DevTools : Border
             }
 
             var root = window.Content;
+            addedRoots.Add(root);
+
             string rootName = string.IsNullOrEmpty(root.Name) 
                 ? $"{window.Title} [{root.GetType().Name}]" 
                 : $"{window.Title} - {root.GetType().Name} ({root.Name})";
+
+            var rootItem = new TreeViewItem(rootName)
+            {
+                TagValue = root,
+                IsExpanded = true
+            };
+            _treeView.Items.Add(rootItem);
+            PopulateVisualTree(root, rootItem);
+        }
+
+        // Fallback: If the main window wasn't registered in WindowManager (e.g. raw Silk.NET window),
+        // we retrieve it directly from the thread-static InputSystem.Root!
+        if (InputSystem.Root != null && !addedRoots.Contains(InputSystem.Root))
+        {
+            var root = InputSystem.Root;
+            addedRoots.Add(root);
+
+            string rootName = string.IsNullOrEmpty(root.Name) 
+                ? $"Main Window [{root.GetType().Name}]" 
+                : $"Main Window - {root.GetType().Name} ({root.Name})";
 
             var rootItem = new TreeViewItem(rootName)
             {
@@ -387,7 +410,7 @@ public class DevTools : Border
             for (int i = 0; i < activePopups.Count; i++)
             {
                 var popup = activePopups[i];
-                if (popup == this) continue;
+                if (popup == this || addedRoots.Contains(popup)) continue;
 
                 string popupName = string.IsNullOrEmpty(popup.Name) 
                     ? popup.GetType().Name 
