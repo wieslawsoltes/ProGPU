@@ -94,6 +94,7 @@ public class NavigationView : FrameworkElement
 
     private readonly HamburgerButton _hamburgerButton;
     private readonly List<NavigationViewItem> _flatVisibleItems = new();
+    internal List<NavigationViewItem> FlatVisibleItems => _flatVisibleItems;
     private bool _isPaneOpen;
     private NavigationViewItem? _selectedItem;
     private NavigationViewItem? _settingsItem;

@@ -111,6 +111,111 @@ public class NavigationViewItem : Control
         }
     }
 
+    private NavigationViewItem? FindParentNavigationViewItem()
+    {
+        var p = Parent;
+        while (p != null)
+        {
+            if (p is NavigationViewItem parentItem) return parentItem;
+            p = p.Parent;
+        }
+        return null;
+    }
+
+    public override void OnKeyDown(KeyRoutedEventArgs e)
+    {
+        var nav = FindParentNavigationView();
+        if (nav != null)
+        {
+            var items = nav.FlatVisibleItems;
+            int index = items.IndexOf(this);
+
+            if (this == nav.SettingsItem)
+            {
+                if (e.Key == Silk.NET.Input.Key.Up && items.Count > 0)
+                {
+                    InputSystem.SetFocus(items[^1]);
+                    e.Handled = true;
+                }
+                else if (e.Key == Silk.NET.Input.Key.Enter || e.Key == Silk.NET.Input.Key.Space)
+                {
+                    nav.SelectedItem = this;
+                    e.Handled = true;
+                }
+                return;
+            }
+
+            if (e.Key == Silk.NET.Input.Key.Enter || e.Key == Silk.NET.Input.Key.Space)
+            {
+                nav.SelectedItem = this;
+                e.Handled = true;
+                return;
+            }
+            else if (e.Key == Silk.NET.Input.Key.Down)
+            {
+                if (index >= 0 && index < items.Count - 1)
+                {
+                    InputSystem.SetFocus(items[index + 1]);
+                    e.Handled = true;
+                }
+                else if (index == items.Count - 1 && nav.SettingsItem != null)
+                {
+                    InputSystem.SetFocus(nav.SettingsItem);
+                    e.Handled = true;
+                }
+                return;
+            }
+            else if (e.Key == Silk.NET.Input.Key.Up)
+            {
+                if (index > 0)
+                {
+                    InputSystem.SetFocus(items[index - 1]);
+                    e.Handled = true;
+                }
+                return;
+            }
+            else if (e.Key == Silk.NET.Input.Key.Right)
+            {
+                if (Items.Count > 0)
+                {
+                    if (!IsExpanded)
+                    {
+                        IsExpanded = true;
+                        nav.OnItemExpandedChanged(this);
+                        e.Handled = true;
+                    }
+                    else if (index >= 0 && index < items.Count - 1)
+                    {
+                        InputSystem.SetFocus(items[index + 1]);
+                        e.Handled = true;
+                    }
+                }
+                return;
+            }
+            else if (e.Key == Silk.NET.Input.Key.Left)
+            {
+                if (Items.Count > 0 && IsExpanded)
+                {
+                    IsExpanded = false;
+                    nav.OnItemExpandedChanged(this);
+                    e.Handled = true;
+                }
+                else if (Level > 0)
+                {
+                    var parentItem = FindParentNavigationViewItem();
+                    if (parentItem != null)
+                    {
+                        InputSystem.SetFocus(parentItem);
+                        e.Handled = true;
+                    }
+                }
+                return;
+            }
+        }
+
+        base.OnKeyDown(e);
+    }
+
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         float w = WidthConstraint ?? availableSize.X;
