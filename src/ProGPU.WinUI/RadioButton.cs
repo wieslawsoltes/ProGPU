@@ -343,7 +343,9 @@ public class RadioButton : ContentControl
         if (!IsEnabled)
         {
             boxBg = Background ?? ThemeManager.GetBrush("ControlBackground");
-            boxBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f);
+            boxBorder = BorderBrush != null
+                ? new Pen(BorderBrush, 1f)
+                : ThemeManager.GetPen("ControlBorder", 1f);
         }
         else if (IsChecked)
         {
@@ -355,7 +357,9 @@ public class RadioButton : ContentControl
         else
         {
             boxBg = Background ?? ThemeManager.GetBrush(IsPointerPressed ? "ControlBackgroundPressed" : IsPointerOver ? "ControlBackgroundHover" : "ControlBackground");
-            boxBorder = new Pen(BorderBrush ?? ThemeManager.GetBrush(IsPointerOver ? "ControlBorderHover" : "ControlBorder"), 1f);
+            boxBorder = BorderBrush != null
+                ? new Pen(BorderBrush, 1f)
+                : ThemeManager.GetPen(IsPointerOver ? "ControlBorderHover" : "ControlBorder", 1f);
         }
 
         // Draw outer radio circle
@@ -376,7 +380,7 @@ public class RadioButton : ContentControl
         // Draw active blue focus ring 2px outside the circle
         if (IsEnabled && IsFocused && InputSystem.IsKeyboardFocusActive)
         {
-            var focusPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 2f);
+            var focusPen = ThemeManager.GetPen("SystemAccentColor", 2f);
             Rect focusRect = new Rect(boxRect.X - 2f, boxRect.Y - 2f, boxRect.Width + 4f, boxRect.Height + 4f);
             context.DrawRoundedRectangle(null, focusPen, focusRect, 11f);
         }
