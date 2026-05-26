@@ -278,6 +278,7 @@ public static unsafe class MainWindowController
         var radioButtonItem = new NavigationViewItem("Radio Button", "🔘", RadioButtonPage.Create());
         var ratingControlItem = new NavigationViewItem("Rating Control", "⭐", RatingControlPage.Create());
         var passwordBoxItem = new NavigationViewItem("Password Box", "🔒", PasswordBoxPage.Create());
+        var dxfViewerItem = new NavigationViewItem("DXF CAD Viewer", "📐", DxfViewerPage.Create());
 
         AppState._navigationView.MenuItems.Add(basicInputItem);
         AppState._navigationView.MenuItems.Add(panelsItem);
@@ -302,6 +303,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(radioButtonItem);
         AppState._navigationView.MenuItems.Add(ratingControlItem);
         AppState._navigationView.MenuItems.Add(passwordBoxItem);
+        AppState._navigationView.MenuItems.Add(dxfViewerItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
