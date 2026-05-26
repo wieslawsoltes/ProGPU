@@ -111,6 +111,97 @@ public class SamplePagesTests
     }
 
     [Fact]
+    public void Test_LayoutPanelsPage_NavigationPane_State()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var nav = new NavigationView
+        {
+            Font = AppState._font,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        var basicInputItem = new NavigationViewItem("Basic Input", "🖱", BasicInputPage.Create());
+        var panelsItem = new NavigationViewItem("Layout Panels", "🔲", LayoutPanelsPage.Create());
+        nav.MenuItems.Add(basicInputItem);
+        nav.MenuItems.Add(panelsItem);
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(1280, 800);
+        window.Content = nav;
+
+        // Select basic input first
+        nav.SelectedItem = basicInputItem;
+        window.Render();
+
+        // Switch to Layout Panels page
+        nav.SelectedItem = panelsItem;
+        window.Render();
+
+        // Print details of the flat visible items
+        var prop = typeof(NavigationView).GetProperty("FlatVisibleItems", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        var items = (System.Collections.Generic.List<NavigationViewItem>?)prop?.GetValue(nav);
+        if (items != null)
+        {
+            foreach (var item in items)
+            {
+                Console.WriteLine($"[DIAG] Item: '{item.Text}', Parent: '{item.Parent?.GetType().Name}', Size: {item.Size}, Offset: {item.Offset}, Opacity: {item.Opacity}");
+            }
+        }
+
+        // Clean up
+        window.Content = null;
+    }
+
+    private void PrintVisualTree(ProGPU.Scene.Visual node, string indent)
+    {
+        Console.WriteLine($"{indent}- Type: {node.GetType().Name}, Size: {node.Size}, Offset: {node.Offset}, Opacity: {node.Opacity}");
+        if (node is ProGPU.Scene.ContainerVisual container)
+        {
+            foreach (var child in container.Children)
+            {
+                PrintVisualTree(child, indent + "  ");
+            }
+        }
+    }
+
+    [Fact]
+    public void Test_LayoutPanelsPage_FullTree()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var nav = new NavigationView
+        {
+            Font = AppState._font,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        var basicInputItem = new NavigationViewItem("Basic Input", "🖱", BasicInputPage.Create());
+        var panelsItem = new NavigationViewItem("Layout Panels", "🔲", LayoutPanelsPage.Create());
+        nav.MenuItems.Add(basicInputItem);
+        nav.MenuItems.Add(panelsItem);
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(1280, 800);
+        window.Content = nav;
+
+        // Select basic input first
+        nav.SelectedItem = basicInputItem;
+        window.Render();
+
+        // Switch to Layout Panels page
+        nav.SelectedItem = panelsItem;
+        window.Render();
+
+        Console.WriteLine("[DIAG_TREE] START");
+        PrintVisualTree(nav, "");
+        Console.WriteLine("[DIAG_TREE] END");
+
+        // Clean up
+        window.Content = null;
+    }
+
+    [Fact]
     public void Test_TextDocumentsPage_Renders()
     {
         RunPageTest(TextDocumentsPage.Create(), "Text & Documents");
