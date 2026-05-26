@@ -456,10 +456,10 @@ ProGPU routes all graphics and compute tasks directly to the GPU using specializ
   - **Dynamic Bezier Evaluation (`sType == 5u & 6u`)**: Replaces CPU Bezier flattening. For Quadratics and Cubics, the vertex shader interpolates coordinates directly based on the thread's `vertexIndex` and parametric factor $t \in [0, 1]$, calculating curve positions and tangents to offset vertices outward along normal vectors on the fly, storing signed pixel distances in `gridIndex`.
   - **Analytical SDF Fragment Evaluation (`sType < 3u`)**: Computes Signed Distance Fields for Rectangles, Ellipses, and Rounded Rectangles. Anti-aliases boundaries dynamically using screen-space partial derivatives:
     $$\text{fw} = \max(\text{fwidth}(d), 0.0001)$$
-    $$\text{alpha} = 1.0 - \text{smoothstep}(-0.5\text{fw}, 0.5\text{fw}, d)$$
+    $$\alpha = 1.0 - \text{smoothstep}(-0.5 \cdot \text{fw}, 0.5 \cdot \text{fw}, d)$$
   - **Pixel-Distance Stroke Anti-Aliasing (`sType == 3u \|\| 5u \|\| 6u`)**: Resolves aliasing for lines and curves by evaluating screen-space smoothstep transitions using the interpolated `gridIndex` pixel distance to the stroke boundary:
-    $$\text{d\_shape} = \text{abs}(\text{gridIndex}) - \text{strokeThickness} \cdot 0.5$$
-    $$\text{alpha} = 1.0 - \text{smoothstep}(-0.5, 0.5, \text{d\_shape})$$
+    $$d_{\text{shape}} = \text{abs}(\text{gridIndex}) - \text{strokeThickness} \cdot 0.5$$
+    $$\alpha = 1.0 - \text{smoothstep}(-0.5, 0.5, d_{\text{shape}})$$
   - **Gradient Interpolation**: Evaluates Linear (`brushType == 1u`) and Radial (`brushType == 2u`) gradients dynamically for up to 4 stop colors by calculating projection coordinates and interpolating between bounds using stop offsets.
 
 ### 2. TextShader (SDF Glyph Render Pipeline)
