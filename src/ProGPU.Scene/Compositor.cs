@@ -2270,8 +2270,12 @@ public unsafe class Compositor : IDisposable
                 snappedY = MathF.Round(screenY);
             }
 
-            // Cache and rasterize the glyph in the atlas at its actual physical pixel font size
-            var info = _atlas.GetOrCreateGlyph(glyphFont, runGlyph.CodePoint, physicalFontSize, subpixelX);
+            // Cap the physical font size rasterized into the atlas to prevent blowout on huge zoom levels.
+            // Scale the mapped UV quad coordinates proportionally for perfect high-DPI scaling.
+            float rasterFontSize = Math.Clamp(physicalFontSize, 4f, 128f);
+            float scaleRatio = physicalFontSize / rasterFontSize;
+
+            var info = _atlas.GetOrCreateGlyph(glyphFont, runGlyph.CodePoint, rasterFontSize, subpixelX);
             if (info.Width == 0 || info.Height == 0) continue;
 
             int passCount = cmd.IsBold ? 2 : 1;
@@ -2284,11 +2288,11 @@ public unsafe class Compositor : IDisposable
 
                 if (!isRotated)
                 {
-                    // Position the quad in physical screen pixels
-                    float rx0 = ipartX + info.BearX * scaleX + xOffset * scaleX * dpiScale;
-                    float ry0 = snappedY + info.BearY * scaleY;
-                    float rx1 = rx0 + info.Width * scaleX;
-                    float ry1 = ry0 + info.Height * scaleY;
+                    // Position the quad in physical screen pixels scaled by scaleRatio
+                    float rx0 = ipartX + info.BearX * scaleX * scaleRatio + xOffset * scaleX * dpiScale;
+                    float ry0 = snappedY + info.BearY * scaleY * scaleRatio;
+                    float rx1 = rx0 + info.Width * scaleX * scaleRatio;
+                    float ry1 = ry0 + info.Height * scaleY * scaleRatio;
 
                     float skewFactor = cmd.IsItalic ? 0.22f : 0f;
                     float yBase = snappedY; // Baseline is snappedY
@@ -2306,11 +2310,11 @@ public unsafe class Compositor : IDisposable
                 }
                 else
                 {
-                    // Rotated text: transform each vertex individually on the CPU to follow the rotation angle
-                    float lx0 = info.BearX / dpiScale + xOffset;
-                    float ly0 = info.BearY / dpiScale;
-                    float lx1 = lx0 + info.Width / dpiScale;
-                    float ly1 = ly0 + info.Height / dpiScale;
+                    // Rotated text: transform each vertex individually on the CPU scaled by scaleRatio
+                    float lx0 = info.BearX / dpiScale * scaleRatio + xOffset;
+                    float ly0 = info.BearY / dpiScale * scaleRatio;
+                    float lx1 = lx0 + info.Width / dpiScale * scaleRatio;
+                    float ly1 = ly0 + info.Height / dpiScale * scaleRatio;
 
                     float skewFactor = cmd.IsItalic ? 0.22f : 0f;
                     float yBase = 0f;
