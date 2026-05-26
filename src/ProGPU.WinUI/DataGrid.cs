@@ -517,6 +517,7 @@ public class DataGrid : Control
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
+        ResolveColumnWidths(arrangeRect.Width);
         UpdateCellEditorLayout();
     }
 
