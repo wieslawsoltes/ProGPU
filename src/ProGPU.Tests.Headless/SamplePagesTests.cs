@@ -481,5 +481,174 @@ public class SamplePagesTests
         Compositor.IsCacheAsLayerEnabled = true;
         window.Content = null;
     }
+
+    [Fact]
+    public void Test_DataGrid_ColumnResize()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var dataGrid = new DataGrid
+        {
+            Font = AppState._font,
+            RowHeight = 28f,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            WidthConstraint = 600f,
+            HeightConstraint = 300f
+        };
+
+        // Define columns: 
+        // ID: Pixel 70
+        // Name: Star 1
+        // Status: Auto
+        // Latency: Pixel 120
+        dataGrid.Columns.Add(new DataGridColumn("ID", 70f, "Id"));
+        dataGrid.Columns.Add(new DataGridColumn("Activity Name", "*", "Name"));
+        dataGrid.Columns.Add(new DataGridColumn("Status", "Auto", "Status"));
+        dataGrid.Columns.Add(new DataGridColumn("Latency (ms)", 120f, "Latency"));
+
+        // Add mock items to ensure Auto has size
+        dataGrid.AddItem(new LogItem { Id = 1, Name = "Render Frame", Status = "Pending", Latency = 16.6f });
+        dataGrid.AddItem(new LogItem { Id = 2, Name = "Compute Shader", Status = "CompletedSuccessfully", Latency = 4.2f });
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(1000, 600);
+        window.Content = dataGrid;
+
+        // Perform initial stable layout
+        window.Render();
+
+        // 1. Check initial column widths
+        // Available width inside layout will be WidthConstraint = 600f.
+        // Allocated: ID (70) + Status (Auto, which is header length ~100px or items ~150px) + Latency (120)
+        // Let's print actual resolved widths
+        Console.WriteLine($"[DIAG_GRID] Initial columns widths:");
+        for (int i = 0; i < dataGrid.Columns.Count; i++)
+        {
+            Console.WriteLine($"  Col {i} ({dataGrid.Columns[i].Header}): Width={dataGrid.Columns[i].Width.Value} ({dataGrid.Columns[i].Width.UnitType}), ActualWidth={dataGrid.Columns[i].ActualWidth}");
+        }
+
+        float col0_initialWidth = dataGrid.Columns[0].ActualWidth;
+        float col1_initialWidth = dataGrid.Columns[1].ActualWidth;
+
+        // 2. Drag separator of Column 0 (ID). The separator is at col0_initialWidth = 70f.
+        float separatorX = col0_initialWidth;
+        var pressEvent = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerPressed(pressEvent);
+
+        // Move mouse by 50px to the right to expand column 0
+        var moveEvent = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX + 50f, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerMoved(moveEvent);
+
+        // Release mouse
+        var releaseEvent = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX + 50f, 15f),
+            IsLeftButtonPressed = false
+        };
+        dataGrid.OnPointerReleased(releaseEvent);
+
+        // Render to stabilization layout
+        window.Render();
+
+        Console.WriteLine($"[DIAG_GRID] Resized columns widths:");
+        for (int i = 0; i < dataGrid.Columns.Count; i++)
+        {
+            Console.WriteLine($"  Col {i} ({dataGrid.Columns[i].Header}): Width={dataGrid.Columns[i].Width.Value} ({dataGrid.Columns[i].Width.UnitType}), ActualWidth={dataGrid.Columns[i].ActualWidth}");
+        }
+
+        // Verify column 0 has been resized from 70f to 120f
+        Assert.Equal(120f, dataGrid.Columns[0].ActualWidth);
+        Assert.True(dataGrid.Columns[0].Width.IsPixel);
+
+        // Verify column 1 (Star) shrunk by 50f to accommodate column 0's expansion
+        Assert.Equal(col1_initialWidth - 50f, dataGrid.Columns[1].ActualWidth, 0.5f);
+
+        // 3. Drag separator of Column 1 (Activity Name), which is a Star column.
+        // Its separator is at Columns[0].ActualWidth + Columns[1].ActualWidth = 120f + (col1_initialWidth - 50f)
+        float separatorX1 = dataGrid.Columns[0].ActualWidth + dataGrid.Columns[1].ActualWidth;
+        var pressEvent1 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX1, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerPressed(pressEvent1);
+
+        // Drag by -30px to the left to shrink Column 1
+        var moveEvent1 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX1 - 30f, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerMoved(moveEvent1);
+
+        var releaseEvent1 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX1 - 30f, 15f),
+            IsLeftButtonPressed = false
+        };
+        dataGrid.OnPointerReleased(releaseEvent1);
+
+        window.Render();
+
+        Console.WriteLine($"[DIAG_GRID] After Star resize columns widths:");
+        for (int i = 0; i < dataGrid.Columns.Count; i++)
+        {
+            Console.WriteLine($"  Col {i} ({dataGrid.Columns[i].Header}): Width={dataGrid.Columns[i].Width.Value} ({dataGrid.Columns[i].Width.UnitType}), ActualWidth={dataGrid.Columns[i].ActualWidth}");
+        }
+
+        // Verify Column 1 is now a Pixel column, and its ActualWidth has shrunk by 30f
+        Assert.True(dataGrid.Columns[1].Width.IsPixel);
+        Assert.Equal(col1_initialWidth - 50f - 30f, dataGrid.Columns[1].ActualWidth, 0.5f);
+
+        // 4. Drag separator of Column 2 (Status), which is an Auto column.
+        // Its separator is at Columns[0].ActualWidth + Columns[1].ActualWidth + Columns[2].ActualWidth
+        float separatorX2 = dataGrid.Columns[0].ActualWidth + dataGrid.Columns[1].ActualWidth + dataGrid.Columns[2].ActualWidth;
+        float col2_initialWidth = dataGrid.Columns[2].ActualWidth;
+        var pressEvent2 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX2, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerPressed(pressEvent2);
+
+        // Drag by +40px to the right to expand Column 2
+        var moveEvent2 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX2 + 40f, 15f),
+            IsLeftButtonPressed = true
+        };
+        dataGrid.OnPointerMoved(moveEvent2);
+
+        var releaseEvent2 = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(separatorX2 + 40f, 15f),
+            IsLeftButtonPressed = false
+        };
+        dataGrid.OnPointerReleased(releaseEvent2);
+
+        window.Render();
+
+        Console.WriteLine($"[DIAG_GRID] After Auto resize columns widths:");
+        for (int i = 0; i < dataGrid.Columns.Count; i++)
+        {
+            Console.WriteLine($"  Col {i} ({dataGrid.Columns[i].Header}): Width={dataGrid.Columns[i].Width.Value} ({dataGrid.Columns[i].Width.UnitType}), ActualWidth={dataGrid.Columns[i].ActualWidth}");
+        }
+
+        // Verify Column 2 is now a Pixel column, and its ActualWidth has expanded by 40f
+        Assert.True(dataGrid.Columns[2].Width.IsPixel);
+        Assert.Equal(col2_initialWidth + 40f, dataGrid.Columns[2].ActualWidth, 0.5f);
+
+        // Cleanup
+        window.Content = null;
+    }
 }
 
