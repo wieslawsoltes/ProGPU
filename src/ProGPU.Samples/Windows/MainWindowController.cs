@@ -275,6 +275,7 @@ public static unsafe class MainWindowController
         var scriptsItem = new NavigationViewItem("Typography & Scripts", "🔤", SamplePagePresenter.CreateTypographyScriptsView());
         var textInputItem = new NavigationViewItem("Interactive Input", "⌨️", SamplePagePresenter.CreateInteractiveInputView());
         var lolsItem = new NavigationViewItem("LOL/s Benchmark", "💥", LolsPage.Create());
+        var newControlsItem = new NavigationViewItem("New Controls Showcase", "🛠", NewControlsShowcasePage.Create());
 
         AppState._navigationView.MenuItems.Add(basicInputItem);
         AppState._navigationView.MenuItems.Add(panelsItem);
@@ -296,6 +297,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(scriptsItem);
         AppState._navigationView.MenuItems.Add(textInputItem);
         AppState._navigationView.MenuItems.Add(lolsItem);
+        AppState._navigationView.MenuItems.Add(newControlsItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
