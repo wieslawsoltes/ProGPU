@@ -177,10 +177,6 @@ public class NavigationView : FrameworkElement
             if (_content != value)
             {
                 _content = value;
-                if (_content != null)
-                {
-                    _content.CacheAsLayer = true;
-                }
                 _splitView.Content = value;
                 RebuildPaneChildren();
             }
