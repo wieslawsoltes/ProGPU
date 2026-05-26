@@ -3,6 +3,7 @@ using System.IO;
 using System.Numerics;
 using ProGPU.Layout;
 using ProGPU.Vector;
+using ProGPU.Scene;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
@@ -236,4 +237,199 @@ public class SamplePagesTests
     {
         RunPageTest(KeyboardParityPage.Create(), "Keyboard & Focus");
     }
+
+    [Fact]
+    public void Benchmark_CacheAsLayer_Performance_Comparison()
+    {
+        EnsureFontsAndStateLoaded();
+
+        // 1. Initialize NavigationView with items to populate the sidebar
+        var nav = new NavigationView
+        {
+            Font = AppState._font,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            IsPaneOpen = true
+        };
+        var basicInputItem = new NavigationViewItem("Basic Input", "🖱", BasicInputPage.Create());
+        var panelsItem = new NavigationViewItem("Layout Panels", "🔲", LayoutPanelsPage.Create());
+        nav.MenuItems.Add(basicInputItem);
+        nav.MenuItems.Add(panelsItem);
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(1280, 800);
+        window.Content = nav;
+
+        // Select item and render once to perform initial layout and stabilize
+        nav.SelectedItem = basicInputItem;
+        window.Render();
+        window.Render();
+
+        // Get the internal static navigation pane panel via reflection
+        var panePanelField = typeof(NavigationView).GetField("_panePanel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(panePanelField);
+        var panePanel = (Visual?)panePanelField.GetValue(nav);
+        Assert.NotNull(panePanel);
+
+        // ==========================================
+        // SCENARIO 1: FULL APPLICATION VIEW (REAL-WORLD)
+        // ==========================================
+
+        // --- MEASURE UNCACHED ---
+        panePanel.CacheAsLayer = false;
+        panePanel.IsDirty = true;
+        window.Render();
+
+        int uncachedDrawCalls1 = GetCompositorDrawCallsCount(window.Compositor);
+        int uncachedVectorVertices1 = window.Compositor.VectorVertexCount;
+        int uncachedTextVertices1 = window.Compositor.TextVertexCount;
+        int uncachedTextureVertices1 = window.Compositor.TextureVertexCount;
+
+        for (int i = 0; i < 10; i++)
+        {
+            panePanel.IsDirty = true;
+            window.Render();
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int iterations = 200;
+        for (int i = 0; i < iterations; i++)
+        {
+            panePanel.IsDirty = true; 
+            window.Render();
+        }
+        sw.Stop();
+        double uncachedAvgMs1 = sw.Elapsed.TotalMilliseconds / iterations;
+
+        // --- MEASURE CACHED ---
+        panePanel.CacheAsLayer = true;
+        panePanel.IsDirty = true;
+        window.Render();
+        panePanel.IsDirty = false;
+        window.Render();
+
+        int cachedDrawCalls1 = GetCompositorDrawCallsCount(window.Compositor);
+        int cachedVectorVertices1 = window.Compositor.VectorVertexCount;
+        int cachedTextVertices1 = window.Compositor.TextVertexCount;
+        int cachedTextureVertices1 = window.Compositor.TextureVertexCount;
+
+        for (int i = 0; i < 10; i++)
+        {
+            window.Render();
+        }
+
+        sw.Restart();
+        for (int i = 0; i < iterations; i++)
+        {
+            window.Render();
+        }
+        sw.Stop();
+        double cachedAvgMs1 = sw.Elapsed.TotalMilliseconds / iterations;
+
+
+        // ==========================================
+        // SCENARIO 2: ISOLATED COMPONENT RENDERING
+        // ==========================================
+        
+        // Render ONLY the sidebar pane to isolate the component
+        window.Content = panePanel as FrameworkElement;
+        window.Render();
+        window.Render();
+
+        // --- MEASURE UNCACHED ---
+        panePanel.CacheAsLayer = false;
+        panePanel.IsDirty = true;
+        window.Render();
+
+        int uncachedDrawCalls2 = GetCompositorDrawCallsCount(window.Compositor);
+        int uncachedVectorVertices2 = window.Compositor.VectorVertexCount;
+        int uncachedTextVertices2 = window.Compositor.TextVertexCount;
+        int uncachedTextureVertices2 = window.Compositor.TextureVertexCount;
+
+        for (int i = 0; i < 10; i++)
+        {
+            panePanel.IsDirty = true;
+            window.Render();
+        }
+
+        sw.Restart();
+        for (int i = 0; i < iterations; i++)
+        {
+            panePanel.IsDirty = true;
+            window.Render();
+        }
+        sw.Stop();
+        double uncachedAvgMs2 = sw.Elapsed.TotalMilliseconds / iterations;
+
+        // --- MEASURE CACHED ---
+        panePanel.CacheAsLayer = true;
+        panePanel.IsDirty = true;
+        window.Render();
+        panePanel.IsDirty = false;
+        window.Render();
+
+        int cachedDrawCalls2 = GetCompositorDrawCallsCount(window.Compositor);
+        int cachedVectorVertices2 = window.Compositor.VectorVertexCount;
+        int cachedTextVertices2 = window.Compositor.TextVertexCount;
+        int cachedTextureVertices2 = window.Compositor.TextureVertexCount;
+
+        for (int i = 0; i < 10; i++)
+        {
+            window.Render();
+        }
+
+        sw.Restart();
+        for (int i = 0; i < iterations; i++)
+        {
+            window.Render();
+        }
+        sw.Stop();
+        double cachedAvgMs2 = sw.Elapsed.TotalMilliseconds / iterations;
+
+        // --- PRINT RESULTS ---
+        Console.WriteLine("\n================================================================================");
+        Console.WriteLine("BENCHMARK RESULTS: CacheAsLayer VS Frame-by-Frame Redraw");
+        Console.WriteLine("================================================================================");
+        Console.WriteLine("SCENARIO 1: FULL APP VIEW (NavigationView + Active Page)");
+        Console.WriteLine("--------------------------------------------------------------------------------");
+        Console.WriteLine($"Uncached Draw Calls:       {uncachedDrawCalls1}");
+        Console.WriteLine($"Cached Draw Calls:         {cachedDrawCalls1} (including 1 texture cache draw)");
+        Console.WriteLine($"Uncached Vector Vertices:  {uncachedVectorVertices1}");
+        Console.WriteLine($"Cached Vector Vertices:    {cachedVectorVertices1}");
+        Console.WriteLine($"Uncached Text Vertices:    {uncachedTextVertices1}");
+        Console.WriteLine($"Cached Text Vertices:      {cachedTextVertices1}");
+        Console.WriteLine($"Uncached Texture Vertices: {uncachedTextureVertices1}");
+        Console.WriteLine($"Cached Texture Vertices:   {cachedTextureVertices1}");
+        Console.WriteLine($"Uncached Avg Render Time:  {uncachedAvgMs1:F4} ms / frame");
+        Console.WriteLine($"Cached Avg Render Time:    {cachedAvgMs1:F4} ms / frame");
+        double speedup1 = uncachedAvgMs1 / cachedAvgMs1;
+        Console.WriteLine($"Acceleration Factor:       {speedup1:F2}x faster");
+        Console.WriteLine("--------------------------------------------------------------------------------");
+        Console.WriteLine("SCENARIO 2: ISOLATED SIDEBAR COMPONENT (NavigationViewPane)");
+        Console.WriteLine("--------------------------------------------------------------------------------");
+        Console.WriteLine($"Uncached Draw Calls:       {uncachedDrawCalls2}");
+        Console.WriteLine($"Cached Draw Calls:         {cachedDrawCalls2} (exactly 1 texture cache draw)");
+        Console.WriteLine($"Uncached Vector Vertices:  {uncachedVectorVertices2}");
+        Console.WriteLine($"Cached Vector Vertices:    {cachedVectorVertices2}");
+        Console.WriteLine($"Uncached Text Vertices:    {uncachedTextVertices2}");
+        Console.WriteLine($"Cached Text Vertices:      {cachedTextVertices2}");
+        Console.WriteLine($"Uncached Texture Vertices: {uncachedTextureVertices2}");
+        Console.WriteLine($"Cached Texture Vertices:   {cachedTextureVertices2}");
+        Console.WriteLine($"Uncached Avg Render Time:  {uncachedAvgMs2:F4} ms / frame");
+        Console.WriteLine($"Cached Avg Render Time:    {cachedAvgMs2:F4} ms / frame");
+        double speedup2 = uncachedAvgMs2 / cachedAvgMs2;
+        Console.WriteLine($"Acceleration Factor:       {speedup2:F2}x faster");
+        Console.WriteLine("================================================================================\n");
+
+        // Clean up
+        window.Content = null;
+    }
+
+    private int GetCompositorDrawCallsCount(Compositor compositor)
+    {
+        var drawCallsField = typeof(Compositor).GetField("_drawCalls", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var drawCalls = (System.Collections.IList?)drawCallsField?.GetValue(compositor);
+        return drawCalls?.Count ?? 0;
+    }
 }
+
