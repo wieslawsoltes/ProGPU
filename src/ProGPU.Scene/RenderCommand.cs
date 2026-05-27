@@ -23,7 +23,9 @@ public enum RenderCommandType
     DrawBezier,
     DrawCubicBezier,
     DrawPolyline,
-    DrawSpline
+    DrawSpline,
+    FillTriangle,
+    FillQuad
 }
 
 public struct Rect
@@ -117,6 +119,7 @@ public struct RenderCommand
 
     // Spline properties
     public double[]? SplineKnots;
+    public double[]? SplineWeights;
     public int SplineDegree;
 }
 
@@ -301,13 +304,45 @@ public class DrawingContext
 
     public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, int degree)
     {
+        DrawSpline(pen, controlPoints, knots, null, degree, false);
+    }
+
+    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, double[]? weights, int degree, bool isClosed)
+    {
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawSpline,
             Pen = pen,
             PolylinePoints = controlPoints,
             SplineKnots = knots,
-            SplineDegree = degree
+            SplineWeights = weights,
+            SplineDegree = degree,
+            IsClosed = isClosed
+        });
+    }
+
+    public void FillTriangle(Brush brush, Vector2 p1, Vector2 p2, Vector2 p3)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.FillTriangle,
+            Brush = brush,
+            Position = p1,
+            Position2 = p2,
+            Position3 = p3
+        });
+    }
+
+    public void FillQuad(Brush brush, Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.FillQuad,
+            Brush = brush,
+            Position = p1,
+            Position2 = p2,
+            Position3 = p3,
+            Position4 = p4
         });
     }
 

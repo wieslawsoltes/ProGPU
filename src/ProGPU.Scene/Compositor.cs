@@ -1023,6 +1023,12 @@ public unsafe class Compositor : IDisposable
                 case RenderCommandType.DrawSpline:
                     CompileSplineCommand(cmd, globalTransform);
                     break;
+                case RenderCommandType.FillTriangle:
+                    CompileFillTriangleCommand(cmd, globalTransform);
+                    break;
+                case RenderCommandType.FillQuad:
+                    CompileFillQuadCommand(cmd, globalTransform);
+                    break;
             }
         }
 
@@ -1740,7 +1746,7 @@ public unsafe class Compositor : IDisposable
         for (int i = 0; i <= numPoints; i++)
         {
             double u = startKnot + i * delta;
-            transformed[i] = EvaluateBSpline(degree, controlPoints, knots, u, transform);
+            transformed[i] = EvaluateBSpline(degree, controlPoints, knots, cmd.SplineWeights, u, transform);
         }
 
         // Compile segments into the vertex/index buffer in exactly one batch operation
@@ -1789,7 +1795,94 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private Vector2 EvaluateBSpline(int degree, Vector2[] controlPoints, double[] knots, double u, Matrix4x4 transform)
+    private void CompileFillTriangleCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Brush == null) return;
+        int startIndex = _vectorVerticesList.Count;
+        float brushIdx = RegisterBrush(cmd.Brush);
+        var brushColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+        var p1 = Vector2.Transform(cmd.Position, transform);
+        var p2 = Vector2.Transform(cmd.Position2, transform);
+        var p3 = Vector2.Transform(cmd.Position3, transform);
+
+        uint idxStart = (uint)startIndex;
+
+        int originalVertexCount = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 3);
+        var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 3);
+
+        vertexSpan[0] = new VectorVertex(p1, brushColor, cmd.Position, brushIdx, default, 0f, 0f, 7f);
+        vertexSpan[1] = new VectorVertex(p2, brushColor, cmd.Position2, brushIdx, default, 0f, 0f, 7f);
+        vertexSpan[2] = new VectorVertex(p3, brushColor, cmd.Position3, brushIdx, default, 0f, 0f, 7f);
+
+        int originalIndexCount = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 3);
+        var indexSpan = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(originalIndexCount, 3);
+
+        indexSpan[0] = idxStart;
+        indexSpan[1] = idxStart + 1;
+        indexSpan[2] = idxStart + 2;
+
+        if (_activeClipRect.HasValue)
+        {
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            for (int i = startIndex; i < vertices.Length; i++)
+            {
+                var v = vertices[i];
+                v.Position = ClampToClip(v.Position);
+                vertices[i] = v;
+            }
+        }
+    }
+
+    private void CompileFillQuadCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Brush == null) return;
+        int startIndex = _vectorVerticesList.Count;
+        float brushIdx = RegisterBrush(cmd.Brush);
+        var brushColor = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+        var p1 = Vector2.Transform(cmd.Position, transform);
+        var p2 = Vector2.Transform(cmd.Position2, transform);
+        var p3 = Vector2.Transform(cmd.Position3, transform);
+        var p4 = Vector2.Transform(cmd.Position4, transform);
+
+        uint idxStart = (uint)startIndex;
+
+        int originalVertexCount = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
+        var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
+
+        vertexSpan[0] = new VectorVertex(p1, brushColor, cmd.Position, brushIdx, default, 0f, 0f, 7f);
+        vertexSpan[1] = new VectorVertex(p2, brushColor, cmd.Position2, brushIdx, default, 0f, 0f, 7f);
+        vertexSpan[2] = new VectorVertex(p3, brushColor, cmd.Position3, brushIdx, default, 0f, 0f, 7f);
+        vertexSpan[3] = new VectorVertex(p4, brushColor, cmd.Position4, brushIdx, default, 0f, 0f, 7f);
+
+        int originalIndexCount = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
+        var indexSpan = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(originalIndexCount, 6);
+
+        indexSpan[0] = idxStart;
+        indexSpan[1] = idxStart + 1;
+        indexSpan[2] = idxStart + 2;
+        indexSpan[3] = idxStart;
+        indexSpan[4] = idxStart + 2;
+        indexSpan[5] = idxStart + 3;
+
+        if (_activeClipRect.HasValue)
+        {
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            for (int i = startIndex; i < vertices.Length; i++)
+            {
+                var v = vertices[i];
+                v.Position = ClampToClip(v.Position);
+                vertices[i] = v;
+            }
+        }
+    }
+
+    private Vector2 EvaluateBSpline(int degree, Vector2[] controlPoints, double[] knots, double[]? weights, double u, Matrix4x4 transform)
     {
         int k = -1;
         if (u < knots[degree]) u = knots[degree];
@@ -1809,17 +1902,22 @@ public unsafe class Compositor : IDisposable
             k = knots.Length - degree - 2;
         }
 
-        Span<Vector2> d = stackalloc Vector2[degree + 1];
+        Span<Vector3> d = stackalloc Vector3[degree + 1];
         for (int j = 0; j <= degree; j++)
         {
             int idx = k - degree + j;
             if (idx >= 0 && idx < controlPoints.Length)
             {
-                d[j] = controlPoints[idx];
+                float w = 1f;
+                if (weights != null && idx < weights.Length)
+                {
+                    w = (float)weights[idx];
+                }
+                d[j] = new Vector3(controlPoints[idx].X * w, controlPoints[idx].Y * w, w);
             }
             else
             {
-                d[j] = Vector2.Zero;
+                d[j] = Vector3.Zero;
             }
         }
 
@@ -1834,7 +1932,12 @@ public unsafe class Compositor : IDisposable
             }
         }
 
-        return Vector2.Transform(d[degree], transform);
+        Vector3 finalH = d[degree];
+        Vector2 cartesianPt = (Math.Abs(finalH.Z) > 1e-9f) 
+            ? new Vector2(finalH.X / finalH.Z, finalH.Y / finalH.Z) 
+            : new Vector2(finalH.X, finalH.Y);
+
+        return Vector2.Transform(cartesianPt, transform);
     }
 
     private void CompileEllipseCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -2078,6 +2181,14 @@ public unsafe class Compositor : IDisposable
                 float o3 = gpuBrush.StopCount > 3 ? radial.Stops[3].Offset : 1f;
                 gpuBrush.Offsets = new Vector4(o0, o1, o2, o3);
             }
+        }
+        else if (brush is HatchPatternBrush hatch)
+        {
+            gpuBrush.Type = 3;
+            gpuBrush.Radius = hatch.Angle;
+            gpuBrush.Center = new Vector2(hatch.Spacing, hatch.Thickness);
+            gpuBrush.Color0 = hatch.Color;
+            gpuBrush.StopCount = 1;
         }
 
         for (int i = 0; i < _activeBrushes.Count; i++)

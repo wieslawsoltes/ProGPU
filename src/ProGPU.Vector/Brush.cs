@@ -77,3 +77,19 @@ public class Pen
         Thickness = thickness;
     }
 }
+
+public class HatchPatternBrush : Brush
+{
+    public float Angle { get; set; }
+    public float Spacing { get; set; }
+    public float Thickness { get; set; }
+    public Vector4 Color { get; set; }
+
+    public HatchPatternBrush(float angle, float spacing, float thickness, Vector4 color)
+    {
+        Angle = angle;
+        Spacing = spacing;
+        Thickness = thickness;
+        Color = color;
+    }
+}
