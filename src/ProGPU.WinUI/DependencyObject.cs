@@ -56,14 +56,16 @@ public class DependencyProperty
     public Type OwnerType { get; }
     public PropertyMetadata? Metadata { get; }
     public int Index { get; }
+    public bool IsAttached { get; }
 
-    private DependencyProperty(string name, Type propertyType, Type ownerType, PropertyMetadata? metadata, int index)
+    private DependencyProperty(string name, Type propertyType, Type ownerType, PropertyMetadata? metadata, int index, bool isAttached)
     {
         Name = name;
         PropertyType = propertyType;
         OwnerType = ownerType;
         Metadata = metadata;
         Index = index;
+        IsAttached = isAttached;
     }
 
     public static DependencyProperty Register(string name, Type propertyType, Type ownerType, PropertyMetadata? typeMetadata)
@@ -76,7 +78,24 @@ public class DependencyProperty
             if (Registry.TryGetValue(key, out existing)) return existing;
             
             int index = RegisteredProperties.Count;
-            var dp = new DependencyProperty(name, propertyType, ownerType, typeMetadata, index);
+            var dp = new DependencyProperty(name, propertyType, ownerType, typeMetadata, index, false);
+            RegisteredProperties.Add(dp);
+            Registry.TryAdd(key, dp);
+            return dp;
+        }
+    }
+
+    public static DependencyProperty RegisterAttached(string name, Type propertyType, Type ownerType, PropertyMetadata? defaultMetadata)
+    {
+        var key = (ownerType, name);
+        if (Registry.TryGetValue(key, out var existing)) return existing;
+        
+        lock (RegisteredProperties)
+        {
+            if (Registry.TryGetValue(key, out existing)) return existing;
+            
+            int index = RegisteredProperties.Count;
+            var dp = new DependencyProperty(name, propertyType, ownerType, defaultMetadata, index, true);
             RegisteredProperties.Add(dp);
             Registry.TryAdd(key, dp);
             return dp;

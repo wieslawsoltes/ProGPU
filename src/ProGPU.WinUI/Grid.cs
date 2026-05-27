@@ -12,44 +12,85 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class GridCellInfo
-{
-    public int Row { get; set; }
-    public int Column { get; set; }
-}
-
 public class Grid : Panel
 {
-    private static readonly ConditionalWeakTable<Visual, GridCellInfo> _cellInfo = new();
+    private static readonly ConditionalWeakTable<Visual, GridCellInfo> _fallbackCellInfo = new();
+
+    public class GridCellInfo
+    {
+        public int Row { get; set; }
+        public int Column { get; set; }
+    }
+
+    public static readonly DependencyProperty RowProperty =
+        DependencyProperty.RegisterAttached(
+            "Row",
+            typeof(int),
+            typeof(Grid),
+            new PropertyMetadata(0, OnRowColumnChanged));
+
+    public static readonly DependencyProperty ColumnProperty =
+        DependencyProperty.RegisterAttached(
+            "Column",
+            typeof(int),
+            typeof(Grid),
+            new PropertyMetadata(0, OnRowColumnChanged));
+
+    private static void OnRowColumnChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is Visual child && child.Parent is Grid grid)
+        {
+            grid.Invalidate();
+            grid.InvalidateMeasure();
+        }
+    }
 
     public List<GridLength> ColumnDefinitions { get; } = new();
     public List<GridLength> RowDefinitions { get; } = new();
 
     public static void SetRow(Visual child, int row)
     {
-        var info = _cellInfo.GetOrCreateValue(child);
-        info.Row = row;
-        if (child.Parent is Grid grid)
+        if (child is DependencyObject d)
         {
-            grid.Invalidate();
-            grid.InvalidateMeasure();
+            d.SetValue(RowProperty, row);
+        }
+        else
+        {
+            var info = _fallbackCellInfo.GetOrCreateValue(child);
+            info.Row = row;
+            if (child.Parent is Grid grid)
+            {
+                grid.Invalidate();
+                grid.InvalidateMeasure();
+            }
         }
     }
 
     public static void SetColumn(Visual child, int col)
     {
-        var info = _cellInfo.GetOrCreateValue(child);
-        info.Column = col;
-        if (child.Parent is Grid grid)
+        if (child is DependencyObject d)
         {
-            grid.Invalidate();
-            grid.InvalidateMeasure();
+            d.SetValue(ColumnProperty, col);
+        }
+        else
+        {
+            var info = _fallbackCellInfo.GetOrCreateValue(child);
+            info.Column = col;
+            if (child.Parent is Grid grid)
+            {
+                grid.Invalidate();
+                grid.InvalidateMeasure();
+            }
         }
     }
 
     public static int GetRow(Visual child)
     {
-        if (_cellInfo.TryGetValue(child, out var info))
+        if (child is DependencyObject d)
+        {
+            return (int)(d.GetValue(RowProperty) ?? 0);
+        }
+        if (_fallbackCellInfo.TryGetValue(child, out var info))
         {
             return info.Row;
         }
@@ -58,7 +99,11 @@ public class Grid : Panel
 
     public static int GetColumn(Visual child)
     {
-        if (_cellInfo.TryGetValue(child, out var info))
+        if (child is DependencyObject d)
+        {
+            return (int)(d.GetValue(ColumnProperty) ?? 0);
+        }
+        if (_fallbackCellInfo.TryGetValue(child, out var info))
         {
             return info.Column;
         }

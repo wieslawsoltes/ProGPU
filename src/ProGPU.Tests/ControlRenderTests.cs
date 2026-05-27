@@ -304,4 +304,67 @@ public class ControlRenderTests
         scroll.Content = new Border { Width = 300f, Height = 300f, Background = new SolidColorBrush(0x00FF00FF) };
         VerifyControlStates(scroll, "scroll");
     }
+
+    [Fact]
+    public void AttachedProperties_WorkCorrectly()
+    {
+        // 1. Register a test attached property
+        var testProperty = DependencyProperty.RegisterAttached(
+            "TestAttachedValue",
+            typeof(string),
+            typeof(ControlRenderTests),
+            new PropertyMetadata("Default"));
+
+        Assert.True(testProperty.IsAttached);
+        Assert.Equal("Default", testProperty.Metadata?.DefaultValue);
+
+        // 2. Set/Get on a DependencyObject
+        var border = new Border();
+        Assert.Equal("Default", border.GetValue(testProperty));
+
+        bool callbackCalled = false;
+        object? oldVal = null;
+        object? newVal = null;
+
+        var testPropertyWithCallback = DependencyProperty.RegisterAttached(
+            "TestAttachedValueWithCallback",
+            typeof(int),
+            typeof(ControlRenderTests),
+            new PropertyMetadata(0, (d, e) => {
+                callbackCalled = true;
+                oldVal = e.OldValue;
+                newVal = e.NewValue;
+            }));
+
+        border.SetValue(testPropertyWithCallback, 42);
+        Assert.Equal(42, border.GetValue(testPropertyWithCallback));
+        Assert.True(callbackCalled);
+        Assert.Equal(0, oldVal);
+        Assert.Equal(42, newVal);
+
+        // 3. Grid Row/Column Attached Properties
+        var child = new Border();
+        Grid.SetRow(child, 2);
+        Grid.SetColumn(child, 3);
+        Assert.Equal(2, Grid.GetRow(child));
+        Assert.Equal(3, Grid.GetColumn(child));
+
+        // 4. Canvas Left/Top Attached Properties
+        Canvas.SetLeft(child, 10.5f);
+        Canvas.SetTop(child, 20.5f);
+        Assert.Equal(10.5f, Canvas.GetLeft(child));
+        Assert.Equal(20.5f, Canvas.GetTop(child));
+
+        // 5. Fallback for non-DependencyObject Visual elements (backward compatibility)
+        var rawVisual = new ProGPU.Scene.Visual();
+        Grid.SetRow(rawVisual, 5);
+        Grid.SetColumn(rawVisual, 6);
+        Assert.Equal(5, Grid.GetRow(rawVisual));
+        Assert.Equal(6, Grid.GetColumn(rawVisual));
+
+        Canvas.SetLeft(rawVisual, 100.5f);
+        Canvas.SetTop(rawVisual, 200.5f);
+        Assert.Equal(100.5f, Canvas.GetLeft(rawVisual));
+        Assert.Equal(200.5f, Canvas.GetTop(rawVisual));
+    }
 }
