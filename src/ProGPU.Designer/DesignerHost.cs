@@ -33,7 +33,7 @@ public class DesignerHost : Grid
     
     private readonly DesignerCanvas _designerCanvas;
     
-    private bool _isBottomExpanded = true;
+    private bool _isBottomExpanded = false;
 
     public DesignerCanvas WorkspaceCanvas => _designerCanvas;
 
@@ -208,12 +208,11 @@ public class DesignerHost : Grid
 
         var toggleBottomBtn = new Button { Width = 140f, Height = 24f, Margin = new Thickness(0, 4, 12, 0) };
         var toggleText = new RichTextBlock { FontSize = 11f, Foreground = new ThemeResourceBrush("TextPrimary") };
-        toggleText.Inlines.Add(new Run("Collapse Preview Panel"));
+        toggleText.Inlines.Add(new Run("Expand Preview Panel"));
         toggleBottomBtn.Content = toggleText;
         
         _csharpCodeBlock = new RichTextBlock { FontSize = 11f, Margin = new Thickness(12) };
         _csharpCodeBlock.Foreground = new ThemeResourceBrush("TextSecondary");
-        bottomContainer.AddChild(_csharpCodeBlock);
 
         toggleBottomBtn.Click += (s, e) => {
             _isBottomExpanded = !_isBottomExpanded;
@@ -222,12 +221,14 @@ public class DesignerHost : Grid
                 toggleText.Inlines.Clear();
                 toggleText.Inlines.Add(new Run("Collapse Preview Panel"));
                 bottomContainer.AddChild(_csharpCodeBlock);
+                OnCanvasModified();
             }
             else
             {
                 toggleText.Inlines.Clear();
                 toggleText.Inlines.Add(new Run("Expand Preview Panel"));
                 bottomContainer.RemoveChild(_csharpCodeBlock);
+                _csharpCodeBlock.Inlines.Clear();
             }
             InvalidateMeasure();
             InvalidateArrange();
@@ -317,6 +318,7 @@ public class DesignerHost : Grid
                 var newInstance = Activator.CreateInstance(type) as FrameworkElement;
                 if (newInstance != null)
                 {
+                    newInstance.IsHitTestVisible = false;
                     Canvas.SetLeft(newInstance, defaultX);
                     Canvas.SetTop(newInstance, defaultY);
 
@@ -352,6 +354,12 @@ public class DesignerHost : Grid
 
     private void OnCanvasModified()
     {
+        if (!_isBottomExpanded)
+        {
+            _csharpCodeBlock.Inlines.Clear();
+            return;
+        }
+
         string csharpScript = DesignerSerializer.SerializeToCSharp(_designerCanvas.DesignSurface);
         _csharpCodeBlock.Inlines.Clear();
         

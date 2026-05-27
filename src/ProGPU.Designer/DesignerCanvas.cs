@@ -93,6 +93,10 @@ public class DesignerCanvas : Panel
 
     public new void AddChild(Visual child)
     {
+        if (child is FrameworkElement fe)
+        {
+            fe.IsHitTestVisible = false;
+        }
         DesignSurface.Children.Add(child);
         CanvasModified?.Invoke();
     }
@@ -557,6 +561,7 @@ public class DesignerCanvas : Panel
                     var newInstance = Activator.CreateInstance(controlType) as FrameworkElement;
                     if (newInstance != null)
                     {
+                        newInstance.IsHitTestVisible = false;
                         Vector2 snappedPos = SnapPositionToGrid(args.Position, GridSize);
 
                         Canvas.SetLeft(newInstance, snappedPos.X);
