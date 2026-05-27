@@ -25,7 +25,8 @@ public enum RenderCommandType
     DrawPolyline,
     DrawSpline,
     FillTriangle,
-    FillQuad
+    FillQuad,
+    DrawLine3D
 }
 
 public struct Rect
@@ -121,6 +122,10 @@ public struct RenderCommand
     public double[]? SplineKnots;
     public double[]? SplineWeights;
     public int SplineDegree;
+
+    // 3D properties
+    public Vector3 Position3D1;
+    public Vector3 Position3D2;
 }
 
 public class DrawingContext
@@ -211,6 +216,17 @@ public class DrawingContext
             Pen = pen,
             Position = p1,
             Position2 = p2
+        });
+    }
+
+    public void DrawLine3D(Pen pen, Vector3 p1, Vector3 p2)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine3D,
+            Pen = pen,
+            Position3D1 = p1,
+            Position3D2 = p2
         });
     }
 

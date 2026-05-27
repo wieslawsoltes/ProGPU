@@ -35,6 +35,7 @@ public struct GpuBrush
 public struct GpuUniforms
 {
     public Matrix4x4 Projection;
+    public Matrix4x4 Mvp;
 }
 
 public unsafe class Compositor : IDisposable
@@ -214,10 +215,10 @@ public unsafe class Compositor : IDisposable
         _atlas = new GlyphAtlas(_context, 4096);
         _pathAtlas = new PathAtlas(_context, 4096);
 
-        // 2. Uniform Buffer allocation (Projection Matrix - 64 bytes)
+        // 2. Uniform Buffer allocation (Projection Matrix + MVP - 128 bytes)
         _uniformBuffer = new GpuBuffer(
             _context, 
-            64, 
+            (uint)Marshal.SizeOf<GpuUniforms>(), 
             BufferUsage.Uniform | BufferUsage.CopyDst, 
             "Compositor Uniform Projection Buffer"
         );
@@ -377,6 +378,14 @@ public unsafe class Compositor : IDisposable
         _textUniformBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_textPipelineOffscreen, 0);
         _textureUniformBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipelineOffscreen, 0);
 
+        var uBufferEntryVector = new BindGroupEntry
+        {
+            Binding = 0,
+            Buffer = _uniformBuffer.BufferPtr,
+            Offset = 0,
+            Size = (uint)Marshal.SizeOf<GpuUniforms>()
+        };
+
         var uBufferEntry = new BindGroupEntry
         {
             Binding = 0,
@@ -394,7 +403,7 @@ public unsafe class Compositor : IDisposable
         };
 
         var vectorEntries = stackalloc BindGroupEntry[2];
-        vectorEntries[0] = uBufferEntry;
+        vectorEntries[0] = uBufferEntryVector;
         vectorEntries[1] = brushesEntry;
 
         var uDescVector = new BindGroupDescriptor
@@ -648,8 +657,13 @@ public unsafe class Compositor : IDisposable
             _textureIndexBuffer.Write(CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
-        // Upload unified projection matrix (64 bytes)
-        _uniformBuffer.WriteSingle(projection);
+        // Upload unified projection and MVP matrices
+        var uniformsData = new GpuUniforms
+        {
+            Projection = projection,
+            Mvp = projection
+        };
+        _uniformBuffer.WriteSingle(uniformsData);
 
         // Upload compiled active brushes to storage buffer
         if (_activeBrushes.Count > 0)
@@ -1001,6 +1015,9 @@ public unsafe class Compositor : IDisposable
                     break;
                 case RenderCommandType.DrawLine:
                     CompileLineCommand(cmd, globalTransform);
+                    break;
+                case RenderCommandType.DrawLine3D:
+                    CompileLine3DCommand(cmd, globalTransform);
                     break;
                 case RenderCommandType.DrawEllipse:
                     CompileEllipseCommand(cmd, globalTransform);
@@ -1485,6 +1502,54 @@ public unsafe class Compositor : IDisposable
         vertexSpan[1] = new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, 3f);
         vertexSpan[2] = new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 2f, thickness, 3f);
         vertexSpan[3] = new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -2f, thickness, 3f);
+
+        int originalIndexCount = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
+        var indexSpan = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(originalIndexCount, 6);
+
+        indexSpan[0] = idxStart;
+        indexSpan[1] = idxStart + 1;
+        indexSpan[2] = idxStart + 2;
+        indexSpan[3] = idxStart + 1;
+        indexSpan[4] = idxStart + 3;
+        indexSpan[5] = idxStart + 2;
+
+        if (_activeClipRect.HasValue)
+        {
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            for (int i = startIndex; i < vertices.Length; i++)
+            {
+                var v = vertices[i];
+                v.Position = ClampToClip(v.Position);
+                vertices[i] = v;
+            }
+        }
+    }
+
+    private void CompileLine3DCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Pen == null) return;
+        int startIndex = _vectorVerticesList.Count;
+        float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
+        var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
+
+        var p0_trans = Vector3.Transform(cmd.Position3D1, transform);
+        var p1_trans = Vector3.Transform(cmd.Position3D2, transform);
+        
+        var p0_xy = new Vector2(p0_trans.X, p0_trans.Y);
+        var p1_xy = new Vector2(p1_trans.X, p1_trans.Y);
+        float thickness = cmd.Pen.Thickness;
+
+        uint idxStart = (uint)startIndex;
+
+        int originalVertexCount = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
+        var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
+
+        vertexSpan[0] = new VectorVertex(p0_xy, penSolidColor, new Vector2(p0_trans.Z, 0f), penBrushIdx, p1_xy, 1f, thickness, 8f);
+        vertexSpan[1] = new VectorVertex(p0_xy, penSolidColor, new Vector2(p0_trans.Z, 0f), penBrushIdx, p1_xy, -1f, thickness, 8f);
+        vertexSpan[2] = new VectorVertex(p1_xy, penSolidColor, new Vector2(p1_trans.Z, 0f), penBrushIdx, p1_xy, 2f, thickness, 8f);
+        vertexSpan[3] = new VectorVertex(p1_xy, penSolidColor, new Vector2(p1_trans.Z, 0f), penBrushIdx, p1_xy, -2f, thickness, 8f);
 
         int originalIndexCount = _vectorIndicesList.Count;
         CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -2188,6 +2253,14 @@ public unsafe class Compositor : IDisposable
             gpuBrush.Radius = hatch.Angle;
             gpuBrush.Center = new Vector2(hatch.Spacing, hatch.Thickness);
             gpuBrush.Color0 = hatch.Color;
+            gpuBrush.StopCount = 1;
+        }
+        else if (brush is CrossHatchBrush crossHatch)
+        {
+            gpuBrush.Type = 4;
+            gpuBrush.Radius = crossHatch.Angle;
+            gpuBrush.Center = new Vector2(crossHatch.Spacing, crossHatch.Thickness);
+            gpuBrush.Color0 = crossHatch.Color;
             gpuBrush.StopCount = 1;
         }
 
@@ -3053,7 +3126,12 @@ public unsafe class Compositor : IDisposable
             _textureIndexBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
-        _uniformBuffer.WriteSingle(projection);
+        var uniformsData = new GpuUniforms
+        {
+            Projection = projection,
+            Mvp = projection
+        };
+        _uniformBuffer.WriteSingle(uniformsData);
         if (_activeBrushes.Count > 0)
         {
             _brushesStorageBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_activeBrushes));

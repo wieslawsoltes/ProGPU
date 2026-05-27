@@ -21,6 +21,7 @@ struct Brush {
 
 struct Uniforms {
     projection: mat4x4<f32>,
+    mvp: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -158,7 +159,12 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         gridIndex = signVal * expandedDistance;
     }
 
-    output.position = uniforms.projection * vec4<f32>(worldPos, 0.0, 1.0);
+    if (sType == 8u) {
+        let local3D = vec3<f32>(input.position.xy, input.texCoord.x);
+        output.position = uniforms.mvp * vec4<f32>(local3D, 1.0);
+    } else {
+        output.position = uniforms.projection * vec4<f32>(worldPos, 0.0, 1.0);
+    }
     output.color = input.color;
     output.texCoord = texCoord;
     output.brushIndex = input.brushIndex;
@@ -251,6 +257,27 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         } else {
             discard; // Transparent between lines
         }
+    } else if (brush.brushType == 4u) {
+        // Procedural Cross Hatch Pattern (Perpendicular Lines)
+        let theta = brush.gradientRadius;
+        let spacing = brush.gradientCenter.x;
+        let thickness = brush.gradientCenter.y;
+        
+        let dir1 = vec2<f32>(cos(theta), sin(theta));
+        let dist1 = dot(input.texCoord, dir1);
+        let modDist1 = abs(fract(dist1 / spacing) * spacing - spacing * 0.5);
+        
+        let theta2 = theta + 1.57079632679;
+        let dir2 = vec2<f32>(cos(theta2), sin(theta2));
+        let dist2 = dot(input.texCoord, dir2);
+        let modDist2 = abs(fract(dist2 / spacing) * spacing - spacing * 0.5);
+        
+        if (modDist1 < thickness * 0.5 || modDist2 < thickness * 0.5) {
+            finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
+            shapeAlpha = brush.opacity;
+        } else {
+            discard; // Transparent between lines
+        }
     } else {
         var evalCoord = input.texCoord;
         if (sType < 3u) {
@@ -319,6 +346,7 @@ struct VertexOutput {
 
 struct Uniforms {
     projection: mat4x4<f32>,
+    mvp: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -361,6 +389,7 @@ struct VertexOutput {
 
 struct Uniforms {
     projection: mat4x4<f32>,
+    mvp: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
