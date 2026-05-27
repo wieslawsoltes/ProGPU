@@ -391,7 +391,7 @@ public unsafe class Compositor : IDisposable
             Binding = 0,
             Buffer = _uniformBuffer.BufferPtr,
             Offset = 0,
-            Size = 64
+            Size = (uint)Marshal.SizeOf<GpuUniforms>()
         };
 
         var brushesEntry = new BindGroupEntry
