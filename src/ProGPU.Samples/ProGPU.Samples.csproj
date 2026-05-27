@@ -9,6 +9,7 @@
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.Virtualization\ProGPU.Virtualization.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.Designer\ProGPU.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.Dxf\ProGPU.Dxf.csproj" />
     <ProjectReference Include="..\ProGPU.Designer\ProGPU.Designer.csproj" />
   </ItemGroup>
