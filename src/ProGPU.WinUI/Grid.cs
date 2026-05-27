@@ -14,6 +14,14 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class Grid : Panel
 {
+    private static readonly ConditionalWeakTable<Visual, GridCellInfo> _fallbackCellInfo = new();
+
+    public class GridCellInfo
+    {
+        public int Row { get; set; }
+        public int Column { get; set; }
+    }
+
     public static readonly DependencyProperty RowProperty =
         DependencyProperty.RegisterAttached(
             "Row",
@@ -46,10 +54,15 @@ public class Grid : Panel
         {
             d.SetValue(RowProperty, row);
         }
-        else if (child.Parent is Grid grid)
+        else
         {
-            grid.Invalidate();
-            grid.InvalidateMeasure();
+            var info = _fallbackCellInfo.GetOrCreateValue(child);
+            info.Row = row;
+            if (child.Parent is Grid grid)
+            {
+                grid.Invalidate();
+                grid.InvalidateMeasure();
+            }
         }
     }
 
@@ -59,10 +72,15 @@ public class Grid : Panel
         {
             d.SetValue(ColumnProperty, col);
         }
-        else if (child.Parent is Grid grid)
+        else
         {
-            grid.Invalidate();
-            grid.InvalidateMeasure();
+            var info = _fallbackCellInfo.GetOrCreateValue(child);
+            info.Column = col;
+            if (child.Parent is Grid grid)
+            {
+                grid.Invalidate();
+                grid.InvalidateMeasure();
+            }
         }
     }
 
@@ -72,6 +90,10 @@ public class Grid : Panel
         {
             return (int)(d.GetValue(RowProperty) ?? 0);
         }
+        if (_fallbackCellInfo.TryGetValue(child, out var info))
+        {
+            return info.Row;
+        }
         return 0;
     }
 
@@ -80,6 +102,10 @@ public class Grid : Panel
         if (child is DependencyObject d)
         {
             return (int)(d.GetValue(ColumnProperty) ?? 0);
+        }
+        if (_fallbackCellInfo.TryGetValue(child, out var info))
+        {
+            return info.Column;
         }
         return 0;
     }

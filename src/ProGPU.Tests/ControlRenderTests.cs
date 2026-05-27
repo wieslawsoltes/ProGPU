@@ -354,5 +354,17 @@ public class ControlRenderTests
         Canvas.SetTop(child, 20.5f);
         Assert.Equal(10.5f, Canvas.GetLeft(child));
         Assert.Equal(20.5f, Canvas.GetTop(child));
+
+        // 5. Fallback for non-DependencyObject Visual elements (backward compatibility)
+        var rawVisual = new ProGPU.Scene.Visual();
+        Grid.SetRow(rawVisual, 5);
+        Grid.SetColumn(rawVisual, 6);
+        Assert.Equal(5, Grid.GetRow(rawVisual));
+        Assert.Equal(6, Grid.GetColumn(rawVisual));
+
+        Canvas.SetLeft(rawVisual, 100.5f);
+        Canvas.SetTop(rawVisual, 200.5f);
+        Assert.Equal(100.5f, Canvas.GetLeft(rawVisual));
+        Assert.Equal(200.5f, Canvas.GetTop(rawVisual));
     }
 }

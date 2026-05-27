@@ -13,6 +13,14 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class Canvas : Panel
 {
+    private static readonly ConditionalWeakTable<Visual, CanvasPositionInfo> _fallbackPosInfo = new();
+
+    public class CanvasPositionInfo
+    {
+        public float Left { get; set; }
+        public float Top { get; set; }
+    }
+
     public static readonly DependencyProperty LeftProperty =
         DependencyProperty.RegisterAttached(
             "Left",
@@ -42,10 +50,15 @@ public class Canvas : Panel
         {
             d.SetValue(LeftProperty, left);
         }
-        else if (child.Parent is Canvas canvas)
+        else
         {
-            canvas.InvalidateArrange();
-            canvas.Invalidate();
+            var info = _fallbackPosInfo.GetOrCreateValue(child);
+            info.Left = left;
+            if (child.Parent is Canvas canvas)
+            {
+                canvas.InvalidateArrange();
+                canvas.Invalidate();
+            }
         }
     }
 
@@ -55,10 +68,15 @@ public class Canvas : Panel
         {
             d.SetValue(TopProperty, top);
         }
-        else if (child.Parent is Canvas canvas)
+        else
         {
-            canvas.InvalidateArrange();
-            canvas.Invalidate();
+            var info = _fallbackPosInfo.GetOrCreateValue(child);
+            info.Top = top;
+            if (child.Parent is Canvas canvas)
+            {
+                canvas.InvalidateArrange();
+                canvas.Invalidate();
+            }
         }
     }
 
@@ -68,6 +86,10 @@ public class Canvas : Panel
         {
             return (float)(d.GetValue(LeftProperty) ?? 0f);
         }
+        if (_fallbackPosInfo.TryGetValue(child, out var info))
+        {
+            return info.Left;
+        }
         return 0f;
     }
 
@@ -76,6 +98,10 @@ public class Canvas : Panel
         if (child is DependencyObject d)
         {
             return (float)(d.GetValue(TopProperty) ?? 0f);
+        }
+        if (_fallbackPosInfo.TryGetValue(child, out var info))
+        {
+            return info.Top;
         }
         return 0f;
     }
