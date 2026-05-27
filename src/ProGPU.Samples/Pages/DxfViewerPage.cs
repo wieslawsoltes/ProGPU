@@ -369,6 +369,7 @@ public static class DxfViewerPage
                     var doc = DxfDocument.Load(stream);
                     if (doc != null)
                     {
+                        _canvas.Context.FilePath = file.Path;
                         _canvas.LoadDocument(doc);
                         PopulateLayers(doc);
                         PopulateLayouts(doc);
