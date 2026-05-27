@@ -11,21 +11,38 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class CanvasPositionInfo
-{
-    public float Left { get; set; }
-    public float Top { get; set; }
-}
-
 public class Canvas : Panel
 {
-    private static readonly ConditionalWeakTable<Visual, CanvasPositionInfo> _posInfo = new();
+    public static readonly DependencyProperty LeftProperty =
+        DependencyProperty.RegisterAttached(
+            "Left",
+            typeof(float),
+            typeof(Canvas),
+            new PropertyMetadata(0f, OnLeftTopChanged));
+
+    public static readonly DependencyProperty TopProperty =
+        DependencyProperty.RegisterAttached(
+            "Top",
+            typeof(float),
+            typeof(Canvas),
+            new PropertyMetadata(0f, OnLeftTopChanged));
+
+    private static void OnLeftTopChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is Visual child && child.Parent is Canvas canvas)
+        {
+            canvas.InvalidateArrange();
+            canvas.Invalidate();
+        }
+    }
 
     public static void SetLeft(Visual child, float left)
     {
-        var info = _posInfo.GetOrCreateValue(child);
-        info.Left = left;
-        if (child.Parent is Canvas canvas)
+        if (child is DependencyObject d)
+        {
+            d.SetValue(LeftProperty, left);
+        }
+        else if (child.Parent is Canvas canvas)
         {
             canvas.InvalidateArrange();
             canvas.Invalidate();
@@ -34,9 +51,11 @@ public class Canvas : Panel
 
     public static void SetTop(Visual child, float top)
     {
-        var info = _posInfo.GetOrCreateValue(child);
-        info.Top = top;
-        if (child.Parent is Canvas canvas)
+        if (child is DependencyObject d)
+        {
+            d.SetValue(TopProperty, top);
+        }
+        else if (child.Parent is Canvas canvas)
         {
             canvas.InvalidateArrange();
             canvas.Invalidate();
@@ -45,18 +64,18 @@ public class Canvas : Panel
 
     public static float GetLeft(Visual child)
     {
-        if (_posInfo.TryGetValue(child, out var info))
+        if (child is DependencyObject d)
         {
-            return info.Left;
+            return (float)(d.GetValue(LeftProperty) ?? 0f);
         }
         return 0f;
     }
 
     public static float GetTop(Visual child)
     {
-        if (_posInfo.TryGetValue(child, out var info))
+        if (child is DependencyObject d)
         {
-            return info.Top;
+            return (float)(d.GetValue(TopProperty) ?? 0f);
         }
         return 0f;
     }
