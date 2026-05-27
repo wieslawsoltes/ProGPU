@@ -475,8 +475,28 @@ public class DxfSplineRenderer : IDxfEntityRenderer
             knots[i] = spline.Knots[i];
         }
 
-        // Submit exactly ONE batch spline command (extremely fast, zero heap allocations for segments)
-        context.DrawingContext.DrawSpline(pen, controlPoints, knots, spline.Degree);
+        double[]? weights = null;
+        bool hasWeights = false;
+        for (int i = 0; i < spline.ControlPoints.Count; i++)
+        {
+            if (Math.Abs(spline.ControlPoints[i].Weight - 1.0) > 1e-5)
+            {
+                hasWeights = true;
+                break;
+            }
+        }
+
+        if (hasWeights)
+        {
+            weights = new double[spline.ControlPoints.Count];
+            for (int i = 0; i < spline.ControlPoints.Count; i++)
+            {
+                weights[i] = spline.ControlPoints[i].Weight;
+            }
+        }
+
+        // Submit exactly ONE batch spline command (extremely fast, zero heap allocations for NURBS)
+        context.DrawingContext.DrawSpline(pen, controlPoints, knots, weights, spline.Degree, spline.IsClosed);
     }
 }
 
@@ -1056,13 +1076,18 @@ public class DxfSolidRenderer : IDxfEntityRenderer
         float maxY = Math.Max(p1.Y, Math.Max(p2.Y, Math.Max(p3.Y, p4.Y)));
         if (context.IsOffScreen(new Vector2(minX, minY), new Vector2(maxX, maxY))) return;
 
-        var pen = context.GetCachedPen(solid, 1f);
+        var brush = context.GetCachedBrush(solid);
+        bool isTriangle = solid.FourthVertex == solid.ThirdVertex || 
+            (Math.Abs(p4.X - p3.X) < 1e-5f && Math.Abs(p4.Y - p3.Y) < 1e-5f);
 
-        // Draw quad outline (note First->Second->Fourth->Third->First winding in DXF SOLID)
-        context.DrawingContext.DrawLine(pen, p1, p2);
-        context.DrawingContext.DrawLine(pen, p2, p4);
-        context.DrawingContext.DrawLine(pen, p4, p3);
-        context.DrawingContext.DrawLine(pen, p3, p1);
+        if (isTriangle)
+        {
+            context.DrawingContext.FillTriangle(brush, p1, p2, p3);
+        }
+        else
+        {
+            context.DrawingContext.FillQuad(brush, p1, p2, p4, p3);
+        }
     }
 }
 
@@ -1164,19 +1189,17 @@ public class DxfFace3dRenderer : IDxfEntityRenderer
         float maxY = Math.Max(p1.Y, Math.Max(p2.Y, Math.Max(p3.Y, p4.Y)));
         if (context.IsOffScreen(new Vector2(minX, minY), new Vector2(maxX, maxY))) return;
 
-        var pen = context.GetCachedPen(face, 1f);
+        var brush = context.GetCachedBrush(face);
+        bool isTriangle = face.ThirdVertex == face.FourthVertex || 
+            (Math.Abs(p4.X - p3.X) < 1e-5f && Math.Abs(p4.Y - p3.Y) < 1e-5f);
 
-        // In DXF 3DFACE, if ThirdVertex == FourthVertex, the face is a triangle.
-        context.DrawingContext.DrawLine(pen, p1, p2);
-        context.DrawingContext.DrawLine(pen, p2, p3);
-        if (face.ThirdVertex != face.FourthVertex)
+        if (isTriangle)
         {
-            context.DrawingContext.DrawLine(pen, p3, p4);
-            context.DrawingContext.DrawLine(pen, p4, p1);
+            context.DrawingContext.FillTriangle(brush, p1, p2, p3);
         }
         else
         {
-            context.DrawingContext.DrawLine(pen, p3, p1);
+            context.DrawingContext.FillQuad(brush, p1, p2, p3, p4);
         }
     }
 }
@@ -1229,16 +1252,11 @@ public class DxfWipeoutRenderer : IDxfEntityRenderer
         // Viewport culling
         if (context.IsOffScreen(new Vector2(minX, minY), new Vector2(maxX, maxY))) return;
 
-        // Construct PathGeometry representing the closed polygon boundary
-        var path = new PathGeometry();
-        var figure = new PathFigure(points[0], isClosed: true);
-        for (int i = 1; i < points.Length; i++)
+        // Render as CPU triangle fan with direct batched FillTriangle calls
+        var p0 = points[0];
+        for (int i = 1; i < points.Length - 1; i++)
         {
-            figure.Segments.Add(new LineSegment(points[i]));
+            context.DrawingContext.FillTriangle(context.BackgroundBrush, p0, points[i], points[i + 1]);
         }
-        path.Figures.Add(figure);
-
-        // Fill with background brush to wipeout/mask everything behind
-        context.DrawingContext.DrawPath(context.BackgroundBrush, null, path);
     }
 }

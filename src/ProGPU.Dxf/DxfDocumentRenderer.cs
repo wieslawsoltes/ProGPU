@@ -79,6 +79,28 @@ public static class DxfDocumentRenderer
         {
             RenderFlatCollections(doc, context);
         }
+
+        // Render 3D ACIS Solids if cached in context
+        if (context.Cached3dSolids.Count > 0)
+        {
+            var pen = new ProGPU.Vector.Pen(context.FallbackBrush, 1f);
+            foreach (var edges in context.Cached3dSolids)
+            {
+                foreach (var edge in edges)
+                {
+                    var p1 = context.Transform(edge.StartPoint, Matrix4x4.Identity);
+                    var p2 = context.Transform(edge.EndPoint, Matrix4x4.Identity);
+                    
+                    float minX = Math.Min(p1.X, p2.X);
+                    float minY = Math.Min(p1.Y, p2.Y);
+                    float maxX = Math.Max(p1.X, p2.X);
+                    float maxY = Math.Max(p1.Y, p2.Y);
+                    if (context.IsOffScreen(new Vector2(minX, minY), new Vector2(maxX, maxY))) continue;
+
+                    context.DrawingContext.DrawLine(pen, p1, p2);
+                }
+            }
+        }
     }
 
     private static void RenderFlatCollections(DxfDocument doc, DxfRenderContext context)

@@ -70,6 +70,12 @@ public class DxfRenderContext
         return TransformToScreen(new Vector2(v3Transformed.X, v3Transformed.Y));
     }
 
+    public Vector2 Transform(Vector3 localPoint, Matrix4x4 modelMatrix)
+    {
+        var v3Transformed = Vector3.Transform(localPoint, modelMatrix);
+        return TransformToScreen(new Vector2(v3Transformed.X, v3Transformed.Y));
+    }
+
     public void PushTransform(Matrix4x4 transform)
     {
         _transformStack.Push(CurrentTransform);
@@ -152,9 +158,95 @@ public class DxfRenderContext
         return pen;
     }
 
+    private string? _filePath;
+    public string? FilePath 
+    { 
+        get => _filePath;
+        set 
+        {
+            if (_filePath != value)
+            {
+                _filePath = value;
+                _cached3dSolids.Clear();
+                if (!string.IsNullOrEmpty(_filePath) && System.IO.File.Exists(_filePath))
+                {
+                    try
+                    {
+                        ParseAndCache3dSolids(_filePath);
+                    }
+                    catch
+                    {
+                        // Ignore parsing errors and fall back gracefully
+                    }
+                }
+            }
+        }
+    }
+
+    private readonly List<List<Acis3dEdge>> _cached3dSolids = new();
+    public IReadOnlyList<List<Acis3dEdge>> Cached3dSolids => _cached3dSolids;
+
+    public int Solid3DCount { get; set; } = 0;
+
+    private void ParseAndCache3dSolids(string path)
+    {
+        var satBlocks = new List<string>();
+        using var reader = new System.IO.StreamReader(path);
+        
+        string? line;
+        bool collectingSat = false;
+        var currentBlock = new System.Text.StringBuilder();
+
+        while ((line = reader.ReadLine()) != null)
+        {
+            line = line.Trim();
+
+            // ACIS data in proxy objects is stored under group code 1, 3, or 310
+            if (line == "1" || line == "3")
+            {
+                string? val = reader.ReadLine()?.Trim();
+                if (val == null) continue;
+
+                // Check if this is the start of an ACIS block
+                if (!collectingSat && (val.Contains("sb_version") || val.Contains("20800 0 1 0") || val.Contains("40000 0 1 0") || val.Contains("21200 0 1 0")))
+                {
+                    collectingSat = true;
+                    currentBlock.Clear();
+                }
+
+                if (collectingSat)
+                {
+                    currentBlock.AppendLine(val);
+                    if (val.Contains("End of ACIS") || val.Contains("End of ACIS Solid"))
+                    {
+                        collectingSat = false;
+                        satBlocks.Add(currentBlock.ToString());
+                    }
+                }
+            }
+        }
+
+        foreach (var sat in satBlocks)
+        {
+            try
+            {
+                var edges = AcisSatParser.ParseSat(sat);
+                if (edges.Count > 0)
+                {
+                    _cached3dSolids.Add(edges);
+                }
+            }
+            catch
+            {
+                // Skip invalid blocks
+            }
+        }
+    }
+
     public void Reset()
     {
         _transformStack.Clear();
         CurrentTransform = Matrix4x4.Identity;
+        Solid3DCount = 0;
     }
 }
