@@ -701,6 +701,65 @@ EOF";
         Assert.True(screenMin.Y >= 0f && screenMin.Y <= Size.Y);
         Assert.True(screenMax.Y >= 0f && screenMax.Y <= Size.Y);
     }
+
+    [Fact]
+    public void DxfDocumentRenderer_Flattening_RespectsInsertLayerVisibility()
+    {
+        var doc = new netDxf.DxfDocument();
+        var insertLayer = new netDxf.Tables.Layer("LayerInsert");
+        var lineLayer = new netDxf.Tables.Layer("LayerLine");
+        doc.Layers.Add(insertLayer);
+        doc.Layers.Add(lineLayer);
+
+        var block = new netDxf.Blocks.Block("TestBlock");
+        var line = new netDxf.Entities.Line(new netDxf.Vector3(0, 0, 0), new netDxf.Vector3(100, 100, 0))
+        {
+            Layer = lineLayer
+        };
+        block.Entities.Add(line);
+        doc.Blocks.Add(block);
+
+        var insert = new netDxf.Entities.Insert(block, new netDxf.Vector3(0, 0, 0))
+        {
+            Layer = insertLayer
+        };
+        doc.AddEntity(insert);
+
+        var drawingContext = new ProGPU.Scene.DrawingContext();
+        var ctx = new DxfRenderContext(drawingContext, null!);
+
+        // Scenario 1: Only line layer is active, insert layer is hidden
+        ctx.ActiveLayers.Clear();
+        ctx.ActiveLayers.Add("LayerLine");
+
+        DxfDocumentRenderer.Render(doc, ctx);
+
+        // Flattening is enabled by default, flat entities should exist
+        Assert.NotEmpty(ctx.FlatWcsEntities);
+        // But since the parent insert layer is inactive, nothing should be drawn!
+        Assert.Empty(drawingContext.Commands);
+
+        // Scenario 2: Active layers include both line layer and insert layer
+        var drawingContext2 = new ProGPU.Scene.DrawingContext();
+        var ctx2 = new DxfRenderContext(drawingContext2, null!);
+        ctx2.ActiveLayers.Add("LayerLine");
+        ctx2.ActiveLayers.Add("LayerInsert");
+
+        DxfDocumentRenderer.Render(doc, ctx2);
+
+        // Now it should render the line segment successfully!
+        Assert.NotEmpty(drawingContext2.Commands);
+    }
+
+    [Fact]
+    public void DxfShaders_WGSL_StaticLine3DTransforms_Check()
+    {
+        var shaderText = ProGPU.Backend.Shaders.VectorShader;
+        
+        // Assert that the static line 3D projection is correctly implemented inside sType == 8u branch
+        Assert.Contains("else if (isStatic) {", shaderText);
+        Assert.Contains("pos3D = (uniforms.mvp * vec4<f32>(local3D, 1.0)).xyz;", shaderText);
+    }
 }
 
 
