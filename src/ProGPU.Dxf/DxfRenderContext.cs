@@ -26,6 +26,7 @@ public class DxfRenderContext
     // Font and Styling fallback
     public TtfFont Font { get; set; }
     public Brush FallbackBrush { get; set; } = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
+    public Brush BackgroundBrush { get; set; } = new SolidColorBrush(new Vector4(0.12f, 0.12f, 0.14f, 1f));
     
     // Theme and visibility settings
     public HashSet<string> ActiveLayers { get; } = new(StringComparer.OrdinalIgnoreCase);

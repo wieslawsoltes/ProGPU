@@ -38,6 +38,7 @@ public class DxfCanvasControl : FrameworkElement
 
         // Initialize DxfRenderContext with ProGPU default font
         Context = new DxfRenderContext(new DrawingContext(), AppState.GetFont()!);
+        Context.BackgroundBrush = ThemeManager.GetBrush("CardBackground");
 
         // Mouse pan and zoom events registration
         PointerPressed += OnPointerPressed;
