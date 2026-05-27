@@ -158,61 +158,115 @@ public class DxfCanvasControl : FrameworkElement
         Context.ScreenCenter = Size * 0.5f;
         Context.EnableGpuTransforms = AppState.EnableGpuTransforms;
 
-        int layersHash = GetActiveLayersHash();
-        
-        bool invalidateCache = _cachedCommands == null 
-            || Context.FilePath != _lastFilePath 
-            || Document.ActiveLayout != _lastActiveLayout 
-            || layersHash != _lastActiveLayersHash;
-
-        // Invalidate if zoom changes (to re-rasterize paths/text at crisp resolution).
-        // If static buffers are disabled, also invalidate when panning.
-        bool cameraChanged = Context.Zoom != _lastZoom;
-        if (!AppState.EnableStaticGpuBuffers && !AppState.EnableGpuTransforms)
+        if (AppState.EnableStaticGpuBuffers)
         {
-            cameraChanged = cameraChanged || Context.Pan != _lastPan;
-        }
+            // --- OPTION B: Hardware-Accelerated Static WebGPU Buffers ---
+            // Compiles in screen space once at Zoom=1.0 and Pan=0, and zooms/pans entirely on the GPU.
+            // This is extremely fast (60+ FPS on massive models) but results in minor texture-scaling effects.
+            int layersHash = GetActiveLayersHash();
+            bool invalidateCache = _cachedCommands == null 
+                || Context.FilePath != _lastFilePath 
+                || Document.ActiveLayout != _lastActiveLayout 
+                || layersHash != _lastActiveLayersHash;
 
-        if (cameraChanged)
-        {
-            invalidateCache = true;
-        }
-
-        if (!AppState.EnableCommandCaching)
-        {
-            invalidateCache = true;
-        }
-
-        if (invalidateCache || _needsRecompile || _staticBuffer == null)
-        {
-            _needsRecompile = false;
-            _lastFilePath = Context.FilePath;
-            _lastActiveLayout = Document.ActiveLayout;
-            _lastActiveLayersHash = layersHash;
-            _lastZoom = Context.Zoom;
-            _lastPan = Context.Pan;
-
-            _cachedCommands = null;
-            _staticBuffer?.Dispose();
-            _staticBuffer = null;
-
-            if (AppState._screenCompositor != null)
+            if (invalidateCache || _needsRecompile || _staticBuffer == null)
             {
-                float savedZoom = Context.Zoom;
-                Vector2 savedPan = Context.Pan;
-                Vector2 savedCenter = Context.Center;
-                Vector2 savedScreenCenter = Context.ScreenCenter;
-                bool savedEnableGpuTransforms = Context.EnableGpuTransforms;
-                bool savedIsCompilingStatic = Context.IsCompilingStatic;
+                _needsRecompile = false;
+                _lastFilePath = Context.FilePath;
+                _lastActiveLayout = Document.ActiveLayout;
+                _lastActiveLayersHash = layersHash;
+                _lastZoom = Context.Zoom;
+                _lastPan = Context.Pan;
 
-                // Compile in screen space at the current zoom level (for perfect crispness and line thickness)
-                // but centered with Pan = 0 (so we can pan dynamically on the GPU).
-                Context.Zoom = savedZoom;
-                Context.Pan = Vector2.Zero;
-                Context.Center = savedCenter;
-                Context.ScreenCenter = savedScreenCenter;
-                Context.EnableGpuTransforms = false;
-                Context.IsCompilingStatic = true;
+                _cachedCommands = null;
+                _staticBuffer?.Dispose();
+                _staticBuffer = null;
+
+                if (AppState._screenCompositor != null)
+                {
+                    float savedZoom = Context.Zoom;
+                    Vector2 savedPan = Context.Pan;
+                    Vector2 savedCenter = Context.Center;
+                    Vector2 savedScreenCenter = Context.ScreenCenter;
+                    bool savedEnableGpuTransforms = Context.EnableGpuTransforms;
+                    bool savedIsCompilingStatic = Context.IsCompilingStatic;
+
+                    // Compile in screen space at Zoom=1.0 and Pan=0 for the static buffer.
+                    Context.Zoom = 1.0f;
+                    Context.Pan = Vector2.Zero;
+                    Context.Center = savedCenter;
+                    Context.ScreenCenter = savedScreenCenter;
+                    Context.EnableGpuTransforms = false;
+                    Context.IsCompilingStatic = true;
+
+                    Context.DrawingContext.Clear();
+                    DxfDocumentRenderer.Render(Document, Context);
+
+                    if (AppState.EnableCommandCaching)
+                    {
+                        _cachedCommands = new List<RenderCommand>(Context.DrawingContext.Commands);
+                    }
+
+                    var commandsToCompile = _cachedCommands ?? Context.DrawingContext.Commands;
+                    _staticBuffer = AppState._screenCompositor.CompileStaticDxf(commandsToCompile);
+
+                    // Restore properties
+                    Context.Zoom = savedZoom;
+                    Context.Pan = savedPan;
+                    Context.Center = savedCenter;
+                    Context.ScreenCenter = savedScreenCenter;
+                    Context.EnableGpuTransforms = savedEnableGpuTransforms;
+                    Context.IsCompilingStatic = savedIsCompilingStatic;
+                }
+            }
+
+            if (_staticBuffer != null && Size.X > 0 && Size.Y > 0)
+            {
+                var projection = new Matrix4x4(
+                    2.0f / Size.X, 0f, 0f, 0f,
+                    0f, -2.0f / Size.Y, 0f, 0f,
+                    0f, 0f, 1f, 0f,
+                    -1.0f, 1.0f, 0f, 1.0f
+                );
+
+                _staticBuffer.UpdateViewport(projection, Context.Zoom, Context.Pan, Context.Center, Context.ScreenCenter);
+
+                context.PushClip(new Rect(0f, 0f, Size.X, Size.Y));
+                context.DrawStaticDxf(_staticBuffer);
+                context.PopClip();
+            }
+        }
+        else
+        {
+            // --- TRADITIONAL PATH / COMMAND CACHING (Option C) ---
+            // Renders natively at perfect retina screen-space resolution on every camera change.
+            // Bypasses static buffers to maintain 100% crisp text/paths and stable 1-pixel line thicknesses at all times.
+            int layersHash = GetActiveLayersHash();
+            bool invalidateCache = _cachedCommands == null 
+                || Context.FilePath != _lastFilePath 
+                || Document.ActiveLayout != _lastActiveLayout 
+                || layersHash != _lastActiveLayersHash;
+
+            if (!AppState.EnableGpuTransforms)
+            {
+                if (Context.Zoom != _lastZoom || Context.Pan != _lastPan)
+                {
+                    invalidateCache = true;
+                }
+            }
+
+            if (!AppState.EnableCommandCaching)
+            {
+                invalidateCache = true;
+            }
+
+            if (invalidateCache || _cachedCommands == null)
+            {
+                _lastFilePath = Context.FilePath;
+                _lastActiveLayout = Document.ActiveLayout;
+                _lastActiveLayersHash = layersHash;
+                _lastZoom = Context.Zoom;
+                _lastPan = Context.Pan;
 
                 Context.DrawingContext.Clear();
                 DxfDocumentRenderer.Render(Document, Context);
@@ -221,35 +275,18 @@ public class DxfCanvasControl : FrameworkElement
                 {
                     _cachedCommands = new List<RenderCommand>(Context.DrawingContext.Commands);
                 }
-
-                var commandsToCompile = _cachedCommands ?? Context.DrawingContext.Commands;
-                _staticBuffer = AppState._screenCompositor.CompileStaticDxf(commandsToCompile);
-
-                // Restore camera and optimization properties for regular frame rendering
-                Context.Zoom = savedZoom;
-                Context.Pan = savedPan;
-                Context.Center = savedCenter;
-                Context.ScreenCenter = savedScreenCenter;
-                Context.EnableGpuTransforms = savedEnableGpuTransforms;
-                Context.IsCompilingStatic = savedIsCompilingStatic;
+                else
+                {
+                    _cachedCommands = null;
+                }
             }
-        }
-
-        if (_staticBuffer != null && Size.X > 0 && Size.Y > 0)
-        {
-            var projection = new Matrix4x4(
-                2.0f / Size.X, 0f, 0f, 0f,
-                0f, -2.0f / Size.Y, 0f, 0f,
-                0f, 0f, 1f, 0f,
-                -1.0f, 1.0f, 0f, 1.0f
-            );
-
-            // Since the static buffer is already compiled at Context.Zoom, the GPU-side zoom scale is 1.0.
-            // Panning is applied dynamically on the GPU.
-            _staticBuffer.UpdateViewport(projection, 1.0f, Context.Pan, Context.Center, Context.ScreenCenter);
 
             context.PushClip(new Rect(0f, 0f, Size.X, Size.Y));
-            context.DrawStaticDxf(_staticBuffer);
+            var commandsToRender = _cachedCommands ?? Context.DrawingContext.Commands;
+            foreach (var cmd in commandsToRender)
+            {
+                context.Commands.Add(cmd);
+            }
             context.PopClip();
         }
     }
