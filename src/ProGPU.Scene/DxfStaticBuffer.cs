@@ -251,9 +251,9 @@ public unsafe class DxfStaticBuffer : IDisposable
         
         var modelToScreen = new Matrix4x4(
             zoom, 0, 0, 0,
-            0, -zoom, 0, 0,
+            0, zoom, 0, 0,
             0, 0, 1, 0,
-            -center.X * zoom + screenCenter.X + pan.X, center.Y * zoom + screenCenter.Y + pan.Y, 0, 1
+            -screenCenter.X * zoom + screenCenter.X + pan.X, -screenCenter.Y * zoom + screenCenter.Y + pan.Y, 0, 1
         );
         
         var uniformsData = new GpuUniforms

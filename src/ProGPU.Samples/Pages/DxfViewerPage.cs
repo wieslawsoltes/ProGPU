@@ -200,12 +200,12 @@ public class DxfCanvasControl : FrameworkElement
                 bool savedEnableGpuTransforms = Context.EnableGpuTransforms;
                 bool savedIsCompilingStatic = Context.IsCompilingStatic;
 
-                // Always force unprojected model space compilation with all entities enabled for the static buffer.
+                // Compile in screen space (Y goes down, centered) at Zoom=1.0 and Pan=0 for the static buffer.
                 Context.Zoom = 1.0f;
                 Context.Pan = Vector2.Zero;
-                Context.Center = Vector2.Zero;
-                Context.ScreenCenter = Vector2.Zero;
-                Context.EnableGpuTransforms = true;
+                Context.Center = savedCenter;
+                Context.ScreenCenter = savedScreenCenter;
+                Context.EnableGpuTransforms = false;
                 Context.IsCompilingStatic = true;
 
                 Context.DrawingContext.Clear();
