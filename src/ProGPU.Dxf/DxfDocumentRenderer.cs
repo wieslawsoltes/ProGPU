@@ -125,8 +125,8 @@ public static class DxfDocumentRenderer
             }
         }
 
-        // Render 3D ACIS Solids if cached in context via GPU projection
-        if (context.Cached3dSolids.Count > 0)
+        // Render 3D ACIS Solids if cached in context via GPU projection (Model space only)
+        if (context.Cached3dSolids.Count > 0 && (string.IsNullOrEmpty(doc.ActiveLayout) || string.Equals(doc.ActiveLayout, "Model", StringComparison.OrdinalIgnoreCase)))
         {
             foreach (var solid in context.Cached3dSolids)
             {
