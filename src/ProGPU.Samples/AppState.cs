@@ -74,7 +74,7 @@ public static class AppState
     public static GpuTexture? _canvasShadowTexture;
 
     // DXF viewer optimization controls
-    public static bool EnableGpuTransforms { get; set; } = false;
+    public static bool EnableGpuTransforms { get; set; } = true;
     public static bool EnableStaticGpuBuffers { get; set; } = false;
     public static bool EnableCommandCaching { get; set; } = false;
 

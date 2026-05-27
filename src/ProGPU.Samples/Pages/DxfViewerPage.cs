@@ -283,9 +283,33 @@ public class DxfCanvasControl : FrameworkElement
 
             context.PushClip(new Rect(0f, 0f, Size.X, Size.Y));
             var commandsToRender = _cachedCommands ?? Context.DrawingContext.Commands;
+
+            var viewMatrix = Matrix4x4.Identity;
+            if (AppState.EnableGpuTransforms)
+            {
+                viewMatrix = new Matrix4x4(
+                    Context.Zoom, 0f, 0f, 0f,
+                    0f, -Context.Zoom, 0f, 0f,
+                    0f, 0f, 1f, 0f,
+                    -Context.Center.X * Context.Zoom + Context.ScreenCenter.X + Context.Pan.X,
+                    Context.Center.Y * Context.Zoom + Context.ScreenCenter.Y + Context.Pan.Y,
+                    0f, 1f
+                );
+            }
+
             foreach (var cmd in commandsToRender)
             {
-                context.Commands.Add(cmd);
+                if (AppState.EnableGpuTransforms)
+                {
+                    var modifiedCmd = cmd;
+                    modifiedCmd.UseGpuTransforms = true;
+                    modifiedCmd.CameraView = viewMatrix;
+                    context.Commands.Add(modifiedCmd);
+                }
+                else
+                {
+                    context.Commands.Add(cmd);
+                }
             }
             context.PopClip();
         }
