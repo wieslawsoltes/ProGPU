@@ -324,11 +324,11 @@ public class LayoutNode : ContainerVisual, ILayoutNode
         // 2. Calculate alignment dimensions
         Vector2 arrangeSize = DesiredSize - new Vector2(Margin.Horizontal, Margin.Vertical);
 
-        if (HorizontalAlignment != HorizontalAlignment.Stretch)
+        if (HorizontalAlignment != HorizontalAlignment.Stretch || WidthConstraint.HasValue)
         {
             size.X = Math.Min(size.X, arrangeSize.X);
         }
-        if (VerticalAlignment != VerticalAlignment.Stretch)
+        if (VerticalAlignment != VerticalAlignment.Stretch || HeightConstraint.HasValue)
         {
             size.Y = Math.Min(size.Y, arrangeSize.Y);
         }
