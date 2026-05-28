@@ -132,7 +132,7 @@ public static class DesignerSerializer
         // Write standard properties
         if (!string.IsNullOrEmpty(element.Name))
         {
-            sb.AppendLine($"{indent}    Name = \"{element.Name}\",");
+            sb.AppendLine($"{indent}    Name = \"{EscapeStringLiteral(element.Name)}\",");
         }
 
         float width = float.IsNaN(element.Width) ? element.Size.X : element.Width;
@@ -146,6 +146,16 @@ public static class DesignerSerializer
         if (element.Opacity != 1.0f)
         {
             sb.AppendLine($"{indent}    Opacity = {element.Opacity}f,");
+        }
+
+        if (element.Rotation != 0f)
+        {
+            sb.AppendLine($"{indent}    Rotation = {element.Rotation}f,");
+        }
+
+        if (element.RenderTransformOrigin != new System.Numerics.Vector2(0.5f, 0.5f))
+        {
+            sb.AppendLine($"{indent}    RenderTransformOrigin = new System.Numerics.Vector2({element.RenderTransformOrigin.X}f, {element.RenderTransformOrigin.Y}f),");
         }
 
         // Margin & Padding
@@ -272,7 +282,7 @@ public static class DesignerSerializer
             var txt = textProp.GetValue(element) as string;
             if (!string.IsNullOrEmpty(txt))
             {
-                sb.AppendLine($"{indent}    Text = \"{txt.Replace("\"", "\\\"")}\",");
+                sb.AppendLine($"{indent}    Text = \"{EscapeStringLiteral(txt)}\",");
             }
         }
 
@@ -282,7 +292,7 @@ public static class DesignerSerializer
             var txt = placeholderProp.GetValue(element) as string;
             if (!string.IsNullOrEmpty(txt))
             {
-                sb.AppendLine($"{indent}    PlaceholderText = \"{txt.Replace("\"", "\\\"")}\",");
+                sb.AppendLine($"{indent}    PlaceholderText = \"{EscapeStringLiteral(txt)}\",");
             }
         }
 
@@ -292,7 +302,7 @@ public static class DesignerSerializer
             var txt = passwordProp.GetValue(element) as string;
             if (!string.IsNullOrEmpty(txt))
             {
-                sb.AppendLine($"{indent}    Password = \"{txt.Replace("\"", "\\\"")}\",");
+                sb.AppendLine($"{indent}    Password = \"{EscapeStringLiteral(txt)}\",");
             }
         }
 
@@ -375,7 +385,7 @@ public static class DesignerSerializer
                     {
                         if (inline is Run run)
                         {
-                            sb.AppendLine($"{indent}{rtbName}.Inlines.Add(new Run(\"" + run.Text.Replace("\"", "\\\"") + "\"));");
+                            sb.AppendLine($"{indent}{rtbName}.Inlines.Add(new Run(\"{EscapeStringLiteral(run.Text)}\"));");
                         }
                     }
                     sb.AppendLine($"{indent}{varName}.Content = {rtbName};");
@@ -387,7 +397,7 @@ public static class DesignerSerializer
                 }
                 else if (contentVal is string s && !string.IsNullOrEmpty(s))
                 {
-                    // Already set in constructor
+                    sb.AppendLine($"{indent}{varName}.Content = \"{EscapeStringLiteral(s)}\";");
                 }
             }
         }
@@ -419,4 +429,15 @@ public static class DesignerSerializer
 
         return varName;
     }
+
+    private static string EscapeStringLiteral(string? s)
+    {
+        if (s == null) return "";
+        return s.Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\t", "\\t");
+    }
 }
+

@@ -361,7 +361,8 @@ public class SelectionAdorner : Panel
         float centerY = top + height / 2f;
 
         Vector2 screenMouse = InputSystem.LastMousePosition;
-        Vector2 canvasMouse = (screenMouse - ParentCanvas.PanOffset) / ParentCanvas.ZoomScale;
+        Vector2 localMouse = InputSystem.GetLocalPosition(ParentCanvas, screenMouse);
+        Vector2 canvasMouse = (localMouse - ParentCanvas.PanOffset) / ParentCanvas.ZoomScale;
 
         float angle = MathF.Atan2(canvasMouse.Y - centerY, canvasMouse.X - centerX);
         float rotation = angle + MathF.PI / 2f;
