@@ -1099,63 +1099,69 @@ public class DataGrid : Control
             return new ThemeResourceBrush(txt);
         }
 
+        private void UpdateLiveValue(string val)
+        {
+            if (_owner._editingRow != -1)
+            {
+                var item = _owner._itemsSource[_owner._editingRow];
+                var column = _owner.Columns[_owner._editingCol];
+                var prop = item.GetType().GetProperty(column.PropertyName) ?? item.GetType().GetProperty("Value");
+                if (prop != null && prop.CanWrite)
+                {
+                    prop.SetValue(item, val);
+                }
+                // Force redraw of the designer workspace
+                _owner.Invalidate();
+            }
+        }
+
         private void ShowColorPickerPopup()
         {
             if (_pickerPopup == null)
             {
-                var grid = new Grid();
-                grid.RowDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.RowDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
-
-                string[] colors = {
-                    "#FFFF0000", "#FFFFA500", "#FFFFFF00", "#FF008000", "#FF00FFFF", "#FF0000FF", "#FF800080", "#FFFF00FF",
-                    "#FF000000", "#FFFFFFFF", "#FF808080", "#FFD3D3D3", "#FF00BCF2", "#FF107C41", "#FFF29600", "#FFE81123",
-                    "Transparent", "HeaderBackground", "CardBackground", "ControlBackground"
+                var cp = new ColorPicker
+                {
+                    WidthConstraint = 280f,
+                    HeightConstraint = 330f
                 };
 
-                for (int i = 0; i < colors.Length; i++)
+                // Extract vector4 color from TextBox value
+                var currentBrush = GetBrushFromText(_textBox.Text);
+                if (currentBrush is SolidColorBrush scb)
                 {
-                    int row = i / 10;
-                    int col = i % 10;
-                    string colorHex = colors[i];
-
-                    var box = new Button
-                    {
-                        WidthConstraint = 16f,
-                        HeightConstraint = 16f,
-                        CornerRadius = 1f,
-                        Margin = new Thickness(2),
-                        Background = GetBrushFromText(colorHex)
-                    };
-                    box.Click += (s, e) =>
-                    {
-                        _textBox.Text = colorHex;
-                        _colorBtn.Background = GetBrushFromText(colorHex);
-                        PopupService.HidePopup(_pickerPopup!);
-                        _owner.CommitEdit();
-                    };
-
-                    Grid.SetRow(box, row);
-                    Grid.SetColumn(box, col);
-                    grid.AddChild(box);
+                    cp.Color = scb.Color;
                 }
+                else
+                {
+                    cp.Color = new Vector4(1f, 1f, 1f, 1f); // default white
+                }
+
+                cp.ColorChanged += (s, e) =>
+                {
+                    var newCol = e.NewColor;
+                    byte r = (byte)Math.Clamp(Math.Round(newCol.X * 255f), 0, 255);
+                    byte g = (byte)Math.Clamp(Math.Round(newCol.Y * 255f), 0, 255);
+                    byte b = (byte)Math.Clamp(Math.Round(newCol.Z * 255f), 0, 255);
+                    byte a = (byte)Math.Clamp(Math.Round(newCol.W * 255f), 0, 255);
+                    
+                    string hex = $"#{a:X2}{r:X2}{g:X2}{b:X2}";
+                    if (a == 0 && r == 0 && g == 0 && b == 0) hex = "Transparent";
+
+                    _textBox.Text = hex;
+                    _colorBtn.Background = new SolidColorBrush(newCol);
+
+                    // Update the value on the selected designer element in real-time!
+                    UpdateLiveValue(hex);
+                };
 
                 _pickerPopup = new Border
                 {
                     Background = new ThemeResourceBrush("CardBackground"),
                     BorderBrush = new ThemeResourceBrush("ControlBorder"),
                     BorderThickness = new Thickness(1f),
-                    CornerRadius = 4f,
-                    Padding = new Thickness(4),
-                    Child = grid
+                    CornerRadius = 8f,
+                    Padding = new Thickness(10),
+                    Child = cp
                 };
             }
 
@@ -1167,9 +1173,10 @@ public class DataGrid : Control
                 current = current.Parent;
             }
 
-            _pickerPopup.Width = 210f;
-            _pickerPopup.Height = 52f;
-            PopupService.ShowPopup(_pickerPopup, new Vector2(absPos.X - 120f, absPos.Y + Size.Y + 2f), _colorBtn);
+            _pickerPopup.Width = 300f;
+            _pickerPopup.Height = 350f;
+            // Place it nicely (shifted to the left so it doesn't clip off the right edge of property grid)
+            PopupService.ShowPopup(_pickerPopup, new Vector2(absPos.X - 260f, absPos.Y + Size.Y + 2f), _colorBtn);
         }
     }
 }
