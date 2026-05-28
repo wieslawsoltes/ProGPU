@@ -3,6 +3,7 @@ using System;
 using System.Numerics;
 using ProGPU.Layout;
 using ProGPU.Vector;
+using ProGPU.Scene;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
@@ -199,6 +200,30 @@ public static class ThemeShowcasePage
         sldRow.AddChild(slider);
         sldRow.AddChild(sldValue);
         stack.AddChild(sldRow);
+
+        // Tahoe Liquid Glass Generic Card
+        AddLabel(stack, "Tahoe Liquid Glass Effect (Generic Card)");
+        var glassCard = new Border
+        {
+            Width = 220f,
+            Height = 80f,
+            CornerRadius = 16f,
+            Padding = new Thickness(16f),
+            Margin = new Thickness(0, 0, 0, 16),
+            BorderThickness = new Thickness(1f),
+            BorderBrush = new ThemeResourceBrush("ControlBorder")
+        };
+        
+        var cardText = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        cardText.Inlines.Add(new Run("LIQUID GLASS CARD") { FontSize = 12f, Foreground = new ThemeResourceBrush("TextPrimary") });
+        glassCard.Child = cardText;
+        
+        var genericGlass = new LiquidGlassEffect(0.7f);
+        genericGlass.GlassColor = new Vector4(1f, 1f, 1f, 0.2f);
+        genericGlass.FluidColor = new Vector4(0f, 0.7f, 0.9f, 0.85f); // Gorgeous cyan fluid
+        glassCard.Effect = genericGlass;
+        
+        stack.AddChild(glassCard);
 
         // 6. Text Input
         AddLabel(stack, "TextBox / PasswordBox");

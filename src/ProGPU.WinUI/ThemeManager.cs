@@ -1585,13 +1585,52 @@ public class SliderChrome : FrameworkElement
 
 
 
+    private LiquidGlassEffect? _glassEffect;
+
+    private void EnsureLiquidGlassEffect()
+    {
+        if (ActualThemeFamily == VisualThemeFamily.macOS)
+        {
+            if (_glassEffect == null)
+            {
+                _glassEffect = new LiquidGlassEffect(0.5f);
+                this.Effect = _glassEffect;
+            }
+            
+            float pct = 0f;
+            if (Maximum > Minimum)
+            {
+                pct = (Value - Minimum) / (Maximum - Minimum);
+            }
+            _glassEffect.Progress = pct;
+            
+            _glassEffect.GlassColor = ActualTheme == ElementTheme.Light
+                ? new Vector4(1f, 1f, 1f, 0.2f)
+                : new Vector4(0.2f, 0.2f, 0.2f, 0.3f);
+
+            _glassEffect.FluidColor = ActualTheme == ElementTheme.Light
+                ? new Vector4(0.0f, 0.478f, 1.0f, 1.0f)
+                : new Vector4(0.04f, 0.52f, 1.0f, 1.0f);
+        }
+        else
+        {
+            if (_glassEffect != null)
+            {
+                this.Effect = null;
+                _glassEffect = null;
+            }
+        }
+    }
+
     public override void OnRender(DrawingContext context)
     {
         var activeFamily = ActualThemeFamily;
         var activeTheme = ActualTheme;
 
-        float baseThumbRadius = activeFamily == VisualThemeFamily.macOS ? 7f : 8f;
-        float trackHeight = activeFamily == VisualThemeFamily.macOS ? 3f : 4f;
+        EnsureLiquidGlassEffect();
+
+        float baseThumbRadius = activeFamily == VisualThemeFamily.macOS ? 10f : 8f;
+        float trackHeight = activeFamily == VisualThemeFamily.macOS ? 8f : 4f;
         float yCenter = Size.Y / 2f;
 
         float width = Size.X;
@@ -1604,62 +1643,71 @@ public class SliderChrome : FrameworkElement
         }
 
         float thumbX = baseThumbRadius + pct * trackWidth;
-        float drawThumbRadius = (IsPointerOver || IsPointerPressed) && IsEnabled
-            ? (activeFamily == VisualThemeFamily.macOS ? 8f : 9f)
-            : (activeFamily == VisualThemeFamily.macOS ? 6.5f : 7f);
-
-        Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
-        Brush inactiveBg = ThemeManager.GetBrush(IsEnabled ? "SliderTrackFill" : "SliderTrackFillDisabled", activeTheme, activeFamily);
-        context.DrawRectangle(inactiveBg, null, inactiveRect);
-
-        if (thumbX > baseThumbRadius)
+        float drawThumbRadius;
+        if (activeFamily == VisualThemeFamily.macOS)
         {
-            Rect activeRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
-            Brush activeBg = ThemeManager.GetBrush(IsEnabled
-                ? (IsPointerPressed ? "SliderTrackValueFillPressed" : IsPointerOver ? "SliderTrackValueFillPointerOver" : "SliderTrackValueFill")
-                : "SliderTrackValueFillDisabled", activeTheme, activeFamily);
-            context.DrawRectangle(activeBg, null, activeRect);
-        }
-
-        Rect thumbRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius, drawThumbRadius * 2f, drawThumbRadius * 2f);
-        Brush thumbBg;
-        Pen? thumbBorder;
-
-        if (!IsEnabled)
-        {
-            thumbBg = ThemeManager.GetBrush("ControlBackground", activeTheme, activeFamily);
-            thumbBorder = new Pen(ThemeManager.GetBrush("SliderThumbBorderBrush", activeTheme, activeFamily), 1f);
-        }
-        else if (IsPointerPressed)
-        {
-            thumbBg = ThemeManager.GetBrush("SliderTrackValueFillPressed", activeTheme, activeFamily);
-            thumbBorder = new Pen(activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily), 1.5f);
-        }
-        else if (IsPointerOver)
-        {
-            thumbBg = activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily);
-            thumbBorder = new Pen(ThemeManager.GetBrush("SliderTrackValueFillPointerOver", activeTheme, activeFamily), 1f);
+            drawThumbRadius = IsPointerPressed ? 12f : IsPointerOver ? 11f : 10f;
         }
         else
         {
-            thumbBg = activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily);
-            thumbBorder = new Pen(ThemeManager.GetBrush("SliderThumbBorderBrush", activeTheme, activeFamily), 1f);
+            drawThumbRadius = (IsPointerOver || IsPointerPressed) && IsEnabled ? 9f : 7f;
         }
 
-        context.DrawRoundedRectangle(thumbBg, thumbBorder, thumbRect, drawThumbRadius);
-
-        if (IsEnabled && IsFocused)
+        Rect trackRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, trackWidth, trackHeight);
+        
+        if (activeFamily == VisualThemeFamily.macOS)
         {
-            var accentColor = ThemeManager.GetBrush("SystemAccentColor", activeTheme, activeFamily);
-            if (activeFamily == VisualThemeFamily.macOS)
+            var silhouetteBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
+            context.DrawRoundedRectangle(silhouetteBrush, null, trackRect, trackHeight / 2f);
+
+            Rect thumbRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius, drawThumbRadius * 2f, drawThumbRadius * 2f);
+            context.DrawRoundedRectangle(silhouetteBrush, null, thumbRect, drawThumbRadius);
+        }
+        else
+        {
+            Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
+            Brush inactiveBg = ThemeManager.GetBrush(IsEnabled ? "SliderTrackFill" : "SliderTrackFillDisabled", activeTheme, activeFamily);
+            context.DrawRectangle(inactiveBg, null, inactiveRect);
+
+            if (thumbX > baseThumbRadius)
             {
-                var accentVec = (accentColor as SolidColorBrush)?.Color ?? new Vector4(0f, 0.478f, 1f, 1f);
-                var focusPen = new Pen(new SolidColorBrush(new Vector4(accentVec.X, accentVec.Y, accentVec.Z, 0.5f)), 2f);
-                Rect focusRect = new Rect(thumbRect.X - 2.5f, thumbRect.Y - 2.5f, thumbRect.Width + 5f, thumbRect.Height + 5f);
-                context.DrawRoundedRectangle(null, focusPen, focusRect, drawThumbRadius + 2.5f);
+                Rect activeRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
+                Brush activeBg = ThemeManager.GetBrush(IsEnabled
+                    ? (IsPointerPressed ? "SliderTrackValueFillPressed" : IsPointerOver ? "SliderTrackValueFillPointerOver" : "SliderTrackValueFill")
+                    : "SliderTrackValueFillDisabled", activeTheme, activeFamily);
+                context.DrawRectangle(activeBg, null, activeRect);
+            }
+
+            Rect thumbRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius, drawThumbRadius * 2f, drawThumbRadius * 2f);
+            Brush thumbBg;
+            Pen? thumbBorder;
+
+            if (!IsEnabled)
+            {
+                thumbBg = ThemeManager.GetBrush("ControlBackground", activeTheme, activeFamily);
+                thumbBorder = new Pen(ThemeManager.GetBrush("SliderThumbBorderBrush", activeTheme, activeFamily), 1f);
+            }
+            else if (IsPointerPressed)
+            {
+                thumbBg = ThemeManager.GetBrush("SliderTrackValueFillPressed", activeTheme, activeFamily);
+                thumbBorder = new Pen(activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily), 1.5f);
+            }
+            else if (IsPointerOver)
+            {
+                thumbBg = activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily);
+                thumbBorder = new Pen(ThemeManager.GetBrush("SliderTrackValueFillPointerOver", activeTheme, activeFamily), 1f);
             }
             else
             {
+                thumbBg = activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily);
+                thumbBorder = new Pen(ThemeManager.GetBrush("SliderThumbBorderBrush", activeTheme, activeFamily), 1f);
+            }
+
+            context.DrawRoundedRectangle(thumbBg, thumbBorder, thumbRect, drawThumbRadius);
+
+            if (IsEnabled && IsFocused)
+            {
+                var accentColor = ThemeManager.GetBrush("SystemAccentColor", activeTheme, activeFamily);
                 var focusPen = new Pen(accentColor, 1.5f);
                 Rect focusRect = new Rect(thumbRect.X - 2.5f, thumbRect.Y - 2.5f, thumbRect.Width + 5f, thumbRect.Height + 5f);
                 context.DrawRoundedRectangle(null, focusPen, focusRect, drawThumbRadius + 2.5f);
