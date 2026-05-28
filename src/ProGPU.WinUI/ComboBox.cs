@@ -369,10 +369,16 @@ public class ComboBox : Control
 
             if (activeFamily == VisualThemeFamily.macOS)
             {
-                var dividerPen = new Pen(activeTheme == ElementTheme.Light ? new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.12f)) : new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.12f)), 1f);
-                context.DrawLine(dividerPen, new Vector2(Size.X - 26f, 5f), new Vector2(Size.X - 26f, headerH - 5f));
+                Brush arrowBrush;
+                if (IsPointerOver || IsDropDownOpen)
+                {
+                    arrowBrush = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0.478f, 1f, 1f) : new Vector4(0.04f, 0.52f, 1f, 1f));
+                }
+                else
+                {
+                    arrowBrush = new SolidColorBrush(new Vector4(0.55f, 0.55f, 0.57f, 1f));
+                }
 
-                var arrowBrush = new SolidColorBrush(activeTheme == ElementTheme.Light ? new Vector4(0f, 0.478f, 1f, 1f) : new Vector4(0.04f, 0.52f, 1f, 1f));
                 context.DrawText("▲", activeFont, FontSize - 4f, arrowBrush, new Vector2(Size.X - 18f, textY - 3f));
                 context.DrawText("▼", activeFont, FontSize - 4f, arrowBrush, new Vector2(Size.X - 18f, textY + 5f));
             }

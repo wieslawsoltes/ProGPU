@@ -177,37 +177,59 @@ public class Border : FrameworkElement
                 bg = new SolidColorBrush(disabledBg);
                 
                 Vector4 disabledBorder = activeTheme == ElementTheme.Light
-                    ? new Vector4(0.85f, 0.85f, 0.85f, 1f)
-                    : new Vector4(0.15f, 0.15f, 0.15f, 1f);
-                pen = new Pen(new SolidColorBrush(disabledBorder), 1f);
+                    ? new Vector4(0f, 0f, 0f, 0.15f)
+                    : new Vector4(1f, 1f, 1f, 0.12f);
+                pen = new Pen(new SolidColorBrush(disabledBorder), 0.5f);
             }
             else if (isAccent)
             {
                 Vector4 topColor, bottomColor;
-                if (isPressed)
+                if (activeTheme == ElementTheme.Light)
                 {
-                    topColor = new Vector4(0f, 0.35f, 0.75f, 1f);
-                    bottomColor = new Vector4(0f, 0.28f, 0.62f, 1f);
-                }
-                else if (isHovered)
-                {
-                    topColor = new Vector4(0.35f, 0.68f, 1.0f, 1f);
-                    bottomColor = new Vector4(0.0f, 0.52f, 1.0f, 1f);
+                    if (isPressed)
+                    {
+                        topColor = new Vector4(0.1f, 0.45f, 0.85f, 0.95f);
+                        bottomColor = new Vector4(0.0f, 0.35f, 0.75f, 0.95f);
+                    }
+                    else if (isHovered)
+                    {
+                        topColor = new Vector4(0.3f, 0.65f, 1.0f, 0.95f);
+                        bottomColor = new Vector4(0.1f, 0.55f, 0.95f, 0.95f);
+                    }
+                    else
+                    {
+                        topColor = new Vector4(0.2f, 0.55f, 0.95f, 0.9f);
+                        bottomColor = new Vector4(0.0f, 0.45f, 0.9f, 0.9f);
+                    }
                 }
                 else
                 {
-                    topColor = new Vector4(0.25f, 0.6f, 1.0f, 1f);
-                    bottomColor = new Vector4(0.0f, 0.478f, 1.0f, 1f);
+                    if (isPressed)
+                    {
+                        topColor = new Vector4(0.0f, 0.35f, 0.8f, 0.9f);
+                        bottomColor = new Vector4(0.0f, 0.25f, 0.7f, 0.9f);
+                    }
+                    else if (isHovered)
+                    {
+                        topColor = new Vector4(0.15f, 0.55f, 1.0f, 0.9f);
+                        bottomColor = new Vector4(0.05f, 0.45f, 0.9f, 0.9f);
+                    }
+                    else
+                    {
+                        topColor = new Vector4(0.05f, 0.45f, 0.9f, 0.85f);
+                        bottomColor = new Vector4(0.0f, 0.35f, 0.8f, 0.85f);
+                    }
                 }
+
                 bg = new LinearGradientBrush(startPt, endPt, new GradientStop[] {
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
                 
                 Vector4 borderCol = activeTheme == ElementTheme.Light
-                    ? new Vector4(0.0f, 0.35f, 0.8f, 1f)
-                    : new Vector4(0.0f, 0.3f, 0.7f, 1f);
-                pen = new Pen(new SolidColorBrush(borderCol), 1f);
+                    ? new Vector4(0f, 0f, 0f, 0.15f)
+                    : new Vector4(1f, 1f, 1f, 0.12f);
+                pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
             else
             {
@@ -216,36 +238,36 @@ public class Border : FrameworkElement
                 {
                     if (isPressed)
                     {
-                        topColor = new Vector4(0.84f, 0.84f, 0.84f, 1f);
-                        bottomColor = new Vector4(0.75f, 0.75f, 0.75f, 1f);
+                        topColor = new Vector4(0.88f, 0.88f, 0.88f, 0.95f);
+                        bottomColor = new Vector4(0.84f, 0.84f, 0.84f, 0.95f);
                     }
                     else if (isHovered)
                     {
-                        topColor = new Vector4(1f, 1f, 1f, 1f);
-                        bottomColor = new Vector4(0.92f, 0.92f, 0.94f, 1f);
+                        topColor = new Vector4(0.98f, 0.98f, 0.98f, 0.95f);
+                        bottomColor = new Vector4(0.94f, 0.94f, 0.94f, 0.95f);
                     }
                     else
                     {
-                        topColor = new Vector4(1f, 1f, 1f, 1f);
-                        bottomColor = new Vector4(0.88f, 0.88f, 0.90f, 1f);
+                        topColor = new Vector4(1.0f, 1.0f, 1.0f, 0.9f);
+                        bottomColor = new Vector4(0.96f, 0.96f, 0.96f, 0.9f);
                     }
                 }
                 else
                 {
                     if (isPressed)
                     {
-                        topColor = new Vector4(0.22f, 0.22f, 0.22f, 1f);
-                        bottomColor = new Vector4(0.18f, 0.18f, 0.18f, 1f);
+                        topColor = new Vector4(0.18f, 0.18f, 0.18f, 0.9f);
+                        bottomColor = new Vector4(0.16f, 0.16f, 0.16f, 0.9f);
                     }
                     else if (isHovered)
                     {
-                        topColor = new Vector4(0.35f, 0.35f, 0.35f, 1f);
-                        bottomColor = new Vector4(0.28f, 0.28f, 0.28f, 1f);
+                        topColor = new Vector4(0.32f, 0.32f, 0.32f, 0.9f);
+                        bottomColor = new Vector4(0.28f, 0.28f, 0.28f, 0.9f);
                     }
                     else
                     {
-                        topColor = new Vector4(0.3f, 0.3f, 0.3f, 1f);
-                        bottomColor = new Vector4(0.24f, 0.24f, 0.24f, 1f);
+                        topColor = new Vector4(0.26f, 0.26f, 0.26f, 0.85f);
+                        bottomColor = new Vector4(0.22f, 0.22f, 0.22f, 0.85f);
                     }
                 }
                 
@@ -255,24 +277,18 @@ public class Border : FrameworkElement
                 });
                 
                 Vector4 borderCol = activeTheme == ElementTheme.Light
-                    ? new Vector4(0.7f, 0.7f, 0.7f, 1f)
-                    : new Vector4(0.18f, 0.18f, 0.18f, 1f);
-                pen = new Pen(new SolidColorBrush(borderCol), 1f);
+                    ? new Vector4(0f, 0f, 0f, 0.15f)
+                    : new Vector4(1f, 1f, 1f, 0.12f);
+                pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
 
             if (activeTheme == ElementTheme.Light && isEnabled)
             {
-                var shadowColor = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.05f));
+                var shadowColor = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.04f));
                 context.FillRoundedRectangle(shadowColor, new Rect(0f, 1f, Size.X, Size.Y), CornerRadius);
             }
 
             context.DrawRoundedRectangle(bg, pen, new Rect(Vector2.Zero, Size), CornerRadius);
-
-            if (activeTheme == ElementTheme.Light && isEnabled && !isPressed)
-            {
-                var highlightPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.45f)), 1f);
-                context.DrawLine(highlightPen, new Vector2(CornerRadius, 1f), new Vector2(Size.X - CornerRadius, 1f));
-            }
         }
         else if (parentCombo != null && activeFamily == VisualThemeFamily.macOS)
         {
@@ -295,9 +311,9 @@ public class Border : FrameworkElement
                 bg = new SolidColorBrush(disabledBg);
                 
                 Vector4 disabledBorder = activeTheme == ElementTheme.Light
-                    ? new Vector4(0.85f, 0.85f, 0.85f, 1f)
-                    : new Vector4(0.15f, 0.15f, 0.15f, 1f);
-                pen = new Pen(new SolidColorBrush(disabledBorder), 1f);
+                    ? new Vector4(0f, 0f, 0f, 0.15f)
+                    : new Vector4(1f, 1f, 1f, 0.12f);
+                pen = new Pen(new SolidColorBrush(disabledBorder), 0.5f);
             }
             else
             {
@@ -306,36 +322,36 @@ public class Border : FrameworkElement
                 {
                     if (isPressed)
                     {
-                        topColor = new Vector4(0.9f, 0.9f, 0.92f, 1f);
-                        bottomColor = new Vector4(0.82f, 0.82f, 0.85f, 1f);
+                        topColor = new Vector4(0.88f, 0.88f, 0.88f, 0.95f);
+                        bottomColor = new Vector4(0.84f, 0.84f, 0.84f, 0.95f);
                     }
                     else if (isHovered)
                     {
-                        topColor = new Vector4(1f, 1f, 1f, 1f);
-                        bottomColor = new Vector4(0.94f, 0.94f, 0.96f, 1f);
+                        topColor = new Vector4(0.98f, 0.98f, 0.98f, 0.95f);
+                        bottomColor = new Vector4(0.94f, 0.94f, 0.94f, 0.95f);
                     }
                     else
                     {
-                        topColor = new Vector4(1f, 1f, 1f, 1f);
-                        bottomColor = new Vector4(0.90f, 0.90f, 0.92f, 1f);
+                        topColor = new Vector4(1.0f, 1.0f, 1.0f, 0.9f);
+                        bottomColor = new Vector4(0.96f, 0.96f, 0.96f, 0.9f);
                     }
                 }
                 else
                 {
                     if (isPressed)
                     {
-                        topColor = new Vector4(0.25f, 0.25f, 0.27f, 1f);
-                        bottomColor = new Vector4(0.2f, 0.2f, 0.22f, 1f);
+                        topColor = new Vector4(0.18f, 0.18f, 0.18f, 0.9f);
+                        bottomColor = new Vector4(0.16f, 0.16f, 0.16f, 0.9f);
                     }
                     else if (isHovered)
                     {
-                        topColor = new Vector4(0.32f, 0.32f, 0.34f, 1f);
-                        bottomColor = new Vector4(0.26f, 0.26f, 0.28f, 1f);
+                        topColor = new Vector4(0.32f, 0.32f, 0.32f, 0.9f);
+                        bottomColor = new Vector4(0.28f, 0.28f, 0.28f, 0.9f);
                     }
                     else
                     {
-                        topColor = new Vector4(0.28f, 0.28f, 0.30f, 1f);
-                        bottomColor = new Vector4(0.22f, 0.22f, 0.24f, 1f);
+                        topColor = new Vector4(0.26f, 0.26f, 0.26f, 0.85f);
+                        bottomColor = new Vector4(0.22f, 0.22f, 0.22f, 0.85f);
                     }
                 }
                 
@@ -345,9 +361,9 @@ public class Border : FrameworkElement
                 });
                 
                 Vector4 borderCol = activeTheme == ElementTheme.Light
-                    ? new Vector4(0.76f, 0.76f, 0.76f, 1f)
-                    : new Vector4(0.33f, 0.33f, 0.33f, 1f);
-                pen = new Pen(new SolidColorBrush(borderCol), 1f);
+                    ? new Vector4(0f, 0f, 0f, 0.15f)
+                    : new Vector4(1f, 1f, 1f, 0.12f);
+                pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
 
             if (activeTheme == ElementTheme.Light && isEnabled)
@@ -357,12 +373,6 @@ public class Border : FrameworkElement
             }
 
             context.DrawRoundedRectangle(bg, pen, new Rect(Vector2.Zero, Size), CornerRadius);
-
-            if (activeTheme == ElementTheme.Light && isEnabled && !isPressed)
-            {
-                var highlightPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.45f)), 1f);
-                context.DrawLine(highlightPen, new Vector2(CornerRadius, 1f), new Vector2(Size.X - CornerRadius, 1f));
-            }
         }
         else if (parentButton != null)
         {

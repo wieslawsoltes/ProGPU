@@ -88,8 +88,17 @@ public class TabViewItem : ContentControl
     {
         // Detect hover over the close button zone
         bool wasCloseHovered = _isCloseHovered;
-        _isCloseHovered = IsEnabled && (e.Position.X >= Size.X - 24f && e.Position.X <= Size.X - 8f &&
-                                        e.Position.Y >= (Size.Y - 16f) / 2f && e.Position.Y <= (Size.Y + 16f) / 2f);
+        bool isMacOS = ActualThemeFamily == VisualThemeFamily.macOS;
+        if (isMacOS)
+        {
+            _isCloseHovered = IsEnabled && (e.Position.X >= 0f && e.Position.X <= 24f &&
+                                            e.Position.Y >= 0f && e.Position.Y <= Size.Y);
+        }
+        else
+        {
+            _isCloseHovered = IsEnabled && (e.Position.X >= Size.X - 24f && e.Position.X <= Size.X - 8f &&
+                                            e.Position.Y >= (Size.Y - 16f) / 2f && e.Position.Y <= (Size.Y + 16f) / 2f);
+        }
         if (wasCloseHovered != _isCloseHovered)
         {
             Invalidate();
@@ -113,8 +122,12 @@ public class TabViewItem : ContentControl
         {
             base.OnPointerPressed(e);
 
-            // If click inside the 'x' close button hit zone (right 28 pixels)
-            if (e.Position.X >= Size.X - 28f)
+            bool isMacOS = ActualThemeFamily == VisualThemeFamily.macOS;
+            bool isCloseClick = isMacOS 
+                ? (e.Position.X >= 0f && e.Position.X <= 24f)
+                : (e.Position.X >= Size.X - 28f);
+
+            if (isCloseClick)
             {
                 CloseRequested?.Invoke(this, EventArgs.Empty);
                 e.Handled = true;
@@ -249,12 +262,13 @@ public class TabViewItem : ContentControl
             var textBrush = IsSelected 
                 ? (Foreground ?? ThemeManager.GetBrush("TextPrimary")) 
                 : ThemeManager.GetBrush("TextSecondary");
-            context.DrawText(HeaderText, activeFont, 13f, textBrush, new Vector2(Padding.Left, textY));
+            float textX = isMacOS ? 24f : Padding.Left;
+            context.DrawText(HeaderText, activeFont, 13f, textBrush, new Vector2(textX, textY));
 
-            // 4. Draw Close (x) button on the right side
+            // 4. Draw Close (x) button on the left side in macOS mode (offset 8f) or right side in others (offset Size.X - 18f)
             // Beautiful hover styling for close button zone
             float closeSize = 12f;
-            float closeX = Size.X - 18f;
+            float closeX = isMacOS ? 8f : Size.X - 18f;
             float closeY = (Size.Y - closeSize) / 2f;
 
             Brush? closeBrush = null;

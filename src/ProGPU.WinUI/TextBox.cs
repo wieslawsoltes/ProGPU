@@ -593,7 +593,7 @@ public class TextBox : Control
             Pen borderPen = new Pen(borderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
 
             // Draw soft 3D elevation shadows (ambient & penumbra layers)
-            if (IsEnabled)
+            if (IsEnabled && ActualThemeFamily != VisualThemeFamily.macOS)
             {
                 float shadowR = CornerRadius;
                 
@@ -607,6 +607,15 @@ public class TextBox : Control
             }
 
             context.DrawRoundedRectangle(bg, borderPen, new Rect(Vector2.Zero, Size), CornerRadius);
+
+            if (IsFocused && IsEnabled && ActualThemeFamily == VisualThemeFamily.macOS)
+            {
+                var accentColor = ThemeManager.GetBrush("SystemAccentColor", ActualTheme, ActualThemeFamily);
+                var accentVec = (accentColor as SolidColorBrush)?.Color ?? new Vector4(0f, 0.478f, 1f, 1f);
+                var focusPen = new Pen(new SolidColorBrush(new Vector4(accentVec.X, accentVec.Y, accentVec.Z, 0.5f)), 2f);
+                Rect focusRect = new Rect(-2.5f, -2.5f, Size.X + 5f, Size.Y + 5f);
+                context.DrawRoundedRectangle(null, focusPen, focusRect, CornerRadius + 2.5f);
+            }
         }
 
         // 2. Draw text

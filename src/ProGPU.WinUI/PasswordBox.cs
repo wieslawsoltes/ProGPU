@@ -649,7 +649,7 @@ public class PasswordBox : Control
             Pen borderPen = new Pen(borderBrush ?? ThemeManager.GetBrush("ControlBorder"), BorderThickness.Left > 0 ? BorderThickness.Left : 1f);
 
             // Draw ambient & penumbra soft card elevation shadows
-            if (IsEnabled)
+            if (IsEnabled && ActualThemeFamily != VisualThemeFamily.macOS)
             {
                 float shadowR = CornerRadius;
                 var ambientRect = new Rect(0, 2, Size.X, Size.Y);
@@ -660,6 +660,15 @@ public class PasswordBox : Control
             }
 
             context.DrawRoundedRectangle(bg, borderPen, new Rect(Vector2.Zero, Size), CornerRadius);
+
+            if (IsFocused && IsEnabled && ActualThemeFamily == VisualThemeFamily.macOS)
+            {
+                var accentColor = ThemeManager.GetBrush("SystemAccentColor", ActualTheme, ActualThemeFamily);
+                var accentVec = (accentColor as SolidColorBrush)?.Color ?? new Vector4(0f, 0.478f, 1f, 1f);
+                var focusPen = new Pen(new SolidColorBrush(new Vector4(accentVec.X, accentVec.Y, accentVec.Z, 0.5f)), 2f);
+                Rect focusRect = new Rect(-2.5f, -2.5f, Size.X + 5f, Size.Y + 5f);
+                context.DrawRoundedRectangle(null, focusPen, focusRect, CornerRadius + 2.5f);
+            }
         }
 
         // 2. Draw text

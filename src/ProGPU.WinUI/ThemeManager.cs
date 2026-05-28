@@ -31,6 +31,23 @@ public static class ThemeManager
     private static ElementTheme _currentTheme = ElementTheme.Dark;
     private static VisualThemeFamily _currentThemeFamily = VisualThemeFamily.WinUI;
     public static event Action? ThemeChanged;
+
+    private static bool _isWindowActive = true;
+    public static bool IsWindowActive
+    {
+        get => _isWindowActive;
+        set
+        {
+            if (_isWindowActive != value)
+            {
+                _isWindowActive = value;
+                DarkBrushCache.Clear();
+                LightBrushCache.Clear();
+                PenCache.Clear();
+                ThemeChanged?.Invoke();
+            }
+        }
+    }
     
     private static readonly Dictionary<(Type ControlType, VisualThemeFamily Family), Style> NativeDefaultStyles = new();
     private static readonly Dictionary<(string Key, VisualThemeFamily Family), SolidColorBrush> DarkBrushCache = new();
@@ -121,18 +138,20 @@ public static class ThemeManager
 
     private static readonly Dictionary<string, Vector4> MacOsDarkPalette = new()
     {
-        { "PageBackground", new Vector4(0.12f, 0.12f, 0.12f, 1.0f) }, // Dark Cocoa Titlebar Gray: #1E1E1E
-        { "CardBackground", new Vector4(0.18f, 0.18f, 0.18f, 1.0f) }, // Slightly lighter charcoal: #2D2D2D
+        { "PageBackground", new Vector4(0.118f, 0.118f, 0.118f, 1f) }, // Dark Cocoa Titlebar Gray: #1E1E1E
+        { "CardBackground", new Vector4(0.176f, 0.176f, 0.176f, 1f) }, // Slightly lighter charcoal: #2D2D2D
         { "ControlBackground", new Vector4(1f, 1f, 1f, 0.06f) }, // Dark translucent glassmorphism
         { "ControlBackgroundHover", new Vector4(1f, 1f, 1f, 0.12f) }, // Lighter hover
         { "ControlBackgroundPressed", new Vector4(1f, 1f, 1f, 0.18f) }, // Even lighter pressed
-        { "ControlBorder", new Vector4(1f, 1f, 1f, 0.15f) }, // Sleek dark border
+        { "ControlBorder", new Vector4(1f, 1f, 1f, 0.12f) }, // Sleek dark border
         { "ControlBorderHover", new Vector4(1f, 1f, 1f, 0.25f) },
         { "TextPrimary", new Vector4(0.9f, 0.9f, 0.9f, 1.0f) }, // Crisp Cocoa White
         { "TextSecondary", new Vector4(0.9f, 0.9f, 0.9f, 0.55f) }, // Muted Cocoa Gray
         { "SystemAccentColor", new Vector4(0.039f, 0.518f, 1.0f, 1.0f) }, // macOS Vibrant Accent Blue: #0A84FF
         { "SystemAccentColorLight1", new Vector4(0.2f, 0.6f, 1.0f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.4f, 0.8f, 1.0f) }, // Pressed
+        { "InactiveAccentColor", new Vector4(0.243f, 0.243f, 0.243f, 1f) },
+        { "SystemGreenAccent", new Vector4(0.188f, 0.82f, 0.345f, 1f) },
         { "SelectionHighlight", new Vector4(0.039f, 0.518f, 1.0f, 0.3f) },
         { "HeaderBackground", new Vector4(0.09f, 0.09f, 0.09f, 1.0f) }, // Deep macOS Header Gray
         { "ScrollbarThumb", new Vector4(1f, 1f, 1f, 0.18f) },
@@ -147,18 +166,20 @@ public static class ThemeManager
 
     private static readonly Dictionary<string, Vector4> MacOsLightPalette = new()
     {
-        { "PageBackground", new Vector4(0.93f, 0.93f, 0.93f, 1.0f) }, // Classic Cocoa Window Gray: #ECECEC
+        { "PageBackground", new Vector4(0.965f, 0.965f, 0.965f, 1f) }, // Classic Cocoa Window Gray: #ECECEC
         { "CardBackground", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) }, // Solid White
         { "ControlBackground", new Vector4(0f, 0f, 0f, 0.03f) }, // Very light gray backdrop
         { "ControlBackgroundHover", new Vector4(0f, 0f, 0f, 0.06f) },
         { "ControlBackgroundPressed", new Vector4(0f, 0f, 0f, 0.12f) },
-        { "ControlBorder", new Vector4(0f, 0f, 0f, 0.18f) }, // Sleek Cocoa Border: #C3C3C3
+        { "ControlBorder", new Vector4(0f, 0f, 0f, 0.15f) }, // Sleek Cocoa Border: #C3C3C3
         { "ControlBorderHover", new Vector4(0f, 0f, 0f, 0.28f) },
         { "TextPrimary", new Vector4(0.16f, 0.16f, 0.16f, 1.0f) }, // Deep Cocoa charcoal
         { "TextSecondary", new Vector4(0.16f, 0.16f, 0.16f, 0.5f) }, // Muted Cocoa gray
         { "SystemAccentColor", new Vector4(0.0f, 0.478f, 1.0f, 1.0f) }, // macOS System Blue: #007AFF
         { "SystemAccentColorLight1", new Vector4(0.15f, 0.55f, 1.0f, 1.0f) },
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.39f, 0.84f, 1.0f) },
+        { "InactiveAccentColor", new Vector4(0.863f, 0.863f, 0.863f, 1f) },
+        { "SystemGreenAccent", new Vector4(0.203f, 0.78f, 0.349f, 1f) },
         { "SelectionHighlight", new Vector4(0.0f, 0.478f, 1.0f, 0.2f) },
         { "HeaderBackground", new Vector4(0.96f, 0.96f, 0.96f, 1.0f) }, // macOS Light Header
         { "ScrollbarThumb", new Vector4(0f, 0f, 0f, 0.15f) },
@@ -412,6 +433,17 @@ public static class ThemeManager
         var actualTheme = theme == ElementTheme.Default ? CurrentTheme : theme;
         var actualFamily = themeFamily == VisualThemeFamily.Default ? CurrentThemeFamily : themeFamily;
 
+        if (actualFamily == VisualThemeFamily.macOS && !IsWindowActive)
+        {
+            if (key.Equals("SystemAccentColor", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorLight1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorDark1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemGreenAccent", StringComparison.OrdinalIgnoreCase))
+            {
+                key = "InactiveAccentColor";
+            }
+        }
+
         Dictionary<string, Vector4> dict;
         if (actualFamily == VisualThemeFamily.macOS)
         {
@@ -449,6 +481,18 @@ public static class ThemeManager
         var cache = (actualTheme == ElementTheme.Light) ? LightBrushCache : DarkBrushCache;
 
         key = ResolveAlias(key);
+
+        if (actualFamily == VisualThemeFamily.macOS && !IsWindowActive)
+        {
+            if (key.Equals("SystemAccentColor", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorLight1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorDark1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemGreenAccent", StringComparison.OrdinalIgnoreCase))
+            {
+                key = "InactiveAccentColor";
+            }
+        }
+
         var cacheKey = (key, actualFamily);
 
         if (cache.TryGetValue(cacheKey, out var cachedBrush))
@@ -494,6 +538,17 @@ public static class ThemeManager
 
         var actualTheme = theme == ElementTheme.Default ? CurrentTheme : theme;
         var actualFamily = themeFamily == VisualThemeFamily.Default ? CurrentThemeFamily : themeFamily;
+
+        if (actualFamily == VisualThemeFamily.macOS && !IsWindowActive)
+        {
+            if (key.Equals("SystemAccentColor", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorLight1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemAccentColorDark1", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("SystemGreenAccent", StringComparison.OrdinalIgnoreCase))
+            {
+                key = "InactiveAccentColor";
+            }
+        }
 
         Dictionary<string, Vector4> dict;
         if (actualFamily == VisualThemeFamily.macOS)
@@ -1185,20 +1240,8 @@ public class RadioButtonChrome : FrameworkElement
                 ? (activeFamily == VisualThemeFamily.macOS ? new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)) : (ThemeManager.GetBrush("RadioButtonCheckGlyphForegroundChecked", activeTheme, activeFamily) ?? (activeTheme == ElementTheme.Light ? ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily) : ThemeManager.GetBrush("TextPrimary", activeTheme, activeFamily))))
                 : ThemeManager.GetBrush("TextSecondary", activeTheme, activeFamily);
 
-            if (activeFamily == VisualThemeFamily.macOS)
-            {
-                Rect whiteDotRect = new Rect(boxRect.X + 4.5f, boxRect.Y + 4.5f, 9f, 9f);
-                context.DrawRoundedRectangle(ThemeManager.GetBrush("CardBackground", activeTheme, activeFamily), null, whiteDotRect, 4.5f);
-
-                Rect blueDotRect = new Rect(boxRect.X + 6.5f, boxRect.Y + 6.5f, 5f, 5f);
-                var activeBlue = activeTheme == ElementTheme.Light ? new Vector4(0f, 0.478f, 1f, 1f) : new Vector4(0.04f, 0.52f, 1f, 1f);
-                context.DrawRoundedRectangle(new SolidColorBrush(activeBlue), null, blueDotRect, 2.5f);
-            }
-            else
-            {
-                Rect dotRect = new Rect(boxRect.X + 6f, boxRect.Y + 6f, 6f, 6f);
-                context.DrawRoundedRectangle(dotBrush, null, dotRect, 3f);
-            }
+            Rect dotRect = new Rect(boxRect.X + 6f, boxRect.Y + 6f, 6f, 6f);
+            context.DrawRoundedRectangle(dotBrush, null, dotRect, 3f);
         }
 
         if (IsEnabled && IsFocused)
@@ -1287,9 +1330,16 @@ public class ToggleSwitchChrome : FrameworkElement
         }
         else if (IsOn)
         {
-            trackBg = IsPointerPressed
-                ? ThemeManager.GetBrush("ToggleSwitchFillOnPressed", activeTheme, activeFamily)
-                : (IsPointerOver ? ThemeManager.GetBrush("ToggleSwitchFillOnPointerOver", activeTheme, activeFamily) : ThemeManager.GetBrush("ToggleSwitchFillOn", activeTheme, activeFamily));
+            if (activeFamily == VisualThemeFamily.macOS)
+            {
+                trackBg = ThemeManager.GetBrush("SystemGreenAccent", activeTheme, activeFamily);
+            }
+            else
+            {
+                trackBg = IsPointerPressed
+                    ? ThemeManager.GetBrush("ToggleSwitchFillOnPressed", activeTheme, activeFamily)
+                    : (IsPointerOver ? ThemeManager.GetBrush("ToggleSwitchFillOnPointerOver", activeTheme, activeFamily) : ThemeManager.GetBrush("ToggleSwitchFillOn", activeTheme, activeFamily));
+            }
         }
         else
         {
@@ -1299,11 +1349,10 @@ public class ToggleSwitchChrome : FrameworkElement
 
         context.DrawRoundedRectangle(trackBg, trackBorder, trackRect, trackRadius);
 
-        float thumbRadius = IsPointerPressed ? (trackH / 2f - 5f) : (trackH / 2f - 4f);
-        if (thumbRadius < 3f) thumbRadius = 3f;
+        float thumbRadius = activeFamily == VisualThemeFamily.macOS ? 8f : (IsPointerPressed ? (trackH / 2f - 5f) : (trackH / 2f - 4f));
+        if (activeFamily != VisualThemeFamily.macOS && thumbRadius < 3f) thumbRadius = 3f;
         float thumbDiameter = thumbRadius * 2f;
-        float thumbMargin = (trackH - thumbDiameter) / 2f;
-
+        float thumbMargin = activeFamily == VisualThemeFamily.macOS ? 1f : (trackH - thumbDiameter) / 2f;
         float thumbMinX = trackRect.X + thumbMargin + thumbRadius;
         float thumbMaxX = trackRect.X + trackRect.Width - thumbMargin - thumbRadius;
 
@@ -1598,7 +1647,7 @@ public class SliderChrome : FrameworkElement
 
 
         float baseThumbRadius = activeFamily == VisualThemeFamily.macOS ? 10f : 8f;
-        float trackHeight = activeFamily == VisualThemeFamily.macOS ? 8f : 4f;
+        float trackHeight = 4f;
         float yCenter = Size.Y / 2f;
 
         float width = Size.X;
@@ -1638,6 +1687,11 @@ public class SliderChrome : FrameworkElement
                     : "SliderTrackValueFillDisabled", activeTheme, activeFamily);
                 context.DrawRoundedRectangle(activeBg, null, activeRect, trackHeight / 2f);
             }
+
+            // 2.5. Draw macOS Thumb Shadow
+            Rect shadowRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius + 1.5f, drawThumbRadius * 2f, drawThumbRadius * 2f);
+            Brush shadowBg = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.18f));
+            context.DrawRoundedRectangle(shadowBg, null, shadowRect, drawThumbRadius);
 
             // 3. Draw macOS Thumb (Glossy round sphere)
             Rect thumbRect = new Rect(thumbX - drawThumbRadius, yCenter - drawThumbRadius, drawThumbRadius * 2f, drawThumbRadius * 2f);
