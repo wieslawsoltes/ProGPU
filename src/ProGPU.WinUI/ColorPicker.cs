@@ -81,7 +81,11 @@ public class ColorPicker : Control
 
     private void OnColorChanged(Vector4 oldColor, Vector4 newColor)
     {
-        if (_isUpdating) return;
+        if (_isUpdating)
+        {
+            ColorChanged?.Invoke(this, new ColorChangedEventArgs(oldColor, newColor));
+            return;
+        }
         
         _isUpdating = true;
         try
