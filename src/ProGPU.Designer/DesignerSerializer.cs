@@ -416,17 +416,6 @@ public static class DesignerSerializer
                 }
             }
         }
-        else if (element is ContainerVisual container && container.Children.Count > 0)
-        {
-            foreach (var childNode in container.Children)
-            {
-                if (childNode is FrameworkElement childFe)
-                {
-                    var childVar = SerializeElement(childFe, ref varCounter, declaredNames, sb, indentLevel);
-                    sb.AppendLine($"{indent}{varName}.Children.Add({childVar});");
-                }
-            }
-        }
 
         return varName;
     }
