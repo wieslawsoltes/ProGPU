@@ -486,6 +486,170 @@ public class PropertyGrid : Border
                 PropertyChanged?.Invoke();
             }));
         }
+
+        // Grid.Row & Grid.Column (if parent is Grid)
+        if (_selectedElement.Parent is Grid)
+        {
+            int gridRow = Grid.GetRow(_selectedElement);
+            _dataGrid.AddItem(new PropertyItem("Grid.Row", gridRow.ToString(), val =>
+            {
+                if (int.TryParse(val, out int r))
+                {
+                    Grid.SetRow(_selectedElement, r);
+                    if (_selectedElement.Parent is FrameworkElement parentFe)
+                    {
+                        parentFe.InvalidateMeasure();
+                        parentFe.InvalidateArrange();
+                        parentFe.Invalidate();
+                    }
+                    PropertyChanged?.Invoke();
+                }
+            }));
+
+            int gridCol = Grid.GetColumn(_selectedElement);
+            _dataGrid.AddItem(new PropertyItem("Grid.Column", gridCol.ToString(), val =>
+            {
+                if (int.TryParse(val, out int c))
+                {
+                    Grid.SetColumn(_selectedElement, c);
+                    if (_selectedElement.Parent is FrameworkElement parentFe)
+                    {
+                        parentFe.InvalidateMeasure();
+                        parentFe.InvalidateArrange();
+                        parentFe.Invalidate();
+                    }
+                    PropertyChanged?.Invoke();
+                }
+            }));
+        }
+
+        // DockPanel.Dock (if parent is DockPanel)
+        if (_selectedElement.Parent is DockPanel)
+        {
+            var dock = DockPanel.GetDock(_selectedElement);
+            _dataGrid.AddItem(new PropertyItem("DockPanel.Dock", dock.ToString(), typeof(Dock), val =>
+            {
+                if (Enum.TryParse<Dock>(val, out var dk))
+                {
+                    DockPanel.SetDock(_selectedElement, dk);
+                    if (_selectedElement.Parent is FrameworkElement parentFe)
+                    {
+                        parentFe.InvalidateMeasure();
+                        parentFe.InvalidateArrange();
+                        parentFe.Invalidate();
+                    }
+                    PropertyChanged?.Invoke();
+                }
+            }));
+        }
+
+        // Grid Definition Editing
+        if (_selectedElement is Grid selectedGrid)
+        {
+            string colStr = GetGridLengthsString(selectedGrid.ColumnDefinitions);
+            _dataGrid.AddItem(new PropertyItem("ColumnDefinitions", colStr, val =>
+            {
+                selectedGrid.ColumnDefinitions.Clear();
+                foreach (var gl in ParseGridLengths(val))
+                {
+                    selectedGrid.ColumnDefinitions.Add(gl);
+                }
+                selectedGrid.InvalidateMeasure();
+                selectedGrid.InvalidateArrange();
+                selectedGrid.Invalidate();
+                PropertyChanged?.Invoke();
+            }));
+
+            string rowStr = GetGridLengthsString(selectedGrid.RowDefinitions);
+            _dataGrid.AddItem(new PropertyItem("RowDefinitions", rowStr, val =>
+            {
+                selectedGrid.RowDefinitions.Clear();
+                foreach (var gl in ParseGridLengths(val))
+                {
+                    selectedGrid.RowDefinitions.Add(gl);
+                }
+                selectedGrid.InvalidateMeasure();
+                selectedGrid.InvalidateArrange();
+                selectedGrid.Invalidate();
+                PropertyChanged?.Invoke();
+            }));
+        }
+
+        // WrapPanel Editing
+        if (_selectedElement is WrapPanel selectedWrap)
+        {
+            _dataGrid.AddItem(new PropertyItem("ItemWidth", float.IsNaN(selectedWrap.ItemWidth) ? "" : selectedWrap.ItemWidth.ToString("F0"), val =>
+            {
+                if (float.TryParse(val, out float iw))
+                {
+                    selectedWrap.ItemWidth = iw;
+                }
+                else
+                {
+                    selectedWrap.ItemWidth = float.NaN;
+                }
+                selectedWrap.InvalidateMeasure();
+                selectedWrap.InvalidateArrange();
+                selectedWrap.Invalidate();
+                PropertyChanged?.Invoke();
+            }));
+
+            _dataGrid.AddItem(new PropertyItem("ItemHeight", float.IsNaN(selectedWrap.ItemHeight) ? "" : selectedWrap.ItemHeight.ToString("F0"), val =>
+            {
+                if (float.TryParse(val, out float ih))
+                {
+                    selectedWrap.ItemHeight = ih;
+                }
+                else
+                {
+                    selectedWrap.ItemHeight = float.NaN;
+                }
+                selectedWrap.InvalidateMeasure();
+                selectedWrap.InvalidateArrange();
+                selectedWrap.Invalidate();
+                PropertyChanged?.Invoke();
+            }));
+
+            _dataGrid.AddItem(new PropertyItem("HorizontalSpacing", selectedWrap.HorizontalSpacing.ToString("F0"), val =>
+            {
+                if (float.TryParse(val, out float hs))
+                {
+                    selectedWrap.HorizontalSpacing = hs;
+                    selectedWrap.InvalidateMeasure();
+                    selectedWrap.InvalidateArrange();
+                    selectedWrap.Invalidate();
+                    PropertyChanged?.Invoke();
+                }
+            }));
+
+            _dataGrid.AddItem(new PropertyItem("VerticalSpacing", selectedWrap.VerticalSpacing.ToString("F0"), val =>
+            {
+                if (float.TryParse(val, out float vs))
+                {
+                    selectedWrap.VerticalSpacing = vs;
+                    selectedWrap.InvalidateMeasure();
+                    selectedWrap.InvalidateArrange();
+                    selectedWrap.Invalidate();
+                    PropertyChanged?.Invoke();
+                }
+            }));
+        }
+
+        // DockPanel Editing
+        if (_selectedElement is DockPanel selectedDock)
+        {
+            _dataGrid.AddItem(new PropertyItem("LastChildFill", selectedDock.LastChildFill.ToString(), typeof(bool), val =>
+            {
+                if (bool.TryParse(val, out bool lcf))
+                {
+                    selectedDock.LastChildFill = lcf;
+                    selectedDock.InvalidateMeasure();
+                    selectedDock.InvalidateArrange();
+                    selectedDock.Invalidate();
+                    PropertyChanged?.Invoke();
+                }
+            }));
+        }
     }
 
     private string GetBrushString(Brush? brush)
@@ -531,5 +695,66 @@ public class PropertyGrid : Border
             catch {}
         }
         return new ThemeResourceBrush(val);
+    }
+
+    private string GetGridLengthsString(List<GridLength> list)
+    {
+        if (list == null || list.Count == 0) return "";
+        var sb = new StringBuilder();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var gl = list[i];
+            if (gl.UnitType == GridUnitType.Auto)
+            {
+                sb.Append("Auto");
+            }
+            else if (gl.UnitType == GridUnitType.Star)
+            {
+                if (gl.Value == 1f) sb.Append("*");
+                else sb.Append($"{gl.Value}*");
+            }
+            else
+            {
+                sb.Append(gl.Value.ToString("F0"));
+            }
+            if (i < list.Count - 1) sb.Append(", ");
+        }
+        return sb.ToString();
+    }
+
+    private List<GridLength> ParseGridLengths(string val)
+    {
+        var list = new List<GridLength>();
+        if (string.IsNullOrEmpty(val)) return list;
+        var parts = val.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim();
+            if (trimmed.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(GridLength.Auto);
+            }
+            else if (trimmed.EndsWith("*"))
+            {
+                float weight = 1f;
+                if (trimmed.Length > 1)
+                {
+                    var numPart = trimmed.Substring(0, trimmed.Length - 1);
+                    if (float.TryParse(numPart, out float w))
+                    {
+                        weight = w;
+                    }
+                }
+                list.Add(GridLength.Star(weight));
+            }
+            else
+            {
+                if (float.TryParse(trimmed, out float px))
+                {
+                    list.Add(new GridLength(px, GridUnitType.Absolute));
+                }
+            }
+        }
+        return list;
     }
 }
