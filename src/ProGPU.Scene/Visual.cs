@@ -196,6 +196,28 @@ public class Visual
         return Transform * modelMatrix;
     }
 
+    public Matrix4x4 GetGlobalTransformMatrix()
+    {
+        var local = GetLocalTransform();
+        if (Parent == null) return local;
+        return local * Parent.GetGlobalTransformMatrix();
+    }
+
+    public GeneralTransform TransformToVisual(Visual? visual)
+    {
+        var globalA = GetGlobalTransformMatrix();
+        if (visual == null)
+        {
+            return new GeneralTransform(globalA);
+        }
+        var globalB = visual.GetGlobalTransformMatrix();
+        if (Matrix4x4.Invert(globalB, out var invB))
+        {
+            return new GeneralTransform(globalA * invB);
+        }
+        return new GeneralTransform(globalA);
+    }
+
     public void StartAnimation(string propertyName, CompositionAnimation animation)
     {
         _activeAnimations[propertyName] = animation;

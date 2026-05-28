@@ -11,6 +11,7 @@ using System.Reflection;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using ProGPU.Text;
+using ProGPU.WinUI;
 
 namespace ProGPU.Designer;
 
@@ -63,6 +64,8 @@ public class DesignerCanvas : Panel
 
     public event Action? SelectionChanged;
     public event Action? CanvasModified;
+
+    private readonly RTree<FrameworkElement> _spatialIndex = new RTree<FrameworkElement>();
 
     // Pointer movement state
     private bool _isDraggingElement;
@@ -200,20 +203,35 @@ public class DesignerCanvas : Panel
             return;
         }
 
-        // 3. Manual geometric hit test in logical coordinates
+        // 3. Manual geometric hit test in logical coordinates using R-Tree
         Vector2 logicalPos = (e.Position - PanOffset) / ZoomScale;
         FrameworkElement? hitChild = null;
 
-        for (int i = DesignSurface.Children.Count - 1; i >= 0; i--)
+        RebuildSpatialIndex();
+        var candidates = _spatialIndex.Query(logicalPos);
+        
+        // Sort candidates by their index in DesignSurface.Children descending to query topmost first
+        candidates.Sort((a, b) => {
+            int idxA = DesignSurface.Children.IndexOf(a);
+            int idxB = DesignSurface.Children.IndexOf(b);
+            return idxB.CompareTo(idxA);
+        });
+
+        foreach (var child in candidates)
         {
-            if (DesignSurface.Children[i] is FrameworkElement child)
+            var transformToLocal = DesignSurface.TransformToVisual(child);
+            Vector2 localPoint = transformToLocal.TransformPoint(logicalPos);
+            
+            float w = float.IsNaN(child.Width) ? child.Size.X : child.Width;
+            float h = float.IsNaN(child.Height) ? child.Size.Y : child.Height;
+            if (w <= 0) w = 120f;
+            if (h <= 0) h = 36f;
+            
+            Rect localBounds = new Rect(0, 0, w, h);
+            if (localBounds.Contains(localPoint))
             {
-                Rect bounds = GetElementRect(child);
-                if (bounds.Contains(logicalPos))
-                {
-                    hitChild = child;
-                    break;
-                }
+                hitChild = child;
+                break;
             }
         }
 
@@ -356,6 +374,28 @@ public class DesignerCanvas : Panel
         if (height <= 0) height = 36f;
         
         return new Rect(left, top, width, height);
+    }
+
+    private void RebuildSpatialIndex()
+    {
+        var entries = new List<RTreeEntry<FrameworkElement>>();
+        foreach (var child in DesignSurface.Children)
+        {
+            if (child is FrameworkElement fe)
+            {
+                float w = float.IsNaN(fe.Width) ? fe.Size.X : fe.Width;
+                float h = float.IsNaN(fe.Height) ? fe.Size.Y : fe.Height;
+                if (w <= 0) w = 120f;
+                if (h <= 0) h = 36f;
+                Rect localBounds = new Rect(0, 0, w, h);
+
+                var transform = fe.TransformToVisual(DesignSurface);
+                Rect transformedBounds = transform.TransformBounds(localBounds);
+
+                entries.Add(new RTreeEntry<FrameworkElement>(transformedBounds, fe));
+            }
+        }
+        _spatialIndex.Rebuild(entries);
     }
 
     public Vector2 SnapPosition(FrameworkElement element, Vector2 newPos)
