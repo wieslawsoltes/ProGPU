@@ -109,6 +109,7 @@ public class LayoutNode : ContainerVisual, ILayoutNode
     private VerticalAlignment _verticalAlignment = VerticalAlignment.Stretch;
     private float? _widthConstraint;
     private float? _heightConstraint;
+    private bool _isCollapsed = false;
 
     private bool _isMeasureValid;
     private bool _isArrangeValid;
@@ -137,6 +138,20 @@ public class LayoutNode : ContainerVisual, ILayoutNode
             {
                 _padding = value;
                 InvalidateMeasure();
+            }
+        }
+    }
+
+    public bool IsCollapsed
+    {
+        get => _isCollapsed;
+        set
+        {
+            if (_isCollapsed != value)
+            {
+                _isCollapsed = value;
+                InvalidateMeasure();
+                InvalidateArrange();
             }
         }
     }
@@ -222,6 +237,14 @@ public class LayoutNode : ContainerVisual, ILayoutNode
 
     public void Measure(Vector2 availableSize)
     {
+        if (IsCollapsed)
+        {
+            DesiredSize = Vector2.Zero;
+            _previousAvailableSize = availableSize;
+            _isMeasureValid = true;
+            return;
+        }
+
         if (_isMeasureValid && availableSize == _previousAvailableSize)
         {
             return;
@@ -276,6 +299,14 @@ public class LayoutNode : ContainerVisual, ILayoutNode
 
     public void Arrange(Rect finalRect)
     {
+        if (IsCollapsed)
+        {
+            Size = Vector2.Zero;
+            _previousFinalRect = finalRect;
+            _isArrangeValid = true;
+            return;
+        }
+
         if (_isArrangeValid && _isMeasureValid && finalRect == _previousFinalRect)
         {
             return;

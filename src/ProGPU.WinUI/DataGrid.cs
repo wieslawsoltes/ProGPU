@@ -56,7 +56,7 @@ public class DataGrid : Control
 
     private int _editingRow = -1;
     private int _editingCol = -1;
-    private TextBox? _cellEditor;
+    private FrameworkElement? _cellEditor;
     private DateTime _lastClickTime = DateTime.MinValue;
     private int _lastClickRow = -1;
     private int _lastClickCol = -1;
@@ -698,23 +698,116 @@ public class DataGrid : Control
         var column = Columns[col];
         string val = GetCellValue(item, column.PropertyName);
 
-        if (_cellEditor == null)
+        if (_cellEditor != null)
         {
-            _cellEditor = new CellEditorTextBox(this);
-            AddChild(_cellEditor);
+            RemoveChild(_cellEditor);
+            _cellEditor = null;
         }
 
-        _cellEditor.Text = val;
-        _cellEditor.Font = GetActiveFont();
-        _cellEditor.FontSize = FontSize;
-        _cellEditor.Padding = new Thickness(8f, 0f, 8f, 0f);
-        _cellEditor.CornerRadius = 0f;
+        // Reflectively retrieve cell property type to avoid circular dependency
+        Type cellType = typeof(string);
+        var typeProp = item.GetType().GetProperty("PropertyType");
+        if (typeProp != null)
+        {
+            cellType = typeProp.GetValue(item) as Type ?? typeof(string);
+        }
+        else
+        {
+            var prop = item.GetType().GetProperty(column.PropertyName);
+            if (prop != null) cellType = prop.PropertyType;
+        }
+
+        if (cellType == typeof(bool))
+        {
+            var cb = new CheckBox
+            {
+                IsChecked = val.Equals("True", StringComparison.OrdinalIgnoreCase),
+                Font = GetActiveFont()
+            };
+            cb.Checked += (s, ev) => { CommitValue("True"); };
+            cb.Unchecked += (s, ev) => { CommitValue("False"); };
+            _cellEditor = cb;
+        }
+        else if (cellType.IsEnum)
+        {
+            var combo = new ComboBox
+            {
+                Font = GetActiveFont(),
+                FontSize = FontSize,
+                CornerRadius = 0f
+            };
+            foreach (var name in Enum.GetNames(cellType))
+            {
+                combo.Items.Add(new ComboBoxItem { Text = name });
+            }
+            foreach (var itemNode in combo.Items)
+            {
+                if (itemNode.Text.Equals(val, StringComparison.OrdinalIgnoreCase))
+                {
+                    combo.SelectedItem = itemNode;
+                    break;
+                }
+            }
+            combo.SelectionChanged += (s, ev) =>
+            {
+                if (combo.SelectedItem != null)
+                {
+                    CommitValue(combo.SelectedItem.Text);
+                }
+            };
+            _cellEditor = combo;
+        }
+        else if (cellType == typeof(Brush) || cellType == typeof(Vector4))
+        {
+            _cellEditor = new BrushCellEditor(this, val);
+        }
+        else
+        {
+            var tb = new CellEditorTextBox(this)
+            {
+                Text = val,
+                Font = GetActiveFont(),
+                FontSize = FontSize,
+                Padding = new Thickness(8f, 0f, 8f, 0f),
+                CornerRadius = 0f
+            };
+            _cellEditor = tb;
+        }
+
+        if (_cellEditor.Parent == null)
+        {
+            AddChild(_cellEditor);
+        }
 
         UpdateCellEditorLayout();
         Invalidate();
 
         InputSystem.SetFocus(_cellEditor);
-        _cellEditor.CaretIndex = val.Length;
+        if (_cellEditor is CellEditorTextBox cet)
+        {
+            cet.CaretIndex = val.Length;
+        }
+    }
+
+    public void CommitValue(string val)
+    {
+        if (_editingRow != -1 && _cellEditor != null)
+        {
+            if (_cellEditor is TextBox tb) tb.Text = val;
+            else if (_cellEditor is CheckBox cb) cb.IsChecked = val.Equals("True", StringComparison.OrdinalIgnoreCase);
+            else if (_cellEditor is ComboBox combo)
+            {
+                foreach (var item in combo.Items)
+                {
+                    if (item.Text.Equals(val, StringComparison.OrdinalIgnoreCase))
+                    {
+                        combo.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
+            CommitEdit();
+        }
     }
 
     public void CommitEdit()
@@ -725,7 +818,24 @@ public class DataGrid : Control
             int col = _editingCol;
             var item = _itemsSource[row];
             var column = Columns[col];
-            string newValueText = _cellEditor.Text;
+
+            string newValueText = "";
+            if (_cellEditor is TextBox tb)
+            {
+                newValueText = tb.Text;
+            }
+            else if (_cellEditor is CheckBox cb)
+            {
+                newValueText = cb.IsChecked.ToString();
+            }
+            else if (_cellEditor is ComboBox combo)
+            {
+                newValueText = combo.SelectedItem?.Text ?? "";
+            }
+            else if (_cellEditor is BrushCellEditor bce)
+            {
+                newValueText = bce.Value;
+            }
 
             _editingRow = -1;
             _editingCol = -1;
@@ -734,6 +844,7 @@ public class DataGrid : Control
             _cellEditor.HeightConstraint = 0f;
             _cellEditor.Measure(new Vector2(0, 0));
             _cellEditor.Arrange(new Rect(0, 0, 0, 0));
+            RemoveChild(_cellEditor);
 
             if (InputSystem.FocusedElement == _cellEditor)
             {
@@ -742,7 +853,8 @@ public class DataGrid : Control
 
             try
             {
-                System.Reflection.PropertyInfo? prop = item.GetType().GetProperty(column.PropertyName);
+                System.Reflection.PropertyInfo? prop = item.GetType().GetProperty(column.PropertyName)
+                                                     ?? item.GetType().GetProperty("Value");
                 if (prop != null && prop.CanWrite)
                 {
                     System.Type propType = prop.PropertyType;
@@ -771,6 +883,15 @@ public class DataGrid : Control
                             prop.SetValue(item, fVal);
                         }
                     }
+                    else if (propType.IsEnum)
+                    {
+                        try
+                        {
+                            var eval = Enum.Parse(propType, newValueText, true);
+                            prop.SetValue(item, eval);
+                        }
+                        catch {}
+                    }
                 }
             }
             catch (Exception ex)
@@ -795,6 +916,7 @@ public class DataGrid : Control
                 _cellEditor.HeightConstraint = 0f;
                 _cellEditor.Measure(new Vector2(0, 0));
                 _cellEditor.Arrange(new Rect(0, 0, 0, 0));
+                RemoveChild(_cellEditor);
 
                 if (InputSystem.FocusedElement == _cellEditor)
                 {
@@ -894,6 +1016,160 @@ public class DataGrid : Control
             {
                 _owner.CancelEdit();
             }
+        }
+    }
+
+    private class BrushCellEditor : Grid
+    {
+        private readonly DataGrid _owner;
+        private readonly TextBox _textBox;
+        private readonly Button _colorBtn;
+        private Border? _pickerPopup;
+
+        public BrushCellEditor(DataGrid owner, string initialVal)
+        {
+            _owner = owner;
+            ColumnDefinitions.Add(GridLength.Star(1f));
+            ColumnDefinitions.Add(new GridLength(24f, GridUnitType.Absolute));
+
+            _textBox = new TextBox
+            {
+                Text = initialVal,
+                Font = owner.GetActiveFont(),
+                FontSize = owner.FontSize,
+                Padding = new Thickness(4f, 0f, 4f, 0f),
+                CornerRadius = 0f
+            };
+            _textBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    _owner.CommitEdit();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    _owner.CancelEdit();
+                    e.Handled = true;
+                }
+            };
+            Grid.SetColumn(_textBox, 0);
+            AddChild(_textBox);
+
+            _colorBtn = new Button
+            {
+                WidthConstraint = 20f,
+                HeightConstraint = 20f,
+                CornerRadius = 2f,
+                Margin = new Thickness(2),
+                Background = GetBrushFromText(initialVal)
+            };
+            _colorBtn.Click += (s, e) => { ShowColorPickerPopup(); };
+            Grid.SetColumn(_colorBtn, 1);
+            AddChild(_colorBtn);
+        }
+
+        public string Value => _textBox.Text;
+
+        private Brush GetBrushFromText(string txt)
+        {
+            if (string.IsNullOrEmpty(txt)) return new SolidColorBrush(new Vector4(0f, 0f, 0f, 0f));
+            if (txt.Equals("Transparent", StringComparison.OrdinalIgnoreCase))
+            {
+                return new SolidColorBrush(new Vector4(0f, 0f, 0f, 0f));
+            }
+            if (txt.StartsWith("#"))
+            {
+                try
+                {
+                    var hex = txt.Substring(1);
+                    if (hex.Length == 6) hex = "FF" + hex;
+                    if (hex.Length == 8)
+                    {
+                        uint rgba = Convert.ToUInt32(hex, 16);
+                        float a = ((rgba >> 24) & 0xFF) / 255.0f;
+                        float r = ((rgba >> 16) & 0xFF) / 255.0f;
+                        float g = ((rgba >> 8) & 0xFF) / 255.0f;
+                        float b = (rgba & 0xFF) / 255.0f;
+                        return new SolidColorBrush(new Vector4(r, g, b, a));
+                    }
+                }
+                catch {}
+            }
+            return new ThemeResourceBrush(txt);
+        }
+
+        private void ShowColorPickerPopup()
+        {
+            if (_pickerPopup == null)
+            {
+                var grid = new Grid();
+                grid.RowDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.RowDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+                grid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute));
+
+                string[] colors = {
+                    "#FFFF0000", "#FFFFA500", "#FFFFFF00", "#FF008000", "#FF00FFFF", "#FF0000FF", "#FF800080", "#FFFF00FF",
+                    "#FF000000", "#FFFFFFFF", "#FF808080", "#FFD3D3D3", "#FF00BCF2", "#FF107C41", "#FFF29600", "#FFE81123",
+                    "Transparent", "HeaderBackground", "CardBackground", "ControlBackground"
+                };
+
+                for (int i = 0; i < colors.Length; i++)
+                {
+                    int row = i / 10;
+                    int col = i % 10;
+                    string colorHex = colors[i];
+
+                    var box = new Button
+                    {
+                        WidthConstraint = 16f,
+                        HeightConstraint = 16f,
+                        CornerRadius = 1f,
+                        Margin = new Thickness(2),
+                        Background = GetBrushFromText(colorHex)
+                    };
+                    box.Click += (s, e) =>
+                    {
+                        _textBox.Text = colorHex;
+                        _colorBtn.Background = GetBrushFromText(colorHex);
+                        PopupService.HidePopup(_pickerPopup!);
+                        _owner.CommitEdit();
+                    };
+
+                    Grid.SetRow(box, row);
+                    Grid.SetColumn(box, col);
+                    grid.AddChild(box);
+                }
+
+                _pickerPopup = new Border
+                {
+                    Background = new ThemeResourceBrush("CardBackground"),
+                    BorderBrush = new ThemeResourceBrush("ControlBorder"),
+                    BorderThickness = new Thickness(1f),
+                    CornerRadius = 4f,
+                    Padding = new Thickness(4),
+                    Child = grid
+                };
+            }
+
+            Vector2 absPos = Offset;
+            Visual? current = Parent;
+            while (current != null)
+            {
+                absPos += current.Offset;
+                current = current.Parent;
+            }
+
+            _pickerPopup.Width = 210f;
+            _pickerPopup.Height = 52f;
+            PopupService.ShowPopup(_pickerPopup, new Vector2(absPos.X - 120f, absPos.Y + Size.Y + 2f), _colorBtn);
         }
     }
 }

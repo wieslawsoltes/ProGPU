@@ -59,8 +59,7 @@ public class Control : FrameworkElement, ITemplatedControl
             typeof(Control),
             new Microsoft.UI.Xaml.PropertyMetadata(null, (d, e) => ((Control)d).ApplyTemplate()));
 
-    private HorizontalAlignment _horizontalContentAlignment = HorizontalAlignment.Center;
-    private VerticalAlignment _verticalContentAlignment = VerticalAlignment.Center;
+
 
     private bool _isPointerOver;
     private bool _isPointerPressed;
@@ -106,16 +105,38 @@ public class Control : FrameworkElement, ITemplatedControl
         set => SetValue(CornerRadiusProperty, value);
     }
 
+    public static readonly DependencyProperty HorizontalContentAlignmentProperty =
+        DependencyProperty.Register(
+            "HorizontalContentAlignment",
+            typeof(HorizontalAlignment),
+            typeof(Control),
+            new PropertyMetadata(HorizontalAlignment.Center, (d, e) => {
+                var c = (Control)d;
+                c.Invalidate();
+                c.InvalidateMeasure();
+            }));
+
     public HorizontalAlignment HorizontalContentAlignment
     {
-        get => _horizontalContentAlignment;
-        set { if (_horizontalContentAlignment != value) { _horizontalContentAlignment = value; Invalidate(); OnPropertyChanged(); } }
+        get => (HorizontalAlignment)(GetValue(HorizontalContentAlignmentProperty) ?? HorizontalAlignment.Center);
+        set => SetValue(HorizontalContentAlignmentProperty, value);
     }
+
+    public static readonly DependencyProperty VerticalContentAlignmentProperty =
+        DependencyProperty.Register(
+            "VerticalContentAlignment",
+            typeof(VerticalAlignment),
+            typeof(Control),
+            new PropertyMetadata(VerticalAlignment.Center, (d, e) => {
+                var c = (Control)d;
+                c.Invalidate();
+                c.InvalidateMeasure();
+            }));
 
     public VerticalAlignment VerticalContentAlignment
     {
-        get => _verticalContentAlignment;
-        set { if (_verticalContentAlignment != value) { _verticalContentAlignment = value; Invalidate(); OnPropertyChanged(); } }
+        get => (VerticalAlignment)(GetValue(VerticalContentAlignmentProperty) ?? VerticalAlignment.Center);
+        set => SetValue(VerticalContentAlignmentProperty, value);
     }
 
     public bool IsPointerOver
@@ -210,6 +231,20 @@ public class Control : FrameworkElement, ITemplatedControl
             if (targetDp != null && sourceDp != null)
             {
                 TemplateBinding.Bind(presenter, targetDp, this, sourceDp);
+            }
+
+            var targetHoriz = DependencyProperty.Lookup(presenter.GetType(), "HorizontalContentAlignment");
+            var sourceHoriz = DependencyProperty.Lookup(this.GetType(), "HorizontalContentAlignment");
+            if (targetHoriz != null && sourceHoriz != null)
+            {
+                TemplateBinding.Bind(presenter, targetHoriz, this, sourceHoriz);
+            }
+
+            var targetVert = DependencyProperty.Lookup(presenter.GetType(), "VerticalContentAlignment");
+            var sourceVert = DependencyProperty.Lookup(this.GetType(), "VerticalContentAlignment");
+            if (targetVert != null && sourceVert != null)
+            {
+                TemplateBinding.Bind(presenter, targetVert, this, sourceVert);
             }
         }
 

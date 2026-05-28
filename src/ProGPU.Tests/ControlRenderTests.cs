@@ -367,4 +367,35 @@ public class ControlRenderTests
         Assert.Equal(100.5f, Canvas.GetLeft(rawVisual));
         Assert.Equal(200.5f, Canvas.GetTop(rawVisual));
     }
+
+    [Fact]
+    public void Test_HitTesting_Diagnostics()
+    {
+        var root = new Border { Width = 800f, Height = 600f };
+        var canvas = new Canvas
+        {
+            Width = 600f,
+            Height = 400f,
+            Margin = new ProGPU.Layout.Thickness(100f, 100f, 0f, 0f),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        root.Child = canvas;
+        
+        var button = new Button { Width = 100f, Height = 50f };
+        Canvas.SetLeft(button, 50f);
+        Canvas.SetTop(button, 50f);
+        canvas.Children.Add(button);
+        
+        // Measure and arrange
+        root.Measure(new Vector2(800f, 600f));
+        root.Arrange(new ProGPU.Scene.Rect(0f, 0f, 800f, 600f));
+        
+        // Simulate hit test
+        InputSystem.Current.Root = root;
+        var hit = InputSystem.HitTest(new Vector2(175f, 175f)); // inside button: 100 (canvas margin left) + 50 (button canvas left) + 25 = 175
+        
+        Assert.NotNull(hit);
+        Assert.Equal(button, hit);
+    }
 }

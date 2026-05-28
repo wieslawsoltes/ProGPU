@@ -35,6 +35,8 @@ public class PointerRoutedEventArgs : RoutedEventArgs
     public Vector2 Position { get; set; }       // Position relative to the element
     public Vector2 ScreenPosition { get; set; } // Position relative to the screen
     public bool IsLeftButtonPressed { get; set; }
+    public bool IsMiddleButtonPressed { get; set; }
+    public bool IsRightButtonPressed { get; set; }
     public float WheelDelta { get; set; }
 }
 
@@ -53,6 +55,19 @@ public partial class FrameworkElement
     {
         get => (ElementTheme)(GetValue(RequestedThemeProperty) ?? ElementTheme.Default);
         set => SetValue(RequestedThemeProperty, value);
+    }
+
+    public static readonly Microsoft.UI.Xaml.DependencyProperty AllowDropProperty =
+        Microsoft.UI.Xaml.DependencyProperty.Register(
+            "AllowDrop",
+            typeof(bool),
+            typeof(FrameworkElement),
+            new Microsoft.UI.Xaml.PropertyMetadata(false, null));
+
+    public bool AllowDrop
+    {
+        get => (bool)(GetValue(AllowDropProperty) ?? false);
+        set => SetValue(AllowDropProperty, value);
     }
 
     public ElementTheme ActualTheme
@@ -487,6 +502,12 @@ public partial class FrameworkElement
     public event EventHandler<KeyRoutedEventArgs>? KeyUp;
     public event EventHandler<CharacterReceivedRoutedEventArgs>? CharacterReceived;
 
+    // Drag & Drop Events
+    public event EventHandler<DragEventArgs>? DragEnter;
+    public event EventHandler<DragEventArgs>? DragOver;
+    public event EventHandler<DragEventArgs>? DragLeave;
+    public event EventHandler<DragEventArgs>? Drop;
+
     // Helper methods to trigger routed events
     public virtual void OnPointerPressed(PointerRoutedEventArgs e)
     {
@@ -567,6 +588,46 @@ public partial class FrameworkElement
         if (!e.Handled && Parent is FrameworkElement parentFe)
         {
             parentFe.OnCharacterReceived(e);
+        }
+    }
+
+    public virtual void OnDragEnter(DragEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        DragEnter?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe)
+        {
+            parentFe.OnDragEnter(e);
+        }
+    }
+
+    public virtual void OnDragOver(DragEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        DragOver?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe)
+        {
+            parentFe.OnDragOver(e);
+        }
+    }
+
+    public virtual void OnDragLeave(DragEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        DragLeave?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe)
+        {
+            parentFe.OnDragLeave(e);
+        }
+    }
+
+    public virtual void OnDrop(DragEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        Drop?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe)
+        {
+            parentFe.OnDrop(e);
         }
     }
 }

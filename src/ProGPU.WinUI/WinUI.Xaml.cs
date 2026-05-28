@@ -48,8 +48,36 @@ namespace Microsoft.UI.Xaml
     }
 
 
+    public enum Visibility
+    {
+        Visible = 0,
+        Collapsed = 1
+    }
+
     public class UIElement : DependencyObject
     {
+        public static readonly DependencyProperty VisibilityProperty =
+            DependencyProperty.Register(
+                "Visibility",
+                typeof(Visibility),
+                typeof(UIElement),
+                new PropertyMetadata(Visibility.Visible, (d, e) => {
+                    var element = (UIElement)d;
+                    var val = (Visibility)(e.NewValue ?? Visibility.Visible);
+                    element.SetVisibilityLayout(val);
+                }));
+
+        private void SetVisibilityLayout(Visibility val)
+        {
+            this.IsVisible = val == Visibility.Visible;
+            this.IsCollapsed = val == Visibility.Collapsed;
+        }
+
+        public Visibility Visibility
+        {
+            get => (Visibility)(GetValue(VisibilityProperty) ?? Visibility.Visible);
+            set => SetValue(VisibilityProperty, value);
+        }
     }
 
     public delegate void RoutedEventHandler(object sender, RoutedEventArgs e);

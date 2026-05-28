@@ -131,7 +131,7 @@ public class VirtualizingScrollPanel : LayoutNode
             }
 
             // Calculate screen position relative to viewport
-            float posY = i * ItemHeight - ScrollOffset;
+            float posY = MathF.Round(i * ItemHeight - ScrollOffset);
             
             // Position child visual node
             visual.Offset = new Vector2(0f, posY);
@@ -154,5 +154,11 @@ public class VirtualizingScrollPanel : LayoutNode
             _recycledVisuals.Push(vis);
         }
         _activeVisuals.Clear();
+    }
+
+    public void ForceRebind()
+    {
+        ClearActiveToRecycler();
+        Invalidate();
     }
 }

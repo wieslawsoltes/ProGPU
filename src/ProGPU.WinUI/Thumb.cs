@@ -6,6 +6,8 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Numerics;
 using ProGPU.Layout;
+using ProGPU.Scene;
+using ProGPU.Vector;
 
 namespace Microsoft.UI.Xaml.Controls;
 
@@ -72,9 +74,9 @@ public class Thumb : Control
         {
             _isDragging = true;
             InputSystem.CapturePointer(this);
-            _startPos = e.Position;
-            _lastPos = e.Position;
-            DragStarted?.Invoke(this, new DragStartedEventArgs(e.Position.X, e.Position.Y));
+            _startPos = e.ScreenPosition;
+            _lastPos = e.ScreenPosition;
+            DragStarted?.Invoke(this, new DragStartedEventArgs(e.ScreenPosition.X, e.ScreenPosition.Y));
             base.OnPointerPressed(e);
         }
     }
@@ -83,8 +85,8 @@ public class Thumb : Control
     {
         if (_isDragging && IsEnabled)
         {
-            var delta = e.Position - _lastPos;
-            _lastPos = e.Position;
+            var delta = e.ScreenPosition - _lastPos;
+            _lastPos = e.ScreenPosition;
             DragDelta?.Invoke(this, new DragDeltaEventArgs(delta.X, delta.Y));
         }
         base.OnPointerMoved(e);
@@ -96,9 +98,24 @@ public class Thumb : Control
         {
             _isDragging = false;
             InputSystem.ReleasePointerCapture();
-            DragCompleted?.Invoke(this, new DragCompletedEventArgs(e.Position.X, e.Position.Y));
+            DragCompleted?.Invoke(this, new DragCompletedEventArgs(e.ScreenPosition.X, e.ScreenPosition.Y));
         }
         base.OnPointerReleased(e);
+     }
+
+    public override void OnRender(DrawingContext context)
+    {
+        var bg = GetCurrentBackground();
+        var border = GetCurrentBorderBrush();
+        var thickness = BorderThickness;
+
+        if (bg != null || (border != null && thickness.Left > 0f))
+        {
+            var pen = border != null && thickness.Left > 0f ? new Pen(border, thickness.Left) : null;
+            context.DrawRoundedRectangle(bg, pen, new Rect(Vector2.Zero, Size), CornerRadius);
+        }
+
+        base.OnRender(context);
     }
 }
 

@@ -27,6 +27,9 @@ public class WindowInputState
     public System.Threading.CancellationTokenSource? HoverCancellation;
     public ToolTip? ActiveToolTip;
     public FrameworkElement? HoveredElementForTimer;
+    public bool IsLeftButtonPressed;
+    public bool IsMiddleButtonPressed;
+    public bool IsRightButtonPressed;
 }
 
 public static class InputSystem
@@ -235,43 +238,98 @@ public static class InputSystem
         for (int i = PopupService.ActivePopups.Count - 1; i >= 0; i--)
         {
             var popup = PopupService.ActivePopups[i];
-            var hit = HitTestInternal(popup, screenPoint, Vector2.Zero);
+            var hit = HitTestInternal(popup, screenPoint, Matrix4x4.Identity);
             if (hit != null) return hit;
         }
 
         if (_root == null) return null;
-        return HitTestInternal(_root, screenPoint, Vector2.Zero);
+        return HitTestInternal(_root, screenPoint, Matrix4x4.Identity);
     }
 
-    private static FrameworkElement? HitTestInternal(Visual visual, Vector2 screenPoint, Vector2 parentOffset)
+    private static bool HasBackground(FrameworkElement fe)
+    {
+        var prop = fe.GetType().GetProperty("Background");
+        if (prop != null)
+        {
+            return prop.GetValue(fe) != null;
+        }
+        return false;
+    }
+
+    private static FrameworkElement? HitTestInternal(Visual visual, Vector2 screenPoint, Matrix4x4 parentTransform)
     {
         if (visual is not FrameworkElement fe || !fe.IsHitTestVisible || !fe.IsEnabled)
             return null;
 
-        Vector2 localOffset = parentOffset + visual.Offset;
-        Rect bounds = new Rect(localOffset, visual.Size);
+        var localTransform = visual.GetLocalTransform();
+        var globalTransform = localTransform * parentTransform;
 
-        if (!bounds.Contains(screenPoint))
-            return null;
-
-        // Traverse children in reverse order (topmost first)
-        if (visual is ContainerVisual container)
+        if (Matrix4x4.Invert(globalTransform, out Matrix4x4 invGlobal))
         {
-            for (int i = container.Children.Count - 1; i >= 0; i--)
+            Vector3 screenPt3 = new Vector3(screenPoint.X, screenPoint.Y, 0f);
+            Vector3 localPt3 = Vector3.Transform(screenPt3, invGlobal);
+            Vector2 localPoint = new Vector2(localPt3.X, localPt3.Y);
+
+            Rect localBounds = new Rect(Vector2.Zero, visual.Size);
+            if (visual.GetType().Name == "SelectionAdorner")
             {
-                var child = container.Children[i];
-                var hit = HitTestInternal(child, screenPoint, localOffset);
-                if (hit != null)
-                    return hit;
+                float zoomScale = 1.0f;
+                var zoomProp = visual.GetType().GetProperty("ZoomScale");
+                if (zoomProp != null)
+                {
+                    zoomScale = (float)(zoomProp.GetValue(visual) ?? 1.0f);
+                }
+                float expandY = 32f / zoomScale;
+                float expandX = 12f / zoomScale;
+                localBounds = new Rect(-expandX, -expandY, visual.Size.X + 2f * expandX, visual.Size.Y + expandY + expandX);
             }
+            if (!localBounds.Contains(localPoint))
+                return null;
+
+            // Traverse children in reverse order (topmost first)
+            if (visual is ContainerVisual container)
+            {
+                for (int i = container.Children.Count - 1; i >= 0; i--)
+                {
+                    var child = container.Children[i];
+                    var hit = HitTestInternal(child, screenPoint, globalTransform);
+                    if (hit != null)
+                        return hit;
+                }
+            }
+
+            // If we are a container and have no background, do not intercept hit-test
+            if (fe is Panel || fe is Border || fe is ContentPresenter)
+            {
+                if (!HasBackground(fe))
+                    return null;
+            }
+
+            return fe;
         }
 
-        return fe;
+        return null;
+    }
+
+    private static Matrix4x4 GetGlobalTransform(Visual visual)
+    {
+        var local = visual.GetLocalTransform();
+        if (visual.Parent == null) return local;
+        return local * GetGlobalTransform(visual.Parent);
     }
 
     public static Vector2 GetLocalPosition(Visual? visual, Vector2 screenPoint)
     {
         if (visual == null) return screenPoint;
+
+        Matrix4x4 globalTransform = GetGlobalTransform(visual);
+        if (Matrix4x4.Invert(globalTransform, out Matrix4x4 invGlobal))
+        {
+            Vector3 screenPt3 = new Vector3(screenPoint.X, screenPoint.Y, 0f);
+            Vector3 localPt3 = Vector3.Transform(screenPt3, invGlobal);
+            return new Vector2(localPt3.X, localPt3.Y);
+        }
+
         Vector2 globalOffset = Vector2.Zero;
         Visual? current = visual;
         while (current != null)
@@ -297,6 +355,12 @@ public static class InputSystem
     private static void OnMouseMove(Vector2 screenPos)
     {
         _lastMousePos = screenPos;
+
+        if (DragDropManager.IsDragging)
+        {
+            DragDropManager.UpdateDrag(screenPos);
+            return;
+        }
 
         if (DevToolsService.IsInspectModeActive || (IsControlPressedDynamic() && IsShiftPressedDynamic()))
         {
@@ -324,7 +388,10 @@ public static class InputSystem
             _capturedElement.OnPointerMoved(new PointerRoutedEventArgs
             {
                 Position = GetLocalPosition(_capturedElement, screenPos),
-                ScreenPosition = screenPos
+                ScreenPosition = screenPos,
+                IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                IsRightButtonPressed = Current.IsRightButtonPressed
             });
             return;
         }
@@ -355,7 +422,10 @@ public static class InputSystem
                 oldPath[i].OnPointerExited(new PointerRoutedEventArgs
                 {
                     Position = GetLocalPosition(oldPath[i], screenPos),
-                    ScreenPosition = screenPos
+                    ScreenPosition = screenPos,
+                    IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                    IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                    IsRightButtonPressed = Current.IsRightButtonPressed
                 });
             }
 
@@ -365,7 +435,10 @@ public static class InputSystem
                 newPath[i].OnPointerEntered(new PointerRoutedEventArgs
                 {
                     Position = GetLocalPosition(newPath[i], screenPos),
-                    ScreenPosition = screenPos
+                    ScreenPosition = screenPos,
+                    IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                    IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                    IsRightButtonPressed = Current.IsRightButtonPressed
                 });
             }
 
@@ -378,7 +451,10 @@ public static class InputSystem
             _hoveredElement.OnPointerMoved(new PointerRoutedEventArgs
             {
                 Position = GetLocalPosition(_hoveredElement, screenPos),
-                ScreenPosition = screenPos
+                ScreenPosition = screenPos,
+                IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                IsRightButtonPressed = Current.IsRightButtonPressed
             });
         }
     }
@@ -390,7 +466,11 @@ public static class InputSystem
         _hoverCancellation = null;
         DismissToolTip();
 
-        if (button != MouseButton.Left) return;
+        if (button != MouseButton.Left && button != MouseButton.Middle && button != MouseButton.Right) return;
+
+        if (button == MouseButton.Left) Current.IsLeftButtonPressed = true;
+        if (button == MouseButton.Middle) Current.IsMiddleButtonPressed = true;
+        if (button == MouseButton.Right) Current.IsRightButtonPressed = true;
 
         var hit = HitTest(_lastMousePos);
 
@@ -477,7 +557,9 @@ public static class InputSystem
             {
                 Position = GetLocalPosition(hit, _lastMousePos),
                 ScreenPosition = _lastMousePos,
-                IsLeftButtonPressed = true
+                IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                IsRightButtonPressed = Current.IsRightButtonPressed
             });
         }
         else
@@ -489,7 +571,17 @@ public static class InputSystem
 
     private static void OnMouseUp(MouseButton button)
     {
-        if (button != MouseButton.Left) return;
+        if (button != MouseButton.Left && button != MouseButton.Middle && button != MouseButton.Right) return;
+
+        if (button == MouseButton.Left) Current.IsLeftButtonPressed = false;
+        if (button == MouseButton.Middle) Current.IsMiddleButtonPressed = false;
+        if (button == MouseButton.Right) Current.IsRightButtonPressed = false;
+
+        if (DragDropManager.IsDragging && button == MouseButton.Left)
+        {
+            DragDropManager.CompleteDrop(_lastMousePos);
+            return;
+        }
 
         if (_capturedElement != null)
         {
@@ -497,7 +589,9 @@ public static class InputSystem
             {
                 Position = GetLocalPosition(_capturedElement, _lastMousePos),
                 ScreenPosition = _lastMousePos,
-                IsLeftButtonPressed = false
+                IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                IsRightButtonPressed = Current.IsRightButtonPressed
             });
             ReleasePointerCapture();
             return;
@@ -510,7 +604,9 @@ public static class InputSystem
             {
                 Position = GetLocalPosition(hit, _lastMousePos),
                 ScreenPosition = _lastMousePos,
-                IsLeftButtonPressed = false
+                IsLeftButtonPressed = Current.IsLeftButtonPressed,
+                IsMiddleButtonPressed = Current.IsMiddleButtonPressed,
+                IsRightButtonPressed = Current.IsRightButtonPressed
             });
         }
     }

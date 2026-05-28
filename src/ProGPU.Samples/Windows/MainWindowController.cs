@@ -67,6 +67,7 @@ public static unsafe class MainWindowController
             {
                 Microsoft.UI.Xaml.Controls.AdornerLayer.Render(diagContext, w, h);
             }
+            Microsoft.UI.Xaml.DragDropManager.RenderDragVisual(diagContext, w, h);
         };
         AppState._offscreenCompositor = new Compositor(AppState._wgpuContext, TextureFormat.Rgba8Unorm);
         AppState._compute = new ComputeAccelerator(AppState._wgpuContext);
@@ -279,6 +280,7 @@ public static unsafe class MainWindowController
         var ratingControlItem = new NavigationViewItem("Rating Control", "⭐", RatingControlPage.Create());
         var passwordBoxItem = new NavigationViewItem("Password Box", "🔒", PasswordBoxPage.Create());
         var dxfViewerItem = new NavigationViewItem("DXF CAD Viewer", "📐", DxfViewerPage.Create());
+        var visualDesignerItem = new NavigationViewItem("Visual Designer", "📐", VisualDesignerPage.Create());
 
         AppState._navigationView.MenuItems.Add(basicInputItem);
         AppState._navigationView.MenuItems.Add(panelsItem);
@@ -304,6 +306,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(ratingControlItem);
         AppState._navigationView.MenuItems.Add(passwordBoxItem);
         AppState._navigationView.MenuItems.Add(dxfViewerItem);
+        AppState._navigationView.MenuItems.Add(visualDesignerItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {

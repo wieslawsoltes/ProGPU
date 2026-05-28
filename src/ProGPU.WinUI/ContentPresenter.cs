@@ -114,6 +114,40 @@ public class ContentPresenter : FrameworkElement
         InvalidateMeasure();
     }
 
+    public static readonly DependencyProperty HorizontalContentAlignmentProperty =
+        DependencyProperty.Register(
+            "HorizontalContentAlignment",
+            typeof(HorizontalAlignment),
+            typeof(ContentPresenter),
+            new PropertyMetadata(HorizontalAlignment.Stretch, (d, e) => {
+                var cp = (ContentPresenter)d;
+                cp.InvalidateMeasure();
+                cp.InvalidateArrange();
+            }));
+
+    public HorizontalAlignment HorizontalContentAlignment
+    {
+        get => (HorizontalAlignment)(GetValue(HorizontalContentAlignmentProperty) ?? HorizontalAlignment.Stretch);
+        set => SetValue(HorizontalContentAlignmentProperty, value);
+    }
+
+    public static readonly DependencyProperty VerticalContentAlignmentProperty =
+        DependencyProperty.Register(
+            "VerticalContentAlignment",
+            typeof(VerticalAlignment),
+            typeof(ContentPresenter),
+            new PropertyMetadata(VerticalAlignment.Stretch, (d, e) => {
+                var cp = (ContentPresenter)d;
+                cp.InvalidateMeasure();
+                cp.InvalidateArrange();
+            }));
+
+    public VerticalAlignment VerticalContentAlignment
+    {
+        get => (VerticalAlignment)(GetValue(VerticalContentAlignmentProperty) ?? VerticalAlignment.Stretch);
+        set => SetValue(VerticalContentAlignmentProperty, value);
+    }
+
     protected FrameworkElement? ContentVisual
     {
         get
@@ -156,18 +190,59 @@ public class ContentPresenter : FrameworkElement
         var contentVisual = ContentVisual;
         if (contentVisual != null)
         {
-            float leftInset = BorderThickness.Left;
-            float topInset = BorderThickness.Top;
-            float rightInset = BorderThickness.Right;
-            float bottomInset = BorderThickness.Bottom;
+            float leftInset = BorderThickness.Left + Padding.Left;
+            float topInset = BorderThickness.Top + Padding.Top;
+            float rightInset = BorderThickness.Right + Padding.Right;
+            float bottomInset = BorderThickness.Bottom + Padding.Bottom;
 
-            Rect contentRect = new Rect(
-                arrangeRect.X + leftInset,
-                arrangeRect.Y + topInset,
-                Math.Max(0f, arrangeRect.Width - (leftInset + rightInset)),
-                Math.Max(0f, arrangeRect.Height - (topInset + bottomInset))
-            );
-            contentVisual.Arrange(contentRect);
+            float innerW = Math.Max(0f, arrangeRect.Width - (leftInset + rightInset));
+            float innerH = Math.Max(0f, arrangeRect.Height - (topInset + bottomInset));
+
+            var horizAlign = HorizontalContentAlignment;
+            var vertAlign = VerticalContentAlignment;
+
+            float childW = contentVisual.DesiredSize.X;
+            float childH = contentVisual.DesiredSize.Y;
+
+            if (horizAlign == HorizontalAlignment.Stretch)
+            {
+                childW = innerW;
+            }
+            else
+            {
+                childW = Math.Min(innerW, childW);
+            }
+
+            if (vertAlign == VerticalAlignment.Stretch)
+            {
+                childH = innerH;
+            }
+            else
+            {
+                childH = Math.Min(innerH, childH);
+            }
+
+            float childX = arrangeRect.X + leftInset;
+            if (horizAlign == HorizontalAlignment.Center)
+            {
+                childX += (innerW - childW) / 2f;
+            }
+            else if (horizAlign == HorizontalAlignment.Right)
+            {
+                childX += (innerW - childW);
+            }
+
+            float childY = arrangeRect.Y + topInset;
+            if (vertAlign == VerticalAlignment.Center)
+            {
+                childY += (innerH - childH) / 2f;
+            }
+            else if (vertAlign == VerticalAlignment.Bottom)
+            {
+                childY += (innerH - childH);
+            }
+
+            contentVisual.Arrange(new Rect(childX, childY, childW, childH));
         }
     }
 

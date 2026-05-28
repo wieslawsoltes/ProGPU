@@ -755,16 +755,81 @@ public unsafe class Compositor : IDisposable
             RenderDiagnostics(diagContext, width, height);
             foreach (var cmd in diagContext.Commands)
             {
+                var activeTransform = Matrix4x4.Identity;
                 switch (cmd.Type)
                 {
                     case RenderCommandType.DrawRect:
-                        CompileRectCommand(cmd, Matrix4x4.Identity);
+                        CompileRectCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPath:
-                        CompilePathCommand(cmd, Matrix4x4.Identity);
+                        CompilePathCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawHatch:
+                        CompileHatchCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawAcisSolid:
+                        CompileAcisCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawText:
-                        CompileTextCommand(cmd, null, Matrix4x4.Identity);
+                        CompileTextCommand(cmd, null, activeTransform);
+                        break;
+                    case RenderCommandType.DrawTexture:
+                        CompileTextureCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.PushClip:
+                        PushClipRect(cmd.Rect, activeTransform);
+                        break;
+                    case RenderCommandType.PopClip:
+                        PopClipRect();
+                        break;
+                    case RenderCommandType.PushOpacity:
+                        PushOpacityValue(cmd.FontSize);
+                        break;
+                    case RenderCommandType.PopOpacity:
+                        PopOpacityValue();
+                        break;
+                    case RenderCommandType.DrawLine:
+                        CompileLineCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawLine3D:
+                        CompileLine3DCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawEllipse:
+                        CompileEllipseCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawCircle:
+                        CompileCircleCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawRoundedRect:
+                        CompileRoundedRectCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawBezier:
+                        CompileBezierCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawCubicBezier:
+                        CompileCubicBezierCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawPolyline:
+                        CompilePolylineCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawSpline:
+                        CompileSplineCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.FillTriangle:
+                        CompileFillTriangleCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.FillQuad:
+                        CompileFillQuadCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawStaticDxf:
+                        CommitPendingDrawCalls();
+                        _drawCalls.Add(new CompositorDrawCall
+                        {
+                            Type = DrawCallType.StaticDxf,
+                            StaticBuffer = cmd.StaticBuffer
+                        });
+                        _pendingVectorStart = (uint)_vectorIndicesList.Count;
+                        _pendingTextStart = (uint)_textIndicesList.Count;
                         break;
                 }
             }
