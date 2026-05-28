@@ -320,7 +320,61 @@ public static class DesignerSerializer
             sb.AppendLine($"{indent}    Orientation = Orientation.{o},");
         }
 
+        // WrapPanel specific properties
+        if (element is WrapPanel wrapFe)
+        {
+            if (!float.IsNaN(wrapFe.ItemWidth))
+            {
+                sb.AppendLine($"{indent}    ItemWidth = {FormatFloat(wrapFe.ItemWidth)}f,");
+            }
+            if (!float.IsNaN(wrapFe.ItemHeight))
+            {
+                sb.AppendLine($"{indent}    ItemHeight = {FormatFloat(wrapFe.ItemHeight)}f,");
+            }
+            if (wrapFe.HorizontalSpacing != 0f)
+            {
+                sb.AppendLine($"{indent}    HorizontalSpacing = {FormatFloat(wrapFe.HorizontalSpacing)}f,");
+            }
+            if (wrapFe.VerticalSpacing != 0f)
+            {
+                sb.AppendLine($"{indent}    VerticalSpacing = {FormatFloat(wrapFe.VerticalSpacing)}f,");
+            }
+        }
+
+        // DockPanel specific properties
+        if (element is DockPanel dockFe)
+        {
+            if (!dockFe.LastChildFill)
+            {
+                sb.AppendLine($"{indent}    LastChildFill = false,");
+            }
+        }
+
         sb.AppendLine($"{indent}}};");
+
+        // Grid Definition Serialization
+        if (element is Grid gridFe)
+        {
+            foreach (var colDef in gridFe.ColumnDefinitions)
+            {
+                if (colDef.UnitType == GridUnitType.Auto)
+                    sb.AppendLine($"{indent}{varName}.ColumnDefinitions.Add(GridLength.Auto);");
+                else if (colDef.UnitType == GridUnitType.Star)
+                    sb.AppendLine($"{indent}{varName}.ColumnDefinitions.Add(GridLength.Star({FormatFloat(colDef.Value)}f));");
+                else
+                    sb.AppendLine($"{indent}{varName}.ColumnDefinitions.Add(new GridLength({FormatFloat(colDef.Value)}f, GridUnitType.Absolute));");
+            }
+
+            foreach (var rowDef in gridFe.RowDefinitions)
+            {
+                if (rowDef.UnitType == GridUnitType.Auto)
+                    sb.AppendLine($"{indent}{varName}.RowDefinitions.Add(GridLength.Auto);");
+                else if (rowDef.UnitType == GridUnitType.Star)
+                    sb.AppendLine($"{indent}{varName}.RowDefinitions.Add(GridLength.Star({FormatFloat(rowDef.Value)}f));");
+                else
+                    sb.AppendLine($"{indent}{varName}.RowDefinitions.Add(new GridLength({FormatFloat(rowDef.Value)}f, GridUnitType.Absolute));");
+            }
+        }
 
         // Set Attached properties
         float left = Canvas.GetLeft(element);
@@ -344,6 +398,16 @@ public static class DesignerSerializer
         if (col != 0)
         {
             sb.AppendLine($"{indent}Grid.SetColumn({varName}, {col});");
+        }
+
+        // Attached Dock properties if element's parent is DockPanel
+        if (element.Parent is DockPanel)
+        {
+            var dock = DockPanel.GetDock(element);
+            if (dock != Dock.Left)
+            {
+                sb.AppendLine($"{indent}DockPanel.SetDock({varName}, Dock.{dock});");
+            }
         }
 
         // Content/Children recursion and association
