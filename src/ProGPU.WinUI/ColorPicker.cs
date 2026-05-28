@@ -495,13 +495,22 @@ public class ColorPicker : Control
 
         private void UpdateValueFromPos(Vector2 localPos)
         {
-            float s = localPos.X / Size.X;
-            float v = 1.0f - (localPos.Y / Size.Y);
+            if (_picker._isUpdating) return;
+            _picker._isUpdating = true;
+            try
+            {
+                float s = localPos.X / Size.X;
+                float v = 1.0f - (localPos.Y / Size.Y);
 
-            _picker._saturation = Math.Clamp(s, 0f, 1f);
-            _picker._value = Math.Clamp(v, 0f, 1f);
-            _picker.UpdateColorFromHsv();
-            Invalidate();
+                _picker._saturation = Math.Clamp(s, 0f, 1f);
+                _picker._value = Math.Clamp(v, 0f, 1f);
+                _picker.UpdateColorFromHsv();
+                Invalidate();
+            }
+            finally
+            {
+                _picker._isUpdating = false;
+            }
         }
 
         public override void OnRender(DrawingContext context)
