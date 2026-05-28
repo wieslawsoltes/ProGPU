@@ -238,7 +238,7 @@ public class DesignerHost : Grid
         Grid.SetColumn(bottomTitle, 0);
         bottomHeader.AddChild(bottomTitle);
 
-        var toggleBottomBtn = new Button { Width = 140f, Height = 24f, Margin = new Thickness(0, 4, 12, 0) };
+        var toggleBottomBtn = new Button { Width = 180f, Height = 28f, Margin = new Thickness(0, 2, 12, 0) };
         var toggleText = new RichTextBlock { FontSize = 11f, Foreground = new ThemeResourceBrush("TextPrimary") };
         toggleText.Inlines.Add(new Run("Expand Preview Panel"));
         toggleBottomBtn.Content = toggleText;

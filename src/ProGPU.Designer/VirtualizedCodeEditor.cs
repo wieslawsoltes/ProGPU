@@ -59,6 +59,8 @@ public class VirtualizedCodeEditor : Control
     public VirtualizedCodeEditor()
     {
         Padding = new Thickness(0);
+        Background = new ThemeResourceBrush("HeaderBackground");
+        Foreground = new ThemeResourceBrush("TextPrimary");
         
         _panel = new VirtualizingScrollPanel();
         _panel.ItemHeight = _itemHeight;
@@ -81,7 +83,8 @@ public class VirtualizedCodeEditor : Control
                 string text = index >= 0 && index < _lines.Count ? _lines[index] : "";
                 rtb.Inlines.Clear();
                 
-                var runs = CSharpColorizer.TokenizeCSharpLine(text, new SolidColorBrush(new Vector4(0.83f, 0.83f, 0.83f, 1f)));
+                var defaultFg = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme);
+                var runs = CSharpColorizer.TokenizeCSharpLine(text, defaultFg);
                 foreach (var run in runs)
                 {
                     rtb.Inlines.Add(run);
@@ -208,7 +211,7 @@ public class VirtualizedCodeEditor : Control
 
     public override void OnRender(DrawingContext context)
     {
-        var bg = new SolidColorBrush(new Vector4(0.12f, 0.12f, 0.12f, 1f)); // Dark theme #1e1e1e
+        var bg = Background ?? ThemeManager.GetBrush("HeaderBackground", ActualTheme);
         context.DrawRectangle(bg, null, new Rect(Vector2.Zero, Size));
 
         base.OnRender(context);
@@ -228,12 +231,11 @@ public class VirtualizedCodeEditor : Control
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, viewportHeight);
             Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
-            var trackBg = new SolidColorBrush(new Vector4(0.18f, 0.18f, 0.18f, 0.4f));
+            var trackBg = ThemeManager.GetBrush("ControlBackground", ActualTheme);
             context.DrawRectangle(trackBg, null, trackRect);
 
-            var thumbBg = _isDraggingScrollbar 
-                ? new SolidColorBrush(new Vector4(0.5f, 0.5f, 0.5f, 0.8f)) 
-                : (_isPointerOverScrollbar ? new SolidColorBrush(new Vector4(0.4f, 0.4f, 0.4f, 0.7f)) : new SolidColorBrush(new Vector4(0.3f, 0.3f, 0.3f, 0.5f)));
+            var thumbKey = _isDraggingScrollbar || _isPointerOverScrollbar ? "ScrollbarThumbHover" : "ScrollbarThumb";
+            var thumbBg = ThemeManager.GetBrush(thumbKey, ActualTheme);
             
             context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }
