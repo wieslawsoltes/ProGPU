@@ -21,19 +21,25 @@ public static class VisualDesignerPage
 {
     public static FrameworkElement Create()
     {
-        var mainStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
+        var grid = new Grid { Margin = new Thickness(12) };
+        grid.RowDefinitions.Add(GridLength.Auto);
+        grid.RowDefinitions.Add(GridLength.Star(1f));
+
+        var headerStack = new StackPanel { Orientation = Orientation.Vertical };
 
         var title = new RichTextBlock { Font = AppState._font, FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
         title.Inlines.Add(new Bold(new Run("Visual Designer Studio")));
-        mainStack.AddChild(title);
+        headerStack.AddChild(title);
 
         var description = new RichTextBlock { Font = AppState._font, FontSize = 12f, Margin = new Thickness(0, 0, 0, 16) };
         description.Inlines.Add(new Run("Construct and lay out dynamic UI interfaces in real-time. Drag and drop controls, customize properties reflectively, snap elements to physical subpixels, and serialize components to high-fidelity XAML."));
-        mainStack.AddChild(description);
+        headerStack.AddChild(description);
+
+        grid.AddChild(headerStack);
+        Grid.SetRow(headerStack, 0);
 
         var designerHost = new DesignerHost
         {
-            Height = 700f,
             DesignerFont = AppState._font,
             DesignerFontCourier = AppState._fontCourier,
             GetDpiScale = () => {
@@ -54,8 +60,9 @@ public static class VisualDesignerPage
         designerHost.AddControlToCanvas("CheckBox", 100f, 160f);
         designerHost.AddControlToCanvas("Slider", 300f, 160f);
 
-        mainStack.AddChild(designerHost);
+        grid.AddChild(designerHost);
+        Grid.SetRow(designerHost, 1);
 
-        return mainStack;
+        return grid;
     }
 }
