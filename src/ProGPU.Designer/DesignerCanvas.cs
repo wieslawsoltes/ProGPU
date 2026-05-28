@@ -1064,6 +1064,12 @@ public class DesignerCanvas : Panel
                             AddChildToTarget(dropTarget, newInstance);
                         }
 
+                        // Force a measure & arrange layout pass on the DesignSurface so child bounds are fully computed
+                        float surfaceW = !float.IsFinite(Size.X) ? 2000f : Size.X;
+                        float surfaceH = !float.IsFinite(Size.Y) ? 2000f : Size.Y;
+                        DesignSurface.Measure(new Vector2(surfaceW, surfaceH));
+                        DesignSurface.Arrange(new Rect(Vector2.Zero, new Vector2(surfaceW, surfaceH)));
+
                         SelectElement(newInstance);
 
                         CanvasModified?.Invoke();
@@ -1338,7 +1344,23 @@ public class DesignerCanvas : Panel
 
     private bool IsValidDropContainer(FrameworkElement fe)
     {
-        return fe is Panel;
+        if (fe is Panel) return true;
+        if (fe is Border) return true;
+        if (fe is ContentControl) return true;
+        
+        var type = fe.GetType();
+        var contentPropertyAttr = type.GetCustomAttribute<ContentPropertyAttribute>(true);
+        if (contentPropertyAttr != null && !string.IsNullOrEmpty(contentPropertyAttr.Name))
+        {
+            return true;
+        }
+
+        if (type.GetProperty("Child") != null || type.GetProperty("Content") != null)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private void FindAllContainers(FrameworkElement parent, List<FrameworkElement> results, FrameworkElement? excludeElement)
