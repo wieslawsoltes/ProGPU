@@ -181,6 +181,17 @@ fn noise(p: vec2<f32>) -> f32 {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+fn getCaustics(p: vec2<f32>, t: f32) -> f32 {
+    let p1 = p * 12.0 + vec2<f32>(t * 0.4, t * 0.2);
+    let p2 = p * 20.0 - vec2<f32>(t * 0.3, -t * 0.5);
+    
+    let n1 = noise(p1);
+    let n2 = noise(p2);
+    
+    let c = sin(n1 * 8.0) * cos(n2 * 6.0);
+    return smoothstep(0.45, 0.9, abs(c));
+}
+
 fn getSmoothedAlpha(pos: vec2<i32>, size: vec2<i32>) -> f32 {
     var sum: f32 = 0.0;
     var weightSum: f32 = 0.0;
@@ -225,19 +236,41 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let h = size.y;
     let sizeI32 = vec2<i32>(i32(w), i32(h));
 
+    // 1. Edge Normal Estimation (Sobel-like from smoothed alpha)
     let aLeft   = getSmoothedAlpha(vec2<i32>(x - 3, y), sizeI32);
     let aRight  = getSmoothedAlpha(vec2<i32>(x + 3, y), sizeI32);
     let aTop    = getSmoothedAlpha(vec2<i32>(x, y - 3), sizeI32);
     let aBottom = getSmoothedAlpha(vec2<i32>(x, y + 3), sizeI32);
 
-    let nx = (aLeft - aRight) * 2.0;
-    let ny = (aTop - aBottom) * 2.0;
+    let edgeNormalX = (aLeft - aRight) * 2.0;
+    let edgeNormalY = (aTop - aBottom) * 2.0;
+
+    let uv = vec2<f32>(f32(x) / f32(w), f32(y) / f32(h));
+    let t = params.time * 2.0;
+    let edgeAlpha = smoothstep(0.01, 0.15, alpha);
+
+    // 2. High-Fidelity 3D Volumetric Dome Curvature (Continuous central lens normal)
+    let cx = uv.x - 0.5;
+    let cy = uv.y - 0.5;
+    let domeNormalX = -cx * 2.2 * edgeAlpha;
+    let domeNormalY = -cy * 2.2 * edgeAlpha;
+
+    // 3. Shifting 3D Water Ripples / Surface Distortions
+    let rippleUV1 = uv * 4.0 + vec2<f32>(t * 0.08, t * 0.05);
+    let rippleUV2 = uv * 7.0 - vec2<f32>(t * 0.06, -t * 0.09);
+    let n1 = noise(rippleUV1);
+    let n2 = noise(rippleUV2);
+    
+    let rippleDerivX = (noise(rippleUV1 + vec2<f32>(0.04, 0.0)) - n1) * 1.5 + (noise(rippleUV2 + vec2<f32>(0.03, 0.0)) - n2) * 1.2;
+    let rippleDerivY = (noise(rippleUV1 + vec2<f32>(0.0, 0.04)) - n1) * 1.5 + (noise(rippleUV2 + vec2<f32>(0.0, 0.03)) - n2) * 1.2;
+
+    // 4. Combine all normal components: Beveled Edges + Volumetric Dome + Liquid Surface Ripples
+    var nx = mix(edgeNormalX, domeNormalX, 0.45) + rippleDerivX * 0.18;
+    var ny = mix(edgeNormalY, domeNormalY, 0.45) + rippleDerivY * 0.18;
     
     var normal = normalize(vec3<f32>(nx, ny, 1.0 - clamp(length(vec2<f32>(nx, ny)), 0.0, 0.95)));
 
-    let uv = vec2<f32>(f32(x) / f32(w), f32(y) / f32(h));
-    
-    let t = params.time * 2.5;
+    // 5. Dynamic Organic Fluid sloshing simulation
     let isHorizontal = params.width > params.height * 4.0;
     var isFluid = false;
     var wave: f32 = 0.0;
@@ -254,20 +287,28 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         isFluid = uv.y > (1.0 - params.progress + wave);
     }
 
-    let refractOffset = normal.xy * params.refraction * 15.0;
-    let sampleCoord = vec2<i32>(
-        clamp(x + i32(refractOffset.x), 0, i32(w) - 1),
-        clamp(y + i32(refractOffset.y), 0, i32(h) - 1)
-    );
-    let originalPixel = textureLoad(inputTex, sampleCoord, 0);
+    // 6. High-Fidelity Chromatic Dispersion (Aberration) Refraction
+    let refractOffsetR = normal.xy * params.refraction * 19.0;
+    let refractOffsetG = normal.xy * params.refraction * 15.0;
+    let refractOffsetB = normal.xy * params.refraction * 11.0;
 
-    let edgeAlpha = smoothstep(0.01, 0.15, alpha);
+    let sampleCoordR = vec2<i32>(clamp(x + i32(refractOffsetR.x), 0, i32(w) - 1), clamp(y + i32(refractOffsetR.y), 0, i32(h) - 1));
+    let sampleCoordG = vec2<i32>(clamp(x + i32(refractOffsetG.x), 0, i32(w) - 1), clamp(y + i32(refractOffsetG.y), 0, i32(h) - 1));
+    let sampleCoordB = vec2<i32>(clamp(x + i32(refractOffsetB.x), 0, i32(w) - 1), clamp(y + i32(refractOffsetB.y), 0, i32(h) - 1));
 
+    let originalPixelR = textureLoad(inputTex, sampleCoordR, 0);
+    let originalPixelG = textureLoad(inputTex, sampleCoordG, 0);
+    let originalPixelB = textureLoad(inputTex, sampleCoordB, 0);
+
+    let originalPixel = vec4<f32>(originalPixelR.r, originalPixelG.g, originalPixelB.b, originalPixelG.a);
+
+    // 7. Base Shading and Composition
     var baseColor: vec4<f32>;
     if (isFluid) {
-        let depthHighlight = smoothstep(0.0, 1.0, uv.y) * 0.2;
-        let flowAnim = sin(uv.x * 20.0 + t * 3.0) * 0.03;
-        let liquidColor = vec4<f32>(params.fluidColor.rgb + vec3<f32>(depthHighlight + flowAnim), params.fluidColor.a);
+        let caustic = getCaustics(uv, t * 0.7) * 0.22 * edgeAlpha;
+        let depthHighlight = smoothstep(0.0, 1.0, uv.y) * 0.25;
+        let flowAnim = sin(uv.x * 16.0 + t * 2.2) * 0.04;
+        let liquidColor = vec4<f32>(params.fluidColor.rgb + vec3<f32>(depthHighlight + flowAnim + caustic), params.fluidColor.a);
         
         let blendAlpha = mix(originalPixel.a, 1.0, params.fluidColor.a);
         baseColor = vec4<f32>(mix(originalPixel.rgb, liquidColor.rgb, params.fluidColor.a), blendAlpha * edgeAlpha);
@@ -276,39 +317,42 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         baseColor = vec4<f32>(mix(originalPixel.rgb, params.glassColor.rgb, params.glassColor.a), blendAlpha * edgeAlpha);
     }
 
-    let lightDir = normalize(vec3<f32>(-0.8, 0.8, 1.2));
+    // 8. Key Studio Lighting Reflections (Double-Sided Highlights)
+    let lightDir1 = normalize(vec3<f32>(-0.8, 0.8, 1.2)); // Key light (Cool crisp top-left reflection)
+    let lightDir2 = normalize(vec3<f32>(0.7, -0.7, 1.0));  // Fill light (Warm soft bottom-right reflection)
     let viewDir = vec3<f32>(0.0, 0.0, 1.0);
-    let halfDir = normalize(lightDir + viewDir);
     
-    let specIntensity = pow(max(dot(normal, halfDir), 0.0), params.shininess);
-    let specularColor = vec3<f32>(1.0, 1.0, 1.0) * specIntensity * 0.75;
+    let halfDir1 = normalize(lightDir1 + viewDir);
+    let halfDir2 = normalize(lightDir2 + viewDir);
+    
+    let specIntensity1 = pow(max(dot(normal, halfDir1), 0.0), params.shininess);
+    let specIntensity2 = pow(max(dot(normal, halfDir2), 0.0), params.shininess * 0.6) * 0.45;
+    
+    let specularColor = vec3<f32>(1.0, 1.0, 1.0) * specIntensity1 * 0.8 + vec3<f32>(1.0, 0.92, 0.84) * specIntensity2;
 
+    // 9. Rim Specular Glow
     let rimIntensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
-    let rimColor = vec3<f32>(1.0, 1.0, 1.0) * rimIntensity * 0.5;
+    let rimColor = vec3<f32>(1.0, 1.0, 1.0) * rimIntensity * 0.45;
 
+    // 10. Waving fluid surface specular meniscus
     var waveSpec: f32 = 0.0;
     if (isHorizontal) {
         let borderDist = abs(uv.x - (params.progress + wave));
         if (isFluid && borderDist < 0.02) {
             let waveNormal = normalize(vec3<f32>(cos(uv.x * 12.0 + t), -1.0, 0.5));
-            waveSpec = pow(max(dot(waveNormal, halfDir), 0.0), 16.0) * 0.55 * (1.0 - borderDist / 0.02);
+            waveSpec = pow(max(dot(waveNormal, halfDir1), 0.0), 16.0) * 0.55 * (1.0 - borderDist / 0.02);
         }
     } else {
         let borderDist = abs(uv.y - (1.0 - params.progress + wave));
         if (isFluid && borderDist < 0.03) {
             let waveNormal = normalize(vec3<f32>(cos(uv.x * 8.0 + t), -1.0, 0.5));
-            waveSpec = pow(max(dot(waveNormal, halfDir), 0.0), 16.0) * 0.55 * (1.0 - borderDist / 0.03);
+            waveSpec = pow(max(dot(waveNormal, halfDir1), 0.0), 16.0) * 0.55 * (1.0 - borderDist / 0.03);
         }
     }
 
-    var finalColor = vec4<f32>(baseColor.rgb + specularColor + rimColor + vec3<f32>(waveSpec), baseColor.a);
-    
-    let distFromEdge = 1.0 - alpha;
-    finalColor.r += distFromEdge * 0.08;
-    finalColor.g += distFromEdge * 0.12;
-    finalColor.b += distFromEdge * 0.15;
-
-    textureStore(outputTex, vec2<i32>(x, y), finalColor);
+    // 11. Final Color Composition
+    let finalRGB = clamp(baseColor.rgb + specularColor + rimColor + vec3<f32>(waveSpec), vec3<f32>(0.0), vec3<f32>(1.0));
+    textureStore(outputTex, vec2<i32>(x, y), vec4<f32>(finalRGB, baseColor.a));
 }
 ";
 }
