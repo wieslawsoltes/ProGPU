@@ -1108,7 +1108,33 @@ public class DataGrid : Control
                 var prop = item.GetType().GetProperty(column.PropertyName) ?? item.GetType().GetProperty("Value");
                 if (prop != null && prop.CanWrite)
                 {
-                    prop.SetValue(item, val);
+                    if (prop.PropertyType == typeof(Brush) || typeof(Brush).IsAssignableFrom(prop.PropertyType))
+                    {
+                        prop.SetValue(item, GetBrushFromText(val));
+                    }
+                    else if (prop.PropertyType == typeof(Vector4))
+                    {
+                        var brush = GetBrushFromText(val);
+                        if (brush is SolidColorBrush scb)
+                        {
+                            prop.SetValue(item, scb.Color);
+                        }
+                    }
+                    else if (prop.PropertyType == typeof(string))
+                    {
+                        prop.SetValue(item, val);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            prop.SetValue(item, Convert.ChangeType(val, prop.PropertyType));
+                        }
+                        catch
+                        {
+                            prop.SetValue(item, val);
+                        }
+                    }
                 }
                 // Force redraw of the designer workspace
                 _owner.Invalidate();
