@@ -1342,6 +1342,21 @@ public class DesignerCanvas : Panel
         return hit;
     }
 
+    private static PropertyInfo? GetPropertySafe(Type type, string name)
+    {
+        Type? currentType = type;
+        while (currentType != null)
+        {
+            var prop = currentType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            if (prop != null)
+            {
+                return prop;
+            }
+            currentType = currentType.BaseType;
+        }
+        return null;
+    }
+
     private bool IsValidDropContainer(FrameworkElement fe)
     {
         if (fe is Panel) return true;
@@ -1355,7 +1370,7 @@ public class DesignerCanvas : Panel
             return true;
         }
 
-        if (type.GetProperty("Child") != null || type.GetProperty("Content") != null)
+        if (GetPropertySafe(type, "Child") != null || GetPropertySafe(type, "Content") != null)
         {
             return true;
         }
@@ -1399,7 +1414,7 @@ public class DesignerCanvas : Panel
         var contentPropertyAttr = type.GetCustomAttribute<ContentPropertyAttribute>(true);
         if (contentPropertyAttr != null && !string.IsNullOrEmpty(contentPropertyAttr.Name))
         {
-            var prop = type.GetProperty(contentPropertyAttr.Name);
+            var prop = GetPropertySafe(type, contentPropertyAttr.Name);
             if (prop != null && prop.CanWrite)
             {
                 prop.SetValue(target, newChild);
@@ -1407,14 +1422,14 @@ public class DesignerCanvas : Panel
             }
         }
 
-        var childProp = type.GetProperty("Child");
+        var childProp = GetPropertySafe(type, "Child");
         if (childProp != null && childProp.CanWrite && typeof(FrameworkElement).IsAssignableFrom(childProp.PropertyType))
         {
             childProp.SetValue(target, newChild);
             return;
         }
 
-        var contentProp = type.GetProperty("Content");
+        var contentProp = GetPropertySafe(type, "Content");
         if (contentProp != null && contentProp.CanWrite)
         {
             contentProp.SetValue(target, newChild);
@@ -1447,7 +1462,7 @@ public class DesignerCanvas : Panel
         var contentPropertyAttr = type.GetCustomAttribute<ContentPropertyAttribute>(true);
         if (contentPropertyAttr != null && !string.IsNullOrEmpty(contentPropertyAttr.Name))
         {
-            var prop = type.GetProperty(contentPropertyAttr.Name);
+            var prop = GetPropertySafe(type, contentPropertyAttr.Name);
             if (prop != null)
             {
                 if (prop.CanWrite && prop.GetValue(parent) == child)
@@ -1467,14 +1482,14 @@ public class DesignerCanvas : Panel
             }
         }
 
-        var childProp = type.GetProperty("Child");
+        var childProp = GetPropertySafe(type, "Child");
         if (childProp != null && childProp.CanWrite && childProp.GetValue(parent) == child)
         {
             childProp.SetValue(parent, null);
             return;
         }
 
-        var contentProp = type.GetProperty("Content");
+        var contentProp = GetPropertySafe(type, "Content");
         if (contentProp != null && contentProp.CanWrite && contentProp.GetValue(parent) == child)
         {
             contentProp.SetValue(parent, null);

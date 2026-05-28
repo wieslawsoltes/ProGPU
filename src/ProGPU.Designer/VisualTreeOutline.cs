@@ -258,7 +258,7 @@ public class VisualTreeOutlineItem : Border
             return true;
         }
 
-        if (type.GetProperty("Child") != null || type.GetProperty("Content") != null)
+        if (VisualTreeOutline.GetPropertySafe(type, "Child") != null || VisualTreeOutline.GetPropertySafe(type, "Content") != null)
         {
             return true;
         }
@@ -280,7 +280,7 @@ public class VisualTreeOutlineItem : Border
         var contentPropertyAttr = type.GetCustomAttribute<ContentPropertyAttribute>(true);
         if (contentPropertyAttr != null && !string.IsNullOrEmpty(contentPropertyAttr.Name))
         {
-            var prop = type.GetProperty(contentPropertyAttr.Name);
+            var prop = VisualTreeOutline.GetPropertySafe(type, contentPropertyAttr.Name);
             if (prop != null && prop.CanWrite)
             {
                 prop.SetValue(target, newChild);
@@ -288,14 +288,14 @@ public class VisualTreeOutlineItem : Border
             }
         }
 
-        var childProp = type.GetProperty("Child");
+        var childProp = VisualTreeOutline.GetPropertySafe(type, "Child");
         if (childProp != null && childProp.CanWrite && typeof(FrameworkElement).IsAssignableFrom(childProp.PropertyType))
         {
             childProp.SetValue(target, newChild);
             return;
         }
 
-        var contentProp = type.GetProperty("Content");
+        var contentProp = VisualTreeOutline.GetPropertySafe(type, "Content");
         if (contentProp != null && contentProp.CanWrite)
         {
             contentProp.SetValue(target, newChild);
@@ -513,6 +513,21 @@ public class VisualTreeOutline : Border
         CanvasModifying?.Invoke();
     }
 
+    public static PropertyInfo? GetPropertySafe(Type type, string name)
+    {
+        Type? currentType = type;
+        while (currentType != null)
+        {
+            var prop = currentType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            if (prop != null)
+            {
+                return prop;
+            }
+            currentType = currentType.BaseType;
+        }
+        return null;
+    }
+
     public static void RemoveChildFromParent(FrameworkElement child)
     {
         if (child == null) return;
@@ -528,7 +543,7 @@ public class VisualTreeOutline : Border
         var contentPropertyAttr = type.GetCustomAttribute<ContentPropertyAttribute>(true);
         if (contentPropertyAttr != null && !string.IsNullOrEmpty(contentPropertyAttr.Name))
         {
-            var prop = type.GetProperty(contentPropertyAttr.Name);
+            var prop = GetPropertySafe(type, contentPropertyAttr.Name);
             if (prop != null)
             {
                 if (prop.CanWrite && prop.GetValue(parent) == child)
@@ -548,14 +563,14 @@ public class VisualTreeOutline : Border
             }
         }
 
-        var childProp = type.GetProperty("Child");
+        var childProp = GetPropertySafe(type, "Child");
         if (childProp != null && childProp.CanWrite && childProp.GetValue(parent) == child)
         {
             childProp.SetValue(parent, null);
             return;
         }
 
-        var contentProp = type.GetProperty("Content");
+        var contentProp = GetPropertySafe(type, "Content");
         if (contentProp != null && contentProp.CanWrite && contentProp.GetValue(parent) == child)
         {
             contentProp.SetValue(parent, null);
