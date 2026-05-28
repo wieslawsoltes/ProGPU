@@ -182,7 +182,8 @@ public class ContentPresenter : FrameworkElement
             contentDesired = contentVisual.DesiredSize;
         }
 
-        return contentDesired + inset;
+        // Return desired size with ONLY BorderThickness. LayoutNode automatically adds Padding!
+        return contentDesired + new Vector2(borderH, borderV);
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
@@ -190,10 +191,11 @@ public class ContentPresenter : FrameworkElement
         var contentVisual = ContentVisual;
         if (contentVisual != null)
         {
-            float leftInset = BorderThickness.Left + Padding.Left;
-            float topInset = BorderThickness.Top + Padding.Top;
-            float rightInset = BorderThickness.Right + Padding.Right;
-            float bottomInset = BorderThickness.Bottom + Padding.Bottom;
+            // Only apply BorderThickness insets. LayoutNode already applied Padding to arrangeRect!
+            float leftInset = BorderThickness.Left;
+            float topInset = BorderThickness.Top;
+            float rightInset = BorderThickness.Right;
+            float bottomInset = BorderThickness.Bottom;
 
             float innerW = Math.Max(0f, arrangeRect.Width - (leftInset + rightInset));
             float innerH = Math.Max(0f, arrangeRect.Height - (topInset + bottomInset));

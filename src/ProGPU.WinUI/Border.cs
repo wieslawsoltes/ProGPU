@@ -111,17 +111,19 @@ public class Border : FrameworkElement
             childDesired = Child.DesiredSize;
         }
 
-        return childDesired + inset;
+        // Return desired size with ONLY BorderThickness. LayoutNode automatically adds Padding!
+        return childDesired + new Vector2(borderH, borderV);
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         if (Child != null)
         {
-            float leftInset = BorderThickness.Left + Padding.Left;
-            float topInset = BorderThickness.Top + Padding.Top;
-            float rightInset = BorderThickness.Right + Padding.Right;
-            float bottomInset = BorderThickness.Bottom + Padding.Bottom;
+            // Only apply BorderThickness insets. LayoutNode already applied Padding to arrangeRect!
+            float leftInset = BorderThickness.Left;
+            float topInset = BorderThickness.Top;
+            float rightInset = BorderThickness.Right;
+            float bottomInset = BorderThickness.Bottom;
 
             Rect childRect = new Rect(
                 arrangeRect.X + leftInset,
