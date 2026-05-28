@@ -264,29 +264,21 @@ public class DesignerCanvas : Panel
             }
         }
 
-        // Sort hitElements by visual depth ascending (shallowest/root-most first)
-        hitElements.Sort((a, b) => GetVisualDepth(a).CompareTo(GetVisualDepth(b)));
+        // Sort hitElements by visual depth descending (deepest/leaf-most first)
+        hitElements.Sort((a, b) => GetVisualDepth(b).CompareTo(GetVisualDepth(a)));
 
         if (hitElements.Count > 0)
         {
-            if (InputSystem.Current.IsControlPressed)
+            // To avoid deselecting children when trying to drag them,
+            // prioritize keeping the currently selected element if it is under the pointer.
+            if (SelectedElement != null && hitElements.Contains(SelectedElement))
             {
-                // Deep select: select the deepest leaf element under pointer
-                hitChild = hitElements[hitElements.Count - 1];
+                hitChild = SelectedElement;
             }
             else
             {
-                // To avoid deselecting children when trying to drag them,
-                // prioritize keeping the currently selected element if it is under the pointer.
-                if (SelectedElement != null && hitElements.Contains(SelectedElement))
-                {
-                    hitChild = SelectedElement;
-                }
-                else
-                {
-                    // Select the topmost container (shallowest, i.e., index 0)
-                    hitChild = hitElements[0];
-                }
+                // Select the deepest leaf element under pointer (index 0 because we sorted descending)
+                hitChild = hitElements[0];
             }
         }
 
