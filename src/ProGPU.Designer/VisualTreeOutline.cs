@@ -45,6 +45,7 @@ public class VisualTreeOutlineItem : Border
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
         grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));
         grid.ColumnDefinitions.Add(new GridLength(24, GridUnitType.Absolute));
+        grid.ColumnDefinitions.Add(new GridLength(24, GridUnitType.Absolute));
 
         var indentPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         
@@ -93,24 +94,53 @@ public class VisualTreeOutlineItem : Border
         grid.AddChild(indentPanel);
         Grid.SetColumn(indentPanel, 0);
 
-        var delBtn = new Button
+        var visCheckBox = new CheckBox
         {
-            Content = "❌",
-            WidthConstraint = 20f,
-            HeightConstraint = 20f,
+            IsChecked = element.Visibility == Visibility.Visible,
+            WidthConstraint = 16f,
+            HeightConstraint = 16f,
             Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            Background = new ThemeResourceBrush("Transparent"),
-            CornerRadius = 3f,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
-        delBtn.PointerPressed += (s, e) => {
-            _parentOutline.DeleteElement(_element);
-            e.Handled = true;
+        visCheckBox.Checked += (s, e) => {
+            element.Visibility = Visibility.Visible;
+            _parentOutline.NotifyCanvasModified();
         };
-        grid.AddChild(delBtn);
-        Grid.SetColumn(delBtn, 1);
+        visCheckBox.Unchecked += (s, e) => {
+            element.Visibility = Visibility.Collapsed;
+            _parentOutline.NotifyCanvasModified();
+        };
+        grid.AddChild(visCheckBox);
+        Grid.SetColumn(visCheckBox, 1);
+
+        if (element != parentOutline.RootElement)
+        {
+            var delText = new RichTextBlock
+            {
+                Font = font,
+                FontSize = 12f,
+                Foreground = new ThemeResourceBrush("TextSecondary"),
+                WidthConstraint = 16f,
+                HeightConstraint = 16f,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = true
+            };
+            delText.Inlines.Add(new Run("×"));
+            delText.PointerPressed += (s, e) => {
+                _parentOutline.DeleteElement(_element);
+                e.Handled = true;
+            };
+            delText.PointerEntered += (s, e) => {
+                delText.Foreground = new ThemeResourceBrush("SystemAccentColor");
+            };
+            delText.PointerExited += (s, e) => {
+                delText.Foreground = new ThemeResourceBrush("TextSecondary");
+            };
+            grid.AddChild(delText);
+            Grid.SetColumn(delText, 2);
+        }
 
         Child = grid;
     }
@@ -280,6 +310,7 @@ public class VisualTreeOutlineItem : Border
 
     private void MoveElement(FrameworkElement source, FrameworkElement target)
     {
+        _parentOutline.NotifyCanvasModifying();
         if (source.Parent is ContainerVisual parentContainer)
         {
             if (parentContainer is Border borderParent && borderParent.Child == source)
@@ -332,6 +363,7 @@ public class VisualTreeOutlineItem : Border
 
     private void CreateAndAddTool(string toolName, FrameworkElement target)
     {
+        _parentOutline.NotifyCanvasModifying();
         Type? controlType = null;
         string[] searchNamespaces = {
             "Microsoft.UI.Xaml.Controls",
@@ -488,8 +520,14 @@ public class VisualTreeOutline : Border
 
     public event Action<FrameworkElement?>? SelectionChanged;
     public event Action? CanvasModified;
+    public event Action? CanvasModifying;
 
-    public ProGPU.Text.TtfFont? Font
+    public void NotifyCanvasModifying()
+    {
+        CanvasModifying?.Invoke();
+    }
+
+    public new ProGPU.Text.TtfFont? Font
     {
         get => _font;
         set
@@ -569,7 +607,7 @@ public class VisualTreeOutline : Border
         RefreshTree();
     }
 
-    public bool IsCollapsed(FrameworkElement element)
+    public new bool IsCollapsed(FrameworkElement element)
     {
         return _collapsedElements.Contains(element);
     }
@@ -661,6 +699,8 @@ public class VisualTreeOutline : Border
     {
         if (element == _rootElement)
             return;
+
+        NotifyCanvasModifying();
 
         var parent = element.Parent as ContainerVisual;
         if (parent != null)

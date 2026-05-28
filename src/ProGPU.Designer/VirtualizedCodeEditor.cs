@@ -13,6 +13,7 @@ using ProGPU.Virtualization;
 using TextMateSharp.Grammars;
 using TextMateSharp.Themes;
 using TextMateSharp.Registry;
+using Silk.NET.Input;
 
 using Thickness = Microsoft.UI.Xaml.Thickness;
 
@@ -20,11 +21,14 @@ namespace ProGPU.Designer;
 
 public class VirtualizedCodeEditor : Control
 {
+    private const float GutterWidth = 45f;
+
     private readonly VirtualizingScrollPanel _panel;
     private readonly List<string> _lines = new();
     private float _scrollOffset = 0f;
     private TtfFont? _font;
-    private float _itemHeight = 20f;
+    private float _fontSize = 13f;
+    private float _itemHeight = 22f;
     private bool _isDraggingScrollbar = false;
     private float _dragStartMouseY = 0f;
     private float _dragStartScrollOffset = 0f;
@@ -34,6 +38,14 @@ public class VirtualizedCodeEditor : Control
     private IGrammar? _grammar;
     private string _rawCode = "";
     private readonly List<List<Run>> _tokenizedLines = new();
+
+    // Selection tracking state
+    private bool _isSelecting = false;
+    private int _selectStartLine = -1;
+    private int _selectStartChar = -1;
+    private int _selectEndLine = -1;
+    private int _selectEndChar = -1;
+    private Vector2 _lastLocalPointerPosition;
 
     public TtfFont? Font
     {
@@ -77,7 +89,7 @@ public class VirtualizedCodeEditor : Control
         _panel.CreateVisualFactory = () => {
             return new RichTextBlock
             {
-                FontSize = 11f,
+                FontSize = _fontSize,
                 Padding = new Thickness(0),
                 Margin = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -87,6 +99,7 @@ public class VirtualizedCodeEditor : Control
         _panel.BindVisualCallback = (visual, index) => {
             if (visual is RichTextBlock rtb)
             {
+                rtb.FontSize = _fontSize;
                 rtb.Font = _font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
                 rtb.Inlines.Clear();
                 
@@ -95,13 +108,60 @@ public class VirtualizedCodeEditor : Control
                     var runs = _tokenizedLines[index];
                     foreach (var run in runs)
                     {
+                        run.FontSize = _fontSize;
                         rtb.Inlines.Add(run);
                     }
                 }
                 else
                 {
-                    rtb.Inlines.Add(new Run(" ") { FontSize = 11f });
+                    rtb.Inlines.Add(new Run(" ") { FontSize = _fontSize });
                 }
+
+                // Selection range calculation for this specific line
+                int selStart = -1;
+                int selLen = 0;
+
+                if (_selectStartLine >= 0 && _selectEndLine >= 0)
+                {
+                    int startL = Math.Min(_selectStartLine, _selectEndLine);
+                    int endL = Math.Max(_selectStartLine, _selectEndLine);
+                    int startC = _selectStartLine == startL ? _selectStartChar : _selectEndChar;
+                    int endC = _selectEndLine == endL ? _selectEndChar : _selectStartChar;
+
+                    if (index >= startL && index <= endL)
+                    {
+                        string lineText = index < _lines.Count ? _lines[index] : "";
+                        if (startL == endL)
+                        {
+                            int s = Math.Min(startC, endC);
+                            int e = Math.Max(startC, endC);
+                            s = Math.Clamp(s, 0, lineText.Length);
+                            e = Math.Clamp(e, 0, lineText.Length);
+                            selStart = s;
+                            selLen = e - s;
+                        }
+                        else if (index == startL)
+                        {
+                            int s = Math.Clamp(startC, 0, lineText.Length);
+                            selStart = s;
+                            selLen = Math.Max(0, lineText.Length - s);
+                        }
+                        else if (index == endL)
+                        {
+                            int e = Math.Clamp(endC, 0, lineText.Length);
+                            selStart = 0;
+                            selLen = e;
+                        }
+                        else
+                        {
+                            selStart = 0;
+                            selLen = lineText.Length;
+                        }
+                    }
+                }
+
+                rtb.SelectionStart = selStart;
+                rtb.SelectionLength = selLen;
                 rtb.Invalidate();
             }
         };
@@ -138,6 +198,9 @@ public class VirtualizedCodeEditor : Control
         _lines.Clear();
         _tokenizedLines.Clear();
 
+        // Clear selection on new code load
+        ClearSelection();
+
         if (string.IsNullOrEmpty(code))
         {
             _panel.ItemsCount = 0;
@@ -167,14 +230,14 @@ public class VirtualizedCodeEditor : Control
 
             if (string.IsNullOrEmpty(lineText))
             {
-                lineRuns.Add(new Run(" ") { FontSize = 11f });
+                lineRuns.Add(new Run(" ") { FontSize = _fontSize });
                 _tokenizedLines.Add(lineRuns);
                 continue;
             }
 
             if (_grammar == null || theme == null)
             {
-                lineRuns.Add(new Run(lineText) { FontSize = 11f, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
+                lineRuns.Add(new Run(lineText) { FontSize = _fontSize, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
                 _tokenizedLines.Add(lineRuns);
                 continue;
             }
@@ -196,7 +259,7 @@ public class VirtualizedCodeEditor : Control
                     if (start > lastIdx)
                     {
                         var gapText = lineText.Substring(lastIdx, start - lastIdx);
-                        lineRuns.Add(new Run(gapText) { FontSize = 11f, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
+                        lineRuns.Add(new Run(gapText) { FontSize = _fontSize, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
                     }
 
                     string tokenText = lineText.Substring(start, end - start);
@@ -222,19 +285,19 @@ public class VirtualizedCodeEditor : Control
                     }
 
                     brush ??= (Foreground as SolidColorBrush) ?? (ThemeManager.GetBrush("TextPrimary", ActualTheme) as SolidColorBrush);
-                    lineRuns.Add(new Run(tokenText) { FontSize = 11f, Foreground = brush });
+                    lineRuns.Add(new Run(tokenText) { FontSize = _fontSize, Foreground = brush });
                     lastIdx = end;
                 }
 
                 if (lastIdx < lineText.Length)
                 {
                     var remText = lineText.Substring(lastIdx);
-                    lineRuns.Add(new Run(remText) { FontSize = 11f, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
+                    lineRuns.Add(new Run(remText) { FontSize = _fontSize, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
                 }
             }
             catch
             {
-                lineRuns.Add(new Run(lineText) { FontSize = 11f, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
+                lineRuns.Add(new Run(lineText) { FontSize = _fontSize, Foreground = Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme) });
             }
 
             _tokenizedLines.Add(lineRuns);
@@ -279,6 +342,27 @@ public class VirtualizedCodeEditor : Control
     {
         if (IsEnabled)
         {
+            if (InputSystem.Current.IsControlPressed)
+            {
+                float oldFontSize = _fontSize;
+                float zoomFactor = e.WheelDelta > 0 ? 1.0f : -1.0f;
+                float newFontSize = Math.Clamp(oldFontSize + zoomFactor, 8f, 32f);
+                
+                if (newFontSize != oldFontSize)
+                {
+                    _fontSize = newFontSize;
+                    _itemHeight = newFontSize + 9f; // Keep itemHeight proportional
+                    _panel.ItemHeight = _itemHeight;
+                    
+                    // Re-bind the visuals and layout with the new font size
+                    SetCode(_rawCode);
+                    _panel.Invalidate();
+                    Invalidate();
+                }
+                e.Handled = true;
+                return;
+            }
+            
             ScrollOffset -= e.WheelDelta * 30f;
             e.Handled = true;
         }
@@ -289,25 +373,50 @@ public class VirtualizedCodeEditor : Control
     {
         if (IsEnabled)
         {
+            Vector2 localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
             float scrollbarWidth = 10f;
             float totalHeight = _lines.Count * _itemHeight;
             float viewportHeight = Size.Y;
 
-            if (totalHeight > viewportHeight && e.Position.X >= Size.X - scrollbarWidth - 5f)
+            // Check if clicking scrollbar
+            if (totalHeight > viewportHeight && localPos.X >= Size.X - scrollbarWidth - 5f)
             {
                 float thumbHeight = Math.Max(20f, (viewportHeight / totalHeight) * viewportHeight);
                 float scrollableHeight = totalHeight - viewportHeight;
                 float thumbY = (ScrollOffset / scrollableHeight) * (viewportHeight - thumbHeight);
 
-                if (e.Position.Y >= thumbY && e.Position.Y <= thumbY + thumbHeight)
+                if (localPos.Y >= thumbY && localPos.Y <= thumbY + thumbHeight)
                 {
                     _isDraggingScrollbar = true;
                     _dragStartScrollOffset = ScrollOffset;
-                    _dragStartMouseY = e.Position.Y;
+                    _dragStartMouseY = localPos.Y;
                     InputSystem.CapturePointer(this);
                     e.Handled = true;
                     return;
                 }
+            }
+
+            // Otherwise check if clicking code/text area to select
+            if (localPos.X >= GutterWidth && localPos.X < Size.X - scrollbarWidth - 5f)
+            {
+                _isSelecting = true;
+                _lastLocalPointerPosition = localPos;
+                float docY = localPos.Y + ScrollOffset;
+                _selectStartLine = (int)(docY / _itemHeight);
+                _selectStartLine = Math.Clamp(_selectStartLine, 0, _lines.Count - 1);
+                
+                float textX = localPos.X - (GutterWidth + 10f);
+                _selectStartChar = GetCharIndexAtX(_selectStartLine, textX);
+                
+                _selectEndLine = _selectStartLine;
+                _selectEndChar = _selectStartChar;
+                
+                InputSystem.CapturePointer(this);
+                StartAutoscrollLoop();
+                UpdateSelectionOnVisuals();
+                Invalidate();
+                e.Handled = true;
+                return;
             }
         }
         base.OnPointerPressed(e);
@@ -321,6 +430,12 @@ public class VirtualizedCodeEditor : Control
             InputSystem.ReleasePointerCapture();
             Invalidate();
         }
+        if (_isSelecting)
+        {
+            _isSelecting = false;
+            InputSystem.ReleasePointerCapture();
+            Invalidate();
+        }
         base.OnPointerReleased(e);
     }
 
@@ -328,12 +443,14 @@ public class VirtualizedCodeEditor : Control
     {
         if (IsEnabled)
         {
-            _isPointerOverScrollbar = e.Position.X >= Size.X - 15f;
+            Vector2 localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+            _isPointerOverScrollbar = localPos.X >= Size.X - 15f;
             Invalidate();
         }
 
         if (_isDraggingScrollbar && IsEnabled)
         {
+            Vector2 localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
             float totalHeight = _lines.Count * _itemHeight;
             float viewportHeight = Size.Y;
             float thumbHeight = Math.Max(20f, (viewportHeight / totalHeight) * viewportHeight);
@@ -342,13 +459,130 @@ public class VirtualizedCodeEditor : Control
 
             if (trackLength > 0f)
             {
-                float deltaY = e.Position.Y - _dragStartMouseY;
+                float deltaY = localPos.Y - _dragStartMouseY;
                 ScrollOffset = _dragStartScrollOffset + (deltaY / trackLength) * scrollableHeight;
             }
             e.Handled = true;
             return;
         }
+
+        if (_isSelecting && IsEnabled)
+        {
+            Vector2 localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+            _lastLocalPointerPosition = localPos;
+            float docY = localPos.Y + ScrollOffset;
+            _selectEndLine = (int)(docY / _itemHeight);
+            _selectEndLine = Math.Clamp(_selectEndLine, 0, _lines.Count - 1);
+            
+            float textX = localPos.X - (GutterWidth + 10f);
+            _selectEndChar = GetCharIndexAtX(_selectEndLine, textX);
+            
+            UpdateSelectionOnVisuals();
+            Invalidate();
+            e.Handled = true;
+            return;
+        }
+
         base.OnPointerMoved(e);
+    }
+
+    public override void OnKeyDown(KeyRoutedEventArgs e)
+    {
+        if (IsEnabled)
+        {
+            if (InputSystem.Current.IsControlPressed && e.Key == Key.C)
+            {
+                string copyText = GetSelectedText();
+                if (!string.IsNullOrEmpty(copyText))
+                {
+                    ClipboardHelper.SetText(copyText);
+                }
+                e.Handled = true;
+                return;
+            }
+        }
+        base.OnKeyDown(e);
+    }
+
+    private int GetCharIndexAtX(int lineIdx, float localX)
+    {
+        if (lineIdx < 0 || lineIdx >= _lines.Count) return 0;
+        string text = _lines[lineIdx];
+        if (string.IsNullOrEmpty(text)) return 0;
+
+        TtfFont font = Font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        float fontSize = _fontSize;
+        float accumulatedX = 0f;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            ushort gIdx = font.GetGlyphIndex(c);
+            float charW = font.GetAdvanceWidth(gIdx, fontSize);
+            
+            if (localX < accumulatedX + charW / 2f)
+            {
+                return i;
+            }
+            accumulatedX += charW;
+        }
+
+        return text.Length;
+    }
+
+    private void UpdateSelectionOnVisuals()
+    {
+        _panel.ForceRebind();
+    }
+
+    public void ClearSelection()
+    {
+        _selectStartLine = -1;
+        _selectStartChar = -1;
+        _selectEndLine = -1;
+        _selectEndChar = -1;
+        UpdateSelectionOnVisuals();
+    }
+
+    public string GetSelectedText()
+    {
+        if (_selectStartLine < 0 || _selectEndLine < 0) return string.Empty;
+
+        int startL = Math.Min(_selectStartLine, _selectEndLine);
+        int endL = Math.Max(_selectStartLine, _selectEndLine);
+        int startC = _selectStartLine == startL ? _selectStartChar : _selectEndChar;
+        int endC = _selectEndLine == endL ? _selectEndChar : _selectStartChar;
+
+        if (startL == endL)
+        {
+            string line = _lines[startL];
+            int s = Math.Min(startC, endC);
+            int e = Math.Max(startC, endC);
+            s = Math.Clamp(s, 0, line.Length);
+            e = Math.Clamp(e, 0, line.Length);
+            return line.Substring(s, e - s);
+        }
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = startL; i <= endL; i++)
+        {
+            string line = _lines[i];
+            if (i == startL)
+            {
+                int s = Math.Clamp(startC, 0, line.Length);
+                sb.AppendLine(line.Substring(s));
+            }
+            else if (i == endL)
+            {
+                int e = Math.Clamp(endC, 0, line.Length);
+                sb.Append(line.Substring(0, e));
+            }
+            else
+            {
+                sb.AppendLine(line);
+            }
+        }
+        return sb.ToString();
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -357,7 +591,7 @@ public class VirtualizedCodeEditor : Control
         float h = HeightConstraint ?? availableSize.Y;
         
         float scrollbarWidth = 10f;
-        _panel.Measure(new Vector2(w - scrollbarWidth - 10f, h));
+        _panel.Measure(new Vector2(w - scrollbarWidth - GutterWidth - 15f, h));
         
         return new Vector2(w, h);
     }
@@ -367,7 +601,7 @@ public class VirtualizedCodeEditor : Control
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
         
         float scrollbarWidth = 10f;
-        _panel.Arrange(new Rect(10f, 0f, arrangeRect.Width - scrollbarWidth - 15f, arrangeRect.Height));
+        _panel.Arrange(new Rect(GutterWidth + 5f, 0f, arrangeRect.Width - scrollbarWidth - GutterWidth - 10f, arrangeRect.Height));
     }
 
     public override void OnRender(DrawingContext context)
@@ -382,6 +616,44 @@ public class VirtualizedCodeEditor : Control
         float totalHeight = _lines.Count * _itemHeight;
         float viewportHeight = Size.Y;
 
+        // Draw automatic code line numbering gutter
+        var activeTheme = ActualTheme;
+        var gutterBg = ThemeManager.GetBrush("CardBackground", activeTheme);
+        context.DrawRectangle(gutterBg, null, new Rect(0f, 0f, GutterWidth, Size.Y));
+        
+        // Draw thin vertical separator line
+        var sepBrush = ThemeManager.GetBrush("ControlBorderBrush", activeTheme);
+        var sepPen = new Pen(sepBrush, 1f);
+        context.DrawLine(sepPen, new Vector2(GutterWidth, 0f), new Vector2(GutterWidth, Size.Y));
+        
+        // Draw line numbers
+        var lineNumBrush = ThemeManager.GetBrush("TextSecondary", activeTheme);
+        var numberFont = Font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        
+        if (numberFont != null && _lines.Count > 0)
+        {
+            int startIdx = (int)Math.Floor(ScrollOffset / _itemHeight);
+            int endIdx = (int)Math.Ceiling((ScrollOffset + Size.Y) / _itemHeight);
+            startIdx = Math.Clamp(startIdx, 0, _lines.Count - 1);
+            endIdx = Math.Clamp(endIdx, 0, _lines.Count - 1);
+
+            float fontSize = 11f;
+            float textYOffset = (_itemHeight - fontSize) / 2f - 1f;
+
+            for (int i = startIdx; i <= endIdx; i++)
+            {
+                float posY = MathF.Round(i * _itemHeight - ScrollOffset);
+                string lineNumStr = (i + 1).ToString();
+                
+                var textLayout = new TextLayout(lineNumStr, numberFont, fontSize, float.PositiveInfinity, TextAlignment.Left, null);
+                float textW = textLayout.MeasuredSize.X;
+                
+                float posX = GutterWidth - textW - 8f;
+                context.DrawText(lineNumStr, numberFont, fontSize, lineNumBrush, new Vector2(posX, posY + textYOffset));
+            }
+        }
+
+        // Draw scrollbar
         if (totalHeight > viewportHeight)
         {
             float scrollbarWidth = 6f;
@@ -394,14 +666,53 @@ public class VirtualizedCodeEditor : Control
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, viewportHeight);
             Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
-            var trackBg = ThemeManager.GetBrush("ControlBackground", ActualTheme);
+            var trackBg = ThemeManager.GetBrush("ControlBackground", activeTheme);
             context.DrawRectangle(trackBg, null, trackRect);
 
             var thumbKey = _isDraggingScrollbar || _isPointerOverScrollbar ? "ScrollbarThumbHover" : "ScrollbarThumb";
-            var thumbBg = ThemeManager.GetBrush(thumbKey, ActualTheme);
+            var thumbBg = ThemeManager.GetBrush(thumbKey, activeTheme);
             
             context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }
+    }
+
+    private void StartAutoscrollLoop()
+    {
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            while (_isSelecting)
+            {
+                await System.Threading.Tasks.Task.Delay(50); // 20 ticks per second
+
+                float scrollSpeed = 0f;
+                Vector2 localPos = _lastLocalPointerPosition;
+
+                if (localPos.Y < 0f)
+                {
+                    scrollSpeed = -_itemHeight;
+                }
+                else if (localPos.Y > Size.Y)
+                {
+                    scrollSpeed = _itemHeight;
+                }
+
+                if (scrollSpeed != 0f)
+                {
+                    float newOffset = ScrollOffset + scrollSpeed;
+                    ScrollOffset = newOffset;
+
+                    float docY = localPos.Y + ScrollOffset;
+                    _selectEndLine = (int)(docY / _itemHeight);
+                    _selectEndLine = Math.Clamp(_selectEndLine, 0, _lines.Count - 1);
+
+                    float textX = localPos.X - (GutterWidth + 10f);
+                    _selectEndChar = GetCharIndexAtX(_selectEndLine, textX);
+
+                    UpdateSelectionOnVisuals();
+                    Invalidate();
+                }
+            }
+        });
     }
 }
 
@@ -430,12 +741,12 @@ public static class CSharpColorizer
         "ThemeResourceBrush", "Run", "RichTextBlock"
     };
 
-    public static List<Run> TokenizeCSharpLine(string line, Brush defaultFg)
+    public static List<Run> TokenizeCSharpLine(string line, Brush defaultFg, float fontSize)
     {
         var runs = new List<Run>();
         if (string.IsNullOrEmpty(line))
         {
-            runs.Add(new Run(" ") { Foreground = defaultFg, FontSize = 11f });
+            runs.Add(new Run(" ") { Foreground = defaultFg, FontSize = fontSize });
             return runs;
         }
 
@@ -445,7 +756,7 @@ public static class CSharpColorizer
         string trimmed = line.TrimStart();
         if (trimmed.StartsWith("//"))
         {
-            runs.Add(new Run(line) { Foreground = CommentBrush, FontSize = 11f });
+            runs.Add(new Run(line) { Foreground = CommentBrush, FontSize = fontSize });
             return runs;
         }
 
@@ -457,13 +768,13 @@ public static class CSharpColorizer
             {
                 var start = i;
                 while (i < len && char.IsWhiteSpace(line[i])) i++;
-                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = defaultFg, FontSize = 11f });
+                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = defaultFg, FontSize = fontSize });
                 continue;
             }
 
             if (c == '/' && i + 1 < len && line[i + 1] == '/')
             {
-                runs.Add(new Run(line.Substring(i)) { Foreground = CommentBrush, FontSize = 11f });
+                runs.Add(new Run(line.Substring(i)) { Foreground = CommentBrush, FontSize = fontSize });
                 break;
             }
 
@@ -487,7 +798,7 @@ public static class CSharpColorizer
                         i++;
                     }
                 }
-                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = StringBrush, FontSize = 11f });
+                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = StringBrush, FontSize = fontSize });
                 continue;
             }
 
@@ -498,7 +809,7 @@ public static class CSharpColorizer
                 {
                     i++;
                 }
-                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = NumberBrush, FontSize = 11f });
+                runs.Add(new Run(line.Substring(start, i - start)) { Foreground = NumberBrush, FontSize = fontSize });
                 continue;
             }
 
@@ -530,11 +841,11 @@ public static class CSharpColorizer
                     fg = TypeBrush;
                 }
 
-                runs.Add(new Run(word) { Foreground = fg, FontSize = 11f });
+                runs.Add(new Run(word) { Foreground = fg, FontSize = fontSize });
                 continue;
             }
 
-            runs.Add(new Run(c.ToString()) { Foreground = OperatorBrush, FontSize = 11f });
+            runs.Add(new Run(c.ToString()) { Foreground = OperatorBrush, FontSize = fontSize });
             i++;
         }
 

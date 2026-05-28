@@ -17,13 +17,16 @@ using Grid = Microsoft.UI.Xaml.Controls.Grid;
 public class ToolboxItem : Border
 {
     private readonly string _controlName;
+    private readonly string _displayName;
     private readonly ProGPU.Text.TtfFont? _font;
 
     public string ControlName => _controlName;
+    public string DisplayName => _displayName;
 
     public ToolboxItem(string controlName, string displayName, string icon, ProGPU.Text.TtfFont? font)
     {
         _controlName = controlName;
+        _displayName = displayName;
         _font = font;
 
         Margin = new Thickness(4);
@@ -202,6 +205,7 @@ public class Toolbox : Border
 {
     private readonly StackPanel _listPanel;
     private readonly ScrollViewer _scrollViewer;
+    private readonly List<ToolboxItem> _allItems = new();
 
     public Toolbox(ProGPU.Text.TtfFont? font)
     {
@@ -213,7 +217,11 @@ public class Toolbox : Border
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
 
-        _listPanel = new StackPanel
+        var mainGrid = new Grid();
+        mainGrid.RowDefinitions.Add(GridLength.Auto);
+        mainGrid.RowDefinitions.Add(GridLength.Star(1f));
+
+        var headerPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
             HorizontalAlignment = HorizontalAlignment.Stretch
@@ -227,7 +235,26 @@ public class Toolbox : Border
             HorizontalAlignment = HorizontalAlignment.Left
         };
         titleText.Inlines.Add(new Bold(new Run("Toolbox")));
-        _listPanel.AddChild(titleText);
+        headerPanel.AddChild(titleText);
+
+        var searchBox = new TextBox
+        {
+            PlaceholderText = "Search...",
+            WidthConstraint = 228f,
+            HeightConstraint = 28f,
+            Margin = new Thickness(4, 0, 4, 12),
+            Font = font
+        };
+        headerPanel.AddChild(searchBox);
+
+        mainGrid.AddChild(headerPanel);
+        Grid.SetRow(headerPanel, 0);
+
+        _listPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
 
         var controls = new (string Name, string DisplayName, string Icon)[]
         {
@@ -261,8 +288,38 @@ public class Toolbox : Border
         foreach (var ctrl in controls)
         {
             var item = new ToolboxItem(ctrl.Name, ctrl.DisplayName, ctrl.Icon, font);
+            _allItems.Add(item);
             _listPanel.AddChild(item);
         }
+
+        searchBox.TextChanged += (s, e) =>
+        {
+            string query = searchBox.Text.Trim();
+            
+            // Remove all item children
+            while (_listPanel.Children.Count > 0)
+            {
+                _listPanel.RemoveChild(_listPanel.Children[0]);
+            }
+            
+            // Re-add matching items
+            foreach (var item in _allItems)
+            {
+                if (string.IsNullOrEmpty(query) || 
+                    item.ControlName.Contains(query, StringComparison.OrdinalIgnoreCase) || 
+                    item.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    _listPanel.AddChild(item);
+                }
+            }
+            
+            // Reset vertical offset to ensure results are visible and not scrolled out of view
+            _scrollViewer.VerticalOffset = 0f;
+            
+            _listPanel.InvalidateMeasure();
+            _listPanel.InvalidateArrange();
+            _listPanel.Invalidate();
+        };
 
         _scrollViewer = new ScrollViewer
         {
@@ -271,6 +328,9 @@ public class Toolbox : Border
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        Child = _scrollViewer;
+        mainGrid.AddChild(_scrollViewer);
+        Grid.SetRow(_scrollViewer, 1);
+
+        Child = mainGrid;
     }
 }
