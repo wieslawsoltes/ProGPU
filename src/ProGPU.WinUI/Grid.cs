@@ -14,6 +14,9 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class Grid : Panel
 {
+    internal float[]? _actualColWidths;
+    internal float[]? _actualRowHeights;
+
     private static readonly ConditionalWeakTable<Visual, GridCellInfo> _fallbackCellInfo = new();
 
     public class GridCellInfo
@@ -414,5 +417,8 @@ public class Grid : Panel
                 node.Arrange(new Rect(colOffsets[c], rowOffsets[r], colWidths[c], rowHeights[r]));
             }
         }
+
+        _actualColWidths = colWidths;
+        _actualRowHeights = rowHeights;
     }
 }
