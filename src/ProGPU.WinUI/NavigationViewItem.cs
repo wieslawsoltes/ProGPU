@@ -17,19 +17,6 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class NavigationViewItem : Control
 {
-    private static readonly SolidColorBrush LightBgSelect = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.08f));
-    private static readonly SolidColorBrush DarkBgSelect = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.07f));
-    private static readonly SolidColorBrush LightBgHover = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.05f));
-    private static readonly SolidColorBrush DarkBgHover = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.05f));
-    private static readonly SolidColorBrush LightTranslucentBrush = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.15f));
-    private static readonly SolidColorBrush DarkTranslucentBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.15f));
-    private static readonly SolidColorBrush LightTranslucentHeavyBrush = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.5f));
-    private static readonly SolidColorBrush DarkTranslucentHeavyBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.5f));
-    private static readonly Pen LightTranslucentPen = new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.4f)), 1f);
-    private static readonly Pen DarkTranslucentPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.4f)), 1f);
-    private static readonly Pen RedPen = new Pen(new SolidColorBrush(0xFF5533FF), 1f);
-    private static readonly SolidColorBrush OrangeBrush = new SolidColorBrush(0xFF9900FF);
-
     private string _text = string.Empty;
     private string _icon = string.Empty;
     private bool _isSelected;
@@ -45,6 +32,20 @@ public class NavigationViewItem : Control
     private PathGeometry? _iconGeo4;
     private PathGeometry? _iconGeo5;
     private PathGeometry? _iconGeo6;
+
+    private SolidColorBrush? _translucentBrush;
+    private SolidColorBrush? _translucentHeavyBrush;
+    private Pen? _translucentPen;
+    private SolidColorBrush? _orangeBrush;
+    private Pen? _redPen;
+    private SolidColorBrush? _greenBrush;
+    private ElementTheme _cachedBrushesTheme = ElementTheme.Default;
+
+    public override void OnVisualStateChanged()
+    {
+        _cachedBrushesTheme = ElementTheme.Default; // invalidate cached brushes/pens
+        base.OnVisualStateChanged();
+    }
 
     public string Text
     {
@@ -92,11 +93,24 @@ public class NavigationViewItem : Control
 
     public ObservableCollection<NavigationViewItem> Items { get; }
 
+    public override Brush? GetCurrentBackground()
+    {
+        if (IsSelected) return ThemeManager.GetBrush("NavigationViewItemBackgroundSelected");
+        if (IsPointerOver) return ThemeManager.GetBrush("NavigationViewItemBackgroundPointerOver");
+        return Background;
+    }
+
     public NavigationViewItem()
     {
         Items = new ObservableCollection<NavigationViewItem>();
         Items.CollectionChanged += (s, e) => Invalidate();
         HeightConstraint = 40f;
+
+        var defaultStyle = ThemeManager.GetDefaultStyle(GetType());
+        if (defaultStyle != null)
+        {
+            Style = defaultStyle;
+        }
     }
 
     public NavigationViewItem(string text, string icon = "", FrameworkElement? page = null) : this()
@@ -288,23 +302,32 @@ public class NavigationViewItem : Control
         var textSecondary = ThemeManager.GetBrush("TextSecondary", activeTheme);
         var accentBrush = ThemeManager.GetBrush("SystemAccentColor", activeTheme);
 
-        var bgSelect = activeTheme == ElementTheme.Light ? LightBgSelect : DarkBgSelect;
-        var bgHover = activeTheme == ElementTheme.Light ? LightBgHover : DarkBgHover;
-
         var primaryPen = ThemeManager.GetPen("TextPrimary", 1f, activeTheme);
         var secondaryPen = ThemeManager.GetPen("TextSecondary", 1f, activeTheme);
-        var translucentPen = activeTheme == ElementTheme.Light ? LightTranslucentPen : DarkTranslucentPen;
-        var translucentBrush = activeTheme == ElementTheme.Light ? LightTranslucentBrush : DarkTranslucentBrush;
-        var translucentHeavyBrush = activeTheme == ElementTheme.Light ? LightTranslucentHeavyBrush : DarkTranslucentHeavyBrush;
+
+        if (_cachedBrushesTheme != activeTheme)
+        {
+            var textPrimaryColor = ThemeManager.GetColor("TextPrimary", activeTheme);
+            _translucentBrush = new SolidColorBrush(new Vector4(textPrimaryColor.X, textPrimaryColor.Y, textPrimaryColor.Z, 0.15f));
+            _translucentHeavyBrush = new SolidColorBrush(new Vector4(textPrimaryColor.X, textPrimaryColor.Y, textPrimaryColor.Z, 0.5f));
+            _translucentPen = new Pen(new SolidColorBrush(new Vector4(textPrimaryColor.X, textPrimaryColor.Y, textPrimaryColor.Z, 0.4f)), 1f);
+            _orangeBrush = new SolidColorBrush(new Vector4(1f, 0.6f, 0f, 1f));
+            _redPen = new Pen(new SolidColorBrush(new Vector4(0.9f, 0.2f, 0.2f, 1f)), 1f);
+            _greenBrush = new SolidColorBrush(new Vector4(0.2f, 0.7f, 0.3f, 1.0f));
+            _cachedBrushesTheme = activeTheme;
+        }
+
+        var translucentBrush = _translucentBrush!;
+        var translucentHeavyBrush = _translucentHeavyBrush!;
+        var translucentPen = _translucentPen!;
+        var OrangeBrush = _orangeBrush!;
+        var RedPen = _redPen!;
 
         // 1. Draw modern backgrounds depending on active selection or hover
-        if (IsSelected)
+        var bg = GetCurrentBackground();
+        if (bg != null)
         {
-            context.DrawRectangle(bgSelect, null, new Rect(0f, 0f, Size.X, Size.Y));
-        }
-        else if (IsPointerOver)
-        {
-            context.DrawRectangle(bgHover, null, new Rect(0f, 0f, Size.X, Size.Y));
+            context.DrawRectangle(bg, null, new Rect(0f, 0f, Size.X, Size.Y));
         }
 
         // 2. Draw 3px left accent stripe indicator
@@ -515,7 +538,7 @@ public class NavigationViewItem : Control
 
                     context.DrawPath(translucentBrush, primaryPen, _iconGeo1!);
                     context.DrawRoundedRectangle(accentBrush, null, new Rect(startX + 5f, startY + 4f, 2.5f, 2.5f), 1f);
-                    context.DrawRoundedRectangle(new SolidColorBrush(new Vector4(0.2f, 0.7f, 0.3f, 1.0f)), null, new Rect(startX + 10f, startY + 5f, 2.5f, 2.5f), 1f);
+                    context.DrawRoundedRectangle(_greenBrush, null, new Rect(startX + 10f, startY + 5f, 2.5f, 2.5f), 1f);
                     context.DrawRoundedRectangle(textPrimary, null, new Rect(startX + 9f, startY + 10f, 2.5f, 2.5f), 1f);
 
                     drewCustomIcon = true;

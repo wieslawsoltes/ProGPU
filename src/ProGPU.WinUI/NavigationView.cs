@@ -26,6 +26,8 @@ public class NavigationView : FrameworkElement
             Height = 40f;
         }
 
+        protected override string GetThemePrefix() => "Button";
+
         public override void OnRender(DrawingContext context)
         {
             base.OnRender(context);
