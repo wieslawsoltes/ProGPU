@@ -1356,7 +1356,7 @@ public unsafe class Compositor : IDisposable
             _contextPool.Add(new DrawingContext());
         }
         var ctx = _contextPool[_poolIndex++];
-        ctx.Commands.Clear();
+        ctx.Clear();
         return ctx;
     }
 
