@@ -233,6 +233,111 @@ public class SamplePagesTests
     }
 
     [Fact]
+    public unsafe void Test_ComputeFxPage_Renders()
+    {
+        EnsureFontsAndStateLoaded();
+        
+        var context = HeadlessWindow.Shared.Context;
+        AppState._offscreenCompositor = new Compositor(context, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm);
+        AppState._compute = new ProGPU.Compute.ComputeAccelerator(context);
+        
+        AppState._canvasSourceTexture = new ProGPU.Backend.GpuTexture(context, 600, 600, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm, 
+            Silk.NET.WebGPU.TextureUsage.RenderAttachment | Silk.NET.WebGPU.TextureUsage.TextureBinding | Silk.NET.WebGPU.TextureUsage.CopySrc | Silk.NET.WebGPU.TextureUsage.CopyDst | Silk.NET.WebGPU.TextureUsage.StorageBinding);
+        AppState._canvasTempTexture = new ProGPU.Backend.GpuTexture(context, 600, 600, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm, 
+            Silk.NET.WebGPU.TextureUsage.RenderAttachment | Silk.NET.WebGPU.TextureUsage.TextureBinding | Silk.NET.WebGPU.TextureUsage.CopySrc | Silk.NET.WebGPU.TextureUsage.CopyDst | Silk.NET.WebGPU.TextureUsage.StorageBinding);
+        AppState._canvasBlurTexture = new ProGPU.Backend.GpuTexture(context, 600, 600, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm, 
+            Silk.NET.WebGPU.TextureUsage.RenderAttachment | Silk.NET.WebGPU.TextureUsage.TextureBinding | Silk.NET.WebGPU.TextureUsage.CopySrc | Silk.NET.WebGPU.TextureUsage.CopyDst | Silk.NET.WebGPU.TextureUsage.StorageBinding);
+        AppState._canvasShadowTexture = new ProGPU.Backend.GpuTexture(context, 600, 600, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm, 
+            Silk.NET.WebGPU.TextureUsage.RenderAttachment | Silk.NET.WebGPU.TextureUsage.TextureBinding | Silk.NET.WebGPU.TextureUsage.CopySrc | Silk.NET.WebGPU.TextureUsage.CopyDst | Silk.NET.WebGPU.TextureUsage.StorageBinding);
+
+        // Render Page
+        var page = ComputeFxPage.Create();
+        var window = HeadlessWindow.Shared;
+        window.Resize(1280, 800);
+        window.Content = page;
+
+        // Perform initial measure and arrange to set sizes on layout controls
+        window.Render();
+
+        // Now simulate the offscreen cogs rendering just like MainWindowController.cs!
+        if (AppState._gearCanvasVisual != null)
+        {
+            AppState._gearCanvasVisual.Measure(new Vector2(1280f - 300f, 800f - 140f));
+            AppState._gearCanvasVisual.Arrange(new Rect(0, 0, 1280f - 300f, 800f - 140f));
+            AppState._gearCanvasVisual.UpdateRotation(AppState._gearRotation);
+
+            uint canvasW = (uint)Math.Max(1f, AppState._gearCanvasVisual.Size.X);
+            uint canvasH = (uint)Math.Max(1f, AppState._gearCanvasVisual.Size.Y);
+
+            AppState._canvasSourceTexture.Resize(canvasW, canvasH);
+            AppState._canvasTempTexture.Resize(canvasW, canvasH);
+            AppState._canvasBlurTexture.Resize(canvasW, canvasH);
+            AppState._canvasShadowTexture.Resize(canvasW, canvasH);
+
+            AppState._offscreenCompositor.RenderScene(AppState._gearCanvasVisual, canvasW, canvasH, AppState._canvasSourceTexture.ViewPtr);
+
+            if (AppState._shadowRadius > 0)
+            {
+                var shadowColor = new Vector4(0f, 0f, 0f, 0.65f);
+                AppState._compute.ApplyDropShadow(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasShadowTexture, AppState._shadowOffset, shadowColor, AppState._shadowRadius);
+            }
+
+            if (AppState._blurRadius > 0)
+            {
+                AppState._compute.ApplyGaussianBlur(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasBlurTexture, AppState._blurRadius);
+            }
+        }
+
+        // Render again to draw the populated textures onto the screen
+        window.Render();
+
+        // Save screenshot
+        string screenshotPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "page_compute_fx.png");
+        window.SaveScreenshot(screenshotPath);
+
+        // Write diagnostics
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"[DIAG] _gearCanvasVisual Size: {AppState._gearCanvasVisual?.Size}, Offset: {AppState._gearCanvasVisual?.Offset}");
+        if (AppState._gearCanvasVisual != null)
+        {
+            sb.AppendLine($"[DIAG] _gearCanvasVisual Children count: {AppState._gearCanvasVisual.Children.Count}");
+            for (int i = 0; i < AppState._gearCanvasVisual.Children.Count; i++)
+            {
+                var child = AppState._gearCanvasVisual.Children[i];
+                sb.AppendLine($"  Child {i}: Type={child.GetType().Name}, Size={child.Size}, Offset={child.Offset}, Transform={child.Transform}");
+                if (child is DrawingVisual dv)
+                {
+                    sb.AppendLine($"    Commands count: {dv.Context.Commands.Count}");
+                }
+            }
+        }
+        if (AppState._offscreenCompositor != null)
+        {
+            var drawCallsField = typeof(Compositor).GetField("_drawCalls", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var drawCalls = (System.Collections.IList?)drawCallsField?.GetValue(AppState._offscreenCompositor);
+            sb.AppendLine($"[DIAG] _offscreenCompositor Draw calls count: {drawCalls?.Count}");
+            sb.AppendLine($"[DIAG] _offscreenCompositor VectorVertexCount: {AppState._offscreenCompositor.VectorVertexCount}");
+        }
+
+        File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "diag_compute_fx.txt"), sb.ToString());
+
+        // Cleanup
+        window.Content = null;
+        AppState._offscreenCompositor.Dispose();
+        AppState._offscreenCompositor = null;
+        AppState._compute.Dispose();
+        AppState._compute = null;
+        AppState._canvasSourceTexture.Dispose();
+        AppState._canvasSourceTexture = null;
+        AppState._canvasTempTexture.Dispose();
+        AppState._canvasTempTexture = null;
+        AppState._canvasBlurTexture.Dispose();
+        AppState._canvasBlurTexture = null;
+        AppState._canvasShadowTexture.Dispose();
+        AppState._canvasShadowTexture = null;
+    }
+
+    [Fact]
     public void Test_KeyboardFocusPage_Renders()
     {
         RunPageTest(KeyboardParityPage.Create(), "Keyboard & Focus");
