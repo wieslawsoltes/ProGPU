@@ -29,7 +29,9 @@ public enum RenderCommandType
     DrawLine3D,
     DrawHatch,
     DrawAcisSolid,
-    DrawStaticDxf
+    DrawStaticDxf,
+    DrawGpuLineSeries,
+    DrawGpuScatterSeries
 }
 
 public struct Line3D
@@ -149,9 +151,17 @@ public struct RenderCommand
     // Static buffer property
     public object? StaticBuffer;
 
+    // GPU Chart Series properties
+    public float[]? GpuPoints;
+    public int GpuPointsCount;
+
     // GPU Transform properties
     public bool UseGpuTransforms;
     public Matrix4x4 CameraView;
+
+    // GPU Chart scaling parameters
+    public Vector2 Scale;
+    public Vector2 Translate;
 }
 
 
@@ -416,6 +426,78 @@ public class DrawingContext
         {
             Type = RenderCommandType.DrawStaticDxf,
             StaticBuffer = staticBuffer
+        });
+    }
+
+    public void DrawGpuLineSeries(float[] interleavedCoords, int pointsCount, float thickness, Brush brush)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuLineSeries,
+            GpuPoints = interleavedCoords,
+            GpuPointsCount = pointsCount,
+            RadiusX = thickness,
+            Brush = brush
+        });
+    }
+
+    public void DrawGpuLineSeries(object staticBuffer, float thickness, Brush brush)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuLineSeries,
+            StaticBuffer = staticBuffer,
+            RadiusX = thickness,
+            Brush = brush
+        });
+    }
+
+    public void DrawGpuLineSeries(object staticBuffer, float thickness, Brush brush, Vector2 scale, Vector2 translate)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuLineSeries,
+            StaticBuffer = staticBuffer,
+            RadiusX = thickness,
+            Brush = brush,
+            Scale = scale,
+            Translate = translate
+        });
+    }
+
+    public void DrawGpuScatterSeries(float[] interleavedCoords, int pointsCount, float radius, Brush brush)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuScatterSeries,
+            GpuPoints = interleavedCoords,
+            GpuPointsCount = pointsCount,
+            RadiusX = radius,
+            Brush = brush
+        });
+    }
+
+    public void DrawGpuScatterSeries(object staticBuffer, float radius, Brush brush)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuScatterSeries,
+            StaticBuffer = staticBuffer,
+            RadiusX = radius,
+            Brush = brush
+        });
+    }
+
+    public void DrawGpuScatterSeries(object staticBuffer, float radius, Brush brush, Vector2 scale, Vector2 translate)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuScatterSeries,
+            StaticBuffer = staticBuffer,
+            RadiusX = radius,
+            Brush = brush,
+            Scale = scale,
+            Translate = translate
         });
     }
 

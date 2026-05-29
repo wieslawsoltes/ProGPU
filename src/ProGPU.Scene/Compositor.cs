@@ -159,6 +159,20 @@ public unsafe class Compositor : IDisposable
     private BindGroupLayout* _textureBindGroupLayout;
     private BindGroupLayout* _textureBindGroupLayoutOffscreen;
 
+    // High performance Chart GPGPU pipelines
+    private RenderPipeline* _chartLinePipeline;
+    private RenderPipeline* _chartScatterPipeline;
+    private RenderPipeline* _chartLinePipelineOffscreen;
+    private RenderPipeline* _chartScatterPipelineOffscreen;
+    private BindGroupLayout* _chartLineBindGroupLayout;
+    private BindGroupLayout* _chartScatterBindGroupLayout;
+
+    // Captured frame parameters
+    private uint _currentWidth;
+    private uint _currentHeight;
+    private float _currentDpiScale;
+    private Matrix4x4 _currentProjection;
+
     private GpuBuffer _hatchRecordsBuffer;
     private GpuBuffer _hatchSegmentsBuffer;
     private readonly List<GpuHatchRecord> _hatchRecordsList = new();
@@ -182,7 +196,9 @@ public unsafe class Compositor : IDisposable
         Vector,
         Texture,
         Text,
-        StaticDxf
+        StaticDxf,
+        ChartLine,
+        ChartScatter
     }
 
     public struct CompositorDrawCall
@@ -192,6 +208,13 @@ public unsafe class Compositor : IDisposable
         public uint IndexCount;
         public GpuTexture? Texture;
         public object? StaticBuffer;
+        
+        // GPU Chart properties
+        public Matrix4x4 Transform;
+        public float LineThicknessOrRadius;
+        public Vector4 Color;
+        public Vector2 Scale;
+        public Vector2 Translate;
     }
 
     private readonly List<VectorVertex> _vectorVerticesList = new();
@@ -373,6 +396,8 @@ public unsafe class Compositor : IDisposable
         var vecShaderModule = _pipelineCache.GetOrCreateShader("Vector", Shaders.VectorShader, "VectorShader");
         var textShaderModule = _pipelineCache.GetOrCreateShader("Text", Shaders.TextShader, "TextShader");
         var texShaderModule = _pipelineCache.GetOrCreateShader("Texture", Shaders.TextureShader, "TextureShader");
+        var chartLineShaderModule = _pipelineCache.GetOrCreateShader("ChartLine", Shaders.ChartLineShader, "ChartLineShader");
+        var chartScatterShaderModule = _pipelineCache.GetOrCreateShader("ChartScatter", Shaders.ChartScatterShader, "ChartScatterShader");
 
         var vertexAttribs = new VertexAttribute[]
         {
@@ -468,7 +493,74 @@ public unsafe class Compositor : IDisposable
                 enableBlend: true,
                 sampleCount: 1
             );
+
+            // Compile high performance Chart GPGPU pipelines (with MSAA 4x)
+            _chartLinePipeline = _pipelineCache.GetOrCreateRenderPipeline(
+                "ChartLine",
+                chartLineShaderModule,
+                "vs_main",
+                "fs_main",
+                RenderFormat,
+                PrimitiveTopology.TriangleList,
+                Array.Empty<VertexBufferLayout>(),
+                enableBlend: true,
+                sampleCount: 4
+            );
+
+            _chartLinePipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
+                "ChartLine_Offscreen",
+                chartLineShaderModule,
+                "vs_main",
+                "fs_main",
+                RenderFormat,
+                PrimitiveTopology.TriangleList,
+                Array.Empty<VertexBufferLayout>(),
+                enableBlend: true,
+                sampleCount: 1
+            );
+
+            var scatterAttribs = new VertexAttribute[]
+            {
+                new() { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }, // center
+                new() { Format = VertexFormat.Float32, Offset = 8, ShaderLocation = 1 }   // radiusPx
+            };
+            fixed (VertexAttribute* scatterAttribsPtr = scatterAttribs)
+            {
+                var scatterLayoutDesc = new VertexBufferLayout
+                {
+                    ArrayStride = 12,
+                    StepMode = VertexStepMode.Instance,
+                    AttributeCount = 2,
+                    Attributes = scatterAttribsPtr
+                };
+                _chartScatterPipeline = _pipelineCache.GetOrCreateRenderPipeline(
+                    "ChartScatter",
+                    chartScatterShaderModule,
+                    "vs_main",
+                    "fs_main",
+                    RenderFormat,
+                    PrimitiveTopology.TriangleList,
+                    new[] { scatterLayoutDesc },
+                    enableBlend: true,
+                    sampleCount: 4
+                );
+
+                _chartScatterPipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
+                    "ChartScatter_Offscreen",
+                    chartScatterShaderModule,
+                    "vs_main",
+                    "fs_main",
+                    RenderFormat,
+                    PrimitiveTopology.TriangleList,
+                    new[] { scatterLayoutDesc },
+                    enableBlend: true,
+                    sampleCount: 1
+                );
+            }
         }
+
+        _chartLineBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_chartLinePipeline, 0);
+        _chartScatterBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_chartScatterPipeline, 0);
 
         _textureBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipeline, 1);
         _textureBindGroupLayoutOffscreen = _context.Wgpu.RenderPipelineGetBindGroupLayout(_texturePipelineOffscreen, 1);
@@ -663,6 +755,15 @@ public unsafe class Compositor : IDisposable
     public void RenderScene(Visual root, uint width, uint height, TextureView* targetView)
     {
         if (_isDisposed) return;
+        
+        _currentWidth = width;
+        _currentHeight = height;
+        _currentDpiScale = 1.0f;
+        if (_context.Window != null)
+        {
+            _currentDpiScale = (float)_context.Window.FramebufferSize.X / _context.Window.Size.X;
+        }
+
         var totalSw = System.Diagnostics.Stopwatch.StartNew();
         var compileSw = System.Diagnostics.Stopwatch.StartNew();
         _pathAtlas.CleanupFrame();
@@ -688,6 +789,7 @@ public unsafe class Compositor : IDisposable
             0f, 0f, 1f, 0f,
             -1.0f, 1.0f, 0f, 1.0f
         );
+        _currentProjection = projection;
 
         // 2. Clear CPU collection batch lists and active brushes
         _activeBrushes.Clear();
@@ -1066,6 +1168,16 @@ public unsafe class Compositor : IDisposable
                 DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: false);
                 currentType = DrawCallType.StaticDxf;
             }
+            else if (dc.Type == DrawCallType.ChartLine)
+            {
+                RenderChartLine(pass, dc, isOffscreen: false);
+                currentType = DrawCallType.ChartLine;
+            }
+            else if (dc.Type == DrawCallType.ChartScatter)
+            {
+                RenderChartScatter(pass, dc, isOffscreen: false);
+                currentType = DrawCallType.ChartScatter;
+            }
         }
 
         _context.Wgpu.RenderPassEncoderEnd(pass);
@@ -1384,6 +1496,12 @@ public unsafe class Compositor : IDisposable
                     });
                     _pendingVectorStart = (uint)_vectorIndicesList.Count;
                     _pendingTextStart = (uint)_textIndicesList.Count;
+                    break;
+                case RenderCommandType.DrawGpuLineSeries:
+                    CompileGpuLineSeriesCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawGpuScatterSeries:
+                    CompileGpuScatterSeriesCommand(cmd, activeTransform);
                     break;
             }
 
@@ -3372,6 +3490,13 @@ public unsafe class Compositor : IDisposable
         if (_textureBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_textureBindGroupLayout);
         if (_textureBindGroupLayoutOffscreen != null) _context.Wgpu.BindGroupLayoutRelease(_textureBindGroupLayoutOffscreen);
 
+        if (_chartLinePipeline != null) _context.Wgpu.RenderPipelineRelease(_chartLinePipeline);
+        if (_chartScatterPipeline != null) _context.Wgpu.RenderPipelineRelease(_chartScatterPipeline);
+        if (_chartLinePipelineOffscreen != null) _context.Wgpu.RenderPipelineRelease(_chartLinePipelineOffscreen);
+        if (_chartScatterPipelineOffscreen != null) _context.Wgpu.RenderPipelineRelease(_chartScatterPipelineOffscreen);
+        if (_chartLineBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_chartLineBindGroupLayout);
+        if (_chartScatterBindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(_chartScatterBindGroupLayout);
+
         foreach (var cachedBg in _persistentTextureBindGroups.Values)
         {
             if (cachedBg.BindGroupPtr != 0) _context.Wgpu.BindGroupRelease((BindGroup*)cachedBg.BindGroupPtr);
@@ -3620,6 +3745,11 @@ public unsafe class Compositor : IDisposable
 
     public void RenderOffscreen(Visual node, uint width, uint height, GpuTexture targetTexture, float padding)
     {
+        var savedWidth = _currentWidth;
+        var savedHeight = _currentHeight;
+        _currentWidth = width;
+        _currentHeight = height;
+
         // 1. Calculate orthographic projection matrix for offscreen
         var projection = new Matrix4x4(
             2.0f / width, 0f, 0f, 0f,
@@ -3627,6 +3757,8 @@ public unsafe class Compositor : IDisposable
             0f, 0f, 1f, 0f,
             -1.0f, 1.0f, 0f, 1.0f
         );
+        var savedProjection = _currentProjection;
+        _currentProjection = projection;
 
         // 2. Save and clear lists
         var savedVectorVertices = _vectorVerticesList.ToArray();
@@ -3838,6 +3970,16 @@ public unsafe class Compositor : IDisposable
                 DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: true);
                 currentType = DrawCallType.StaticDxf;
             }
+            else if (dc.Type == DrawCallType.ChartLine)
+            {
+                RenderChartLine(pass, dc, isOffscreen: true);
+                currentType = DrawCallType.ChartLine;
+            }
+            else if (dc.Type == DrawCallType.ChartScatter)
+            {
+                RenderChartScatter(pass, dc, isOffscreen: true);
+                currentType = DrawCallType.ChartScatter;
+            }
         }
 
         _context.Wgpu.RenderPassEncoderEnd(pass);
@@ -3879,6 +4021,10 @@ public unsafe class Compositor : IDisposable
         _cameraViewMatrix = savedCameraViewMatrix;
         _hasGpuTransformsInFrame = savedHasGpuTransformsInFrame;
         _gpuTransformsCameraView = savedGpuTransformsCameraView;
+
+        _currentWidth = savedWidth;
+        _currentHeight = savedHeight;
+        _currentProjection = savedProjection;
     }
 
     public DxfStaticBuffer CompileStaticDxf(List<RenderCommand> commands)
@@ -4073,5 +4219,221 @@ public unsafe class Compositor : IDisposable
             _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, sb.TextIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, sb.TextIndexBuffer.Size);
             _context.Wgpu.RenderPassEncoderDrawIndexed(pass, sb.TextIndexCount, 1, 0, 0, 0);
         }
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct LineVsUniforms
+    {
+        public Matrix4x4 Transform;
+        public Vector2 CanvasSize;
+        public float DevicePixelRatio;
+        public float LineWidthCssPx;
+        public Vector2 Scale;
+        public Vector2 Translate;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct ScatterVsUniforms
+    {
+        public Matrix4x4 Transform;
+        public Vector2 ViewportPx;
+        public Vector2 Pad0;
+        public Vector2 Scale;
+        public Vector2 Translate;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct ChartFsUniforms
+    {
+        public Vector4 Color;
+    }
+
+    private void CompileGpuLineSeriesCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        CommitPendingDrawCalls();
+        _drawCalls.Add(new CompositorDrawCall
+        {
+            Type = DrawCallType.ChartLine,
+            StaticBuffer = cmd.StaticBuffer,
+            Transform = transform,
+            LineThicknessOrRadius = cmd.RadiusX,
+            Color = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
+            Scale = cmd.Scale,
+            Translate = cmd.Translate
+        });
+        _pendingVectorStart = (uint)_vectorIndicesList.Count;
+        _pendingTextStart = (uint)_textIndicesList.Count;
+    }
+
+    private void CompileGpuScatterSeriesCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        CommitPendingDrawCalls();
+        _drawCalls.Add(new CompositorDrawCall
+        {
+            Type = DrawCallType.ChartScatter,
+            StaticBuffer = cmd.StaticBuffer,
+            Transform = transform,
+            LineThicknessOrRadius = cmd.RadiusX,
+            Color = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
+            Scale = cmd.Scale,
+            Translate = cmd.Translate
+        });
+        _pendingVectorStart = (uint)_vectorIndicesList.Count;
+        _pendingTextStart = (uint)_textIndicesList.Count;
+    }
+
+    private unsafe void RenderChartLine(RenderPassEncoder* pass, CompositorDrawCall dc, bool isOffscreen)
+    {
+        if (dc.StaticBuffer is not GpuSeriesBuffer seriesBuffer || seriesBuffer.Buffer == null || seriesBuffer.PointsCount < 2) return;
+
+        var wgpu = _context.Wgpu;
+        var device = _context.Device;
+
+        if (seriesBuffer.VsUniformBuffer == null)
+        {
+            seriesBuffer.VsUniformBuffer = new GpuBuffer(_context, 96, BufferUsage.Uniform | BufferUsage.CopyDst, "ChartLine VS Uniforms");
+        }
+        if (seriesBuffer.FsUniformBuffer == null)
+        {
+            seriesBuffer.FsUniformBuffer = new GpuBuffer(_context, 16, BufferUsage.Uniform | BufferUsage.CopyDst, "ChartLine FS Uniforms");
+        }
+
+        var vsUniforms = new LineVsUniforms
+        {
+            Transform = dc.Transform * _currentProjection,
+            CanvasSize = new Vector2(_currentWidth, _currentHeight),
+            DevicePixelRatio = _currentDpiScale,
+            LineWidthCssPx = dc.LineThicknessOrRadius,
+            Scale = dc.Scale,
+            Translate = dc.Translate
+        };
+        seriesBuffer.VsUniformBuffer.WriteSingle(vsUniforms);
+
+        var fsUniforms = new ChartFsUniforms
+        {
+            Color = dc.Color
+        };
+        seriesBuffer.FsUniformBuffer.WriteSingle(fsUniforms);
+
+        if (seriesBuffer.LineBindGroup == 0)
+        {
+            var entries = stackalloc BindGroupEntry[3];
+            entries[0] = new BindGroupEntry
+            {
+                Binding = 0,
+                Buffer = seriesBuffer.VsUniformBuffer.BufferPtr,
+                Offset = 0,
+                Size = 96
+            };
+            entries[1] = new BindGroupEntry
+            {
+                Binding = 1,
+                Buffer = seriesBuffer.FsUniformBuffer.BufferPtr,
+                Offset = 0,
+                Size = 16
+            };
+            entries[2] = new BindGroupEntry
+            {
+                Binding = 2,
+                Buffer = seriesBuffer.Buffer.BufferPtr,
+                Offset = 0,
+                Size = seriesBuffer.Buffer.Size
+            };
+
+            var bgDesc = new BindGroupDescriptor
+            {
+                Layout = _chartLineBindGroupLayout,
+                EntryCount = 3,
+                Entries = entries,
+                Label = (byte*)SilkMarshal.StringToPtr("ChartLine BindGroup")
+            };
+            var bg = wgpu.DeviceCreateBindGroup(device, &bgDesc);
+            SilkMarshal.Free((nint)bgDesc.Label);
+            seriesBuffer.LineBindGroup = (nint)bg;
+        }
+
+        var pipeline = isOffscreen ? _chartLinePipelineOffscreen : _chartLinePipeline;
+        wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
+        
+        var lineBg = (BindGroup*)seriesBuffer.LineBindGroup;
+        wgpu.RenderPassEncoderSetBindGroup(pass, 0, lineBg, 0, null);
+
+        uint instanceCount = (uint)(seriesBuffer.PointsCount - 1);
+        wgpu.RenderPassEncoderDraw(pass, 6, instanceCount, 0, 0);
+    }
+
+    private unsafe void RenderChartScatter(RenderPassEncoder* pass, CompositorDrawCall dc, bool isOffscreen)
+    {
+        if (dc.StaticBuffer is not GpuSeriesBuffer seriesBuffer || seriesBuffer.Buffer == null || seriesBuffer.PointsCount < 1) return;
+
+        var wgpu = _context.Wgpu;
+        var device = _context.Device;
+
+        if (seriesBuffer.VsUniformBuffer == null)
+        {
+            seriesBuffer.VsUniformBuffer = new GpuBuffer(_context, 96, BufferUsage.Uniform | BufferUsage.CopyDst, "ChartScatter VS Uniforms");
+        }
+        if (seriesBuffer.FsUniformBuffer == null)
+        {
+            seriesBuffer.FsUniformBuffer = new GpuBuffer(_context, 16, BufferUsage.Uniform | BufferUsage.CopyDst, "ChartScatter FS Uniforms");
+        }
+
+        var vsUniforms = new ScatterVsUniforms
+        {
+            Transform = dc.Transform * _currentProjection,
+            ViewportPx = new Vector2(_currentWidth, _currentHeight),
+            Pad0 = Vector2.Zero,
+            Scale = dc.Scale,
+            Translate = dc.Translate
+        };
+        seriesBuffer.VsUniformBuffer.WriteSingle(vsUniforms);
+
+        var fsUniforms = new ChartFsUniforms
+        {
+            Color = dc.Color
+        };
+        seriesBuffer.FsUniformBuffer.WriteSingle(fsUniforms);
+
+        if (seriesBuffer.ScatterBindGroup == 0)
+        {
+            var entries = stackalloc BindGroupEntry[2];
+            entries[0] = new BindGroupEntry
+            {
+                Binding = 0,
+                Buffer = seriesBuffer.VsUniformBuffer.BufferPtr,
+                Offset = 0,
+                Size = 96
+            };
+            entries[1] = new BindGroupEntry
+            {
+                Binding = 1,
+                Buffer = seriesBuffer.FsUniformBuffer.BufferPtr,
+                Offset = 0,
+                Size = 16
+            };
+
+            var bgDesc = new BindGroupDescriptor
+            {
+                Layout = _chartScatterBindGroupLayout,
+                EntryCount = 2,
+                Entries = entries,
+                Label = (byte*)SilkMarshal.StringToPtr("ChartScatter BindGroup")
+            };
+            var bg = wgpu.DeviceCreateBindGroup(device, &bgDesc);
+            SilkMarshal.Free((nint)bgDesc.Label);
+            seriesBuffer.ScatterBindGroup = (nint)bg;
+        }
+
+        var pipeline = isOffscreen ? _chartScatterPipelineOffscreen : _chartScatterPipeline;
+        wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
+        
+        var scatterBg = (BindGroup*)seriesBuffer.ScatterBindGroup;
+        wgpu.RenderPassEncoderSetBindGroup(pass, 0, scatterBg, 0, null);
+
+        var buffer = seriesBuffer.Buffer.BufferPtr;
+        wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, seriesBuffer.Buffer.Size);
+
+        uint instanceCount = (uint)seriesBuffer.PointsCount;
+        wgpu.RenderPassEncoderDraw(pass, 6, instanceCount, 0, 0);
     }
 }
