@@ -442,11 +442,7 @@ public class DrawingVisual : Visual
 
     public override void OnRender(DrawingContext context)
     {
-        // Copy recorded commands
-        foreach (var cmd in Context.Commands)
-        {
-            context.Commands.Add(cmd);
-        }
+        context.Append(Context);
     }
 }
 

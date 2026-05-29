@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ProGPU.Vector;
 using ProGPU.Text;
 using ProGPU.Backend;
@@ -31,7 +33,8 @@ public enum RenderCommandType
     DrawAcisSolid,
     DrawStaticDxf,
     DrawGpuLineSeries,
-    DrawGpuScatterSeries
+    DrawGpuScatterSeries,
+    DrawPicture // New: Skia-like SKPicture command
 }
 
 public struct Line3D
@@ -103,6 +106,14 @@ public struct Rect
     }
 }
 
+public interface IRenderDataProvider
+{
+    ReadOnlySpan<Vector2> GetPoints(int offset, int count);
+    ReadOnlySpan<double> GetDoubles(int offset, int count);
+    ReadOnlySpan<Line3D> GetLines3D(int offset, int count);
+    ReadOnlySpan<float> GetFloats(int offset, int count);
+}
+
 public struct RenderCommand
 {
     public RenderCommandType Type;
@@ -131,11 +142,11 @@ public struct RenderCommand
     public float RadiusY;
     public float CornerRadius;
 
-    // Polyline properties
+    // Polyline properties (Retained for WinUI backward compatibility)
     public Vector2[]? PolylinePoints;
     public bool IsClosed;
 
-    // Spline properties
+    // Spline properties (Retained for WinUI backward compatibility)
     public double[]? SplineKnots;
     public double[]? SplineWeights;
     public int SplineDegree;
@@ -151,7 +162,7 @@ public struct RenderCommand
     // Static buffer property
     public object? StaticBuffer;
 
-    // GPU Chart Series properties
+    // GPU Chart Series properties (Retained for backward compatibility)
     public float[]? GpuPoints;
     public int GpuPointsCount;
 
@@ -162,12 +173,105 @@ public struct RenderCommand
     // GPU Chart scaling parameters
     public Vector2 Scale;
     public Vector2 Translate;
+
+    // Zero-allocation buffer offsets and counts
+    public int PointBufferOffset;
+    public int PointBufferCount;
+
+    public int DoubleBufferOffset;
+    public int DoubleBufferCount;
+
+    public int Line3DBufferOffset;
+    public int Line3DBufferCount;
+
+    public int WeightBufferOffset;
+    public int WeightBufferCount;
+
+    public int FloatBufferOffset;
+    public int FloatBufferCount;
+
+    // Picture property
+    public GpuPicture? Picture;
 }
 
+public class GpuPicture : IRenderDataProvider
+{
+    public RenderCommand[] Commands { get; }
+    public Vector2[] PointBuffer { get; }
+    public double[] DoubleBuffer { get; }
+    public Line3D[] Line3DBuffer { get; }
+    public float[] FloatBuffer { get; }
 
-public class DrawingContext
+    public GpuPicture(
+        RenderCommand[] commands,
+        Vector2[] pointBuffer,
+        double[] doubleBuffer,
+        Line3D[] line3dBuffer,
+        float[] floatBuffer)
+    {
+        Commands = commands;
+        PointBuffer = pointBuffer;
+        DoubleBuffer = doubleBuffer;
+        Line3DBuffer = line3dBuffer;
+        FloatBuffer = floatBuffer;
+    }
+
+    public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
+        new ReadOnlySpan<Vector2>(PointBuffer, offset, count);
+
+    public ReadOnlySpan<double> GetDoubles(int offset, int count) => 
+        new ReadOnlySpan<double>(DoubleBuffer, offset, count);
+
+    public ReadOnlySpan<Line3D> GetLines3D(int offset, int count) => 
+        new ReadOnlySpan<Line3D>(Line3DBuffer, offset, count);
+
+    public ReadOnlySpan<float> GetFloats(int offset, int count) => 
+        new ReadOnlySpan<float>(FloatBuffer, offset, count);
+}
+
+public class GpuPictureRecorder
+{
+    private readonly DrawingContext _recordingContext = new();
+
+    public DrawingContext BeginRecording(Rect bounds)
+    {
+        _recordingContext.Clear();
+        return _recordingContext;
+    }
+
+    public GpuPicture EndRecording()
+    {
+        return new GpuPicture(
+            _recordingContext.Commands.ToArray(),
+            _recordingContext.PointBuffer.ToArray(),
+            _recordingContext.DoubleBuffer.ToArray(),
+            _recordingContext.Line3DBuffer.ToArray(),
+            _recordingContext.FloatBuffer.ToArray()
+        );
+    }
+}
+
+public class DrawingContext : IRenderDataProvider
 {
     public List<RenderCommand> Commands { get; } = new();
+
+    // Reusable continuous pools to eliminate heap array allocations
+    public List<Vector2> PointBuffer { get; } = new();
+    public List<double> DoubleBuffer { get; } = new();
+    public List<Line3D> Line3DBuffer { get; } = new();
+    public List<float> FloatBuffer { get; } = new();
+
+    public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
+        CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count);
+
+    public ReadOnlySpan<double> GetDoubles(int offset, int count) => 
+        CollectionsMarshal.AsSpan(DoubleBuffer).Slice(offset, count);
+
+    public ReadOnlySpan<Line3D> GetLines3D(int offset, int count) => 
+        CollectionsMarshal.AsSpan(Line3DBuffer).Slice(offset, count);
+
+    public ReadOnlySpan<float> GetFloats(int offset, int count) => 
+        CollectionsMarshal.AsSpan(FloatBuffer).Slice(offset, count);
 
     public void DrawRectangle(Brush? brush, Pen? pen, Rect rect)
     {
@@ -277,17 +381,6 @@ public class DrawingContext
         });
     }
 
-    public void DrawAcisSolid(Pen pen, List<Line3D> edges, Matrix4x4 modelTransform)
-    {
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawAcisSolid,
-            Pen = pen,
-            Edges3D = edges,
-            Transform = modelTransform
-        });
-    }
-
     public void DrawEllipse(Brush? brush, Pen? pen, Vector2 center, float radiusX, float radiusY)
     {
         Commands.Add(new RenderCommand
@@ -365,36 +458,6 @@ public class DrawingContext
         });
     }
 
-    public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false)
-    {
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawPolyline,
-            Pen = pen,
-            PolylinePoints = points,
-            IsClosed = isClosed
-        });
-    }
-
-    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, int degree)
-    {
-        DrawSpline(pen, controlPoints, knots, null, degree, false);
-    }
-
-    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, double[]? weights, int degree, bool isClosed)
-    {
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawSpline,
-            Pen = pen,
-            PolylinePoints = controlPoints,
-            SplineKnots = knots,
-            SplineWeights = weights,
-            SplineDegree = degree,
-            IsClosed = isClosed
-        });
-    }
-
     public void FillTriangle(Brush brush, Vector2 p1, Vector2 p2, Vector2 p3)
     {
         Commands.Add(new RenderCommand
@@ -429,16 +492,200 @@ public class DrawingContext
         });
     }
 
-    public void DrawGpuLineSeries(float[] interleavedCoords, int pointsCount, float thickness, Brush brush)
+    // --- Modern Zero-Allocation Span-Based APIs ---
+
+    public void DrawPolyline(Pen pen, ReadOnlySpan<Vector2> points, bool isClosed = false)
     {
+        int offset = PointBuffer.Count;
+        int count = points.Length;
+        int required = offset + count;
+        if (PointBuffer.Capacity < required)
+            PointBuffer.Capacity = Math.Max(required, PointBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(PointBuffer, required);
+        points.CopyTo(CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count));
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPolyline,
+            Pen = pen,
+            PointBufferOffset = offset,
+            PointBufferCount = count,
+            IsClosed = isClosed
+        });
+    }
+
+    public void DrawSpline(Pen pen, ReadOnlySpan<Vector2> controlPoints, ReadOnlySpan<double> knots, int degree)
+    {
+        DrawSpline(pen, controlPoints, knots, default, degree, false);
+    }
+
+    public void DrawSpline(Pen pen, ReadOnlySpan<Vector2> controlPoints, ReadOnlySpan<double> knots, ReadOnlySpan<double> weights, int degree, bool isClosed)
+    {
+        int ptOffset = PointBuffer.Count;
+        int ptCount = controlPoints.Length;
+        int ptRequired = ptOffset + ptCount;
+        if (PointBuffer.Capacity < ptRequired)
+            PointBuffer.Capacity = Math.Max(ptRequired, PointBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(PointBuffer, ptRequired);
+        controlPoints.CopyTo(CollectionsMarshal.AsSpan(PointBuffer).Slice(ptOffset, ptCount));
+
+        int knotOffset = DoubleBuffer.Count;
+        int knotCount = knots.Length;
+        int knotRequired = knotOffset + knotCount;
+        if (DoubleBuffer.Capacity < knotRequired)
+            DoubleBuffer.Capacity = Math.Max(knotRequired, DoubleBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(DoubleBuffer, knotRequired);
+        knots.CopyTo(CollectionsMarshal.AsSpan(DoubleBuffer).Slice(knotOffset, knotCount));
+
+        int weightOffset = 0;
+        int weightCount = 0;
+        if (!weights.IsEmpty)
+        {
+            weightOffset = DoubleBuffer.Count;
+            weightCount = weights.Length;
+            int weightRequired = weightOffset + weightCount;
+            if (DoubleBuffer.Capacity < weightRequired)
+                DoubleBuffer.Capacity = Math.Max(weightRequired, DoubleBuffer.Capacity * 2);
+            CollectionsMarshal.SetCount(DoubleBuffer, weightRequired);
+            weights.CopyTo(CollectionsMarshal.AsSpan(DoubleBuffer).Slice(weightOffset, weightCount));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawSpline,
+            Pen = pen,
+            PointBufferOffset = ptOffset,
+            PointBufferCount = ptCount,
+            DoubleBufferOffset = knotOffset,
+            DoubleBufferCount = knotCount,
+            WeightBufferOffset = weightOffset,
+            WeightBufferCount = weightCount,
+            SplineDegree = degree,
+            IsClosed = isClosed
+        });
+    }
+
+    public void DrawAcisSolid(Pen pen, ReadOnlySpan<Line3D> edges, Matrix4x4 modelTransform)
+    {
+        int offset = Line3DBuffer.Count;
+        int count = edges.Length;
+        int required = offset + count;
+        if (Line3DBuffer.Capacity < required)
+            Line3DBuffer.Capacity = Math.Max(required, Line3DBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(Line3DBuffer, required);
+        edges.CopyTo(CollectionsMarshal.AsSpan(Line3DBuffer).Slice(offset, count));
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawAcisSolid,
+            Pen = pen,
+            Line3DBufferOffset = offset,
+            Line3DBufferCount = count,
+            Transform = modelTransform
+        });
+    }
+
+    public void DrawGpuLineSeries(ReadOnlySpan<float> interleavedCoords, int pointsCount, float thickness, Brush brush)
+    {
+        int offset = FloatBuffer.Count;
+        int count = interleavedCoords.Length;
+        int required = offset + count;
+        if (FloatBuffer.Capacity < required)
+            FloatBuffer.Capacity = Math.Max(required, FloatBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(FloatBuffer, required);
+        interleavedCoords.CopyTo(CollectionsMarshal.AsSpan(FloatBuffer).Slice(offset, count));
+
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawGpuLineSeries,
-            GpuPoints = interleavedCoords,
+            FloatBufferOffset = offset,
+            FloatBufferCount = count,
             GpuPointsCount = pointsCount,
             RadiusX = thickness,
             Brush = brush
         });
+    }
+
+    public void DrawGpuScatterSeries(ReadOnlySpan<float> interleavedCoords, int pointsCount, float radius, Brush brush)
+    {
+        int offset = FloatBuffer.Count;
+        int count = interleavedCoords.Length;
+        int required = offset + count;
+        if (FloatBuffer.Capacity < required)
+            FloatBuffer.Capacity = Math.Max(required, FloatBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(FloatBuffer, required);
+        interleavedCoords.CopyTo(CollectionsMarshal.AsSpan(FloatBuffer).Slice(offset, count));
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGpuScatterSeries,
+            FloatBufferOffset = offset,
+            FloatBufferCount = count,
+            GpuPointsCount = pointsCount,
+            RadiusX = radius,
+            Brush = brush
+        });
+    }
+
+    // --- Skia-like Picture drawing commands ---
+
+    public void DrawPicture(GpuPicture picture)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPicture,
+            Picture = picture
+        });
+    }
+
+    public void DrawPicture(GpuPicture picture, Matrix4x4 cameraView)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPicture,
+            Picture = picture,
+            UseGpuTransforms = true,
+            CameraView = cameraView
+        });
+    }
+
+    // --- Backward Compatible Overloads (Forward to Spans) ---
+
+    public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false)
+    {
+        DrawPolyline(pen, new ReadOnlySpan<Vector2>(points), isClosed);
+    }
+
+    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, int degree)
+    {
+        DrawSpline(pen, new ReadOnlySpan<Vector2>(controlPoints), new ReadOnlySpan<double>(knots), degree);
+    }
+
+    public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, double[]? weights, int degree, bool isClosed)
+    {
+        DrawSpline(pen, new ReadOnlySpan<Vector2>(controlPoints), new ReadOnlySpan<double>(knots), weights == null ? default : new ReadOnlySpan<double>(weights), degree, isClosed);
+        if (Commands.Count > 0)
+        {
+            var cmd = Commands[Commands.Count - 1];
+            cmd.SplineWeights = weights;
+            Commands[Commands.Count - 1] = cmd;
+        }
+    }
+
+    public void DrawAcisSolid(Pen pen, List<Line3D> edges, Matrix4x4 modelTransform)
+    {
+        DrawAcisSolid(pen, CollectionsMarshal.AsSpan(edges), modelTransform);
+        if (Commands.Count > 0)
+        {
+            var cmd = Commands[Commands.Count - 1];
+            cmd.Edges3D = edges;
+            Commands[Commands.Count - 1] = cmd;
+        }
+    }
+
+    public void DrawGpuLineSeries(float[] interleavedCoords, int pointsCount, float thickness, Brush brush)
+    {
+        DrawGpuLineSeries(new ReadOnlySpan<float>(interleavedCoords), pointsCount, thickness, brush);
     }
 
     public void DrawGpuLineSeries(object staticBuffer, float thickness, Brush brush)
@@ -467,14 +714,7 @@ public class DrawingContext
 
     public void DrawGpuScatterSeries(float[] interleavedCoords, int pointsCount, float radius, Brush brush)
     {
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawGpuScatterSeries,
-            GpuPoints = interleavedCoords,
-            GpuPointsCount = pointsCount,
-            RadiusX = radius,
-            Brush = brush
-        });
+        DrawGpuScatterSeries(new ReadOnlySpan<float>(interleavedCoords), pointsCount, radius, brush);
     }
 
     public void DrawGpuScatterSeries(object staticBuffer, float radius, Brush brush)
@@ -501,8 +741,44 @@ public class DrawingContext
         });
     }
 
+    // --- Bulk Scene Context Manipulation ---
+
+    public void Append(DrawingContext other)
+    {
+        int pointOffset = PointBuffer.Count;
+        int doubleOffset = DoubleBuffer.Count;
+        int line3dOffset = Line3DBuffer.Count;
+        int floatOffset = FloatBuffer.Count;
+
+        PointBuffer.AddRange(other.PointBuffer);
+        DoubleBuffer.AddRange(other.DoubleBuffer);
+        Line3DBuffer.AddRange(other.Line3DBuffer);
+        FloatBuffer.AddRange(other.FloatBuffer);
+
+        foreach (var cmd in other.Commands)
+        {
+            var adjustedCmd = cmd;
+            if (adjustedCmd.PointBufferCount > 0)
+                adjustedCmd.PointBufferOffset += pointOffset;
+            if (adjustedCmd.DoubleBufferCount > 0)
+                adjustedCmd.DoubleBufferOffset += doubleOffset;
+            if (adjustedCmd.Line3DBufferCount > 0)
+                adjustedCmd.Line3DBufferOffset += line3dOffset;
+            if (adjustedCmd.FloatBufferCount > 0)
+                adjustedCmd.FloatBufferOffset += floatOffset;
+            if (adjustedCmd.WeightBufferCount > 0)
+                adjustedCmd.WeightBufferOffset += doubleOffset;
+
+            Commands.Add(adjustedCmd);
+        }
+    }
+
     public void Clear()
     {
         Commands.Clear();
+        PointBuffer.Clear();
+        DoubleBuffer.Clear();
+        Line3DBuffer.Clear();
+        FloatBuffer.Clear();
     }
 }
