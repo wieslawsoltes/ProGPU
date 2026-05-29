@@ -134,6 +134,10 @@ namespace Microsoft.UI.Xaml.Controls
                                     listItem.Inlines.Add(inline);
                                 }
                             }
+                            else if (subBlock is Inline inlineBlock)
+                            {
+                                listItem.Inlines.Add(inlineBlock);
+                            }
                         }
                         xamlList.Items.Add(listItem);
                     }
