@@ -321,6 +321,7 @@ public static unsafe class MainWindowController
         var passwordBoxItem = new NavigationViewItem("Password Box", "🔒", PasswordBoxPage.Create());
         var dxfViewerItem = new NavigationViewItem("DXF CAD Viewer", "📐", DxfViewerPage.Create());
         var visualDesignerItem = new NavigationViewItem("Visual Designer", "📐", VisualDesignerPage.Create());
+        var pictureCachingItem = new NavigationViewItem("Picture Caching", "🖼️", PictureShowcasePage.Create());
 
         var wrapPanelItem = new NavigationViewItem("Wrap Panel", "🔲", WrapPanelPage.Create());
         var dockPanelItem = new NavigationViewItem("Dock Panel", "🪟", DockPanelPage.Create());
@@ -358,6 +359,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(passwordBoxItem);
         AppState._navigationView.MenuItems.Add(dxfViewerItem);
         AppState._navigationView.MenuItems.Add(visualDesignerItem);
+        AppState._navigationView.MenuItems.Add(pictureCachingItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {

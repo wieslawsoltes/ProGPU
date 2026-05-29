@@ -182,36 +182,7 @@ public static class DragDropManager
 
         Vector2 currentOffset = offset + element.Offset;
 
-        foreach (var cmd in elementContext.Commands)
-        {
-            var offsetCmd = cmd;
-
-            if (offsetCmd.Type == RenderCommandType.DrawRect || 
-                offsetCmd.Type == RenderCommandType.DrawTexture || 
-                offsetCmd.Type == RenderCommandType.DrawRoundedRect)
-            {
-                offsetCmd.Rect = new Rect(offsetCmd.Rect.Position + currentOffset, offsetCmd.Rect.Size);
-            }
-            else
-            {
-                offsetCmd.Position += currentOffset;
-                offsetCmd.Position2 += currentOffset;
-                offsetCmd.Position3 += currentOffset;
-                offsetCmd.Position4 += currentOffset;
-
-                if (offsetCmd.PolylinePoints != null)
-                {
-                    var newPoints = new Vector2[offsetCmd.PolylinePoints.Length];
-                    for (int i = 0; i < offsetCmd.PolylinePoints.Length; i++)
-                    {
-                        newPoints[i] = offsetCmd.PolylinePoints[i] + currentOffset;
-                    }
-                    offsetCmd.PolylinePoints = newPoints;
-                }
-            }
-
-            context.Commands.Add(offsetCmd);
-        }
+        context.Append(elementContext, currentOffset);
 
         if (element is ContainerVisual container)
         {

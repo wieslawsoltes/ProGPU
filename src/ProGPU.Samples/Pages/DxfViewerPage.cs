@@ -36,7 +36,7 @@ public class DxfCanvasControl : FrameworkElement
     private string? _lastFilePath;
     private string? _lastActiveLayout;
     private int _lastActiveLayersHash;
-    private List<RenderCommand>? _cachedCommands;
+    private GpuPicture? _cachedPicture;
     private float _lastZoom;
     private Vector2 _lastPan;
     private bool _lastEnableGpuTransforms;
@@ -74,7 +74,7 @@ public class DxfCanvasControl : FrameworkElement
         Context.FilePath = filePath;
         Document = doc;
         _firstLayout = true;
-        _cachedCommands = null;
+        _cachedPicture = null;
         _needsRecompile = true;
 
         // Initialize visible layer mappings and default colors
@@ -168,7 +168,7 @@ public class DxfCanvasControl : FrameworkElement
             // Compiles in screen space once at Zoom=1.0 and Pan=0, and zooms/pans entirely on the GPU.
             // This is extremely fast (60+ FPS on massive models) but results in minor texture-scaling effects.
             int layersHash = GetActiveLayersHash();
-            bool invalidateCache = _cachedCommands == null 
+            bool invalidateCache = _cachedPicture == null 
                 || Context.FilePath != _lastFilePath 
                 || Document.ActiveLayout != _lastActiveLayout 
                 || layersHash != _lastActiveLayersHash
@@ -188,7 +188,7 @@ public class DxfCanvasControl : FrameworkElement
                 _lastEnableStaticGpuBuffers = AppState.EnableStaticGpuBuffers;
                 _lastSize = Size;
 
-                _cachedCommands = null;
+                _cachedPicture = null;
                 _staticBuffer?.Dispose();
                 _staticBuffer = null;
 
@@ -214,11 +214,26 @@ public class DxfCanvasControl : FrameworkElement
 
                     if (AppState.EnableCommandCaching)
                     {
-                        _cachedCommands = new List<RenderCommand>(Context.DrawingContext.Commands);
+                        var recorder = new GpuPictureRecorder();
+                        var recCtx = recorder.BeginRecording(new Rect(0, 0, Size.X, Size.Y));
+                        var oldCtx = Context.DrawingContext;
+                        Context.DrawingContext = recCtx;
+                        DxfDocumentRenderer.Render(Document, Context);
+                        Context.DrawingContext = oldCtx;
+
+                        _cachedPicture = recorder.EndRecording();
                     }
 
-                    var commandsToCompile = _cachedCommands ?? Context.DrawingContext.Commands;
-                    _staticBuffer = AppState._screenCompositor.CompileStaticDxf(commandsToCompile);
+                    if (_cachedPicture != null)
+                    {
+                        var tempCtx = new DrawingContext();
+                        tempCtx.DrawPicture(_cachedPicture);
+                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(tempCtx);
+                    }
+                    else
+                    {
+                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(Context.DrawingContext);
+                    }
 
                     // Restore properties
                     Context.Zoom = savedZoom;
@@ -252,7 +267,7 @@ public class DxfCanvasControl : FrameworkElement
             // Renders natively at perfect retina screen-space resolution on every camera change.
             // Bypasses static buffers to maintain 100% crisp text/paths and stable 1-pixel line thicknesses at all times.
             int layersHash = GetActiveLayersHash();
-            bool invalidateCache = _cachedCommands == null 
+            bool invalidateCache = _cachedPicture == null 
                 || Context.FilePath != _lastFilePath 
                 || Document.ActiveLayout != _lastActiveLayout 
                 || layersHash != _lastActiveLayersHash
@@ -273,7 +288,7 @@ public class DxfCanvasControl : FrameworkElement
                 invalidateCache = true;
             }
 
-            if (invalidateCache || _cachedCommands == null)
+            if (invalidateCache || _cachedPicture == null)
             {
                 _lastFilePath = Context.FilePath;
                 _lastActiveLayout = Document.ActiveLayout;
@@ -284,21 +299,26 @@ public class DxfCanvasControl : FrameworkElement
                 _lastEnableStaticGpuBuffers = AppState.EnableStaticGpuBuffers;
                 _lastSize = Size;
 
-                Context.DrawingContext.Clear();
-                DxfDocumentRenderer.Render(Document, Context);
+                _cachedPicture = null;
 
                 if (AppState.EnableCommandCaching)
                 {
-                    _cachedCommands = new List<RenderCommand>(Context.DrawingContext.Commands);
+                    var recorder = new GpuPictureRecorder();
+                    var recCtx = recorder.BeginRecording(new Rect(0, 0, Size.X, Size.Y));
+                    var oldCtx = Context.DrawingContext;
+                    Context.DrawingContext = recCtx;
+                    DxfDocumentRenderer.Render(Document, Context);
+                    Context.DrawingContext = oldCtx;
+                    _cachedPicture = recorder.EndRecording();
                 }
                 else
                 {
-                    _cachedCommands = null;
+                    Context.DrawingContext.Clear();
+                    DxfDocumentRenderer.Render(Document, Context);
                 }
             }
 
             context.PushClip(new Rect(0f, 0f, Size.X, Size.Y));
-            var commandsToRender = _cachedCommands ?? Context.DrawingContext.Commands;
 
             var viewMatrix = Matrix4x4.Identity;
             if (AppState.EnableGpuTransforms)
@@ -313,18 +333,46 @@ public class DxfCanvasControl : FrameworkElement
                 );
             }
 
-            foreach (var cmd in commandsToRender)
+            if (_cachedPicture != null)
+            {
+                context.DrawPicture(_cachedPicture, viewMatrix);
+            }
+            else
             {
                 if (AppState.EnableGpuTransforms)
                 {
-                    var modifiedCmd = cmd;
-                    modifiedCmd.UseGpuTransforms = true;
-                    modifiedCmd.CameraView = viewMatrix;
-                    context.Commands.Add(modifiedCmd);
+                    int pointOffset = context.PointBuffer.Count;
+                    int doubleOffset = context.DoubleBuffer.Count;
+                    int line3dOffset = context.Line3DBuffer.Count;
+                    int floatOffset = context.FloatBuffer.Count;
+
+                    context.PointBuffer.AddRange(Context.DrawingContext.PointBuffer);
+                    context.DoubleBuffer.AddRange(Context.DrawingContext.DoubleBuffer);
+                    context.Line3DBuffer.AddRange(Context.DrawingContext.Line3DBuffer);
+                    context.FloatBuffer.AddRange(Context.DrawingContext.FloatBuffer);
+
+                    foreach (var cmd in Context.DrawingContext.Commands)
+                    {
+                        var modifiedCmd = cmd;
+                        if (modifiedCmd.PointBufferCount > 0)
+                            modifiedCmd.PointBufferOffset += pointOffset;
+                        if (modifiedCmd.DoubleBufferCount > 0)
+                            modifiedCmd.DoubleBufferOffset += doubleOffset;
+                        if (modifiedCmd.Line3DBufferCount > 0)
+                            modifiedCmd.Line3DBufferOffset += line3dOffset;
+                        if (modifiedCmd.FloatBufferCount > 0)
+                            modifiedCmd.FloatBufferOffset += floatOffset;
+                        if (modifiedCmd.WeightBufferCount > 0)
+                            modifiedCmd.WeightBufferOffset += doubleOffset;
+
+                        modifiedCmd.UseGpuTransforms = true;
+                        modifiedCmd.CameraView = viewMatrix;
+                        context.Commands.Add(modifiedCmd);
+                    }
                 }
                 else
                 {
-                    context.Commands.Add(cmd);
+                    context.Append(Context.DrawingContext);
                 }
             }
             context.PopClip();

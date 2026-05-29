@@ -10,7 +10,7 @@ namespace ProGPU.Dxf;
 
 public class DxfRenderContext
 {
-    public DrawingContext DrawingContext { get; }
+    public DrawingContext DrawingContext { get; set; }
     
     // Viewport and projection parameters
     public float Zoom { get; set; } = 1.0f;

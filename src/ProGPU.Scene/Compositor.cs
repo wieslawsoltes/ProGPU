@@ -182,7 +182,7 @@ public unsafe class Compositor : IDisposable
     private GpuBuffer _acisEdgesBuffer;
     private readonly List<GpuAcisRecord> _acisRecordsList = new();
     private readonly List<GpuAcisEdge> _acisEdgesList = new();
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<float[], GpuSeriesBuffer> _dynamicGpuBufferCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, GpuSeriesBuffer> _dynamicGpuBufferCache = new();
 
     // Batch buffers (Dynamic GPU vertex & index buffers)
     private GpuBuffer _vectorVertexBuffer;
@@ -873,7 +873,7 @@ public unsafe class Compositor : IDisposable
                         CompileHatchCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawAcisSolid:
-                        CompileAcisCommand(cmd, activeTransform);
+                        CompileAcisCommand(diagContext, cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawText:
                         CompileTextCommand(cmd, null, activeTransform);
@@ -915,10 +915,10 @@ public unsafe class Compositor : IDisposable
                         CompileCubicBezierCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPolyline:
-                        CompilePolylineCommand(cmd, activeTransform);
+                        CompilePolylineCommand(diagContext, cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawSpline:
-                        CompileSplineCommand(cmd, activeTransform);
+                        CompileSplineCommand(diagContext, cmd, activeTransform);
                         break;
                     case RenderCommandType.FillTriangle:
                         CompileFillTriangleCommand(cmd, activeTransform);
@@ -1356,7 +1356,7 @@ public unsafe class Compositor : IDisposable
             _contextPool.Add(new DrawingContext());
         }
         var ctx = _contextPool[_poolIndex++];
-        ctx.Commands.Clear();
+        ctx.Clear();
         return ctx;
     }
 
@@ -1436,7 +1436,7 @@ public unsafe class Compositor : IDisposable
                     CompileHatchCommand(cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawAcisSolid:
-                    CompileAcisCommand(cmd, activeTransform);
+                    CompileAcisCommand(ctx, cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawText:
                     CompileTextCommand(cmd, node as ITextLayoutProvider, activeTransform);
@@ -1478,10 +1478,10 @@ public unsafe class Compositor : IDisposable
                     CompileCubicBezierCommand(cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawPolyline:
-                    CompilePolylineCommand(cmd, activeTransform);
+                    CompilePolylineCommand(ctx, cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawSpline:
-                    CompileSplineCommand(cmd, activeTransform);
+                    CompileSplineCommand(ctx, cmd, activeTransform);
                     break;
                 case RenderCommandType.FillTriangle:
                     CompileFillTriangleCommand(cmd, activeTransform);
@@ -1500,10 +1500,13 @@ public unsafe class Compositor : IDisposable
                     _pendingTextStart = (uint)_textIndicesList.Count;
                     break;
                 case RenderCommandType.DrawGpuLineSeries:
-                    CompileGpuLineSeriesCommand(cmd, activeTransform);
+                    CompileGpuLineSeriesCommand(ctx, cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawGpuScatterSeries:
-                    CompileGpuScatterSeriesCommand(cmd, activeTransform);
+                    CompileGpuScatterSeriesCommand(ctx, cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawPicture:
+                    CompilePicture(ctx, cmd.Picture, activeTransform);
                     break;
             }
 
@@ -1550,6 +1553,123 @@ public unsafe class Compositor : IDisposable
         }
 
         node.IsDirty = false;
+    }
+
+    private void CompilePicture(DrawingContext parentContext, GpuPicture? picture, Matrix4x4 globalTransform)
+    {
+        if (picture == null) return;
+        foreach (var cmd in picture.Commands)
+        {
+            int vectorStart = _vectorVerticesList.Count;
+            int textStart = _textVerticesList.Count;
+            var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
+            
+            bool savedUseGpuTransformsActive = _useGpuTransformsActive;
+            Matrix4x4 savedCameraViewMatrix = _cameraViewMatrix;
+
+            if (cmd.UseGpuTransforms)
+            {
+                _useGpuTransformsActive = true;
+                _cameraViewMatrix = cmd.CameraView * globalTransform;
+                _hasGpuTransformsInFrame = true;
+                _gpuTransformsCameraView = cmd.CameraView * globalTransform;
+            }
+
+            switch (cmd.Type)
+            {
+                case RenderCommandType.DrawRect:
+                    CompileRectCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawPath:
+                    CompilePathCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawHatch:
+                    CompileHatchCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawAcisSolid:
+                    CompileAcisCommand(picture, cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawText:
+                    CompileTextCommand(cmd, null, activeTransform);
+                    break;
+                case RenderCommandType.DrawTexture:
+                    CompileTextureCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.PushClip:
+                    PushClipRect(cmd.Rect, globalTransform);
+                    break;
+                case RenderCommandType.PopClip:
+                    PopClipRect();
+                    break;
+                case RenderCommandType.PushOpacity:
+                    PushOpacityValue(cmd.FontSize);
+                    break;
+                case RenderCommandType.PopOpacity:
+                    PopOpacityValue();
+                    break;
+                case RenderCommandType.DrawLine:
+                    CompileLineCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawLine3D:
+                    CompileLine3DCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawEllipse:
+                    CompileEllipseCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawCircle:
+                    CompileCircleCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawRoundedRect:
+                    CompileRoundedRectCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawBezier:
+                    CompileBezierCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawCubicBezier:
+                    CompileCubicBezierCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawPolyline:
+                    CompilePolylineCommand(picture, cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawSpline:
+                    CompileSplineCommand(picture, cmd, activeTransform);
+                    break;
+                case RenderCommandType.FillTriangle:
+                    CompileFillTriangleCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.FillQuad:
+                    CompileFillQuadCommand(cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawGpuLineSeries:
+                    CompileGpuLineSeriesCommand(picture, cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawGpuScatterSeries:
+                    CompileGpuScatterSeriesCommand(picture, cmd, activeTransform);
+                    break;
+                case RenderCommandType.DrawPicture:
+                    CompilePicture(parentContext, cmd.Picture, activeTransform);
+                    break;
+            }
+
+            if (cmd.UseGpuTransforms)
+            {
+                for (int i = vectorStart; i < _vectorVerticesList.Count; i++)
+                {
+                    var v = _vectorVerticesList[i];
+                    v.ShapeType += 100f;
+                    _vectorVerticesList[i] = v;
+                }
+                for (int i = textStart; i < _textVerticesList.Count; i++)
+                {
+                    var v = _textVerticesList[i];
+                    v.ShapeType += 100f;
+                    _textVerticesList[i] = v;
+                }
+            }
+
+            _useGpuTransformsActive = savedUseGpuTransformsActive;
+            _cameraViewMatrix = savedCameraViewMatrix;
+        }
     }
 
     private void CompileRectCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -2093,18 +2213,24 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private void CompileAcisCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompileAcisCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
-        if (cmd.Edges3D == null || cmd.Pen == null) return;
+        if (cmd.Pen == null) return;
+
+        ReadOnlySpan<Line3D> edgesSpan = provider != null ? 
+            provider.GetLines3D(cmd.Line3DBufferOffset, cmd.Line3DBufferCount) : 
+            CollectionsMarshal.AsSpan(cmd.Edges3D ?? new List<Line3D>());
+
+        if (edgesSpan.IsEmpty) return;
 
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
         float thickness = cmd.Pen.Thickness;
 
         uint startEdge = (uint)_acisEdgesList.Count;
-        uint edgeCount = (uint)cmd.Edges3D.Count;
+        uint edgeCount = (uint)edgesSpan.Length;
 
-        foreach (var edge in cmd.Edges3D)
+        foreach (var edge in edgesSpan)
         {
             _acisEdgesList.Add(new GpuAcisEdge
             {
@@ -2370,15 +2496,22 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private void CompilePolylineCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompilePolylineCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
-        if (cmd.Pen == null || cmd.PolylinePoints == null || cmd.PolylinePoints.Length < 2) return;
+        if (cmd.Pen == null) return;
+
+        ReadOnlySpan<Vector2> pointsSpan = provider != null ? 
+            provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount) : 
+            cmd.PolylinePoints;
+
+        int count = pointsSpan.Length;
+        if (count < 2) return;
+
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
         float thickness = cmd.Pen.Thickness;
 
-        int count = cmd.PolylinePoints.Length;
         int segmentCount = count - 1;
         if (cmd.IsClosed) segmentCount++;
 
@@ -2386,7 +2519,7 @@ public unsafe class Compositor : IDisposable
         Span<Vector2> transformed = count <= 512 ? stackalloc Vector2[count] : new Vector2[count];
         for (int i = 0; i < count; i++)
         {
-            transformed[i] = Vector2.Transform(cmd.PolylinePoints[i], transform);
+            transformed[i] = Vector2.Transform(pointsSpan[i], transform);
         }
 
         // We will append 4 vertices and 6 indices for each segment
@@ -2435,17 +2568,30 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private void CompileSplineCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompileSplineCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
-        if (cmd.Pen == null || cmd.PolylinePoints == null || cmd.PolylinePoints.Length < 2 || cmd.SplineKnots == null) return;
+        if (cmd.Pen == null) return;
+
+        ReadOnlySpan<Vector2> controlPoints = provider != null ? 
+            provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount) : 
+            cmd.PolylinePoints;
+
+        ReadOnlySpan<double> knots = provider != null ? 
+            provider.GetDoubles(cmd.DoubleBufferOffset, cmd.DoubleBufferCount) : 
+            cmd.SplineKnots;
+
+        ReadOnlySpan<double> weights = provider != null && cmd.WeightBufferCount > 0 ? 
+            provider.GetDoubles(cmd.WeightBufferOffset, cmd.WeightBufferCount) : 
+            cmd.SplineWeights;
+
+        if (controlPoints.Length < 2 || knots.IsEmpty) return;
+
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
         float thickness = cmd.Pen.Thickness;
 
         int degree = cmd.SplineDegree;
-        var controlPoints = cmd.PolylinePoints;
-        var knots = cmd.SplineKnots;
 
         if (knots.Length < controlPoints.Length + degree + 1)
         {
@@ -2453,10 +2599,12 @@ public unsafe class Compositor : IDisposable
             var fallbackCmd = new RenderCommand
             {
                 Pen = cmd.Pen,
-                PolylinePoints = controlPoints,
+                PointBufferOffset = cmd.PointBufferOffset,
+                PointBufferCount = cmd.PointBufferCount,
+                PolylinePoints = cmd.PolylinePoints,
                 IsClosed = false
             };
-            CompilePolylineCommand(fallbackCmd, transform);
+            CompilePolylineCommand(provider, fallbackCmd, transform);
             return;
         }
 
@@ -2494,7 +2642,7 @@ public unsafe class Compositor : IDisposable
         for (int i = 0; i <= numPoints; i++)
         {
             double u = startKnot + i * delta;
-            transformed[i] = EvaluateBSpline(degree, controlPoints, knots, cmd.SplineWeights, u, transform);
+            transformed[i] = EvaluateBSpline(degree, controlPoints, knots, weights, u, transform);
         }
 
         // Compile segments into the vertex/index buffer in exactly one batch operation
@@ -2630,7 +2778,7 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private Vector2 EvaluateBSpline(int degree, Vector2[] controlPoints, double[] knots, double[]? weights, double u, Matrix4x4 transform)
+    private Vector2 EvaluateBSpline(int degree, ReadOnlySpan<Vector2> controlPoints, ReadOnlySpan<double> knots, ReadOnlySpan<double> weights, double u, Matrix4x4 transform)
     {
         int k = -1;
         if (u < knots[degree]) u = knots[degree];
@@ -2657,7 +2805,7 @@ public unsafe class Compositor : IDisposable
             if (idx >= 0 && idx < controlPoints.Length)
             {
                 float w = 1f;
-                if (weights != null && idx < weights.Length)
+                if (!weights.IsEmpty && idx < weights.Length)
                 {
                     w = (float)weights[idx];
                 }
@@ -4079,7 +4227,7 @@ public unsafe class Compositor : IDisposable
                     CompileHatchCommand(cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.DrawAcisSolid:
-                    CompileAcisCommand(cmd, Matrix4x4.Identity);
+                    CompileAcisCommand(null, cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.DrawText:
                     CompileTextCommand(cmd, null, Matrix4x4.Identity);
@@ -4115,16 +4263,180 @@ public unsafe class Compositor : IDisposable
                     CompileCubicBezierCommand(cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.DrawPolyline:
-                    CompilePolylineCommand(cmd, Matrix4x4.Identity);
+                    CompilePolylineCommand(null, cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.DrawSpline:
-                    CompileSplineCommand(cmd, Matrix4x4.Identity);
+                    CompileSplineCommand(null, cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.FillTriangle:
                     CompileFillTriangleCommand(cmd, Matrix4x4.Identity);
                     break;
                 case RenderCommandType.FillQuad:
                     CompileFillQuadCommand(cmd, Matrix4x4.Identity);
+                    break;
+            }
+
+            _useGpuTransformsActive = savedUseGpuTransformsActive;
+        }
+        for (int i = 0; i < _vectorVerticesList.Count; i++)
+        {
+            var v = _vectorVerticesList[i];
+            v.ShapeType += 200f;
+            _vectorVerticesList[i] = v;
+        }
+        for (int i = 0; i < _textVerticesList.Count; i++)
+        {
+            var v = _textVerticesList[i];
+            v.ShapeType += 200f;
+            _textVerticesList[i] = v;
+        }
+
+        var staticBuffer = new DxfStaticBuffer(
+            _context,
+            _vectorVerticesList.ToArray(),
+            _vectorIndicesList.ToArray(),
+            _textVerticesList.ToArray(),
+            _textIndicesList.ToArray(),
+            _activeBrushes.ToArray(),
+            _hatchRecordsList.ToArray(),
+            _hatchSegmentsList.ToArray(),
+            _acisRecordsList.ToArray(),
+            _acisEdgesList.ToArray()
+        );
+        
+        staticBuffer.InitializeBindGroups(
+            _vectorUniformBindGroupLayout,
+            _vectorUniformBindGroupLayoutOffscreen,
+            _textUniformBindGroupLayout,
+            _textUniformBindGroupLayoutOffscreen
+        );
+        
+        // Restore dynamic lists
+        _vectorVerticesList.Clear(); _vectorVerticesList.AddRange(savedVectorVertices);
+        _vectorIndicesList.Clear(); _vectorIndicesList.AddRange(savedVectorIndices);
+        _textVerticesList.Clear(); _textVerticesList.AddRange(savedTextVertices);
+        _textIndicesList.Clear(); _textIndicesList.AddRange(savedTextIndices);
+        _activeBrushes.Clear(); _activeBrushes.AddRange(savedActiveBrushes);
+        _hatchRecordsList.Clear(); _hatchRecordsList.AddRange(savedHatchRecords);
+        _hatchSegmentsList.Clear(); _hatchSegmentsList.AddRange(savedHatchSegments);
+        _acisRecordsList.Clear(); _acisRecordsList.AddRange(savedAcisRecords);
+        _acisEdgesList.Clear(); _acisEdgesList.AddRange(savedAcisEdges);
+        
+        _activeClipRect = savedActiveClipRect;
+        _clipStack.Clear();
+        for (int i = savedClipStack.Length - 1; i >= 0; i--)
+        {
+            _clipStack.Push(savedClipStack[i]);
+        }
+        
+        return staticBuffer;
+    }
+
+    public DxfStaticBuffer CompileStaticDxf(DrawingContext context)
+    {
+        // Save current lists
+        var savedVectorVertices = _vectorVerticesList.ToArray();
+        var savedVectorIndices = _vectorIndicesList.ToArray();
+        var savedTextVertices = _textVerticesList.ToArray();
+        var savedTextIndices = _textIndicesList.ToArray();
+        var savedActiveBrushes = _activeBrushes.ToArray();
+        var savedHatchRecords = _hatchRecordsList.ToArray();
+        var savedHatchSegments = _hatchSegmentsList.ToArray();
+        var savedAcisRecords = _acisRecordsList.ToArray();
+        var savedAcisEdges = _acisEdgesList.ToArray();
+
+        var savedActiveClipRect = _activeClipRect;
+        var savedClipStack = _clipStack.ToArray();
+
+        _activeClipRect = null;
+        _clipStack.Clear();
+        
+        // Clear for compilation
+        _vectorVerticesList.Clear();
+        _vectorIndicesList.Clear();
+        _textVerticesList.Clear();
+        _textIndicesList.Clear();
+        _activeBrushes.Clear();
+        _hatchRecordsList.Clear();
+        _hatchSegmentsList.Clear();
+        _acisRecordsList.Clear();
+        _acisEdgesList.Clear();
+        
+        foreach (var cmd in context.Commands)
+        {
+            bool savedUseGpuTransformsActive = _useGpuTransformsActive;
+            if (cmd.UseGpuTransforms)
+            {
+                _useGpuTransformsActive = true;
+            }
+
+            switch (cmd.Type)
+            {
+                case RenderCommandType.DrawRect:
+                    CompileRectCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawPath:
+                    CompilePathCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawHatch:
+                    CompileHatchCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawAcisSolid:
+                    CompileAcisCommand(context, cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawText:
+                    CompileTextCommand(cmd, null, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawTexture:
+                    CompileTextureCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.PushClip:
+                    PushClipRect(cmd.Rect, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.PopClip:
+                    PopClipRect();
+                    break;
+                case RenderCommandType.DrawLine:
+                    CompileLineCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawLine3D:
+                    CompileLine3DCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawEllipse:
+                    CompileEllipseCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawCircle:
+                    CompileCircleCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawRoundedRect:
+                    CompileRoundedRectCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawBezier:
+                    CompileBezierCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawCubicBezier:
+                    CompileCubicBezierCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawPolyline:
+                    CompilePolylineCommand(context, cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawSpline:
+                    CompileSplineCommand(context, cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.FillTriangle:
+                    CompileFillTriangleCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.FillQuad:
+                    CompileFillQuadCommand(cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawGpuLineSeries:
+                    CompileGpuLineSeriesCommand(context, cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawGpuScatterSeries:
+                    CompileGpuScatterSeriesCommand(context, cmd, Matrix4x4.Identity);
+                    break;
+                case RenderCommandType.DrawPicture:
+                    CompilePicture(context, cmd.Picture, Matrix4x4.Identity);
                     break;
             }
 
@@ -4250,48 +4562,85 @@ public unsafe class Compositor : IDisposable
         public Vector4 Color;
     }
 
-    private void CompileGpuLineSeriesCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompileGpuLineSeriesCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
         CommitPendingDrawCalls();
         object? staticBuffer = cmd.StaticBuffer;
-        if (staticBuffer == null && cmd.GpuPoints != null)
+        if (staticBuffer == null)
         {
-            if (!_dynamicGpuBufferCache.TryGetValue(cmd.GpuPoints, out var cachedBuffer))
+            object? cacheKey = null;
+            ReadOnlySpan<float> floatsSpan = default;
+            int pointsCount = cmd.GpuPointsCount;
+
+            if (cmd.SeriesCacheKey != null)
             {
-                cachedBuffer = new GpuSeriesBuffer();
-                _dynamicGpuBufferCache.Add(cmd.GpuPoints, cachedBuffer);
+                cacheKey = cmd.SeriesCacheKey;
+            }
+            else if (provider is GpuPicture picture)
+            {
+                cacheKey = picture.FloatBuffer;
+            }
+            else if (cmd.GpuPoints != null)
+            {
+                cacheKey = cmd.GpuPoints;
             }
 
-            int requiredLength = cmd.GpuPointsCount * 2;
-            bool needsUpload = cachedBuffer.PointsCount != cmd.GpuPointsCount || cachedBuffer.Buffer == null;
-
-            if (!needsUpload)
+            if (provider != null)
             {
-                if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
+                floatsSpan = provider.GetFloats(cmd.FloatBufferOffset, cmd.FloatBufferCount);
+            }
+            else if (cmd.GpuPoints != null)
+            {
+                floatsSpan = cmd.GpuPoints;
+            }
+
+            if (cacheKey != null)
+            {
+                if (!_dynamicGpuBufferCache.TryGetValue(cacheKey, out var cachedBuffer))
                 {
-                    needsUpload = true;
+                    cachedBuffer = new GpuSeriesBuffer();
+                    _dynamicGpuBufferCache.Add(cacheKey, cachedBuffer);
                 }
-                else
+
+                int requiredLength = pointsCount * 2;
+                bool needsUpload = cachedBuffer.PointsCount != pointsCount || cachedBuffer.Buffer == null;
+
+                if (!needsUpload)
                 {
-                    var sourceSpan = new ReadOnlySpan<float>(cmd.GpuPoints, 0, requiredLength);
-                    var cachedSpan = new ReadOnlySpan<float>(cachedBuffer.CachedInterleaved, 0, requiredLength);
-                    if (!sourceSpan.SequenceEqual(cachedSpan))
+                    if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
                     {
                         needsUpload = true;
                     }
+                    else
+                    {
+                        var cachedSpan = new ReadOnlySpan<float>(cachedBuffer.CachedInterleaved, 0, requiredLength);
+                        if (!floatsSpan.Slice(0, requiredLength).SequenceEqual(cachedSpan))
+                        {
+                            needsUpload = true;
+                        }
+                    }
                 }
-            }
 
-            if (needsUpload)
-            {
-                if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
+                if (needsUpload)
                 {
-                    cachedBuffer.CachedInterleaved = new float[requiredLength];
+                    if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
+                    {
+                        cachedBuffer.CachedInterleaved = new float[requiredLength];
+                    }
+                    floatsSpan.Slice(0, requiredLength).CopyTo(cachedBuffer.CachedInterleaved);
+                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount);
                 }
-                Array.Copy(cmd.GpuPoints, cachedBuffer.CachedInterleaved, requiredLength);
-                cachedBuffer.Upload(cachedBuffer.CachedInterleaved, cmd.GpuPointsCount);
+                staticBuffer = cachedBuffer;
             }
-            staticBuffer = cachedBuffer;
+            else if (!floatsSpan.IsEmpty)
+            {
+                // Uncached fallback path: upload direct
+                var tempBuffer = new GpuSeriesBuffer();
+                var array = new float[pointsCount * 2];
+                floatsSpan.Slice(0, pointsCount * 2).CopyTo(array);
+                tempBuffer.Upload(array, pointsCount);
+                staticBuffer = tempBuffer;
+            }
         }
 
         _drawCalls.Add(new CompositorDrawCall
@@ -4309,88 +4658,144 @@ public unsafe class Compositor : IDisposable
         _pendingTextStart = (uint)_textIndicesList.Count;
     }
 
-    private void CompileGpuScatterSeriesCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompileGpuScatterSeriesCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
         CommitPendingDrawCalls();
         object? staticBuffer = cmd.StaticBuffer;
-        if (staticBuffer == null && cmd.GpuPoints != null)
+        if (staticBuffer == null)
         {
-            if (!_dynamicGpuBufferCache.TryGetValue(cmd.GpuPoints, out var cachedBuffer))
+            object? cacheKey = null;
+            ReadOnlySpan<float> floatsSpan = default;
+            int pointsCount = cmd.GpuPointsCount;
+
+            if (cmd.SeriesCacheKey != null)
             {
-                cachedBuffer = new GpuSeriesBuffer();
-                _dynamicGpuBufferCache.Add(cmd.GpuPoints, cachedBuffer);
+                cacheKey = cmd.SeriesCacheKey;
+            }
+            else if (provider is GpuPicture picture)
+            {
+                cacheKey = picture.FloatBuffer;
+            }
+            else if (cmd.GpuPoints != null)
+            {
+                cacheKey = cmd.GpuPoints;
             }
 
-            int requiredLength = cmd.GpuPointsCount * 3;
-            bool needsUpload = cachedBuffer.PointsCount != cmd.GpuPointsCount || cachedBuffer.Buffer == null;
-
-            if (!needsUpload)
+            if (provider != null)
             {
-                if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
+                floatsSpan = provider.GetFloats(cmd.FloatBufferOffset, cmd.FloatBufferCount);
+            }
+            else if (cmd.GpuPoints != null)
+            {
+                floatsSpan = cmd.GpuPoints;
+            }
+
+            if (cacheKey != null)
+            {
+                if (!_dynamicGpuBufferCache.TryGetValue(cacheKey, out var cachedBuffer))
                 {
-                    needsUpload = true;
+                    cachedBuffer = new GpuSeriesBuffer();
+                    _dynamicGpuBufferCache.Add(cacheKey, cachedBuffer);
                 }
-                else
+
+                int requiredLength = pointsCount * 3;
+                bool needsUpload = cachedBuffer.PointsCount != pointsCount || cachedBuffer.Buffer == null;
+
+                if (!needsUpload)
                 {
-                    if (cmd.GpuPoints.Length == cmd.GpuPointsCount * 2)
+                    if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
                     {
-                        float radiusVal = cmd.RadiusX;
-                        if (cachedBuffer.CachedInterleaved[2] != radiusVal)
+                        needsUpload = true;
+                    }
+                    else
+                    {
+                        // Check if incoming was originally 2D coords but we expand to 3D by adding radius
+                        bool isOriginally2D = floatsSpan.Length == pointsCount * 2;
+                        if (isOriginally2D)
                         {
-                            needsUpload = true;
+                            float radiusVal = cmd.RadiusX;
+                            if (cachedBuffer.CachedInterleaved[2] != radiusVal)
+                            {
+                                needsUpload = true;
+                            }
+                            else
+                            {
+                                for (int i = 0; i < pointsCount; i++)
+                                {
+                                    if (floatsSpan[i * 2] != cachedBuffer.CachedInterleaved[i * 3] ||
+                                        floatsSpan[i * 2 + 1] != cachedBuffer.CachedInterleaved[i * 3 + 1])
+                                    {
+                                        needsUpload = true;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         else
                         {
-                            for (int i = 0; i < cmd.GpuPointsCount; i++)
+                            var cachedSpan = new ReadOnlySpan<float>(cachedBuffer.CachedInterleaved, 0, requiredLength);
+                            if (!floatsSpan.Slice(0, requiredLength).SequenceEqual(cachedSpan))
                             {
-                                if (cmd.GpuPoints[i * 2] != cachedBuffer.CachedInterleaved[i * 3] ||
-                                    cmd.GpuPoints[i * 2 + 1] != cachedBuffer.CachedInterleaved[i * 3 + 1])
-                                {
-                                    needsUpload = true;
-                                    break;
-                                }
+                                needsUpload = true;
                             }
+                        }
+                    }
+                }
+
+                if (needsUpload)
+                {
+                    if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
+                    {
+                        cachedBuffer.CachedInterleaved = new float[requiredLength];
+                    }
+
+                    bool isOriginally2D = floatsSpan.Length == pointsCount * 2;
+                    if (isOriginally2D)
+                    {
+                        float radiusVal = cmd.RadiusX;
+                        int srcIdx = 0;
+                        int destIdx = 0;
+                        for (int i = 0; i < pointsCount; i++)
+                        {
+                            cachedBuffer.CachedInterleaved[destIdx++] = floatsSpan[srcIdx++];
+                            cachedBuffer.CachedInterleaved[destIdx++] = floatsSpan[srcIdx++];
+                            cachedBuffer.CachedInterleaved[destIdx++] = radiusVal;
                         }
                     }
                     else
                     {
-                        var sourceSpan = new ReadOnlySpan<float>(cmd.GpuPoints, 0, requiredLength);
-                        var cachedSpan = new ReadOnlySpan<float>(cachedBuffer.CachedInterleaved, 0, requiredLength);
-                        if (!sourceSpan.SequenceEqual(cachedSpan))
-                        {
-                            needsUpload = true;
-                        }
+                        floatsSpan.Slice(0, requiredLength).CopyTo(cachedBuffer.CachedInterleaved);
                     }
+
+                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount);
                 }
+                staticBuffer = cachedBuffer;
             }
-
-            if (needsUpload)
+            else if (!floatsSpan.IsEmpty)
             {
-                if (cachedBuffer.CachedInterleaved == null || cachedBuffer.CachedInterleaved.Length < requiredLength)
-                {
-                    cachedBuffer.CachedInterleaved = new float[requiredLength];
-                }
-
-                if (cmd.GpuPoints.Length == cmd.GpuPointsCount * 2)
+                // Uncached fallback path: upload direct
+                var tempBuffer = new GpuSeriesBuffer();
+                var array = new float[pointsCount * 3];
+                bool isOriginally2D = floatsSpan.Length == pointsCount * 2;
+                if (isOriginally2D)
                 {
                     float radiusVal = cmd.RadiusX;
                     int srcIdx = 0;
                     int destIdx = 0;
-                    for (int i = 0; i < cmd.GpuPointsCount; i++)
+                    for (int i = 0; i < pointsCount; i++)
                     {
-                        cachedBuffer.CachedInterleaved[destIdx++] = cmd.GpuPoints[srcIdx++];
-                        cachedBuffer.CachedInterleaved[destIdx++] = cmd.GpuPoints[srcIdx++];
-                        cachedBuffer.CachedInterleaved[destIdx++] = radiusVal;
+                        array[destIdx++] = floatsSpan[srcIdx++];
+                        array[destIdx++] = floatsSpan[srcIdx++];
+                        array[destIdx++] = radiusVal;
                     }
                 }
                 else
                 {
-                    Array.Copy(cmd.GpuPoints, cachedBuffer.CachedInterleaved, requiredLength);
+                    floatsSpan.Slice(0, pointsCount * 3).CopyTo(array);
                 }
-
-                cachedBuffer.Upload(cachedBuffer.CachedInterleaved, cmd.GpuPointsCount);
+                tempBuffer.Upload(array, pointsCount);
+                staticBuffer = tempBuffer;
             }
-            staticBuffer = cachedBuffer;
         }
 
         _drawCalls.Add(new CompositorDrawCall

@@ -195,7 +195,7 @@ namespace ProGPU.WinUI.Charts.Renderers
         private static void RenderPolylineChunk(DrawingContext context, List<Vector2> points, Pen pen)
         {
             if (points.Count < 2) return;
-            context.DrawPolyline(pen, points.ToArray(), false);
+            context.DrawPolyline(pen, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(points), false);
         }
 
         private static void RenderAreaChunk(DrawingContext context, List<Vector2> points, Pen pen, float baselineY, Vector4 color, double op)
@@ -203,7 +203,7 @@ namespace ProGPU.WinUI.Charts.Renderers
             if (points.Count < 2) return;
 
             // Draw line border
-            context.DrawPolyline(pen, points.ToArray(), false);
+            context.DrawPolyline(pen, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(points), false);
 
             // Construct closed area coordinates
             var areaColors = new Vector4(color.X, color.Y, color.Z, (float)(op * color.W));

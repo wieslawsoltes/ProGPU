@@ -437,6 +437,89 @@ ProGPU implements a **Dynamic Z-Ordered Draw Call Batching** mechanism within `C
 
 ---
 
+### 14. Zero-Allocation Vector Drawing & Skia-like GpuPicture Caching
+
+High-performance vector rendering loops are highly sensitive to Garbage Collection (GC) pressure. Passing coordinate arrays (such as `Vector2[]` for complex polylines, curves, or CAD structures) on every frame forces heap allocation and copying, resulting in massive GC thrashing. 
+
+ProGPU completely eliminates this overhead by introducing a zero-allocation vector drawing engine driven by `ReadOnlySpan<T>` and a Skia-like `GpuPicture` command caching architecture:
+
+```mermaid
+flowchart TD
+    subgraph AllocPool ["Zero-Allocation Frame Draw (Pooling)"]
+        DrawCall["DrawPolyline(Pen, ReadOnlySpan<Vector2> points)"] --> GetPool["Acquire continuous PointBuffer from DrawingContext"]
+        GetPool --> CopySpan["Copy points data in bulk using high-speed Span.CopyTo"]
+        CopySpan --> RecordCmd["Record RenderCommand with PointBufferOffset and PointBufferCount"]
+    end
+
+    subgraph CacheSystem ["Pre-Recorded Caching Loop (GpuPicture)"]
+        RecStart["GpuPictureRecorder.BeginRecording(bounds)"] --> RecDraw["Record vector commands into local buffers once"]
+        RecDraw --> RecEnd["EndRecording() compiles into immutable GpuPicture"]
+        RecEnd --> DrawCache["context.DrawPicture(picture, cameraViewMatrix)"]
+        DrawCache --> CompositorPlay["Compositor compiles and plays back directly in-place (Zero-Copy)"]
+    end
+```
+
+#### Pre-Allocated Continuous Memory Pools
+Since `ReadOnlySpan<T>` is a stack-only `ref struct`, it cannot be stored on the heap or inside standard lists. To allow zero-allocation span-based rendering, `DrawingContext` maintains internal pre-allocated continuous memory lists:
+* `PointBuffer` (`List<Vector2>`)
+* `DoubleBuffer` (`List<double>`)
+* `Line3DBuffer` (`List<Line3D>`)
+* `FloatBuffer` (`List<float>`)
+
+On every frame refresh, calling `.Clear()` on these buffers resets their logical `Count` to `0` but **retains their internal backing array capacity**. Drawing coordinates are copied into these pre-allocated pools using high-speed bulk `Span<T>.CopyTo` operations. As long as capacity is sufficient, frame-by-frame rendering runs at near-native speed with **absolutely zero heap allocations**.
+
+#### Unified `IRenderDataProvider` Interface
+To support both real-time dynamic rendering (where coordinates live in the active `DrawingContext` pools) and cached playback (where coordinates live in static arrays), we introduce the `IRenderDataProvider` interface:
+```csharp
+public interface IRenderDataProvider
+{
+    ReadOnlySpan<Vector2> GetPoints(int offset, int count);
+    ReadOnlySpan<double> GetDoubles(int offset, int count);
+    ReadOnlySpan<Line3D> GetLines3D(int offset, int count);
+    ReadOnlySpan<float> GetFloats(int offset, int count);
+}
+```
+Both `DrawingContext` and `GpuPicture` implement `IRenderDataProvider`. Inside WebGPU mesh compilation, the compositor queries coordinate spans directly from the active provider using the offsets and counts recorded in the `RenderCommand`.
+
+#### Skia-like `GpuPicture` and `GpuPictureRecorder`
+* **Recording**: Call `GpuPictureRecorder.BeginRecording(bounds)` to retrieve a recording `DrawingContext`. Commands are recorded normally using the zero-allocation span APIs. Call `recorder.EndRecording()` to compile the active lists into an immutable `GpuPicture` object (which allocates static arrays *only once* during compile time).
+* **Playback**: Render a pre-recorded picture via `context.DrawPicture(picture)` or apply dynamic camera transitions in GPU-space via `context.DrawPicture(picture, cameraViewMatrix)`.
+* **Zero-Copy Playback**: At the compositor level, when a `DrawPicture` command is encountered, it recursively plays back the pre-compiled picture commands directly in-place using the picture itself as the `IRenderDataProvider`, completely avoiding CPU copying or allocation during rendering.
+
+#### Core API Specification
+
+##### 1. High-Performance Zero-Allocation Span Signatures
+```csharp
+// Draws polylines or polygon outlines directly from stack memory
+public void DrawPolyline(Pen pen, ReadOnlySpan<Vector2> points, bool isClosed = false);
+
+// Draws quadratic or cubic B-Spline curves
+public void DrawSpline(Pen pen, ReadOnlySpan<Vector2> controlPoints, ReadOnlySpan<double> knots, int degree);
+
+// Draws rational, weighted NURBS curves
+public void DrawSpline(Pen pen, ReadOnlySpan<Vector2> controlPoints, ReadOnlySpan<double> knots, ReadOnlySpan<double> weights, int degree, bool isClosed);
+
+// Draws 3D ACIS solids or wireframe boundaries
+public void DrawAcisSolid(Pen pen, ReadOnlySpan<Line3D> edges, Matrix4x4 modelTransform);
+
+// Hardware-accelerated dynamic chart line series
+public void DrawGpuLineSeries(ReadOnlySpan<float> interleavedCoords, int pointsCount, float thickness, Brush brush);
+
+// Hardware-accelerated dynamic chart scatter series
+public void DrawGpuScatterSeries(ReadOnlySpan<float> interleavedCoords, int pointsCount, float radius, Brush brush);
+```
+
+##### 2. Backward-Compatible Array-Based Signatures (WinUI Parity)
+Wraps standard heap-allocated arrays into `ReadOnlySpan<T>` using `new ReadOnlySpan<T>(array)` and forwards to the high-performance pipeline. Assigns legacy fields (`SplineWeights`, `Edges3D`) on the created `RenderCommand` structures to preserve 100% test compatibility and visual tree diagnostics:
+```csharp
+public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false);
+public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, int degree);
+public void DrawSpline(Pen pen, Vector2[] controlPoints, double[] knots, double[]? weights, int degree, bool isClosed);
+public void DrawAcisSolid(Pen pen, List<Line3D> edges, Matrix4x4 modelTransform);
+```
+
+---
+
 
 ## Module & Project Architecture Breakdown
 
