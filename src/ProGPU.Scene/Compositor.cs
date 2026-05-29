@@ -216,6 +216,7 @@ public unsafe class Compositor : IDisposable
         public Vector4 Color;
         public Vector2 Scale;
         public Vector2 Translate;
+        public Rect? ClipRect;
     }
 
     private readonly List<VectorVertex> _vectorVerticesList = new();
@@ -4301,7 +4302,8 @@ public unsafe class Compositor : IDisposable
             LineThicknessOrRadius = cmd.RadiusX,
             Color = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
             Scale = cmd.Scale,
-            Translate = cmd.Translate
+            Translate = cmd.Translate,
+            ClipRect = _activeClipRect
         });
         _pendingVectorStart = (uint)_vectorIndicesList.Count;
         _pendingTextStart = (uint)_textIndicesList.Count;
@@ -4399,7 +4401,8 @@ public unsafe class Compositor : IDisposable
             LineThicknessOrRadius = cmd.RadiusX,
             Color = (cmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
             Scale = cmd.Scale,
-            Translate = cmd.Translate
+            Translate = cmd.Translate,
+            ClipRect = _activeClipRect
         });
         _pendingVectorStart = (uint)_vectorIndicesList.Count;
         _pendingTextStart = (uint)_textIndicesList.Count;
@@ -4481,8 +4484,35 @@ public unsafe class Compositor : IDisposable
         var lineBg = (BindGroup*)seriesBuffer.LineBindGroup;
         wgpu.RenderPassEncoderSetBindGroup(pass, 0, lineBg, 0, null);
 
+        if (dc.ClipRect.HasValue)
+        {
+            var rect = dc.ClipRect.Value;
+            float rx = Math.Max(0f, rect.X);
+            float ry = Math.Max(0f, rect.Y);
+            float rw = Math.Max(0f, rect.Width);
+            float rh = Math.Max(0f, rect.Height);
+
+            uint sx = (uint)Math.Round(rx);
+            uint sy = (uint)Math.Round(ry);
+            uint sw = (uint)Math.Round(rw);
+            uint sh = (uint)Math.Round(rh);
+
+            sw = Math.Max(1u, sw);
+            sh = Math.Max(1u, sh);
+
+            sw = Math.Min(sw, _currentWidth - sx);
+            sh = Math.Min(sh, _currentHeight - sy);
+
+            wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+        }
+
         uint instanceCount = (uint)(seriesBuffer.PointsCount - 1);
         wgpu.RenderPassEncoderDraw(pass, 6, instanceCount, 0, 0);
+
+        if (dc.ClipRect.HasValue)
+        {
+            wgpu.RenderPassEncoderSetScissorRect(pass, 0, 0, _currentWidth, _currentHeight);
+        }
     }
 
     private unsafe void RenderChartScatter(RenderPassEncoder* pass, CompositorDrawCall dc, bool isOffscreen)
@@ -4556,7 +4586,34 @@ public unsafe class Compositor : IDisposable
         var buffer = seriesBuffer.Buffer.BufferPtr;
         wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, seriesBuffer.Buffer.Size);
 
+        if (dc.ClipRect.HasValue)
+        {
+            var rect = dc.ClipRect.Value;
+            float rx = Math.Max(0f, rect.X);
+            float ry = Math.Max(0f, rect.Y);
+            float rw = Math.Max(0f, rect.Width);
+            float rh = Math.Max(0f, rect.Height);
+
+            uint sx = (uint)Math.Round(rx);
+            uint sy = (uint)Math.Round(ry);
+            uint sw = (uint)Math.Round(rw);
+            uint sh = (uint)Math.Round(rh);
+
+            sw = Math.Max(1u, sw);
+            sh = Math.Max(1u, sh);
+
+            sw = Math.Min(sw, _currentWidth - sx);
+            sh = Math.Min(sh, _currentHeight - sy);
+
+            wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+        }
+
         uint instanceCount = (uint)seriesBuffer.PointsCount;
         wgpu.RenderPassEncoderDraw(pass, 6, instanceCount, 0, 0);
+
+        if (dc.ClipRect.HasValue)
+        {
+            wgpu.RenderPassEncoderSetScissorRect(pass, 0, 0, _currentWidth, _currentHeight);
+        }
     }
 }
