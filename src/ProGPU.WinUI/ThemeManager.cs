@@ -713,7 +713,7 @@ public static class ThemeManager
             return style;
         }
 
-        if (typeof(ComboBox).IsAssignableFrom(controlType) || typeof(DatePicker).IsAssignableFrom(controlType) || typeof(TextBox).IsAssignableFrom(controlType) || typeof(RichEditBox).IsAssignableFrom(controlType))
+        if (typeof(ComboBox).IsAssignableFrom(controlType) || typeof(DatePicker).IsAssignableFrom(controlType) || typeof(TextBox).IsAssignableFrom(controlType))
         {
             BuildTextBoxDefaultStyle(style, themeFamily);
             return style;

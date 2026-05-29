@@ -17,12 +17,23 @@ namespace Microsoft.UI.Xaml.Documents {
 public abstract class Block
 {
     public float MarginBottom { get; set; } = 12f;
+
+    // Virtualization Cache
+    public float CachedHeight { get; set; } = -1f;
+    public float CachedYOffset { get; set; } = 0f;
+    public bool IsLayoutValid { get; set; } = false;
+    public float CachedWidthConstraint { get; set; } = -1f;
+    public ElementTheme CachedTheme { get; set; } = ElementTheme.Default;
+    public System.Collections.Generic.List<Microsoft.UI.Xaml.Controls.PositionedRichChar> CachedChars { get; } = new();
+    public System.Collections.Generic.List<Microsoft.UI.Xaml.Controls.TableVisualDecoration> CachedDecorations { get; } = new();
 }
+
 
 public abstract class TextElement : Block
 {
     public Brush? Foreground { get; set; }
     public float? FontSize { get; set; }
+    public TtfFont? Font { get; set; }
 }
 
 public abstract class Inline : TextElement
@@ -165,6 +176,7 @@ public struct RichChar
     public char Character;
     public Brush Foreground;
     public float FontSize;
+    public TtfFont? Font;
     public bool IsBold;
     public bool IsItalic;
     public bool IsUnderline;
@@ -201,6 +213,7 @@ public class RichTextBlock : FrameworkElement
     private float _lastLayoutFontSize = -1f;
     private TextAlignment _lastLayoutAlignment = TextAlignment.Left;
     private bool _isLayoutDirty = true;
+    private List<Inline>? _lastLayoutInlines;
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
@@ -290,7 +303,7 @@ public class RichTextBlock : FrameworkElement
         base.OnPointerMoved(e);
         if (!IsEnabled) return;
 
-        var localPos = InputSystem.GetLocalPosition(this, e.Position);
+        var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
         Hyperlink? foundLink = null;
         var activeFont = ActiveFont;
 
@@ -374,6 +387,29 @@ public class RichTextBlock : FrameworkElement
 
     public void PerformRichLayout(float maxWidth, bool force = false)
     {
+        bool inlinesChanged = false;
+        if (_lastLayoutInlines == null || _lastLayoutInlines.Count != Inlines.Count)
+        {
+            inlinesChanged = true;
+        }
+        else
+        {
+            for (int k = 0; k < Inlines.Count; k++)
+            {
+                if (Inlines[k] != _lastLayoutInlines[k])
+                {
+                    inlinesChanged = true;
+                    break;
+                }
+            }
+        }
+
+        if (inlinesChanged)
+        {
+            _isLayoutDirty = true;
+            _lastLayoutInlines = new List<Inline>(Inlines);
+        }
+
         if (force)
         {
             _isLayoutDirty = true;
@@ -396,785 +432,42 @@ public class RichTextBlock : FrameworkElement
         _lastLayoutAlignment = TextAlignment;
         _isLayoutDirty = false;
 
-        _positionedChars.Clear();
-        _tableDecorations.Clear();
-        if (activeFont == null) return;
-
-        var charList = new List<RichChar>();
-        var defaultFg = Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme);
-
-        var currentChildren = new List<Visual>(Children);
-        var encounteredChildren = new HashSet<Visual>();
-
-        foreach (var inline in Inlines)
-        {
-            AccumulateInlines(inline, charList, defaultFg, FontSize, false, false, false, null, 0f);
-        }
-
-        if (charList.Count == 0) return;
-
-        // Structured paragraph word wrapping
-        float scale = FontSize / activeFont.UnitsPerEm;
-        float lineSpacing = (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * scale;
-
-        float cursorX = Padding.Left;
-        float cursorY = Padding.Top;
-
-        var currentLine = new List<PositionedRichChar>();
-        int lastWordStart = -1;
-        float lastWordStartCursorX = Padding.Left;
-
-        float availableWidth = maxWidth - Padding.Horizontal;
-        bool hasResetLineIndent = false;
-
-        void CommitLine(List<PositionedRichChar> line, bool isLastLine)
-        {
-            if (line.Count == 0)
-            {
-                cursorY += lineSpacing;
-                return;
-            }
-
-            // 1. Calculate dynamic line height
-            float maxElementHeight = 0f;
-            foreach (var pc in line)
-            {
-                if (pc.Info.EmbeddedElement != null)
-                {
-                    maxElementHeight = Math.Max(maxElementHeight, pc.Info.EmbeddedElement.DesiredSize.Y);
-                }
-            }
-            float completedLineHeight = Math.Max(lineSpacing, maxElementHeight);
-
-            // 2. Adjust Y-coordinates and center vertically
-            foreach (var pc in line)
-            {
-                float h = pc.Info.EmbeddedElement != null ? pc.Info.EmbeddedElement.DesiredSize.Y : lineSpacing;
-                pc.Position.Y = cursorY + (completedLineHeight - h) / 2f;
-            }
-
-            // 3. Horizontal Alignment (shiftX and Justify)
-            float lineW = 0f;
-            var lastPc = line[^1];
-            float lastAdv = 0f;
-            if (lastPc.Info.EmbeddedElement != null)
-            {
-                lastAdv = lastPc.Info.EmbeddedElement.DesiredSize.X + 4f;
-            }
-            else
-            {
-                lastAdv = activeFont.GetAdvanceWidth(activeFont.GetGlyphIndex(lastPc.Info.Character), lastPc.Info.FontSize);
-            }
-            lineW = lastPc.Position.X + lastAdv - Padding.Left;
-
-            float shiftX = 0f;
-            if (TextAlignment == TextAlignment.Right)
-            {
-                shiftX = availableWidth - lineW;
-            }
-            else if (TextAlignment == TextAlignment.Center)
-            {
-                shiftX = (availableWidth - lineW) / 2f;
-            }
-            else if (TextAlignment == TextAlignment.Justify)
-            {
-                int spaceCount = 0;
-                for (int k = 0; k < line.Count - 1; k++)
-                {
-                    if (line[k].Info.Character == ' ' || line[k].Info.Character == '\t')
-                        spaceCount++;
-                }
-
-                if (!isLastLine && spaceCount > 0 && lineW < availableWidth)
-                {
-                    float extraW = availableWidth - lineW;
-                    float spaceAddition = extraW / spaceCount;
-                    float runningAddition = 0f;
-                    for (int k = 0; k < line.Count; k++)
-                    {
-                        var pc = line[k];
-                        pc.Position.X += runningAddition;
-                        if (pc.Info.Character == ' ' || pc.Info.Character == '\t')
-                        {
-                            runningAddition += spaceAddition;
-                        }
-                    }
-                }
-            }
-
-            if (shiftX > 0f && !float.IsInfinity(shiftX))
-            {
-                foreach (var pc in line)
-                {
-                    pc.Position.X += shiftX;
-                }
-            }
-
-            _positionedChars.AddRange(line);
-
-            // 4. Increment cursorY by completedLineHeight
-            cursorY += completedLineHeight;
-        }
-
-        for (int i = 0; i < charList.Count; i++)
-        {
-            var rc = charList[i];
-            char c = rc.Character;
-
-            if (c == '\n')
-            {
-                CommitLine(currentLine, true);
-                currentLine = new List<PositionedRichChar>();
-                cursorX = Padding.Left;
-                lastWordStart = -1;
-                hasResetLineIndent = false;
-                continue;
-            }
-
-            if (c == '\uFFFD' && rc.SourceInline is Table table)
-            {
-                if (currentLine.Count > 0)
-                {
-                    CommitLine(currentLine, true);
-                    currentLine = new List<PositionedRichChar>();
-                }
-                cursorX = Padding.Left;
-                LayoutTable(table, ref cursorY, availableWidth, rc.LeftIndent);
-                lastWordStart = -1;
-                hasResetLineIndent = false;
-                continue;
-            }
-
-            float advance = 0f;
-            if (rc.EmbeddedElement != null)
-            {
-                var child = rc.EmbeddedElement;
-                encounteredChildren.Add(child);
-                if (child.Parent != this)
-                {
-                    AddChild(child);
-                }
-                child.Measure(new Vector2(availableWidth, float.PositiveInfinity));
-                advance = child.DesiredSize.X + 4f;
-            }
-            else
-            {
-                ushort gIdx = activeFont.GetGlyphIndex(c);
-                advance = activeFont.GetAdvanceWidth(gIdx, rc.FontSize);
-            }
-
-            // Word bounds tracking
-            if (c == ' ' || c == '\t')
-            {
-                lastWordStart = -1;
-            }
-            else if (lastWordStart == -1)
-            {
-                lastWordStart = currentLine.Count;
-                lastWordStartCursorX = cursorX;
-            }
-
-            // Word wrap
-            if (cursorX + advance > maxWidth - Padding.Right && cursorX > Padding.Left + rc.LeftIndent)
-            {
-                if (lastWordStart > 0)
-                {
-                    // wrap word
-                    int wrapCount = currentLine.Count - lastWordStart;
-                    var wrapped = currentLine.GetRange(lastWordStart, wrapCount);
-                    currentLine.RemoveRange(lastWordStart, wrapCount);
-
-                    CommitLine(currentLine, false);
-                    currentLine = new List<PositionedRichChar>();
-
-                    float wrapStart = Padding.Left + (wrapped.Count > 0 ? wrapped[0].Info.LeftIndent : rc.LeftIndent);
-                    cursorX = wrapStart;
-                    hasResetLineIndent = true;
-
-                    foreach (var wc in wrapped)
-                    {
-                        var remapped = wc;
-                        float shift = wc.Position.X - lastWordStartCursorX;
-                        remapped.Position = new Vector2(wrapStart + shift, cursorY);
-                        currentLine.Add(remapped);
-                        
-                        float wAdv = 0f;
-                        if (remapped.Info.EmbeddedElement != null)
-                        {
-                            wAdv = remapped.Info.EmbeddedElement.DesiredSize.X + 4f;
-                        }
-                        else
-                        {
-                            ushort wIdx = activeFont.GetGlyphIndex(remapped.Info.Character);
-                            wAdv = activeFont.GetAdvanceWidth(wIdx, remapped.Info.FontSize);
-                        }
-                        cursorX = wrapStart + shift + wAdv;
-                    }
-
-                    // Add current character
-                    if (rc.BulletOffset == 0 && !hasResetLineIndent)
-                    {
-                        cursorX = Padding.Left + rc.LeftIndent;
-                        hasResetLineIndent = true;
-                    }
-                    float finalXVal = cursorX;
-                    if (rc.BulletOffset > 0)
-                    {
-                        finalXVal = Padding.Left + rc.LeftIndent - rc.BulletOffset + (cursorX - Padding.Left);
-                    }
-                    var pos = new Vector2(finalXVal, cursorY);
-                    currentLine.Add(new PositionedRichChar { Info = rc, Position = pos });
-                    cursorX += advance;
-                    lastWordStart = 0;
-                    lastWordStartCursorX = Padding.Left + rc.LeftIndent;
-                    continue;
-                }
-                else
-                {
-                    // hard wrap
-                    CommitLine(currentLine, false);
-                    currentLine = new List<PositionedRichChar>();
-                    float wrapStart = Padding.Left + rc.LeftIndent;
-                    cursorX = wrapStart;
-                    hasResetLineIndent = true;
-                }
-            }
-
-            if (rc.BulletOffset == 0 && !hasResetLineIndent)
-            {
-                cursorX = Padding.Left + rc.LeftIndent;
-                hasResetLineIndent = true;
-            }
-            float finalX = cursorX;
-            if (rc.BulletOffset > 0)
-            {
-                finalX = Padding.Left + rc.LeftIndent - rc.BulletOffset + (cursorX - Padding.Left);
-            }
-            var charPos = new Vector2(finalX, cursorY);
-            currentLine.Add(new PositionedRichChar { Info = rc, Position = charPos });
-            cursorX += advance;
-        }
-
-        if (currentLine.Count > 0)
-        {
-            CommitLine(currentLine, true);
-        }
-
-        // Clean up children that are no longer referenced
-        foreach (var child in currentChildren)
-        {
-            if (child is FrameworkElement fe && !encounteredChildren.Contains(fe))
-            {
-                RemoveChild(fe);
-            }
-        }
-
-        InvalidateMeasure();
+        TextLayoutEngine.LayoutSingleColumn(
+            Inlines, 
+            maxWidth, 
+            Padding, 
+            activeFont!, 
+            FontSize, 
+            Foreground, 
+            TextAlignment, 
+            this.ActualTheme, 
+            _positionedChars, 
+            _tableDecorations, 
+            this, 
+            AddChild, 
+            RemoveChild);
     }
 
     public void AccumulateInlines(Inline inline, List<RichChar> list, Brush defaultFg, float defaultSize, bool isBold, bool isItalic, bool isUnderline, Inline? parentInline = null, float leftIndent = 0f)
     {
-        Brush fg = inline.Foreground ?? defaultFg;
-        if (fg is ProGPU.Vector.ThemeResourceBrush trBrush)
-        {
-            fg = ThemeManager.GetBrush(trBrush.ResourceKey, this.ActualTheme);
-        }
-        float size = inline.FontSize ?? defaultSize;
-        Inline source = parentInline ?? inline;
-
-        if (inline is Run run)
-        {
-            foreach (char c in run.Text)
-            {
-                list.Add(new RichChar
-                {
-                    Character = c,
-                    Foreground = fg,
-                    FontSize = size,
-                    IsBold = isBold,
-                    IsItalic = isItalic,
-                    IsUnderline = isUnderline,
-                    SourceInline = source,
-                    LeftIndent = leftIndent
-                });
-            }
-        }
-        else if (inline is LineBreak)
-        {
-            list.Add(new RichChar
-            {
-                Character = '\n',
-                Foreground = fg,
-                FontSize = size,
-                IsBold = isBold,
-                IsItalic = isItalic,
-                IsUnderline = isUnderline,
-                SourceInline = source,
-                LeftIndent = leftIndent
-            });
-        }
-        else if (inline is InlineUIContainer uic)
-        {
-            list.Add(new RichChar
-            {
-                Character = '\uFFFC',
-                Foreground = fg,
-                FontSize = size,
-                IsBold = isBold,
-                IsItalic = isItalic,
-                IsUnderline = isUnderline,
-                SourceInline = uic,
-                EmbeddedElement = uic.Child,
-                LeftIndent = leftIndent
-            });
-        }
-        else if (inline is ListBlock listBlock)
-        {
-            int itemIdx = 1;
-            foreach (var item in listBlock.Items)
-            {
-                if (list.Count > 0 && list[^1].Character != '\n')
-                {
-                    list.Add(new RichChar { Character = '\n', Foreground = fg, FontSize = size, SourceInline = item, LeftIndent = leftIndent });
-                }
-
-                string prefix = listBlock.IsOrdered ? $"{itemIdx}. " : "• ";
-                itemIdx++;
-
-                foreach (char bulletChar in prefix)
-                {
-                    list.Add(new RichChar
-                    {
-                        Character = bulletChar,
-                        Foreground = fg,
-                        FontSize = size,
-                        IsBold = isBold,
-                        IsItalic = isItalic,
-                        IsUnderline = isUnderline,
-                        SourceInline = item,
-                        LeftIndent = leftIndent + listBlock.Indentation,
-                        BulletOffset = listBlock.Indentation - 8f
-                    });
-                }
-
-                foreach (var sub in item.Inlines)
-                {
-                    AccumulateInlines(sub, list, fg, size, isBold, isItalic, isUnderline, item, leftIndent + listBlock.Indentation);
-                }
-            }
-        }
-        else if (inline is Table table)
-        {
-            if (list.Count > 0 && list[^1].Character != '\n')
-            {
-                list.Add(new RichChar { Character = '\n', Foreground = fg, FontSize = size, SourceInline = table, LeftIndent = leftIndent });
-            }
-
-            list.Add(new RichChar
-            {
-                Character = '\uFFFD',
-                Foreground = fg,
-                FontSize = size,
-                SourceInline = table,
-                LeftIndent = leftIndent
-            });
-
-            list.Add(new RichChar { Character = '\n', Foreground = fg, FontSize = size, SourceInline = table, LeftIndent = leftIndent });
-        }
-        else if (inline is Span span)
-        {
-            bool nextBold = isBold || (span is Bold);
-            bool nextItalic = isItalic || (span is Italic);
-            bool nextUnderline = isUnderline || (span is Underline || span is Hyperlink);
-
-            if (span is Hyperlink && inline.Foreground == null)
-            {
-                fg = HyperlinkBrush;
-            }
-
-            foreach (var sub in span.Inlines)
-            {
-                AccumulateInlines(sub, list, fg, size, nextBold, nextItalic, nextUnderline, span is Hyperlink ? span : source, leftIndent);
-            }
-        }
+        TextLayoutEngine.AccumulateInlines(inline, list, defaultFg, defaultSize, isBold, isItalic, isUnderline, this.ActualTheme, parentInline, leftIndent);
     }
 
     public override void OnRender(DrawingContext context)
     {
         var activeFont = ActiveFont;
-        if (activeFont == null) return;
+        if (activeFont == null || _positionedChars.Count == 0) return;
 
-        // Draw table decorations (backgrounds and borders)
-        foreach (var dec in _tableDecorations)
-        {
-            if (dec.Background != null)
-            {
-                context.DrawRectangle(dec.Background, null, dec.Rect);
-            }
-            if (dec.BorderBrush != null && dec.BorderThickness > 0f)
-            {
-                context.DrawRectangle(null, new Pen(dec.BorderBrush, dec.BorderThickness), dec.Rect);
-            }
-        }
-
-        if (_positionedChars.Count == 0) return;
-
-        // Draw translucent Segoe Blue highlighted selection boxes behind selected characters
-        if (SelectionStart >= 0 && SelectionLength > 0)
-        {
-            var highlightBrush = SelectionHighlightBrush;
-            for (int i = 0; i < _positionedChars.Count; i++)
-            {
-                if (i >= SelectionStart && i < SelectionStart + SelectionLength)
-                {
-                    var pc = _positionedChars[i];
-                    if (pc.Info.EmbeddedElement != null) continue;
-                    ushort gIdx = activeFont.GetGlyphIndex(pc.Info.Character);
-                    float advance = activeFont.GetAdvanceWidth(gIdx, pc.Info.FontSize);
-                    context.DrawRectangle(highlightBrush, null, new Rect(pc.Position.X, pc.Position.Y, advance, pc.Info.FontSize));
-                }
-            }
-        }
-
-        // Group same-style adjacent characters into single runs
-        string runBuffer = "";
-        Vector2 startPos = Vector2.Zero;
-        RichChar style = default;
-
-        foreach (var pc in _positionedChars)
-        {
-            if (pc.Info.EmbeddedElement != null)
-            {
-                if (runBuffer.Length > 0)
-                {
-                    RenderRun(context, runBuffer, startPos, style);
-                    runBuffer = "";
-                }
-                continue;
-            }
-
-            var pcStyle = pc.Info;
-            if (pc.Info.SourceInline is Hyperlink hl && hl == _hoveredHyperlink)
-            {
-                pcStyle.Foreground = HoveredHyperlinkBrush;
-            }
-
-            if (pc.Info.Character == ' ' || pc.Info.Character == '\t')
-            {
-                if (runBuffer.Length > 0)
-                {
-                    RenderRun(context, runBuffer, startPos, style);
-                    runBuffer = "";
-                }
-                RenderRun(context, pc.Info.Character.ToString(), pc.Position, pcStyle);
-                continue;
-            }
-
-            if (runBuffer.Length == 0)
-            {
-                runBuffer = pc.Info.Character.ToString();
-                startPos = pc.Position;
-                style = pcStyle;
-            }
-            else if (pcStyle.IsBold == style.IsBold &&
-                     pcStyle.IsItalic == style.IsItalic &&
-                     pcStyle.IsUnderline == style.IsUnderline &&
-                     pcStyle.FontSize == style.FontSize &&
-                     pcStyle.Foreground.Equals(style.Foreground) &&
-                     Math.Abs(pc.Position.Y - startPos.Y) < 1f)
-            {
-                runBuffer += pc.Info.Character;
-            }
-            else
-            {
-                RenderRun(context, runBuffer, startPos, style);
-                runBuffer = pc.Info.Character.ToString();
-                startPos = pc.Position;
-                style = pcStyle;
-            }
-        }
-
-        if (runBuffer.Length > 0)
-        {
-            RenderRun(context, runBuffer, startPos, style);
-        }
+        TextLayoutEngine.Render(
+            context, 
+            _positionedChars, 
+            _tableDecorations, 
+            activeFont, 
+            SelectionStart, 
+            SelectionLength, 
+            _hoveredHyperlink);
 
         base.OnRender(context);
-    }
-
-    private void RenderRun(DrawingContext context, string text, Vector2 pos, RichChar style)
-    {
-        var activeFont = ActiveFont;
-        if (activeFont == null) return;
-        context.DrawText(text, activeFont, style.FontSize, style.Foreground!, pos, style.IsBold, style.IsItalic);
-        if (style.IsUnderline)
-        {
-            float runW = 0f;
-            foreach (char c in text)
-            {
-                ushort idx = activeFont.GetGlyphIndex(c);
-                runW += activeFont.GetAdvanceWidth(idx, style.FontSize);
-            }
-            context.DrawRectangle(style.Foreground, null, new Rect(pos.X, pos.Y + style.FontSize - 1f, runW, 1f));
-        }
-    }
-
-    private List<PositionedRichChar> LayoutCellChars(TableCell cell, float cellWidth, float cellPadding, out float cellHeight)
-    {
-        var positionedChars = new List<PositionedRichChar>();
-        cellHeight = cellPadding * 2f;
-        var activeFont = ActiveFont;
-        if (activeFont == null) return positionedChars;
-
-        var charList = new List<RichChar>();
-        var defaultFg = Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme);
-        foreach (var inline in cell.Inlines)
-        {
-            AccumulateInlines(inline, charList, defaultFg, FontSize, false, false, false, null, 0f);
-        }
-
-        if (charList.Count == 0) return positionedChars;
-
-        float scale = FontSize / activeFont.UnitsPerEm;
-        float lineSpacing = (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * scale;
-
-        float cursorX = cellPadding;
-        float cursorY = cellPadding;
-        float maxTextW = cellWidth - cellPadding * 2f;
-
-        var currentLine = new List<PositionedRichChar>();
-        int lastWordStart = -1;
-        float lastWordStartCursorX = cellPadding;
-
-        void CommitCellLine(List<PositionedRichChar> line)
-        {
-            if (line.Count == 0)
-            {
-                cursorY += lineSpacing;
-                return;
-            }
-
-            // 1. Calculate dynamic line height
-            float maxElementHeight = 0f;
-            foreach (var pc in line)
-            {
-                if (pc.Info.EmbeddedElement != null)
-                {
-                    maxElementHeight = Math.Max(maxElementHeight, pc.Info.EmbeddedElement.DesiredSize.Y);
-                }
-            }
-            float completedLineHeight = Math.Max(lineSpacing, maxElementHeight);
-
-            // 2. Adjust Y-coordinates and center vertically
-            foreach (var pc in line)
-            {
-                float h = pc.Info.EmbeddedElement != null ? pc.Info.EmbeddedElement.DesiredSize.Y : lineSpacing;
-                pc.Position.Y = cursorY + (completedLineHeight - h) / 2f;
-            }
-
-            positionedChars.AddRange(line);
-
-            // 3. Increment cursorY by completedLineHeight
-            cursorY += completedLineHeight;
-        }
-
-        for (int i = 0; i < charList.Count; i++)
-        {
-            var rc = charList[i];
-            char c = rc.Character;
-
-            if (c == '\n')
-            {
-                CommitCellLine(currentLine);
-                currentLine = new List<PositionedRichChar>();
-                cursorX = cellPadding;
-                lastWordStart = -1;
-                continue;
-            }
-
-            float advance = 0f;
-            if (rc.EmbeddedElement != null)
-            {
-                rc.EmbeddedElement.Measure(new Vector2(maxTextW, float.PositiveInfinity));
-                advance = rc.EmbeddedElement.DesiredSize.X + 4f;
-            }
-            else
-            {
-                ushort gIdx = activeFont.GetGlyphIndex(c);
-                advance = activeFont.GetAdvanceWidth(gIdx, rc.FontSize);
-            }
-
-            if (c == ' ' || c == '\t')
-            {
-                lastWordStart = -1;
-            }
-            else if (lastWordStart == -1)
-            {
-                lastWordStart = currentLine.Count;
-                lastWordStartCursorX = cursorX;
-            }
-
-            if (cursorX + advance > cellWidth - cellPadding && cursorX > cellPadding)
-            {
-                if (lastWordStart > 0)
-                {
-                    int wrapCount = currentLine.Count - lastWordStart;
-                    var wrapped = currentLine.GetRange(lastWordStart, wrapCount);
-                    currentLine.RemoveRange(lastWordStart, wrapCount);
-
-                    CommitCellLine(currentLine);
-                    currentLine = new List<PositionedRichChar>();
-
-                    cursorX = cellPadding;
-
-                    foreach (var wc in wrapped)
-                    {
-                        var remapped = wc;
-                        float shift = wc.Position.X - lastWordStartCursorX;
-                        remapped.Position = new Vector2(cellPadding + shift, cursorY);
-                        currentLine.Add(remapped);
-
-                        float wAdv = 0f;
-                        if (remapped.Info.EmbeddedElement != null)
-                        {
-                            wAdv = remapped.Info.EmbeddedElement.DesiredSize.X + 4f;
-                        }
-                        else
-                        {
-                            ushort wIdx = activeFont.GetGlyphIndex(remapped.Info.Character);
-                            wAdv = activeFont.GetAdvanceWidth(wIdx, remapped.Info.FontSize);
-                        }
-                        cursorX = cellPadding + shift + wAdv;
-                    }
-
-                    var pos = new Vector2(cursorX, cursorY);
-                    currentLine.Add(new PositionedRichChar { Info = rc, Position = pos });
-                    cursorX += advance;
-                    lastWordStart = 0;
-                    lastWordStartCursorX = cellPadding;
-                    continue;
-                }
-                else
-                {
-                    CommitCellLine(currentLine);
-                    currentLine = new List<PositionedRichChar>();
-                    cursorX = cellPadding;
-                }
-            }
-
-            var charPos = new Vector2(cursorX, cursorY);
-            currentLine.Add(new PositionedRichChar { Info = rc, Position = charPos });
-            cursorX += advance;
-        }
-
-        if (currentLine.Count > 0)
-        {
-            CommitCellLine(currentLine);
-        }
-
-        cellHeight = cursorY + cellPadding;
-
-        return positionedChars;
-    }
-
-    private void LayoutTable(Table table, ref float cursorY, float availableWidth, float leftIndent)
-    {
-        int numCols = 0;
-        foreach (var row in table.Rows)
-        {
-            numCols = Math.Max(numCols, row.Cells.Count);
-        }
-        if (numCols == 0) return;
-
-        float[] colWidths = new float[numCols];
-        float remainingW = availableWidth - leftIndent;
-        if (table.ColumnWidths != null && table.ColumnWidths.Count > 0)
-        {
-            for (int col = 0; col < numCols; col++)
-            {
-                if (col < table.ColumnWidths.Count)
-                {
-                    colWidths[col] = table.ColumnWidths[col];
-                }
-                else
-                {
-                    colWidths[col] = remainingW / (numCols - col);
-                }
-                remainingW -= colWidths[col];
-            }
-        }
-        else
-        {
-            float eqW = remainingW / numCols;
-            for (int col = 0; col < numCols; col++)
-            {
-                colWidths[col] = eqW;
-            }
-        }
-
-        foreach (var row in table.Rows)
-        {
-            var rowCellChars = new List<List<PositionedRichChar>>();
-            float[] cellHeights = new float[row.Cells.Count];
-
-            for (int col = 0; col < row.Cells.Count; col++)
-            {
-                var cell = row.Cells[col];
-                float colW = colWidths[col];
-                var pcList = LayoutCellChars(cell, colW, table.CellPadding, out float cHeight);
-                rowCellChars.Add(pcList);
-                cellHeights[col] = cHeight;
-            }
-
-            float rowHeight = 0f;
-            foreach (float ch in cellHeights)
-            {
-                rowHeight = Math.Max(rowHeight, ch);
-            }
-            if (rowHeight == 0f) rowHeight = FontSize + table.CellPadding * 2f;
-
-            float currentCellX = Padding.Left + leftIndent;
-            for (int col = 0; col < row.Cells.Count; col++)
-            {
-                var cell = row.Cells[col];
-                float colW = colWidths[col];
-                var cellRect = new Rect(currentCellX, cursorY, colW, rowHeight);
-
-                var cellBg = cell.Background;
-                if (cellBg is ProGPU.Vector.ThemeResourceBrush trBrush)
-                {
-                    cellBg = ThemeManager.GetBrush(trBrush.ResourceKey, this.ActualTheme);
-                }
-                var tableBorderBrush = table.BorderBrush;
-                if (tableBorderBrush is ProGPU.Vector.ThemeResourceBrush borderTrBrush)
-                {
-                    tableBorderBrush = ThemeManager.GetBrush(borderTrBrush.ResourceKey, this.ActualTheme);
-                }
-
-                _tableDecorations.Add(new TableVisualDecoration
-                {
-                    Rect = cellRect,
-                    Background = cellBg,
-                    BorderThickness = table.BorderThickness,
-                    BorderBrush = tableBorderBrush
-                });
-
-                var pcList = rowCellChars[col];
-                foreach (var pc in pcList)
-                {
-                    var remapped = new PositionedRichChar
-                    {
-                        Info = pc.Info,
-                        Position = new Vector2(pc.Position.X + currentCellX, pc.Position.Y + cursorY)
-                    };
-                    _positionedChars.Add(remapped);
-                }
-
-                currentCellX += colW;
-            }
-
-            cursorY += rowHeight;
-        }
     }
 }
 
@@ -1182,6 +475,8 @@ public class RichEditBox : Control
 {
     private static readonly SolidColorBrush AmbientShadowBrush = new SolidColorBrush(0x0000000A);
     private static readonly SolidColorBrush PenumbraShadowBrush = new SolidColorBrush(0x00000014);
+
+    public event EventHandler? TextChanged;
 
     private float _fontSize = 14f;
 
@@ -1200,6 +495,7 @@ public class RichEditBox : Control
         }
     }
     private int _caretIndex;
+    private readonly ScrollViewer _scrollViewer;
     private readonly RichTextBlock _blockView;
     private RichChar? _activeTypingStyle;
 
@@ -1267,6 +563,7 @@ public class RichEditBox : Control
         CaretIndex = state.CaretIndex;
 
         Invalidate();
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private string GetSelectedText()
@@ -1342,6 +639,7 @@ public class RichEditBox : Control
         Invalidate();
 
         CaretIndex = insertIdx + text.Length;
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static class ClipboardHelper
@@ -1512,7 +810,39 @@ public class RichEditBox : Control
             {
                 _caretIndex = clamped;
                 Invalidate();
+                ScrollToCaret();
             }
+        }
+    }
+
+    public new void Invalidate()
+    {
+        _blockView?.Invalidate();
+        base.Invalidate();
+    }
+
+    private void ScrollToCaret()
+    {
+        if (Font == null) return;
+        _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
+        var pcs = _blockView.PositionedChars;
+        if (pcs.Count == 0) return;
+
+        int cIdx = Math.Clamp(CaretIndex, 0, pcs.Count - 1);
+        var pc = pcs[cIdx];
+        float charY = pc.Position.Y;
+        float charH = pc.Info.FontSize;
+
+        float viewportH = Size.Y - Padding.Vertical;
+        if (viewportH <= 0f) return;
+
+        if (charY < _scrollViewer.VerticalOffset)
+        {
+            _scrollViewer.VerticalOffset = charY;
+        }
+        else if (charY + charH > _scrollViewer.VerticalOffset + viewportH)
+        {
+            _scrollViewer.VerticalOffset = charY + charH - viewportH;
         }
     }
 
@@ -1536,8 +866,10 @@ public class RichEditBox : Control
     {
         Padding = new Thickness(8);
         CornerRadius = 4f;
+        _scrollViewer = new ScrollViewer { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Background = new SolidColorBrush(0x00000000) };
         _blockView = new RichTextBlock { Padding = new Thickness(0) };
-        AddChild(_blockView);
+        _scrollViewer.Content = _blockView;
+        AddChild(_scrollViewer);
         
         // Initial text run
         _blockView.Inlines.Add(new Run("Type here in "));
@@ -1575,42 +907,119 @@ public class RichEditBox : Control
         return 0;
     }
 
+    private int GetCharacterIndexAt(float clickX, float clickY)
+    {
+        _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
+        var pcs = _blockView.PositionedChars;
+
+        if (pcs.Count == 0) return 0;
+
+        // Group positioned characters into visual lines
+        var lines = new List<List<int>>();
+        var currentLine = new List<int>();
+        
+        for (int i = 0; i < pcs.Count; i++)
+        {
+            if (currentLine.Count == 0)
+            {
+                currentLine.Add(i);
+            }
+            else
+            {
+                float yDiff = Math.Abs(pcs[i].Position.Y - pcs[currentLine[0]].Position.Y);
+                if (yDiff < 3.0f)
+                {
+                    currentLine.Add(i);
+                }
+                else
+                {
+                    lines.Add(currentLine);
+                    currentLine = new List<int> { i };
+                }
+            }
+        }
+        if (currentLine.Count > 0)
+        {
+            lines.Add(currentLine);
+        }
+
+        // Find the vertically closest line
+        int bestLineIdx = 0;
+        float bestLineDist = float.PositiveInfinity;
+
+        for (int l = 0; l < lines.Count; l++)
+        {
+            var line = lines[l];
+            float lineY = pcs[line[0]].Position.Y;
+            float lineH = pcs[line[0]].Info.FontSize;
+            
+            float distY = 0f;
+            if (clickY < lineY)
+            {
+                distY = lineY - clickY;
+            }
+            else if (clickY > lineY + lineH)
+            {
+                distY = clickY - (lineY + lineH);
+            }
+            else
+            {
+                distY = 0f;
+            }
+
+            if (distY < bestLineDist)
+            {
+                bestLineDist = distY;
+                bestLineIdx = l;
+            }
+        }
+
+        // Find the closest character within this line
+        var targetLine = lines[bestLineIdx];
+        int bestCharIdx = targetLine[0];
+        float bestCharDist = float.PositiveInfinity;
+        TtfFont? activeFont = Font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+
+        for (int k = 0; k < targetLine.Count; k++)
+        {
+            int idx = targetLine[k];
+            var pc = pcs[idx];
+            float charX = pc.Position.X;
+            
+            float distLeft = Math.Abs(clickX - charX);
+            if (distLeft < bestCharDist)
+            {
+                bestCharDist = distLeft;
+                bestCharIdx = idx;
+            }
+
+            float advance = 0f;
+            if (activeFont != null)
+            {
+                ushort gIdx = activeFont.GetGlyphIndex(pc.Info.Character);
+                advance = activeFont.GetAdvanceWidth(gIdx, pc.Info.FontSize);
+            }
+            float distRight = Math.Abs(clickX - (charX + advance));
+            if (distRight < bestCharDist)
+            {
+                bestCharDist = distRight;
+                bestCharIdx = idx + 1;
+            }
+        }
+
+        return Math.Clamp(bestCharIdx, 0, pcs.Count);
+    }
+
     public override void OnPointerPressed(PointerRoutedEventArgs e)
     {
         if (IsEnabled)
         {
             base.OnPointerPressed(e);
 
-            // Locate clicked character offset for caret positioning
-            float clickX = e.Position.X - Padding.Left;
-            float clickY = e.Position.Y - Padding.Top;
+            float clickX = e.Position.X - Padding.Left + _scrollViewer.HorizontalOffset;
+            float clickY = e.Position.Y - Padding.Top + _scrollViewer.VerticalOffset;
             
-            _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
-            var pcs = _blockView.PositionedChars;
-
-            if (pcs.Count == 0)
-            {
-                SelectionStart = 0;
-                SelectionLength = 0;
-                _selectionAnchor = 0;
-                _isDraggingSelection = true;
-                InputSystem.CapturePointer(this);
-                CaretIndex = 0;
-                return;
-            }
-
-            int bestIdx = 0;
-            float bestDist = float.PositiveInfinity;
-
-            for (int i = 0; i < pcs.Count; i++)
-            {
-                var dist = Vector2.Distance(pcs[i].Position, new Vector2(clickX, clickY));
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestIdx = i;
-                }
-            }
+            int bestIdx = GetCharacterIndexAt(clickX, clickY);
 
             _selectionAnchor = bestIdx;
             SelectionStart = bestIdx;
@@ -1638,33 +1047,16 @@ public class RichEditBox : Control
             base.OnPointerMoved(e);
             if (_isDraggingSelection)
             {
-                float clickX = e.Position.X - Padding.Left;
-                float clickY = e.Position.Y - Padding.Top;
+                float clickX = e.Position.X - Padding.Left + _scrollViewer.HorizontalOffset;
+                float clickY = e.Position.Y - Padding.Top + _scrollViewer.VerticalOffset;
                 
-                _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
-                var pcs = _blockView.PositionedChars;
+                int currentIdx = GetCharacterIndexAt(clickX, clickY);
 
-                if (pcs.Count > 0)
-                {
-                    int currentIdx = 0;
-                    float bestDist = float.PositiveInfinity;
-
-                    for (int i = 0; i < pcs.Count; i++)
-                    {
-                        var dist = Vector2.Distance(pcs[i].Position, new Vector2(clickX, clickY));
-                        if (dist < bestDist)
-                        {
-                            bestDist = dist;
-                            currentIdx = i;
-                        }
-                    }
-
-                    int start = Math.Min(_selectionAnchor, currentIdx);
-                    int length = Math.Abs(_selectionAnchor - currentIdx);
-                    SelectionStart = start;
-                    SelectionLength = length;
-                    CaretIndex = currentIdx;
-                }
+                int start = Math.Min(_selectionAnchor, currentIdx);
+                int length = Math.Abs(_selectionAnchor - currentIdx);
+                SelectionStart = start;
+                SelectionLength = length;
+                CaretIndex = currentIdx;
             }
         }
     }
@@ -1731,6 +1123,7 @@ public class RichEditBox : Control
         _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
         _blockView.Invalidate();
         Invalidate();
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public override void OnKeyDown(KeyRoutedEventArgs e)
@@ -2128,6 +1521,7 @@ public class RichEditBox : Control
                 {
                     run.Text = run.Text.Remove(index, 1);
                     _blockView.Invalidate();
+                    TextChanged?.Invoke(this, EventArgs.Empty);
                     return;
                 }
                 index -= run.Text.Length;
@@ -2142,6 +1536,7 @@ public class RichEditBox : Control
                         {
                             subRun.Text = subRun.Text.Remove(index, 1);
                             _blockView.Invalidate();
+                            TextChanged?.Invoke(this, EventArgs.Empty);
                             return;
                         }
                         index -= subRun.Text.Length;
@@ -2168,6 +1563,7 @@ public class RichEditBox : Control
         _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
         _blockView.Invalidate();
         Invalidate();
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private int FindPreviousWordBoundary(int current)
@@ -2362,6 +1758,7 @@ public class RichEditBox : Control
         _blockView.PerformRichLayout(Size.X - Padding.Horizontal);
         _blockView.Invalidate();
         Invalidate();
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void DeleteSelection()
@@ -2385,20 +1782,22 @@ public class RichEditBox : Control
         Inlines.AddRange(RebuildInlinesFromChars(chars));
         _blockView.Invalidate();
         Invalidate();
+        TextChanged?.Invoke(this, EventArgs.Empty);
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
-        float w = WidthConstraint ?? Math.Max(200f, availableSize.X);
-        float h = HeightConstraint ?? 120f;
-        _blockView.Measure(new Vector2(w - Padding.Horizontal, float.PositiveInfinity));
-        return new Vector2(w, h);
+        float w = WidthConstraint ?? availableSize.X;
+        if (float.IsInfinity(w)) w = 200f;
+        float h = HeightConstraint ?? availableSize.Y;
+        if (float.IsInfinity(h)) h = 120f;
+        _scrollViewer.Measure(new Vector2(w - Padding.Horizontal, h - Padding.Vertical));
+        return new Vector2(w - Padding.Horizontal, h - Padding.Vertical);
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
-        Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
-        _blockView.Arrange(new Rect(Padding.Left, Padding.Top, arrangeRect.Width - Padding.Horizontal, arrangeRect.Height - Padding.Vertical));
+        _scrollViewer.Arrange(arrangeRect);
     }
 
     public override void OnRender(DrawingContext context)
@@ -2470,7 +1869,7 @@ public class RichEditBox : Control
             {
                 int cIdx = Math.Clamp(CaretIndex, 0, pcs.Count - 1);
                 var pc = pcs[cIdx];
-                caretPos = pc.Position + new Vector2(Padding.Left, Padding.Top);
+                caretPos = pc.Position + new Vector2(Padding.Left, Padding.Top) - new Vector2(_scrollViewer.HorizontalOffset, _scrollViewer.VerticalOffset);
                 caretH = pc.Info.FontSize;
                 if (CaretIndex >= pcs.Count)
                 {
@@ -2480,8 +1879,11 @@ public class RichEditBox : Control
                 }
             }
 
+            Rect editClip = new Rect(Padding.Left, Padding.Top, Size.X - Padding.Horizontal, Size.Y - Padding.Vertical);
+            context.PushClip(editClip);
             Rect caretRect = new Rect(caretPos.X, caretPos.Y, 1.5f, caretH + 2f);
             context.DrawRectangle(ThemeManager.GetBrush("TextControlBorderBrushFocused", activeTheme), null, caretRect);
+            context.PopClip();
         }
     }
 }

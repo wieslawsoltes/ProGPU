@@ -196,8 +196,18 @@ public class DataGrid : Control
     {
         if (IsEnabled)
         {
-            ScrollOffset -= e.WheelDelta * _rowHeight;
-            e.Handled = true;
+            float maxScroll = Math.Max(0f, TotalBodyHeight - ViewportHeight);
+            if (maxScroll > 0f)
+            {
+                float delta = -e.WheelDelta * _rowHeight;
+                float targetOffset = Math.Clamp(_scrollOffset + delta, 0f, maxScroll);
+                if (targetOffset != _scrollOffset)
+                {
+                    ScrollOffset = targetOffset;
+                    e.Handled = true;
+                    return;
+                }
+            }
         }
         base.OnPointerWheelChanged(e);
     }

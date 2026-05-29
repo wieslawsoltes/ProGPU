@@ -780,5 +780,341 @@ public class SamplePagesTests
             AppState._screenCompositor = savedCompositor;
         }
     }
+
+    [Fact]
+    public void Test_MarkdownTextBlock_Virtualization_ScrollAndRender()
+    {
+        EnsureFontsAndStateLoaded();
+
+        string specPath = "/Users/wieslawsoltes/Downloads/spec.txt";
+        string markdownContent = "";
+        if (File.Exists(specPath))
+        {
+            markdownContent = File.ReadAllText(specPath);
+        }
+        else
+        {
+            // Fallback: Generate a massive markdown document of 2000 lines
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# Mock Massive Markdown Document");
+            for (int i = 0; i < 500; i++)
+            {
+                sb.AppendLine($"## Section {i}");
+                sb.AppendLine($"This is paragraph {i} of a massive mock document to verify virtualized block-based flow layout and rendering performance.");
+                sb.AppendLine($"- List item A for block {i}");
+                sb.AppendLine($"- List item B for block {i}");
+            }
+            markdownContent = sb.ToString();
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            WidthConstraint = 800f,
+            HeightConstraint = 600f,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+
+        var markdownBlock = new MarkdownTextBlock
+        {
+            Font = AppState._font,
+            FontSize = 14f,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+
+        scrollViewer.Content = markdownBlock;
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(800, 600);
+        window.Content = scrollViewer;
+
+        // 1. Initial Load & Render
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        markdownBlock.Markdown = markdownContent;
+        window.Render();
+        sw.Stop();
+
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Spec loaded and first frame rendered in {sw.Elapsed.TotalMilliseconds:F2} ms");
+        
+        // Assert that the initial load + layout pass was extremely fast under virtualization
+        Assert.True(sw.Elapsed.TotalMilliseconds < 500, $"Initial virtualized layout took too long: {sw.Elapsed.TotalMilliseconds} ms");
+
+        // Verify that we have some positioned characters rendered in the viewport
+        Assert.NotEmpty(markdownBlock.PositionedChars);
+        int initialCharCount = markdownBlock.PositionedChars.Count;
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Visible characters at offset 0: {initialCharCount}");
+
+        // Retrieve total content height (scrollbar scrollable range)
+        float totalHeight = scrollViewer.ContentHeight;
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Total scrollable content height: {totalHeight} px");
+        Assert.True(totalHeight > 2000f, $"Total content height should be massive, but was {totalHeight} px");
+
+
+        // 2. Scroll the entire document in 1000px increments
+        float scrollStep = 1000f;
+        int scrollFrames = 0;
+        int maxCharsRendered = 0;
+        var renderedBlocks = new HashSet<Block>();
+        List<Block>? allBlocks = null;
+
+        var propBlocks = typeof(MarkdownTextBlock).GetField("_blocks", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        for (float offset = 0f; offset <= scrollViewer.ContentHeight; offset += scrollStep)
+        {
+            scrollViewer.VerticalOffset = offset;
+            
+            // Force a render tick to arrange and layout newly visible blocks
+            window.Render();
+            scrollFrames++;
+
+            var currentChars = markdownBlock.PositionedChars;
+            Assert.NotEmpty(currentChars); // MUST have active characters in viewport at ALL scroll offsets!
+            maxCharsRendered = Math.Max(maxCharsRendered, currentChars.Count);
+
+            // Access the blocks to check the active memory recycling
+            var blocks = (System.Collections.Generic.List<Block>?)propBlocks?.GetValue(markdownBlock);
+            if (blocks != null)
+            {
+                allBlocks = blocks;
+                int activeBlockCount = 0;
+                foreach (var b in blocks)
+                {
+                    if (b.IsLayoutValid)
+                    {
+                        activeBlockCount++;
+                        renderedBlocks.Add(b);
+                    }
+                }
+                // Memory Recycling check: Only blocks intersecting viewport + buffer should be valid/measured
+                // In a massive document of ~2,000 blocks, at most ~30-90 blocks should be valid at any scroll offset!
+                Assert.True(activeBlockCount < 120, $"Memory retention failure: {activeBlockCount} blocks are currently holding layout data in memory.");
+            }
+        }
+
+        // 3. Force one final render at the exact bottom to capture any trailing blocks
+        scrollViewer.VerticalOffset = scrollViewer.ContentHeight;
+        window.Render();
+
+        var finalBlocks = (System.Collections.Generic.List<Block>?)propBlocks?.GetValue(markdownBlock);
+        if (finalBlocks != null)
+        {
+            foreach (var b in finalBlocks)
+            {
+                if (b.IsLayoutValid)
+                {
+                    renderedBlocks.Add(b);
+                }
+            }
+        }
+
+        // Validate that ALL blocks were rendered at least once!
+        Assert.NotNull(allBlocks);
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Total blocks parsed: {allBlocks.Count}, Unique blocks rendered during scroll: {renderedBlocks.Count}");
+        
+        if (allBlocks.Count != renderedBlocks.Count)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int k = 0; k < allBlocks.Count; k++)
+            {
+                if (!renderedBlocks.Contains(allBlocks[k]))
+                {
+                    sb.AppendLine($"Block {k}/{allBlocks.Count}: {allBlocks[k].GetType().Name}, YOffset: {allBlocks[k].CachedYOffset}, Height: {allBlocks[k].CachedHeight}");
+                }
+            }
+            throw new Exception($"Missing blocks:\n{sb}");
+        }
+
+        Assert.Equal(allBlocks.Count, renderedBlocks.Count);
+
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Successfully scrolled {scrollFrames} frames through the entire {scrollViewer.ContentHeight:F0}px document.");
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Maximum active characters in viewport: {maxCharsRendered}");
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Memory retention test PASSED: strictly < 120 active blocks held in memory at any time.");
+        Console.WriteLine($"[TEST_VIRTUALIZATION] Completeness validation PASSED: 100% of the parsed blocks ({allBlocks.Count}/{allBlocks.Count}) were successfully laid out and rendered.");
+
+        // Clean up
+        window.Content = null;
+    }
+
+    [Fact]
+    public void Test_ScrollViewer_Scrollbar_HoverAndDrag()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var scrollViewer = new ScrollViewer
+        {
+            WidthConstraint = 200f,
+            HeightConstraint = 100f,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        // Put a tall child content so that the scrollbar is active
+        var child = new Border
+        {
+            WidthConstraint = 200f,
+            HeightConstraint = 1000f
+        };
+        scrollViewer.Content = child;
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(200, 100);
+        window.Content = scrollViewer;
+        window.Render();
+
+        // Initially pointer is not over scrollbar, vertical offset is 0
+        var isPointerOverField = typeof(ScrollViewer).GetField("_isPointerOverScrollbar", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var isDraggingField = typeof(ScrollViewer).GetField("_isDraggingVert", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        Assert.False((bool?)isPointerOverField?.GetValue(scrollViewer) ?? true);
+        Assert.False((bool?)isDraggingField?.GetValue(scrollViewer) ?? true);
+        Assert.Equal(0f, scrollViewer.VerticalOffset);
+
+        // Simulate pointer entering the scrollbar area (right edge, e.g. x = 195, y = 10)
+        // Since coordinate mapping uses ScreenPosition, we should set both Position and ScreenPosition.
+        // The scrollbar width is 8px, track is at Size.X - scrollbarWidth - padding.
+        // Size.X = 200. scrollbarWidth = 8, padding = 4 (for non-hover), so right edge hover threshold is x >= 200 - 12 = 188.
+        var pointerMovedArgs = new PointerRoutedEventArgs
+        {
+            ScreenPosition = new Vector2(195f, 10f),
+            Position = new Vector2(195f, 10f)
+        };
+        scrollViewer.OnPointerMoved(pointerMovedArgs);
+
+        // Verify it detected hover!
+        Assert.True((bool?)isPointerOverField?.GetValue(scrollViewer) ?? false);
+
+        // Simulate pointer pressing the scrollbar thumb
+        // When contentHeight = 1000, viewportHeight = 100.
+        // thumbHeight = Max(20, (100 / 1000) * 100) = Max(20, 10) = 20.
+        // thumbY = (0 / 900) * (100 - 20) = 0.
+        // So thumb is at Y in [0, 20]. A press at (195, 10) should hit the thumb.
+        var pointerPressedArgs = new PointerRoutedEventArgs
+        {
+            ScreenPosition = new Vector2(195f, 10f),
+            Position = new Vector2(195f, 10f)
+        };
+        scrollViewer.OnPointerPressed(pointerPressedArgs);
+
+        // Verify it started dragging!
+        Assert.True((bool?)isDraggingField?.GetValue(scrollViewer) ?? false);
+
+        // Simulate dragging the scrollbar thumb down by 20px (from y = 10 to y = 30)
+        // trackLength = viewportHeight - thumbHeight = 100 - 20 = 80.
+        // deltaY = 30 - 10 = 20.
+        // Expected scroll = 0 + (20 / 80) * scrollableHeight = 0.25 * (1000 - 100) = 0.25 * 900 = 225.
+        var dragMovedArgs = new PointerRoutedEventArgs
+        {
+            ScreenPosition = new Vector2(195f, 30f),
+            Position = new Vector2(195f, 30f)
+        };
+        scrollViewer.OnPointerMoved(dragMovedArgs);
+
+        Assert.Equal(225f, scrollViewer.VerticalOffset);
+
+        // Release the drag
+        var pointerReleasedArgs = new PointerRoutedEventArgs
+        {
+            ScreenPosition = new Vector2(195f, 30f),
+            Position = new Vector2(195f, 30f)
+        };
+        scrollViewer.OnPointerReleased(pointerReleasedArgs);
+        Assert.False((bool?)isDraggingField?.GetValue(scrollViewer) ?? true);
+
+        // Exit pointer
+        var pointerExitedArgs = new PointerRoutedEventArgs();
+        scrollViewer.OnPointerExited(pointerExitedArgs);
+        Assert.False((bool?)isPointerOverField?.GetValue(scrollViewer) ?? true);
+
+        // Cleanup
+        window.Content = null;
+    }
+
+    [Fact]
+    public void Test_ScrollViewer_ScrollChaining()
+    {
+        EnsureFontsAndStateLoaded();
+
+        // 1. Setup nested scroll structure
+        var outerScroll = new ScrollViewer
+        {
+            WidthConstraint = 500f,
+            HeightConstraint = 500f
+        };
+        var stackPanel = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            WidthConstraint = 500f,
+            HeightConstraint = 2000f
+        };
+        outerScroll.Content = stackPanel;
+
+        var nestedScroll = new ScrollViewer
+        {
+            WidthConstraint = 200f,
+            HeightConstraint = 200f
+        };
+        var nestedContent = new Border
+        {
+            WidthConstraint = 200f,
+            HeightConstraint = 1000f
+        };
+        nestedScroll.Content = nestedContent;
+
+        stackPanel.Children.Add(nestedScroll);
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(500, 500);
+        window.Content = outerScroll;
+        window.Render();
+
+        Assert.Equal(0f, nestedScroll.VerticalOffset);
+        Assert.Equal(0f, outerScroll.VerticalOffset);
+
+        // 2. Scroll down on nested ScrollViewer (nested scroll is at 0, so it should scroll nested)
+        var wheelDownArgs = new PointerRoutedEventArgs { WheelDelta = -1f };
+        nestedScroll.OnPointerWheelChanged(wheelDownArgs);
+
+        Assert.True(wheelDownArgs.Handled);
+        Assert.Equal(30f, nestedScroll.VerticalOffset);
+        Assert.Equal(0f, outerScroll.VerticalOffset);
+
+        // 3. Move nested ScrollViewer to its bottom limit (1000 content - 200 viewport = 800 limit)
+        nestedScroll.VerticalOffset = 800f;
+        Assert.Equal(800f, nestedScroll.VerticalOffset);
+
+        // 4. Scroll down further on nested ScrollViewer. It's at bottom limit, so it should NOT handle
+        // and instead bubble up to outer scroll.
+        var wheelDownLimitArgs = new PointerRoutedEventArgs { WheelDelta = -1f };
+        nestedScroll.OnPointerWheelChanged(wheelDownLimitArgs);
+
+        // Event should have bubbled to parent and scrolled outer scroll
+        Assert.True(wheelDownLimitArgs.Handled);
+        Assert.Equal(800f, nestedScroll.VerticalOffset); // nested stays at bottom
+        Assert.Equal(30f, outerScroll.VerticalOffset); // outer scrolled!
+
+        // 5. Scroll up on nested ScrollViewer when nested is still at bottom (800). It should scroll nested up.
+        outerScroll.VerticalOffset = 0f;
+        var wheelUpArgs = new PointerRoutedEventArgs { WheelDelta = 1f };
+        nestedScroll.OnPointerWheelChanged(wheelUpArgs);
+
+        Assert.True(wheelUpArgs.Handled);
+        Assert.Equal(770f, nestedScroll.VerticalOffset); // nested scrolled up
+        Assert.Equal(0f, outerScroll.VerticalOffset); // outer unchanged
+
+        // 6. Reset nested ScrollViewer to top (0).
+        nestedScroll.VerticalOffset = 0f;
+        outerScroll.VerticalOffset = 100f;
+
+        // 7. Scroll up on nested ScrollViewer. It's at top limit (0), so it should bubble up and scroll outer scroll up!
+        var wheelUpLimitArgs = new PointerRoutedEventArgs { WheelDelta = 1f };
+        nestedScroll.OnPointerWheelChanged(wheelUpLimitArgs);
+
+        Assert.True(wheelUpLimitArgs.Handled);
+        Assert.Equal(0f, nestedScroll.VerticalOffset); // nested stays at 0
+        Assert.Equal(70f, outerScroll.VerticalOffset); // outer scrolled up!
+
+        window.Content = null;
+    }
 }
+
 

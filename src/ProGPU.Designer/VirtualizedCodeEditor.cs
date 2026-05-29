@@ -188,6 +188,11 @@ public class VirtualizedCodeEditor : Control
     public override void OnVisualStateChanged()
     {
         base.OnVisualStateChanged();
+    }
+
+    protected override void OnThemeChanged()
+    {
+        base.OnThemeChanged();
         InitializeTextMate();
         SetCode(_rawCode);
     }
@@ -305,6 +310,7 @@ public class VirtualizedCodeEditor : Control
 
         _panel.ItemsCount = _lines.Count;
         _panel.ScrollOffset = _scrollOffset;
+        _panel.ForceRebind();
         Invalidate();
     }
 
@@ -363,8 +369,18 @@ public class VirtualizedCodeEditor : Control
                 return;
             }
             
-            ScrollOffset -= e.WheelDelta * 30f;
-            e.Handled = true;
+            float maxScroll = Math.Max(0f, _lines.Count * _itemHeight - Size.Y);
+            if (maxScroll > 0f)
+            {
+                float delta = -e.WheelDelta * 30f;
+                float targetOffset = Math.Clamp(_scrollOffset + delta, 0f, maxScroll);
+                if (targetOffset != _scrollOffset)
+                {
+                    ScrollOffset = targetOffset;
+                    e.Handled = true;
+                    return;
+                }
+            }
         }
         base.OnPointerWheelChanged(e);
     }

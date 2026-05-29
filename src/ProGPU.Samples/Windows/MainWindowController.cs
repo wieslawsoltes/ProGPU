@@ -293,6 +293,7 @@ public static unsafe class MainWindowController
         var basicInputItem = new NavigationViewItem("Basic Input", "🖱", BasicInputPage.Create());
         var panelsItem = new NavigationViewItem("Layout Panels", "🔲", LayoutPanelsPage.Create());
         var textItem = new NavigationViewItem("Text & Documents", "📄", TextDocumentsPage.Create());
+        var markdownPlaygroundItem = new NavigationViewItem("Markdown Playground", "📝", MarkdownPage.Create());
         var dataItem = new NavigationViewItem("Data Virtualization", "📊", DataVirtualizationPage.Create());
         var frameworkEffectsItem = new NavigationViewItem("Framework Effects", "✨", FrameworkEffectsPage.Create());
 
@@ -329,6 +330,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(gridSplitterItem);
         AppState._navigationView.MenuItems.Add(colorPickerItem);
         AppState._navigationView.MenuItems.Add(textItem);
+        AppState._navigationView.MenuItems.Add(markdownPlaygroundItem);
         AppState._navigationView.MenuItems.Add(dataItem);
         AppState._navigationView.MenuItems.Add(frameworkEffectsItem);
         AppState._navigationView.MenuItems.Add(computeItem);

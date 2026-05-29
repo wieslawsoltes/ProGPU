@@ -30,6 +30,7 @@ public class VirtualizingScrollPanel : LayoutNode
             if (_scrollOffset != clamped)
             {
                 _scrollOffset = clamped;
+                UpdateViewport();
                 Invalidate();
             }
         }
@@ -43,6 +44,7 @@ public class VirtualizingScrollPanel : LayoutNode
             if (_itemsCount != value)
             {
                 _itemsCount = value;
+                UpdateViewport();
                 Invalidate();
             }
         }
@@ -56,6 +58,7 @@ public class VirtualizingScrollPanel : LayoutNode
             if (_itemHeight != value)
             {
                 _itemHeight = value;
+                UpdateViewport();
                 Invalidate();
             }
         }

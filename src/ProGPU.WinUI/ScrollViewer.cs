@@ -82,9 +82,18 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
-            // Mouse wheel scroll vertical offset
-            VerticalOffset -= e.WheelDelta * 30f;
-            e.Handled = true;
+            float maxScroll = Math.Max(0f, ContentHeight - Size.Y);
+            if (maxScroll > 0f)
+            {
+                float delta = -e.WheelDelta * 30f;
+                float targetOffset = Math.Clamp(_verticalOffset + delta, 0f, maxScroll);
+                if (targetOffset != _verticalOffset)
+                {
+                    VerticalOffset = targetOffset;
+                    e.Handled = true;
+                    return;
+                }
+            }
         }
         base.OnPointerWheelChanged(e);
     }
@@ -93,21 +102,22 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
+            var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
             float scrollbarWidth = 8f;
             float contentHeight = ContentHeight;
             float viewportHeight = Size.Y;
 
-            if (contentHeight > viewportHeight && e.Position.X >= Size.X - scrollbarWidth - 4f)
+            if (contentHeight > viewportHeight && localPos.X >= Size.X - scrollbarWidth - 4f)
             {
                 float thumbHeight = Math.Max(20f, (viewportHeight / contentHeight) * viewportHeight);
                 float scrollableHeight = contentHeight - viewportHeight;
                 float thumbY = (VerticalOffset / scrollableHeight) * (viewportHeight - thumbHeight);
 
-                if (e.Position.Y >= thumbY && e.Position.Y <= thumbY + thumbHeight)
+                if (localPos.Y >= thumbY && localPos.Y <= thumbY + thumbHeight)
                 {
                     _isDraggingVert = true;
                     _dragStartOffset = VerticalOffset;
-                    _dragStartMouseY = e.Position.Y;
+                    _dragStartMouseY = localPos.Y;
                     InputSystem.CapturePointer(this);
                     e.Handled = true;
                     return;
@@ -127,9 +137,21 @@ public class ScrollViewer : ContentControl
         base.OnPointerReleased(e);
     }
 
+    public override void OnPointerEntered(PointerRoutedEventArgs e)
+    {
+        if (IsEnabled)
+        {
+            var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+            _isPointerOverScrollbar = localPos.X >= Size.X - 12f;
+            Invalidate();
+        }
+        base.OnPointerEntered(e);
+    }
+
     public override void OnPointerExited(PointerRoutedEventArgs e)
     {
         _isPointerOverScrollbar = false;
+        Invalidate();
         base.OnPointerExited(e);
     }
 
@@ -137,12 +159,14 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
-            _isPointerOverScrollbar = e.Position.X >= Size.X - 12f;
+            var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+            _isPointerOverScrollbar = localPos.X >= Size.X - 12f;
             Invalidate();
         }
 
         if (_isDraggingVert && IsEnabled)
         {
+            var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
             float contentHeight = ContentHeight;
             float viewportHeight = Size.Y;
             float thumbHeight = Math.Max(20f, (viewportHeight / contentHeight) * viewportHeight);
@@ -151,7 +175,7 @@ public class ScrollViewer : ContentControl
 
             if (trackLength > 0f)
             {
-                float deltaY = e.Position.Y - _dragStartMouseY;
+                float deltaY = localPos.Y - _dragStartMouseY;
                 VerticalOffset = _dragStartOffset + (deltaY / trackLength) * scrollableHeight;
             }
             e.Handled = true;
