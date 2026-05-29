@@ -149,6 +149,14 @@ namespace Microsoft.UI.Xaml.Controls
             _blocks.Clear();
             _isLayoutDirty = true;
             base.OnThemeChanged();
+            InvalidateMeasure();
+        }
+
+        public new void Invalidate()
+        {
+            _isLayoutDirty = true;
+            base.Invalidate();
+            InvalidateMeasure();
         }
 
         public TtfFont? GetActiveFont()
