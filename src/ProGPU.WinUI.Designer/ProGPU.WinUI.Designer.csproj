@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
+    <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
+    <ProjectReference Include="..\ProGPU.Compute\ProGPU.Compute.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
+    <ProjectReference Include="..\ProGPU.Virtualization\ProGPU.Virtualization.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TextMateSharp" Version="2.0.3" />
+    <PackageReference Include="TextMateSharp.Grammars" Version="2.0.3" />
+  </ItemGroup>
+</Project>

@@ -13,7 +13,7 @@ using ProGPU.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
-using ProGPU.Designer;
+using ProGPU.WinUI.Designer;
 
 namespace ProGPU.Samples;
 

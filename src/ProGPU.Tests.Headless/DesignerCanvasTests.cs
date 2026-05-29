@@ -4,10 +4,10 @@ using Xunit;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using ProGPU.Designer;
+using ProGPU.WinUI.Designer;
 using DataPackage = Microsoft.UI.Xaml.DataPackage;
-using DragEventArgs = ProGPU.Designer.DragEventArgs;
-using StandardDataFormats = ProGPU.Designer.StandardDataFormats;
+using DragEventArgs = ProGPU.WinUI.Designer.DragEventArgs;
+using StandardDataFormats = ProGPU.WinUI.Designer.StandardDataFormats;
 using ProGPU.Vector;
 using ProGPU.Layout;
 

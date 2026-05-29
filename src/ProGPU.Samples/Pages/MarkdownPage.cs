@@ -29,7 +29,7 @@ namespace ProGPU.Samples
             // Register TextMate-based code block factory for preview panel
             MarkdownParser.CodeBlockFactory = (code, language) =>
             {
-                var editor = new ProGPU.Designer.VirtualizedCodeEditor
+                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor
                 {
                     Font = AppState.GetFontCourier() ?? AppState.GetFont(),
                     Margin = new Thickness(0, 4, 0, 12),
