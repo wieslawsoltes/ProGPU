@@ -706,6 +706,13 @@ public class DrawingContext : IRenderDataProvider
     public void DrawGpuLineSeries(float[] interleavedCoords, int pointsCount, float thickness, Brush brush)
     {
         DrawGpuLineSeries(new ReadOnlySpan<float>(interleavedCoords), pointsCount, thickness, brush);
+        if (Commands.Count > 0)
+        {
+            var cmd = Commands[Commands.Count - 1];
+            cmd.GpuPoints = interleavedCoords;
+            cmd.SeriesCacheKey = interleavedCoords;
+            Commands[Commands.Count - 1] = cmd;
+        }
     }
 
     public void DrawGpuLineSeries(object staticBuffer, float thickness, Brush brush)
@@ -735,6 +742,13 @@ public class DrawingContext : IRenderDataProvider
     public void DrawGpuScatterSeries(float[] interleavedCoords, int pointsCount, float radius, Brush brush)
     {
         DrawGpuScatterSeries(new ReadOnlySpan<float>(interleavedCoords), pointsCount, radius, brush);
+        if (Commands.Count > 0)
+        {
+            var cmd = Commands[Commands.Count - 1];
+            cmd.GpuPoints = interleavedCoords;
+            cmd.SeriesCacheKey = interleavedCoords;
+            Commands[Commands.Count - 1] = cmd;
+        }
     }
 
     public void DrawGpuScatterSeries(object staticBuffer, float radius, Brush brush)
