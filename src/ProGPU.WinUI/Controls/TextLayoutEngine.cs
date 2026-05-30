@@ -674,9 +674,11 @@ namespace Microsoft.UI.Xaml.Controls
                 }
             }
 
-            // 1. Locate ScrollViewer ancestor for viewport virtualization
+            // 1. Locate ScrollViewer ancestor and compute relative Y offset for viewport virtualization
             ScrollViewer? scrollViewer = null;
+            float relativeY = 0f;
             var current = parent.Parent;
+            var visualChild = (Visual)parent;
             while (current != null)
             {
                 if (current is ScrollViewer sv)
@@ -684,6 +686,8 @@ namespace Microsoft.UI.Xaml.Controls
                     scrollViewer = sv;
                     break;
                 }
+                relativeY += visualChild.Offset.Y;
+                visualChild = current;
                 current = current.Parent;
             }
 
@@ -712,7 +716,7 @@ namespace Microsoft.UI.Xaml.Controls
 
                 if (scrollViewer != null && iterations == 0)
                 {
-                    float currentScrollY = scrollViewer.VerticalOffset;
+                    float currentScrollY = scrollViewer.VerticalOffset - relativeY;
                     foreach (var block in blocks)
                     {
                         if (block.CachedHeight > 0f)
@@ -736,9 +740,10 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     block.CachedYOffset = cursorY;
 
-                    // Detect visible intersection using current height (cached actual or estimated fallback)
+                    // Detect visible intersection using current height (cached actual or estimated fallback) offset by relativeY
+                    float absoluteY = relativeY + cursorY;
                     float currentHeight = block.CachedHeight > 0f ? block.CachedHeight : EstimateBlockHeight(block, availableWidth, baseFontSize, activeFont);
-                    bool intersects = (cursorY + currentHeight >= visibleTop) && (cursorY <= visibleBottom);
+                    bool intersects = (absoluteY + currentHeight >= visibleTop) && (absoluteY <= visibleBottom);
 
                     if (intersects)
                     {
@@ -782,7 +787,7 @@ namespace Microsoft.UI.Xaml.Controls
                     float deltaY = newAnchorY - initialAnchorY;
                     if (Math.Abs(deltaY) > 0.1f)
                     {
-                        scrollViewer.VerticalOffset = newAnchorY + anchorRelativeOffset;
+                        scrollViewer.VerticalOffset = newAnchorY + anchorRelativeOffset + relativeY;
                         anchorShifted = true;
                     }
                 }
@@ -800,7 +805,10 @@ namespace Microsoft.UI.Xaml.Controls
                 float blockTop = block.CachedYOffset;
                 float blockBottom = blockTop + block.CachedHeight;
 
-                bool intersects = (blockBottom >= visibleTop) && (blockTop <= visibleBottom);
+                float absoluteTop = relativeY + blockTop;
+                float absoluteBottom = relativeY + blockBottom;
+
+                bool intersects = (absoluteBottom >= visibleTop) && (absoluteTop <= visibleBottom);
                 if (intersects)
                 {
                     if (!block.IsLayoutValid || Math.Abs(block.CachedWidthConstraint - maxWidth) > 0.01f || block.CachedTheme != theme)
