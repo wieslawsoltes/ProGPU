@@ -719,6 +719,12 @@ public static class ThemeManager
             return style;
         }
 
+        if (typeof(ItemsControl).IsAssignableFrom(controlType))
+        {
+            BuildItemsControlDefaultStyle(style, themeFamily);
+            return style;
+        }
+
         // Default fallback chrome
         AddControlChrome(style, "ControlBackground", "TextPrimary", "ControlBorder", new Thickness(1f), 4f, new Thickness(8f, 4f));
         return style;
@@ -994,6 +1000,38 @@ public static class ThemeManager
 
                 var presenter = new ContentPresenter { HorizontalContentAlignment = HorizontalAlignment.Left, VerticalContentAlignment = VerticalAlignment.Center };
                 border.Child = presenter;
+                return border;
+            }))
+        });
+    }
+
+    private static void BuildItemsControlDefaultStyle(Style style, VisualThemeFamily family)
+    {
+        style.SetSetters(new List<Setter>
+        {
+            new Setter(nameof(Control.Background), TransparentBrush()),
+            new Setter(nameof(Control.BorderBrush), TransparentBrush()),
+            new Setter(nameof(Control.BorderThickness), new Thickness(0f)),
+            new Setter(nameof(Control.CornerRadius), 0f),
+            new Setter(nameof(Control.Padding), new Thickness(0f)),
+            new Setter(nameof(Control.Template), new ControlTemplate(typeof(ItemsControl), (parent) =>
+            {
+                var border = new Border();
+                TemplateBinding.Bind(border, Border.BackgroundProperty, parent, Control.BackgroundProperty);
+                TemplateBinding.Bind(border, Border.BorderBrushProperty, parent, Control.BorderBrushProperty);
+                TemplateBinding.Bind(border, Border.BorderThicknessProperty, parent, Control.BorderThicknessProperty);
+                TemplateBinding.Bind(border, Border.CornerRadiusProperty, parent, Control.CornerRadiusProperty);
+                TemplateBinding.Bind(border, Border.PaddingProperty, parent, Control.PaddingProperty);
+
+                var scrollViewer = new ScrollViewer
+                {
+                    Name = "ScrollViewer",
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    Background = TransparentBrush()
+                };
+
+                border.Child = scrollViewer;
                 return border;
             }))
         });
