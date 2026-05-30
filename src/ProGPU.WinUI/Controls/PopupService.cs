@@ -23,10 +23,19 @@ public static class PopupService
         if (ActivePopups.Contains(popup)) return;
 
         popup.Offset = offset;
-        // Measure with unlimited size
-        popup.Measure(new Vector2(10000f, 10000f));
-        // Arrange at the target offset with its desired size
-        popup.Arrange(new Rect(offset, popup.DesiredSize));
+        
+        // Dynamic boundary constraint checking against root window dimensions
+        var windowSize = InputSystem.Root?.Size ?? new Vector2(1280f, 800f);
+        float availW = Math.Max(50f, windowSize.X - offset.X - 10f);
+        float availH = Math.Max(50f, windowSize.Y - offset.Y - 10f);
+
+        // Constrain popup height & width based on actual screen space
+        popup.Measure(new Vector2(availW, availH));
+        
+        float w = float.IsNaN(popup.Width) ? Math.Min(popup.DesiredSize.X, availW) : popup.Width;
+        float h = float.IsNaN(popup.Height) ? Math.Min(popup.DesiredSize.Y, availH) : popup.Height;
+
+        popup.Arrange(new Rect(offset, new Vector2(w, h)));
 
         ActivePopups.Add(popup);
         if (owner != null)
@@ -68,8 +77,15 @@ public static class PopupService
             }
             else
             {
-                popup.Measure(new Vector2(10000f, 10000f));
-                popup.Arrange(new Rect(popup.Offset, popup.DesiredSize));
+                float availW = Math.Max(50f, windowSize.X - popup.Offset.X - 10f);
+                float availH = Math.Max(50f, windowSize.Y - popup.Offset.Y - 10f);
+
+                popup.Measure(new Vector2(availW, availH));
+                
+                float w = float.IsNaN(popup.Width) ? Math.Min(popup.DesiredSize.X, availW) : popup.Width;
+                float h = float.IsNaN(popup.Height) ? Math.Min(popup.DesiredSize.Y, availH) : popup.Height;
+
+                popup.Arrange(new Rect(popup.Offset, new Vector2(w, h)));
             }
         }
     }

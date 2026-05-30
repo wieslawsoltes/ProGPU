@@ -28,6 +28,18 @@ public class ScrollViewer : ContentControl
         set => base.Content = value;
     }
 
+    private bool IsInsidePopup()
+    {
+        Visual? parent = Parent;
+        while (parent != null)
+        {
+            if (parent is FrameworkElement fe && PopupService.ActivePopups.Contains(fe))
+                return true;
+            parent = parent.Parent;
+        }
+        return false;
+    }
+
     public float VerticalOffset
     {
         get => _verticalOffset;
@@ -38,7 +50,10 @@ public class ScrollViewer : ContentControl
             if (_verticalOffset != clamped)
             {
                 _verticalOffset = clamped;
-                PopupService.DismissNonDialogPopups();
+                if (!IsInsidePopup())
+                {
+                    PopupService.DismissNonDialogPopups();
+                }
                 Invalidate();
                 InvalidateArrange();
                 OnPropertyChanged();
@@ -56,7 +71,10 @@ public class ScrollViewer : ContentControl
             if (_horizontalOffset != clamped)
             {
                 _horizontalOffset = clamped;
-                PopupService.DismissNonDialogPopups();
+                if (!IsInsidePopup())
+                {
+                    PopupService.DismissNonDialogPopups();
+                }
                 Invalidate();
                 InvalidateArrange();
                 OnPropertyChanged();

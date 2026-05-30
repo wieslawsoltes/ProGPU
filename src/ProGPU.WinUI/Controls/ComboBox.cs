@@ -151,11 +151,22 @@ public class ComboBox : Control
         {
             if (_dropDownPopup == null)
             {
-                var stack = new StackPanel { Orientation = Orientation.Vertical };
+                var stack = new StackPanel 
+                { 
+                    Orientation = Orientation.Vertical,
+                    Margin = new Thickness(2f, 2f, 14f, 2f)
+                };
                 foreach (var item in Items)
                 {
                     stack.AddChild(item);
                 }
+
+                var scrollViewer = new ScrollViewer
+                {
+                    Content = stack,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch
+                };
 
                 _dropDownPopup = new Border
                 {
@@ -163,12 +174,13 @@ public class ComboBox : Control
                     BorderBrush = new ThemeResourceBrush("ControlBorder"),
                     BorderThickness = new Thickness(1f),
                     CornerRadius = 4f,
-                    Child = stack
+                    Child = scrollViewer
                 };
             }
             else
             {
-                var stack = (StackPanel)_dropDownPopup.Child!;
+                var scrollViewer = (ScrollViewer)_dropDownPopup.Child!;
+                var stack = (StackPanel)scrollViewer.Content!;
                 stack.ClearChildren();
                 foreach (var item in Items)
                 {
@@ -179,7 +191,7 @@ public class ComboBox : Control
             var absPos = GetAbsolutePosition();
             float mainH = HeightConstraint ?? 32f;
             _dropDownPopup.Width = Size.X;
-            _dropDownPopup.Height = Items.Count * 32f + 2f;
+            _dropDownPopup.Height = Math.Min(300f, Items.Count * 32f + 2f);
 
             PopupService.ShowPopup(_dropDownPopup, new Vector2(absPos.X, absPos.Y + mainH + 2f), this);
         }
