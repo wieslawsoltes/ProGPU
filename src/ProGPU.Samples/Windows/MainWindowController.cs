@@ -299,6 +299,7 @@ public static unsafe class MainWindowController
         var textItem = new NavigationViewItem("Text & Documents", "📄", TextDocumentsPage.Create());
         var markdownPlaygroundItem = new NavigationViewItem("Markdown Playground", "📝", MarkdownPage.Create());
         var dataItem = new NavigationViewItem("Data Virtualization", "📊", DataVirtualizationPage.Create());
+        var virtualizationControlsItem = new NavigationViewItem("Virtualization Controls", "🎛️", VirtualizationControlsPage.Create());
         var frameworkEffectsItem = new NavigationViewItem("Framework Effects", "✨", FrameworkEffectsPage.Create());
 
         var computeItem = new NavigationViewItem("Compute FX", "⚙", ComputeFxPage.Create());
@@ -322,6 +323,7 @@ public static unsafe class MainWindowController
         var dxfViewerItem = new NavigationViewItem("DXF CAD Viewer", "📐", DxfViewerPage.Create());
         var visualDesignerItem = new NavigationViewItem("Visual Designer", "📐", VisualDesignerPage.Create());
         var pictureCachingItem = new NavigationViewItem("Picture Caching", "🖼️", PictureShowcasePage.Create());
+        var fontGlyphBrowserItem = new NavigationViewItem("Font Glyph Browser", "🔤", FontGlyphBrowserPage.Create());
 
         var wrapPanelItem = new NavigationViewItem("Wrap Panel", "🔲", WrapPanelPage.Create());
         var dockPanelItem = new NavigationViewItem("Dock Panel", "🪟", DockPanelPage.Create());
@@ -335,9 +337,11 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(dockPanelItem);
         AppState._navigationView.MenuItems.Add(gridSplitterItem);
         AppState._navigationView.MenuItems.Add(colorPickerItem);
+        AppState._navigationView.MenuItems.Add(fontGlyphBrowserItem);
         AppState._navigationView.MenuItems.Add(textItem);
         AppState._navigationView.MenuItems.Add(markdownPlaygroundItem);
         AppState._navigationView.MenuItems.Add(dataItem);
+        AppState._navigationView.MenuItems.Add(virtualizationControlsItem);
         AppState._navigationView.MenuItems.Add(frameworkEffectsItem);
         AppState._navigationView.MenuItems.Add(computeItem);
         AppState._navigationView.MenuItems.Add(motionAnimationsItem);
