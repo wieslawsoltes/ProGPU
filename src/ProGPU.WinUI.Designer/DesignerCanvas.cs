@@ -1411,6 +1411,11 @@ public class DesignerCanvas : Panel
 
     private bool IsValidDropContainer(FrameworkElement fe)
     {
+        if (fe is Button || fe is CheckBox || fe is RadioButton || fe is ToggleSwitch || fe is ComboBox)
+        {
+            return false;
+        }
+
         if (fe is Panel) return true;
         if (fe is Border) return true;
         if (fe is ContentControl) return true;

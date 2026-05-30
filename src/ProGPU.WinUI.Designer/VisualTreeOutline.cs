@@ -253,6 +253,11 @@ public class VisualTreeOutlineItem : Border
 
     private bool IsValidDropContainer(FrameworkElement fe)
     {
+        if (fe is Button || fe is CheckBox || fe is RadioButton || fe is ToggleSwitch || fe is ComboBox)
+        {
+            return false;
+        }
+
         if (fe is Panel) return true;
         
         var type = fe.GetType();
