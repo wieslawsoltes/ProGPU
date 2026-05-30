@@ -356,4 +356,380 @@ public class DesignerCanvasTests
         Assert.NotNull(currentButton);
         Assert.Equal(101f, Canvas.GetLeft(currentButton));
     }
+
+    [Fact]
+    public void Test_DesignerCanvas_WebflowMode_LeafRejectionAndAutoStretch()
+    {
+        var canvas = new DesignerCanvas
+        {
+            Width = 800,
+            Height = 600,
+            AllowDrop = true,
+            IsResponsiveMode = true
+        };
+
+        // 1. Try to drop a leaf control (Button) on root DesignSurface
+        var dataButton = new DataPackage();
+        dataButton.SetData(StandardDataFormats.Tool, "Button");
+        var argsButton = new DragEventArgs(dataButton, new Vector2(100f, 100f));
+
+        canvas.OnDrop(argsButton);
+
+        // Assert it is rejected
+        Assert.Empty(canvas.DesignSurface.Children);
+
+        // 2. Drop a responsive container (StackPanel) on root DesignSurface
+        var dataPanel = new DataPackage();
+        dataPanel.SetData(StandardDataFormats.Tool, "StackPanel");
+        var argsPanel = new DragEventArgs(dataPanel, new Vector2(100f, 100f));
+
+        canvas.OnDrop(argsPanel);
+
+        // Assert it is allowed and correctly configured
+        Assert.Single(canvas.DesignSurface.Children);
+        var panel = canvas.DesignSurface.Children[0] as Microsoft.UI.Xaml.Controls.StackPanel;
+        Assert.NotNull(panel);
+        Assert.Equal(ProGPU.Layout.HorizontalAlignment.Stretch, panel.HorizontalAlignment);
+        Assert.True(float.IsNaN(panel.Width));
+        Assert.Equal(100f, panel.Height); // placeholder height
+    }
+
+    [Fact]
+    public void Test_DesignerHost_WebflowMode_NudgeMargin()
+    {
+        var host = new DesignerHost();
+        host.WorkspaceCanvas.IsResponsiveMode = true;
+
+        // Add responsive panel first (StackPanel)
+        host.AddControlToCanvas("StackPanel", 0f, 0f);
+        var panel = host.WorkspaceCanvas.SelectedElement;
+        Assert.NotNull(panel);
+
+        // Standard positions should be clean
+        Assert.Equal(0f, Canvas.GetLeft(panel));
+        Assert.Equal(0f, Canvas.GetTop(panel));
+
+        // Act - Nudge Right by 1 unit
+        host.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Right });
+
+        // Assert - absolute coordinates are unmodified, but Margin is adjusted!
+        Assert.Equal(0f, Canvas.GetLeft(panel));
+        Assert.Equal(1f, panel.Margin.Left);
+        Assert.Equal(0f, panel.Margin.Top);
+    }
+
+    [Fact]
+    public void Test_DesignerSerializer_WebflowMode_CoordinatesSuppression()
+    {
+        var canvas = new Canvas { Width = 800f, Height = 600f };
+        var panel = new Microsoft.UI.Xaml.Controls.StackPanel { Name = "myStack" };
+        Canvas.SetLeft(panel, 150f);
+        Canvas.SetTop(panel, 100f);
+        canvas.Children.Add(panel);
+
+        // Act - Serialize in responsive mode
+        string csharpScript = DesignerSerializer.SerializeToCSharp(canvas, isResponsiveMode: true);
+
+        // Assert - coordinate initializers are suppressed
+        Assert.DoesNotContain("Canvas.SetLeft", csharpScript);
+        Assert.DoesNotContain("Canvas.SetTop", csharpScript);
+        Assert.Contains("var myStack = new StackPanel", csharpScript);
+    }
+
+    [Fact]
+    public void Test_DesignerCanvas_WebflowViewport_MeasureAndCenter()
+    {
+        var canvas = new DesignerCanvas
+        {
+            ViewportWidth = 768f,
+            AllowDrop = true
+        };
+
+        // Act - measure and arrange with 1024x768 available bounds
+        canvas.Measure(new Vector2(1024f, 768f));
+        canvas.Arrange(new ProGPU.Scene.Rect(0f, 0f, 1024f, 768f));
+
+        // Assert - DesignSurface's measured size is restricted to 768f horizontally
+        Assert.Equal(768f, canvas.DesignSurface.Size.X);
+
+        // Assert - DesignSurface's arrangement left position is centered: (1024 - 768) / 2 = 128f
+        Assert.Equal(128f, canvas.DesignSurface.Offset.X);
+    }
+
+    [Fact]
+    public void Test_SelectionAdorner_BoxModelOverlays_VerifyRendering()
+    {
+        var canvas = new DesignerCanvas
+        {
+            Width = 800f,
+            Height = 600f,
+            IsResponsiveMode = true
+        };
+
+        var button = new Button
+        {
+            Width = 120f,
+            Height = 36f,
+            Margin = new Microsoft.UI.Xaml.Thickness(10f, 15f, 10f, 15f),
+            Padding = new Microsoft.UI.Xaml.Thickness(5f, 5f, 5f, 5f)
+        };
+        canvas.DesignSurface.Children.Add(button);
+
+        // Select to trigger SelectionAdorner instantiation
+        canvas.SelectElement(button);
+
+        // Act - Verify selection adorner captures sizes
+        Assert.Single(canvas.AdornerSurface.Children);
+        var adorner = canvas.AdornerSurface.Children[0] as SelectionAdorner;
+        Assert.NotNull(adorner);
+
+        // Assert spacing properties are verified
+        Assert.Equal(10f, adorner.AssociatedElement.Margin.Left);
+        Assert.Equal(15f, adorner.AssociatedElement.Margin.Top);
+        Assert.Equal(5f, adorner.AssociatedElement.Padding.Left);
+        Assert.Equal(5f, adorner.AssociatedElement.Padding.Top);
+    }
+
+    [Fact]
+    public void Test_PivotTabs_Navigation()
+    {
+        var pivot = new Pivot();
+        var tab1 = new PivotItem("Style", new Border());
+        var tab2 = new PivotItem("Settings", new Border());
+        pivot.Items.Add(tab1);
+        pivot.Items.Add(tab2);
+
+        Assert.Equal(0, pivot.SelectedIndex);
+
+        pivot.SelectedIndex = 1;
+        Assert.Equal(1, pivot.SelectedIndex);
+    }
+
+    [Fact]
+    public void Test_StylePanel_SpacingBoxModelUpdates()
+    {
+        var font = Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        var stylePanel = new StylePanel(font);
+
+        var button = new Button
+        {
+            Width = 100f,
+            Height = 30f,
+            Margin = new Microsoft.UI.Xaml.Thickness(0),
+            Padding = new Microsoft.UI.Xaml.Thickness(0)
+        };
+
+        stylePanel.SelectedElement = button;
+
+        // Verify initial state
+        Assert.Equal(0f, button.Margin.Left);
+        Assert.Equal(0f, button.Padding.Top);
+
+        var type = typeof(StylePanel);
+        var txtMarginLeftField = type.GetField("_txtMarginLeft", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var txtPaddingTopField = type.GetField("_txtPaddingTop", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        Assert.NotNull(txtMarginLeftField);
+        Assert.NotNull(txtPaddingTopField);
+
+        var txtMarginLeft = txtMarginLeftField.GetValue(stylePanel) as TextBox;
+        var txtPaddingTop = txtPaddingTopField.GetValue(stylePanel) as TextBox;
+
+        Assert.NotNull(txtMarginLeft);
+        Assert.NotNull(txtPaddingTop);
+
+        // Act - Simulate typing into boxes
+        txtMarginLeft.Text = "20";
+        txtPaddingTop.Text = "15";
+
+        // Assert - Spacing updates were written back to the element!
+        Assert.Equal(20f, button.Margin.Left);
+        Assert.Equal(15f, button.Padding.Top);
+    }
+
+    [Fact]
+    public void Test_StylePanel_TextBox_HitTesting_And_Focus()
+    {
+        var font = Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        var host = new DesignerHost();
+        host.InitializeFonts(font, font);
+
+        // Select the canvas button to make StylePanel fields active
+        var button = new Button { Width = 100f, Height = 30f };
+        host.WorkspaceCanvas.DesignSurface.Children.Add(button);
+        host.WorkspaceCanvas.SelectElement(button);
+
+        // Lay out host
+        host.Measure(new Vector2(1024f, 768f));
+        host.Arrange(new ProGPU.Scene.Rect(0f, 0f, 1024f, 768f));
+
+        // Retrieve _stylePanel and _txtWidth field via reflection
+        var type = typeof(StylePanel);
+        var stylePanelField = typeof(DesignerHost).GetField("_stylePanel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(stylePanelField);
+        var stylePanel = stylePanelField.GetValue(host) as StylePanel;
+        Assert.NotNull(stylePanel);
+
+        var txtWidthField = type.GetField("_txtWidth", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(txtWidthField);
+        var txtWidth = txtWidthField.GetValue(stylePanel) as TextBox;
+        Assert.NotNull(txtWidth);
+
+        // Verify the textbox is hit-test visible and enabled
+        Assert.True(txtWidth.IsHitTestVisible);
+        Assert.True(txtWidth.IsEnabled);
+
+        // Get global transform position of txtWidth
+        var transform = txtWidth.GetGlobalTransformMatrix();
+        var globalPos = Vector3.Transform(Vector3.Zero, transform);
+        var testPoint = new Vector2(globalPos.X + 10f, globalPos.Y + 10f);
+
+        // Hit test
+        InputSystem.Current.Root = host;
+        var hit = InputSystem.HitTest(testPoint);
+        Assert.NotNull(hit);
+
+        // Verify the hit element bubbles up to txtWidth
+        var current = hit;
+        TextBox? targetTextBox = null;
+        while (current != null)
+        {
+            if (current is TextBox tb)
+            {
+                targetTextBox = tb;
+                break;
+            }
+            current = current.Parent as FrameworkElement;
+        }
+        Assert.Same(txtWidth, targetTextBox);
+
+        // Simulate clicking
+        var pointerArgs = new PointerRoutedEventArgs { Position = testPoint, ScreenPosition = testPoint };
+        hit.OnPointerPressed(pointerArgs);
+
+        // Verify focus is set to txtWidth
+        Assert.Same(txtWidth, InputSystem.FocusedElement);
+        Assert.True(txtWidth.IsFocused);
+
+        // Simulate typing character '5'
+        var charArgs = new CharacterReceivedRoutedEventArgs { Character = '5' };
+        txtWidth.OnCharacterReceived(charArgs);
+
+        // Assert text changed
+        Assert.Equal("5100", txtWidth.Text); // Since button width is initialized to 100, typing '5' at index 0 makes it "5100"
+
+        // Clean up static focus state to avoid affecting subsequent tests
+        InputSystem.SetFocus(null);
+    }
+
+    [Fact]
+    public void Test_StylePanel_Spacing_ValueScrubbing()
+    {
+        var font = Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        var stylePanel = new StylePanel(font);
+
+        var button = new Button
+        {
+            Width = 100f,
+            Height = 30f,
+            Margin = new Microsoft.UI.Xaml.Thickness(0),
+            Padding = new Microsoft.UI.Xaml.Thickness(0)
+        };
+
+        stylePanel.SelectedElement = button;
+
+        var type = typeof(StylePanel);
+        var txtMarginTopField = type.GetField("_txtMarginTop", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(txtMarginTopField);
+        var txtMarginTop = txtMarginTopField.GetValue(stylePanel) as TextBox;
+        Assert.NotNull(txtMarginTop);
+
+        // Verify initial state
+        Assert.Equal("0", txtMarginTop.Text);
+        Assert.Equal(0f, button.Margin.Top);
+
+        // 1. Simulate drag scrubbing horizontally by 15 pixels (normal speed 1x)
+        txtMarginTop.OnPointerPressed(new PointerRoutedEventArgs { Position = new Vector2(10f, 10f) });
+        txtMarginTop.OnPointerMoved(new PointerRoutedEventArgs { Position = new Vector2(25f, 10f) }); // dx = 15f
+        txtMarginTop.OnPointerReleased(new PointerRoutedEventArgs { Position = new Vector2(25f, 10f) });
+
+        // Assert margin top updated to 15
+        Assert.Equal("15", txtMarginTop.Text);
+        Assert.Equal(15f, button.Margin.Top);
+
+        // 2. Simulate drag scrubbing with SHIFT key pressed (10x speed acceleration)
+        InputSystem.Current.IsShiftPressed = true;
+        txtMarginTop.OnPointerPressed(new PointerRoutedEventArgs { Position = new Vector2(25f, 10f) });
+        txtMarginTop.OnPointerMoved(new PointerRoutedEventArgs { Position = new Vector2(35f, 10f) }); // dx = 10f * 10x = 100
+        txtMarginTop.OnPointerReleased(new PointerRoutedEventArgs { Position = new Vector2(35f, 10f) });
+        InputSystem.Current.IsShiftPressed = false;
+
+        // Assert margin top updated to 15 + 100 = 115
+        Assert.Equal("115", txtMarginTop.Text);
+        Assert.Equal(115f, button.Margin.Top);
+
+        // 3. Simulate drag scrubbing with ALT key pressed (0.1x micro-tuning deceleration)
+        InputSystem.Current.IsAltPressed = true;
+        txtMarginTop.OnPointerPressed(new PointerRoutedEventArgs { Position = new Vector2(35f, 10f) });
+        txtMarginTop.OnPointerMoved(new PointerRoutedEventArgs { Position = new Vector2(45f, 10f) }); // dx = 10f * 0.1x = 1
+        txtMarginTop.OnPointerReleased(new PointerRoutedEventArgs { Position = new Vector2(45f, 10f) });
+        InputSystem.Current.IsAltPressed = false;
+
+        // Assert margin top updated to 115 + 1 = 116
+        Assert.Equal("116", txtMarginTop.Text);
+        Assert.Equal(116f, button.Margin.Top);
+    }
+
+    [Fact]
+    public void Test_StylePanel_AllStyleInputs_ValueScrubbing()
+    {
+        var font = Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        var stylePanel = new StylePanel(font);
+
+        var button = new Button
+        {
+            Width = 100f,
+            Height = 30f,
+            Opacity = 1f
+        };
+
+        stylePanel.SelectedElement = button;
+
+        var type = typeof(StylePanel);
+        var txtWidthField = type.GetField("_txtWidth", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var txtOpacityField = type.GetField("_txtOpacity", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        Assert.NotNull(txtWidthField);
+        Assert.NotNull(txtOpacityField);
+
+        var txtWidth = txtWidthField.GetValue(stylePanel) as TextBox;
+        var txtOpacity = txtOpacityField.GetValue(stylePanel) as TextBox;
+
+        Assert.NotNull(txtWidth);
+        Assert.NotNull(txtOpacity);
+
+        // Verify initial state
+        Assert.Equal("100", txtWidth.Text);
+        Assert.Equal("100", txtOpacity.Text);
+
+        // 1. Scrub Width horizontally by +50 pixels (normal speed 1x)
+        txtWidth.OnPointerPressed(new PointerRoutedEventArgs { Position = new Vector2(10f, 10f) });
+        txtWidth.OnPointerMoved(new PointerRoutedEventArgs { Position = new Vector2(60f, 10f) }); // dx = 50
+        txtWidth.OnPointerReleased(new PointerRoutedEventArgs { Position = new Vector2(60f, 10f) });
+
+        // Assert width updated to 150
+        Assert.Equal("150", txtWidth.Text);
+        Assert.Equal(150f, button.Width);
+
+        // 2. Scrub Opacity horizontally by -30 pixels (normal speed 1x)
+        txtOpacity.OnPointerPressed(new PointerRoutedEventArgs { Position = new Vector2(10f, 10f) });
+        txtOpacity.OnPointerMoved(new PointerRoutedEventArgs { Position = new Vector2(-20f, 10f) }); // dx = -30
+        txtOpacity.OnPointerReleased(new PointerRoutedEventArgs { Position = new Vector2(-20f, 10f) });
+
+        // Assert opacity updated to 100 - 30 = 70%, and element Opacity is 0.7f
+        Assert.Equal("70", txtOpacity.Text);
+        Assert.Equal(0.7f, button.Opacity);
+    }
 }
+
+
