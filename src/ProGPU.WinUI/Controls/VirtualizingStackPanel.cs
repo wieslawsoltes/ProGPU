@@ -106,6 +106,8 @@ public class VirtualizingStackPanel : VirtualizingPanel
     }
 
     public override float TotalVirtualHeight => Orientation == Orientation.Vertical ? ItemsCount * ItemHeight : ViewportHeight;
+    public override float TotalVirtualWidth => Orientation == Orientation.Horizontal ? ItemsCount * ItemWidth : ViewportWidth;
+    public override bool IsHorizontal => Orientation == Orientation.Horizontal;
 
     protected override void OnScrollOffsetChanged(float newOffset)
     {
@@ -114,8 +116,13 @@ public class VirtualizingStackPanel : VirtualizingPanel
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
-        float width = float.IsInfinity(availableSize.X) ? 400f : availableSize.X;
-        float height = float.IsInfinity(availableSize.Y) ? TotalVirtualHeight : availableSize.Y;
+        float width = Orientation == Orientation.Horizontal 
+            ? (float.IsInfinity(availableSize.X) ? TotalVirtualWidth : availableSize.X)
+            : (float.IsInfinity(availableSize.X) ? 400f : availableSize.X);
+            
+        float height = Orientation == Orientation.Vertical 
+            ? (float.IsInfinity(availableSize.Y) ? TotalVirtualHeight : availableSize.Y)
+            : (float.IsInfinity(availableSize.Y) ? 400f : availableSize.Y);
 
         UpdateViewport();
 
@@ -124,6 +131,7 @@ public class VirtualizingStackPanel : VirtualizingPanel
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
+        base.ArrangeOverride(arrangeRect);
         UpdateViewport();
     }
 

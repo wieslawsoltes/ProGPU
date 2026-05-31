@@ -117,6 +117,7 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
+        base.ArrangeOverride(arrangeRect);
         UpdateViewport();
     }
 
