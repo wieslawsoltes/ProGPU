@@ -95,6 +95,8 @@ public class DatePicker : Control
             _popupCalendar.SelectedDate = SelectedDate ?? DateTime.Today;
 
             var absPos = GetAbsolutePosition();
+            // Force theme synchronization right before showing the popup
+            _popupCalendar.NotifyThemeChanged();
             // Position exactly underneath the DatePicker input box
             PopupService.ShowPopup(_popupCalendar, new Vector2(absPos.X, absPos.Y + Size.Y + 4f), this);
             e.Handled = true;

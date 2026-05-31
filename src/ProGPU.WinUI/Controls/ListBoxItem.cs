@@ -12,14 +12,18 @@ using ProGPU.Text;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class ComboBoxItem : ContentControl
+public class ListBoxItem : ContentControl
 {
     public static readonly DependencyProperty IsSelectedProperty =
         DependencyProperty.Register(
             "IsSelected",
             typeof(bool),
-            typeof(ComboBoxItem),
-            new PropertyMetadata(false));
+            typeof(ListBoxItem),
+            new PropertyMetadata(false, (d, e) => {
+                var item = (ListBoxItem)d;
+                item.Invalidate();
+                item.Selected?.Invoke(item, EventArgs.Empty);
+            }));
 
     private string _text = string.Empty;
 
@@ -51,11 +55,11 @@ public class ComboBoxItem : ContentControl
         }
     }
 
-
+    public object? Person { get; set; }
 
     public event EventHandler? Selected;
 
-    public ComboBoxItem()
+    public ListBoxItem()
     {
         CornerRadius = 4f;
         Padding = new Thickness(8, 6, 8, 6);
@@ -68,7 +72,7 @@ public class ComboBoxItem : ContentControl
         }
     }
 
-    public ComboBoxItem(string text) : this()
+    public ListBoxItem(string text) : this()
     {
         Text = text;
     }

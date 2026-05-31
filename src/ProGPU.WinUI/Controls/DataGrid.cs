@@ -133,6 +133,8 @@ public class DataGrid : Control
 
     public float TotalBodyHeight => _itemsSource.Count * _rowHeight;
     public float ViewportHeight => Size.Y - _headerHeight;
+    public int EditingRow => _editingRow;
+    public int EditingCol => _editingCol;
 
     public Func<object, string, string>? CellValueBinding { get; set; }
 
@@ -1067,6 +1069,12 @@ public class DataGrid : Control
                     e.Handled = true;
                 }
             };
+            _textBox.TextChanged += (s, e) =>
+            {
+                var val = _textBox.Text;
+                _colorBtn.Background = GetBrushFromText(val);
+                UpdateLiveValue(val);
+            };
             Grid.SetColumn(_textBox, 0);
             AddChild(_textBox);
 
@@ -1215,6 +1223,8 @@ public class DataGrid : Control
 
             _pickerPopup.Width = 300f;
             _pickerPopup.Height = 350f;
+            // Force theme synchronization right before showing the popup
+            _pickerPopup.NotifyThemeChanged();
             // Place it nicely (shifted to the left so it doesn't clip off the right edge of property grid)
             PopupService.ShowPopup(_pickerPopup, new Vector2(absPos.X - 260f, absPos.Y + Size.Y + 2f), _colorBtn);
         }

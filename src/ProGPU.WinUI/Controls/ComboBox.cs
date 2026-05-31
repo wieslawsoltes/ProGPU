@@ -193,6 +193,9 @@ public class ComboBox : Control
             _dropDownPopup.Width = Size.X;
             _dropDownPopup.Height = Math.Min(300f, Items.Count * 32f + 2f);
 
+            // Force theme synchronization right before showing the popup
+            _dropDownPopup.NotifyThemeChanged();
+
             PopupService.ShowPopup(_dropDownPopup, new Vector2(absPos.X, absPos.Y + mainH + 2f), this);
         }
         else
