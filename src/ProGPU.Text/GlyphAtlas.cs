@@ -45,6 +45,9 @@ public unsafe class GlyphAtlas : IDisposable
     private readonly List<GpuBuffer> _batchBuffers = new();
     private readonly List<nint> _batchBindGroups = new();
 
+    private readonly GpuBuffer _uniformRingBuffer;
+    private uint _ringOffset;
+
     public void BeginBatch()
     {
         if (_isDisposed) return;
@@ -53,6 +56,8 @@ public unsafe class GlyphAtlas : IDisposable
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Batch Encoder") };
         _batchEncoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
+        
+        _ringOffset = 0; // Reset offset on each batch pass
     }
 
     public void EndBatch()
@@ -127,6 +132,10 @@ public unsafe class GlyphAtlas : IDisposable
         _pipelineCache = new RenderPipelineCache(_context);
         var shaderModule = _pipelineCache.GetOrCreateShader("GlyphRasterizer", Shaders.GlyphRasterizerShader, "GlyphRasterizerShader");
         _computePipeline = _pipelineCache.GetOrCreateComputePipeline("GlyphRasterizer", shaderModule, "cs_main");
+
+        // Allocate a 256KB uniform ring buffer once at startup to eliminate CPU-to-GPU memory allocation overhead
+        _uniformRingBuffer = new GpuBuffer(_context, 256 * 1024, BufferUsage.Uniform | BufferUsage.CopyDst, "Glyph Atlas Uniform Ring Buffer");
+        _ringOffset = 0;
     }
 
     private static uint DivRoundUp(uint value, uint divisor) => (value + divisor - 1) / divisor;
@@ -318,33 +327,34 @@ public unsafe class GlyphAtlas : IDisposable
                                  SubpixelX = subpixelX * 0.25f
                              };
 
-                            var uniformsBuffer = new GpuBuffer(
-                                _context,
-                                (uint)Marshal.SizeOf<GlyphUniforms>(),
-                                BufferUsage.Uniform | BufferUsage.CopyDst,
-                                "Glyph Uniforms"
-                            );
-                            uniformsBuffer.WriteSingle(uniforms);
-
-                            // Get bind group layout
                             var bindGroupLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_computePipeline, 0);
-
-                            var entries = stackalloc BindGroupEntry[4];
-                            entries[0] = new BindGroupEntry { Binding = 0, Buffer = uniformsBuffer.BufferPtr, Offset = 0, Size = uniformsBuffer.Size };
-                            entries[1] = new BindGroupEntry { Binding = 1, Buffer = gpuData.RecordsBuffer.BufferPtr, Offset = 0, Size = gpuData.RecordsBuffer.Size };
-                            entries[2] = new BindGroupEntry { Binding = 2, Buffer = gpuData.SegmentsBuffer.BufferPtr, Offset = 0, Size = gpuData.SegmentsBuffer.Size };
-                            entries[3] = new BindGroupEntry { Binding = 3, TextureView = _atlasTexture.ViewPtr };
-
-                            var bgDesc = new BindGroupDescriptor
-                            {
-                                Layout = bindGroupLayout,
-                                EntryCount = 4,
-                                Entries = entries
-                            };
-                            var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                            uint alignedSize = (uint)((Marshal.SizeOf<GlyphUniforms>() + 255) & ~255);
 
                             if (_batchEncoder != null)
                             {
+                                // Ring buffer slice allocation
+                                if (_ringOffset + alignedSize > _uniformRingBuffer.Size)
+                                {
+                                    // Reset offset in the highly unlikely event we exceed 256KB inside a single batch
+                                    _ringOffset = 0;
+                                }
+
+                                _context.Wgpu.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<GlyphUniforms>());
+
+                                var entries = stackalloc BindGroupEntry[4];
+                                entries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformRingBuffer.BufferPtr, Offset = _ringOffset, Size = (uint)Marshal.SizeOf<GlyphUniforms>() };
+                                entries[1] = new BindGroupEntry { Binding = 1, Buffer = gpuData.RecordsBuffer.BufferPtr, Offset = 0, Size = gpuData.RecordsBuffer.Size };
+                                entries[2] = new BindGroupEntry { Binding = 2, Buffer = gpuData.SegmentsBuffer.BufferPtr, Offset = 0, Size = gpuData.SegmentsBuffer.Size };
+                                entries[3] = new BindGroupEntry { Binding = 3, TextureView = _atlasTexture.ViewPtr };
+
+                                var bgDesc = new BindGroupDescriptor
+                                {
+                                    Layout = bindGroupLayout,
+                                    EntryCount = 4,
+                                    Entries = entries
+                                };
+                                var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+
                                 // Batch path: Record compute pass to batch encoder, defer resource cleanup to EndBatch
                                 var passDesc = new ComputePassDescriptor();
                                 var pass = _context.Wgpu.CommandEncoderBeginComputePass(_batchEncoder, &passDesc);
@@ -360,12 +370,35 @@ public unsafe class GlyphAtlas : IDisposable
                                 _context.Wgpu.ComputePassEncoderRelease(pass);
 
                                 _batchBindGroups.Add((nint)bg);
-                                _batchBuffers.Add(uniformsBuffer);
                                 _context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
+
+                                _ringOffset += alignedSize;
                             }
                             else
                             {
-                                // Immediate path: Create individual command encoder, submit instantly, and dispose resource immediately
+                                // Immediate path: Allocate a temporary GPU buffer, write, and submit instantly
+                                var uniformsBuffer = new GpuBuffer(
+                                    _context,
+                                    (uint)Marshal.SizeOf<GlyphUniforms>(),
+                                    BufferUsage.Uniform | BufferUsage.CopyDst,
+                                    "Glyph Uniforms"
+                                );
+                                uniformsBuffer.WriteSingle(uniforms);
+
+                                var entries = stackalloc BindGroupEntry[4];
+                                entries[0] = new BindGroupEntry { Binding = 0, Buffer = uniformsBuffer.BufferPtr, Offset = 0, Size = uniformsBuffer.Size };
+                                entries[1] = new BindGroupEntry { Binding = 1, Buffer = gpuData.RecordsBuffer.BufferPtr, Offset = 0, Size = gpuData.RecordsBuffer.Size };
+                                entries[2] = new BindGroupEntry { Binding = 2, Buffer = gpuData.SegmentsBuffer.BufferPtr, Offset = 0, Size = gpuData.SegmentsBuffer.Size };
+                                entries[3] = new BindGroupEntry { Binding = 3, TextureView = _atlasTexture.ViewPtr };
+
+                                var bgDesc = new BindGroupDescriptor
+                                {
+                                    Layout = bindGroupLayout,
+                                    EntryCount = 4,
+                                    Entries = entries
+                                };
+                                var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+
                                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Encoder") };
                                 var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
                                 SilkMarshal.Free((nint)encoderDesc.Label);
@@ -429,6 +462,8 @@ public unsafe class GlyphAtlas : IDisposable
     public void Dispose()
     {
         if (_isDisposed) return;
+
+        _uniformRingBuffer.Dispose();
 
         foreach (var data in _fontGpuData.Values)
         {
