@@ -38,6 +38,7 @@ public class DxfCanvasControl : FrameworkElement
     private int _lastActiveLayersHash;
     private GpuPicture? _cachedPicture;
     private float _lastZoom;
+    private float _lastSnappedZoom = -1f;
     private Vector2 _lastPan;
     private bool _lastEnableGpuTransforms;
     private bool _lastEnableStaticGpuBuffers;
@@ -224,15 +225,18 @@ public class DxfCanvasControl : FrameworkElement
                         _cachedPicture = recorder.EndRecording();
                     }
 
+                    float snappedZoom = MathF.Pow(1.2f, MathF.Round(MathF.Log(savedZoom) / MathF.Log(1.2f)));
+                    _lastSnappedZoom = snappedZoom;
+
                     if (_cachedPicture != null)
                     {
                         var tempCtx = new DrawingContext();
                         tempCtx.DrawPicture(_cachedPicture);
-                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(tempCtx);
+                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(tempCtx, snappedZoom);
                     }
                     else
                     {
-                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(Context.DrawingContext);
+                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(Context.DrawingContext, snappedZoom);
                     }
 
                     // Restore properties
@@ -247,6 +251,14 @@ public class DxfCanvasControl : FrameworkElement
 
             if (_staticBuffer != null && Size.X > 0 && Size.Y > 0)
             {
+                float snappedZoom = MathF.Pow(1.2f, MathF.Round(MathF.Log(Context.Zoom) / MathF.Log(1.2f)));
+                if (snappedZoom != _lastSnappedZoom && AppState._screenCompositor != null)
+                {
+                    _lastSnappedZoom = snappedZoom;
+                    _lastZoom = Context.Zoom;
+                    AppState._screenCompositor.RecompileStaticText(_staticBuffer, snappedZoom);
+                }
+
                 var projection = new Matrix4x4(
                     2.0f / Size.X, 0f, 0f, 0f,
                     0f, -2.0f / Size.Y, 0f, 0f,
