@@ -4806,7 +4806,10 @@ public unsafe class Compositor : IDisposable
                     else
                     {
                         var localDc = dc;
-                        localDc.StaticBuffer = sb;
+                        if (localDc.StaticBuffer == null)
+                        {
+                            localDc.StaticBuffer = sb;
+                        }
                         pipeline.Render(this, pass, isOffscreen, in localDc);
                         currentType = DrawCallType.Extension;
                     }
