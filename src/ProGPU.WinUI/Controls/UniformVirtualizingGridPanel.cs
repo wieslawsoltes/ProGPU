@@ -13,6 +13,17 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
     private float _itemWidth = 80f;
     private float _itemHeight = 80f;
 
+    public UniformVirtualizingGridPanel()
+    {
+        ThemeManager.ThemeChanged += OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        _recycledVisuals.Clear();
+        Invalidate();
+    }
+
     // Direct binding fallback backing fields
     private Func<Visual>? _createVisualFactory;
     private Action<Visual, int>? _bindVisualCallback;

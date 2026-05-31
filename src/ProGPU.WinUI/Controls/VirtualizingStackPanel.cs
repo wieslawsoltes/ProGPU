@@ -14,6 +14,17 @@ public class VirtualizingStackPanel : VirtualizingPanel
     private float _itemHeight = 40f;
     private Orientation _orientation = Orientation.Vertical;
 
+    public VirtualizingStackPanel()
+    {
+        ThemeManager.ThemeChanged += OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        _recycledVisuals.Clear();
+        Invalidate();
+    }
+
     private Func<Visual>? _createVisualFactory;
     private Action<Visual, int>? _bindVisualCallback;
 

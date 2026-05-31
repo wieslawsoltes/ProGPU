@@ -16,6 +16,9 @@ public class PropertyMetadata
     public object? DefaultValue { get; }
     public PropertyChangedCallback? PropertyChangedCallback { get; }
     public bool IsInheritable { get; }
+    public bool AffectsMeasure { get; set; }
+    public bool AffectsArrange { get; set; }
+    public bool AffectsRender { get; set; }
 
     public PropertyMetadata(object? defaultValue = null, PropertyChangedCallback? propertyChangedCallback = null)
     {
@@ -521,6 +524,22 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     protected virtual void OnPropertyChanged(DependencyProperty dp, object? oldValue, object? newValue)
     {
         dp.Metadata?.PropertyChangedCallback?.Invoke(this, new DependencyPropertyChangedEventArgs(dp, oldValue, newValue));
+
+        if (this is FrameworkElement fe)
+        {
+            if (dp.Metadata?.AffectsMeasure == true)
+            {
+                fe.InvalidateMeasure();
+            }
+            if (dp.Metadata?.AffectsArrange == true)
+            {
+                fe.InvalidateArrange();
+            }
+            if (dp.Metadata?.AffectsRender == true)
+            {
+                fe.Invalidate();
+            }
+        }
 
         if (_propertyChangedCallbacks != null && _propertyChangedCallbacks.TryGetValue(dp, out var callbacks))
         {

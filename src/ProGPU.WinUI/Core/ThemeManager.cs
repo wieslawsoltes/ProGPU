@@ -88,9 +88,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.08f, 0.08f, 0.12f, 1.0f) }, // Dark Mica: #14141F
         { "CardBackground", new Vector4(0.12f, 0.12f, 0.16f, 1.0f) }, // #1F1F28
-        { "ControlBackground", new Vector4(1f, 1f, 1f, 0.05f) }, // White 5%
-        { "ControlBackgroundHover", new Vector4(1f, 1f, 1f, 0.09f) }, // White 9%
-        { "ControlBackgroundPressed", new Vector4(0f, 0f, 0f, 0.15f) }, // Black 15%
+        { "ControlBackground", new Vector4(0.14f, 0.14f, 0.17f, 1.0f) }, // #24242B
+        { "ControlBackgroundHover", new Vector4(0.18f, 0.18f, 0.22f, 1.0f) }, // #2D2D37
+        { "ControlBackgroundPressed", new Vector4(0.09f, 0.09f, 0.11f, 1.0f) }, // #17171C
         { "ControlBorder", new Vector4(1f, 1f, 1f, 0.08f) }, // White 8%
         { "ControlBorderHover", new Vector4(1f, 1f, 1f, 0.15f) }, // White 15%
         { "TextPrimary", new Vector4(1f, 1f, 1f, 1.0f) }, // Solid White
@@ -114,9 +114,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.96f, 0.96f, 0.98f, 1.0f) }, // Light Acrylic: #F5F5F7
         { "CardBackground", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) }, // Solid White
-        { "ControlBackground", new Vector4(0f, 0f, 0f, 0.04f) }, // Black 4%
-        { "ControlBackgroundHover", new Vector4(0f, 0f, 0f, 0.07f) }, // Black 7%
-        { "ControlBackgroundPressed", new Vector4(0f, 0f, 0f, 0.12f) }, // Black 12%
+        { "ControlBackground", new Vector4(0.91f, 0.91f, 0.93f, 1.0f) }, // #EAEAEC
+        { "ControlBackgroundHover", new Vector4(0.87f, 0.87f, 0.89f, 1.0f) }, // #DFDFE2
+        { "ControlBackgroundPressed", new Vector4(0.82f, 0.82f, 0.84f, 1.0f) }, // #D1D1D4
         { "ControlBorder", new Vector4(0f, 0f, 0f, 0.09f) }, // Black 9%
         { "ControlBorderHover", new Vector4(0f, 0f, 0f, 0.18f) }, // Black 18%
         { "TextPrimary", new Vector4(0.08f, 0.08f, 0.12f, 1.0f) }, // Solid Dark

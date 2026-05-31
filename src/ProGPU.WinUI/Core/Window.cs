@@ -34,7 +34,14 @@ public class Window
     public FrameworkElement? Content
     {
         get => _content;
-        set => _content = value;
+        set
+        {
+            _content = value;
+            if (_inputState != null)
+            {
+                _inputState.Root = value;
+            }
+        }
     }
 
     public string Title
@@ -131,7 +138,16 @@ public class Window
             {
                 AdornerLayer.Render(diagContext, w, h);
             }
+            DragDropManager.RenderDragVisual(diagContext, w, h);
         };
+
+        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
+        if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
+
+        if (System.IO.File.Exists(fontPath))
+        {
+            PopupService.DefaultFont = new ProGPU.Text.TtfFont(fontPath);
+        }
 
         var inputContext = _silkWindow.CreateInput();
         _inputState = InputSystem.Initialize(inputContext, _content);
@@ -140,6 +156,8 @@ public class Window
     private unsafe void OnRender(double delta)
     {
         if (_silkWindow == null || _wgpuContext == null || _compositor == null || _content == null) return;
+
+        UIThread.RunPending();
 
         if (_inputState != null)
         {

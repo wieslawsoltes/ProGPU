@@ -2,52 +2,6 @@ using System;
 
 namespace Microsoft.UI.Xaml
 {
-    public struct Thickness
-    {
-        public float Left { get; set; }
-        public float Top { get; set; }
-        public float Right { get; set; }
-        public float Bottom { get; set; }
-
-        public float Horizontal => Left + Right;
-        public float Vertical => Top + Bottom;
-
-        public Thickness(float uniformLength)
-        {
-            Left = Top = Right = Bottom = uniformLength;
-        }
-
-        public Thickness(float horizontal, float vertical)
-        {
-            Left = Right = horizontal;
-            Top = Bottom = vertical;
-        }
-
-        public Thickness(float left, float top, float right, float bottom)
-        {
-            Left = left;
-            Top = top;
-            Right = right;
-            Bottom = bottom;
-        }
-
-        public static implicit operator ProGPU.Layout.Thickness(Thickness t)
-        {
-            return new ProGPU.Layout.Thickness(t.Left, t.Top, t.Right, t.Bottom);
-        }
-
-        public static implicit operator Thickness(ProGPU.Layout.Thickness t)
-        {
-            return new Thickness(t.Left, t.Top, t.Right, t.Bottom);
-        }
-
-        public static Thickness operator +(Thickness a, Thickness b)
-        {
-            return new Thickness(a.Left + b.Left, a.Top + b.Top, a.Right + b.Right, a.Bottom + b.Bottom);
-        }
-    }
-
-
     public enum Visibility
     {
         Visible = 0,

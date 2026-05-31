@@ -42,6 +42,54 @@ public class PointerRoutedEventArgs : RoutedEventArgs
 
 public partial class FrameworkElement
 {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty IsPointerOverProperty =
+        Microsoft.UI.Xaml.DependencyProperty.Register(
+            "IsPointerOver",
+            typeof(bool),
+            typeof(FrameworkElement),
+            new Microsoft.UI.Xaml.PropertyMetadata(false, (d, e) => {
+                var fe = (FrameworkElement)d;
+                if (fe is Microsoft.UI.Xaml.Controls.Control c)
+                {
+                    c.OnVisualStateChanged();
+                }
+                else
+                {
+                    fe.Invalidate();
+                }
+                fe.OnPropertyChanged("IsPointerOver");
+            }));
+
+    public bool IsPointerOver
+    {
+        get => (bool)(GetValue(IsPointerOverProperty) ?? false);
+        protected set => SetValue(IsPointerOverProperty, value);
+    }
+
+    public static readonly Microsoft.UI.Xaml.DependencyProperty IsPointerPressedProperty =
+        Microsoft.UI.Xaml.DependencyProperty.Register(
+            "IsPointerPressed",
+            typeof(bool),
+            typeof(FrameworkElement),
+            new Microsoft.UI.Xaml.PropertyMetadata(false, (d, e) => {
+                var fe = (FrameworkElement)d;
+                if (fe is Microsoft.UI.Xaml.Controls.Control c)
+                {
+                    c.OnVisualStateChanged();
+                }
+                else
+                {
+                    fe.Invalidate();
+                }
+                fe.OnPropertyChanged("IsPointerPressed");
+            }));
+
+    public bool IsPointerPressed
+    {
+        get => (bool)(GetValue(IsPointerPressedProperty) ?? false);
+        protected set => SetValue(IsPointerPressedProperty, value);
+    }
+
     public static readonly Microsoft.UI.Xaml.DependencyProperty RequestedThemeProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "RequestedTheme",
@@ -145,7 +193,7 @@ public partial class FrameworkElement
 
     public ProGPU.Text.TtfFont? Font
     {
-        get => GetValue(FontProperty) as ProGPU.Text.TtfFont;
+        get => (GetValue(FontProperty) as ProGPU.Text.TtfFont) ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
         set => SetValue(FontProperty, value);
     }
 
@@ -160,6 +208,37 @@ public partial class FrameworkElement
         if (propertyName != null)
         {
             RaisePropertyChanged(propertyName);
+        }
+    }
+
+    protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
+    {
+        base.OnPropertyChanged(dp, oldValue, newValue);
+
+        string name = dp.Name;
+        
+        // 1. Layout-affecting properties (require Measure, Arrange, and Paint)
+        if (name == "Width" || name == "Height" || name == "MinWidth" || name == "MaxWidth" || 
+            name == "MinHeight" || name == "MaxHeight" || name == "Margin" || name == "Padding" || 
+            name == "HorizontalAlignment" || name == "VerticalAlignment" || name == "Visibility" || 
+            name == "Font" || name == "FontSize" || name == "Text" || name == "Content" || 
+            name == "Child" || name == "Glyph" || name == "GlyphName" || name == "Symbol" || 
+            name == "Header" || name == "Orientation" || name == "Dock" || name == "Spacing" || 
+            name == "ItemsSource" || name == "Items" || name == "SelectedIndex" || name == "SelectedItem" ||
+            name == "Value" || name == "Minimum" || name == "Maximum" || name == "IsExpanded" ||
+            name == "BorderThickness")
+        {
+            InvalidateMeasure();
+            InvalidateArrange();
+            Invalidate();
+        }
+        // 2. Rendering/Paint-affecting properties (require Repaint only)
+        else if (name == "Background" || name == "BorderBrush" || name == "Foreground" || 
+                 name == "PlaceholderText" || name == "CornerRadius" || name == "IsSelected" || 
+                 name == "IsChecked" || name == "IsOn" || name == "IsEnabled" || name == "IsActive" ||
+                 name == "ShadowColor" || name == "ShadowOpacity" || name == "TintBrush")
+        {
+            Invalidate();
         }
     }
 
@@ -197,7 +276,18 @@ public partial class FrameworkElement
 
     public bool IsEnabled
     {
-        get => (bool)(GetValue(IsEnabledProperty) ?? true);
+        get
+        {
+            if (!(bool)(GetValue(IsEnabledProperty) ?? true)) return false;
+            
+            var p = Parent as FrameworkElement;
+            while (p != null)
+            {
+                if (!(bool)(p.GetValue(IsEnabledProperty) ?? true)) return false;
+                p = p.Parent as FrameworkElement;
+            }
+            return true;
+        }
         set => SetValue(IsEnabledProperty, value);
     }
 
@@ -205,6 +295,14 @@ public partial class FrameworkElement
     {
         OnPropertyChanged(nameof(IsEnabled));
         Invalidate();
+
+        foreach (var child in Children)
+        {
+            if (child is FrameworkElement fe)
+            {
+                fe.OnIsEnabledChanged(enabled);
+            }
+        }
     }
 
     private object? _toolTip;
@@ -249,14 +347,7 @@ public partial class FrameworkElement
             return value;
         }
 
-        if (targetType == typeof(ProGPU.Layout.Thickness) && value is Microsoft.UI.Xaml.Thickness tXaml)
-        {
-            return new ProGPU.Layout.Thickness(tXaml.Left, tXaml.Top, tXaml.Right, tXaml.Bottom);
-        }
-        if (targetType == typeof(Microsoft.UI.Xaml.Thickness) && value is ProGPU.Layout.Thickness tLayout)
-        {
-            return new Microsoft.UI.Xaml.Thickness(tLayout.Left, tLayout.Top, tLayout.Right, tLayout.Bottom);
-        }
+
 
         // 1. Enum conversion
         if (targetType.IsEnum && value is string strEnum)
@@ -426,25 +517,18 @@ public partial class FrameworkElement
             new Microsoft.UI.Xaml.PropertyMetadata(default(Microsoft.UI.Xaml.Thickness), (d, e) => {
                 var fe = (FrameworkElement)d;
                 var t = (Microsoft.UI.Xaml.Thickness)(e.NewValue ?? default(Microsoft.UI.Xaml.Thickness));
-                fe.SetMarginLayout(new ProGPU.Layout.Thickness(t.Left, t.Top, t.Right, t.Bottom));
+                fe.SetMarginLayout(t);
             }));
 
-    private void SetMarginLayout(ProGPU.Layout.Thickness t)
+    private void SetMarginLayout(Microsoft.UI.Xaml.Thickness t)
     {
         base.Margin = t;
     }
 
-    public override ProGPU.Layout.Thickness Margin
+    public override Microsoft.UI.Xaml.Thickness Margin
     {
-        get
-        {
-            var t = (Microsoft.UI.Xaml.Thickness)(GetValue(MarginProperty) ?? default(Microsoft.UI.Xaml.Thickness));
-            return new ProGPU.Layout.Thickness(t.Left, t.Top, t.Right, t.Bottom);
-        }
-        set
-        {
-            SetValue(MarginProperty, new Microsoft.UI.Xaml.Thickness(value.Left, value.Top, value.Right, value.Bottom));
-        }
+        get => (Microsoft.UI.Xaml.Thickness)(GetValue(MarginProperty) ?? default(Microsoft.UI.Xaml.Thickness));
+        set => SetValue(MarginProperty, value);
     }
 
     public static readonly Microsoft.UI.Xaml.DependencyProperty PaddingProperty =
@@ -455,66 +539,59 @@ public partial class FrameworkElement
             new Microsoft.UI.Xaml.PropertyMetadata(default(Microsoft.UI.Xaml.Thickness), (d, e) => {
                 var fe = (FrameworkElement)d;
                 var t = (Microsoft.UI.Xaml.Thickness)(e.NewValue ?? default(Microsoft.UI.Xaml.Thickness));
-                fe.SetPaddingLayout(new ProGPU.Layout.Thickness(t.Left, t.Top, t.Right, t.Bottom));
+                fe.SetPaddingLayout(t);
             }));
 
-    private void SetPaddingLayout(ProGPU.Layout.Thickness t)
+    private void SetPaddingLayout(Microsoft.UI.Xaml.Thickness t)
     {
         base.Padding = t;
     }
 
-    public override ProGPU.Layout.Thickness Padding
+    public override Microsoft.UI.Xaml.Thickness Padding
     {
-        get
-        {
-            var t = (Microsoft.UI.Xaml.Thickness)(GetValue(PaddingProperty) ?? default(Microsoft.UI.Xaml.Thickness));
-            return new ProGPU.Layout.Thickness(t.Left, t.Top, t.Right, t.Bottom);
-        }
-        set
-        {
-            SetValue(PaddingProperty, new Microsoft.UI.Xaml.Thickness(value.Left, value.Top, value.Right, value.Bottom));
-        }
+        get => (Microsoft.UI.Xaml.Thickness)(GetValue(PaddingProperty) ?? default(Microsoft.UI.Xaml.Thickness));
+        set => SetValue(PaddingProperty, value);
     }
 
     public static readonly Microsoft.UI.Xaml.DependencyProperty HorizontalAlignmentProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "HorizontalAlignment",
-            typeof(ProGPU.Layout.HorizontalAlignment),
+            typeof(Microsoft.UI.Xaml.HorizontalAlignment),
             typeof(FrameworkElement),
-            new Microsoft.UI.Xaml.PropertyMetadata(ProGPU.Layout.HorizontalAlignment.Stretch, (d, e) => {
+            new Microsoft.UI.Xaml.PropertyMetadata(Microsoft.UI.Xaml.HorizontalAlignment.Stretch, (d, e) => {
                 var fe = (FrameworkElement)d;
-                fe.SetHorizontalAlignmentLayout((ProGPU.Layout.HorizontalAlignment)(e.NewValue ?? ProGPU.Layout.HorizontalAlignment.Stretch));
+                fe.SetHorizontalAlignmentLayout((Microsoft.UI.Xaml.HorizontalAlignment)(e.NewValue ?? Microsoft.UI.Xaml.HorizontalAlignment.Stretch));
             }));
 
-    private void SetHorizontalAlignmentLayout(ProGPU.Layout.HorizontalAlignment val)
+    private void SetHorizontalAlignmentLayout(Microsoft.UI.Xaml.HorizontalAlignment val)
     {
         base.HorizontalAlignment = val;
     }
 
-    public override ProGPU.Layout.HorizontalAlignment HorizontalAlignment
+    public override Microsoft.UI.Xaml.HorizontalAlignment HorizontalAlignment
     {
-        get => (ProGPU.Layout.HorizontalAlignment)(GetValue(HorizontalAlignmentProperty) ?? ProGPU.Layout.HorizontalAlignment.Stretch);
+        get => (Microsoft.UI.Xaml.HorizontalAlignment)(GetValue(HorizontalAlignmentProperty) ?? Microsoft.UI.Xaml.HorizontalAlignment.Stretch);
         set => SetValue(HorizontalAlignmentProperty, value);
     }
 
     public static readonly Microsoft.UI.Xaml.DependencyProperty VerticalAlignmentProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "VerticalAlignment",
-            typeof(ProGPU.Layout.VerticalAlignment),
+            typeof(Microsoft.UI.Xaml.VerticalAlignment),
             typeof(FrameworkElement),
-            new Microsoft.UI.Xaml.PropertyMetadata(ProGPU.Layout.VerticalAlignment.Stretch, (d, e) => {
+            new Microsoft.UI.Xaml.PropertyMetadata(Microsoft.UI.Xaml.VerticalAlignment.Stretch, (d, e) => {
                 var fe = (FrameworkElement)d;
-                fe.SetVerticalAlignmentLayout((ProGPU.Layout.VerticalAlignment)(e.NewValue ?? ProGPU.Layout.VerticalAlignment.Stretch));
+                fe.SetVerticalAlignmentLayout((Microsoft.UI.Xaml.VerticalAlignment)(e.NewValue ?? Microsoft.UI.Xaml.VerticalAlignment.Stretch));
             }));
 
-    private void SetVerticalAlignmentLayout(ProGPU.Layout.VerticalAlignment val)
+    private void SetVerticalAlignmentLayout(Microsoft.UI.Xaml.VerticalAlignment val)
     {
         base.VerticalAlignment = val;
     }
 
-    public override ProGPU.Layout.VerticalAlignment VerticalAlignment
+    public override Microsoft.UI.Xaml.VerticalAlignment VerticalAlignment
     {
-        get => (ProGPU.Layout.VerticalAlignment)(GetValue(VerticalAlignmentProperty) ?? ProGPU.Layout.VerticalAlignment.Stretch);
+        get => (Microsoft.UI.Xaml.VerticalAlignment)(GetValue(VerticalAlignmentProperty) ?? Microsoft.UI.Xaml.VerticalAlignment.Stretch);
         set => SetValue(VerticalAlignmentProperty, value);
     }
 
@@ -584,6 +661,10 @@ public partial class FrameworkElement
     public virtual void OnPointerPressed(PointerRoutedEventArgs e)
     {
         e.OriginalSource ??= this;
+        if (IsEnabled)
+        {
+            IsPointerPressed = true;
+        }
         PointerPressed?.Invoke(this, e);
         if (!e.Handled && Parent is FrameworkElement parentFe)
         {
@@ -594,6 +675,10 @@ public partial class FrameworkElement
     public virtual void OnPointerReleased(PointerRoutedEventArgs e)
     {
         e.OriginalSource ??= this;
+        if (IsEnabled)
+        {
+            IsPointerPressed = false;
+        }
         PointerReleased?.Invoke(this, e);
         if (!e.Handled && Parent is FrameworkElement parentFe)
         {
@@ -614,12 +699,21 @@ public partial class FrameworkElement
     public virtual void OnPointerEntered(PointerRoutedEventArgs e)
     {
         e.OriginalSource ??= this;
+        if (IsEnabled)
+        {
+            IsPointerOver = true;
+        }
         PointerEntered?.Invoke(this, e);
     }
 
     public virtual void OnPointerExited(PointerRoutedEventArgs e)
     {
         e.OriginalSource ??= this;
+        if (IsEnabled)
+        {
+            IsPointerOver = false;
+            IsPointerPressed = false;
+        }
         PointerExited?.Invoke(this, e);
     }
 
