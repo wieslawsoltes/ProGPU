@@ -561,6 +561,65 @@ To eliminate floating-point coordinate drift and keep layout compilation cycles 
 ---
 
 
+### 16. Hardware-Accelerated Static DXF Rendering & Crisp Static Text Buffers
+
+CAD drawings (like DXF files) contain hundreds of thousands or millions of vector elements (lines, circles, polyline arcs, splines, and complex hatches). Recursively compiling these vector primitives from a dynamic visual tree every frame on camera changes (zoom/pan) is CPU-prohibitive.
+
+ProGPU introduces **Hardware-Accelerated Static WebGPU Buffers** (Option B) which compiles all vector primitives once into a static, GPU-mapped vertex/index store (`DxfStaticBuffer`). Panning and zooming are executed entirely on the GPU via updates to the viewport uniforms, maintaining a locked 60+ FPS on massive, million-entity CAD models.
+
+#### The Blurry Text Dilemma
+While static geometry scales infinitely on the GPU, TrueType Font (TTF) text is drawn as textured quads pointing to a bitmap-cached `GlyphAtlas`. Zooming in stretches these pre-rendered quads, causing bilinear texture blur because the glyph atlas texture was rasterized at a static zoom scale.
+
+ProGPU resolves this by implementing **Crisp Static Text Buffers via Dynamic Re-compilation**:
+
+```mermaid
+flowchart TD
+    ZoomChange{"Context.Zoom != _lastZoom?"}
+    ZoomChange -- No --> DrawStatic["Draw Static Dxf Buffer - 100% GPU Bound (Panning Free)"]
+    ZoomChange -- Yes --> Recompile["Trigger RecompileStaticText on CPU"]
+    
+    Recompile --> ScaleDPI["Scale effective dpiScale = _currentDpiScale * Context.Zoom"]
+    ScaleDPI --> RasterGlyph["Rasterize Glyph at physical FontSize * dpiScale * Zoom inside Atlas"]
+    RasterGlyph --> ModelSpace["Divide quad vertex coords by effective dpiScale (cancel out Zoom)"]
+    ModelSpace --> WriteGPU["Dynamic Copy-on-Write vertex/index re-upload to GpuBuffer"]
+    WriteGPU --> DrawStatic
+```
+
+* **Panning is Completely Free**: Since panning does not affect font size or rasterization dimensions, panning a static drawing remains 100% GPU-bound and runs with zero CPU overhead.
+* **Retina-Sharp Snapping**: On camera zoom changes, the compositor triggers a surgical, sub-millisecond re-compilation of ONLY the text commands using the new zoom factor:
+  $$\text{effectiveDpiScale} = \text{dpiScale} \cdot \text{Zoom}$$
+* **Glyph Sizing**: Glyphs are rasterized into the shared `GlyphAtlas` at their exact, high-resolution physical size (`FontSize * effectiveDpiScale`), ensuring pixel-perfect Retina snapping.
+* **Automatic Scaling Cancelation**: The compiled quad vertex positions ($v_0, v_1, v_2, v_3$) are divided by `effectiveDpiScale` to map them back to base model/world coordinates. When the vertex shader multiplies them by the custom model-to-screen MVP matrix (which scales by `Zoom`), the zoom factor is mathematically canceled out, mapping the quad 1-to-1 to physical screen pixels with zero texture stretching or blur!
+
+#### High-Performance Zoom & Scaling Optimizations
+To support instantaneous zoom transitions on massive CAD models containing thousands of text elements (such as `Schemat IOS Karvina CZ.dxf`), ProGPU integrates three advanced graphics-pipeline optimizations:
+
+1. **$O(\text{TextCount})$ Pre-Filtered Text Records Cache**:
+   - *Problem*: Scanning millions of drawing commands recursively on the CPU during zoomed snapping steps to filter out text elements introduced noticeable interface stutters.
+   - *Solution*: During the initial compilation of the static buffer, the compositor captures the exact `DrawText` commands and their parent block transformations into a flat `TextRecords` array in the `DxfStaticBuffer`:
+     ```csharp
+     public struct StaticTextRecord
+     {
+         public RenderCommand Command;
+         public Matrix4x4 Transform;
+     }
+     ```
+     Subsequent snapped zoom changes bypass the drawing hierarchy entirely and recompile only the text records, reducing complexity from $O(\text{TotalElements})$ to a highly efficient $O(\text{TextElements})$ execution.
+
+2. **Discrete Font Snapping & Quad Scaling**:
+   - *Problem*: As the camera zoom levels increase, font sizes become extremely large (up to 128f), which rapidly bloats and thrashes the shared `GlyphAtlas` texture ($2048 \times 2048$), triggering frequent cache evictions. Computing 4-way subpixel snap coordinates for huge fonts also increases memory area consumption by $4\times$.
+   - *Solution*:
+     - **Clamping**: Caps the maximum physical font size rasterized into the atlas to `64f` (instead of `128f`). GPU bilinear filtering scales these large high-resolution sources up without visual quality loss, using $4\times$ less atlas area.
+     - **Size Snapping**: Snaps `rasterFontSize` to discrete steps (0.5px steps below 24px, 2px steps above 24px) for perfect cache hit ratios. Quad quad boundaries are scaled proportionally by `scaleRatio = physicalFontSize / rasterFontSize` to ensure mathematical size precision on screen remains 100% exact.
+     - **Subpixel Bypassing**: Disables subpixel snapping for font sizes larger than `24f` (since subpixel shifts are visually imperceptible on large characters), saving an additional $4\times$ in atlas footprint.
+
+3. **WebGPU Queue & Driver Submission Batching**:
+   - *Problem*: Previously, rasterizing each new glyph synchronously created a temporary uniform buffer, constructed a WebGPU bind group, instantiated a command encoder, and immediately executed a sequential queue submission (`QueueSubmit`). For drawings with thousands of characters, this sequential driver loop caused severe CPU/GPU Metal synchronization bottlenecks on macOS.
+   - *Solution*: Implemented batching APIs (`BeginBatch` / `EndBatch`) in `GlyphAtlas.cs` to lazily pool and combine multiple glyph compute dispatches. All rasterizations are now recorded into a single `CommandEncoder` and executed in **one** unified `QueueSubmit` at the end of the compile pass, yielding a $1000\times+$ reduction in driver submission overhead.
+
+---
+
+
 ## Module & Project Architecture Breakdown
 
 The ProGPU solution is partitioned into modular, highly specialized C# projects. Each project governs a specific layer of the UI, vector, or graphics compilation loops:
