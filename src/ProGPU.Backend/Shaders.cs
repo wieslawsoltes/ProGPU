@@ -561,21 +561,22 @@ fn is_point_inside(p: vec2<f32>, record: GlyphRecord) -> bool {
             solve_quadratic(a, b, c, &roots, &root_count);
             
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
-                var t = roots[r];
-                if (t >= -0.0001 && t <= 1.0001) {
-                    t = clamp(t, 0.0, 1.0);
+                let t = roots[r];
+                if (t >= -0.001 && t <= 1.001) {
                     let one_minus_t = 1.0 - t;
                     let deriv_y = 2.0 * one_minus_t * (B.y - A.y) + 2.0 * t * (C.y - B.y);
                     
                     var is_valid = false;
                     if (deriv_y > 0.0) {
-                        is_valid = (t >= 0.0 && t < 1.0);
+                        is_valid = (t >= -0.00005 && t < 0.99995);
                     } else if (deriv_y < 0.0) {
-                        is_valid = (t > 0.0 && t <= 1.0);
+                        is_valid = (t > 0.00005 && t <= 1.00005);
                     }
                     
                     if (is_valid) {
-                        let x_t = one_minus_t * one_minus_t * A.x + 2.0 * one_minus_t * t * B.x + t * t * C.x;
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
                         if (p.x < x_t) {
                             if (deriv_y > 0.0) {
                                 winding = winding + 1;
@@ -779,21 +780,22 @@ fn is_point_inside(p: vec2<f32>, record: PathRecord) -> bool {
             solve_quadratic(a, b, c, &roots, &root_count);
             
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
-                var t = roots[r];
-                if (t >= -0.0001 && t <= 1.0001) {
-                    t = clamp(t, 0.0, 1.0);
+                let t = roots[r];
+                if (t >= -0.001 && t <= 1.001) {
                     let one_minus_t = 1.0 - t;
                     let deriv_y = 2.0 * one_minus_t * (B.y - A.y) + 2.0 * t * (C.y - B.y);
                     
                     var is_valid = false;
                     if (deriv_y > 0.0) {
-                        is_valid = (t >= 0.0 && t < 1.0);
+                        is_valid = (t >= -0.00005 && t < 0.99995);
                     } else if (deriv_y < 0.0) {
-                        is_valid = (t > 0.0 && t <= 1.0);
+                        is_valid = (t > 0.00005 && t <= 1.00005);
                     }
                     
                     if (is_valid) {
-                        let x_t = one_minus_t * one_minus_t * A.x + 2.0 * one_minus_t * t * B.x + t * t * C.x;
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
                         if (p.x < x_t) {
                             if (deriv_y > 0.0) {
                                 winding = winding + 1;
@@ -820,24 +822,24 @@ fn is_point_inside(p: vec2<f32>, record: PathRecord) -> bool {
             solve_cubic(a, b, c, d, &roots, &root_count);
             
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
-                var t = roots[r];
-                if (t >= -0.0001 && t <= 1.0001) {
-                    t = clamp(t, 0.0, 1.0);
+                let t = roots[r];
+                if (t >= -0.001 && t <= 1.001) {
                     let deriv_y = 3.0 * a * t * t + 2.0 * b * t + c;
                     
                     var is_valid = false;
                     if (deriv_y > 0.0) {
-                        is_valid = (t >= 0.0 && t < 1.0);
+                        is_valid = (t >= -0.00005 && t < 0.99995);
                     } else if (deriv_y < 0.0) {
-                        is_valid = (t > 0.0 && t <= 1.0);
+                        is_valid = (t > 0.00005 && t <= 1.00005);
                     }
                     
                     if (is_valid) {
-                        let one_minus_t = 1.0 - t;
-                        let x_t = one_minus_t * one_minus_t * one_minus_t * A.x
-                                + 3.0 * one_minus_t * one_minus_t * t * B.x
-                                + 3.0 * one_minus_t * t * t * C.x
-                                + t * t * t * D_pt.x;
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let x_t = omt * omt * omt * A.x
+                                + 3.0 * omt * omt * tc * B.x
+                                + 3.0 * omt * tc * tc * C.x
+                                + tc * tc * tc * D_pt.x;
                         if (p.x < x_t) {
                             if (deriv_y > 0.0) {
                                 winding = winding + 1;
