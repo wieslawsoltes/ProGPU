@@ -1,0 +1,45 @@
+<Project Sdk="Uno.Sdk/6.5.31">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+    <ApplicationIdGuid>C8E80C7A-A14C-4F70-BEF6-B29DF469C25E</ApplicationIdGuid>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Display name -->
+    <ApplicationTitle>ProGPU.Samples.Uno</ApplicationTitle>
+    <!-- App Identifier -->
+    <ApplicationId>com.companyname.progpu-samples-uno</ApplicationId>
+    <!-- Versions -->
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <!-- Package Publisher -->
+    <ApplicationPublisher>ProGPU.Samples.Uno</ApplicationPublisher>
+    <!-- Package Description -->
+    <Description>ProGPU.Samples.Uno powered by Uno Platform.</Description>
+
+    <!--
+      UnoFeatures are used to quickly add and manage features enabled for your app.
+      https://aka.platform.uno/singleproject-features
+    -->
+    <UnoFeatures>
+      SkiaRenderer;
+    </UnoFeatures>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ProGPU.Uno\ProGPU.Uno.csproj" />
+    <ProjectReference Include="..\..\ProGPU.Samples\ProGPU.Samples.csproj">
+      <Aliases>ProGpu</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ProGPU.WinUI\ProGPU.WinUI.csproj">
+      <Aliases>ProGpu</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\..\ProGPU.Layout\ProGPU.Layout.csproj">
+      <Aliases>ProGpu</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ProGPU.Text\ProGPU.Text.csproj" />
+  </ItemGroup>
+</Project>

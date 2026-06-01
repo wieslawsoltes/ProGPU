@@ -1,0 +1,10 @@
+{
+  "background_color": "#ffffff",
+  "description": "ProGPU.Samples.Uno",
+  "display": "standalone",
+  "name": "ProGPU.Samples.Uno",
+  "short_name": "ProGPU.Samples.Uno",
+  "start_url": "/index.html",
+  "theme_color": "#ffffff",
+  "scope": "/"
+}

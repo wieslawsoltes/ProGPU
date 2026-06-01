@@ -1,0 +1,139 @@
+<Page x:Class="ProGPU.Samples.Uno.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:ProGPU.Samples.Uno"
+      xmlns:progpu="using:ProGPU.Uno"
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+      mc:Ignorable="d"
+      Background="#0f0f12">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 1. LEFT SIDEBAR NAVIGATION DRAWER -->
+        <Border Grid.Column="0" Background="#141419" BorderBrush="#252530" BorderThickness="0,0,1,0">
+            <Grid Padding="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- App Header Title -->
+                <StackPanel Grid.Row="0" Spacing="4" Margin="0,12,0,24">
+                    <TextBlock Text="ProGPU + Uno Platform" FontSize="20" FontWeight="SemiBold" Foreground="#ffffff"/>
+                    <TextBlock Text="GPU-Accelerated Substrate" FontSize="11" Foreground="#8e8e9f"/>
+                </StackPanel>
+
+                <!-- Showcases List Selection -->
+                <ListView Grid.Row="1" x:Name="SidebarList" Background="Transparent" BorderThickness="0" SelectionMode="Single">
+                    <ListView.Resources>
+                        <!-- Style to make it look modern and sleek -->
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="12,10"/>
+                            <Setter Property="Margin" Value="0,2"/>
+                            <Setter Property="CornerRadius" Value="6"/>
+                            <Setter Property="Foreground" Value="#c5c5d2"/>
+                        </Style>
+                    </ListView.Resources>
+                    
+                    <ListViewItem x:Name="ItemCharting" Tag="Charting">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="📊" FontSize="14"/>
+                            <TextBlock Text="GPU Charting" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemDxf" Tag="Dxf">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="📐" FontSize="14"/>
+                            <TextBlock Text="DXF CAD Viewer" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemDrawing" Tag="Drawing">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="🎨" FontSize="14"/>
+                            <TextBlock Text="GPU Vector Drawing" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemMotionMark" Tag="MotionMark">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="⚙️" FontSize="14"/>
+                            <TextBlock Text="MotionMark Benchmark" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemMarkdown" Tag="Markdown">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="📖" FontSize="14"/>
+                            <TextBlock Text="Markdown Rich Text" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemGlyphs" Tag="Glyphs">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="🔤" FontSize="14"/>
+                            <TextBlock Text="Font Glyph Browser" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemDataGrid" Tag="DataGrid">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="🗂️" FontSize="14"/>
+                            <TextBlock Text="Virtualized DataGrid" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="ItemDesigner" Tag="Designer">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="🧱" FontSize="14"/>
+                            <TextBlock Text="Visual Designer Canvas" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListViewItem>
+                </ListView>
+
+                <!-- Footer details -->
+                <TextBlock Grid.Row="2" Text="Powered by WebGPU WGSL" FontSize="10" Foreground="#5a5a6a" HorizontalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- 2. RIGHT CONTENT WORKSPACE -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <Border Grid.Row="0" Background="#111116" BorderBrush="#252530" BorderThickness="0,0,0,1" Padding="16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- Left Stats Diagnostic block -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <Border Background="#1e1e26" CornerRadius="4" Padding="8,4">
+                            <TextBlock x:Name="StatsLabel" Text="FPS: -- | Frame: -- ms" FontFamily="Consolas,Menlo,Monospace" FontSize="12" Foreground="#00ff66"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Theme Switch Combo -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="Theme:" FontSize="12" Foreground="#8e8e9f" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ThemeCombo" SelectedIndex="0" FontSize="12" Height="30" Width="110">
+                            <ComboBoxItem Content="Dark Mode"/>
+                            <ComboBoxItem Content="Light Mode"/>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <!-- Play/Pause Animation button -->
+                    <Button Grid.Column="2" x:Name="PlayPauseBtn" Content="⏸ Pause" FontSize="12" Padding="12,0" Height="30" Background="#2e2e3e" Foreground="#ffffff" BorderThickness="0" CornerRadius="4"/>
+                </Grid>
+            </Border>
+
+            <!-- Main Render Canvas viewport hosting the ProGPU WinUI content -->
+            <progpu:ProGpuHostControl Grid.Row="1" x:Name="ProGpuHost"/>
+        </Grid>
+    </Grid>
+</Page>
