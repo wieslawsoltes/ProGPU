@@ -22,6 +22,12 @@ public static unsafe class DevToolsWindowController
     {
         if (AppState._devToolsWindow != null) return;
 
+        if (AppState._window == null)
+        {
+            // Bypassing native GLFW window creation in embedded contexts (e.g. Avalonia or Uno)
+            return;
+        }
+
         var options = WindowOptions.Default;
         options.Size = new Vector2D<int>(850, 600);
         options.Title = "ProGPU Developer Tools";

@@ -21,6 +21,7 @@ public partial class MainWindow : global::Avalonia.Controls.Window
     private int _frameCount = 0;
     private double _fpsTimer = 0;
     private double _currentFps = 0;
+    private global::Avalonia.Controls.Window? _devToolsWindow;
 
     public MainWindow()
     {
@@ -55,6 +56,9 @@ public partial class MainWindow : global::Avalonia.Controls.Window
         _stopwatch.Start();
         _lastTickTime = _stopwatch.Elapsed.TotalSeconds;
         RequestAnimationFrame(OnAnimationTick);
+
+        // 5. Hook up DevTools state changes to open/close native Avalonia DevTools Window
+        global::Microsoft.UI.Xaml.Controls.DevToolsService.StateChanged += OnDevToolsStateChanged;
     }
 
     private void OnAnimationTick(TimeSpan time)
@@ -136,5 +140,46 @@ public partial class MainWindow : global::Avalonia.Controls.Window
     {
         _isPlaying = !_isPlaying;
         PlayPauseBtn.Content = _isPlaying ? "⏸ Pause" : "▶ Play";
+    }
+
+    private void OnDevToolsStateChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (global::Microsoft.UI.Xaml.Controls.DevToolsService.IsDevToolsActive)
+            {
+                if (_devToolsWindow != null) return;
+
+                var hostControl = new ProGpuHostControl
+                {
+                    WinuiRoot = AppState._devToolsPanel
+                };
+
+                _devToolsWindow = new global::Avalonia.Controls.Window
+                {
+                    Title = "ProGPU Developer Tools (Avalonia)",
+                    Width = 850,
+                    Height = 600,
+                    Content = hostControl,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner
+                };
+
+                _devToolsWindow.Closed += (s, ev) =>
+                {
+                    _devToolsWindow = null;
+                    global::Microsoft.UI.Xaml.Controls.DevToolsService.IsDevToolsActive = false;
+                };
+
+                _devToolsWindow.Show(this);
+            }
+            else
+            {
+                if (_devToolsWindow != null)
+                {
+                    _devToolsWindow.Close();
+                    _devToolsWindow = null;
+                }
+            }
+        });
     }
 }
