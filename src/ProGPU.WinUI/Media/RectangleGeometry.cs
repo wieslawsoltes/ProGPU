@@ -65,8 +65,79 @@ public class RectangleGeometry : Geometry
         return new Rect(minX, minY, maxX - minX, maxY - minY);
     }
 
+    private bool IsRotatedOrSkewed()
+    {
+        if (!HasTransform) return false;
+        var val = EffectiveTransform;
+        const float epsilon = 1e-4f;
+        return Math.Abs(val.M12) > epsilon || Math.Abs(val.M21) > epsilon;
+    }
+
+    private PathGeometry BuildTransformedPathGeometry()
+    {
+        var pathGeom = new PathGeometry();
+        pathGeom.Transform = this.Transform;
+        pathGeom.ParentTransformMatrix = this.ParentTransformMatrix;
+
+        Rect rect = Rect;
+        float w = rect.Width;
+        float h = rect.Height;
+        float rx = RadiusX;
+        float ry = RadiusY;
+
+        rx = Math.Min(rx, w / 2f);
+        ry = Math.Min(ry, h / 2f);
+
+        var figure = new PathFigure();
+        figure.IsClosed = true;
+        figure.IsFilled = true;
+
+        if (rx <= 0f || ry <= 0f)
+        {
+            figure.StartPoint = new Vector2(rect.X, rect.Y);
+            figure.Segments.Add(new LineSegment(new Vector2(rect.Right, rect.Y)));
+            figure.Segments.Add(new LineSegment(new Vector2(rect.Right, rect.Bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(rect.X, rect.Bottom)));
+        }
+        else
+        {
+            const float kappa = 0.55228475f;
+            figure.StartPoint = new Vector2(rect.X + rx, rect.Y);
+            figure.Segments.Add(new LineSegment(new Vector2(rect.Right - rx, rect.Y)));
+            figure.Segments.Add(new BezierSegment(
+                new Vector2(rect.Right - rx * (1f - kappa), rect.Y),
+                new Vector2(rect.Right, rect.Y + ry * (1f - kappa)),
+                new Vector2(rect.Right, rect.Y + ry)));
+            figure.Segments.Add(new LineSegment(new Vector2(rect.Right, rect.Bottom - ry)));
+            figure.Segments.Add(new BezierSegment(
+                new Vector2(rect.Right, rect.Bottom - ry * (1f - kappa)),
+                new Vector2(rect.Right - rx * (1f - kappa), rect.Bottom),
+                new Vector2(rect.Right - rx, rect.Bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(rect.X + rx, rect.Bottom)));
+            figure.Segments.Add(new BezierSegment(
+                new Vector2(rect.X + rx * (1f - kappa), rect.Bottom),
+                new Vector2(rect.X, rect.Bottom - ry * (1f - kappa)),
+                new Vector2(rect.X, rect.Bottom - ry)));
+            figure.Segments.Add(new LineSegment(new Vector2(rect.X, rect.Y + ry)));
+            figure.Segments.Add(new BezierSegment(
+                new Vector2(rect.X, rect.Y + ry * (1f - kappa)),
+                new Vector2(rect.X + rx * (1f - kappa), rect.Y),
+                new Vector2(rect.X + rx, rect.Y)));
+        }
+
+        pathGeom.Figures.Add(figure);
+        return pathGeom;
+    }
+
     public override void Draw(DrawingContext context, Brush? fill, Pen? pen)
     {
+        if (IsRotatedOrSkewed())
+        {
+            var pathGeom = BuildTransformedPathGeometry();
+            pathGeom.Draw(context, fill, pen);
+            return;
+        }
+
         Rect r = GetTransformedRect();
         if (r.IsEmpty) return;
 
