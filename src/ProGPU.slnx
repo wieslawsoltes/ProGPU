@@ -9,7 +9,11 @@
   <Project Path="ProGPU.WinUI/ProGPU.WinUI.csproj" />
   <Project Path="ProGPU.WinUI.Charts/ProGPU.WinUI.Charts.csproj" />
   <Project Path="ProGPU.WinUI.Designer/ProGPU.WinUI.Designer.csproj" />
+  <Project Path="ProGPU.Avalonia/ProGPU.Avalonia.csproj" />
+  <Project Path="ProGPU.Uno/ProGPU.Uno.csproj" />
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />
+  <Project Path="ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj" />
+  <Project Path="ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj" />
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
   <Project Path="ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj" />
   <Project Path="ProGPU.Tests/ProGPU.Tests.csproj" />
