@@ -40,6 +40,8 @@ public class ProGpuHostControl : Control
         set => SetValue(WinuiRootProperty, value);
     }
 
+    public bool EnableZeroCopy { get; set; } = false;
+
     public WgpuContext? WgpuContext => _wgpuContext;
     public WinuiCompositor? Compositor => _compositor;
 
@@ -198,7 +200,7 @@ public class ProGpuHostControl : Control
             }
         }
 
-        if (useSharedTexture && interop != null)
+        if (EnableZeroCopy && useSharedTexture && interop != null)
         {
             _isZeroCopySupported = true;
             _gpuInterop = interop;
