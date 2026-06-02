@@ -33,9 +33,11 @@ namespace ProGPU.Scene.Extensions
     public struct GpuMesh3DRecord
     {
         public Matrix4x4 ModelTransform;      // 3D Model transform for lighting
-        public Vector4 Color;
+        public Vector4 Color;                 // Diffuse Color Kd
         public Vector4 LightDirection;        // xyz = direction, w = intensity
         public Vector4 AmbientColor;          // rgb = color, w = intensity
+        public Vector4 SpecularColor;         // rgb = Specular Ks, w = Exponent Ns
+        public Vector4 MaterialAmbient;       // rgb = Material Ka, w = unused
         public float Opacity;
         public float RenderMode;              // 0.0f = Solid, 1.0f = Wireframe, 2.0f = SolidWireframe
         private float _pad1;
@@ -47,6 +49,8 @@ namespace ProGPU.Scene.Extensions
     {
         public Matrix4x4 Projection;
         public Matrix4x4 View;
+        public Vector3 CameraPosition;
+        private float _pad;
     }
 
     public class Mesh3DExtensionPipeline : ICompositorExtension
@@ -55,6 +59,8 @@ namespace ProGPU.Scene.Extensions
 struct VSUniforms {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
+    cameraPosition: vec3<f32>,
+    _pad: f32,
 };
 
 struct GpuMesh3DRecord {
@@ -62,6 +68,8 @@ struct GpuMesh3DRecord {
     color: vec4<f32>,
     lightDirection: vec4<f32>,
     ambientColor: vec4<f32>,
+    specularColor: vec4<f32>,
+    materialAmbient: vec4<f32>,
     opacity: f32,
     renderMode: f32,
     _pad1: f32,
@@ -78,9 +86,11 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) barycentric: vec3<f32>,
-    @location(2) renderMode: f32,
+    @location(0) worldPosition: vec3<f32>,
+    @location(1) worldNormal: vec3<f32>,
+    @location(2) barycentric: vec3<f32>,
+    @location(3) renderMode: f32,
+    @location(4) @interpolate(flat) instanceIdx: u32,
 };
 
 @vertex
@@ -92,15 +102,10 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIdx: u32, @builtin(i
     let worldNormal = normalize((record.modelTransform * vec4<f32>(input.normal, 0.0)).xyz);
 
     output.position = uniforms.projection * uniforms.view * worldPos;
-
-    let lightDir = normalize(record.lightDirection.xyz);
-    let diffuse = max(dot(worldNormal, lightDir), 0.0) * record.lightDirection.w;
-    
-    let ambient = record.ambientColor.rgb * record.ambientColor.w;
-    let litColor = (ambient + diffuse * record.color.rgb) * record.opacity;
-
-    output.color = vec4<f32>(litColor, record.opacity);
+    output.worldPosition = worldPos.xyz;
+    output.worldNormal = worldNormal;
     output.renderMode = record.renderMode;
+    output.instanceIdx = instanceIdx;
 
     let triVertexIdx = vertexIdx % 3u;
     if (triVertexIdx == 0u) {
@@ -116,10 +121,33 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIdx: u32, @builtin(i
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let record = meshRecords[input.instanceIdx];
     let mode = u32(input.renderMode + 0.5);
 
+    let N = normalize(input.worldNormal);
+    let L = normalize(record.lightDirection.xyz);
+    let V = normalize(uniforms.cameraPosition - input.worldPosition);
+    let H = normalize(L + V);
+
+    let ambientLight = record.ambientColor.rgb * record.ambientColor.w;
+    let ambient = ambientLight * record.materialAmbient.rgb;
+
+    let diffuseIntensity = max(dot(N, L), 0.0);
+    let diffuse = diffuseIntensity * record.lightDirection.w * record.color.rgb;
+
+    let shininess = record.specularColor.w;
+    let specularIntensity = pow(max(dot(N, H), 0.0), shininess);
+    
+    var specular = vec3<f32>(0.0);
+    if (diffuseIntensity > 0.0 && shininess > 0.0) {
+        specular = specularIntensity * record.lightDirection.w * record.specularColor.rgb;
+    }
+
+    let litColor = (ambient + diffuse + specular) * record.opacity;
+    let solidColor = vec4<f32>(litColor, record.opacity);
+
     if (mode == 0u) {
-        return input.color;
+        return solidColor;
     }
 
     let dFdx = dpdx(input.barycentric);
@@ -131,18 +159,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let lineWidth = 1.0; 
     let edge = smoothstep(lineWidth - 0.5, lineWidth + 0.5, minDist);
 
-    let wireframeColor = vec4<f32>(0.85, 0.85, 0.9, input.color.a);
+    let wireframeColor = vec4<f32>(0.85, 0.85, 0.9, record.opacity);
 
     if (mode == 1u) {
-        let alpha = (1.0 - edge) * input.color.a;
+        let alpha = (1.0 - edge) * record.opacity;
         if (alpha < 0.01) {
             discard;
         }
         return vec4<f32>(wireframeColor.rgb, alpha);
     }
 
-    let finalColor = mix(wireframeColor.rgb, input.color.rgb, edge);
-    return vec4<f32>(finalColor, input.color.a);
+    let finalColor = mix(wireframeColor.rgb, solidColor.rgb, edge);
+    return vec4<f32>(finalColor, record.opacity);
 }
 ";
 
@@ -271,17 +299,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                     Color = mesh.Color,
                     LightDirection = new Vector4(payload.LightDirection, payload.LightIntensity),
                     AmbientColor = new Vector4(payload.AmbientColor, payload.AmbientIntensity),
+                    SpecularColor = new Vector4(mesh.SpecularColor, mesh.Shininess),
+                    MaterialAmbient = new Vector4(mesh.AmbientColor, 1.0f),
                     Opacity = mesh.Opacity * compositor.ActiveOpacity,
                     RenderMode = rMode
                 };
             }
             res.DynamicRecordsBuffer.Write(cpuRecords);
 
+            Matrix4x4.Invert(cmd.CameraView, out var invView);
+            Vector3 cameraPos = invView.Translation;
+
             // 3. Upload uniforms data
             var cpuUniforms = new GpuMesh3DUniforms
             {
                 Projection = cmd.Transform, // Perspective projection matrix
-                View = cmd.CameraView       // View matrix
+                View = cmd.CameraView,      // View matrix
+                CameraPosition = cameraPos
             };
             res.UniformsBuffer.WriteSingle(cpuUniforms);
 
@@ -591,6 +625,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         public int[] Indices { get; set; } = Array.Empty<int>();
         public Matrix4x4 ModelTransform { get; set; } = Matrix4x4.Identity;
         public Vector4 Color { get; set; } = Vector4.One;
+        public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float Shininess { get; set; } = 32.0f;
+        public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Opacity { get; set; } = 1.0f;
     }
 }
