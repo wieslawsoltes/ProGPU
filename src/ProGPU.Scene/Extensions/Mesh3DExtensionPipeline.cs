@@ -156,7 +156,7 @@ fn ComputeLighting(
     }
 
     if (shading == 2u) { // Flat / Unlit
-        return vec4<f32>(record.color.rgb * record.opacity, record.opacity);
+        return vec4<f32>(record.color.rgb, record.opacity);
     }
 
     if (shading == 3u) { // Hidden Line
@@ -273,7 +273,7 @@ fn ComputeLighting(
         opacity = clamp(0.15 + 0.55 * pow(1.0 - max(dot(N, V), 0.0), 3.0), 0.0, 1.0) * record.opacity;
     }
 
-    return vec4<f32>(resultColor * opacity, opacity);
+    return vec4<f32>(resultColor, opacity);
 }
 ";
 

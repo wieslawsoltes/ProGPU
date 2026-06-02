@@ -93,12 +93,12 @@ public static class MeshBuilder
                 int r3 = r2 + 1;
 
                 indices.Add(r0);
-                indices.Add(r2);
                 indices.Add(r1);
+                indices.Add(r2);
 
                 indices.Add(r1);
-                indices.Add(r2);
                 indices.Add(r3);
+                indices.Add(r2);
             }
         }
 
@@ -192,12 +192,12 @@ public static class MeshBuilder
                 int r3 = r2 + 1;
 
                 indices.Add(r0);
-                indices.Add(r1);
                 indices.Add(r2);
+                indices.Add(r1);
 
                 indices.Add(r1);
-                indices.Add(r3);
                 indices.Add(r2);
+                indices.Add(r3);
             }
         }
 

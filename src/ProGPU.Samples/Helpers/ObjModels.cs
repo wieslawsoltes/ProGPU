@@ -142,21 +142,28 @@ namespace ProGPU.Samples
 
         public static void EnsureSamplesExist(string targetDirectory)
         {
-            if (!Directory.Exists(targetDirectory))
+            try
             {
-                Directory.CreateDirectory(targetDirectory);
-            }
+                if (!Directory.Exists(targetDirectory))
+                {
+                    Directory.CreateDirectory(targetDirectory);
+                }
 
-            string spacecraftPath = Path.Combine(targetDirectory, "spacecraft.obj");
-            if (!File.Exists(spacecraftPath))
-            {
-                File.WriteAllText(spacecraftPath, GenerateSpacecraftObj());
-            }
+                string spacecraftPath = Path.Combine(targetDirectory, "spacecraft.obj");
+                if (!File.Exists(spacecraftPath))
+                {
+                    File.WriteAllText(spacecraftPath, GenerateSpacecraftObj());
+                }
 
-            string jewelPath = Path.Combine(targetDirectory, "jewel.obj");
-            if (!File.Exists(jewelPath))
+                string jewelPath = Path.Combine(targetDirectory, "jewel.obj");
+                if (!File.Exists(jewelPath))
+                {
+                    File.WriteAllText(jewelPath, GenerateFacetedJewelObj());
+                }
+            }
+            catch (Exception ex)
             {
-                File.WriteAllText(jewelPath, GenerateFacetedJewelObj());
+                System.Diagnostics.Debug.WriteLine($"Failed to write sample models in read-only directory: {ex.Message}");
             }
         }
     }
