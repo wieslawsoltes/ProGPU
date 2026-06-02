@@ -186,8 +186,15 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                     startOffset++;
                 }
 
+                // Truncate trailing comment if any
+                int commentIdx = line.IndexOf((byte)'#');
+                if (commentIdx >= 0)
+                {
+                    line = line.Slice(0, commentIdx);
+                }
+
                 line = Trim(line);
-                if (line.IsEmpty || line[0] == '#') continue;
+                if (line.IsEmpty) continue;
 
                 int start = 0;
                 if (NextToken(line, ref start, out var commandToken) < 0) continue;
@@ -230,9 +237,10 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                          commandToken[0] == 'm' && commandToken[1] == 't' && commandToken[2] == 'l' &&
                          commandToken[3] == 'l' && commandToken[4] == 'i' && commandToken[5] == 'b')
                 {
-                    if (NextToken(line, ref start, out var mtlToken) == 0)
+                    var mtlNameSpan = Trim(line.Slice(start));
+                    if (!mtlNameSpan.IsEmpty)
                     {
-                        var mtlName = System.Text.Encoding.UTF8.GetString(mtlToken);
+                        var mtlName = System.Text.Encoding.UTF8.GetString(mtlNameSpan);
                         if (!string.IsNullOrEmpty(directory))
                         {
                             var mtlPath = Path.Combine(directory, mtlName);
@@ -248,9 +256,10 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                          commandToken[0] == 'u' && commandToken[1] == 's' && commandToken[2] == 'e' &&
                          commandToken[3] == 'm' && commandToken[4] == 't' && commandToken[5] == 'l')
                 {
-                    if (NextToken(line, ref start, out var mtlToken) == 0)
+                    var mtlNameSpan = Trim(line.Slice(start));
+                    if (!mtlNameSpan.IsEmpty)
                     {
-                        activeMaterial = System.Text.Encoding.UTF8.GetString(mtlToken);
+                        activeMaterial = System.Text.Encoding.UTF8.GetString(mtlNameSpan);
                     }
                 }
                 else if (commandToken.Length == 1 && commandToken[0] == 'f')
@@ -357,74 +366,120 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                 float shininess = 32.0f;
                 Vector3 ambient = new Vector3(0.2f, 0.2f, 0.2f);
                 float opacity = 1.0f;
+                int illumModel = 2; // Default to 2 (specular on)
 
                 foreach (var rawLine in lines)
                 {
-                    var line = rawLine.Trim();
-                    if (string.IsNullOrEmpty(line) || line.StartsWith('#')) continue;
+                    int hashIndex = rawLine.IndexOf('#');
+                    var line = hashIndex >= 0 ? rawLine.Substring(0, hashIndex).Trim() : rawLine.Trim();
+                    if (string.IsNullOrEmpty(line)) continue;
 
-                    var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length == 0) continue;
+                    int firstSpace = line.IndexOfAny(new[] { ' ', '\t' });
+                    if (firstSpace == -1) continue;
 
-                    if (parts[0].Equals("newmtl", StringComparison.OrdinalIgnoreCase) && parts.Length >= 2)
+                    string cmd = line.Substring(0, firstSpace).Trim();
+                    string args = line.Substring(firstSpace).Trim();
+                    if (string.IsNullOrEmpty(cmd) || string.IsNullOrEmpty(args)) continue;
+
+                    if (cmd.Equals("newmtl", StringComparison.OrdinalIgnoreCase))
                     {
                         if (currentMaterial != null)
                         {
+                            Vector3 activeSpecular = (illumModel == 0 || illumModel == 1) ? Vector3.Zero : specular;
                             materials[currentMaterial] = new ObjMaterialInfo
                             {
                                 DiffuseColor = color,
-                                SpecularColor = specular,
+                                SpecularColor = activeSpecular,
                                 Shininess = shininess,
                                 AmbientColor = ambient,
                                 Opacity = opacity
                             };
                         }
-                        currentMaterial = parts[1];
+                        currentMaterial = args;
                         color = new Vector4(0.70f, 0.70f, 0.72f, 1.0f);
                         specular = new Vector3(0.2f, 0.2f, 0.2f);
                         shininess = 32.0f;
                         ambient = new Vector3(0.2f, 0.2f, 0.2f);
                         opacity = 1.0f;
+                        illumModel = 2;
                     }
-                    else if (parts[0].Equals("Kd", StringComparison.OrdinalIgnoreCase) && parts.Length >= 4)
+                    else if (cmd.Equals("Kd", StringComparison.OrdinalIgnoreCase))
                     {
-                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
-                        float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
-                        float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
-                        color = new Vector4(r, g, b, 1.0f);
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 3)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
+                            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
+                            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
+                            color = new Vector4(r, g, b, 1.0f);
+                        }
                     }
-                    else if (parts[0].Equals("Ka", StringComparison.OrdinalIgnoreCase) && parts.Length >= 4)
+                    else if (cmd.Equals("Ka", StringComparison.OrdinalIgnoreCase))
                     {
-                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
-                        float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
-                        float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
-                        ambient = new Vector3(r, g, b);
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 3)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
+                            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
+                            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
+                            ambient = new Vector3(r, g, b);
+                        }
                     }
-                    else if (parts[0].Equals("Ks", StringComparison.OrdinalIgnoreCase) && parts.Length >= 4)
+                    else if (cmd.Equals("Ks", StringComparison.OrdinalIgnoreCase))
                     {
-                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
-                        float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
-                        float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
-                        specular = new Vector3(r, g, b);
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 3)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
+                            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
+                            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
+                            specular = new Vector3(r, g, b);
+                        }
                     }
-                    else if (parts[0].Equals("Ns", StringComparison.OrdinalIgnoreCase) && parts.Length >= 2)
+                    else if (cmd.Equals("Ns", StringComparison.OrdinalIgnoreCase))
                     {
-                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float nsVal);
-                        shininess = nsVal;
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 1)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float nsVal);
+                            shininess = nsVal;
+                        }
                     }
-                    else if ((parts[0].Equals("d", StringComparison.OrdinalIgnoreCase) || parts[0].Equals("Tr", StringComparison.OrdinalIgnoreCase)) && parts.Length >= 2)
+                    else if (cmd.Equals("d", StringComparison.OrdinalIgnoreCase))
                     {
-                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float dVal);
-                        opacity = dVal;
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 1)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float dVal);
+                            opacity = dVal;
+                        }
+                    }
+                    else if (cmd.Equals("Tr", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 1)
+                        {
+                            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float trVal);
+                            opacity = 1.0f - trVal; // Tr transparency inversion
+                        }
+                    }
+                    else if (cmd.Equals("illum", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = args.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 1)
+                        {
+                            int.TryParse(parts[0], out illumModel);
+                        }
                     }
                 }
 
                 if (currentMaterial != null)
                 {
+                    Vector3 activeSpecular = (illumModel == 0 || illumModel == 1) ? Vector3.Zero : specular;
                     materials[currentMaterial] = new ObjMaterialInfo
                     {
                         DiffuseColor = color,
-                        SpecularColor = specular,
+                        SpecularColor = activeSpecular,
                         Shininess = shininess,
                         AmbientColor = ambient,
                         Opacity = opacity
