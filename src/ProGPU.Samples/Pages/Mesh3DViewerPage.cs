@@ -953,7 +953,12 @@ public static class Mesh3DViewerPage
                 }
 
                 var brush = new SolidColorBrush(color) { Opacity = part.Opacity };
-                var material = new DiffuseMaterial(brush);
+                var material = new DiffuseMaterial(brush)
+                {
+                    SpecularColor = part.SpecularColor,
+                    Shininess = part.Shininess,
+                    AmbientColor = part.AmbientColor
+                };
 
                 _model1.Children.Add(new ModelVisual3D { Content = new GeometryModel3D { Geometry = part.Geometry, Material = material } });
                 _model2.Children.Add(new ModelVisual3D { Content = new GeometryModel3D { Geometry = part.Geometry, Material = material } });

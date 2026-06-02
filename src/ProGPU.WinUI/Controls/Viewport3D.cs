@@ -83,6 +83,9 @@ namespace Microsoft.UI.Xaml.Media.Media3D
     {
         public Brush Brush { get; set; } = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
         public Vector4 Color { get; set; } = Vector4.One;
+        public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
+        public float Shininess { get; set; } = 32.0f;
+        public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
 
         public DiffuseMaterial()
         {
@@ -388,11 +391,17 @@ namespace Microsoft.UI.Xaml.Controls
                             {
                                 // Dynamic WinUI 3 Palette Brush resolving to match Rule 1.C
                                 Vector4 diffuseColor = Vector4.One;
+                                Vector3 specularColor = new Vector3(0.2f, 0.2f, 0.2f);
+                                float shininess = 32.0f;
+                                Vector3 ambientColor = new Vector3(0.2f, 0.2f, 0.2f);
                                 float opacity = 1.0f;
 
                                 if (geomModel.Material is DiffuseMaterial diffuse && diffuse.Brush != null)
                                 {
                                     opacity = diffuse.Brush.Opacity;
+                                    specularColor = diffuse.SpecularColor;
+                                    shininess = diffuse.Shininess;
+                                    ambientColor = diffuse.AmbientColor;
 
                                     // If the brush is a dynamic theme resource brush, resolve it against the active theme family
                                     Brush? activeBrush = diffuse.Brush;
@@ -422,6 +431,9 @@ namespace Microsoft.UI.Xaml.Controls
                                     Indices = indices,
                                     ModelTransform = localTransform,
                                     Color = diffuseColor,
+                                    SpecularColor = specularColor,
+                                    Shininess = shininess,
+                                    AmbientColor = ambientColor,
                                     Opacity = opacity
                                 });
                             }
