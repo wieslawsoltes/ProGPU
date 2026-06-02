@@ -4,6 +4,7 @@ using System.Buffers.Text;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Globalization;
 using Microsoft.UI.Xaml.Media.Media3D;
 
 namespace Microsoft.UI.Xaml.Media.Media3D
@@ -33,17 +34,64 @@ namespace Microsoft.UI.Xaml.Media.Media3D
             HashCode.Combine(PositionIndex, TextureIndex, NormalIndex);
     }
 
+    public class LoadedObjModel
+    {
+        public List<ObjPart> Parts { get; } = new();
+    }
+
+    public class ObjPart
+    {
+        public string Name { get; set; } = "Part";
+        public string MaterialName { get; set; } = "Default";
+        public MeshGeometry3D Geometry { get; set; } = new();
+        public Vector4 Color { get; set; } = new Vector4(0.70f, 0.70f, 0.72f, 1.0f);
+        public float Opacity { get; set; } = 1.0f;
+    }
+
     public static class ObjReader
     {
-        public static MeshGeometry3D Load(string filePath)
+        private class PartBuilder
         {
-            using (var stream = File.OpenRead(filePath))
+            public string MaterialName { get; }
+            public List<int> FaceIndices { get; } = new(4096);
+            public List<Vector3> OutPositions { get; } = new(2048);
+            public List<Vector3> OutNormals { get; } = new(2048);
+            public List<Vector2> OutTexCoords { get; } = new(2048);
+            public Dictionary<ObjVertexKey, int> VertexCache { get; } = new(2048);
+
+            public PartBuilder(string materialName)
             {
-                return Load(stream);
+                MaterialName = materialName;
             }
         }
 
+        public static MeshGeometry3D Load(string filePath)
+        {
+            var model = LoadObj(filePath);
+            return MergeParts(model);
+        }
+
         public static MeshGeometry3D Load(Stream stream)
+        {
+            var model = LoadObj(stream, null);
+            return MergeParts(model);
+        }
+
+        public static MeshGeometry3D Load(ReadOnlySpan<byte> fileBytes)
+        {
+            var model = LoadObj(fileBytes, null);
+            return MergeParts(model);
+        }
+
+        public static LoadedObjModel LoadObj(string filePath)
+        {
+            using (var stream = File.OpenRead(filePath))
+            {
+                return LoadObj(stream, Path.GetDirectoryName(filePath));
+            }
+        }
+
+        public static LoadedObjModel LoadObj(Stream stream, string? directory)
         {
             if (stream.CanSeek)
             {
@@ -60,7 +108,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                             if (read <= 0) break;
                             totalRead += read;
                         }
-                        return Load(new ReadOnlySpan<byte>(rented, 0, totalRead));
+                        return LoadObj(new ReadOnlySpan<byte>(rented, 0, totalRead), directory);
                     }
                     finally
                     {
@@ -89,7 +137,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                     totalBytesRead += read;
                 }
 
-                return Load(new ReadOnlySpan<byte>(buffer, 0, totalBytesRead));
+                return LoadObj(new ReadOnlySpan<byte>(buffer, 0, totalBytesRead), directory);
             }
             finally
             {
@@ -97,18 +145,15 @@ namespace Microsoft.UI.Xaml.Media.Media3D
             }
         }
 
-        public static MeshGeometry3D Load(ReadOnlySpan<byte> fileBytes)
+        public static LoadedObjModel LoadObj(ReadOnlySpan<byte> fileBytes, string? directory)
         {
             var tempPositions = new List<Vector3>(8192);
             var tempNormals = new List<Vector3>(8192);
             var tempTexCoords = new List<Vector2>(8192);
 
-            var outPositions = new List<Vector3>(8192);
-            var outNormals = new List<Vector3>(8192);
-            var outTexCoords = new List<Vector2>(8192);
-            var outIndices = new List<int>(16384);
-
-            var vertexCache = new Dictionary<ObjVertexKey, int>(8192);
+            var partBuilders = new Dictionary<string, PartBuilder>(StringComparer.OrdinalIgnoreCase);
+            var materials = new Dictionary<string, (Vector4 Color, float Opacity)>(StringComparer.OrdinalIgnoreCase);
+            string activeMaterial = "Default";
 
             int startOffset = 0;
             while (startOffset < fileBytes.Length)
@@ -169,37 +214,203 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                         tempNormals.Add(new Vector3(nx, ny, nz));
                     }
                 }
+                else if (commandToken.Length == 6 &&
+                         commandToken[0] == 'm' && commandToken[1] == 't' && commandToken[2] == 'l' &&
+                         commandToken[3] == 'l' && commandToken[4] == 'i' && commandToken[5] == 'b')
+                {
+                    if (NextToken(line, ref start, out var mtlToken) == 0)
+                    {
+                        var mtlName = System.Text.Encoding.UTF8.GetString(mtlToken);
+                        if (!string.IsNullOrEmpty(directory))
+                        {
+                            var mtlPath = Path.Combine(directory, mtlName);
+                            var loaded = LoadMtl(mtlPath);
+                            foreach (var pair in loaded)
+                            {
+                                materials[pair.Key] = pair.Value;
+                            }
+                        }
+                    }
+                }
+                else if (commandToken.Length == 6 &&
+                         commandToken[0] == 'u' && commandToken[1] == 's' && commandToken[2] == 'e' &&
+                         commandToken[3] == 'm' && commandToken[4] == 't' && commandToken[5] == 'l')
+                {
+                    if (NextToken(line, ref start, out var mtlToken) == 0)
+                    {
+                        activeMaterial = System.Text.Encoding.UTF8.GetString(mtlToken);
+                    }
+                }
                 else if (commandToken.Length == 1 && commandToken[0] == 'f')
                 {
+                    if (!partBuilders.TryGetValue(activeMaterial, out var builder))
+                    {
+                        builder = new PartBuilder(activeMaterial);
+                        partBuilders[activeMaterial] = builder;
+                    }
+
                     var faceIndices = new List<int>(4);
                     while (NextToken(line, ref start, out var vToken) == 0)
                     {
                         faceIndices.Add(ParseVertex(vToken, tempPositions, tempTexCoords, tempNormals,
-                                                    outPositions, outTexCoords, outNormals, vertexCache));
+                                                    builder.OutPositions, builder.OutTexCoords, builder.OutNormals, builder.VertexCache));
                     }
 
                     // Triangulate face using a triangle fan
                     for (int i = 1; i < faceIndices.Count - 1; i++)
                     {
-                        outIndices.Add(faceIndices[0]);
-                        outIndices.Add(faceIndices[i]);
-                        outIndices.Add(faceIndices[i + 1]);
+                        builder.FaceIndices.Add(faceIndices[0]);
+                        builder.FaceIndices.Add(faceIndices[i]);
+                        builder.FaceIndices.Add(faceIndices[i + 1]);
                     }
                 }
             }
 
-            var mesh = new MeshGeometry3D
+            var model = new LoadedObjModel();
+
+            foreach (var builder in partBuilders.Values)
             {
-                Positions = outPositions.ToArray(),
-                TriangleIndices = outIndices.ToArray()
+                if (builder.FaceIndices.Count == 0) continue;
+
+                var mesh = new MeshGeometry3D
+                {
+                    Positions = builder.OutPositions.ToArray(),
+                    TriangleIndices = builder.FaceIndices.ToArray()
+                };
+
+                if (builder.OutNormals.Count == builder.OutPositions.Count) mesh.Normals = builder.OutNormals.ToArray();
+                else mesh.Normals = mesh.GetNormalsOrCompute();
+
+                if (builder.OutTexCoords.Count == builder.OutPositions.Count) mesh.TextureCoordinates = builder.OutTexCoords.ToArray();
+
+                Vector4 materialColor = new Vector4(0.70f, 0.70f, 0.72f, 1.0f);
+                float opacity = 1.0f;
+
+                if (materials.TryGetValue(builder.MaterialName, out var matInfo))
+                {
+                    materialColor = matInfo.Color;
+                    opacity = matInfo.Opacity;
+                }
+
+                model.Parts.Add(new ObjPart
+                {
+                    Name = builder.MaterialName,
+                    MaterialName = builder.MaterialName,
+                    Geometry = mesh,
+                    Color = materialColor,
+                    Opacity = opacity
+                });
+            }
+
+            // Fallback for models without faces but containing vertices
+            if (model.Parts.Count == 0 && tempPositions.Count > 0)
+            {
+                var mesh = new MeshGeometry3D
+                {
+                    Positions = tempPositions.ToArray(),
+                    TriangleIndices = Array.Empty<int>(),
+                    Normals = tempNormals.ToArray(),
+                    TextureCoordinates = tempTexCoords.ToArray()
+                };
+                model.Parts.Add(new ObjPart
+                {
+                    Name = "Default",
+                    Geometry = mesh
+                });
+            }
+
+            return model;
+        }
+
+        private static Dictionary<string, (Vector4 Color, float Opacity)> LoadMtl(string filePath)
+        {
+            var materials = new Dictionary<string, (Vector4 Color, float Opacity)>(StringComparer.OrdinalIgnoreCase);
+            if (!File.Exists(filePath)) return materials;
+
+            try
+            {
+                var lines = File.ReadAllLines(filePath);
+                string? currentMaterial = null;
+                Vector4 color = new Vector4(0.70f, 0.70f, 0.72f, 1.0f);
+                float opacity = 1.0f;
+
+                foreach (var rawLine in lines)
+                {
+                    var line = rawLine.Trim();
+                    if (string.IsNullOrEmpty(line) || line.StartsWith('#')) continue;
+
+                    var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 0) continue;
+
+                    if (parts[0].Equals("newmtl", StringComparison.OrdinalIgnoreCase) && parts.Length >= 2)
+                    {
+                        if (currentMaterial != null)
+                        {
+                            materials[currentMaterial] = (color, opacity);
+                        }
+                        currentMaterial = parts[1];
+                        color = new Vector4(0.70f, 0.70f, 0.72f, 1.0f);
+                        opacity = 1.0f;
+                    }
+                    else if (parts[0].Equals("Kd", StringComparison.OrdinalIgnoreCase) && parts.Length >= 4)
+                    {
+                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
+                        float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
+                        float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
+                        color = new Vector4(r, g, b, 1.0f);
+                    }
+                    else if ((parts[0].Equals("d", StringComparison.OrdinalIgnoreCase) || parts[0].Equals("Tr", StringComparison.OrdinalIgnoreCase)) && parts.Length >= 2)
+                    {
+                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float dVal);
+                        opacity = dVal;
+                    }
+                }
+
+                if (currentMaterial != null)
+                {
+                    materials[currentMaterial] = (color, opacity);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ObjReader] Failed to parse MTL file '{filePath}': {ex.Message}");
+            }
+
+            return materials;
+        }
+
+        public static MeshGeometry3D MergeParts(LoadedObjModel model)
+        {
+            var positions = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var texCoords = new List<Vector2>();
+            var indices = new List<int>();
+
+            foreach (var part in model.Parts)
+            {
+                int indexOffset = positions.Count;
+                positions.AddRange(part.Geometry.Positions);
+                if (part.Geometry.Normals != null) normals.AddRange(part.Geometry.Normals);
+                if (part.Geometry.TextureCoordinates != null) texCoords.AddRange(part.Geometry.TextureCoordinates);
+
+                foreach (var idx in part.Geometry.TriangleIndices)
+                {
+                    indices.Add(idx + indexOffset);
+                }
+            }
+
+            var merged = new MeshGeometry3D
+            {
+                Positions = positions.ToArray(),
+                TriangleIndices = indices.ToArray()
             };
 
-            if (outNormals.Count == outPositions.Count) mesh.Normals = outNormals.ToArray();
-            else mesh.Normals = mesh.GetNormalsOrCompute();
+            if (normals.Count == positions.Count) merged.Normals = normals.ToArray();
+            else merged.Normals = merged.GetNormalsOrCompute();
 
-            if (outTexCoords.Count == outPositions.Count) mesh.TextureCoordinates = outTexCoords.ToArray();
+            if (texCoords.Count == positions.Count) merged.TextureCoordinates = texCoords.ToArray();
 
-            return mesh;
+            return merged;
         }
 
         private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> span)
@@ -293,7 +504,6 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                 }
             }
 
-            // Map standard OBJ 1-based or negative indices to 0-based
             int posIndex = rawV < 0 ? tempPositions.Count + rawV : rawV - 1;
             int texIndex = rawVt == 0 ? -1 : (rawVt < 0 ? tempTexCoords.Count + rawVt : rawVt - 1);
             int normIndex = rawVn == 0 ? -1 : (rawVn < 0 ? tempNormals.Count + rawVn : rawVn - 1);
