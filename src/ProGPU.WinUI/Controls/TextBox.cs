@@ -625,6 +625,9 @@ public class TextBox : Control
         float textY = (Size.Y - FontSize) / 2f;
         if (Font != null)
         {
+            Rect textClip = new Rect(Padding.Left, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y);
+            context.PushClip(textClip);
+
             // Draw selection background behind text if selection exists
             int selStart = Math.Min(SelectionStart, SelectionStart + SelectionLength);
             int selEnd = Math.Max(SelectionStart, SelectionStart + SelectionLength);
@@ -658,6 +661,8 @@ public class TextBox : Control
                 Rect caretRect = new Rect(caretX, textY - 1f, 1.5f, FontSize + 2f);
                 context.DrawRectangle(ThemeManager.GetBrush("TextBoxBorderBrushFocused"), null, caretRect);
             }
+
+            context.PopClip();
         }
 
         base.OnRender(context);
