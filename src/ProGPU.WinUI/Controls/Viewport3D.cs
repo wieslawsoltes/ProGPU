@@ -466,6 +466,7 @@ namespace Microsoft.UI.Xaml.Controls
 
                                     // Blend with DiffuseMaterial.Color if it is set
                                     diffuseColor *= diffuse.Color;
+                                    opacity *= diffuseColor.W;
                                 }
 
                                 payload.Meshes.Add(new MeshCompilationEntry

@@ -691,8 +691,8 @@ fn fs_main(input: VertexOutputWireframe) -> @location(0) vec4<f32> {
                     for (int idx = 0; idx < entry.Indices.Length; idx++)
                     {
                         int vIdx = entry.Indices[idx];
-                        var pos = entry.Positions[vIdx];
-                        var norm = vIdx < entry.Normals.Length ? entry.Normals[vIdx] : Vector3.UnitY;
+                        var pos = (vIdx >= 0 && vIdx < entry.Positions.Length) ? entry.Positions[vIdx] : Vector3.Zero;
+                        var norm = (vIdx >= 0 && vIdx < entry.Normals.Length) ? entry.Normals[vIdx] : Vector3.UnitY;
                         cpuVertices[idx] = new GpuVertex3D(pos, norm);
                     }
 
