@@ -208,6 +208,15 @@ public static class MeshBuilder
     }
 }
 
+public enum LayoutMode3D
+{
+    Quad,
+    Top,
+    Front,
+    Right,
+    Perspective
+}
+
 public class Mesh3DViewerPageGrid : Grid, IAnimatedElement
 {
     public void Update(float delta)
@@ -227,6 +236,30 @@ public static class Mesh3DViewerPage
     private static ModelVisual3D? _model2;
     private static ModelVisual3D? _model3;
     private static ModelVisual3D? _model4;
+
+    private static Border? _card1;
+    private static Border? _card2;
+    private static Border? _card3;
+    private static Border? _card4;
+    private static Grid? _viewportsGrid;
+    private static Grid? _leftGrid;
+    private static Grid? _rightGrid;
+    private static GridSplitter? _colSplitter;
+    private static GridSplitter? _rowSplitterLeft;
+    private static GridSplitter? _rowSplitterRight;
+
+    private static Button? _layoutBtnQuad;
+    private static Button? _layoutBtnTop;
+    private static Button? _layoutBtnFront;
+    private static Button? _layoutBtnRight;
+    private static Button? _layoutBtnPersp;
+
+    private static Button? _maxBtn1;
+    private static Button? _maxBtn2;
+    private static Button? _maxBtn3;
+    private static Button? _maxBtn4;
+
+    private static LayoutMode3D _currentLayoutMode = LayoutMode3D.Quad;
 
     private static float _rotationAngle = 0f;
     private static bool _animateRotation = false;
@@ -273,12 +306,23 @@ public static class Mesh3DViewerPage
             Background = new ThemeResourceBrush("ControlBackground"),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             BorderThickness = new Thickness(0, 0, 1f, 0),
-            Padding = new Thickness(16f),
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        var sidebarStack = new Microsoft.UI.Xaml.Controls.StackPanel { Orientation = Orientation.Vertical };
-        sidebar.Child = sidebarStack;
+        var sidebarScroll = new ScrollViewer
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+
+        var sidebarStack = new Microsoft.UI.Xaml.Controls.StackPanel 
+        { 
+            Orientation = Orientation.Vertical,
+            Padding = new Thickness(16f),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        sidebarScroll.Content = sidebarStack;
+        sidebar.Child = sidebarScroll;
 
         var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 16f, Margin = new Thickness(0, 0, 0, 8f) };
         title.Inlines.Add(new Bold(new Run("WebGPU 3D Mesh Viewer")));
@@ -287,6 +331,32 @@ public static class Mesh3DViewerPage
         var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 11.5f, Margin = new Thickness(0, 0, 0, 16f), Foreground = new ThemeResourceBrush("TextSecondary") };
         description.Inlines.Add(new Run("A declarative, WPF-style retained 3D media layout engine. Lighting transforms and matrix math are fully offloaded to the GPU."));
         sidebarStack.AddChild(description);
+
+        // Viewport Layout Segmented Toolbar
+        var layoutHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 6f) };
+        layoutHeader.Inlines.Add(new Bold(new Run("Viewport Layout:")));
+        sidebarStack.AddChild(layoutHeader);
+
+        var layoutGrid = new Grid { Margin = new Thickness(0, 0, 0, 16f) };
+        layoutGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        layoutGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        layoutGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        layoutGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        layoutGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _layoutBtnQuad = CreateLayoutButton("Quad", LayoutMode3D.Quad);
+        _layoutBtnTop = CreateLayoutButton("Top", LayoutMode3D.Top);
+        _layoutBtnFront = CreateLayoutButton("Front", LayoutMode3D.Front);
+        _layoutBtnRight = CreateLayoutButton("Right", LayoutMode3D.Right);
+        _layoutBtnPersp = CreateLayoutButton("Persp", LayoutMode3D.Perspective);
+
+        layoutGrid.AddChild(_layoutBtnQuad); Grid.SetColumn(_layoutBtnQuad, 0);
+        layoutGrid.AddChild(_layoutBtnTop); Grid.SetColumn(_layoutBtnTop, 1);
+        layoutGrid.AddChild(_layoutBtnFront); Grid.SetColumn(_layoutBtnFront, 2);
+        layoutGrid.AddChild(_layoutBtnRight); Grid.SetColumn(_layoutBtnRight, 3);
+        layoutGrid.AddChild(_layoutBtnPersp); Grid.SetColumn(_layoutBtnPersp, 4);
+
+        sidebarStack.AddChild(layoutGrid);
 
         // Combobox for Shape selection
         var shapeHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
@@ -639,24 +709,42 @@ public static class Mesh3DViewerPage
         mainGrid.AddChild(sidebar);
         Grid.SetColumn(sidebar, 0);
 
-        // 2. MAIN 4-WAY SPLIT VIEW WORKSPACE (2x2 CAD GRID)
-        var viewportsGrid = new Grid { Margin = new Thickness(16f) };
-        viewportsGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-        viewportsGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-        viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-        viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        // 2. MAIN 4-WAY SPLIT VIEW WORKSPACE (3x3 CAD NESTED GRIDS FOR SPLITTING)
+        _viewportsGrid = new Grid { Margin = new Thickness(16f) };
+        _viewportsGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _leftGrid = new Grid();
+        _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _leftGrid.RowDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _rightGrid = new Grid();
+        _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _rightGrid.RowDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _viewportsGrid.AddChild(_leftGrid);
+        Grid.SetColumn(_leftGrid, 0);
+        Grid.SetRow(_leftGrid, 0);
+
+        _viewportsGrid.AddChild(_rightGrid);
+        Grid.SetColumn(_rightGrid, 2);
+        Grid.SetRow(_rightGrid, 0);
 
         // 2.A Viewport 1: Top Orthographic View
-        var card1 = new Border
+        _card1 = new Border
         {
             CornerRadius = 8f,
             BorderThickness = new Thickness(1f),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             Background = new ThemeResourceBrush("CardBackground"),
-            Margin = new Thickness(0, 0, 6f, 6f)
+            Margin = new Thickness(0)
         };
         var viewportStack1 = new Grid();
-        card1.Child = viewportStack1;
+        _card1.Child = viewportStack1;
 
         _viewport1 = new Viewport3D
         {
@@ -676,21 +764,39 @@ public static class Mesh3DViewerPage
         overlayText1.Inlines.Add(new Bold(new Run("Top View (Orthographic)")));
         viewportStack1.AddChild(overlayText1);
 
-        viewportsGrid.AddChild(card1);
-        Grid.SetRow(card1, 0);
-        Grid.SetColumn(card1, 0);
+        _maxBtn1 = new Button
+        {
+            HeightConstraint = 24f,
+            WidthConstraint = 80f,
+            CornerRadius = 4f,
+            Margin = new Thickness(8f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new ThemeResourceBrush("ControlBackgroundHover")
+        };
+        var maxRun1 = new Run("↗ Maximize") { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
+        _maxBtn1.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { maxRun1 } };
+        _maxBtn1.Click += (s, e) =>
+        {
+            SetLayoutMode(_currentLayoutMode == LayoutMode3D.Top ? LayoutMode3D.Quad : LayoutMode3D.Top);
+        };
+        viewportStack1.AddChild(_maxBtn1);
+
+        _leftGrid.AddChild(_card1);
+        Grid.SetRow(_card1, 0);
+        Grid.SetColumn(_card1, 0);
 
         // 2.B Viewport 2: Front Orthographic View
-        var card2 = new Border
+        _card2 = new Border
         {
             CornerRadius = 8f,
             BorderThickness = new Thickness(1f),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             Background = new ThemeResourceBrush("CardBackground"),
-            Margin = new Thickness(6f, 0, 0, 6f)
+            Margin = new Thickness(0)
         };
         var viewportStack2 = new Grid();
-        card2.Child = viewportStack2;
+        _card2.Child = viewportStack2;
 
         _viewport2 = new Viewport3D
         {
@@ -710,21 +816,39 @@ public static class Mesh3DViewerPage
         overlayText2.Inlines.Add(new Bold(new Run("Front View (Orthographic)")));
         viewportStack2.AddChild(overlayText2);
 
-        viewportsGrid.AddChild(card2);
-        Grid.SetRow(card2, 0);
-        Grid.SetColumn(card2, 1);
+        _maxBtn2 = new Button
+        {
+            HeightConstraint = 24f,
+            WidthConstraint = 80f,
+            CornerRadius = 4f,
+            Margin = new Thickness(8f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new ThemeResourceBrush("ControlBackgroundHover")
+        };
+        var maxRun2 = new Run("↗ Maximize") { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
+        _maxBtn2.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { maxRun2 } };
+        _maxBtn2.Click += (s, e) =>
+        {
+            SetLayoutMode(_currentLayoutMode == LayoutMode3D.Front ? LayoutMode3D.Quad : LayoutMode3D.Front);
+        };
+        viewportStack2.AddChild(_maxBtn2);
+
+        _rightGrid.AddChild(_card2);
+        Grid.SetRow(_card2, 0);
+        Grid.SetColumn(_card2, 0);
 
         // 2.C Viewport 3: Right Orthographic View
-        var card3 = new Border
+        _card3 = new Border
         {
             CornerRadius = 8f,
             BorderThickness = new Thickness(1f),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             Background = new ThemeResourceBrush("CardBackground"),
-            Margin = new Thickness(0, 6f, 6f, 0)
+            Margin = new Thickness(0)
         };
         var viewportStack3 = new Grid();
-        card3.Child = viewportStack3;
+        _card3.Child = viewportStack3;
 
         _viewport3 = new Viewport3D
         {
@@ -744,21 +868,39 @@ public static class Mesh3DViewerPage
         overlayText3.Inlines.Add(new Bold(new Run("Right View (Orthographic)")));
         viewportStack3.AddChild(overlayText3);
 
-        viewportsGrid.AddChild(card3);
-        Grid.SetRow(card3, 1);
-        Grid.SetColumn(card3, 0);
+        _maxBtn3 = new Button
+        {
+            HeightConstraint = 24f,
+            WidthConstraint = 80f,
+            CornerRadius = 4f,
+            Margin = new Thickness(8f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new ThemeResourceBrush("ControlBackgroundHover")
+        };
+        var maxRun3 = new Run("↗ Maximize") { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
+        _maxBtn3.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { maxRun3 } };
+        _maxBtn3.Click += (s, e) =>
+        {
+            SetLayoutMode(_currentLayoutMode == LayoutMode3D.Right ? LayoutMode3D.Quad : LayoutMode3D.Right);
+        };
+        viewportStack3.AddChild(_maxBtn3);
+
+        _leftGrid.AddChild(_card3);
+        Grid.SetRow(_card3, 2);
+        Grid.SetColumn(_card3, 0);
 
         // 2.D Viewport 4: 3D Perspective View
-        var card4 = new Border
+        _card4 = new Border
         {
             CornerRadius = 8f,
             BorderThickness = new Thickness(1f),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             Background = new ThemeResourceBrush("CardBackground"),
-            Margin = new Thickness(6f, 6f, 0, 0)
+            Margin = new Thickness(0)
         };
         var viewportStack4 = new Grid();
-        card4.Child = viewportStack4;
+        _card4.Child = viewportStack4;
 
         _viewport4 = new Viewport3D
         {
@@ -777,12 +919,64 @@ public static class Mesh3DViewerPage
         overlayText4.Inlines.Add(new Bold(new Run("3D Perspective View")));
         viewportStack4.AddChild(overlayText4);
 
-        viewportsGrid.AddChild(card4);
-        Grid.SetRow(card4, 1);
-        Grid.SetColumn(card4, 1);
+        _maxBtn4 = new Button
+        {
+            HeightConstraint = 24f,
+            WidthConstraint = 80f,
+            CornerRadius = 4f,
+            Margin = new Thickness(8f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new ThemeResourceBrush("ControlBackgroundHover")
+        };
+        var maxRun4 = new Run("↗ Maximize") { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
+        _maxBtn4.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { maxRun4 } };
+        _maxBtn4.Click += (s, e) =>
+        {
+            SetLayoutMode(_currentLayoutMode == LayoutMode3D.Perspective ? LayoutMode3D.Quad : LayoutMode3D.Perspective);
+        };
+        viewportStack4.AddChild(_maxBtn4);
 
-        mainGrid.AddChild(viewportsGrid);
-        Grid.SetColumn(viewportsGrid, 1);
+        _rightGrid.AddChild(_card4);
+        Grid.SetRow(_card4, 2);
+        Grid.SetColumn(_card4, 0);
+
+        // 2.E GridSplitters
+        _colSplitter = new GridSplitter
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new ThemeResourceBrush("GridSplitterBackground"),
+            ResizeDirection = GridSplitterResizeDirection.Columns
+        };
+        _viewportsGrid.AddChild(_colSplitter);
+        Grid.SetRow(_colSplitter, 0);
+        Grid.SetColumn(_colSplitter, 1);
+
+        _rowSplitterLeft = new GridSplitter
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new ThemeResourceBrush("GridSplitterBackground"),
+            ResizeDirection = GridSplitterResizeDirection.Rows
+        };
+        _leftGrid.AddChild(_rowSplitterLeft);
+        Grid.SetRow(_rowSplitterLeft, 1);
+        Grid.SetColumn(_rowSplitterLeft, 0);
+
+        _rowSplitterRight = new GridSplitter
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new ThemeResourceBrush("GridSplitterBackground"),
+            ResizeDirection = GridSplitterResizeDirection.Rows
+        };
+        _rightGrid.AddChild(_rowSplitterRight);
+        Grid.SetRow(_rowSplitterRight, 1);
+        Grid.SetColumn(_rowSplitterRight, 0);
+
+        mainGrid.AddChild(_viewportsGrid);
+        Grid.SetColumn(_viewportsGrid, 1);
 
         // Populate initial 3D geometries and register layout animation callbacks
         UpdateViewportModels();
@@ -1151,5 +1345,170 @@ public static class Mesh3DViewerPage
         _viewport2?.Invalidate();
         _viewport3?.Invalidate();
         _viewport4?.Invalidate();
+    }
+
+    private static void SetLayoutMode(LayoutMode3D mode)
+    {
+        _currentLayoutMode = mode;
+        
+        // Update layout button backgrounds to show selected state
+        if (_layoutBtnQuad != null) _layoutBtnQuad.Background = new ThemeResourceBrush(mode == LayoutMode3D.Quad ? "ControlBackgroundPressed" : "ControlBackgroundHover");
+        if (_layoutBtnTop != null) _layoutBtnTop.Background = new ThemeResourceBrush(mode == LayoutMode3D.Top ? "ControlBackgroundPressed" : "ControlBackgroundHover");
+        if (_layoutBtnFront != null) _layoutBtnFront.Background = new ThemeResourceBrush(mode == LayoutMode3D.Front ? "ControlBackgroundPressed" : "ControlBackgroundHover");
+        if (_layoutBtnRight != null) _layoutBtnRight.Background = new ThemeResourceBrush(mode == LayoutMode3D.Right ? "ControlBackgroundPressed" : "ControlBackgroundHover");
+        if (_layoutBtnPersp != null) _layoutBtnPersp.Background = new ThemeResourceBrush(mode == LayoutMode3D.Perspective ? "ControlBackgroundPressed" : "ControlBackgroundHover");
+
+        // Update card maximize button texts
+        if (_maxBtn1 != null) _maxBtn1.Content = new RichTextBlock { Inlines = { new Run(mode == LayoutMode3D.Top ? "↙ Restore" : "↗ Maximize") } };
+        if (_maxBtn2 != null) _maxBtn2.Content = new RichTextBlock { Inlines = { new Run(mode == LayoutMode3D.Front ? "↙ Restore" : "↗ Maximize") } };
+        if (_maxBtn3 != null) _maxBtn3.Content = new RichTextBlock { Inlines = { new Run(mode == LayoutMode3D.Right ? "↙ Restore" : "↗ Maximize") } };
+        if (_maxBtn4 != null) _maxBtn4.Content = new RichTextBlock { Inlines = { new Run(mode == LayoutMode3D.Perspective ? "↙ Restore" : "↗ Maximize") } };
+
+        if (_card1 == null || _card2 == null || _card3 == null || _card4 == null || 
+            _colSplitter == null || _rowSplitterLeft == null || _rowSplitterRight == null ||
+            _leftGrid == null || _rightGrid == null || _viewportsGrid == null)
+            return;
+
+        // 1. Reset visibility of all components first
+        _leftGrid.Visibility = Visibility.Visible;
+        _rightGrid.Visibility = Visibility.Visible;
+        _colSplitter.Visibility = Visibility.Visible;
+
+        _card1.Visibility = Visibility.Visible;
+        _card2.Visibility = Visibility.Visible;
+        _card3.Visibility = Visibility.Visible;
+        _card4.Visibility = Visibility.Visible;
+
+        _rowSplitterLeft.Visibility = Visibility.Visible;
+        _rowSplitterRight.Visibility = Visibility.Visible;
+
+        // 2. Clear definitions and rebuild to standard resizable quad layout
+        _viewportsGrid.RowDefinitions.Clear();
+        _viewportsGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _viewportsGrid.ColumnDefinitions.Clear();
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _leftGrid.RowDefinitions.Clear();
+        _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _leftGrid.RowDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        _rightGrid.RowDefinitions.Clear();
+        _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        _rightGrid.RowDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
+        _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+
+        // 3. Reset standard column/row assignments
+        Grid.SetColumn(_leftGrid, 0); Grid.SetRow(_leftGrid, 0);
+        Grid.SetColumn(_rightGrid, 2); Grid.SetRow(_rightGrid, 0);
+        Grid.SetColumn(_colSplitter, 1); Grid.SetRow(_colSplitter, 0);
+
+        Grid.SetColumn(_card1, 0); Grid.SetRow(_card1, 0);
+        Grid.SetColumn(_rowSplitterLeft, 0); Grid.SetRow(_rowSplitterLeft, 1);
+        Grid.SetColumn(_card3, 0); Grid.SetRow(_card3, 2);
+
+        Grid.SetColumn(_card2, 0); Grid.SetRow(_card2, 0);
+        Grid.SetColumn(_rowSplitterRight, 0); Grid.SetRow(_rowSplitterRight, 1);
+        Grid.SetColumn(_card4, 0); Grid.SetRow(_card4, 2);
+
+        // 4. Apply layout modifications based on maximized selection
+        switch (mode)
+        {
+            case LayoutMode3D.Quad:
+                break;
+            case LayoutMode3D.Top:
+                _rightGrid.Visibility = Visibility.Collapsed;
+                _colSplitter.Visibility = Visibility.Collapsed;
+                _rowSplitterLeft.Visibility = Visibility.Collapsed;
+                _card3.Visibility = Visibility.Collapsed;
+                
+                // Set leftGrid to take entire main grid width
+                _viewportsGrid.ColumnDefinitions.Clear();
+                _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                
+                // Set card1 to take entire height inside leftGrid
+                _leftGrid.RowDefinitions.Clear();
+                _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                break;
+
+            case LayoutMode3D.Front:
+                _leftGrid.Visibility = Visibility.Collapsed;
+                _colSplitter.Visibility = Visibility.Collapsed;
+                _rowSplitterRight.Visibility = Visibility.Collapsed;
+                _card4.Visibility = Visibility.Collapsed;
+                
+                // Set rightGrid to take entire main grid width and move it to Col 0
+                _viewportsGrid.ColumnDefinitions.Clear();
+                _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                Grid.SetColumn(_rightGrid, 0);
+                
+                // Set card2 to take entire height inside rightGrid
+                _rightGrid.RowDefinitions.Clear();
+                _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                break;
+
+            case LayoutMode3D.Right:
+                _rightGrid.Visibility = Visibility.Collapsed;
+                _colSplitter.Visibility = Visibility.Collapsed;
+                _rowSplitterLeft.Visibility = Visibility.Collapsed;
+                _card1.Visibility = Visibility.Collapsed;
+                
+                // Set leftGrid to take entire main grid width
+                _viewportsGrid.ColumnDefinitions.Clear();
+                _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                
+                // Move card3 to Row 0 to fill leftGrid
+                _leftGrid.RowDefinitions.Clear();
+                _leftGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                Grid.SetRow(_card3, 0);
+                break;
+
+            case LayoutMode3D.Perspective:
+                _leftGrid.Visibility = Visibility.Collapsed;
+                _colSplitter.Visibility = Visibility.Collapsed;
+                _rowSplitterRight.Visibility = Visibility.Collapsed;
+                _card2.Visibility = Visibility.Collapsed;
+                
+                // Set rightGrid to take entire main grid width and move it to Col 0
+                _viewportsGrid.ColumnDefinitions.Clear();
+                _viewportsGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                Grid.SetColumn(_rightGrid, 0);
+                
+                // Move card4 to Row 0 to fill rightGrid
+                _rightGrid.RowDefinitions.Clear();
+                _rightGrid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+                Grid.SetRow(_card4, 0);
+                break;
+        }
+
+        // Force all views to redraw
+        _viewportsGrid.Invalidate();
+        _viewportsGrid.InvalidateMeasure();
+        _leftGrid.Invalidate();
+        _leftGrid.InvalidateMeasure();
+        _rightGrid.Invalidate();
+        _rightGrid.InvalidateMeasure();
+
+        _viewport1?.Invalidate();
+        _viewport2?.Invalidate();
+        _viewport3?.Invalidate();
+        _viewport4?.Invalidate();
+    }
+
+    private static Button CreateLayoutButton(string label, LayoutMode3D mode)
+    {
+        var btn = new Button
+        {
+            HeightConstraint = 28f,
+            CornerRadius = 4f,
+            Margin = new Thickness(2f),
+            Background = new ThemeResourceBrush(mode == LayoutMode3D.Quad ? "ControlBackgroundPressed" : "ControlBackgroundHover")
+        };
+        var textRun = new Run(label) { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
+        btn.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(textRun) } };
+        btn.Click += (s, e) => { SetLayoutMode(mode); };
+        return btn;
     }
 }
