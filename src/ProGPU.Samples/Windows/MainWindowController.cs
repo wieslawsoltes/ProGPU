@@ -84,6 +84,8 @@ public static unsafe class MainWindowController
 
         AppState.GenerateLogItems();
 
+        ObjModels.EnsureSamplesExist("models");
+
         BuildSceneGraph();
 
         if (AppState._topLevelGrid != null)
@@ -356,6 +358,7 @@ public static unsafe class MainWindowController
         var visualDesignerItem = new NavigationViewItem("Visual Designer", "📐", VisualDesignerPage.Create());
         var pictureCachingItem = new NavigationViewItem("Picture Caching", "🖼️", PictureShowcasePage.Create());
         var fontGlyphBrowserItem = new NavigationViewItem("Font Glyph Browser", "🔤", FontGlyphBrowserPage.Create());
+        var mesh3DViewerItem = new NavigationViewItem("3D Mesh Viewer", "🧊", Mesh3DViewerPage.Create());
 
         var wrapPanelItem = new NavigationViewItem("Wrap Panel", "🔲", WrapPanelPage.Create());
         var dockPanelItem = new NavigationViewItem("Dock Panel", "🪟", DockPanelPage.Create());
@@ -398,6 +401,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(dxfViewerItem);
         AppState._navigationView.MenuItems.Add(visualDesignerItem);
         AppState._navigationView.MenuItems.Add(pictureCachingItem);
+        AppState._navigationView.MenuItems.Add(mesh3DViewerItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
@@ -418,7 +422,7 @@ public static unsafe class MainWindowController
         }
 
         // Select default category
-        AppState._navigationView.SelectedItem = basicInputItem;
+        AppState._navigationView.SelectedItem = mesh3DViewerItem;
 
         AppState._rootGrid.AddChild(AppState._navigationView);
         Microsoft.UI.Xaml.Controls.Grid.SetRow(AppState._navigationView, 1);
