@@ -172,15 +172,26 @@ fn is_hatch_point_inside(p: vec2<f32>, record: GpuHatchRecord) -> bool {
             
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.001 && t <= 1.001) {
-                    let one_minus_t = 1.0 - t;
-                    let deriv_y = 2.0 * one_minus_t * (B.y - A.y) + 2.0 * t * (C.y - B.y);
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let omt_eval = 1.0 - t_eval;
+                    let deriv_y = 2.0 * omt_eval * (B.y - A.y) + 2.0 * t_eval * (C.y - B.y);
                     
                     var is_valid = false;
-                    if (deriv_y > 0.0) {
-                        is_valid = (t >= -0.00005 && t < 0.99995);
-                    } else if (deriv_y < 0.0) {
-                        is_valid = (t > 0.00005 && t <= 1.00005);
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y < C.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y >= C.y);
+                        }
+                    } else {
+                        is_valid = true;
                     }
                     
                     if (is_valid) {
@@ -214,14 +225,25 @@ fn is_hatch_point_inside(p: vec2<f32>, record: GpuHatchRecord) -> bool {
             
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.001 && t <= 1.001) {
-                    let deriv_y = 3.0 * a * t * t + 2.0 * b * t + c;
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
                     
                     var is_valid = false;
-                    if (deriv_y > 0.0) {
-                        is_valid = (t >= -0.00005 && t < 0.99995);
-                    } else if (deriv_y < 0.0) {
-                        is_valid = (t > 0.00005 && t <= 1.00005);
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y < D.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y >= D.y);
+                        }
+                    } else {
+                        is_valid = true;
                     }
                     
                     if (is_valid) {

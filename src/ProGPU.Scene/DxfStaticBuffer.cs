@@ -241,35 +241,36 @@ public unsafe class DxfStaticBuffer : IDisposable
     {
         if (_isDisposed) return;
         
-        VertexBuffer?.Dispose();
-        IndexBuffer?.Dispose();
-        TextVertexBuffer?.Dispose();
-        TextIndexBuffer?.Dispose();
-        _textVertexBufferBack?.Dispose();
-        _textIndexBufferBack?.Dispose();
-        BrushesBuffer?.Dispose();
-        UniformBuffer?.Dispose();
-        
-        foreach (var state in _extensionStates.Values)
+        lock (_context.RenderLock)
         {
-            if (state is IDisposable disposable)
+            VertexBuffer?.Dispose();
+            IndexBuffer?.Dispose();
+            TextVertexBuffer?.Dispose();
+            TextIndexBuffer?.Dispose();
+            _textVertexBufferBack?.Dispose();
+            _textIndexBufferBack?.Dispose();
+            BrushesBuffer?.Dispose();
+            UniformBuffer?.Dispose();
+            
+            foreach (var state in _extensionStates.Values)
             {
-                disposable.Dispose();
+                if (state is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+            _extensionStates.Clear();
+            
+            if (!_context.IsDisposed)
+            {
+                if (UniformBindGroup != null) _context.Wgpu.BindGroupRelease(UniformBindGroup);
+                if (UniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(UniformBindGroupOffscreen);
+                if (TextUniformBindGroup != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroup);
+                if (TextUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroupOffscreen);
             }
         }
-        _extensionStates.Clear();
-        
-        if (UniformBindGroup != null) _context.Wgpu.BindGroupRelease(UniformBindGroup);
-        if (UniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(UniformBindGroupOffscreen);
-        if (TextUniformBindGroup != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroup);
-        if (TextUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroupOffscreen);
         
         _isDisposed = true;
         GC.SuppressFinalize(this);
-    }
-    
-    ~DxfStaticBuffer()
-    {
-        Dispose();
     }
 }

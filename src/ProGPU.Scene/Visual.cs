@@ -16,6 +16,7 @@ public class Visual
     private Matrix4x4 _transform = Matrix4x4.Identity;
     private bool _isDirty = true;
     private bool _cacheAsLayer;
+    public virtual bool HasTemplate => false;
     private Vector3 _scale = Vector3.One;
     private float _rotation = 0f;
     private Vector3 _centerPoint = Vector3.Zero;

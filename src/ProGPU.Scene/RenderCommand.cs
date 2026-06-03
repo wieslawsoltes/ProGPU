@@ -36,7 +36,13 @@ public enum RenderCommandType
     DrawGpuLineSeries,
     DrawGpuScatterSeries,
     DrawPicture, // New: Skia-like SKPicture command
-    DrawExtension
+    DrawExtension,
+    PushGeometryClip,
+    PopGeometryClip,
+    PushOpacityMask,
+    PopOpacityMask,
+    PushBlendMode,
+    PopBlendMode
 }
 
 public struct Line3D
@@ -311,6 +317,18 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    public void DrawPath(Brush? brush, Pen? pen, PathGeometry path, Matrix4x4 transform)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            Transform = transform
+        });
+    }
+
     public void DrawText(string text, TtfFont font, float fontSize, Brush brush, Vector2 position, bool isBold = false, bool isItalic = false, float rotation = 0f)
     {
         Commands.Add(new RenderCommand
@@ -363,6 +381,49 @@ public class DrawingContext : IRenderDataProvider
     public void PopOpacity()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity });
+    }
+
+    public void PushGeometryClip(PathGeometry geometry)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushGeometryClip,
+            Path = geometry
+        });
+    }
+
+    public void PopGeometryClip()
+    {
+        Commands.Add(new RenderCommand { Type = RenderCommandType.PopGeometryClip });
+    }
+
+    public void PushOpacityMask(Brush maskBrush, Rect bounds)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushOpacityMask,
+            Brush = maskBrush,
+            Rect = bounds
+        });
+    }
+
+    public void PopOpacityMask()
+    {
+        Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacityMask });
+    }
+
+    public void PushBlendMode(GpuBlendMode blendMode)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushBlendMode,
+            IntParam = (int)blendMode
+        });
+    }
+
+    public void PopBlendMode()
+    {
+        Commands.Add(new RenderCommand { Type = RenderCommandType.PopBlendMode });
     }
 
     public void DrawLine(Pen pen, Vector2 p1, Vector2 p2)
