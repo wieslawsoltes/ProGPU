@@ -365,6 +365,8 @@ public static unsafe class MainWindowController
         var gridSplitterItem = new NavigationViewItem("Grid Splitter", "↔️", GridSplitterPage.Create());
         var colorPickerItem = new NavigationViewItem("Color Picker", "🎨", ColorPickerPage.Create());
         var vectorShapesItem = new NavigationViewItem("Vector Shapes", "📐", VectorShapesPage.Create());
+        var skiaSharpShimItem = new NavigationViewItem("SkiaSharp Shim", "🦊", SkiaSharpShimPage.Create());
+        var pathOpsItem = new NavigationViewItem("Path Operations", "✂️", PathOpsPage.Create());
 
         AppState._navigationView.MenuItems.Add(basicInputItem);
         AppState._navigationView.MenuItems.Add(chartShowcaseItem);
@@ -374,6 +376,8 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(gridSplitterItem);
         AppState._navigationView.MenuItems.Add(colorPickerItem);
         AppState._navigationView.MenuItems.Add(vectorShapesItem);
+        AppState._navigationView.MenuItems.Add(skiaSharpShimItem);
+        AppState._navigationView.MenuItems.Add(pathOpsItem);
         AppState._navigationView.MenuItems.Add(fontGlyphBrowserItem);
         AppState._navigationView.MenuItems.Add(textItem);
         AppState._navigationView.MenuItems.Add(markdownPlaygroundItem);

@@ -89,6 +89,11 @@ public class PathGeometry
 {
     public List<PathFigure> Figures { get; } = new();
 
+    public bool IsCombined { get; set; }
+    public PathGeometry? PathA { get; set; }
+    public PathGeometry? PathB { get; set; }
+    public int Op { get; set; }
+
     /// <summary>
     /// Parses SVG path data string (e.g. "M 10,10 L 20,20 C ... Z") into a PathGeometry object.
     /// </summary>

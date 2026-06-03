@@ -21,6 +21,31 @@ public struct PathUniforms
     public uint Height;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public struct PathOpUniforms
+{
+    public uint Op;
+    public uint DestX;
+    public uint DestY;
+    public uint DestWidth;
+    public uint DestHeight;
+    public uint SrcAX;
+    public uint SrcAY;
+    public uint SrcAWidth;
+    public uint SrcAHeight;
+    public uint SrcBX;
+    public uint SrcBY;
+    public uint SrcBWidth;
+    public uint SrcBHeight;
+    public int DestMinX;
+    public int DestMinY;
+    public int SrcAMinX;
+    public int SrcAMinY;
+    public int SrcBMinX;
+    public int SrcBMinY;
+    public uint Pad0;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
 public struct GpuPathRecord
 {
@@ -147,11 +172,16 @@ public unsafe class PathAtlas : IDisposable
         _ringOffset = 0;
     }
 
+
     private static uint DivRoundUp(uint value, uint divisor) => (value + divisor - 1) / divisor;
 
     public static int ComputeHash(PathGeometry path)
     {
         if (path == null) return 0;
+        if (path.IsCombined)
+        {
+            return HashCode.Combine(ComputeHash(path.PathA), ComputeHash(path.PathB), path.Op);
+        }
         var hash = new HashCode();
         foreach (var figure in path.Figures)
         {
@@ -491,45 +521,120 @@ public unsafe class PathAtlas : IDisposable
             return info;
         }
 
-        var (records, segments) = CompilePath(path, out float unscaledMinX, out float unscaledMinY, out float unscaledMaxX, out float unscaledMaxY);
+        float unscaledMinX, unscaledMinY, unscaledMaxX, unscaledMaxY;
+        int xStart, yStart, width, height;
 
-        if (records.Length == 0 || segments.Length == 0)
+        if (path.IsCombined)
         {
-            info = new PathInfo
+            var infoA = GetOrCreatePath(path.PathA, scale);
+            var infoB = GetOrCreatePath(path.PathB, scale);
+
+            int xStartA = (int)infoA.MinX;
+            int yStartA = (int)infoA.MinY;
+            int wA = (int)infoA.Width;
+            int hA = (int)infoA.Height;
+
+            int xStartB = (int)infoB.MinX;
+            int yStartB = (int)infoB.MinY;
+            int wB = (int)infoB.Width;
+            int hB = (int)infoB.Height;
+
+            if (path.Op == 0) // Difference (A - B)
             {
-                Key = key,
-                Geometry = path,
-                UnscaledMinX = 0f,
-                UnscaledMinY = 0f,
-                UnscaledMaxX = 0f,
-                UnscaledMaxY = 0f,
-                X = 0,
-                Y = 0,
-                Width = 0,
-                Height = 0,
-                TexCoordMin = Vector2.Zero,
-                TexCoordMax = Vector2.Zero,
-                MinX = 0f,
-                MinY = 0f,
-                LastUsedFrame = _frameNumber
-            };
-            _paths[key] = info;
-            return info;
+                xStart = xStartA;
+                yStart = yStartA;
+                width = wA;
+                height = hA;
+            }
+            else if (path.Op == 4) // ReverseDifference (B - A)
+            {
+                xStart = xStartB;
+                yStart = yStartB;
+                width = wB;
+                height = hB;
+            }
+            else if (path.Op == 1) // Intersect
+            {
+                int xStartDest = Math.Max(xStartA, xStartB);
+                int yStartDest = Math.Max(yStartA, yStartB);
+                int xEndDest = Math.Min(xStartA + wA, xStartB + wB);
+                int yEndDest = Math.Min(yStartA + hA, yStartB + hB);
+
+                if (xEndDest <= xStartDest || yEndDest <= yStartDest)
+                {
+                    xStart = 0;
+                    yStart = 0;
+                    width = 0;
+                    height = 0;
+                }
+                else
+                {
+                    xStart = xStartDest;
+                    yStart = yStartDest;
+                    width = xEndDest - xStartDest;
+                    height = yEndDest - yStartDest;
+                }
+            }
+            else // Union (2) / XOR (3)
+            {
+                int xStartDest = Math.Min(xStartA, xStartB);
+                int yStartDest = Math.Min(yStartA, yStartB);
+                int xEndDest = Math.Max(xStartA + wA, xStartB + wB);
+                int yEndDest = Math.Max(yStartA + hA, yStartB + hB);
+
+                xStart = xStartDest;
+                yStart = yStartDest;
+                width = xEndDest - xStartDest;
+                height = yEndDest - yStartDest;
+            }
+
+            unscaledMinX = xStart / scale;
+            unscaledMinY = yStart / scale;
+            unscaledMaxX = (xStart + width) / scale;
+            unscaledMaxY = (yStart + height) / scale;
         }
+        else
+        {
+            var (records, segments) = CompilePath(path, out unscaledMinX, out unscaledMinY, out unscaledMaxX, out unscaledMaxY);
 
-        float minX = unscaledMinX * scale;
-        float minY = unscaledMinY * scale;
-        float maxX = unscaledMaxX * scale;
-        float maxY = unscaledMaxY * scale;
+            if (records.Length == 0 || segments.Length == 0)
+            {
+                info = new PathInfo
+                {
+                    Key = key,
+                    Geometry = path,
+                    UnscaledMinX = 0f,
+                    UnscaledMinY = 0f,
+                    UnscaledMaxX = 0f,
+                    UnscaledMaxY = 0f,
+                    X = 0,
+                    Y = 0,
+                    Width = 0,
+                    Height = 0,
+                    TexCoordMin = Vector2.Zero,
+                    TexCoordMax = Vector2.Zero,
+                    MinX = 0f,
+                    MinY = 0f,
+                    LastUsedFrame = _frameNumber
+                };
+                _paths[key] = info;
+                return info;
+            }
 
-        int padding = 4;
-        int xStart = (int)Math.Floor(minX) - padding;
-        int xEnd = (int)Math.Ceiling(maxX) + padding;
-        int yStart = (int)Math.Floor(minY) - padding;
-        int yEnd = (int)Math.Ceiling(maxY) + padding;
+            float minX = unscaledMinX * scale;
+            float minY = unscaledMinY * scale;
+            float maxX = unscaledMaxX * scale;
+            float maxY = unscaledMaxY * scale;
 
-        int width = xEnd - xStart;
-        int height = yEnd - yStart;
+            int padding = 4;
+            xStart = (int)Math.Floor(minX) - padding;
+            int xEnd = (int)Math.Ceiling(maxX) + padding;
+            yStart = (int)Math.Floor(minY) - padding;
+            int yEnd = (int)Math.Ceiling(maxY) + padding;
+
+            width = xEnd - xStart;
+            height = yEnd - yStart;
+        }
 
         if (width <= 0 || height <= 0)
         {
@@ -703,14 +808,14 @@ public unsafe class PathAtlas : IDisposable
             uint alignedSize = (uint)((Marshal.SizeOf<PathUniforms>() + 255) & ~255);
             if (_ringOffset + alignedSize > _uniformRingBuffer.Size)
             {
-                _ringOffset = 0; // Wrap around if we exceed size
+                _ringOffset = 0;
             }
-
-            _context.Wgpu.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<PathUniforms>());
+            uint uniformOffset = _ringOffset;
+            _context.Wgpu.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, uniformOffset, &uniforms, (uint)Marshal.SizeOf<PathUniforms>());
 
             var bindGroupLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_computePipeline, 0);
 
-            entries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformRingBuffer.BufferPtr, Offset = _ringOffset, Size = (uint)Marshal.SizeOf<PathUniforms>() };
+            entries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformRingBuffer.BufferPtr, Offset = uniformOffset, Size = (uint)Marshal.SizeOf<PathUniforms>() };
             entries[1] = new BindGroupEntry { Binding = 1, Buffer = recordsBuffer.BufferPtr, Offset = 0, Size = recordsBuffer.Size };
             entries[2] = new BindGroupEntry { Binding = 2, Buffer = segmentsBuffer.BufferPtr, Offset = 0, Size = segmentsBuffer.Size };
             entries[3] = new BindGroupEntry { Binding = 3, TextureView = _atlasTexture.ViewPtr };
