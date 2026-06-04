@@ -25,5 +25,6 @@ namespace ProGPU.Scene
         public const int Mesh3D = 8;
         public const int PathOps = 9;
         public const int ImageEffect = 10;
+        public const int ShaderToy = 11;
     }
 }

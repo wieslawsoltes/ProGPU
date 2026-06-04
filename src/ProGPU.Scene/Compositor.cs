@@ -457,6 +457,7 @@ public unsafe class Compositor : IDisposable
         RegisterExtension(CompositorBuiltInExtensions.CustomGrid, new CustomGridExtensionPipeline());
         RegisterExtension(CompositorBuiltInExtensions.Mesh3D, new Mesh3DExtensionPipeline());
         RegisterExtension(CompositorBuiltInExtensions.ImageEffect, new ImageEffectExtensionPipeline());
+        RegisterExtension(CompositorBuiltInExtensions.ShaderToy, new ShaderToyExtensionPipeline());
 
         InitializePipelinesAndBindGroups();
         GpuTexture.OnDisposedWithId += HandleTextureDisposed;
