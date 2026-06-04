@@ -13,6 +13,8 @@
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.Dxf\ProGPU.Dxf.csproj" />
     <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj" />
+    <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />
+    <ProjectReference Include="..\PresentationCore\PresentationCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>

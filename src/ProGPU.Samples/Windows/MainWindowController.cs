@@ -336,6 +336,9 @@ public static unsafe class MainWindowController
         var virtualizationControlsItem = new NavigationViewItem("Virtualization Controls", "🎛️", VirtualizationControlsPage.Create());
         var frameworkEffectsItem = new NavigationViewItem("Framework Effects", "✨", FrameworkEffectsPage.Create());
         var imageEffectsItem = new NavigationViewItem("Image Effects", "🖼️", ImageEffectsPage.Create());
+        var gdiShowcaseItem = new NavigationViewItem("GDI Shim Showcase", "🎨", GdiShowcasePage.Create());
+        var glyphRunShowcaseItem = new NavigationViewItem("Glyph Run Showcase", "🔤", GlyphRunShowcasePage.Create());
+        var wpfShowcaseItem = new NavigationViewItem("WPF Shim Showcase", "📐", WpfShowcasePage.Create());
 
         var computeItem = new NavigationViewItem("Compute FX", "⚙", ComputeFxPage.Create());
         var motionAnimationsItem = new NavigationViewItem("Motion & Animations", "🎬", MotionAnimationsPage.Create());
@@ -386,6 +389,9 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(virtualizationControlsItem);
         AppState._navigationView.MenuItems.Add(frameworkEffectsItem);
         AppState._navigationView.MenuItems.Add(imageEffectsItem);
+        AppState._navigationView.MenuItems.Add(gdiShowcaseItem);
+        AppState._navigationView.MenuItems.Add(glyphRunShowcaseItem);
+        AppState._navigationView.MenuItems.Add(wpfShowcaseItem);
         AppState._navigationView.MenuItems.Add(computeItem);
         AppState._navigationView.MenuItems.Add(motionAnimationsItem);
         AppState._navigationView.MenuItems.Add(advancedItem);
@@ -555,8 +561,8 @@ public static unsafe class MainWindowController
 
         AppState._frameStopwatch.Restart();
 
-        // Update animated cogs if currently in Compute FX Showcase View
-        if (AppState._activeCategory == "Compute FX" && AppState._gearCanvasVisual != null)
+        // Update animated cogs if currently in Compute FX, Image Effects, or Image & Buttons (ImageRepeatShowcasePage)
+        if ((AppState._activeCategory == "Compute FX" || AppState._activeCategory == "Image Effects" || AppState._activeCategory == "Image & Buttons") && AppState._gearCanvasVisual != null)
         {
             float winX = AppState._window?.Size.X ?? AppState._topLevelGrid.Size.X;
             float winY = AppState._window?.Size.Y ?? AppState._topLevelGrid.Size.Y;
