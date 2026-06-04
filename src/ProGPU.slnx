@@ -5,6 +5,7 @@
   <Project Path="ProGPU.Text/ProGPU.Text.csproj" />
   <Project Path="ProGPU.Compute/ProGPU.Compute.csproj" />
   <Project Path="ProGPU.Scene/ProGPU.Scene.csproj" />
+  <Project Path="System.Drawing.Common/System.Drawing.Common.csproj" />
   <Project Path="ProGPU.Layout/ProGPU.Layout.csproj" />
   <Project Path="ProGPU.Virtualization/ProGPU.Virtualization.csproj" />
   <Project Path="ProGPU.WinUI/ProGPU.WinUI.csproj" />

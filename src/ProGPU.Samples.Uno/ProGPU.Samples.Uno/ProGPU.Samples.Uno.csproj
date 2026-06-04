@@ -41,5 +41,6 @@
       <Aliases>ProGpu</Aliases>
     </ProjectReference>
     <ProjectReference Include="..\..\ProGPU.Text\ProGPU.Text.csproj" />
+    <ProjectReference Include="..\..\SkiaSharp\SkiaSharp.csproj" />
   </ItemGroup>
 </Project>
