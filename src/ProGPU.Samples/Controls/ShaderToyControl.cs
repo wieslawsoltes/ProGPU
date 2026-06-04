@@ -7,6 +7,7 @@ using ProGPU.Scene;
 using ProGPU.Scene.Extensions;
 using ProGPU.Vector;
 using ProGPU.Backend;
+using ProGPU.Samples;
 
 namespace Microsoft.UI.Xaml.Controls
 {
