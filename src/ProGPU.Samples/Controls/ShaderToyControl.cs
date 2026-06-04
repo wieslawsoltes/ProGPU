@@ -175,7 +175,7 @@ namespace Microsoft.UI.Xaml.Controls
         private WgpuContext? GetActiveWgpuContext()
         {
             var activeWindows = WindowManager.ActiveWindows;
-            if (activeWindows.Count == 0) return null;
+            if (activeWindows.Count == 0) return WgpuContext.Current;
             if (activeWindows.Count == 1) return activeWindows[0].WgpuContext;
 
             Visual? current = this;

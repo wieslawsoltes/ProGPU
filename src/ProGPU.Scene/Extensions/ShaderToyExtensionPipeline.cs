@@ -6,6 +6,7 @@ using Silk.NET.WebGPU;
 using Silk.NET.Core.Native;
 using ProGPU.Vector;
 using ProGPU.Backend;
+using ProGPU.Transpiler;
 
 namespace ProGPU.Scene.Extensions
 {
@@ -39,7 +40,7 @@ namespace ProGPU.Scene.Extensions
         public Vector4 Date { get; set; }
     }
 
-    public class ShaderToyExtensionPipeline : ICompositorExtension
+    public unsafe class ShaderToyExtensionPipeline : ICompositorExtension, IDisposable
     {
         private const string VertexAndHeaderShader = @"
 struct VSUniforms {
@@ -101,6 +102,78 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         private readonly List<ToyGpuResources> _pool = new();
         private int _usedCount;
+
+        private WgpuContext? _contextRef = null;
+        private BindGroupLayout* _toyBindGroupLayout = null;
+        private PipelineLayout* _onscreenPipelineLayout = null;
+        private PipelineLayout* _offscreenPipelineLayout = null;
+
+        private void EnsureLayouts(Compositor compositor)
+        {
+            if (_toyBindGroupLayout != null) return;
+
+            _contextRef = compositor.Context;
+            var wgpu = _contextRef.Wgpu;
+            var device = _contextRef.Device;
+
+            var entry = new BindGroupLayoutEntry
+            {
+                Binding = 0,
+                Visibility = ShaderStage.Fragment,
+                Buffer = new BufferBindingLayout
+                {
+                    Type = BufferBindingType.Uniform,
+                    HasDynamicOffset = false,
+                    MinBindingSize = 0
+                }
+            };
+            var layoutDesc = new BindGroupLayoutDescriptor
+            {
+                EntryCount = 1,
+                Entries = &entry
+            };
+            _toyBindGroupLayout = wgpu.DeviceCreateBindGroupLayout(device, &layoutDesc);
+
+            // Onscreen pipeline layout
+            var onscreenLayouts = stackalloc BindGroupLayout*[2];
+            onscreenLayouts[0] = compositor.VectorUniformBindGroupLayout;
+            onscreenLayouts[1] = _toyBindGroupLayout;
+            var onscreenDesc = new PipelineLayoutDescriptor
+            {
+                BindGroupLayoutCount = 2,
+                BindGroupLayouts = onscreenLayouts
+            };
+            _onscreenPipelineLayout = wgpu.DeviceCreatePipelineLayout(device, &onscreenDesc);
+
+            // Offscreen pipeline layout
+            var offscreenLayouts = stackalloc BindGroupLayout*[2];
+            offscreenLayouts[0] = compositor.VectorUniformBindGroupLayoutOffscreen;
+            offscreenLayouts[1] = _toyBindGroupLayout;
+            var offscreenDesc = new PipelineLayoutDescriptor
+            {
+                BindGroupLayoutCount = 2,
+                BindGroupLayouts = offscreenLayouts
+            };
+            _offscreenPipelineLayout = wgpu.DeviceCreatePipelineLayout(device, &offscreenDesc);
+        }
+
+        public void Dispose()
+        {
+            if (_contextRef != null && !_contextRef.IsDisposed)
+            {
+                var wgpu = _contextRef.Wgpu;
+                if (_toyBindGroupLayout != null) wgpu.BindGroupLayoutRelease(_toyBindGroupLayout);
+                if (_onscreenPipelineLayout != null) wgpu.PipelineLayoutRelease(_onscreenPipelineLayout);
+                if (_offscreenPipelineLayout != null) wgpu.PipelineLayoutRelease(_offscreenPipelineLayout);
+
+                foreach (var res in _pool)
+                {
+                    if (res.BindGroupPtr != 0) wgpu.BindGroupRelease((BindGroup*)res.BindGroupPtr);
+                    res.UniformBuffer?.Dispose();
+                }
+            }
+            _pool.Clear();
+        }
 
         public void Compile(
             Compositor compositor,
@@ -178,6 +251,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             if (dc.PointBufferCount <= 0 || dc.DataParam is not ShaderToyParams p) return;
             if (p.IsFailed || string.IsNullOrEmpty(p.ShaderKey)) return;
 
+            EnsureLayouts(compositor);
+
             var wgpu = compositor.Context.Wgpu;
             var device = compositor.Context.Device;
             var pass = (RenderPassEncoder*)renderPassEncoder;
@@ -195,18 +270,17 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             string pipelineKey = isOffscreen ? p.ShaderKey + "_offscreen" : p.ShaderKey + "_onscreen";
             RenderPipeline* activePipeline = null;
 
-            try
+            var cache = compositor.PipelineCache;
+            if (cache.HasRenderPipeline(pipelineKey))
             {
-                var cache = compositor.PipelineCache;
-                // Double check if pipeline layout exists
-                activePipeline = cache.GetOrCreateRenderPipeline(
-                    pipelineKey,
-                    null // Will look it up if we compiled the shader module under ShaderKey first
-                );
-            }
-            catch
-            {
-                // Not compiled yet or compilation failed
+                try
+                {
+                    activePipeline = cache.GetOrCreateRenderPipeline(pipelineKey, null);
+                }
+                catch
+                {
+                    // Ignore
+                }
             }
 
             if (activePipeline == null)
@@ -214,7 +288,25 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 try
                 {
                     // Build full shader code
-                    string fullShaderCode = VertexAndHeaderShader + "\n" + p.ShaderSource + "\n" + FragmentWrapperShader;
+                    string userSource = p.ShaderSource;
+                    if (ShaderToyTranspiler.IsGlsl(userSource))
+                    {
+                        try
+                        {
+                            userSource = ShaderToyTranspiler.Translate(userSource);
+                            Console.WriteLine("[ShaderToy Transpiler] Auto-transpiled GLSL code to WGSL successfully.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[ShaderToy Transpiler] Transpilation failed: {ex.Message}");
+                            try
+                            {
+                                System.IO.File.WriteAllText("/Users/wieslawsoltes/GitHub/ProGPU/transpiler_error.txt", ex.ToString());
+                            }
+                            catch {}
+                        }
+                    }
+                    string fullShaderCode = VertexAndHeaderShader + "\n" + userSource + "\n" + FragmentWrapperShader;
                     var shaderModule = compositor.PipelineCache.GetOrCreateShader(p.ShaderKey, fullShaderCode, $"ShaderToy_{p.ShaderKey}");
 
                     string errors = "";
@@ -260,7 +352,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                             vertexBufferLayouts: layouts,
                             topology: PrimitiveTopology.TriangleList,
                             targetFormat: compositor.RenderFormat,
-                            sampleCount: isOffscreen ? 1u : 4u
+                            sampleCount: isOffscreen ? 1u : 4u,
+                            pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout
                         );
                     }
                     finally
@@ -271,6 +364,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
                     // Force dispatching of pipeline creation validation errors
                     compositor.Context.WaitIdle();
+
+                    try
+                    {
+                        System.IO.File.AppendAllText(
+                            "/Users/wieslawsoltes/GitHub/ProGPU/debug.txt",
+                            $"[ShaderToy Render] pipelineFailed: {pipelineFailed}, activePipeline is null: {activePipeline == null}\n"
+                        );
+                    }
+                    catch {}
 
                     if (pipelineFailed || activePipeline == null)
                     {
@@ -297,7 +399,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             if (_usedCount >= _pool.Count)
             {
                 var buf = new GpuBuffer(compositor.Context, 64, BufferUsage.Uniform | BufferUsage.CopyDst, $"ShaderToy Uniforms {_pool.Count}");
-                var bgl = wgpu.RenderPipelineGetBindGroupLayout(activePipeline, 1);
+                var bgl = _toyBindGroupLayout;
 
                 var bgEntries = stackalloc BindGroupEntry[1];
                 bgEntries[0] = new BindGroupEntry
