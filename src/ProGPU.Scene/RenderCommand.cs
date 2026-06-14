@@ -147,6 +147,7 @@ public struct RenderCommand
 
     // Texture properties
     public GpuTexture? Texture;
+    public Rect SrcRect;
 
     // Advanced geometries
     public Vector2 Position2;
@@ -344,6 +345,23 @@ public class DrawingContext : IRenderDataProvider
             FontSize = fontSize,
             Brush = brush,
             Position = position,
+            IsBold = isBold,
+            IsItalic = isItalic,
+            Rotation = rotation
+        });
+    }
+
+    public void DrawText(string text, TtfFont font, float fontSize, Brush brush, Vector2 position, Matrix4x4 transform, bool isBold = false, bool isItalic = false, float rotation = 0f)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawText,
+            Text = text,
+            Font = font,
+            FontSize = fontSize,
+            Brush = brush,
+            Position = position,
+            Transform = transform,
             IsBold = isBold,
             IsItalic = isItalic,
             Rotation = rotation

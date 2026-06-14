@@ -14,8 +14,15 @@ public class SKCanvas : IDisposable
     private SKMatrix _currentMatrix = SKMatrix.Identity;
     private float _currentOpacity = 1f;
 
-    private readonly Stack<(SKMatrix Matrix, float Opacity, int ClipCount)> _stateStack = new();
-    private int _currentClipCount = 0;
+    public enum PushKind
+    {
+        RectClip,
+        GeometryClip,
+        Opacity
+    }
+
+    private readonly Stack<(SKMatrix Matrix, float Opacity, int PushedScopesCount)> _stateStack = new();
+    private readonly Stack<PushKind> _pushedScopes = new();
 
     public SKMatrix TotalMatrix
     {
@@ -46,8 +53,7 @@ public class SKCanvas : IDisposable
 
     public void Save()
     {
-        _stateStack.Push((_currentMatrix, _currentOpacity, _currentClipCount));
-        _currentClipCount = 0;
+        _stateStack.Push((_currentMatrix, _currentOpacity, _pushedScopes.Count));
     }
 
     public int SaveLayer(SKRect bounds, SKPaint paint)
@@ -58,7 +64,7 @@ public class SKCanvas : IDisposable
             float opacity = paint.Color.A / 255f;
             _currentOpacity *= opacity;
             _context.PushOpacity(_currentOpacity);
-            _currentClipCount++; // Treat as a push that needs popping
+            _pushedScopes.Push(PushKind.Opacity);
         }
         return _stateStack.Count;
     }
@@ -77,11 +83,22 @@ public class SKCanvas : IDisposable
             _currentOpacity = state.Opacity;
 
             // Pop any clips or layers pushed in this save frame
-            for (int i = 0; i < _currentClipCount; i++)
+            while (_pushedScopes.Count > state.PushedScopesCount)
             {
-                _context.PopClip(); // Generically pops clip/opacity/blend
+                var kind = _pushedScopes.Pop();
+                switch (kind)
+                {
+                    case PushKind.RectClip:
+                        _context.PopClip();
+                        break;
+                    case PushKind.GeometryClip:
+                        _context.PopGeometryClip();
+                        break;
+                    case PushKind.Opacity:
+                        _context.PopOpacity();
+                        break;
+                }
             }
-            _currentClipCount = state.ClipCount;
         }
     }
 
@@ -118,13 +135,13 @@ public class SKCanvas : IDisposable
     public void ClipRect(SKRect rect, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = true)
     {
         _context.PushClip(new Rect(rect.Left, rect.Top, rect.Width, rect.Height));
-        _currentClipCount++;
+        _pushedScopes.Push(PushKind.RectClip);
     }
 
     public void ClipPath(SKPath path, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = true)
     {
         _context.PushGeometryClip(path.Geometry);
-        _currentClipCount++;
+        _pushedScopes.Push(PushKind.GeometryClip);
     }
 
     public void DrawRect(float x, float y, float w, float h, SKPaint paint)
@@ -215,6 +232,7 @@ public class SKCanvas : IDisposable
             Type = RenderCommandType.DrawTexture,
             Texture = image.Texture,
             Rect = new Rect(dest.Left, dest.Top, dest.Width, dest.Height),
+            SrcRect = new Rect(source.Left, source.Top, source.Width, source.Height),
             Transform = _currentMatrix.ToMatrix4x4()
         });
     }

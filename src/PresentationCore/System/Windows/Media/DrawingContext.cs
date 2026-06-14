@@ -39,7 +39,7 @@ public class DrawingContext : IDisposable
             var cmd = _nativeContext.Commands[i];
             
             // Apply transform: if the command already has a transform, multiply it
-            if (cmd.Transform.IsIdentity || (cmd.Transform.M11 == 0f && cmd.Transform.M22 == 0f))
+            if (cmd.Transform.IsIdentity || cmd.Transform == default)
             {
                 cmd.Transform = CurrentTransform;
             }
@@ -152,7 +152,17 @@ public class DrawingContext : IDisposable
     {
         if (clipGeometry == null) return;
         var bounds = clipGeometry.Bounds;
-        var nativeRect = new ProGPU.Scene.Rect((float)bounds.X, (float)bounds.Y, (float)bounds.Width, (float)bounds.Height);
+        var currentT = CurrentTransform;
+        
+        var p0 = Vector2.Transform(new Vector2((float)bounds.X, (float)bounds.Y), currentT);
+        var p1 = Vector2.Transform(new Vector2((float)(bounds.X + bounds.Width), (float)(bounds.Y + bounds.Height)), currentT);
+        
+        var minX = MathF.Min(p0.X, p1.X);
+        var minY = MathF.Min(p0.Y, p1.Y);
+        var maxX = MathF.Max(p0.X, p1.X);
+        var maxY = MathF.Max(p0.Y, p1.Y);
+        
+        var nativeRect = new ProGPU.Scene.Rect(minX, minY, maxX - minX, maxY - minY);
         
         _nativeContext.PushClip(nativeRect);
         _pushStack.Push(PushType.Clip);

@@ -297,8 +297,20 @@ public unsafe class WgpuContext : IDisposable
 
     public void Initialize(IWindow? window)
     {
-        string logPath = "/Users/wieslawsoltes/.gemini/antigravity/brain/a7990822-ca50-4be5-96d8-941456e6d9e6/test_run.log";
-        System.IO.File.AppendAllText(logPath, $"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
+        string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ProGPU_test_run.log");
+        void SafeLog(string msg)
+        {
+            try
+            {
+                System.IO.File.AppendAllText(logPath, msg);
+            }
+            catch
+            {
+                // Ignore log failures
+            }
+        }
+
+        SafeLog($"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
         lock (_activeContexts)
         {
             if (!_activeContexts.Contains(this))
@@ -311,7 +323,7 @@ public unsafe class WgpuContext : IDisposable
         Wgpu = WebGPU.GetApi();
         
         // 1. Create WebGPU Instance (shared statically)
-        System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Getting WebGPU Instance\n");
+        SafeLog("[WGPUCONTEXT] Getting WebGPU Instance\n");
         lock (s_instanceLock)
         {
             if (s_globalInstance == null)
@@ -329,9 +341,9 @@ public unsafe class WgpuContext : IDisposable
         // 2. Create Surface if window is provided
         if (window != null)
         {
-            System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Creating WebGPU Surface from window\n");
+            SafeLog("[WGPUCONTEXT] Creating WebGPU Surface from window\n");
             Surface = window.CreateWebGPUSurface(Wgpu, Instance);
-            System.IO.File.AppendAllText(logPath, $"[WGPUCONTEXT] CreateWebGPUSurface returned Surface={(nint)Surface:X}\n");
+            SafeLog($"[WGPUCONTEXT] CreateWebGPUSurface returned Surface={(nint)Surface:X}\n");
             if (Surface == null)
             {
                 throw new InvalidOperationException("Failed to create WebGPU Surface from window.");
@@ -339,7 +351,7 @@ public unsafe class WgpuContext : IDisposable
         }
 
         // 3. Request Adapter (synchronously)
-        System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Requesting Adapter\n");
+        SafeLog("[WGPUCONTEXT] Requesting Adapter\n");
         var adapterSignal = new ManualResetEventSlim(false);
         Adapter* requestedAdapter = null;
 
@@ -366,7 +378,7 @@ public unsafe class WgpuContext : IDisposable
         Wgpu.InstanceRequestAdapter(Instance, &requestAdapterOptions, onAdapterReceived, null);
         adapterSignal.Wait();
         
-        System.IO.File.AppendAllText(logPath, $"[WGPUCONTEXT] RequestAdapter finished, adapter={(nint)requestedAdapter:X}\n");
+        SafeLog($"[WGPUCONTEXT] RequestAdapter finished, adapter={(nint)requestedAdapter:X}\n");
         if (requestedAdapter == null)
         {
             throw new InvalidOperationException("Failed to obtain WebGPU Adapter.");
@@ -374,7 +386,7 @@ public unsafe class WgpuContext : IDisposable
         Adapter = requestedAdapter;
 
         // 4. Request Device (synchronously)
-        System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Requesting Device\n");
+        SafeLog("[WGPUCONTEXT] Requesting Device\n");
         var deviceSignal = new ManualResetEventSlim(false);
         Device* requestedDevice = null;
 
@@ -403,7 +415,7 @@ public unsafe class WgpuContext : IDisposable
         // Free labeled string
         SilkMarshal.Free((nint)deviceDesc.Label);
 
-        System.IO.File.AppendAllText(logPath, $"[WGPUCONTEXT] RequestDevice finished, device={(nint)requestedDevice:X}\n");
+        SafeLog($"[WGPUCONTEXT] RequestDevice finished, device={(nint)requestedDevice:X}\n");
         if (requestedDevice == null)
         {
             throw new InvalidOperationException("Failed to obtain WebGPU Device.");
@@ -411,7 +423,7 @@ public unsafe class WgpuContext : IDisposable
         Device = requestedDevice;
 
         // 5. Retrieve Default Queue
-        System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Getting Default Queue\n");
+        SafeLog("[WGPUCONTEXT] Getting Default Queue\n");
         Queue = Wgpu.DeviceGetQueue(Device);
 
         // 6. Hook up validation error callback
@@ -426,9 +438,9 @@ public unsafe class WgpuContext : IDisposable
         // 7. Configure Surface if window exists
         if (window != null && Surface != null)
         {
-            System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Configuring SwapChain\n");
+            SafeLog("[WGPUCONTEXT] Configuring SwapChain\n");
             ConfigureSwapChain((uint)window.FramebufferSize.X, (uint)window.FramebufferSize.Y);
-            System.IO.File.AppendAllText(logPath, "[WGPUCONTEXT] Configuring SwapChain finished\n");
+            SafeLog("[WGPUCONTEXT] Configuring SwapChain finished\n");
         }
     }
 

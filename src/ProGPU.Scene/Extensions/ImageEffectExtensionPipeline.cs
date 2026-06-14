@@ -159,6 +159,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         private unsafe RenderPipeline* _cachedPipeline;
         private unsafe RenderPipeline* _cachedPipelineOffscreen;
+        private unsafe BindGroup* _group0Onscreen;
+        private unsafe BindGroup* _group0Offscreen;
 
         // Dynamic pool to recycle uniform buffers and bind groups without frame allocation
         private readonly List<EffectGpuResources> _pool = new();
@@ -400,7 +402,49 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer, 0, compositor.VectorVertexBuffer.Size);
             wgpu.RenderPassEncoderSetIndexBuffer(pass, compositor.VectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, compositor.VectorIndexBuffer.Size);
 
-            var group0 = isOffscreen ? compositor.VectorUniformBindGroupOffscreen : compositor.VectorUniformBindGroup;
+            if (isOffscreen && _group0Offscreen == null)
+            {
+                var bgl0 = wgpu.RenderPipelineGetBindGroupLayout(activePipeline, 0);
+                var bgEntries0 = stackalloc BindGroupEntry[1];
+                bgEntries0[0] = new BindGroupEntry
+                {
+                    Binding = 0,
+                    Buffer = compositor.VectorUniformBuffer.BufferPtr,
+                    Offset = 0,
+                    Size = compositor.VectorUniformBuffer.Size
+                };
+                var bgDesc0 = new BindGroupDescriptor
+                {
+                    Layout = bgl0,
+                    EntryCount = 1,
+                    Entries = bgEntries0,
+                    Label = (byte*)SilkMarshal.StringToPtr("ImageEffect Group0 Offscreen BG")
+                };
+                _group0Offscreen = wgpu.DeviceCreateBindGroup(device, &bgDesc0);
+                SilkMarshal.Free((nint)bgDesc0.Label);
+            }
+            else if (!isOffscreen && _group0Onscreen == null)
+            {
+                var bgl0 = wgpu.RenderPipelineGetBindGroupLayout(activePipeline, 0);
+                var bgEntries0 = stackalloc BindGroupEntry[1];
+                bgEntries0[0] = new BindGroupEntry
+                {
+                    Binding = 0,
+                    Buffer = compositor.VectorUniformBuffer.BufferPtr,
+                    Offset = 0,
+                    Size = compositor.VectorUniformBuffer.Size
+                };
+                var bgDesc0 = new BindGroupDescriptor
+                {
+                    Layout = bgl0,
+                    EntryCount = 1,
+                    Entries = bgEntries0,
+                    Label = (byte*)SilkMarshal.StringToPtr("ImageEffect Group0 Onscreen BG")
+                };
+                _group0Onscreen = wgpu.DeviceCreateBindGroup(device, &bgDesc0);
+                SilkMarshal.Free((nint)bgDesc0.Label);
+            }
+            var group0 = isOffscreen ? _group0Offscreen : _group0Onscreen;
             wgpu.RenderPassEncoderSetBindGroup(pass, 0, group0, 0, null);
             wgpu.RenderPassEncoderSetBindGroup(pass, 1, (BindGroup*)gpuRes.BindGroupPtr, 0, null);
             wgpu.RenderPassEncoderSetBindGroup(pass, 2, (BindGroup*)cachedBg.BindGroupPtr, 0, null);

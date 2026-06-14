@@ -26,7 +26,7 @@ public class SKImage : IDisposable
             (uint)bitmap.Width,
             (uint)bitmap.Height,
             TextureFormat.Rgba8Unorm,
-            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
             "SKImage Texture"
         );
 
@@ -50,10 +50,49 @@ public class SKImage : IDisposable
 
     public void ReadPixels(SKImageInfo dstInfo, IntPtr dstPixels, int dstRowBytes, int srcX, int srcY, SKImageCachingHint cachingHint)
     {
-        // Read GPU texture pixels back to CPU memory
-        int size = dstInfo.Width * dstInfo.Height * 4;
         byte[] pixels = Texture.ReadPixels(); // Read back from GPU
-        Marshal.Copy(pixels, 0, dstPixels, Math.Min(size, pixels.Length));
+        int srcWidth = Width;
+        int srcHeight = Height;
+        
+        int copyWidth = Math.Min(dstInfo.Width, srcWidth - srcX);
+        int copyHeight = Math.Min(dstInfo.Height, srcHeight - srcY);
+        
+        if (copyWidth <= 0 || copyHeight <= 0) return;
+        
+        int actualDstRowBytes = dstRowBytes > 0 ? dstRowBytes : dstInfo.Width * 4;
+        
+        unsafe
+        {
+            fixed (byte* src = pixels)
+            {
+                byte* dst = (byte*)dstPixels;
+                for (int y = 0; y < copyHeight; y++)
+                {
+                    int srcRowY = srcY + y;
+                    if (srcRowY < 0 || srcRowY >= srcHeight) continue;
+                    
+                    byte* srcRow = src + (srcRowY * srcWidth + srcX) * 4;
+                    byte* dstRow = dst + y * actualDstRowBytes;
+                    
+                    if (dstInfo.ColorType == SKColorType.Bgra8888)
+                    {
+                        for (int x = 0; x < copyWidth; x++)
+                        {
+                            int srcIdx = x * 4;
+                            int dstIdx = x * 4;
+                            dstRow[dstIdx] = srcRow[srcIdx + 2];     // B
+                            dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G
+                            dstRow[dstIdx + 2] = srcRow[srcIdx];     // R
+                            dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A
+                        }
+                    }
+                    else
+                    {
+                        System.Buffer.MemoryCopy(srcRow, dstRow, actualDstRowBytes, copyWidth * 4);
+                    }
+                }
+            }
+        }
     }
 
     public SKImage ToRasterImage(bool share) => this;
@@ -104,7 +143,7 @@ public class SKPixmap
 public class SKBitmap : IDisposable
 {
     private IntPtr _pixels;
-    private readonly bool _ownsPixels;
+    private bool _ownsPixels;
     private int _width;
     private int _height;
     private SKImageInfo _info;
@@ -159,7 +198,7 @@ public class SKBitmap : IDisposable
         _height = info.Height;
         _info = info;
         _pixels = pixels;
-        // We do not own external pixels, so we don't free them
+        _ownsPixels = false;
     }
 
     public SKBitmap Copy()

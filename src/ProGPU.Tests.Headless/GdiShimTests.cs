@@ -6,6 +6,7 @@ using Xunit;
 
 namespace ProGPU.Tests.Headless;
 
+[Collection("HeadlessTests")]
 public class GdiShimTests
 {
     [Fact]

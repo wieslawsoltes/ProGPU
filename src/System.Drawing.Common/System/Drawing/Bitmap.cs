@@ -116,20 +116,48 @@ public class Bitmap : Image
 
     private byte[]? _lockedBytes;
     private GCHandle _lockedHandle;
+    private Rectangle _lockedRect;
 
     public BitmapData LockBits(Rectangle rect, ImageLockMode flags, PixelFormat format)
     {
         Flush();
-        byte[] pixels = _texture.ReadPixels();
+        byte[] fullPixels = _texture.ReadPixels();
         
-        _lockedBytes = pixels;
+        int subWidth = rect.Width;
+        int subHeight = rect.Height;
+        _lockedBytes = new byte[subWidth * subHeight * 4];
+        _lockedRect = rect;
+        
+        unsafe
+        {
+            fixed (byte* src = fullPixels)
+            fixed (byte* dst = _lockedBytes)
+            {
+                for (int y = 0; y < subHeight; y++)
+                {
+                    int srcY = rect.Y + y;
+                    byte* srcRow = src + (srcY * Width + rect.X) * 4;
+                    byte* dstRow = dst + y * subWidth * 4;
+                    
+                    for (int x = 0; x < subWidth; x++)
+                    {
+                        int idx = x * 4;
+                        dstRow[idx] = srcRow[idx + 2];     // B (source R)
+                        dstRow[idx + 1] = srcRow[idx + 1]; // G (source G)
+                        dstRow[idx + 2] = srcRow[idx];     // R (source B)
+                        dstRow[idx + 3] = srcRow[idx + 3]; // A (source A)
+                    }
+                }
+            }
+        }
+        
         _lockedHandle = GCHandle.Alloc(_lockedBytes, GCHandleType.Pinned);
 
         return new BitmapData
         {
-            Width = Width,
-            Height = Height,
-            Stride = Width * 4,
+            Width = subWidth,
+            Height = subHeight,
+            Stride = subWidth * 4,
             PixelFormat = PixelFormat.Format32bppArgb,
             Scan0 = _lockedHandle.AddrOfPinnedObject()
         };
@@ -144,7 +172,22 @@ public class Bitmap : Image
                 _lockedHandle.Free();
             }
 
-            _texture.WritePixels(new ReadOnlySpan<byte>(_lockedBytes));
+            unsafe
+            {
+                fixed (byte* pBytes = _lockedBytes)
+                {
+                    int totalPixels = _lockedRect.Width * _lockedRect.Height;
+                    for (int i = 0; i < totalPixels; i++)
+                    {
+                        int idx = i * 4;
+                        byte b = pBytes[idx];
+                        pBytes[idx] = pBytes[idx + 2];     // R
+                        pBytes[idx + 2] = b;               // B
+                    }
+                }
+            }
+
+            _texture.WritePixelsSubRect(new ReadOnlySpan<byte>(_lockedBytes), (uint)_lockedRect.X, (uint)_lockedRect.Y, (uint)_lockedRect.Width, (uint)_lockedRect.Height);
             _lockedBytes = null;
         }
     }

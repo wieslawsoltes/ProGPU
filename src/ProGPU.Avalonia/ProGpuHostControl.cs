@@ -122,6 +122,7 @@ public class ProGpuHostControl : Control
     private WgpuContext? _wgpuContext;
     private WinuiCompositor? _compositor;
     private WindowInputState? _winuiInputState;
+    private bool _ownsContext;
 
     // Custom Visual references
     private CompositionCustomVisual? _customVisual;
@@ -284,11 +285,13 @@ public class ProGpuHostControl : Control
         {
             _wgpuContext = active[0];
             WgpuContext.Current = _wgpuContext;
+            _ownsContext = false;
         }
         else
         {
             _wgpuContext = new WgpuContext();
             _wgpuContext.Initialize(null); // No Silk window; direct offscreen render target
+            _ownsContext = true;
         }
         StartPolling();
 
@@ -373,7 +376,7 @@ public class ProGpuHostControl : Control
         else
         {
             _isZeroCopySupported = false;
-            _customVisualHandler = new ProGpuCustomVisualHandler(_wgpuContext, _compositor);
+            _customVisualHandler = new ProGpuCustomVisualHandler(_wgpuContext, _compositor, _ownsContext);
             _customVisual = compositor.CreateCustomVisual(_customVisualHandler);
             ElementComposition.SetElementChildVisual(this, _customVisual);
 
@@ -409,7 +412,10 @@ public class ProGpuHostControl : Control
             ReleaseSharedResources();
 
             _compositor?.Dispose();
-            _wgpuContext?.Dispose();
+            if (_ownsContext)
+            {
+                _wgpuContext?.Dispose();
+            }
         }
 
         if (_winuiInputState != null)
@@ -906,6 +912,7 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 
     private readonly WgpuContext? _wgpuContext;
     private readonly WinuiCompositor? _compositor;
+    private readonly bool _ownsContext;
     private GpuTexture? _offscreenTexture;
     private GpuBuffer* _stagingBuffer;
     private uint _stagingBufferSize;
@@ -922,10 +929,11 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
     private bool _resourcesDirty;
     private CornerRadius _cornerRadius;
 
-    public ProGpuCustomVisualHandler(WgpuContext? wgpuContext, WinuiCompositor? compositor)
+    public ProGpuCustomVisualHandler(WgpuContext? wgpuContext, WinuiCompositor? compositor, bool ownsContext)
     {
         _wgpuContext = wgpuContext;
         _compositor = compositor;
+        _ownsContext = ownsContext;
         _bufferMapCallback = PfnBufferMapCallback.From(OnBufferMapped);
     }
 
@@ -1168,7 +1176,10 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
         _offscreenTexture = null;
 
         _compositor?.Dispose();
-        _wgpuContext?.Dispose();
+        if (_ownsContext)
+        {
+            _wgpuContext?.Dispose();
+        }
     }
 }
 

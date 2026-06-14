@@ -305,8 +305,14 @@ public class Graphics : IDisposable
     public void DrawString(string s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
     public void DrawString(string s, Font font, Brush brush, float x, float y)
     {
-        var pos = Tx(x, y);
-        _context.DrawText(s, font.TtfFont, font.Size, brush.ToProGpuBrush(), pos);
+        var m32 = _transform.Value;
+        var matrix4x4 = new Matrix4x4(
+            m32.M11, m32.M12, 0f, 0f,
+            m32.M21, m32.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            m32.M31, m32.M32, 0f, 1f
+        );
+        _context.DrawText(s, font.TtfFont, font.Size, brush.ToProGpuBrush(), new Vector2(x, y), matrix4x4);
     }
 
     public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle)

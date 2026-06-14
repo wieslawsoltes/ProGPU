@@ -50,6 +50,42 @@ public class SKSurface : IDisposable
 
         _drawingContext = new DrawingContext();
         Canvas = new SKCanvas(_drawingContext, width, height);
+
+        if (_pixels != IntPtr.Zero && _gpuTexture != null)
+        {
+            int actualRowBytes = _rowBytes > 0 ? _rowBytes : _width * 4;
+            byte[] temp = new byte[_width * _height * 4];
+            unsafe
+            {
+                byte* src = (byte*)_pixels;
+                fixed (byte* dst = temp)
+                {
+                    for (int y = 0; y < _height; y++)
+                    {
+                        byte* srcRow = src + y * actualRowBytes;
+                        byte* dstRow = dst + y * _width * 4;
+                        
+                        if (_colorType == SKColorType.Bgra8888)
+                        {
+                            for (int x = 0; x < _width; x++)
+                            {
+                                int srcIdx = x * 4;
+                                int dstIdx = x * 4;
+                                dstRow[dstIdx] = srcRow[srcIdx + 2];     // R (from BGRA B)
+                                dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G (from BGRA G)
+                                dstRow[dstIdx + 2] = srcRow[srcIdx];     // B (from BGRA R)
+                                dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A (from BGRA A)
+                            }
+                        }
+                        else
+                        {
+                            System.Buffer.MemoryCopy(srcRow, dstRow, _width * 4, _width * 4);
+                        }
+                    }
+                }
+            }
+            _gpuTexture.WritePixels<byte>(temp);
+        }
     }
 
     public static SKSurface Create(SKImageInfo info)
@@ -143,32 +179,43 @@ public class SKSurface : IDisposable
         visual.Context.Append(_drawingContext);
 
         var compositor = GetCompositorForContext(_context);
-        compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, false);
+        bool loadExisting = _pixels != IntPtr.Zero;
+        compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, loadExisting);
 
         // If CPU-backed surface, read pixels back and copy to memory pointer
         if (_pixels != IntPtr.Zero)
         {
             byte[] readBackBytes = _gpuTexture.ReadPixels();
-            int size = Math.Min(_width * _height * 4, readBackBytes.Length);
-            if (size > 0)
+            int actualRowBytes = _rowBytes > 0 ? _rowBytes : _width * 4;
+            
+            unsafe
             {
-                if (_colorType == SKColorType.Bgra8888)
+                fixed (byte* src = readBackBytes)
                 {
-                    // Swizzle RGBA to BGRA
-                    unsafe
+                    byte* dst = (byte*)_pixels;
+                    for (int y = 0; y < _height; y++)
                     {
-                        fixed (byte* pBytes = readBackBytes)
+                        byte* srcRow = src + y * _width * 4;
+                        byte* dstRow = dst + y * actualRowBytes;
+                        
+                        if (_colorType == SKColorType.Bgra8888)
                         {
-                            for (int i = 0; i < size; i += 4)
+                            for (int x = 0; x < _width; x++)
                             {
-                                byte r = pBytes[i];
-                                pBytes[i] = pBytes[i + 2];
-                                pBytes[i + 2] = r;
+                                int srcIdx = x * 4;
+                                int dstIdx = x * 4;
+                                dstRow[dstIdx] = srcRow[srcIdx + 2];     // B (source R)
+                                dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G (source G)
+                                dstRow[dstIdx + 2] = srcRow[srcIdx];     // R (source B)
+                                dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A (source A)
                             }
+                        }
+                        else
+                        {
+                            System.Buffer.MemoryCopy(srcRow, dstRow, _width * 4, _width * 4);
                         }
                     }
                 }
-                System.Runtime.InteropServices.Marshal.Copy(readBackBytes, 0, _pixels, size);
             }
         }
 

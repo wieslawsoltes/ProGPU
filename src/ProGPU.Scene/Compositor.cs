@@ -1233,13 +1233,22 @@ public unsafe class Compositor : IDisposable
             _textureIndexBuffer.Write(CollectionsMarshal.AsSpan(_textureIndicesList));
         }
 
+        // Determine physical render target size for MSAA matching the physical FramebufferSize.
+        uint renderWidth = width;
+        uint renderHeight = height;
+        if (_context.Window != null && width == (uint)_context.Window.Size.X && height == (uint)_context.Window.Size.Y)
+        {
+            renderWidth = (uint)_context.Window.FramebufferSize.X;
+            renderHeight = (uint)_context.Window.FramebufferSize.Y;
+        }
+
         // Upload unified projection and MVP matrices
         var uniformsData = new GpuUniforms
         {
             Projection = projection,
             Mvp = _hasGpuTransformsInFrame ? Matrix4x4.Identity : projection,
             View = _hasGpuTransformsInFrame ? _gpuTransformsCameraView : Matrix4x4.Identity,
-            CanvasSize = new Vector2(width, height),
+            CanvasSize = new Vector2(renderWidth, renderHeight),
             DpiScale = _currentDpiScale
         };
         _uniformBuffer.WriteSingle(uniformsData);
@@ -1257,15 +1266,6 @@ public unsafe class Compositor : IDisposable
 
         uploadSw.Stop();
         var passSw = System.Diagnostics.Stopwatch.StartNew();
-
-        // Determine physical render target size for MSAA matching the physical FramebufferSize.
-        uint renderWidth = width;
-        uint renderHeight = height;
-        if (_context.Window != null && width == (uint)_context.Window.Size.X && height == (uint)_context.Window.Size.Y)
-        {
-            renderWidth = (uint)_context.Window.FramebufferSize.X;
-            renderHeight = (uint)_context.Window.FramebufferSize.Y;
-        }
 
         // Recreate MSAA resources if needed (handles initialization and window resizing)
         if (_msaaTexture == null || _msaaWidth != renderWidth || _msaaHeight != renderHeight)
@@ -1423,7 +1423,7 @@ public unsafe class Compositor : IDisposable
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
-                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: false);
+                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: false, dc.MaskTexture);
                 currentType = DrawCallType.StaticDxf;
             }
             else if (dc.Type == DrawCallType.ChartLine)
@@ -1821,7 +1821,7 @@ public unsafe class Compositor : IDisposable
             var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
             if (cmd.Type != RenderCommandType.DrawPath)
             {
-                activeTransform = (cmd.Transform.M11 == 0f && cmd.Transform.M22 == 0f) ? activeTransform : cmd.Transform * activeTransform;
+                activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
             }
 
             bool savedUseGpuTransformsActive = _useGpuTransformsActive;
@@ -2051,7 +2051,7 @@ public unsafe class Compositor : IDisposable
             var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
             if (cmd.Type != RenderCommandType.DrawPath)
             {
-                activeTransform = (cmd.Transform.M11 == 0f && cmd.Transform.M22 == 0f) ? activeTransform : cmd.Transform * activeTransform;
+                activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
             }
             
             bool savedUseGpuTransformsActive = _useGpuTransformsActive;
@@ -2330,7 +2330,7 @@ public unsafe class Compositor : IDisposable
 
         int startIndex = _vectorVerticesList.Count;
 
-        transform = (cmd.Transform.M11 == 0f && cmd.Transform.M22 == 0f) ? transform : cmd.Transform * transform;
+        transform = (cmd.Transform == default) ? transform : cmd.Transform * transform;
 
         if (cmd.Brush != null)
         {
@@ -3762,10 +3762,28 @@ public unsafe class Compositor : IDisposable
 
         uint idxStart = (uint)_textureVerticesList.Count;
 
-        var uv0 = new Vector2(0f, 0f);
-        var uv1 = new Vector2(1f, 0f);
-        var uv2 = new Vector2(1f, 1f);
-        var uv3 = new Vector2(0f, 1f);
+        Vector2 uv0, uv1, uv2, uv3;
+        if (cmd.SrcRect.Width > 0f && cmd.SrcRect.Height > 0f)
+        {
+            float texW = cmd.Texture.Width;
+            float texH = cmd.Texture.Height;
+            float l = cmd.SrcRect.X / texW;
+            float t = cmd.SrcRect.Y / texH;
+            float right = (cmd.SrcRect.X + cmd.SrcRect.Width) / texW;
+            float b = (cmd.SrcRect.Y + cmd.SrcRect.Height) / texH;
+
+            uv0 = new Vector2(l, t);
+            uv1 = new Vector2(right, t);
+            uv2 = new Vector2(right, b);
+            uv3 = new Vector2(l, b);
+        }
+        else
+        {
+            uv0 = new Vector2(0f, 0f);
+            uv1 = new Vector2(1f, 0f);
+            uv2 = new Vector2(1f, 1f);
+            uv3 = new Vector2(0f, 1f);
+        }
 
         bool isRotated = MathF.Abs(transform.M12) > 0.0001f ||
                          MathF.Abs(transform.M21) > 0.0001f ||
@@ -4430,7 +4448,7 @@ public unsafe class Compositor : IDisposable
             Projection = projection,
             Mvp = _hasGpuTransformsInFrame ? Matrix4x4.Identity : projection,
             View = _hasGpuTransformsInFrame ? _gpuTransformsCameraView : Matrix4x4.Identity,
-            CanvasSize = new Vector2(width, height),
+            CanvasSize = new Vector2(targetTexture.Width, targetTexture.Height),
             DpiScale = _currentDpiScale
         };
         _uniformBuffer.WriteSingle(uniformsData);
@@ -4598,7 +4616,7 @@ public unsafe class Compositor : IDisposable
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
-                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: true);
+                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: true, dc.MaskTexture);
                 currentType = DrawCallType.StaticDxf;
             }
             else if (dc.Type == DrawCallType.ChartLine)
@@ -5451,11 +5469,12 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    internal unsafe void DrawStaticDxfBuffer(RenderPassEncoder* pass, object staticBufferObj, bool isOffscreen)
+    internal unsafe void DrawStaticDxfBuffer(RenderPassEncoder* pass, object staticBufferObj, bool isOffscreen, GpuTexture? maskTexture = null)
     {
         if (staticBufferObj is not DxfStaticBuffer sb) return;
         
         var currentType = DrawCallType.StaticDxf;
+        var maskBg = GetMaskBindGroup(maskTexture, isOffscreen);
         
         foreach (var dc in sb.DrawCalls)
         {
@@ -5470,6 +5489,7 @@ public unsafe class Compositor : IDisposable
                     _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
+                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
                     
                     if (sb.VertexBuffer != null)
                     {
@@ -5492,6 +5512,7 @@ public unsafe class Compositor : IDisposable
                     _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, atlasBg, 0, null);
+                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
                     
                     if (sb.TextVertexBuffer != null)
                     {
@@ -5518,6 +5539,7 @@ public unsafe class Compositor : IDisposable
                             _context.Wgpu.RenderPassEncoderSetPipeline(pass, vectorPipeline);
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
+                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
                             
                             if (sb.VertexBuffer != null)
                             {
@@ -6289,11 +6311,11 @@ public unsafe class Compositor : IDisposable
                     {
                         var activePipeline = GetPipeline(dc.Type, dc.BlendMode, isOffscreen: true, overrideFormat: TextureFormat.R8Unorm);
                         _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
-                        fixed (BindGroup** pGrp = &_vectorUniformBindGroup)
+                        fixed (BindGroup** pGrp = &_vectorUniformBindGroupOffscreen)
                         {
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                         }
-                        fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroup)
+                        fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroupOffscreen)
                         {
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                         }
@@ -6312,11 +6334,11 @@ public unsafe class Compositor : IDisposable
                     {
                         var activePipeline = GetPipeline(dc.Type, dc.BlendMode, isOffscreen: true, overrideFormat: TextureFormat.R8Unorm);
                         _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
-                        fixed (BindGroup** pGrp = &_textUniformBindGroup)
+                        fixed (BindGroup** pGrp = &_textUniformBindGroupOffscreen)
                         {
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                         }
-                        fixed (BindGroup** pAtlas = &_atlasBindGroup)
+                        fixed (BindGroup** pAtlas = &_atlasBindGroupOffscreen)
                         {
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
                         }
@@ -6332,7 +6354,7 @@ public unsafe class Compositor : IDisposable
                 {
                     var activePipeline = GetPipeline(dc.Type, dc.BlendMode, isOffscreen: true, overrideFormat: TextureFormat.R8Unorm);
                     _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
-                    fixed (BindGroup** pGrp = &_textureUniformBindGroup)
+                    fixed (BindGroup** pGrp = &_textureUniformBindGroupOffscreen)
                     {
                         _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
