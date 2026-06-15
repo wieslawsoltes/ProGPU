@@ -81,7 +81,7 @@ public sealed class PathArcShimTests
     public void PresentationCorePathGeometryRenderPreservesNativeArcSegment()
     {
         var geometry = CreateWpfArcGeometry();
-        geometry.Transform = new WpfMatrixTransform(new WpfMatrix
+        var transform = new WpfMatrix
         {
             M11 = 1.2,
             M12 = 0.2,
@@ -89,7 +89,8 @@ public sealed class PathArcShimTests
             M22 = 1.4,
             OffsetX = 3,
             OffsetY = -2
-        });
+        };
+        geometry.Transform = new WpfMatrixTransform(transform);
         var context = new ProGPU.Scene.DrawingContext();
 
         geometry.Draw(
@@ -102,6 +103,7 @@ public sealed class PathArcShimTests
         var segment = Assert.Single(command.Path.Figures[0].Segments);
         Assert.IsType<VectorArcSegment>(segment);
         Assert.IsNotType<VectorLineSegment>(segment);
+        Assert.Equal(ToMatrix4x4(transform), command.Transform);
     }
 
     [Fact]
@@ -118,6 +120,27 @@ public sealed class PathArcShimTests
         Assert.DoesNotContain(window.Compositor.VectorVertices, vertex => DecodeShapeType(vertex.ShapeType) == 3);
 
         window.Content = null;
+    }
+
+    [Fact]
+    public void PresentationCorePathGeometryRenderUsesGpuArcShader()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(260, 180);
+        window.Content = new WpfArcPathVisual();
+
+        try
+        {
+            window.Render();
+
+            Assert.Equal(4, window.Compositor.VectorVertices.Count(vertex => DecodeShapeType(vertex.ShapeType) == 12));
+            Assert.DoesNotContain(window.Compositor.VectorVertices, vertex => DecodeShapeType(vertex.ShapeType) == 11);
+            Assert.DoesNotContain(window.Compositor.VectorVertices, vertex => DecodeShapeType(vertex.ShapeType) == 3);
+        }
+        finally
+        {
+            window.Content = null;
+        }
     }
 
     private static WinUiPathGeometry CreateWinUiArcGeometry()
@@ -149,6 +172,27 @@ public sealed class PathArcShimTests
             WpfSweepDirection.Clockwise));
         geometry.Figures.Add(figure);
         return geometry;
+    }
+
+    private static Matrix4x4 ToMatrix4x4(WpfMatrix matrix)
+    {
+        return new Matrix4x4(
+            (float)matrix.M11,
+            (float)matrix.M12,
+            0f,
+            0f,
+            (float)matrix.M21,
+            (float)matrix.M22,
+            0f,
+            0f,
+            0f,
+            0f,
+            1f,
+            0f,
+            (float)matrix.OffsetX,
+            (float)matrix.OffsetY,
+            0f,
+            1f);
     }
 
     private static int DecodeShapeType(float shapeType)
@@ -190,6 +234,34 @@ public sealed class PathArcShimTests
                 context,
                 fill: null,
                 pen: new VectorPen(new VectorSolidColorBrush(new Vector4(0.1f, 0.6f, 1f, 1f)), 8f));
+        }
+    }
+
+    private sealed class WpfArcPathVisual : FrameworkElement
+    {
+        public WpfArcPathVisual()
+        {
+            Width = 260f;
+            Height = 180f;
+        }
+
+        public override void OnRender(ProGPU.Scene.DrawingContext context)
+        {
+            var geometry = CreateWpfArcGeometry();
+            geometry.Transform = new WpfMatrixTransform(new WpfMatrix
+            {
+                M11 = 1.05,
+                M12 = 0.18,
+                M21 = 0.32,
+                M22 = 0.92,
+                OffsetX = 8,
+                OffsetY = -4
+            });
+
+            geometry.Draw(
+                context,
+                fill: null,
+                pen: new VectorPen(new VectorSolidColorBrush(new Vector4(0.9f, 0.25f, 0.1f, 1f)), 7f));
         }
     }
 }

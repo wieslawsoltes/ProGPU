@@ -160,11 +160,9 @@ public class PathGeometry : Geometry
         var mat = Transform != null ? Transform.Value : Matrix4x4.Identity;
         foreach (var fig in Figures)
         {
-            var start = Vector2.Transform(fig.StartPoint, mat);
-            var sourceCurrentPoint = fig.StartPoint;
             var figure = new ProGPU.Vector.PathFigure
             {
-                StartPoint = start,
+                StartPoint = fig.StartPoint,
                 IsClosed = fig.IsClosed,
                 IsFilled = fig.IsFilled
             };
@@ -172,48 +170,39 @@ public class PathGeometry : Geometry
             {
                 if (seg is LineSegment line)
                 {
-                    figure.Segments.Add(new ProGPU.Vector.LineSegment(Vector2.Transform(line.Point, mat), line.IsSmoothJoin));
-                    sourceCurrentPoint = line.Point;
+                    figure.Segments.Add(new ProGPU.Vector.LineSegment(line.Point, line.IsSmoothJoin));
                 }
                 else if (seg is QuadraticBezierSegment quad)
                 {
                     figure.Segments.Add(new ProGPU.Vector.QuadraticBezierSegment(
-                        Vector2.Transform(quad.Point1, mat),
-                        Vector2.Transform(quad.Point2, mat),
+                        quad.Point1,
+                        quad.Point2,
                         quad.IsSmoothJoin));
-                    sourceCurrentPoint = quad.Point2;
                 }
                 else if (seg is BezierSegment cubic)
                 {
                     figure.Segments.Add(new ProGPU.Vector.CubicBezierSegment(
-                        Vector2.Transform(cubic.Point1, mat),
-                        Vector2.Transform(cubic.Point2, mat),
-                        Vector2.Transform(cubic.Point3, mat),
+                        cubic.Point1,
+                        cubic.Point2,
+                        cubic.Point3,
                         cubic.IsSmoothJoin));
-                    sourceCurrentPoint = cubic.Point3;
                 }
                 else if (seg is ArcSegment arc)
                 {
-                    if (ProGPU.Vector.ArcSegmentGeometry.TryTransformArcSegment(
-                            sourceCurrentPoint,
-                            ToVectorArcSegment(arc),
-                            mat,
-                            out _,
-                            out var transformedArc))
-                    {
-                        figure.Segments.Add(transformedArc);
-                    }
-                    else
-                    {
-                        figure.Segments.Add(new ProGPU.Vector.LineSegment(Vector2.Transform(arc.Point, mat), arc.IsSmoothJoin));
-                    }
-
-                    sourceCurrentPoint = arc.Point;
+                    figure.Segments.Add(ToVectorArcSegment(arc));
                 }
             }
             internalGeom.Figures.Add(figure);
         }
-        context.DrawPath(fill, pen, internalGeom);
+
+        if (mat.IsIdentity)
+        {
+            context.DrawPath(fill, pen, internalGeom);
+        }
+        else
+        {
+            context.DrawPath(fill, pen, internalGeom, mat);
+        }
     }
 
     public override Rect Bounds
