@@ -221,6 +221,172 @@ public class PathGeometry
         return path;
     }
 
+    public bool TryGetBounds(out Vector2 min, out Vector2 max)
+    {
+        if (IsCombined)
+        {
+            return TryGetCombinedBounds(out min, out max);
+        }
+
+        var minValue = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var maxValue = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        var hasBounds = false;
+
+        void Update(Vector2 point)
+        {
+            if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
+            {
+                return;
+            }
+
+            minValue = Vector2.Min(minValue, point);
+            maxValue = Vector2.Max(maxValue, point);
+            hasBounds = true;
+        }
+
+        foreach (var figure in Figures)
+        {
+            var currentPoint = figure.StartPoint;
+            Update(currentPoint);
+
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        Update(line.Point);
+                        currentPoint = line.Point;
+                        break;
+
+                    case QuadraticBezierSegment quadratic:
+                        Update(quadratic.ControlPoint);
+                        Update(quadratic.Point);
+                        currentPoint = quadratic.Point;
+                        break;
+
+                    case CubicBezierSegment cubic:
+                        Update(cubic.ControlPoint1);
+                        Update(cubic.ControlPoint2);
+                        Update(cubic.Point);
+                        currentPoint = cubic.Point;
+                        break;
+
+                    case ArcSegment arc:
+                        if (ArcSegmentGeometry.TryGetArcBounds(currentPoint, arc, out var arcMin, out var arcMax))
+                        {
+                            Update(arcMin);
+                            Update(arcMax);
+                        }
+                        else
+                        {
+                            Update(arc.Point);
+                        }
+
+                        currentPoint = arc.Point;
+                        break;
+                }
+            }
+
+            if (figure.IsClosed)
+            {
+                Update(figure.StartPoint);
+            }
+        }
+
+        if (!hasBounds)
+        {
+            min = default;
+            max = default;
+            return false;
+        }
+
+        min = minValue;
+        max = maxValue;
+        return true;
+    }
+
+    private bool TryGetCombinedBounds(out Vector2 min, out Vector2 max)
+    {
+        Vector2 minA = default;
+        Vector2 maxA = default;
+        Vector2 minB = default;
+        Vector2 maxB = default;
+        var hasA = PathA?.TryGetBounds(out minA, out maxA) == true;
+        var hasB = PathB?.TryGetBounds(out minB, out maxB) == true;
+
+        switch (Op)
+        {
+            case 1:
+                if (!hasA || !hasB)
+                {
+                    min = default;
+                    max = default;
+                    return false;
+                }
+
+                min = Vector2.Max(minA, minB);
+                max = Vector2.Min(maxA, maxB);
+                if (max.X < min.X || max.Y < min.Y)
+                {
+                    min = default;
+                    max = default;
+                    return false;
+                }
+
+                return true;
+
+            case 0:
+                if (hasA)
+                {
+                    min = minA;
+                    max = maxA;
+                    return true;
+                }
+
+                min = default;
+                max = default;
+                return false;
+
+            case 4:
+                if (hasB)
+                {
+                    min = minB;
+                    max = maxB;
+                    return true;
+                }
+
+                min = default;
+                max = default;
+                return false;
+
+            default:
+                if (hasA && hasB)
+                {
+                    min = Vector2.Min(minA, minB);
+                    max = Vector2.Max(maxA, maxB);
+                    return true;
+                }
+
+                if (hasA)
+                {
+                    min = minA;
+                    max = maxA;
+                    return true;
+                }
+
+                if (hasB)
+                {
+                    min = minB;
+                    max = maxB;
+                    return true;
+                }
+
+                min = default;
+                max = default;
+                return false;
+        }
+    }
+
     /// <summary>
     /// Parses SVG path data string (e.g. "M 10,10 L 20,20 C ... Z") into a PathGeometry object.
     /// </summary>

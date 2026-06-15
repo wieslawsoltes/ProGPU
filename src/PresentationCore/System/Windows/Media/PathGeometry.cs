@@ -156,15 +156,43 @@ public class PathGeometry : Geometry
 
     public override void Draw(ProGPU.Scene.DrawingContext context, ProGPU.Vector.Brush? fill, ProGPU.Vector.Pen? pen)
     {
-        _ = TryGetPathGeometry(out var internalGeom, out var mat);
+        _ = TryGetPathGeometry(out var strokePath, out var mat);
 
-        if (mat.IsIdentity)
+        var hasUnfilledFigures = false;
+        if (fill != null)
         {
-            context.DrawPath(fill, pen, internalGeom);
+            foreach (var figure in Figures)
+            {
+                if (!figure.IsFilled)
+                {
+                    hasUnfilledFigures = true;
+                    break;
+                }
+            }
         }
-        else
+
+        if (!hasUnfilledFigures)
         {
-            context.DrawPath(fill, pen, internalGeom, mat);
+            if (fill != null || pen != null)
+            {
+                GeometryPathHelper.DrawPath(context, fill, pen, strokePath, mat);
+            }
+
+            return;
+        }
+
+        if (fill != null)
+        {
+            var fillPath = ToProGpuPathGeometry(includeUnfilledFigures: false);
+            if (fillPath.Figures.Count > 0)
+            {
+                GeometryPathHelper.DrawPath(context, fill, null, fillPath, mat);
+            }
+        }
+
+        if (pen != null)
+        {
+            GeometryPathHelper.DrawPath(context, null, pen, strokePath, mat);
         }
     }
 
@@ -175,11 +203,16 @@ public class PathGeometry : Geometry
         return true;
     }
 
-    internal ProGPU.Vector.PathGeometry ToProGpuPathGeometry()
+    internal ProGPU.Vector.PathGeometry ToProGpuPathGeometry(bool includeUnfilledFigures = true)
     {
         var internalGeom = new ProGPU.Vector.PathGeometry();
         foreach (var fig in Figures)
         {
+            if (!includeUnfilledFigures && !fig.IsFilled)
+            {
+                continue;
+            }
+
             var figure = new ProGPU.Vector.PathFigure
             {
                 StartPoint = fig.StartPoint,
@@ -222,73 +255,8 @@ public class PathGeometry : Geometry
     {
         get
         {
-            float minX = float.MaxValue, minY = float.MaxValue;
-            float maxX = float.MinValue, maxY = float.MinValue;
-            var mat = Transform != null ? Transform.Value : Matrix4x4.Identity;
-
-            void UpdateTransformed(Vector2 pt)
-            {
-                minX = MathF.Min(minX, pt.X);
-                minY = MathF.Min(minY, pt.Y);
-                maxX = MathF.Max(maxX, pt.X);
-                maxY = MathF.Max(maxY, pt.Y);
-            }
-
-            void Update(Vector2 pt) => UpdateTransformed(Vector2.Transform(pt, mat));
-
-            foreach (var fig in Figures)
-            {
-                Update(fig.StartPoint);
-                var sourceCurrentPoint = fig.StartPoint;
-                foreach (var seg in fig.Segments)
-                {
-                    if (seg is LineSegment line)
-                    {
-                        Update(line.Point);
-                        sourceCurrentPoint = line.Point;
-                    }
-                    else if (seg is QuadraticBezierSegment quad)
-                    {
-                        Update(quad.Point1);
-                        Update(quad.Point2);
-                        sourceCurrentPoint = quad.Point2;
-                    }
-                    else if (seg is BezierSegment cubic)
-                    {
-                        Update(cubic.Point1);
-                        Update(cubic.Point2);
-                        Update(cubic.Point3);
-                        sourceCurrentPoint = cubic.Point3;
-                    }
-                    else if (seg is ArcSegment arc)
-                    {
-                        if (ProGPU.Vector.ArcSegmentGeometry.TryTransformArcSegment(
-                                sourceCurrentPoint,
-                                ToVectorArcSegment(arc),
-                                mat,
-                                out var transformedStart,
-                                out var transformedArc) &&
-                            ProGPU.Vector.ArcSegmentGeometry.TryGetArcBounds(
-                                transformedStart,
-                                transformedArc,
-                                out var arcMin,
-                                out var arcMax))
-                        {
-                            UpdateTransformed(arcMin);
-                            UpdateTransformed(arcMax);
-                        }
-                        else
-                        {
-                            Update(arc.Point);
-                        }
-
-                        sourceCurrentPoint = arc.Point;
-                    }
-                }
-            }
-
-            if (minX == float.MaxValue) return Rect.Empty;
-            return new Rect(minX, minY, maxX - minX, maxY - minY);
+            _ = TryGetPathGeometry(out var path, out var transform);
+            return GeometryPathHelper.GetBounds(path, transform);
         }
     }
 

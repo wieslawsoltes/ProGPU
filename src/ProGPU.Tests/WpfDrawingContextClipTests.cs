@@ -3,12 +3,19 @@ using ProGPU.Scene;
 using Xunit;
 using WpfDrawingContext = System.Windows.Media.DrawingContext;
 using WpfCombinedGeometry = System.Windows.Media.CombinedGeometry;
+using WpfEllipseGeometry = System.Windows.Media.EllipseGeometry;
+using WpfGeometryGroup = System.Windows.Media.GeometryGroup;
 using WpfGeometryCombineMode = System.Windows.Media.GeometryCombineMode;
 using WpfLineSegment = System.Windows.Media.LineSegment;
 using WpfMatrix = System.Windows.Media.Matrix;
 using WpfMatrixTransform = System.Windows.Media.MatrixTransform;
 using WpfPathFigure = System.Windows.Media.PathFigure;
 using WpfPathGeometry = System.Windows.Media.PathGeometry;
+using WpfPoint = System.Windows.Point;
+using WpfRect = System.Windows.Rect;
+using WpfRectangleGeometry = System.Windows.Media.RectangleGeometry;
+using VectorArcSegment = ProGPU.Vector.ArcSegment;
+using VectorLineSegment = ProGPU.Vector.LineSegment;
 
 namespace ProGPU.Tests;
 
@@ -143,6 +150,85 @@ public sealed class WpfDrawingContextClipTests
         var firstFigure = Assert.Single(command.Path.PathA!.Figures);
         Assert.Equal(new Vector2(15f, 17f), firstFigure.StartPoint);
         Assert.Equal(ToMatrix4x4(combinedTransform) * ToMatrix4x4(drawingTransform), command.Transform);
+    }
+
+    [Fact]
+    public void PushClipRectangleGeometryRecordsNativePrimitivePathClip()
+    {
+        var nativeContext = new DrawingContext();
+        using var drawingContext = new WpfDrawingContext(nativeContext);
+        var geometry = new WpfRectangleGeometry(new WpfRect(5, 10, 20, 30));
+
+        drawingContext.PushClip(geometry);
+        drawingContext.Pop();
+
+        var command = Assert.Single(nativeContext.Commands, c => c.Type == RenderCommandType.PushGeometryClip);
+        var figure = Assert.Single(command.Path!.Figures);
+        Assert.Equal(new Vector2(5f, 10f), figure.StartPoint);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(4, figure.Segments.Count);
+        Assert.All(figure.Segments, segment => Assert.IsType<VectorLineSegment>(segment));
+    }
+
+    [Fact]
+    public void PushClipEllipseGeometryRecordsNativeArcPathClip()
+    {
+        var nativeContext = new DrawingContext();
+        using var drawingContext = new WpfDrawingContext(nativeContext);
+        var geometry = new WpfEllipseGeometry(new WpfPoint(40, 50), 20, 10);
+
+        drawingContext.PushClip(geometry);
+        drawingContext.Pop();
+
+        var command = Assert.Single(nativeContext.Commands, c => c.Type == RenderCommandType.PushGeometryClip);
+        var figure = Assert.Single(command.Path!.Figures);
+        Assert.Equal(new Vector2(60f, 50f), figure.StartPoint);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(4, figure.Segments.Count);
+        Assert.All(figure.Segments, segment => Assert.IsType<VectorArcSegment>(segment));
+    }
+
+    [Fact]
+    public void PushClipGeometryGroupFlattensPrimitiveChildren()
+    {
+        var nativeContext = new DrawingContext();
+        using var drawingContext = new WpfDrawingContext(nativeContext);
+        var geometry = new WpfGeometryGroup();
+        geometry.Children.Add(new WpfRectangleGeometry(new WpfRect(0, 0, 10, 10)));
+        geometry.Children.Add(new WpfEllipseGeometry(new WpfPoint(30, 20), 5, 6));
+
+        drawingContext.PushClip(geometry);
+        drawingContext.Pop();
+
+        var command = Assert.Single(nativeContext.Commands, c => c.Type == RenderCommandType.PushGeometryClip);
+        Assert.False(command.Path!.IsCombined);
+        Assert.Equal(2, command.Path.Figures.Count);
+    }
+
+    [Fact]
+    public void CombinedGeometryBoundsApplyOwnTransform()
+    {
+        var transform = new WpfMatrix
+        {
+            M11 = 1,
+            M22 = 1,
+            OffsetX = 3,
+            OffsetY = 4
+        };
+        var geometry = new WpfCombinedGeometry(
+            WpfGeometryCombineMode.Union,
+            new WpfRectangleGeometry(new WpfRect(0, 0, 10, 10)),
+            new WpfRectangleGeometry(new WpfRect(20, 5, 5, 5)))
+        {
+            Transform = new WpfMatrixTransform(transform)
+        };
+
+        var bounds = geometry.Bounds;
+
+        Assert.Equal(3, bounds.X, 3);
+        Assert.Equal(4, bounds.Y, 3);
+        Assert.Equal(25, bounds.Width, 3);
+        Assert.Equal(10, bounds.Height, 3);
     }
 
     private static WpfPathGeometry CreateTriangleClip()
