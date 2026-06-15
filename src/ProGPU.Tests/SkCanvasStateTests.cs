@@ -112,6 +112,53 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void DrawRoundRectRecordsBothUniformRadii()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var paint = new SKPaint();
+
+        canvas.DrawRoundRect(new SKRect(1f, 2f, 21f, 12f), rx: 3f, ry: 5f, paint);
+
+        var command = Assert.Single(context.Commands);
+        Assert.Equal(RenderCommandType.DrawRoundedRect, command.Type);
+        Assert.Equal(new Rect(1f, 2f, 20f, 10f), command.Rect);
+        Assert.Equal(3f, command.RadiusX);
+        Assert.Equal(5f, command.RadiusY);
+    }
+
+    [Fact]
+    public void DrawRoundRectWithPerCornerRadiiRecordsNativePath()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var roundRect = new SKRoundRect();
+        using var paint = new SKPaint();
+        roundRect.SetRectRadii(
+            new SKRect(0f, 0f, 20f, 10f),
+            new[]
+            {
+                new SKPoint(2f, 3f),
+                new SKPoint(4f, 3f),
+                new SKPoint(4f, 5f),
+                new SKPoint(2f, 5f)
+            });
+
+        canvas.DrawRoundRect(roundRect, paint);
+
+        var command = Assert.Single(context.Commands);
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Assert.NotNull(command.Path);
+        var figure = Assert.Single(command.Path!.Figures);
+        var arcs = figure.Segments.OfType<ArcSegment>().ToArray();
+        Assert.Equal(4, arcs.Length);
+        Assert.Equal(new Vector2(4f, 3f), arcs[0].Size);
+        Assert.Equal(new Vector2(4f, 5f), arcs[1].Size);
+        Assert.Equal(new Vector2(2f, 5f), arcs[2].Size);
+        Assert.Equal(new Vector2(2f, 3f), arcs[3].Size);
+    }
+
+    [Fact]
     public void DrawImagePushesPaintAlphaOpacity()
     {
         var context = new DrawingContext();

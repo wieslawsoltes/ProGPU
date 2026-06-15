@@ -605,13 +605,19 @@ public class DrawingContext : IRenderDataProvider
 
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
     {
+        DrawRoundedRectangle(brush, pen, rect, radius, radius);
+    }
+
+    public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radiusX, float radiusY)
+    {
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Brush = brush,
             Pen = pen,
             Rect = rect,
-            RadiusX = radius
+            RadiusX = radiusX,
+            RadiusY = radiusY
         });
     }
 

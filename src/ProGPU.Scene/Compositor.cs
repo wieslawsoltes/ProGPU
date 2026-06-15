@@ -4021,17 +4021,28 @@ public unsafe class Compositor : IDisposable
 
     private void CompileRoundedRectCommand(RenderCommand cmd, Matrix4x4 transform)
     {
-        SwitchBatch(BatchType.Vector);
-        int startIndex = _vectorVerticesList.Count;
         var r = cmd.Rect;
-        var radius = Math.Min(cmd.RadiusX, Math.Min(r.Width / 2f, r.Height / 2f));
+        var radiusX = Math.Min(MathF.Abs(cmd.RadiusX), r.Width / 2f);
+        var radiusY = Math.Min(MathF.Abs(cmd.RadiusY > 0f ? cmd.RadiusY : cmd.RadiusX), r.Height / 2f);
 
-        if (radius <= 0f)
+        if (radiusX <= 0f || radiusY <= 0f)
         {
             CompileRectCommand(cmd, transform);
             return;
         }
 
+        if (MathF.Abs(radiusX - radiusY) > 0.0001f)
+        {
+            var pathCommand = cmd;
+            pathCommand.Type = RenderCommandType.DrawPath;
+            pathCommand.Path = PrimitivePathGeometry.CreateRoundedRectangle(r.X, r.Y, r.Width, r.Height, radiusX, radiusY);
+            CompilePathCommand(pathCommand, transform);
+            return;
+        }
+
+        SwitchBatch(BatchType.Vector);
+        int startIndex = _vectorVerticesList.Count;
+        var radius = radiusX;
         float wHalf = r.Width / 2f;
         float hHalf = r.Height / 2f;
         var shapeSize = new Vector2(r.Width, r.Height);

@@ -170,13 +170,22 @@ public class SKCanvas : IDisposable
 
     public void DrawRoundRect(SKRoundRect rect, SKPaint paint)
     {
+        if (!TryGetUniformRadii(rect, out var radiusX, out var radiusY))
+        {
+            using var path = new SKPath();
+            path.AddRoundRect(rect);
+            DrawPath(path, paint);
+            return;
+        }
+
         var brush = paint.ToBrush();
         var pen = paint.ToPen();
         _context.Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Rect = new Rect(rect.Rect.Left, rect.Rect.Top, rect.Rect.Width, rect.Rect.Height),
-            RadiusX = rect.CornerRadii[0].X,
+            RadiusX = radiusX,
+            RadiusY = radiusY,
             Brush = brush,
             Pen = pen,
             Transform = _currentMatrix.ToMatrix4x4()
@@ -186,6 +195,22 @@ public class SKCanvas : IDisposable
     public void DrawRoundRect(SKRect rect, float rx, float ry, SKPaint paint)
     {
         DrawRoundRect(new SKRoundRect(rect, rx, ry), paint);
+    }
+
+    private static bool TryGetUniformRadii(SKRoundRect rect, out float radiusX, out float radiusY)
+    {
+        radiusX = rect.CornerRadii[0].X;
+        radiusY = rect.CornerRadii[0].Y;
+        for (int i = 1; i < rect.CornerRadii.Length; i++)
+        {
+            if (MathF.Abs(rect.CornerRadii[i].X - radiusX) > 0.0001f ||
+                MathF.Abs(rect.CornerRadii[i].Y - radiusY) > 0.0001f)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public void DrawOval(SKRect rect, SKPaint paint)

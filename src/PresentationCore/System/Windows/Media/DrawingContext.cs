@@ -84,7 +84,7 @@ public class DrawingContext : IDisposable
         var nativeRect = new ProGPU.Scene.Rect((float)rectangle.X, (float)rectangle.Y, (float)rectangle.Width, (float)rectangle.Height);
 
         int start = _nativeContext.Commands.Count;
-        _nativeContext.DrawRoundedRectangle(nativeBrush, nativePen, nativeRect, (float)radiusX);
+        _nativeContext.DrawRoundedRectangle(nativeBrush, nativePen, nativeRect, (float)radiusX, (float)radiusY);
         ApplyContextStateToLastCommands(start);
     }
 
