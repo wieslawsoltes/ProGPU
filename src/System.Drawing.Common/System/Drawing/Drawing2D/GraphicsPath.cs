@@ -16,11 +16,26 @@ public class GraphicsPath : IDisposable
     private readonly PathGeometry _geometry = new();
     private PathFigure? _currentFigure;
     private PointF _lastPoint;
+    private FillMode _fillMode;
 
-    public FillMode FillMode { get; set; } = FillMode.Alternate;
+    public FillMode FillMode
+    {
+        get => _fillMode;
+        set
+        {
+            _fillMode = value;
+            _geometry.FillRule = value == System.Drawing.Drawing2D.FillMode.Alternate
+                ? FillRule.EvenOdd
+                : FillRule.Nonzero;
+        }
+    }
+
     internal PathGeometry Geometry => _geometry;
 
-    public GraphicsPath() {}
+    public GraphicsPath()
+    {
+        FillMode = System.Drawing.Drawing2D.FillMode.Alternate;
+    }
 
     public GraphicsPath(FillMode fillMode)
     {
@@ -159,6 +174,14 @@ public class GraphicsPath : IDisposable
 
     public void AddArc(float x, float y, float width, float height, float startAngle, float sweepAngle)
     {
+        if (Math.Abs(sweepAngle) >= 360.0f)
+        {
+            var halfSweep = sweepAngle >= 0f ? 180.0f : -180.0f;
+            AddArc(x, y, width, height, startAngle, halfSweep);
+            AddArc(x, y, width, height, startAngle + halfSweep, halfSweep);
+            return;
+        }
+
         float rx = width / 2f;
         float ry = height / 2f;
         float cx = x + rx;

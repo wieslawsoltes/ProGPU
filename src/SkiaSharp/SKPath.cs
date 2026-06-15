@@ -8,9 +8,20 @@ namespace SkiaSharp;
 public class SKPath : IDisposable
 {
     private PathFigure? _currentFigure;
+    private SKPathFillType _fillType = SKPathFillType.Winding;
 
     public PathGeometry Geometry { get; } = new();
-    public SKPathFillType FillType { get; set; } = SKPathFillType.Winding;
+    public SKPathFillType FillType
+    {
+        get => _fillType;
+        set
+        {
+            _fillType = value;
+            Geometry.FillRule = value is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
+                ? FillRule.EvenOdd
+                : FillRule.Nonzero;
+        }
+    }
 
     public SKPath() { }
 
@@ -24,48 +35,9 @@ public class SKPath : IDisposable
     {
         get
         {
-            float minX = float.MaxValue, maxX = float.MinValue;
-            float minY = float.MaxValue, maxY = float.MinValue;
-            bool hasPoints = false;
-
-            void ProcessPt(Vector2 pt)
-            {
-                minX = Math.Min(minX, pt.X);
-                maxX = Math.Max(maxX, pt.X);
-                minY = Math.Min(minY, pt.Y);
-                maxY = Math.Max(maxY, pt.Y);
-                hasPoints = true;
-            }
-
-            foreach (var figure in Geometry.Figures)
-            {
-                ProcessPt(figure.StartPoint);
-                foreach (var segment in figure.Segments)
-                {
-                    if (segment is LineSegment line)
-                    {
-                        ProcessPt(line.Point);
-                    }
-                    else if (segment is QuadraticBezierSegment quad)
-                    {
-                        ProcessPt(quad.ControlPoint);
-                        ProcessPt(quad.Point);
-                    }
-                    else if (segment is CubicBezierSegment cubic)
-                    {
-                        ProcessPt(cubic.ControlPoint1);
-                        ProcessPt(cubic.ControlPoint2);
-                        ProcessPt(cubic.Point);
-                    }
-                    else if (segment is ArcSegment arc)
-                    {
-                        ProcessPt(arc.Point);
-                    }
-                }
-            }
-
-            if (!hasPoints) return SKRect.Empty;
-            return new SKRect(minX, minY, maxX, maxY);
+            return Geometry.TryGetBounds(out var min, out var max)
+                ? new SKRect(min.X, min.Y, max.X, max.Y)
+                : SKRect.Empty;
         }
     }
 
