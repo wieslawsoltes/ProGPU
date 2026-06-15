@@ -27,6 +27,7 @@ public class Bitmap : Image
     private readonly GpuTexture _texture;
     private readonly DrawingContext _recordedContext = new();
     private bool _isDisposed;
+    private bool _hasDefinedPixels;
 
     public GpuTexture GpuTexture => _texture;
     public DrawingContext RecordedContext => _recordedContext;
@@ -66,6 +67,8 @@ public class Bitmap : Image
             var pixelsSpan = new ReadOnlySpan<byte>((void*)tempBitmap.GetPixels(), tempBitmap.Width * tempBitmap.Height * 4);
             _texture.WritePixels(pixelsSpan);
         }
+
+        _hasDefinedPixels = true;
     }
 
     public void Flush()
@@ -80,10 +83,12 @@ public class Bitmap : Image
             (uint)Height,
             _texture,
             padding: 0f,
-            dpiScale: 1f
+            dpiScale: 1f,
+            loadExistingContents: _hasDefinedPixels
         );
 
         _recordedContext.Commands.Clear();
+        _hasDefinedPixels = true;
     }
 
     public Color GetPixel(int x, int y)
@@ -105,6 +110,7 @@ public class Bitmap : Image
         Flush();
         byte[] rgba = new byte[] { color.R, color.G, color.B, color.A };
         _texture.WritePixelsSubRect(rgba.AsSpan(), (uint)x, (uint)y, 1, 1);
+        _hasDefinedPixels = true;
     }
 
     public void Save(string filename)
@@ -210,6 +216,7 @@ public class Bitmap : Image
                 }
 
                 _texture.WritePixelsSubRect(new ReadOnlySpan<byte>(_lockedBytes), (uint)_lockedRect.X, (uint)_lockedRect.Y, (uint)_lockedRect.Width, (uint)_lockedRect.Height);
+                _hasDefinedPixels = true;
             }
 
             _lockedBytes = null;

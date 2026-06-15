@@ -161,6 +161,37 @@ public class GdiShimTests
     }
 
     [Fact]
+    public void FlushPreservesExistingBitmapPixels()
+    {
+        using var bitmap = new Bitmap(4, 4);
+        bitmap.SetPixel(0, 0, Color.Red);
+
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var brush = new SolidBrush(Color.Blue))
+        {
+            graphics.FillRectangle(brush, 2, 2, 2, 2);
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(3, 3).ToArgb());
+    }
+
+    [Fact]
+    public void FirstFlushClearsUndefinedBitmapPixels()
+    {
+        using var bitmap = new Bitmap(4, 4);
+
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var brush = new SolidBrush(Color.Blue))
+        {
+            graphics.FillRectangle(brush, 2, 2, 2, 2);
+        }
+
+        Assert.Equal(Color.FromArgb(0, 0, 0, 0).ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(3, 3).ToArgb());
+    }
+
+    [Fact]
     public void DrawImageRecordsFullTransformForRotatedImages()
     {
         using var source = new Bitmap(4, 6);
