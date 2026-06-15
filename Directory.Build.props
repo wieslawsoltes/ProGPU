@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>
+    <SignAssembly Condition="'$(SignAssembly)' == ''">true</SignAssembly>
+    <AssemblyOriginatorKeyFile Condition="'$(AssemblyOriginatorKeyFile)' == ''">$(ProGPUStrongNameKeyFile)</AssemblyOriginatorKeyFile>
+    <DelaySign Condition="'$(DelaySign)' == ''">false</DelaySign>
+    <EnableNETAnalyzers Condition="'$(EnableNETAnalyzers)' == ''">false</EnableNETAnalyzers>
+    <CodeAnalysisTreatWarningsAsErrors Condition="'$(CodeAnalysisTreatWarningsAsErrors)' == ''">false</CodeAnalysisTreatWarningsAsErrors>
+    <TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">false</TreatWarningsAsErrors>
+    <WarningsAsErrors Condition="'$(WarningsAsErrors)' == ''"></WarningsAsErrors>
+    <NoWarn>$(NoWarn);SYSLIB1045</NoWarn>
+  </PropertyGroup>
+</Project>
