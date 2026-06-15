@@ -233,6 +233,12 @@ public class SKCanvas : IDisposable
 
     public void DrawImage(SKImage image, SKRect source, SKRect dest, SKPaint paint)
     {
+        var opacity = paint != null ? paint.Color.A / 255f : 1f;
+        if (opacity < 1f)
+        {
+            _context.PushOpacity(opacity);
+        }
+
         _context.Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawTexture,
@@ -241,6 +247,11 @@ public class SKCanvas : IDisposable
             SrcRect = new Rect(source.Left, source.Top, source.Width, source.Height),
             Transform = _currentMatrix.ToMatrix4x4()
         });
+
+        if (opacity < 1f)
+        {
+            _context.PopOpacity();
+        }
     }
 
     public void DrawImage(SKImage image, float x, float y, SKPaint paint)

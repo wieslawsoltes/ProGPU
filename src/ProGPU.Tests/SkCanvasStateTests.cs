@@ -81,6 +81,38 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void DrawImagePushesPaintAlphaOpacity()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var bitmap = new SKBitmap(4, 4);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, 128) };
+
+        canvas.DrawImage(
+            image,
+            new SKRect(1f, 2f, 3f, 4f),
+            new SKRect(10f, 20f, 30f, 40f),
+            paint);
+
+        Assert.Collection(
+            context.Commands,
+            push =>
+            {
+                Assert.Equal(RenderCommandType.PushOpacity, push.Type);
+                AssertNear(128f / 255f, push.FontSize);
+            },
+            draw =>
+            {
+                Assert.Equal(RenderCommandType.DrawTexture, draw.Type);
+                Assert.Same(image.Texture, draw.Texture);
+                Assert.Equal(new Rect(10f, 20f, 20f, 20f), draw.Rect);
+                Assert.Equal(new Rect(1f, 2f, 2f, 2f), draw.SrcRect);
+            },
+            pop => Assert.Equal(RenderCommandType.PopOpacity, pop.Type));
+    }
+
+    [Fact]
     public void TranslateAppliesFullLinearMatrix()
     {
         var context = new DrawingContext();

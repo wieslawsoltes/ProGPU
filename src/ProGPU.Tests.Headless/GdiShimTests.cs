@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.Tests.Headless;
@@ -110,5 +111,31 @@ public class GdiShimTests
         {
             bitmap.UnlockBits(data);
         }
+    }
+
+    [Fact]
+    public void DrawImageRecordsFullTransformForRotatedImages()
+    {
+        using var source = new Bitmap(4, 6);
+        using var target = new Bitmap(40, 40);
+        using var graphics = Graphics.FromImage(target);
+
+        graphics.RotateTransform(90f);
+        graphics.DrawImage(source, new RectangleF(2f, 3f, 4f, 5f));
+
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawTexture, command.Type);
+        Assert.Same(source.GpuTexture, command.Texture);
+        Assert.Equal(new Rect(2f, 3f, 4f, 5f), command.Rect);
+        Assert.Equal(TextureSamplingMode.Linear, command.TextureSamplingMode);
+        AssertNear(0f, command.Transform.M11);
+        AssertNear(1f, command.Transform.M12);
+        AssertNear(-1f, command.Transform.M21);
+        AssertNear(0f, command.Transform.M22);
+    }
+
+    private static void AssertNear(float expected, float actual)
+    {
+        Assert.InRange(MathF.Abs(expected - actual), 0f, 0.0001f);
     }
 }

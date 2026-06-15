@@ -103,6 +103,16 @@ public class Graphics : IDisposable
         return new Rect(p1.X, p1.Y, p2.X - p1.X, p2.Y - p1.Y);
     }
 
+    private Matrix4x4 CurrentTransform4x4()
+    {
+        var m32 = _transform.Value;
+        return new Matrix4x4(
+            m32.M11, m32.M12, 0f, 0f,
+            m32.M21, m32.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            m32.M31, m32.M32, 0f, 1f);
+    }
+
     public void Clear(Color color)
     {
         float w = _bitmap != null ? _bitmap.Width : 100000f;
@@ -279,40 +289,19 @@ public class Graphics : IDisposable
     public void DrawPath(Pen pen, GraphicsPath path)
     {
         if (path == null) return;
-        var m32 = _transform.Value;
-        var matrix4x4 = new Matrix4x4(
-            m32.M11, m32.M12, 0f, 0f,
-            m32.M21, m32.M22, 0f, 0f,
-            0f, 0f, 1f, 0f,
-            m32.M31, m32.M32, 0f, 1f
-        );
-        _context.DrawPath(null, pen.ToProGpuPen(), path.Geometry, matrix4x4);
+        _context.DrawPath(null, pen.ToProGpuPen(), path.Geometry, CurrentTransform4x4());
     }
 
     public void FillPath(Brush brush, GraphicsPath path)
     {
         if (path == null) return;
-        var m32 = _transform.Value;
-        var matrix4x4 = new Matrix4x4(
-            m32.M11, m32.M12, 0f, 0f,
-            m32.M21, m32.M22, 0f, 0f,
-            0f, 0f, 1f, 0f,
-            m32.M31, m32.M32, 0f, 1f
-        );
-        _context.DrawPath(brush.ToProGpuBrush(), null, path.Geometry, matrix4x4);
+        _context.DrawPath(brush.ToProGpuBrush(), null, path.Geometry, CurrentTransform4x4());
     }
 
     public void DrawString(string s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
     public void DrawString(string s, Font font, Brush brush, float x, float y)
     {
-        var m32 = _transform.Value;
-        var matrix4x4 = new Matrix4x4(
-            m32.M11, m32.M12, 0f, 0f,
-            m32.M21, m32.M22, 0f, 0f,
-            0f, 0f, 1f, 0f,
-            m32.M31, m32.M32, 0f, 1f
-        );
-        _context.DrawText(s, font.TtfFont, font.Size, brush.ToProGpuBrush(), new Vector2(x, y), matrix4x4);
+        _context.DrawText(s, font.TtfFont, font.Size, brush.ToProGpuBrush(), new Vector2(x, y), CurrentTransform4x4());
     }
 
     public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle)
@@ -331,9 +320,7 @@ public class Graphics : IDisposable
     {
         if (image is Bitmap bmp)
         {
-            bmp.Flush();
-            var rect = TxRect(new RectangleF(x, y, bmp.Width, bmp.Height));
-            _context.DrawTexture(bmp.GpuTexture, rect);
+            DrawBitmap(bmp, new RectangleF(x, y, bmp.Width, bmp.Height));
         }
     }
 
@@ -341,13 +328,24 @@ public class Graphics : IDisposable
     {
         if (image is Bitmap bmp)
         {
-            bmp.Flush();
-            var targetRect = TxRect(rect);
-            _context.DrawTexture(bmp.GpuTexture, targetRect);
+            DrawBitmap(bmp, rect);
         }
     }
 
     public void DrawImage(Image image, Rectangle rect) => DrawImage(image, (RectangleF)rect);
+
+    private void DrawBitmap(Bitmap bitmap, RectangleF rect)
+    {
+        bitmap.Flush();
+        _context.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = bitmap.GpuTexture,
+            Rect = new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+            Transform = CurrentTransform4x4(),
+            TextureSamplingMode = TextureSamplingMode.Linear
+        });
+    }
 
     public void Dispose()
     {
