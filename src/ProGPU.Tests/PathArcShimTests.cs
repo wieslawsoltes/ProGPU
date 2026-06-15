@@ -107,6 +107,30 @@ public sealed class PathArcShimTests
     }
 
     [Fact]
+    public void VectorPathGeometryCreateTransformedPreservesNativeArcSegment()
+    {
+        var path = new ProGPU.Vector.PathGeometry();
+        var figure = new ProGPU.Vector.PathFigure(new Vector2(30f, 100f));
+        figure.Segments.Add(new VectorArcSegment(
+            new Vector2(210f, 100f),
+            new Vector2(110f, 70f),
+            20f,
+            isLargeArc: false,
+            VectorSweepDirection.Clockwise));
+        path.Figures.Add(figure);
+
+        var transformed = path.CreateTransformed(new Matrix4x4(
+            1.05f, 0.18f, 0f, 0f,
+            0.32f, 0.92f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            8f, -4f, 0f, 1f));
+
+        var segment = Assert.Single(transformed.Figures[0].Segments);
+        Assert.IsType<VectorArcSegment>(segment);
+        Assert.IsNotType<VectorLineSegment>(segment);
+    }
+
+    [Fact]
     public void WinUiPathGeometryRenderUsesGpuArcShader()
     {
         var window = HeadlessWindow.Shared;

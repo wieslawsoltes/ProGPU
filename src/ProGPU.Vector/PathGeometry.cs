@@ -141,6 +141,86 @@ public class PathGeometry
     public PathGeometry? PathB { get; set; }
     public int Op { get; set; }
 
+    public PathGeometry CreateTransformed(Matrix4x4 transform)
+    {
+        if (IsCombined)
+        {
+            return new PathGeometry
+            {
+                IsCombined = true,
+                PathA = PathA?.CreateTransformed(transform) ?? new PathGeometry(),
+                PathB = PathB?.CreateTransformed(transform) ?? new PathGeometry(),
+                Op = Op
+            };
+        }
+
+        var path = new PathGeometry();
+        foreach (var figure in Figures)
+        {
+            var sourceCurrentPoint = figure.StartPoint;
+            var transformedFigure = new PathFigure
+            {
+                StartPoint = Vector2.Transform(figure.StartPoint, transform),
+                IsClosed = figure.IsClosed,
+                IsFilled = figure.IsFilled
+            };
+
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        transformedFigure.Segments.Add(new LineSegment(
+                            Vector2.Transform(line.Point, transform),
+                            line.IsSmoothJoin));
+                        sourceCurrentPoint = line.Point;
+                        break;
+
+                    case QuadraticBezierSegment quadratic:
+                        transformedFigure.Segments.Add(new QuadraticBezierSegment(
+                            Vector2.Transform(quadratic.ControlPoint, transform),
+                            Vector2.Transform(quadratic.Point, transform),
+                            quadratic.IsSmoothJoin));
+                        sourceCurrentPoint = quadratic.Point;
+                        break;
+
+                    case CubicBezierSegment cubic:
+                        transformedFigure.Segments.Add(new CubicBezierSegment(
+                            Vector2.Transform(cubic.ControlPoint1, transform),
+                            Vector2.Transform(cubic.ControlPoint2, transform),
+                            Vector2.Transform(cubic.Point, transform),
+                            cubic.IsSmoothJoin));
+                        sourceCurrentPoint = cubic.Point;
+                        break;
+
+                    case ArcSegment arc:
+                        if (ArcSegmentGeometry.TryTransformArcSegment(
+                                sourceCurrentPoint,
+                                arc,
+                                transform,
+                                out _,
+                                out var transformedArc))
+                        {
+                            transformedFigure.Segments.Add(transformedArc);
+                        }
+                        else
+                        {
+                            transformedFigure.Segments.Add(new LineSegment(
+                                Vector2.Transform(arc.Point, transform),
+                                arc.IsSmoothJoin));
+                        }
+
+                        sourceCurrentPoint = arc.Point;
+                        break;
+                }
+            }
+
+            path.Figures.Add(transformedFigure);
+        }
+
+        return path;
+    }
+
     /// <summary>
     /// Parses SVG path data string (e.g. "M 10,10 L 20,20 C ... Z") into a PathGeometry object.
     /// </summary>
