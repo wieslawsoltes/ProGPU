@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Numerics;
@@ -122,7 +123,35 @@ public class ProGpuHostControl : Control
     private WgpuContext? _wgpuContext;
     private WinuiCompositor? _compositor;
     private WindowInputState? _winuiInputState;
-    private bool _ownsContext;
+    private SharedContextLease? _contextLease;
+
+    private sealed class SharedContextState
+    {
+        public int ReferenceCount;
+        public bool OwnsContext;
+    }
+
+    private sealed class SharedContextLease : IDisposable
+    {
+        private bool _isDisposed;
+
+        public WgpuContext Context { get; }
+
+        public SharedContextLease(WgpuContext context)
+        {
+            Context = context;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            ReleaseSharedContext(Context);
+        }
+    }
+
+    private static readonly object s_contextLeaseLock = new();
+    private static readonly Dictionary<WgpuContext, SharedContextState> s_contextLeases = new();
 
     // Custom Visual references
     private CompositionCustomVisual? _customVisual;
@@ -230,6 +259,67 @@ public class ProGpuHostControl : Control
     {
     }
 
+    private static SharedContextLease AcquireSharedContext()
+    {
+        lock (s_contextLeaseLock)
+        {
+            WgpuContext? context = null;
+            var active = WgpuContext.ActiveContexts;
+            for (int i = 0; i < active.Count; i++)
+            {
+                if (!active[i].IsDisposed)
+                {
+                    context = active[i];
+                    break;
+                }
+            }
+
+            var ownsContext = false;
+            if (context == null)
+            {
+                context = new WgpuContext();
+                context.Initialize(null);
+                ownsContext = true;
+            }
+
+            if (!s_contextLeases.TryGetValue(context, out var state))
+            {
+                state = new SharedContextState
+                {
+                    ReferenceCount = 0,
+                    OwnsContext = ownsContext
+                };
+                s_contextLeases[context] = state;
+            }
+
+            state.ReferenceCount++;
+            WgpuContext.Current = context;
+            return new SharedContextLease(context);
+        }
+    }
+
+    private static void ReleaseSharedContext(WgpuContext context)
+    {
+        bool disposeContext = false;
+        lock (s_contextLeaseLock)
+        {
+            if (s_contextLeases.TryGetValue(context, out var state))
+            {
+                state.ReferenceCount--;
+                if (state.ReferenceCount <= 0)
+                {
+                    s_contextLeases.Remove(context);
+                    disposeContext = state.OwnsContext;
+                }
+            }
+        }
+
+        if (disposeContext)
+        {
+            context.Dispose();
+        }
+    }
+
     private void OnThemeChanged()
     {
         WinuiRoot?.NotifyThemeChanged();
@@ -280,19 +370,8 @@ public class ProGpuHostControl : Control
         if (_isInitialized) return;
 
         // 1. Initialize or reuse Headless/Offscreen WebGPU Context
-        var active = WgpuContext.ActiveContexts;
-        if (active.Count > 0)
-        {
-            _wgpuContext = active[0];
-            WgpuContext.Current = _wgpuContext;
-            _ownsContext = false;
-        }
-        else
-        {
-            _wgpuContext = new WgpuContext();
-            _wgpuContext.Initialize(null); // No Silk window; direct offscreen render target
-            _ownsContext = true;
-        }
+        _contextLease = AcquireSharedContext();
+        _wgpuContext = _contextLease.Context;
         StartPolling();
 
         // 2. Initialize Compositor targeting BGRA8Unorm texture formats
@@ -376,7 +455,7 @@ public class ProGpuHostControl : Control
         else
         {
             _isZeroCopySupported = false;
-            _customVisualHandler = new ProGpuCustomVisualHandler(_wgpuContext, _compositor, _ownsContext);
+            _customVisualHandler = new ProGpuCustomVisualHandler(_wgpuContext, _compositor);
             _customVisual = compositor.CreateCustomVisual(_customVisualHandler);
             ElementComposition.SetElementChildVisual(this, _customVisual);
 
@@ -411,12 +490,12 @@ public class ProGpuHostControl : Control
             
             ReleaseSharedResources();
 
-            _compositor?.Dispose();
-            if (_ownsContext)
-            {
-                _wgpuContext?.Dispose();
-            }
         }
+
+        _compositor?.Dispose();
+        _compositor = null;
+        _contextLease?.Dispose();
+        _contextLease = null;
 
         if (_winuiInputState != null)
         {
@@ -436,7 +515,6 @@ public class ProGpuHostControl : Control
             _winuiInputState = null;
         }
 
-        _compositor = null;
         _wgpuContext = null;
 
         _isInitialized = false;
@@ -912,7 +990,6 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 
     private readonly WgpuContext? _wgpuContext;
     private readonly WinuiCompositor? _compositor;
-    private readonly bool _ownsContext;
     private GpuTexture? _offscreenTexture;
     private GpuBuffer* _stagingBuffer;
     private uint _stagingBufferSize;
@@ -929,11 +1006,10 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
     private bool _resourcesDirty;
     private CornerRadius _cornerRadius;
 
-    public ProGpuCustomVisualHandler(WgpuContext? wgpuContext, WinuiCompositor? compositor, bool ownsContext)
+    public ProGpuCustomVisualHandler(WgpuContext? wgpuContext, WinuiCompositor? compositor)
     {
         _wgpuContext = wgpuContext;
         _compositor = compositor;
-        _ownsContext = ownsContext;
         _bufferMapCallback = PfnBufferMapCallback.From(OnBufferMapped);
     }
 
@@ -1175,11 +1251,6 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
         _offscreenTexture?.Dispose();
         _offscreenTexture = null;
 
-        _compositor?.Dispose();
-        if (_ownsContext)
-        {
-            _wgpuContext?.Dispose();
-        }
     }
 }
 
