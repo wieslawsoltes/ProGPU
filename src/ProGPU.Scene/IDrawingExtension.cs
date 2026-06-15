@@ -26,5 +26,6 @@ namespace ProGPU.Scene
         public const int PathOps = 9;
         public const int ImageEffect = 10;
         public const int ShaderToy = 11;
+        public const int WpfShaderEffect = 12;
     }
 }

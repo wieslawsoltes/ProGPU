@@ -524,6 +524,7 @@ public unsafe class Compositor : IDisposable
         RegisterExtension(CompositorBuiltInExtensions.Mesh3D, new Mesh3DExtensionPipeline());
         RegisterExtension(CompositorBuiltInExtensions.ImageEffect, new ImageEffectExtensionPipeline());
         RegisterExtension(CompositorBuiltInExtensions.ShaderToy, new ShaderToyExtensionPipeline());
+        RegisterExtension(CompositorBuiltInExtensions.WpfShaderEffect, new WpfShaderEffectExtensionPipeline());
 
         InitializePipelinesAndBindGroups();
         GpuTexture.OnDisposedWithId += HandleTextureDisposed;
@@ -4721,7 +4722,7 @@ public unsafe class Compositor : IDisposable
         });
     }
 
-    private Sampler* GetTextureSampler(TextureSamplingMode samplingMode)
+    internal Sampler* GetTextureSampler(TextureSamplingMode samplingMode)
     {
         return samplingMode == TextureSamplingMode.Nearest && _nearestTextureSampler != null
             ? _nearestTextureSampler
