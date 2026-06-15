@@ -8,5 +8,10 @@ public abstract class Geometry
 
     public abstract void Draw(ProGPU.Scene.DrawingContext context, ProGPU.Vector.Brush? fill, ProGPU.Vector.Pen? pen);
     public abstract Rect Bounds { get; }
-    internal abstract bool TryGetPathGeometry(out ProGPU.Vector.PathGeometry path, out Matrix4x4 transform);
+    internal virtual bool TryGetPathGeometry(out ProGPU.Vector.PathGeometry path, out Matrix4x4 transform)
+    {
+        path = null!;
+        transform = Matrix4x4.Identity;
+        return false;
+    }
 }
