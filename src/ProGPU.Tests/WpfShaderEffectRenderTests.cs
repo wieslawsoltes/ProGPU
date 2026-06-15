@@ -164,6 +164,54 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
         }
     }
 
+    [Fact]
+    public void WpfShaderEffectVisual_CanBindVisualSourceToNativeSamplerRegister()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(128, 96);
+
+        using var sampler0 = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "WPF Shader Effect Explicit Register 0 Texture");
+        sampler0.WritePixels(new byte[] { 255, 0, 0, 255 });
+
+        var visual = new ShaderEffectSourceVisual(
+            sampler0,
+            shaderKey: "test_visual_wpf_shader_effect_source_register_1",
+            sourceTextureRegisterIndex: 1,
+            shaderSource: @"
+fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
+    let registeredInput = wpf_sample_register(1u, uv);
+    return vec4<f32>(registeredInput.g, registeredInput.r * 0.5, 1.0, registeredInput.a);
+}
+");
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+
+            var effect = Assert.IsType<WpfShaderEffect>(visual.Effect);
+            Assert.False(effect.IsFailed, effect.LastError);
+
+            var pixels = window.ReadPixels();
+            var center = ((44 * 128) + 56) * 4;
+
+            Assert.InRange(pixels[center + 0], 190, 220);
+            Assert.InRange(pixels[center + 1], 20, 35);
+            Assert.InRange(pixels[center + 2], 240, 255);
+            Assert.Equal(255, pixels[center + 3]);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private sealed class ShaderEffectVisual : FrameworkElement
     {
         private readonly WpfShaderEffectParams _effect;
@@ -183,19 +231,24 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
 
     private sealed class ShaderEffectSourceVisual : FrameworkElement
     {
-        public ShaderEffectSourceVisual(GpuTexture conflictingSampler0)
+        public ShaderEffectSourceVisual(
+            GpuTexture conflictingSampler0,
+            string shaderKey = "test_visual_wpf_shader_effect_source_tint",
+            int sourceTextureRegisterIndex = 0,
+            string? shaderSource = null)
         {
             Width = 128f;
             Height = 96f;
             Effect = new WpfShaderEffect(new WpfShaderEffectParams
             {
-                ShaderKey = "test_visual_wpf_shader_effect_source_tint",
+                ShaderKey = shaderKey,
                 SamplingMode = TextureSamplingMode.Nearest,
+                SourceTextureRegisterIndex = sourceTextureRegisterIndex,
                 Samplers = new[]
                 {
                     new WpfShaderEffectSampler(0, conflictingSampler0, TextureSamplingMode.Nearest)
                 },
-                ShaderSource = @"
+                ShaderSource = shaderSource ?? @"
 fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(inputColor.g, inputColor.r * 0.5, 1.0, inputColor.a);
 }

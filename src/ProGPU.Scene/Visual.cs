@@ -481,9 +481,10 @@ public sealed class WpfShaderEffect : EffectBase
         target.Constants = Parameters.Constants;
         target.Samplers = Parameters.Samplers;
         target.SamplingMode = Parameters.SamplingMode;
+        target.SourceTextureRegisterIndex = Parameters.SourceTextureRegisterIndex;
         target.IsFailed = Parameters.IsFailed;
         target.LastError = Parameters.LastError;
-        target.SourceTextureOverridesSampler0 = true;
+        target.SourceTextureOverridesSampler = true;
     }
 }
 

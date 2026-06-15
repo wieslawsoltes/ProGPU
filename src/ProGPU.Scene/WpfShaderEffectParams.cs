@@ -21,7 +21,18 @@ public sealed class WpfShaderEffectParams
     public TextureSamplingMode SamplingMode { get; set; } = TextureSamplingMode.Linear;
     public bool IsFailed { get; set; }
     public string? LastError { get; set; }
-    internal bool SourceTextureOverridesSampler0 { get; set; }
+    private int _sourceTextureRegisterIndex;
+    internal bool SourceTextureOverridesSampler { get; set; }
+
+    public int SourceTextureRegisterIndex
+    {
+        get => _sourceTextureRegisterIndex;
+        set
+        {
+            ValidateSamplerRegister(value);
+            _sourceTextureRegisterIndex = value;
+        }
+    }
 
     public string GetStableShaderKey()
     {
@@ -89,7 +100,7 @@ public sealed class WpfShaderEffectParams
     {
         ValidateSamplerRegister(registerIndex);
 
-        if (registerIndex == 0 && SourceTextureOverridesSampler0 && Texture != null)
+        if (registerIndex == SourceTextureRegisterIndex && SourceTextureOverridesSampler && Texture != null)
         {
             texture = Texture;
             samplingMode = SamplingMode;
@@ -132,6 +143,12 @@ public sealed class WpfShaderEffectParams
                 texture = sampler.Texture;
                 return true;
             }
+        }
+
+        if (Texture != null)
+        {
+            texture = Texture;
+            return true;
         }
 
         texture = null!;
