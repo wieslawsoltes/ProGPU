@@ -176,7 +176,10 @@ public class SKPath : IDisposable
         foreach (var fig in other.Geometry.Figures)
         {
             var newFig = new PathFigure(fig.StartPoint, fig.IsClosed) { IsFilled = fig.IsFilled };
-            newFig.Segments.AddRange(fig.Segments);
+            foreach (var seg in fig.Segments)
+            {
+                newFig.Segments.Add(CloneSegment(seg, Vector2.Zero));
+            }
             Geometry.Figures.Add(newFig);
         }
         _currentFigure = null;
@@ -190,22 +193,7 @@ public class SKPath : IDisposable
             var newFig = new PathFigure(fig.StartPoint + offset, fig.IsClosed) { IsFilled = fig.IsFilled };
             foreach (var seg in fig.Segments)
             {
-                if (seg is LineSegment line)
-                {
-                    newFig.Segments.Add(new LineSegment(line.Point + offset));
-                }
-                else if (seg is QuadraticBezierSegment quad)
-                {
-                    newFig.Segments.Add(new QuadraticBezierSegment(quad.ControlPoint + offset, quad.Point + offset));
-                }
-                else if (seg is CubicBezierSegment cubic)
-                {
-                    newFig.Segments.Add(new CubicBezierSegment(cubic.ControlPoint1 + offset, cubic.ControlPoint2 + offset, cubic.Point + offset));
-                }
-                else if (seg is ArcSegment arc)
-                {
-                    newFig.Segments.Add(new ArcSegment(arc.Point + offset, arc.Size, arc.RotationAngle, arc.IsLargeArc, arc.SweepDirection));
-                }
+                newFig.Segments.Add(CloneSegment(seg, offset));
             }
             Geometry.Figures.Add(newFig);
         }
@@ -217,32 +205,85 @@ public class SKPath : IDisposable
         var m = matrix.ToMatrix4x4();
         foreach (var fig in Geometry.Figures)
         {
+            var sourceCurrentPoint = fig.StartPoint;
             fig.StartPoint = Vector2.Transform(fig.StartPoint, m);
             for (int i = 0; i < fig.Segments.Count; i++)
             {
                 var seg = fig.Segments[i];
                 if (seg is LineSegment line)
                 {
+                    sourceCurrentPoint = line.Point;
                     line.Point = Vector2.Transform(line.Point, m);
                 }
                 else if (seg is QuadraticBezierSegment quad)
                 {
+                    sourceCurrentPoint = quad.Point;
                     quad.ControlPoint = Vector2.Transform(quad.ControlPoint, m);
                     quad.Point = Vector2.Transform(quad.Point, m);
                 }
                 else if (seg is CubicBezierSegment cubic)
                 {
+                    sourceCurrentPoint = cubic.Point;
                     cubic.ControlPoint1 = Vector2.Transform(cubic.ControlPoint1, m);
                     cubic.ControlPoint2 = Vector2.Transform(cubic.ControlPoint2, m);
                     cubic.Point = Vector2.Transform(cubic.Point, m);
                 }
                 else if (seg is ArcSegment arc)
                 {
-                    arc.Point = Vector2.Transform(arc.Point, m);
+                    var sourceEndPoint = arc.Point;
+                    if (ArcSegmentGeometry.TryTransformArcSegment(
+                            sourceCurrentPoint,
+                            arc,
+                            m,
+                            out _,
+                            out var transformedArc))
+                    {
+                        fig.Segments[i] = transformedArc;
+                    }
+                    else
+                    {
+                        fig.Segments[i] = new LineSegment(
+                            Vector2.Transform(arc.Point, m),
+                            arc.IsSmoothJoin,
+                            arc.IsStroked);
+                    }
+
+                    sourceCurrentPoint = sourceEndPoint;
                 }
             }
         }
         _currentFigure = null;
+    }
+
+    private static PathSegment CloneSegment(PathSegment segment, Vector2 offset)
+    {
+        return segment switch
+        {
+            LineSegment line => new LineSegment(
+                line.Point + offset,
+                line.IsSmoothJoin,
+                line.IsStroked),
+            QuadraticBezierSegment quad => new QuadraticBezierSegment(
+                quad.ControlPoint + offset,
+                quad.Point + offset,
+                quad.IsSmoothJoin,
+                quad.IsStroked),
+            CubicBezierSegment cubic => new CubicBezierSegment(
+                cubic.ControlPoint1 + offset,
+                cubic.ControlPoint2 + offset,
+                cubic.Point + offset,
+                cubic.IsSmoothJoin,
+                cubic.IsStroked),
+            ArcSegment arc => new ArcSegment(
+                arc.Point + offset,
+                arc.Size,
+                arc.RotationAngle,
+                arc.IsLargeArc,
+                arc.SweepDirection,
+                arc.IsSmoothJoin,
+                arc.IsStroked),
+            _ => throw new NotSupportedException($"Unsupported SKPath segment type '{segment.GetType().FullName}'.")
+        };
     }
 
     public SKPath Op(SKPath other, SKPathOp op)
