@@ -454,6 +454,16 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    public void PushGeometryClip(PathGeometry geometry, Matrix4x4 transform)
+    {
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushGeometryClip,
+            Path = geometry,
+            Transform = transform
+        });
+    }
+
     public void PopGeometryClip()
     {
         Commands.Add(new RenderCommand { Type = RenderCommandType.PopGeometryClip });

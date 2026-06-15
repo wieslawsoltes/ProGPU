@@ -15,7 +15,8 @@ public class DrawingContext : IDisposable
     {
         Transform,
         Opacity,
-        Clip
+        Clip,
+        GeometryClip
     }
     private readonly Stack<PushType> _pushStack = new();
 
@@ -153,16 +154,34 @@ public class DrawingContext : IDisposable
     public void PushClip(Geometry clipGeometry)
     {
         if (clipGeometry == null) return;
+
+        if (clipGeometry.TryGetPathGeometry(out var clipPath, out var geometryTransform))
+        {
+            var combinedTransform = geometryTransform * CurrentTransform;
+            if (combinedTransform.IsIdentity)
+            {
+                _nativeContext.PushGeometryClip(clipPath);
+            }
+            else
+            {
+                _nativeContext.PushGeometryClip(clipPath, combinedTransform);
+            }
+
+            _pushStack.Push(PushType.GeometryClip);
+            return;
+        }
+
         var bounds = clipGeometry.Bounds;
         var currentT = CurrentTransform;
-        
         var p0 = Vector2.Transform(new Vector2((float)bounds.X, (float)bounds.Y), currentT);
-        var p1 = Vector2.Transform(new Vector2((float)(bounds.X + bounds.Width), (float)(bounds.Y + bounds.Height)), currentT);
-        
-        var minX = MathF.Min(p0.X, p1.X);
-        var minY = MathF.Min(p0.Y, p1.Y);
-        var maxX = MathF.Max(p0.X, p1.X);
-        var maxY = MathF.Max(p0.Y, p1.Y);
+        var p1 = Vector2.Transform(new Vector2((float)(bounds.X + bounds.Width), (float)bounds.Y), currentT);
+        var p2 = Vector2.Transform(new Vector2((float)(bounds.X + bounds.Width), (float)(bounds.Y + bounds.Height)), currentT);
+        var p3 = Vector2.Transform(new Vector2((float)bounds.X, (float)(bounds.Y + bounds.Height)), currentT);
+
+        var minX = MathF.Min(MathF.Min(p0.X, p1.X), MathF.Min(p2.X, p3.X));
+        var minY = MathF.Min(MathF.Min(p0.Y, p1.Y), MathF.Min(p2.Y, p3.Y));
+        var maxX = MathF.Max(MathF.Max(p0.X, p1.X), MathF.Max(p2.X, p3.X));
+        var maxY = MathF.Max(MathF.Max(p0.Y, p1.Y), MathF.Max(p2.Y, p3.Y));
         
         var nativeRect = new ProGPU.Scene.Rect(minX, minY, maxX - minX, maxY - minY);
         
@@ -203,6 +222,9 @@ public class DrawingContext : IDisposable
                 break;
             case PushType.Clip:
                 _nativeContext.PopClip();
+                break;
+            case PushType.GeometryClip:
+                _nativeContext.PopGeometryClip();
                 break;
         }
     }

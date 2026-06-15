@@ -156,8 +156,28 @@ public class PathGeometry : Geometry
 
     public override void Draw(ProGPU.Scene.DrawingContext context, ProGPU.Vector.Brush? fill, ProGPU.Vector.Pen? pen)
     {
+        _ = TryGetPathGeometry(out var internalGeom, out var mat);
+
+        if (mat.IsIdentity)
+        {
+            context.DrawPath(fill, pen, internalGeom);
+        }
+        else
+        {
+            context.DrawPath(fill, pen, internalGeom, mat);
+        }
+    }
+
+    internal override bool TryGetPathGeometry(out ProGPU.Vector.PathGeometry path, out Matrix4x4 transform)
+    {
+        path = ToProGpuPathGeometry();
+        transform = Transform != null ? Transform.Value : Matrix4x4.Identity;
+        return true;
+    }
+
+    internal ProGPU.Vector.PathGeometry ToProGpuPathGeometry()
+    {
         var internalGeom = new ProGPU.Vector.PathGeometry();
-        var mat = Transform != null ? Transform.Value : Matrix4x4.Identity;
         foreach (var fig in Figures)
         {
             var figure = new ProGPU.Vector.PathFigure
@@ -195,14 +215,7 @@ public class PathGeometry : Geometry
             internalGeom.Figures.Add(figure);
         }
 
-        if (mat.IsIdentity)
-        {
-            context.DrawPath(fill, pen, internalGeom);
-        }
-        else
-        {
-            context.DrawPath(fill, pen, internalGeom, mat);
-        }
+        return internalGeom;
     }
 
     public override Rect Bounds

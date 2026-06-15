@@ -12,6 +12,13 @@ public sealed class StreamGeometry : Geometry
 
     public override Rect Bounds => _pathGeometry.Bounds;
 
+    internal override bool TryGetPathGeometry(out ProGPU.Vector.PathGeometry path, out System.Numerics.Matrix4x4 transform)
+    {
+        path = _pathGeometry.ToProGpuPathGeometry();
+        transform = Transform != null ? Transform.Value : System.Numerics.Matrix4x4.Identity;
+        return true;
+    }
+
     public StreamGeometryContext Open()
     {
         _pathGeometry.Figures.Clear();
