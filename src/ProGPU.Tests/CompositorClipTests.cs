@@ -68,6 +68,30 @@ public sealed class CompositorClipTests
         }
     }
 
+    [Fact]
+    public void PopOpacityRestoresAfterZeroOpacityScope()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(80, 80);
+        window.Content = new ZeroOpacityRestoreVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var restored = ReadPixel(pixels, window.Width, x: 40, y: 40);
+
+            Assert.True(
+                restored.Y > 160f && restored.X < 80f && restored.Z < 80f && restored.W == 255f,
+                $"Expected restored green draw after zero-opacity pop, found RGBA({restored.X}, {restored.Y}, {restored.Z}, {restored.W}).");
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static Rect ComputeTransformedBounds(Rect rect, Matrix4x4 transform)
     {
         var p0 = Vector2.Transform(new Vector2(rect.X, rect.Y), transform);
@@ -179,6 +203,26 @@ public sealed class CompositorClipTests
             context.DrawRectangle(_brush, null, new Rect(100f, 30f, 50f, 50f));
             context.PopGeometryClip();
             context.PopOpacity();
+        }
+    }
+
+    private sealed class ZeroOpacityRestoreVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red = new(new Vector4(1f, 0f, 0f, 1f));
+        private readonly SolidColorBrush _green = new(new Vector4(0f, 1f, 0f, 1f));
+
+        public ZeroOpacityRestoreVisual()
+        {
+            Width = 80f;
+            Height = 80f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.PushOpacity(0f);
+            context.DrawRectangle(_red, null, new Rect(10f, 10f, 60f, 60f));
+            context.PopOpacity();
+            context.DrawRectangle(_green, null, new Rect(10f, 10f, 60f, 60f));
         }
     }
 }

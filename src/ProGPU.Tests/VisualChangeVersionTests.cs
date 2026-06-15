@@ -67,6 +67,44 @@ public sealed class VisualChangeVersionTests
     }
 
     [Fact]
+    public void ClipBoundsChangeIncrementsVisualAndParentChangeVersion()
+    {
+        var parent = new ContainerVisual();
+        var child = new Visual();
+        parent.AddChild(child);
+        parent.IsDirty = false;
+        child.IsDirty = false;
+        var parentVersion = parent.ChangeVersion;
+        var childVersion = child.ChangeVersion;
+
+        child.ClipBounds = new Rect(1f, 2f, 30f, 40f);
+
+        Assert.True(child.IsDirty);
+        Assert.True(parent.IsDirty);
+        Assert.True(child.ChangeVersion > childVersion);
+        Assert.True(parent.ChangeVersion > parentVersion);
+    }
+
+    [Fact]
+    public void EffectPropertyChangesAdvanceEffectChangeVersion()
+    {
+        var blur = new BlurEffect(2f);
+        var blurVersion = blur.ChangeVersion;
+        blur.BlurRadius = 4f;
+        Assert.True(blur.ChangeVersion > blurVersion);
+
+        var shadow = new DropShadowEffect(2f);
+        var shadowVersion = shadow.ChangeVersion;
+        shadow.Offset = new Vector2(3f, 4f);
+        Assert.True(shadow.ChangeVersion > shadowVersion);
+
+        var shader = new WpfShaderEffect(new WpfShaderEffectParams());
+        var shaderVersion = shader.ChangeVersion;
+        shader.Padding = 6f;
+        Assert.True(shader.ChangeVersion > shaderVersion);
+    }
+
+    [Fact]
     public void ChildCollectionChangesIncrementParentChangeVersion()
     {
         var parent = new ContainerVisual();

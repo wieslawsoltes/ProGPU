@@ -23,6 +23,7 @@ public class Visual
     private Vector3 _centerPoint = Vector3.Zero;
     private Vector2 _renderTransformOrigin = new Vector2(0.5f, 0.5f);
     private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new();
+    private Rect? _clipBounds;
 
     private EffectBase? _effect;
     public EffectBase? Effect
@@ -208,7 +209,18 @@ public class Visual
     // Composition layer texture view
     public GpuTexture? LayerTexture { get; internal set; }
 
-    public Rect? ClipBounds { get; set; }
+    public Rect? ClipBounds
+    {
+        get => _clipBounds;
+        set
+        {
+            if (_clipBounds != value)
+            {
+                _clipBounds = value;
+                Invalidate();
+            }
+        }
+    }
 
     public void Invalidate()
     {
@@ -470,10 +482,32 @@ public class DrawingVisual : Visual
 
 public abstract class EffectBase
 {
+    private long _changeVersion;
+
+    public long ChangeVersion => _changeVersion;
+
+    protected void Invalidate()
+    {
+        unchecked
+        {
+            _changeVersion++;
+            if (_changeVersion < 0)
+            {
+                _changeVersion = 1;
+            }
+        }
+    }
+
+    internal virtual int GetRenderCacheKey()
+    {
+        return HashCode.Combine(GetType(), ChangeVersion);
+    }
 }
 
 public sealed class WpfShaderEffect : EffectBase
 {
+    private float _padding;
+
     public WpfShaderEffect(WpfShaderEffectParams parameters)
     {
         Parameters = parameters ?? throw new ArgumentNullException(nameof(parameters));
@@ -481,7 +515,18 @@ public sealed class WpfShaderEffect : EffectBase
 
     public WpfShaderEffectParams Parameters { get; }
 
-    public float Padding { get; set; }
+    public float Padding
+    {
+        get => _padding;
+        set
+        {
+            if (_padding != value)
+            {
+                _padding = value;
+                Invalidate();
+            }
+        }
+    }
 
     public bool IsFailed => Parameters.IsFailed;
 
@@ -507,11 +552,34 @@ public sealed class WpfShaderEffect : EffectBase
         target.LastError = Parameters.LastError;
         target.SourceTextureOverridesSampler = true;
     }
+
+    internal override int GetRenderCacheKey()
+    {
+        var hash = new HashCode();
+        hash.Add(GetType());
+        hash.Add(ChangeVersion);
+        hash.Add(Padding);
+        Parameters.AddRenderCacheKey(ref hash);
+        return hash.ToHashCode();
+    }
 }
 
 public class BlurEffect : EffectBase
 {
-    public float BlurRadius { get; set; }
+    private float _blurRadius;
+
+    public float BlurRadius
+    {
+        get => _blurRadius;
+        set
+        {
+            if (_blurRadius != value)
+            {
+                _blurRadius = value;
+                Invalidate();
+            }
+        }
+    }
 
     public BlurEffect(float blurRadius = 5f)
     {
@@ -521,9 +589,48 @@ public class BlurEffect : EffectBase
 
 public class DropShadowEffect : EffectBase
 {
-    public float BlurRadius { get; set; }
-    public Vector2 Offset { get; set; }
-    public Vector4 Color { get; set; }
+    private float _blurRadius;
+    private Vector2 _offset;
+    private Vector4 _color;
+
+    public float BlurRadius
+    {
+        get => _blurRadius;
+        set
+        {
+            if (_blurRadius != value)
+            {
+                _blurRadius = value;
+                Invalidate();
+            }
+        }
+    }
+
+    public Vector2 Offset
+    {
+        get => _offset;
+        set
+        {
+            if (_offset != value)
+            {
+                _offset = value;
+                Invalidate();
+            }
+        }
+    }
+
+    public Vector4 Color
+    {
+        get => _color;
+        set
+        {
+            if (_color != value)
+            {
+                _color = value;
+                Invalidate();
+            }
+        }
+    }
 
     public DropShadowEffect(float blurRadius = 5f, Vector2 offset = default, Vector4 color = default)
     {

@@ -160,6 +160,36 @@ public sealed class WpfShaderEffectParams
         return false;
     }
 
+    internal void AddRenderCacheKey(ref HashCode hash)
+    {
+        hash.Add(GetStableShaderKey());
+        hash.Add(GetShaderSourceOrDefault());
+        hash.Add(SamplingMode);
+        hash.Add(IsFailed);
+        hash.Add(LastError);
+        hash.Add(SourceTextureRegisterIndex);
+        hash.Add(Texture?.Id ?? 0UL);
+        hash.Add(Rect.X);
+        hash.Add(Rect.Y);
+        hash.Add(Rect.Width);
+        hash.Add(Rect.Height);
+
+        hash.Add(Constants.Length);
+        for (int i = 0; i < Constants.Length; i++)
+        {
+            hash.Add(Constants[i]);
+        }
+
+        hash.Add(Samplers.Length);
+        for (int i = 0; i < Samplers.Length; i++)
+        {
+            var sampler = Samplers[i];
+            hash.Add(sampler.RegisterIndex);
+            hash.Add(sampler.SamplingMode);
+            hash.Add(sampler.Texture?.Id ?? 0UL);
+        }
+    }
+
     internal static void ValidateSamplerRegister(int registerIndex)
     {
         if ((uint)registerIndex >= MaxSamplerRegisterCount)

@@ -77,11 +77,43 @@ public class WpfShaderEffectParamsTests
         Assert.Equal("legacy_invert_ps_2_0", parameters.GetStableShaderKey());
     }
 
+    [Fact]
+    public void VisualShaderEffectCacheKeyTracksMutableParameters()
+    {
+        var parameters = new WpfShaderEffectParams
+        {
+            Constants = new[] { 1f, 2f, 3f },
+            Samplers = new[]
+            {
+                new WpfShaderEffectSampler(1, null, TextureSamplingMode.Linear)
+            }
+        };
+        var effect = new WpfShaderEffect(parameters);
+
+        var initialKey = GetRenderCacheKey(effect);
+        parameters.Constants[1] = 20f;
+        var constantsKey = GetRenderCacheKey(effect);
+        parameters.Samplers[0].SamplingMode = TextureSamplingMode.Nearest;
+        var samplerKey = GetRenderCacheKey(effect);
+
+        Assert.NotEqual(initialKey, constantsKey);
+        Assert.NotEqual(constantsKey, samplerKey);
+    }
+
     [Theory]
     [InlineData(-1)]
     [InlineData(WpfShaderEffectParams.MaxSamplerRegisterCount)]
     public void RejectsSamplerRegistersOutsideWpfBank(int registerIndex)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new WpfShaderEffectSampler(registerIndex, null));
+    }
+
+    private static int GetRenderCacheKey(WpfShaderEffect effect)
+    {
+        var method = typeof(WpfShaderEffect).GetMethod(
+            "GetRenderCacheKey",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (int)method.Invoke(effect, null)!;
     }
 }

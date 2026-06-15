@@ -400,6 +400,7 @@ public unsafe class Compositor : IDisposable
 
     private readonly ComputeAccelerator _compute;
     private readonly Dictionary<Visual, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)> _effectTextures = new();
+    private readonly Dictionary<Visual, int> _effectCacheKeys = new();
     private readonly Dictionary<Visual, WpfShaderEffectParams> _wpfShaderEffectDrawParams = new();
     private readonly HashSet<Visual> _elementsRenderingEffects = new();
     private readonly HashSet<Visual> _elementsRenderingLayers = new();
@@ -1762,6 +1763,8 @@ public unsafe class Compositor : IDisposable
                         textures.Temp.Dispose();
                         textures.Destination.Dispose();
                     }
+                    _effectCacheKeys.Remove(fe);
+                    _wpfShaderEffectDrawParams.Remove(fe);
                 }
             }
         }
@@ -1817,8 +1820,12 @@ public unsafe class Compositor : IDisposable
     {
         if (_opacityStack.Count > 0)
         {
-            float op = _opacityStack.Pop();
-            if (op > 0f) _activeOpacity /= op;
+            _opacityStack.Pop();
+            _activeOpacity = 1.0f;
+            foreach (var opacity in _opacityStack)
+            {
+                _activeOpacity *= opacity;
+            }
         }
         else
         {
@@ -5162,21 +5169,23 @@ public unsafe class Compositor : IDisposable
     private void ApplyAndDrawEffect(Visual fe, Matrix4x4 parentTransform)
     {
         if (fe.Size.X <= 0f || fe.Size.Y <= 0f) return;
+        var effect = fe.Effect;
+        if (effect == null) return;
 
         float blurRadius = 0f;
         float padding = 0f;
 
-        if (fe.Effect is BlurEffect blur)
+        if (effect is BlurEffect blur)
         {
             blurRadius = blur.BlurRadius;
             padding = MathF.Ceiling(blurRadius * 2f);
         }
-        else if (fe.Effect is DropShadowEffect shadow)
+        else if (effect is DropShadowEffect shadow)
         {
             blurRadius = shadow.BlurRadius;
             padding = MathF.Ceiling(blurRadius * 2f);
         }
-        else if (fe.Effect is WpfShaderEffect shaderEffect)
+        else if (effect is WpfShaderEffect shaderEffect)
         {
             padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
         }
@@ -5186,7 +5195,9 @@ public unsafe class Compositor : IDisposable
         uint h = (uint)(fe.Size.Y + padding * 2f);
 
         bool hasCached = _effectTextures.TryGetValue(fe, out var textures);
-        bool needsUpdate = !hasCached || fe.IsDirty;
+        int effectCacheKey = effect.GetRenderCacheKey();
+        bool hasCachedEffectKey = _effectCacheKeys.TryGetValue(fe, out var cachedEffectKey);
+        bool needsUpdate = !hasCached || fe.IsDirty || !hasCachedEffectKey || cachedEffectKey != effectCacheKey;
 
         if (needsUpdate)
         {
@@ -5231,6 +5242,7 @@ public unsafe class Compositor : IDisposable
                 _compute.ApplyDropShadow(textures.Source, textures.Temp, textures.Destination, Vector2.Zero, shadowEffect.Color, shadowEffect.BlurRadius);
             }
 
+            _effectCacheKeys[fe] = effectCacheKey;
         }
 
         // Draw the cached texture onto the main swapchain
