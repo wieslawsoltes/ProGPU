@@ -260,7 +260,10 @@ public class PathGeometry : Geometry
 
     public ProGPU.Vector.PathGeometry GetTransformedInternalGeometry()
     {
-        var geom = new ProGPU.Vector.PathGeometry();
+        var geom = new ProGPU.Vector.PathGeometry
+        {
+            FillRule = ToVectorFillRule(FillRule)
+        };
         foreach (var figure in Figures)
         {
             var sourceCurrentPoint = figure.StartPoint;
@@ -417,5 +420,12 @@ public class PathGeometry : Geometry
             arc.RotationAngle,
             arc.IsLargeArc,
             (ProGPU.Vector.SweepDirection)(int)arc.SweepDirection);
+    }
+
+    private static ProGPU.Vector.FillRule ToVectorFillRule(FillRule fillRule)
+    {
+        return fillRule == FillRule.EvenOdd
+            ? ProGPU.Vector.FillRule.EvenOdd
+            : ProGPU.Vector.FillRule.Nonzero;
     }
 }

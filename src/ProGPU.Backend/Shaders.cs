@@ -1068,7 +1068,7 @@ struct PathRecord {
     minY: f32,
     maxX: f32,
     maxY: f32,
-    _pad0: u32,
+    fillRule: u32,
     _pad1: u32,
 };
 
@@ -1293,6 +1293,9 @@ fn is_point_inside(p: vec2<f32>, record: PathRecord) -> bool {
                 }
             }
         }
+    }
+    if (record.fillRule == 0u) {
+        return abs(winding) % 2 == 1;
     }
     return winding != 0;
 }
@@ -1550,7 +1553,7 @@ struct PathRecord {
     minY: f32,
     maxX: f32,
     maxY: f32,
-    _pad0: u32,
+    fillRule: u32,
     _pad1: u32,
 };
 
@@ -1733,6 +1736,9 @@ fn is_point_inside_A(p: vec2<f32>) -> bool {
             }
         }
     }
+    if (recordA.fillRule == 0u) {
+        return abs(winding) % 2 == 1;
+    }
     return winding != 0;
 }
 
@@ -1885,6 +1891,9 @@ fn is_point_inside_B(p: vec2<f32>) -> bool {
                 }
             }
         }
+    }
+    if (recordB.fillRule == 0u) {
+        return abs(winding) % 2 == 1;
     }
     return winding != 0;
 }
@@ -2183,7 +2192,7 @@ struct PathRecord {
     minY: f32,
     maxX: f32,
     maxY: f32,
-    _pad0: u32,
+    fillRule: u32,
     _pad1: u32,
 };
 
@@ -2204,6 +2213,8 @@ struct OutputSegments {
 fn cs_main() {
     destRecord.startSegment = 0u;
     destRecord.segmentCount = destSegments.count;
+    destRecord.fillRule = 1u;
+    destRecord._pad1 = 0u;
     
     let op = uniforms.op;
     if (op == 0u) { // Difference (A - B)

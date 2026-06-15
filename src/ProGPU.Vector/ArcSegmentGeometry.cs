@@ -240,7 +240,8 @@ public static class ArcSegmentGeometry
                 NormalizeRotationAngle(arc.RotationAngle + rotationDegrees),
                 arc.IsLargeArc,
                 arc.SweepDirection,
-                arc.IsSmoothJoin);
+                arc.IsSmoothJoin,
+                arc.IsStroked);
             return true;
         }
 
@@ -252,7 +253,8 @@ public static class ArcSegmentGeometry
                 NormalizeRotationAngle(arc.RotationAngle),
                 arc.IsLargeArc,
                 arc.SweepDirection,
-                arc.IsSmoothJoin);
+                arc.IsSmoothJoin,
+                arc.IsStroked);
             return true;
         }
 
@@ -299,7 +301,8 @@ public static class ArcSegmentGeometry
             transformedRotationAngle,
             arc.IsLargeArc,
             sweepDirection,
-            arc.IsSmoothJoin);
+            arc.IsSmoothJoin,
+            arc.IsStroked);
         return true;
     }
 
@@ -480,7 +483,8 @@ public static class ArcSegmentGeometry
             arc.RotationAngle,
             MathF.Abs(subDeltaTheta) > MathF.PI,
             arc.SweepDirection,
-            arc.IsSmoothJoin);
+            arc.IsSmoothJoin,
+            arc.IsStroked);
         return true;
     }
 

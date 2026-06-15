@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using VectorLineSegment = ProGPU.Vector.LineSegment;
+using VectorFillRule = ProGPU.Vector.FillRule;
 using VectorPathFigure = ProGPU.Vector.PathFigure;
 using VectorPathGeometry = ProGPU.Vector.PathGeometry;
 using VectorPrimitivePathGeometry = ProGPU.Vector.PrimitivePathGeometry;
@@ -189,7 +190,7 @@ public sealed class GeometryGroup : Geometry
     {
         if (Children.Count == 0)
         {
-            return new VectorPathGeometry();
+            return new VectorPathGeometry { FillRule = ToVectorFillRule(FillRule) };
         }
 
         var childPaths = new List<VectorPathGeometry>(Children.Count);
@@ -216,15 +217,18 @@ public sealed class GeometryGroup : Geometry
 
         if (childPaths.Count == 0)
         {
-            return new VectorPathGeometry();
+            return new VectorPathGeometry { FillRule = ToVectorFillRule(FillRule) };
         }
 
         if (!canFlatten)
         {
-            return FoldAsUnion(childPaths);
+            return FoldAsUnion(childPaths, ToVectorFillRule(FillRule));
         }
 
-        var flattened = new VectorPathGeometry();
+        var flattened = new VectorPathGeometry
+        {
+            FillRule = ToVectorFillRule(FillRule)
+        };
         foreach (var childPath in childPaths)
         {
             var clonedPath = childPath.CreateTransformed(Matrix4x4.Identity);
@@ -237,9 +241,10 @@ public sealed class GeometryGroup : Geometry
         return flattened;
     }
 
-    private static VectorPathGeometry FoldAsUnion(IReadOnlyList<VectorPathGeometry> paths)
+    private static VectorPathGeometry FoldAsUnion(IReadOnlyList<VectorPathGeometry> paths, VectorFillRule fillRule)
     {
-        var combined = paths[0];
+        var combined = paths[0].CreateTransformed(Matrix4x4.Identity);
+        combined.FillRule = fillRule;
         for (var i = 1; i < paths.Count; i++)
         {
             combined = new VectorPathGeometry
@@ -247,10 +252,18 @@ public sealed class GeometryGroup : Geometry
                 IsCombined = true,
                 PathA = combined,
                 PathB = paths[i],
-                Op = 2
+                Op = 2,
+                FillRule = fillRule
             };
         }
 
         return combined;
+    }
+
+    private static VectorFillRule ToVectorFillRule(FillRule fillRule)
+    {
+        return fillRule == FillRule.EvenOdd
+            ? VectorFillRule.EvenOdd
+            : VectorFillRule.Nonzero;
     }
 }

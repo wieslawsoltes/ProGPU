@@ -223,6 +223,20 @@ public class ArcPathCompilerTests
     }
 
     [Fact]
+    public void PathAtlasCompilerCarriesFillRuleIntoGpuRecord()
+    {
+        var (records, _) = PathAtlas.CompilePath(
+            CreateFillRulePath(FillRule.EvenOdd),
+            out _,
+            out _,
+            out _,
+            out _);
+
+        var record = Assert.Single(records);
+        Assert.Equal((uint)FillRule.EvenOdd, record.FillRule);
+    }
+
+    [Fact]
     public void PathOperationCompilerPreservesNativeArcSegmentAndExactBounds()
     {
         var (records, segments) = PathOpGeometrySolver.CompilePath(
@@ -252,6 +266,20 @@ public class ArcPathCompilerTests
         AssertClose(maxY, record.MaxY);
     }
 
+    [Fact]
+    public void PathOperationCompilerCarriesFillRuleIntoGpuRecord()
+    {
+        var (records, _) = PathOpGeometrySolver.CompilePath(
+            CreateFillRulePath(FillRule.Nonzero),
+            out _,
+            out _,
+            out _,
+            out _);
+
+        var record = Assert.Single(records);
+        Assert.Equal((uint)FillRule.Nonzero, record.FillRule);
+    }
+
     private static PathGeometry CreatePartialCircleArcPath()
     {
         const float radius = 10f;
@@ -265,6 +293,16 @@ public class ArcPathCompilerTests
             rotationAngle: 0f,
             isLargeArc: false,
             SweepDirection.Clockwise));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    private static PathGeometry CreateFillRulePath(FillRule fillRule)
+    {
+        var path = new PathGeometry { FillRule = fillRule };
+        var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(10f, 0f)));
+        figure.Segments.Add(new LineSegment(new Vector2(0f, 10f)));
         path.Figures.Add(figure);
         return path;
     }

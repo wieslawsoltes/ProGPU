@@ -63,6 +63,26 @@ public class ArcStrokeShaderTests
         }
     }
 
+    [Fact]
+    public void NonStrokedPathSegment_DoesNotEmitStrokeVertices()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(180, 80);
+        window.Content = new NonStrokedLineVisual();
+
+        try
+        {
+            window.Render();
+
+            Assert.DoesNotContain(window.Compositor.VectorVertices, vertex => DecodeShapeType(vertex.ShapeType) == 3);
+            Assert.Empty(window.Compositor.VectorIndices);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static int DecodeShapeType(float shapeType)
     {
         if (shapeType >= 1000f)
@@ -140,6 +160,31 @@ public class ArcStrokeShaderTests
                 pen: new Pen(new SolidColorBrush(new Vector4(0.9f, 0.25f, 0.1f, 1f)), 7f),
                 path,
                 transform);
+        }
+    }
+
+    private sealed class NonStrokedLineVisual : FrameworkElement
+    {
+        public NonStrokedLineVisual()
+        {
+            Width = 180f;
+            Height = 80f;
+        }
+
+        public override void OnRender(ProGPU.Scene.DrawingContext context)
+        {
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(20f, 40f))
+            {
+                IsFilled = false
+            };
+            figure.Segments.Add(new LineSegment(new Vector2(160f, 40f), isStroked: false));
+            path.Figures.Add(figure);
+
+            context.DrawPath(
+                brush: null,
+                pen: new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 1f)), 6f),
+                path);
         }
     }
 }

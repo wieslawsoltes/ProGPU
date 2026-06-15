@@ -7,6 +7,7 @@ namespace System.Windows.Media;
 public abstract class PathSegment
 {
     public bool IsSmoothJoin { get; set; }
+    public bool IsStroked { get; set; } = true;
 }
 
 public class LineSegment : PathSegment
@@ -14,10 +15,11 @@ public class LineSegment : PathSegment
     public Vector2 Point { get; set; }
 
     public LineSegment() { }
-    public LineSegment(Vector2 point, bool isSmoothJoin = false)
+    public LineSegment(Vector2 point, bool isSmoothJoin = false, bool isStroked = true)
     {
         Point = point;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -27,11 +29,12 @@ public class QuadraticBezierSegment : PathSegment
     public Vector2 Point2 { get; set; }
 
     public QuadraticBezierSegment() { }
-    public QuadraticBezierSegment(Vector2 point1, Vector2 point2, bool isSmoothJoin = false)
+    public QuadraticBezierSegment(Vector2 point1, Vector2 point2, bool isSmoothJoin = false, bool isStroked = true)
     {
         Point1 = point1;
         Point2 = point2;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -42,12 +45,13 @@ public class BezierSegment : PathSegment
     public Vector2 Point3 { get; set; }
 
     public BezierSegment() { }
-    public BezierSegment(Vector2 point1, Vector2 point2, Vector2 point3, bool isSmoothJoin = false)
+    public BezierSegment(Vector2 point1, Vector2 point2, Vector2 point3, bool isSmoothJoin = false, bool isStroked = true)
     {
         Point1 = point1;
         Point2 = point2;
         Point3 = point3;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -67,7 +71,8 @@ public class ArcSegment : PathSegment
         float rotationAngle,
         bool isLargeArc,
         SweepDirection sweepDirection,
-        bool isSmoothJoin = false)
+        bool isSmoothJoin = false,
+        bool isStroked = true)
     {
         Point = point;
         Size = size;
@@ -75,6 +80,7 @@ public class ArcSegment : PathSegment
         IsLargeArc = isLargeArc;
         SweepDirection = sweepDirection;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -121,14 +127,15 @@ public class PathGeometry : Geometry
             {
                 if (seg is ProGPU.Vector.LineSegment line)
                 {
-                    figure.Segments.Add(new LineSegment(new Vector2(line.Point.X, line.Point.Y), line.IsSmoothJoin));
+                    figure.Segments.Add(new LineSegment(new Vector2(line.Point.X, line.Point.Y), line.IsSmoothJoin, line.IsStroked));
                 }
                 else if (seg is ProGPU.Vector.QuadraticBezierSegment quad)
                 {
                     figure.Segments.Add(new QuadraticBezierSegment(
                         new Vector2(quad.ControlPoint.X, quad.ControlPoint.Y),
                         new Vector2(quad.Point.X, quad.Point.Y),
-                        quad.IsSmoothJoin));
+                        quad.IsSmoothJoin,
+                        quad.IsStroked));
                 }
                 else if (seg is ProGPU.Vector.CubicBezierSegment cubic)
                 {
@@ -136,7 +143,8 @@ public class PathGeometry : Geometry
                         new Vector2(cubic.ControlPoint1.X, cubic.ControlPoint1.Y),
                         new Vector2(cubic.ControlPoint2.X, cubic.ControlPoint2.Y),
                         new Vector2(cubic.Point.X, cubic.Point.Y),
-                        cubic.IsSmoothJoin));
+                        cubic.IsSmoothJoin,
+                        cubic.IsStroked));
                 }
                 else if (seg is ProGPU.Vector.ArcSegment arc)
                 {
@@ -146,7 +154,8 @@ public class PathGeometry : Geometry
                         arc.RotationAngle,
                         arc.IsLargeArc,
                         (SweepDirection)(int)arc.SweepDirection,
-                        arc.IsSmoothJoin));
+                        arc.IsSmoothJoin,
+                        arc.IsStroked));
                 }
             }
             geom.Figures.Add(figure);
@@ -205,7 +214,10 @@ public class PathGeometry : Geometry
 
     internal ProGPU.Vector.PathGeometry ToProGpuPathGeometry(bool includeUnfilledFigures = true)
     {
-        var internalGeom = new ProGPU.Vector.PathGeometry();
+        var internalGeom = new ProGPU.Vector.PathGeometry
+        {
+            FillRule = ToVectorFillRule(FillRule)
+        };
         foreach (var fig in Figures)
         {
             if (!includeUnfilledFigures && !fig.IsFilled)
@@ -223,14 +235,15 @@ public class PathGeometry : Geometry
             {
                 if (seg is LineSegment line)
                 {
-                    figure.Segments.Add(new ProGPU.Vector.LineSegment(line.Point, line.IsSmoothJoin));
+                    figure.Segments.Add(new ProGPU.Vector.LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked));
                 }
                 else if (seg is QuadraticBezierSegment quad)
                 {
                     figure.Segments.Add(new ProGPU.Vector.QuadraticBezierSegment(
                         quad.Point1,
                         quad.Point2,
-                        quad.IsSmoothJoin));
+                        quad.IsSmoothJoin,
+                        quad.IsStroked));
                 }
                 else if (seg is BezierSegment cubic)
                 {
@@ -238,7 +251,8 @@ public class PathGeometry : Geometry
                         cubic.Point1,
                         cubic.Point2,
                         cubic.Point3,
-                        cubic.IsSmoothJoin));
+                        cubic.IsSmoothJoin,
+                        cubic.IsStroked));
                 }
                 else if (seg is ArcSegment arc)
                 {
@@ -268,6 +282,14 @@ public class PathGeometry : Geometry
             arc.RotationAngle,
             arc.IsLargeArc,
             (ProGPU.Vector.SweepDirection)(int)arc.SweepDirection,
-            arc.IsSmoothJoin);
+            arc.IsSmoothJoin,
+            arc.IsStroked);
+    }
+
+    private static ProGPU.Vector.FillRule ToVectorFillRule(FillRule fillRule)
+    {
+        return fillRule == FillRule.EvenOdd
+            ? ProGPU.Vector.FillRule.EvenOdd
+            : ProGPU.Vector.FillRule.Nonzero;
     }
 }

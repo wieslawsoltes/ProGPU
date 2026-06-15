@@ -2527,6 +2527,16 @@ public unsafe class Compositor : IDisposable
                 foreach (var segment in figure.Segments)
                 {
                     var segmentStart = currentPoint;
+                    if (!segment.IsStroked)
+                    {
+                        if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
+                        {
+                            currentPoint = skippedSegmentEndPoint;
+                        }
+
+                        continue;
+                    }
+
                     if (segment is LineSegment)
                     {
                         maxVertices += 4;
@@ -2599,6 +2609,41 @@ public unsafe class Compositor : IDisposable
                 foreach (var segment in figure.Segments)
                 {
                     var segmentStart = currentPoint;
+                    if (!segment.IsStroked)
+                    {
+                        if (!figure.IsClosed && hasLastCapCandidate)
+                        {
+                            AppendStrokeSegmentCapTriangles(
+                                verticesSpan,
+                                indicesSpan,
+                                ref currentVertexCount,
+                                ref currentIndexCount,
+                                cmd.Pen,
+                                penSolidColor,
+                                penBrushIdx,
+                                Vector2.Transform(lastCapCenter, transform),
+                                TransformDirection(lastCapDirection, transform),
+                                cmd.IsEdgeAliased,
+                                isStart: false);
+                        }
+
+                        if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
+                        {
+                            currentPoint = skippedSegmentEndPoint;
+                        }
+
+                        firstSegmentStartDirection = default;
+                        previousSegmentEndDirection = default;
+                        firstSegmentSmoothJoin = false;
+                        hasFirstSegmentStartDirection = false;
+                        hasPreviousSegmentEndDirection = false;
+                        hasLastCapCandidate = false;
+                        lastCapCenter = default;
+                        lastCapDirection = default;
+                        isFirstSegment = true;
+                        continue;
+                    }
+
                     var hasSegmentStartDirection = TryGetPathSegmentStartDirection(segment, segmentStart, out var segmentStartDirection);
                     if (isFirstSegment && hasSegmentStartDirection)
                     {
@@ -2912,6 +2957,19 @@ public unsafe class Compositor : IDisposable
         foreach (var segment in figure.Segments)
         {
             var segmentStart = currentPoint;
+            if (!segment.IsStroked)
+            {
+                if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
+                {
+                    currentPoint = skippedSegmentEndPoint;
+                }
+
+                hasFirstSegmentStartDirection = false;
+                hasPreviousSegmentEndDirection = false;
+                isFirstSegment = true;
+                continue;
+            }
+
             var hasSegmentStartDirection = TryGetPathSegmentStartDirection(segment, segmentStart, out var segmentStartDirection);
             if (isFirstSegment && hasSegmentStartDirection)
             {
@@ -2973,33 +3031,46 @@ public unsafe class Compositor : IDisposable
         }
 
         var currentPoint = figure.StartPoint;
-        var isFirstSegment = true;
-        var firstSegmentHasCapDirection = false;
-        var lastSegmentHasCapDirection = false;
+        var isFirstSegmentInSubpath = true;
+        var pendingEndCap = false;
+        var capCount = 0;
 
         foreach (var segment in figure.Segments)
         {
-            if (isFirstSegment && TryGetPathSegmentStartDirection(segment, currentPoint, out _))
+            if (!segment.IsStroked)
             {
-                firstSegmentHasCapDirection = true;
+                if (pendingEndCap && endLineCap != PenLineCap.Flat)
+                {
+                    capCount++;
+                }
+
+                pendingEndCap = false;
+                isFirstSegmentInSubpath = true;
+                if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
+                {
+                    currentPoint = skippedSegmentEndPoint;
+                }
+
+                continue;
             }
 
-            lastSegmentHasCapDirection = TryGetPathSegmentEndDirection(segment, currentPoint, out _);
+            if (isFirstSegmentInSubpath &&
+                startLineCap != PenLineCap.Flat &&
+                TryGetPathSegmentStartDirection(segment, currentPoint, out _))
+            {
+                capCount++;
+            }
+
+            pendingEndCap = TryGetPathSegmentEndDirection(segment, currentPoint, out _);
             if (TryGetPathSegmentEndPoint(segment, out var segmentEndPoint))
             {
                 currentPoint = segmentEndPoint;
             }
 
-            isFirstSegment = false;
+            isFirstSegmentInSubpath = false;
         }
 
-        int capCount = 0;
-        if (firstSegmentHasCapDirection && startLineCap != PenLineCap.Flat)
-        {
-            capCount++;
-        }
-
-        if (lastSegmentHasCapDirection && endLineCap != PenLineCap.Flat)
+        if (pendingEndCap && endLineCap != PenLineCap.Flat)
         {
             capCount++;
         }

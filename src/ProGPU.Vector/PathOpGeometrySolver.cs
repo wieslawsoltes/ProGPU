@@ -24,10 +24,12 @@ namespace ProGPU.Vector
             {
                 if (op == 2 || op == 3) // Union (2) or XOR (3)
                 {
+                    result.FillRule = pathB.FillRule;
                     CopyFigures(pathB.Figures, result.Figures);
                 }
                 else if (op == 4) // Reverse Difference (4)
                 {
+                    result.FillRule = pathB.FillRule;
                     CopyFigures(pathB.Figures, result.Figures);
                 }
                 return result;
@@ -37,6 +39,7 @@ namespace ProGPU.Vector
             {
                 if (op == 0 || op == 2 || op == 3) // Difference (0), Union (2) or XOR (3)
                 {
+                    result.FillRule = pathA.FillRule;
                     CopyFigures(pathA.Figures, result.Figures);
                 }
                 return result;
@@ -66,12 +69,20 @@ namespace ProGPU.Vector
 
                 if (recsA.Length == 0 || segsA.Length == 0)
                 {
-                    if (op == 2 || op == 3 || op == 4) CopyFigures(pathB.Figures, result.Figures);
+                    if (op == 2 || op == 3 || op == 4)
+                    {
+                        result.FillRule = pathB.FillRule;
+                        CopyFigures(pathB.Figures, result.Figures);
+                    }
                     return result;
                 }
                 if (recsB.Length == 0 || segsB.Length == 0)
                 {
-                    if (op == 0 || op == 2 || op == 3) CopyFigures(pathA.Figures, result.Figures);
+                    if (op == 0 || op == 2 || op == 3)
+                    {
+                        result.FillRule = pathA.FillRule;
+                        CopyFigures(pathA.Figures, result.Figures);
+                    }
                     return result;
                 }
 
@@ -288,10 +299,10 @@ namespace ProGPU.Vector
                 var newFigure = new PathFigure(figure.StartPoint, figure.IsClosed) { IsFilled = figure.IsFilled };
                 foreach (var seg in figure.Segments)
                 {
-                    if (seg is LineSegment line) newFigure.Segments.Add(new LineSegment(line.Point, line.IsSmoothJoin));
-                    else if (seg is QuadraticBezierSegment quad) newFigure.Segments.Add(new QuadraticBezierSegment(quad.ControlPoint, quad.Point, quad.IsSmoothJoin));
-                    else if (seg is CubicBezierSegment cubic) newFigure.Segments.Add(new CubicBezierSegment(cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsSmoothJoin));
-                    else if (seg is ArcSegment arc) newFigure.Segments.Add(new ArcSegment(arc.Point, arc.Size, arc.RotationAngle, arc.IsLargeArc, arc.SweepDirection, arc.IsSmoothJoin));
+                    if (seg is LineSegment line) newFigure.Segments.Add(new LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked));
+                    else if (seg is QuadraticBezierSegment quad) newFigure.Segments.Add(new QuadraticBezierSegment(quad.ControlPoint, quad.Point, quad.IsSmoothJoin, quad.IsStroked));
+                    else if (seg is CubicBezierSegment cubic) newFigure.Segments.Add(new CubicBezierSegment(cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsSmoothJoin, cubic.IsStroked));
+                    else if (seg is ArcSegment arc) newFigure.Segments.Add(new ArcSegment(arc.Point, arc.Size, arc.RotationAngle, arc.IsLargeArc, arc.SweepDirection, arc.IsSmoothJoin, arc.IsStroked));
                 }
                 dest.Add(newFigure);
             }
@@ -518,7 +529,8 @@ namespace ProGPU.Vector
                 MinX = minX,
                 MinY = minY,
                 MaxX = maxX,
-                MaxY = maxY
+                MaxY = maxY,
+                FillRule = (uint)path.FillRule
             };
 
             return (records, segments.ToArray());

@@ -62,7 +62,7 @@ public static class BezierSegmentGeometry
         if (startParameter <= Epsilon)
         {
             subStart = left0;
-            subSegment = new QuadraticBezierSegment(left1, left2, segment.IsSmoothJoin);
+            subSegment = new QuadraticBezierSegment(left1, left2, segment.IsSmoothJoin, segment.IsStroked);
             return HasQuadraticLength(subStart, subSegment);
         }
 
@@ -79,7 +79,7 @@ public static class BezierSegmentGeometry
             out var right2);
 
         subStart = right0;
-        subSegment = new QuadraticBezierSegment(right1, right2, segment.IsSmoothJoin);
+        subSegment = new QuadraticBezierSegment(right1, right2, segment.IsSmoothJoin, segment.IsStroked);
         return HasQuadraticLength(subStart, subSegment);
     }
 
@@ -122,7 +122,7 @@ public static class BezierSegmentGeometry
         if (startParameter <= Epsilon)
         {
             subStart = left0;
-            subSegment = new CubicBezierSegment(left1, left2, left3, segment.IsSmoothJoin);
+            subSegment = new CubicBezierSegment(left1, left2, left3, segment.IsSmoothJoin, segment.IsStroked);
             return HasCubicLength(subStart, subSegment);
         }
 
@@ -142,7 +142,7 @@ public static class BezierSegmentGeometry
             out var right3);
 
         subStart = right0;
-        subSegment = new CubicBezierSegment(right1, right2, right3, segment.IsSmoothJoin);
+        subSegment = new CubicBezierSegment(right1, right2, right3, segment.IsSmoothJoin, segment.IsStroked);
         return HasCubicLength(subStart, subSegment);
     }
 

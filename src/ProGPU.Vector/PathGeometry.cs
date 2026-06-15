@@ -8,16 +8,18 @@ namespace ProGPU.Vector;
 public abstract class PathSegment
 {
     public bool IsSmoothJoin { get; set; }
+    public bool IsStroked { get; set; } = true;
 }
 
 public class LineSegment : PathSegment
 {
     public Vector2 Point { get; set; }
 
-    public LineSegment(Vector2 point, bool isSmoothJoin = false)
+    public LineSegment(Vector2 point, bool isSmoothJoin = false, bool isStroked = true)
     {
         Point = point;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -26,11 +28,12 @@ public class QuadraticBezierSegment : PathSegment
     public Vector2 ControlPoint { get; set; }
     public Vector2 Point { get; set; }
 
-    public QuadraticBezierSegment(Vector2 controlPoint, Vector2 point, bool isSmoothJoin = false)
+    public QuadraticBezierSegment(Vector2 controlPoint, Vector2 point, bool isSmoothJoin = false, bool isStroked = true)
     {
         ControlPoint = controlPoint;
         Point = point;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -40,12 +43,13 @@ public class CubicBezierSegment : PathSegment
     public Vector2 ControlPoint2 { get; set; }
     public Vector2 Point { get; set; }
 
-    public CubicBezierSegment(Vector2 controlPoint1, Vector2 controlPoint2, Vector2 point, bool isSmoothJoin = false)
+    public CubicBezierSegment(Vector2 controlPoint1, Vector2 controlPoint2, Vector2 point, bool isSmoothJoin = false, bool isStroked = true)
     {
         ControlPoint1 = controlPoint1;
         ControlPoint2 = controlPoint2;
         Point = point;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -53,6 +57,12 @@ public enum SweepDirection
 {
     Counterclockwise = 0,
     Clockwise = 1
+}
+
+public enum FillRule
+{
+    EvenOdd = 0,
+    Nonzero = 1
 }
 
 public class ArcSegment : PathSegment
@@ -69,7 +79,8 @@ public class ArcSegment : PathSegment
         float rotationAngle,
         bool isLargeArc,
         SweepDirection sweepDirection,
-        bool isSmoothJoin = false)
+        bool isSmoothJoin = false,
+        bool isStroked = true)
     {
         Point = point;
         Size = size;
@@ -77,6 +88,7 @@ public class ArcSegment : PathSegment
         IsLargeArc = isLargeArc;
         SweepDirection = sweepDirection;
         IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
     }
 }
 
@@ -135,6 +147,7 @@ public class PathFigure
 public class PathGeometry
 {
     public List<PathFigure> Figures { get; } = new();
+    public FillRule FillRule { get; set; } = FillRule.Nonzero;
 
     public bool IsCombined { get; set; }
     public PathGeometry? PathA { get; set; }
@@ -150,11 +163,15 @@ public class PathGeometry
                 IsCombined = true,
                 PathA = PathA?.CreateTransformed(transform) ?? new PathGeometry(),
                 PathB = PathB?.CreateTransformed(transform) ?? new PathGeometry(),
-                Op = Op
+                Op = Op,
+                FillRule = FillRule
             };
         }
 
-        var path = new PathGeometry();
+        var path = new PathGeometry
+        {
+            FillRule = FillRule
+        };
         foreach (var figure in Figures)
         {
             var sourceCurrentPoint = figure.StartPoint;
@@ -172,7 +189,8 @@ public class PathGeometry
                     case LineSegment line:
                         transformedFigure.Segments.Add(new LineSegment(
                             Vector2.Transform(line.Point, transform),
-                            line.IsSmoothJoin));
+                            line.IsSmoothJoin,
+                            line.IsStroked));
                         sourceCurrentPoint = line.Point;
                         break;
 
@@ -180,7 +198,8 @@ public class PathGeometry
                         transformedFigure.Segments.Add(new QuadraticBezierSegment(
                             Vector2.Transform(quadratic.ControlPoint, transform),
                             Vector2.Transform(quadratic.Point, transform),
-                            quadratic.IsSmoothJoin));
+                            quadratic.IsSmoothJoin,
+                            quadratic.IsStroked));
                         sourceCurrentPoint = quadratic.Point;
                         break;
 
@@ -189,7 +208,8 @@ public class PathGeometry
                             Vector2.Transform(cubic.ControlPoint1, transform),
                             Vector2.Transform(cubic.ControlPoint2, transform),
                             Vector2.Transform(cubic.Point, transform),
-                            cubic.IsSmoothJoin));
+                            cubic.IsSmoothJoin,
+                            cubic.IsStroked));
                         sourceCurrentPoint = cubic.Point;
                         break;
 
@@ -207,7 +227,8 @@ public class PathGeometry
                         {
                             transformedFigure.Segments.Add(new LineSegment(
                                 Vector2.Transform(arc.Point, transform),
-                                arc.IsSmoothJoin));
+                                arc.IsSmoothJoin,
+                                arc.IsStroked));
                         }
 
                         sourceCurrentPoint = arc.Point;

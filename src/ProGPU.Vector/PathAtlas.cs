@@ -55,7 +55,7 @@ public struct GpuPathRecord
     public float MinY;
     public float MaxX;
     public float MaxY;
-    public uint Pad0;
+    public uint FillRule;
     public uint Pad1;
 }
 
@@ -180,9 +180,10 @@ public unsafe class PathAtlas : IDisposable
         if (path == null) return 0;
         if (path.IsCombined)
         {
-            return HashCode.Combine(ComputeHash(path.PathA), ComputeHash(path.PathB), path.Op);
+            return HashCode.Combine(ComputeHash(path.PathA), ComputeHash(path.PathB), path.Op, path.FillRule);
         }
         var hash = new HashCode();
+        hash.Add(path.FillRule);
         foreach (var figure in path.Figures)
         {
             hash.Add(figure.StartPoint.X);
@@ -195,12 +196,14 @@ public unsafe class PathAtlas : IDisposable
                 if (segment is LineSegment line)
                 {
                     hash.Add(0); // Segment type: Line
+                    hash.Add(line.IsStroked);
                     hash.Add(line.Point.X);
                     hash.Add(line.Point.Y);
                 }
                 else if (segment is QuadraticBezierSegment quad)
                 {
                     hash.Add(1); // Segment type: Quadratic
+                    hash.Add(quad.IsStroked);
                     hash.Add(quad.ControlPoint.X);
                     hash.Add(quad.ControlPoint.Y);
                     hash.Add(quad.Point.X);
@@ -209,6 +212,7 @@ public unsafe class PathAtlas : IDisposable
                 else if (segment is CubicBezierSegment cubic)
                 {
                     hash.Add(2); // Segment type: Cubic
+                    hash.Add(cubic.IsStroked);
                     hash.Add(cubic.ControlPoint1.X);
                     hash.Add(cubic.ControlPoint1.Y);
                     hash.Add(cubic.ControlPoint2.X);
@@ -219,6 +223,7 @@ public unsafe class PathAtlas : IDisposable
                 else if (segment is ArcSegment arc)
                 {
                     hash.Add(3); // Segment type: Arc
+                    hash.Add(arc.IsStroked);
                     hash.Add(arc.Point.X);
                     hash.Add(arc.Point.Y);
                     hash.Add(arc.Size.X);
@@ -376,7 +381,8 @@ public unsafe class PathAtlas : IDisposable
             MinX = minX,
             MinY = minY,
             MaxX = maxX,
-            MaxY = maxY
+            MaxY = maxY,
+            FillRule = (uint)path.FillRule
         };
 
         return (records, segments.ToArray());
