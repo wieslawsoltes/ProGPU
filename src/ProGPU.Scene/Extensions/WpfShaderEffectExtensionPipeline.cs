@@ -27,6 +27,7 @@ struct WpfEffectUniforms {
     constants: array<vec4<f32>, 32>,
     bounds: vec4<f32>,
     textureSize: vec4<f32>,
+    metadata: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> effect: WpfEffectUniforms;
@@ -91,8 +92,12 @@ fn wpf_constant(index: u32) -> vec4<f32> {
         builder.AppendLine("    return vec4<f32>(0.0);");
         builder.AppendLine("}");
         builder.AppendLine();
+        builder.AppendLine("fn wpf_source_register() -> u32 {");
+        builder.AppendLine("    return u32(round(effect.metadata.x));");
+        builder.AppendLine("}");
+        builder.AppendLine();
         builder.AppendLine("fn wpf_sample_source(uv: vec2<f32>) -> vec4<f32> {");
-        builder.AppendLine("    return wpf_sample_register(0u, uv);");
+        builder.AppendLine("    return wpf_sample_register(wpf_source_register(), uv);");
         builder.AppendLine("}");
 
         return builder.ToString();

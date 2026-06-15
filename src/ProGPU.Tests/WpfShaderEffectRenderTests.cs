@@ -185,8 +185,7 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
             sourceTextureRegisterIndex: 1,
             shaderSource: @"
 fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
-    let registeredInput = wpf_sample_register(1u, uv);
-    return vec4<f32>(registeredInput.g, registeredInput.r * 0.5, 1.0, registeredInput.a);
+    return vec4<f32>(inputColor.g, inputColor.r * 0.5, 1.0, inputColor.a);
 }
 ");
         window.Content = visual;

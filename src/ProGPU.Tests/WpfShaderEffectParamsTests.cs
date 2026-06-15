@@ -31,6 +31,22 @@ public class WpfShaderEffectParamsTests
         Assert.Equal(128f, uniforms[WpfShaderEffectParams.ConstantFloatCount + 5]);
         Assert.Equal(1f / 256f, uniforms[WpfShaderEffectParams.ConstantFloatCount + 6]);
         Assert.Equal(1f / 128f, uniforms[WpfShaderEffectParams.ConstantFloatCount + 7]);
+        Assert.Equal(0f, uniforms[WpfShaderEffectParams.ConstantFloatCount + 8]);
+    }
+
+    [Fact]
+    public void CopiesSourceTextureRegisterToUniformLayout()
+    {
+        var parameters = new WpfShaderEffectParams
+        {
+            SourceTextureRegisterIndex = 7
+        };
+
+        Span<float> uniforms = stackalloc float[WpfShaderEffectParams.UniformFloatCount];
+
+        parameters.CopyUniformFloats(uniforms, textureWidth: 256, textureHeight: 128);
+
+        Assert.Equal(7f, uniforms[WpfShaderEffectParams.ConstantFloatCount + 8]);
     }
 
     [Fact]

@@ -8,7 +8,7 @@ public sealed class WpfShaderEffectParams
     public const int MaxConstantRegisterCount = 32;
     public const int FloatsPerConstantRegister = 4;
     public const int ConstantFloatCount = MaxConstantRegisterCount * FloatsPerConstantRegister;
-    public const int UniformFloatCount = ConstantFloatCount + 8;
+    public const int UniformFloatCount = ConstantFloatCount + 12;
     public const int UniformByteCount = UniformFloatCount * sizeof(float);
     public const int MaxSamplerRegisterCount = 16;
 
@@ -76,6 +76,7 @@ public sealed class WpfShaderEffectParams
         destination[ConstantFloatCount + 5] = textureHeight;
         destination[ConstantFloatCount + 6] = textureWidth > 0 ? 1f / textureWidth : 0f;
         destination[ConstantFloatCount + 7] = textureHeight > 0 ? 1f / textureHeight : 0f;
+        destination[ConstantFloatCount + 8] = SourceTextureRegisterIndex;
     }
 
     public bool HasAnyTexture()
