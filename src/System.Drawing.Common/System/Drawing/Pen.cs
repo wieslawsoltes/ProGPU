@@ -23,7 +23,12 @@ public class Pen : IDisposable
 
     public ProGPU.Vector.Pen ToProGpuPen()
     {
-        return new ProGPU.Vector.Pen(Brush.ToProGpuBrush(), Width);
+        return ToProGpuPen(Width);
+    }
+
+    internal ProGPU.Vector.Pen ToProGpuPen(float width)
+    {
+        return new ProGPU.Vector.Pen(Brush.ToProGpuBrush(), width);
     }
 
     public void Dispose()

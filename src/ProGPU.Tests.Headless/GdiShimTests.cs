@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Scene;
@@ -294,6 +295,70 @@ public class GdiShimTests
         var command = Assert.Single(graphics.DrawingContext.Commands);
         Assert.Equal(RenderCommandType.DrawRect, command.Type);
         Assert.Equal(new Rect(-4f, 2f, 3f, 4f), command.Rect);
+    }
+
+    [Fact]
+    public void DrawLineScalesPenWidthByWorldTransform()
+    {
+        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var pen = new Pen(Color.Red, 2f);
+
+        graphics.ScaleTransform(3f, 3f);
+        graphics.DrawLine(pen, 1f, 2f, 5f, 2f);
+
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawLine, command.Type);
+        Assert.Equal(6f, command.Pen!.Thickness);
+        Assert.Equal(new Vector2(3f, 6f), command.Position);
+        Assert.Equal(new Vector2(15f, 6f), command.Position2);
+    }
+
+    [Fact]
+    public void DrawRectangleScalesPenWidthByWorldTransform()
+    {
+        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var pen = new Pen(Color.Red, 2f);
+
+        graphics.ScaleTransform(3f, 3f);
+        graphics.DrawRectangle(pen, 1f, 2f, 5f, 7f);
+
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawRect, command.Type);
+        Assert.Equal(6f, command.Pen!.Thickness);
+        Assert.Equal(new Rect(3f, 6f, 15f, 21f), command.Rect);
+    }
+
+    [Fact]
+    public void DrawEllipseScalesPenWidthByWorldTransform()
+    {
+        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var pen = new Pen(Color.Red, 2f);
+
+        graphics.ScaleTransform(3f, 3f);
+        graphics.DrawEllipse(pen, 1f, 2f, 10f, 14f);
+
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawEllipse, command.Type);
+        Assert.Equal(6f, command.Pen!.Thickness);
+        Assert.Equal(new Vector2(18f, 27f), command.Position2);
+        Assert.Equal(15f, command.RadiusX);
+        Assert.Equal(21f, command.RadiusY);
+    }
+
+    [Fact]
+    public void DrawPathScalesPenWidthByWorldTransform()
+    {
+        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var pen = new Pen(Color.Red, 2f);
+        using var path = new GraphicsPath();
+
+        path.AddLine(1f, 2f, 5f, 2f);
+        graphics.ScaleTransform(3f, 3f);
+        graphics.DrawPath(pen, path);
+
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Assert.Equal(6f, command.Pen!.Thickness);
     }
 
     [Fact]

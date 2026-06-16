@@ -94,6 +94,11 @@ public class Graphics : IDisposable
         return Vector2.Transform(new Vector2(pt.X, pt.Y), _transform.Value);
     }
 
+    private Vector2 Tx(Vector2 pt)
+    {
+        return Vector2.Transform(pt, _transform.Value);
+    }
+
     private bool HasRotationOrShear => Math.Abs(_transform.Value.M12) > 1e-5f || Math.Abs(_transform.Value.M21) > 1e-5f;
 
     private Rect TxRect(RectangleF rect)
@@ -117,6 +122,45 @@ public class Graphics : IDisposable
             m32.M31, m32.M32, 0f, 1f);
     }
 
+    private ProGPU.Vector.Pen TransformPen(Pen pen, Vector2 localStart, Vector2 localEnd)
+    {
+        float widthScale = GetStrokeWidthScale(localStart, localEnd);
+        return pen.ToProGpuPen(pen.Width * widthScale);
+    }
+
+    private ProGPU.Vector.Pen TransformPen(Pen pen)
+    {
+        float widthScale = GetFallbackStrokeWidthScale();
+        return pen.ToProGpuPen(pen.Width * widthScale);
+    }
+
+    private float GetStrokeWidthScale(Vector2 localStart, Vector2 localEnd)
+    {
+        var delta = localEnd - localStart;
+        if (delta.LengthSquared() > 1e-10f)
+        {
+            var normal = Vector2.Normalize(new Vector2(-delta.Y, delta.X));
+            var transformedNormal = Vector2.TransformNormal(normal, _transform.Value);
+            float scale = transformedNormal.Length();
+            if (float.IsFinite(scale) && scale > 1e-5f)
+            {
+                return scale;
+            }
+        }
+
+        return GetFallbackStrokeWidthScale();
+    }
+
+    private float GetFallbackStrokeWidthScale()
+    {
+        float xAxis = Vector2.TransformNormal(Vector2.UnitX, _transform.Value).Length();
+        float yAxis = Vector2.TransformNormal(Vector2.UnitY, _transform.Value).Length();
+        float fallbackScale = (xAxis + yAxis) * 0.5f;
+        return float.IsFinite(fallbackScale) && fallbackScale > 1e-5f
+            ? fallbackScale
+            : 1f;
+    }
+
     public void Clear(Color color)
     {
         float w = _bitmap != null ? _bitmap.Width : 100000f;
@@ -133,7 +177,9 @@ public class Graphics : IDisposable
 
     public void DrawLine(Pen pen, float x1, float y1, float x2, float y2)
     {
-        _context.DrawLine(pen.ToProGpuPen(), Tx(x1, y1), Tx(x2, y2));
+        var localStart = new Vector2(x1, y1);
+        var localEnd = new Vector2(x2, y2);
+        _context.DrawLine(TransformPen(pen, localStart, localEnd), Tx(localStart), Tx(localEnd));
     }
 
     public void DrawLines(Pen pen, PointF[] points)
@@ -168,7 +214,7 @@ public class Graphics : IDisposable
         else
         {
             var rect = TxRect(new RectangleF(x, y, width, height));
-            _context.DrawRectangle(null, pen.ToProGpuPen(), rect);
+            _context.DrawRectangle(null, TransformPen(pen), rect);
         }
     }
 
@@ -296,7 +342,7 @@ public class Graphics : IDisposable
                 Vector2.TransformNormal(Vector2.UnitX, _transform.Value).Length(),
                 Vector2.TransformNormal(Vector2.UnitY, _transform.Value).Length()
             );
-            _context.DrawEllipse(null, pen.ToProGpuPen(), center, rx * scale.X, ry * scale.Y);
+            _context.DrawEllipse(null, TransformPen(pen), center, rx * scale.X, ry * scale.Y);
         }
     }
 
@@ -360,7 +406,7 @@ public class Graphics : IDisposable
     public void DrawPath(Pen pen, GraphicsPath path)
     {
         if (path == null) return;
-        _context.DrawPath(null, pen.ToProGpuPen(), path.Geometry, CurrentTransform4x4());
+        _context.DrawPath(null, TransformPen(pen), path.Geometry, CurrentTransform4x4());
     }
 
     public void FillPath(Brush brush, GraphicsPath path)
