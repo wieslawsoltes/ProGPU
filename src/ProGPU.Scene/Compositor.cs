@@ -4365,7 +4365,7 @@ public unsafe class Compositor : IDisposable
     {
         var r = cmd.Rect;
         var radiusX = Math.Min(MathF.Abs(cmd.RadiusX), r.Width / 2f);
-        var radiusY = Math.Min(MathF.Abs(cmd.RadiusY > 0f ? cmd.RadiusY : cmd.RadiusX), r.Height / 2f);
+        var radiusY = Math.Min(MathF.Abs(cmd.RadiusY), r.Height / 2f);
 
         if (radiusX <= 0f || radiusY <= 0f)
         {
@@ -5514,14 +5514,23 @@ public unsafe class Compositor : IDisposable
             padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
         }
 
-
-        uint w = (uint)(fe.Size.X + padding * 2f);
-        uint h = (uint)(fe.Size.Y + padding * 2f);
+        float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
+        float logicalWidth = MathF.Max(1f, fe.Size.X + padding * 2f);
+        float logicalHeight = MathF.Max(1f, fe.Size.Y + padding * 2f);
+        uint logicalRenderWidth = (uint)MathF.Ceiling(logicalWidth);
+        uint logicalRenderHeight = (uint)MathF.Ceiling(logicalHeight);
+        uint w = (uint)MathF.Ceiling(logicalWidth * dpiScale);
+        uint h = (uint)MathF.Ceiling(logicalHeight * dpiScale);
 
         bool hasCached = _effectTextures.TryGetValue(fe, out var textures);
         int effectCacheKey = effect.GetRenderCacheKey();
         bool hasCachedEffectKey = _effectCacheKeys.TryGetValue(fe, out var cachedEffectKey);
-        bool needsUpdate = !hasCached || fe.IsDirty || !hasCachedEffectKey || cachedEffectKey != effectCacheKey;
+        bool needsUpdate = !hasCached ||
+            fe.IsDirty ||
+            !hasCachedEffectKey ||
+            cachedEffectKey != effectCacheKey ||
+            textures.Source.Width != w ||
+            textures.Source.Height != h;
 
         if (needsUpdate)
         {
@@ -5547,11 +5556,11 @@ public unsafe class Compositor : IDisposable
                 // 1. Render the subtree of fe offscreen centered into textures.Source (offset by padding)
                 RenderOffscreen(
                     fe,
-                    w,
-                    h,
+                    logicalRenderWidth,
+                    logicalRenderHeight,
                     textures.Source,
                     padding,
-                    1.0f,
+                    dpiScale,
                     includeRootTransform: false,
                     includeRootVisualState: false);
             }
@@ -5565,20 +5574,20 @@ public unsafe class Compositor : IDisposable
             {
                 if (blurEffect.BlurRadius > 0.01f)
                 {
-                    _compute.ApplyGaussianBlur(textures.Source, textures.Temp, textures.Destination, blurEffect.BlurRadius);
+                    _compute.ApplyGaussianBlur(textures.Source, textures.Temp, textures.Destination, blurEffect.BlurRadius * dpiScale);
                 }
             }
             else if (fe.Effect is DropShadowEffect shadowEffect)
             {
                 // We pass zero offset to the compute shader because we handle offset dynamically in DrawTextureOnMain on the CPU
-                _compute.ApplyDropShadow(textures.Source, textures.Temp, textures.Destination, Vector2.Zero, shadowEffect.Color, shadowEffect.BlurRadius);
+                _compute.ApplyDropShadow(textures.Source, textures.Temp, textures.Destination, Vector2.Zero, shadowEffect.Color, shadowEffect.BlurRadius * dpiScale);
             }
 
             _effectCacheKeys[fe] = effectCacheKey;
         }
 
         var compositeTransform = fe.GetLocalTransform() * parentTransform;
-        var paddedRect = new Rect(-padding, -padding, w, h);
+        var paddedRect = new Rect(-padding, -padding, logicalWidth, logicalHeight);
         var compositeScope = PushVisualCompositeScope(fe, compositeTransform);
         try
         {
@@ -6178,8 +6187,6 @@ public unsafe class Compositor : IDisposable
         }
         _masksToReturnToPool.Clear();
         _maskRenderPasses.Clear();
-
-        _pathAtlas.CleanupFrame();
 
         EvictUnusedBindGroups();
 

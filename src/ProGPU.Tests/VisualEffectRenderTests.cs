@@ -1,8 +1,12 @@
+using System.Collections.Generic;
 using System.Numerics;
+using System.Reflection;
 using Microsoft.UI.Xaml;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -33,6 +37,46 @@ public sealed class VisualEffectRenderTests
         }
     }
 
+    [Fact]
+    public void VisualEffectCacheUsesPhysicalTextureSizeForDpiScale()
+    {
+        using var window = new HeadlessWindow(24, 16);
+        using var target = new GpuTexture(
+            window.Context,
+            24,
+            16,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Visual Effect DPI Cache Test Target");
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(12f, 8f),
+            Effect = new BlurEffect(0f)
+        };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 12f, 8f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 12,
+            height: 8,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 2f);
+
+        var textures = GetEffectTextures(window.Compositor);
+        var cached = Assert.Single(textures);
+        Assert.Same(visual, cached.Key);
+        Assert.Equal(24u, cached.Value.Source.Width);
+        Assert.Equal(16u, cached.Value.Source.Height);
+        Assert.Equal(24u, cached.Value.Temp.Width);
+        Assert.Equal(16u, cached.Value.Temp.Height);
+        Assert.Equal(24u, cached.Value.Destination.Width);
+        Assert.Equal(16u, cached.Value.Destination.Height);
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -57,6 +101,13 @@ public sealed class VisualEffectRenderTests
         Assert.InRange(pixel.G, 0, 12);
         Assert.InRange(pixel.B, 0, 12);
         Assert.Equal(255, pixel.A);
+    }
+
+    private static Dictionary<Visual, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)> GetEffectTextures(Compositor compositor)
+    {
+        var field = typeof(Compositor).GetField("_effectTextures", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsType<Dictionary<Visual, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)>>(field.GetValue(compositor));
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);

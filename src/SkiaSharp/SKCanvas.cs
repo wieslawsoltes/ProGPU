@@ -244,6 +244,7 @@ public class SKCanvas : IDisposable
             padding: 0f,
             dpiScale: 1f);
 
+        layerFrame.LayerContext.Clear();
         _ownedLayerTextures.Add(texture);
         return texture;
     }

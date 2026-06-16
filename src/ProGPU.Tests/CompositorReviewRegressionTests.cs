@@ -1,11 +1,14 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Reflection;
 using Microsoft.UI.Xaml;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Text;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -82,6 +85,62 @@ public sealed class CompositorReviewRegressionTests
         }
     }
 
+    [Fact]
+    public void RoundedRectangleWithExplicitZeroRadiusYRendersAsRectangle()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 24);
+        window.Content = new ExplicitZeroRadiusYRoundedRectangleVisual();
+
+        try
+        {
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            RgbaPixel corner = ReadPixel(pixels, window.Width, x: 5, y: 5);
+
+            Assert.True(corner.R >= 220, $"Expected explicit zero RadiusY to keep the rectangle corner red, found {corner}.");
+            Assert.True(corner.G <= 35, $"Expected explicit zero RadiusY to keep green low, found {corner}.");
+            Assert.True(corner.B <= 35, $"Expected explicit zero RadiusY to keep blue low, found {corner}.");
+            Assert.Equal(255, corner.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void RenderOffscreenKeepsPathAtlasBuffersAliveAfterSubmit()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "RenderOffscreen PathAtlas Buffer Lifetime Test");
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(32f, 32f)
+        };
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            PrimitivePathGeometry.CreateRoundedRectangle(4f, 4f, 20f, 16f, 4f, 4f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        Assert.NotEmpty(GetPathAtlasTempBuffers(window.Compositor));
+    }
+
     private static void AssertMixedColorGlyphDrawCalls(Compositor compositor)
     {
         Compositor.CompositorDrawCall[] drawCalls = GetDrawCalls(compositor);
@@ -99,6 +158,18 @@ public sealed class CompositorReviewRegressionTests
         Assert.NotNull(field);
         var drawCalls = Assert.IsAssignableFrom<IEnumerable<Compositor.CompositorDrawCall>>(field.GetValue(compositor));
         return drawCalls.ToArray();
+    }
+
+    private static IList GetPathAtlasTempBuffers(Compositor compositor)
+    {
+        var pathAtlasField = typeof(Compositor).GetField("_pathAtlas", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(pathAtlasField);
+        var pathAtlas = pathAtlasField.GetValue(compositor);
+        Assert.NotNull(pathAtlas);
+
+        var tempBuffersField = pathAtlas.GetType().GetField("_tempBuffers", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(tempBuffersField);
+        return Assert.IsAssignableFrom<IList>(tempBuffersField.GetValue(pathAtlas));
     }
 
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
@@ -432,6 +503,27 @@ public sealed class CompositorReviewRegressionTests
                 RadiusX = 4f,
                 RadiusY = 8f,
                 Transform = Matrix4x4.CreateTranslation(20f, 5f, 0f)
+            });
+        }
+    }
+
+    private sealed class ExplicitZeroRadiusYRoundedRectangleVisual : FrameworkElement
+    {
+        public ExplicitZeroRadiusYRoundedRectangleVisual()
+        {
+            Width = 32f;
+            Height = 24f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawRoundedRect,
+                Brush = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+                Rect = new Rect(4f, 4f, 20f, 12f),
+                RadiusX = 8f,
+                RadiusY = 0f
             });
         }
     }
