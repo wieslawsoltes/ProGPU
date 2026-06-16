@@ -4362,6 +4362,7 @@ public unsafe class Compositor : IDisposable
             var pathCommand = cmd;
             pathCommand.Type = RenderCommandType.DrawPath;
             pathCommand.Path = PrimitivePathGeometry.CreateRoundedRectangle(r.X, r.Y, r.Width, r.Height, radiusX, radiusY);
+            pathCommand.Transform = default;
             CompilePathCommand(pathCommand, transform);
             return;
         }
@@ -4686,17 +4687,7 @@ public unsafe class Compositor : IDisposable
         var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
         color.W *= _activeOpacity;
 
-        int maxGlyphs = layout.Glyphs.Count;
-        int maxPassCount = cmd.IsBold ? 2 : 1;
-        int maxVertices = maxGlyphs * maxPassCount;
-
-        int vertexStart = _textVerticesList.Count;
-
-        CollectionsMarshal.SetCount(_textVerticesList, vertexStart + maxVertices);
-
-        var textVerticesSpan = CollectionsMarshal.AsSpan(_textVerticesList);
-
-        int currentVertexCount = vertexStart;
+        EnsureTextVertexCapacity(layout.Glyphs.Count * (cmd.IsBold ? 2 : 1));
 
         foreach (var runGlyph in layout.Glyphs)
         {
@@ -4754,6 +4745,8 @@ public unsafe class Compositor : IDisposable
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
+
+                SwitchBatch(BatchType.Text);
                 continue;
             }
 
@@ -4824,7 +4817,7 @@ public unsafe class Compositor : IDisposable
                 Vector2 basisX = new Vector2(activeTransform.M11, activeTransform.M12);
                 Vector2 basisY = new Vector2(activeTransform.M21, activeTransform.M22);
 
-                textVerticesSpan[currentVertexCount++] = new GlyphInstance
+                _textVerticesList.Add(new GlyphInstance
                 {
                     SnappedLogicalPos = snappedLogicalPos,
                     BasisX = basisX,
@@ -4835,11 +4828,9 @@ public unsafe class Compositor : IDisposable
                     ScaleBoldItalicUseMvp = new Vector4(scaleRatio, xOffset, cmd.IsItalic ? 0.22f : 0f, EncodeTextFlags(ActiveCompilationContext != null, cmd.TextRenderingMode)),
                     BrushIndex = bIdx,
                     Padding = 0f
-                };
+                });
             }
         }
-
-        CollectionsMarshal.SetCount(_textVerticesList, currentVertexCount);
     }
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -4867,17 +4858,7 @@ public unsafe class Compositor : IDisposable
         var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
         color.W *= _activeOpacity;
 
-        int maxGlyphs = cmd.GlyphIndices.Length;
-        int maxPassCount = cmd.IsBold ? 2 : 1;
-        int maxVertices = maxGlyphs * maxPassCount;
-
-        int vertexStart = _textVerticesList.Count;
-
-        CollectionsMarshal.SetCount(_textVerticesList, vertexStart + maxVertices);
-
-        var textVerticesSpan = CollectionsMarshal.AsSpan(_textVerticesList);
-
-        int currentVertexCount = vertexStart;
+        EnsureTextVertexCapacity(cmd.GlyphIndices.Length * (cmd.IsBold ? 2 : 1));
 
         float dpiScale = _currentDpiScale;
         if (ActiveCompilationContext != null && ActiveCompilationContext.StaticZoom > 0.0001f)
@@ -4901,7 +4882,7 @@ public unsafe class Compositor : IDisposable
                          activeTransform.M11 < 0.0f ||
                          activeTransform.M22 < 0.0f;
 
-        for (int i = 0; i < maxGlyphs; i++)
+        for (int i = 0; i < cmd.GlyphIndices.Length; i++)
         {
             ushort glyphIdx = cmd.GlyphIndices[i];
             Vector2 position = cmd.GlyphPositions[i];
@@ -4958,6 +4939,8 @@ public unsafe class Compositor : IDisposable
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
+
+                SwitchBatch(BatchType.Text);
                 continue;
             }
 
@@ -5006,7 +4989,7 @@ public unsafe class Compositor : IDisposable
                 Vector2 basisX = new Vector2(activeTransform.M11, activeTransform.M12);
                 Vector2 basisY = new Vector2(activeTransform.M21, activeTransform.M22);
 
-                textVerticesSpan[currentVertexCount++] = new GlyphInstance
+                _textVerticesList.Add(new GlyphInstance
                 {
                     SnappedLogicalPos = snappedLogicalPos,
                     BasisX = basisX,
@@ -5017,11 +5000,23 @@ public unsafe class Compositor : IDisposable
                     ScaleBoldItalicUseMvp = new Vector4(scaleRatio, xOffset, cmd.IsItalic ? 0.22f : 0f, EncodeTextFlags(ActiveCompilationContext != null, cmd.TextRenderingMode)),
                     BrushIndex = bIdx,
                     Padding = 0f
-                };
+                });
             }
         }
+    }
 
-        CollectionsMarshal.SetCount(_textVerticesList, currentVertexCount);
+    private void EnsureTextVertexCapacity(int additionalCapacity)
+    {
+        if (additionalCapacity <= 0)
+        {
+            return;
+        }
+
+        int requiredCapacity = _textVerticesList.Count + additionalCapacity;
+        if (_textVerticesList.Capacity < requiredCapacity)
+        {
+            _textVerticesList.Capacity = requiredCapacity;
+        }
     }
 
     private void CompileTextureCommand(RenderCommand cmd, Matrix4x4 transform)
