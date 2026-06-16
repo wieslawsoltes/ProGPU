@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using Microsoft.UI.Xaml;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Text;
@@ -42,6 +43,34 @@ public sealed class StaticDxfRenderTests
 
             AssertColorNear(background, extensionMasked, tolerance: 12);
             AssertColorNear(background, commandMasked, tolerance: 12);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void DrawStaticDxfHonorsActiveBlendMode()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(72, 32);
+
+        using var extensionBuffer = CreateStaticRect(window.Compositor, new Rect(0, 0, 32, 32));
+        using var commandBuffer = CreateStaticRect(window.Compositor, new Rect(40, 0, 32, 32));
+
+        window.Content = new ClearBlendStaticDxfVisual(extensionBuffer, commandBuffer);
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var extensionCleared = ReadPixel(pixels, window.Width, x: 16, y: 16);
+            var commandCleared = ReadPixel(pixels, window.Width, x: 56, y: 16);
+
+            AssertTransparent(extensionCleared);
+            AssertTransparent(commandCleared);
         }
         finally
         {
@@ -144,6 +173,14 @@ public sealed class StaticDxfRenderTests
         Assert.InRange(Math.Abs(expected.A - actual.A), 0, tolerance);
     }
 
+    private static void AssertTransparent(RgbaPixel actual)
+    {
+        Assert.InRange(actual.R, 0, 8);
+        Assert.InRange(actual.G, 0, 8);
+        Assert.InRange(actual.B, 0, 8);
+        Assert.InRange(actual.A, 0, 8);
+    }
+
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
 
     private sealed class MaskedStaticDxfVisual : FrameworkElement
@@ -183,6 +220,40 @@ public sealed class StaticDxfRenderTests
                 StaticBuffer = _commandMaskedBuffer
             });
             context.PopOpacityMask();
+        }
+    }
+
+    private sealed class ClearBlendStaticDxfVisual : FrameworkElement
+    {
+        private readonly DxfStaticBuffer _extensionBuffer;
+        private readonly DxfStaticBuffer _commandBuffer;
+
+        public ClearBlendStaticDxfVisual(DxfStaticBuffer extensionBuffer, DxfStaticBuffer commandBuffer)
+        {
+            _extensionBuffer = extensionBuffer;
+            _commandBuffer = commandBuffer;
+            Width = 72f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f)),
+                null,
+                new Rect(0f, 0f, 72f, 32f));
+
+            context.PushBlendMode(GpuBlendMode.Clear);
+            context.DrawStaticDxf(_extensionBuffer);
+            context.PopBlendMode();
+
+            context.PushBlendMode(GpuBlendMode.Clear);
+            context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawStaticDxf,
+                StaticBuffer = _commandBuffer
+            });
+            context.PopBlendMode();
         }
     }
 }

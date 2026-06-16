@@ -1589,7 +1589,7 @@ public unsafe class Compositor : IDisposable
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
-                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: false, dc.MaskTexture);
+                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: false, dc.MaskTexture, dc.BlendMode);
                 currentType = DrawCallType.StaticDxf;
             }
             else if (dc.Type == DrawCallType.ChartLine)
@@ -6011,7 +6011,7 @@ public unsafe class Compositor : IDisposable
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
-                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: true, dc.MaskTexture);
+                DrawStaticDxfBuffer(pass, dc.StaticBuffer, isOffscreen: true, dc.MaskTexture, dc.BlendMode);
                 currentType = DrawCallType.StaticDxf;
             }
             else if (dc.Type == DrawCallType.ChartLine)
@@ -7087,7 +7087,12 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    internal unsafe void DrawStaticDxfBuffer(RenderPassEncoder* pass, object staticBufferObj, bool isOffscreen, GpuTexture? maskTexture = null)
+    internal unsafe void DrawStaticDxfBuffer(
+        RenderPassEncoder* pass,
+        object staticBufferObj,
+        bool isOffscreen,
+        GpuTexture? maskTexture = null,
+        GpuBlendMode blendMode = GpuBlendMode.SrcOver)
     {
         if (staticBufferObj is not DxfStaticBuffer sb) return;
 
@@ -7102,7 +7107,7 @@ public unsafe class Compositor : IDisposable
             {
                 if (currentType != DrawCallType.Vector)
                 {
-                    var pipeline = isOffscreen ? _vectorPipelineOffscreen : _vectorPipeline;
+                    var pipeline = GetPipeline(DrawCallType.Vector, blendMode, isOffscreen);
                     var uniformBg = isOffscreen ? sb.UniformBindGroupOffscreen : sb.UniformBindGroup;
                     var pathAtlasBg = isOffscreen ? _pathAtlasBindGroupOffscreen : _pathAtlasBindGroup;
                     
@@ -7111,7 +7116,7 @@ public unsafe class Compositor : IDisposable
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
                     _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
                     
-                    if (sb.VertexBuffer != null)
+                    if (sb.VertexBuffer != null && sb.IndexBuffer != null)
                     {
                         var buffer = sb.VertexBuffer.BufferPtr;
                         _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);
@@ -7125,7 +7130,7 @@ public unsafe class Compositor : IDisposable
             {
                 if (currentType != DrawCallType.Text)
                 {
-                    var pipeline = isOffscreen ? _textPipelineOffscreen : _textPipeline;
+                    var pipeline = GetPipeline(DrawCallType.Text, blendMode, isOffscreen);
                     var uniformBg = isOffscreen ? sb.TextUniformBindGroupOffscreen : sb.TextUniformBindGroup;
                     var atlasBg = isOffscreen ? _atlasBindGroupOffscreen : _atlasBindGroup;
                     
@@ -7161,7 +7166,7 @@ public unsafe class Compositor : IDisposable
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
                             _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
                             
-                            if (sb.VertexBuffer != null)
+                            if (sb.VertexBuffer != null && sb.IndexBuffer != null)
                             {
                                 var buffer = sb.VertexBuffer.BufferPtr;
                                 _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);

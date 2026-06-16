@@ -32,7 +32,7 @@ struct EffectUniforms {
     canvasWidth: f32,
     canvasHeight: f32,
     sourceIsPremultiplied: f32,
-    _pad1: f32,
+    outputIsPremultiplied: f32,
 };
 
 @group(1) @binding(0) var<uniform> effect: EffectUniforms;
@@ -139,7 +139,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let coverage = input.color.a * maskAlpha;
-    if (effect.sourceIsPremultiplied > 0.5) {
+    if (effect.outputIsPremultiplied > 0.5) {
         return vec4<f32>(straightColor.rgb * straightColor.a * input.color.rgb * coverage, straightColor.a * coverage);
     }
 
@@ -161,7 +161,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             public float CanvasWidth;
             public float CanvasHeight;
             public float SourceIsPremultiplied;
-            public float Pad1;
+            public float OutputIsPremultiplied;
         }
 
         private struct EffectGpuResources
@@ -170,7 +170,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             public nint BindGroupPtr; // BindGroup*
         }
 
-        private readonly Dictionary<(bool IsOffscreen, GpuTextureAlphaMode SourceAlphaMode, GpuBlendMode BlendMode), nint> _cachedPipelines = new();
+        private readonly Dictionary<(bool IsOffscreen, GpuTextureAlphaMode PipelineSourceAlphaMode, GpuBlendMode BlendMode), nint> _cachedPipelines = new();
         private WgpuContext? _contextRef;
         private BindGroupLayout* _effectBindGroupLayout;
         private BindGroupLayout* _textureBindGroupLayout;
@@ -183,6 +183,20 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         // Texture bind groups cache
         private readonly Dictionary<Compositor.TextureCacheKey, Compositor.CachedBindGroup> _textureBindGroups = new();
+
+        private static bool BlendModeRequiresPremultipliedSource(GpuBlendMode blendMode)
+        {
+            return blendMode is GpuBlendMode.DstOver or GpuBlendMode.Multiply or GpuBlendMode.Screen;
+        }
+
+        private static GpuTextureAlphaMode GetPipelineSourceAlphaMode(
+            GpuTextureAlphaMode textureAlphaMode,
+            GpuBlendMode blendMode)
+        {
+            return BlendModeRequiresPremultipliedSource(blendMode)
+                ? GpuTextureAlphaMode.Premultiplied
+                : textureAlphaMode;
+        }
 
         private void EnsureLayouts(Compositor compositor)
         {
@@ -386,7 +400,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
             var sourceAlphaMode = p.Texture.AlphaMode;
-            var pipelineCacheKey = (isOffscreen, sourceAlphaMode, dc.BlendMode);
+            var pipelineSourceAlphaMode = GetPipelineSourceAlphaMode(sourceAlphaMode, dc.BlendMode);
+            var pipelineCacheKey = (isOffscreen, pipelineSourceAlphaMode, dc.BlendMode);
             if (!_cachedPipelines.TryGetValue(pipelineCacheKey, out var activePipelinePtr))
             {
                 var shaderModule = compositor.PipelineCache.GetOrCreateShader("ImageEffectShader", ShaderCode, "ImageEffect WGSL Shader");
@@ -409,8 +424,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
                 var pipeline = compositor.PipelineCache.GetOrCreateRenderPipeline(
                     isOffscreen
-                        ? $"ImageEffectPipeline_Offscreen_{sourceAlphaMode}_{dc.BlendMode}"
-                        : $"ImageEffectPipeline_{sourceAlphaMode}_{dc.BlendMode}",
+                        ? $"ImageEffectPipeline_Offscreen_{pipelineSourceAlphaMode}_{dc.BlendMode}"
+                        : $"ImageEffectPipeline_{pipelineSourceAlphaMode}_{dc.BlendMode}",
                     shaderModule,
                     vertexBufferLayouts: layouts,
                     topology: PrimitiveTopology.TriangleList,
@@ -418,7 +433,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                     sampleCount: isOffscreen ? 1u : 4u,
                     pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout,
                     blendMode: dc.BlendMode,
-                    sourceAlphaMode: sourceAlphaMode
+                    sourceAlphaMode: pipelineSourceAlphaMode
                 );
 
                 Marshal.FreeHGlobal((IntPtr)layouts[0].Attributes);
@@ -471,7 +486,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 HasMask = effectiveMaskTexture != null ? 1f : 0f,
                 CanvasWidth = compositor.CurrentWidth,
                 CanvasHeight = compositor.CurrentHeight,
-                SourceIsPremultiplied = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f
+                SourceIsPremultiplied = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
+                OutputIsPremultiplied = pipelineSourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f
             });
 
             // 2. Texture & Sampler BindGroup (Group 2)
