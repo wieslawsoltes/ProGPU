@@ -36,6 +36,38 @@ public sealed class SkSurfaceBackendRenderTargetTests
     }
 
     [Fact]
+    public void CreateFromBgraBackendRenderTargetUsesTextureFormatCompositor()
+    {
+        using var grContext = GRContext.CreateGl() ?? throw new InvalidOperationException("Failed to create GRContext.");
+        using var rgbaSurface = SKSurface.Create(new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        rgbaSurface.Canvas.Clear(SKColors.Blue);
+        rgbaSurface.Flush();
+
+        using var texture = new GpuTexture(
+            grContext.Context,
+            4,
+            4,
+            TextureFormat.Bgra8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
+            "SKSurface wrapped BGRA render target test");
+        using var renderTarget = new GRBackendRenderTarget(4, 4, texture);
+        using var surface = SKSurface.Create(grContext, renderTarget, GRSurfaceOrigin.TopLeft, SKColorType.Bgra8888);
+
+        surface.Canvas.Clear(SKColors.Red);
+        surface.Flush();
+
+        var formats = SurfaceCompositorCacheFormats(grContext.Context);
+        Assert.Contains(TextureFormat.Rgba8Unorm, formats);
+        Assert.Contains(TextureFormat.Bgra8Unorm, formats);
+
+        var pixels = texture.ReadPixels();
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(0, pixels[1]);
+        Assert.Equal(255, pixels[2]);
+        Assert.Equal(255, pixels[3]);
+    }
+
+    [Fact]
     public void RepeatedFlushesPreserveExistingGpuSurfaceContents()
     {
         using var surface = SKSurface.Create(new SKImageInfo(8, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
@@ -183,6 +215,26 @@ public sealed class SkSurfaceBackendRenderTargetTests
         lock (cache)
         {
             return cache.Contains(context);
+        }
+    }
+
+    private static TextureFormat[] SurfaceCompositorCacheFormats(WgpuContext context)
+    {
+        var field = typeof(SKSurface).GetField(
+            "_compositorCache",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        var cache = (IDictionary)field!.GetValue(null)!;
+        lock (cache)
+        {
+            var formatCache = (IDictionary?)cache[context];
+            if (formatCache == null)
+            {
+                return Array.Empty<TextureFormat>();
+            }
+
+            var formats = new TextureFormat[formatCache.Keys.Count];
+            formatCache.Keys.CopyTo(formats, 0);
+            return formats;
         }
     }
 

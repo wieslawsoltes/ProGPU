@@ -23,7 +23,7 @@ public class SKSurface : IDisposable
     private readonly GRSurfaceOrigin _origin;
     private bool _hasTextureContents;
 
-    private static readonly Dictionary<WgpuContext, Compositor> _compositorCache = new();
+    private static readonly Dictionary<WgpuContext, Dictionary<TextureFormat, Compositor>> _compositorCache = new();
 
     static SKSurface()
     {
@@ -32,31 +32,44 @@ public class SKSurface : IDisposable
 
     public SKCanvas Canvas { get; }
 
-    private static Compositor GetCompositorForContext(WgpuContext context)
+    private static Compositor GetCompositorForContext(WgpuContext context, TextureFormat renderFormat)
     {
         lock (_compositorCache)
         {
-            if (!_compositorCache.TryGetValue(context, out var compositor))
+            if (!_compositorCache.TryGetValue(context, out var formatCompositors))
             {
-                compositor = new Compositor(context, TextureFormat.Rgba8Unorm);
-                _compositorCache[context] = compositor;
+                formatCompositors = new Dictionary<TextureFormat, Compositor>();
+                _compositorCache[context] = formatCompositors;
             }
+
+            if (!formatCompositors.TryGetValue(renderFormat, out var compositor))
+            {
+                compositor = new Compositor(context, renderFormat);
+                formatCompositors[renderFormat] = compositor;
+            }
+
             return compositor;
         }
     }
 
     private static void RemoveCachedCompositor(WgpuContext context)
     {
-        Compositor? compositor = null;
+        Dictionary<TextureFormat, Compositor>? formatCompositors = null;
         lock (_compositorCache)
         {
-            if (_compositorCache.TryGetValue(context, out compositor))
+            if (_compositorCache.TryGetValue(context, out formatCompositors))
             {
                 _compositorCache.Remove(context);
             }
         }
 
-        compositor?.Dispose();
+        if (formatCompositors != null)
+        {
+            foreach (var compositor in formatCompositors.Values)
+            {
+                compositor.Dispose();
+            }
+        }
     }
 
     private SKSurface(WgpuContext context, int width, int height, GpuTexture? texture, bool ownsTexture, IntPtr pixels, int rowBytes, SKColorType colorType, SKAlphaType alphaType, GRSurfaceOrigin origin = GRSurfaceOrigin.TopLeft)
@@ -205,7 +218,7 @@ public class SKSurface : IDisposable
 
         visual.Context.Append(_drawingContext);
 
-        var compositor = GetCompositorForContext(_context);
+        var compositor = GetCompositorForContext(_context, _gpuTexture.Format);
         compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, _hasTextureContents);
         _hasTextureContents = true;
 
