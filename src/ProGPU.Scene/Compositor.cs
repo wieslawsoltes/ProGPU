@@ -5020,12 +5020,11 @@ public unsafe class Compositor : IDisposable
         var textureOpacity = cmd.TextureSamplingMode == TextureSamplingMode.Cubic
             ? -_activeOpacity
             : _activeOpacity;
-        var premultipliedOpacityScale = cmd.Texture.AlphaMode == GpuTextureAlphaMode.Premultiplied
-            ? _activeOpacity
-            : 1f;
+        var isPremultiplied = cmd.Texture.AlphaMode == GpuTextureAlphaMode.Premultiplied;
+        var premultipliedOpacityScale = isPremultiplied ? _activeOpacity : 1f;
         var color = new Vector4(
             premultipliedOpacityScale,
-            premultipliedOpacityScale,
+            isPremultiplied ? 1f : 0f,
             premultipliedOpacityScale,
             textureOpacity);
 

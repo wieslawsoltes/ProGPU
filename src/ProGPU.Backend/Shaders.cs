@@ -914,10 +914,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         texColor = sample_bicubic(input.texCoord);
     }
     let opacity = abs(input.color.a);
-    let drawColor = vec4<f32>(input.color.rgb, opacity);
+    let sourceIsPremultiplied = input.color.g > 0.5;
+    let rgbScale = input.color.r;
     let screen_uv = input.position.xy / uniforms.canvasSize;
     let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
-    return vec4<f32>(texColor.rgb * drawColor.rgb, texColor.a * drawColor.a) * maskAlpha;
+    let coverage = opacity * maskAlpha;
+    if (sourceIsPremultiplied) {
+        return vec4<f32>(texColor.rgb * rgbScale * maskAlpha, texColor.a * coverage);
+    }
+
+    return vec4<f32>(texColor.rgb * rgbScale, texColor.a * coverage);
 }
 ";
 
