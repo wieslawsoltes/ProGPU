@@ -122,9 +122,18 @@ public class Bitmap : Image
             throw new ArgumentOutOfRangeException(nameof(x));
 
         Flush();
-        byte[] rgba = new byte[] { color.R, color.G, color.B, color.A };
+        byte red = color.R;
+        byte green = color.G;
+        byte blue = color.B;
+        if (_texture.AlphaMode == GpuTextureAlphaMode.Premultiplied)
+        {
+            red = PremultiplyChannel(red, color.A);
+            green = PremultiplyChannel(green, color.A);
+            blue = PremultiplyChannel(blue, color.A);
+        }
+
+        byte[] rgba = new byte[] { red, green, blue, color.A };
         _texture.WritePixelsSubRect(rgba.AsSpan(), (uint)x, (uint)y, 1, 1);
-        _texture.AlphaMode = GpuTextureAlphaMode.Straight;
         _hasDefinedPixels = true;
     }
 
@@ -168,6 +177,11 @@ public class Bitmap : Image
         }
 
         return (byte)Math.Min(255, (channel * 255 + alpha / 2) / alpha);
+    }
+
+    private static byte PremultiplyChannel(byte channel, byte alpha)
+    {
+        return (byte)((channel * alpha + 127) / 255);
     }
 
     private byte[]? _lockedBytes;

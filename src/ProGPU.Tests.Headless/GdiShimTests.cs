@@ -135,6 +135,24 @@ public class GdiShimTests
         Assert.Equal(Color.FromArgb(128, 255, 0, 0).ToArgb(), color.ToArgb());
     }
 
+    [Fact]
+    public void SetPixelPreservesPremultipliedBitmapAlphaMode()
+    {
+        using var bitmap = new Bitmap(2, 1);
+        bitmap.GpuTexture.WritePixels(new byte[]
+        {
+            128, 0, 0, 128,
+            0, 0, 128, 128
+        });
+        bitmap.GpuTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+
+        bitmap.SetPixel(0, 0, Color.FromArgb(128, 0, 255, 0));
+
+        Assert.Equal(GpuTextureAlphaMode.Premultiplied, bitmap.GpuTexture.AlphaMode);
+        Assert.Equal(Color.FromArgb(128, 0, 255, 0).ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.FromArgb(128, 0, 0, 255).ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+    }
+
     [Theory]
     [InlineData(-1, 0, 1, 1)]
     [InlineData(0, -1, 1, 1)]
