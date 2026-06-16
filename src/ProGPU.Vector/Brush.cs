@@ -126,6 +126,8 @@ public enum PenLineCap
 
 public class Pen
 {
+    private double[]? _dashArray;
+
     public Brush Brush { get; set; }
     public float Thickness { get; set; }
     public PenLineJoin LineJoin { get; set; }
@@ -133,6 +135,13 @@ public class Pen
     public PenLineCap StartLineCap { get; set; }
     public PenLineCap EndLineCap { get; set; }
     public PenLineCap DashCap { get; set; }
+    public bool HasDashPattern => _dashArray is { Length: > 0 };
+    public double[]? DashArray
+    {
+        get => _dashArray is null ? null : (double[])_dashArray.Clone();
+        set => _dashArray = value is null ? null : (double[])value.Clone();
+    }
+    public double DashOffset { get; set; }
 
     public Pen(
         Brush brush,
@@ -141,7 +150,9 @@ public class Pen
         float miterLimit = 10.0f,
         PenLineCap startLineCap = PenLineCap.Flat,
         PenLineCap endLineCap = PenLineCap.Flat,
-        PenLineCap dashCap = PenLineCap.Flat)
+        PenLineCap dashCap = PenLineCap.Flat,
+        double[]? dashArray = null,
+        double dashOffset = 0.0)
     {
         Brush = brush;
         Thickness = thickness;
@@ -150,6 +161,8 @@ public class Pen
         StartLineCap = startLineCap;
         EndLineCap = endLineCap;
         DashCap = dashCap;
+        DashArray = dashArray;
+        DashOffset = double.IsFinite(dashOffset) ? dashOffset : 0.0;
     }
 }
 

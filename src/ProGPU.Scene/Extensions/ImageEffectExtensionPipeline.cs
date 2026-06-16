@@ -67,7 +67,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(0.0);
-    
+
     let sigma = effect.blurSigma;
     if (sigma > 0.01) {
         let texSize = vec2<f32>(textureDimensions(texTexture));
@@ -88,40 +88,49 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         color = textureSample(texTexture, texSampler, input.texCoord);
     }
-    
+
+    var straightColor = color;
+    if (effect.sourceIsPremultiplied > 0.5) {
+        if (straightColor.a > 0.00001) {
+            straightColor = vec4<f32>(straightColor.rgb / straightColor.a, straightColor.a);
+        } else {
+            straightColor = vec4<f32>(0.0);
+        }
+    }
+
     // Apply brightness
-    color.r = color.r + effect.brightness;
-    color.g = color.g + effect.brightness;
-    color.b = color.b + effect.brightness;
-    
+    straightColor.r = straightColor.r + effect.brightness;
+    straightColor.g = straightColor.g + effect.brightness;
+    straightColor.b = straightColor.b + effect.brightness;
+
     // Apply contrast
-    color.r = (color.r - 0.5) * effect.contrast + 0.5;
-    color.g = (color.g - 0.5) * effect.contrast + 0.5;
-    color.b = (color.b - 0.5) * effect.contrast + 0.5;
+    straightColor.r = (straightColor.r - 0.5) * effect.contrast + 0.5;
+    straightColor.g = (straightColor.g - 0.5) * effect.contrast + 0.5;
+    straightColor.b = (straightColor.b - 0.5) * effect.contrast + 0.5;
     
     // Apply saturation
-    let luminance = dot(color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    color.r = mix(luminance, color.r, effect.saturation);
-    color.g = mix(luminance, color.g, effect.saturation);
-    color.b = mix(luminance, color.b, effect.saturation);
+    let luminance = dot(straightColor.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    straightColor.r = mix(luminance, straightColor.r, effect.saturation);
+    straightColor.g = mix(luminance, straightColor.g, effect.saturation);
+    straightColor.b = mix(luminance, straightColor.b, effect.saturation);
     
     // Apply grayscale
     let gray = vec3<f32>(luminance);
-    color = vec4<f32>(mix(color.rgb, gray, effect.grayscale), color.a);
+    straightColor = vec4<f32>(mix(straightColor.rgb, gray, effect.grayscale), straightColor.a);
     
     // Apply sepia
     let sepiaColor = vec3<f32>(
-        color.r * 0.393 + color.g * 0.769 + color.b * 0.189,
-        color.r * 0.349 + color.g * 0.686 + color.b * 0.168,
-        color.r * 0.272 + color.g * 0.534 + color.b * 0.131
+        straightColor.r * 0.393 + straightColor.g * 0.769 + straightColor.b * 0.189,
+        straightColor.r * 0.349 + straightColor.g * 0.686 + straightColor.b * 0.168,
+        straightColor.r * 0.272 + straightColor.g * 0.534 + straightColor.b * 0.131
     );
-    color = vec4<f32>(mix(color.rgb, sepiaColor, effect.sepia), color.a);
+    straightColor = vec4<f32>(mix(straightColor.rgb, sepiaColor, effect.sepia), straightColor.a);
     
     // Apply invert
-    let inverted = vec3<f32>(1.0) - color.rgb;
-    color = vec4<f32>(mix(color.rgb, inverted, effect.invert), color.a);
+    let inverted = vec3<f32>(1.0) - straightColor.rgb;
+    straightColor = vec4<f32>(mix(straightColor.rgb, inverted, effect.invert), straightColor.a);
     
-    color = clamp(color, vec4<f32>(0.0), vec4<f32>(1.0));
+    straightColor = clamp(straightColor, vec4<f32>(0.0), vec4<f32>(1.0));
     
     var maskAlpha = 1.0;
     if (effect.hasMask > 0.5) {
@@ -131,10 +140,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     let coverage = input.color.a * maskAlpha;
     if (effect.sourceIsPremultiplied > 0.5) {
-        return vec4<f32>(color.rgb * input.color.rgb * coverage, color.a * coverage);
+        return vec4<f32>(straightColor.rgb * straightColor.a * input.color.rgb * coverage, straightColor.a * coverage);
     }
 
-    return vec4<f32>(color.rgb * input.color.rgb, color.a * coverage);
+    return vec4<f32>(straightColor.rgb * input.color.rgb, straightColor.a * coverage);
 }
 ";
 

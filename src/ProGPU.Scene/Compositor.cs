@@ -2628,6 +2628,33 @@ public unsafe class Compositor : IDisposable
 
         if (cmd.Pen != null && cmd.Pen.Thickness > 0f)
         {
+            if (cmd.Pen.HasDashPattern)
+            {
+                if (!TryCreateDashedStrokePath(cmd.Path, cmd.Pen, out var dashedPath))
+                {
+                    throw new NotSupportedException("Dashed strokes are not supported for this path geometry.");
+                }
+
+                var dashedCmd = cmd;
+                dashedCmd.Brush = null;
+                dashedCmd.Path = dashedPath;
+                dashedCmd.Pen = CreateUndashedPen(cmd.Pen);
+                dashedCmd.Transform = default;
+                if (_activeClipRect.HasValue)
+                {
+                    var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+                    for (int i = startIndex; i < vertices.Length; i++)
+                    {
+                        var v = vertices[i];
+                        v.Position = ClampToClip(v.Position);
+                        vertices[i] = v;
+                    }
+                }
+
+                CompilePathCommand(dashedCmd, transform);
+                return;
+            }
+
             float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
             var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
             float thickness = cmd.Pen.Thickness;
@@ -3065,6 +3092,196 @@ public unsafe class Compositor : IDisposable
                 }
             }
         }
+    }
+
+    private static bool TryCreateDashedStrokePath(PathGeometry source, Pen pen, out PathGeometry dashedPath)
+    {
+        dashedPath = new PathGeometry
+        {
+            FillRule = source.FillRule
+        };
+
+        if (source.IsCombined)
+        {
+            return false;
+        }
+
+        var dashArray = pen.DashArray;
+        if (dashArray is not { Length: > 0 } ||
+            !DashPattern.TryCreate(dashArray, pen.DashOffset, pen.Thickness, out var pattern))
+        {
+            return false;
+        }
+
+        foreach (var figure in source.Figures)
+        {
+            var patternIndex = pattern.InitialIndex;
+            var distanceInPattern = pattern.InitialDistance;
+            var currentPoint = figure.StartPoint;
+
+            foreach (var segment in figure.Segments)
+            {
+                var segmentStart = currentPoint;
+                if (!segment.IsStroked)
+                {
+                    if (TryGetPathSegmentEndPoint(segment, out var skippedEndPoint))
+                    {
+                        currentPoint = skippedEndPoint;
+                    }
+
+                    patternIndex = pattern.InitialIndex;
+                    distanceInPattern = pattern.InitialDistance;
+                    continue;
+                }
+
+                switch (segment)
+                {
+                    case LineSegment line:
+                        AddDashedLineFigures(
+                            dashedPath,
+                            pattern,
+                            segmentStart,
+                            line.Point,
+                            ref patternIndex,
+                            ref distanceInPattern);
+                        currentPoint = line.Point;
+                        break;
+
+                    case QuadraticBezierSegment quadratic:
+                        if (BezierSegmentGeometry.TryCreateDashedQuadraticBezierSegments(
+                                segmentStart,
+                                quadratic,
+                                pattern.Intervals,
+                                patternIndex,
+                                distanceInPattern,
+                                out var quadraticSegments,
+                                out patternIndex,
+                                out distanceInPattern))
+                        {
+                            foreach (var dashSegment in quadraticSegments)
+                            {
+                                AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Segment);
+                            }
+                        }
+
+                        currentPoint = quadratic.Point;
+                        break;
+
+                    case CubicBezierSegment cubic:
+                        if (BezierSegmentGeometry.TryCreateDashedCubicBezierSegments(
+                                segmentStart,
+                                cubic,
+                                pattern.Intervals,
+                                patternIndex,
+                                distanceInPattern,
+                                out var cubicSegments,
+                                out patternIndex,
+                                out distanceInPattern))
+                        {
+                            foreach (var dashSegment in cubicSegments)
+                            {
+                                AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Segment);
+                            }
+                        }
+
+                        currentPoint = cubic.Point;
+                        break;
+
+                    case ArcSegment arc:
+                        if (ArcSegmentGeometry.TryCreateDashedArcSegments(
+                                segmentStart,
+                                arc,
+                                pattern.Intervals,
+                                patternIndex,
+                                distanceInPattern,
+                                out var arcSegments,
+                                out patternIndex,
+                                out distanceInPattern))
+                        {
+                            foreach (var dashSegment in arcSegments)
+                            {
+                                AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Arc);
+                            }
+                        }
+
+                        currentPoint = arc.Point;
+                        break;
+
+                    default:
+                        return false;
+                }
+            }
+
+            if (figure.IsClosed && Vector2.DistanceSquared(currentPoint, figure.StartPoint) > StrokeEpsilon * StrokeEpsilon)
+            {
+                AddDashedLineFigures(
+                    dashedPath,
+                    pattern,
+                    currentPoint,
+                    figure.StartPoint,
+                    ref patternIndex,
+                    ref distanceInPattern);
+            }
+        }
+
+        return true;
+    }
+
+    private static void AddDashedLineFigures(
+        PathGeometry dashedPath,
+        DashPattern pattern,
+        Vector2 start,
+        Vector2 end,
+        ref int patternIndex,
+        ref float distanceInPattern)
+    {
+        if (!pattern.TryCreateLineSegments(
+                start,
+                end,
+                patternIndex,
+                distanceInPattern,
+                out var dashSegments,
+                out patternIndex,
+                out distanceInPattern))
+        {
+            return;
+        }
+
+        foreach (var dashSegment in dashSegments)
+        {
+            AddDashedSegmentFigure(dashedPath, dashSegment.Start, new LineSegment(dashSegment.End));
+        }
+    }
+
+    private static void AddDashedSegmentFigure(PathGeometry dashedPath, Vector2 start, PathSegment segment)
+    {
+        if (TryGetPathSegmentEndPoint(segment, out var endPoint) &&
+            Vector2.DistanceSquared(start, endPoint) <= StrokeEpsilon * StrokeEpsilon)
+        {
+            return;
+        }
+
+        segment.IsSmoothJoin = false;
+        segment.IsStroked = true;
+        var figure = new PathFigure(start)
+        {
+            IsClosed = false,
+            IsFilled = false
+        };
+        figure.Segments.Add(segment);
+        dashedPath.Figures.Add(figure);
+    }
+
+    private static Pen CreateUndashedPen(Pen pen)
+    {
+        return new Pen(
+            pen.Brush,
+            pen.Thickness,
+            pen.LineJoin,
+            pen.MiterLimit,
+            pen.StartLineCap,
+            pen.EndLineCap,
+            pen.DashCap);
     }
 
     private static int CountStrokeSegmentJoinTriangleBudget(PathFigure figure)
@@ -3611,6 +3828,22 @@ public unsafe class Compositor : IDisposable
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
+        if (cmd.Pen.HasDashPattern)
+        {
+            var path = new PathGeometry();
+            var figure = new PathFigure(cmd.Position);
+            figure.Segments.Add(new LineSegment(cmd.Position2));
+            path.Figures.Add(figure);
+
+            var pathCmd = cmd;
+            pathCmd.Type = RenderCommandType.DrawPath;
+            pathCmd.Path = path;
+            pathCmd.Brush = null;
+            pathCmd.Transform = default;
+            CompilePathCommand(pathCmd, transform);
+            return;
+        }
+
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);

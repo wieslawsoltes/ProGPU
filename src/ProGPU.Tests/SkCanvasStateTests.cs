@@ -457,6 +457,57 @@ public sealed class SkCanvasStateTests
         AssertNear(3f, pen.Thickness);
     }
 
+    [Fact]
+    public void SkPaintToPenMapsDashPathEffectToVectorPen()
+    {
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+            PathEffect = SKPathEffect.CreateDash(new[] { 6f, 2f, 4f, 8f }, 3f)
+        };
+
+        var pen = Assert.IsType<Pen>(paint.ToPen());
+
+        Assert.Equal(new[] { 3.0, 1.0, 2.0, 4.0 }, pen.DashArray);
+        AssertNear(1.5f, (float)pen.DashOffset);
+    }
+
+    [Fact]
+    public void SkShaderMapsTileModesToGradientSpreadMethods()
+    {
+        using var repeatShader = SKShader.CreateLinearGradient(
+            new SKPoint(0f, 0f),
+            new SKPoint(10f, 0f),
+            new[] { SKColors.Red, SKColors.Blue },
+            null,
+            SKShaderTileMode.Repeat);
+        using var mirrorShader = SKShader.CreateRadialGradient(
+            new SKPoint(5f, 5f),
+            10f,
+            new[] { SKColors.Red, SKColors.Blue },
+            null,
+            SKShaderTileMode.Mirror);
+
+        var linear = Assert.IsType<LinearGradientBrush>(repeatShader.ToBrush());
+        var radial = Assert.IsType<RadialGradientBrush>(mirrorShader.ToBrush());
+
+        Assert.Equal(GradientSpreadMethod.Repeat, linear.SpreadMethod);
+        Assert.Equal(GradientSpreadMethod.Reflect, radial.SpreadMethod);
+    }
+
+    [Fact]
+    public void SkShaderRejectsUnsupportedDecalTileMode()
+    {
+        Assert.Throws<NotSupportedException>(() =>
+            SKShader.CreateLinearGradient(
+                new SKPoint(0f, 0f),
+                new SKPoint(10f, 0f),
+                new[] { SKColors.Red, SKColors.Blue },
+                null,
+                SKShaderTileMode.Decal));
+    }
+
     private static void AssertMatrixNear(Matrix4x4 expected, Matrix4x4 actual)
     {
         AssertNear(expected.M11, actual.M11);

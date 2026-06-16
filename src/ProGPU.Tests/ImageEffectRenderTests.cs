@@ -208,6 +208,41 @@ public sealed class ImageEffectRenderTests
         }
     }
 
+    [Fact]
+    public void DrawImageWithEffectAppliesColorEffectsInStraightColorSpace()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Image Effect Premultiplied Invert Source",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        source.WritePixels<byte>(new byte[] { 128, 0, 0, 128 });
+
+        window.Content = new PremultipliedInvertImageEffectVisual(source);
+
+        try
+        {
+            window.Render();
+
+            var pixel = ReadPixel(window.ReadPixels(), window.Width, x: 16, y: 16);
+
+            Assert.InRange(pixel.R, 0, 8);
+            Assert.InRange(pixel.G, 120, 136);
+            Assert.InRange(pixel.B, 120, 136);
+            Assert.Equal(255, pixel.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -329,6 +364,27 @@ public sealed class ImageEffectRenderTests
             context.PushOpacity(0.5f);
             context.DrawImageWithEffect(_source, new Rect(0f, 0f, 32f, 32f));
             context.PopOpacity();
+        }
+    }
+
+    private sealed class PremultipliedInvertImageEffectVisual : FrameworkElement
+    {
+        private readonly GpuTexture _source;
+
+        public PremultipliedInvertImageEffectVisual(GpuTexture source)
+        {
+            _source = source;
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new System.Numerics.Vector4(0f, 0f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 32f, 32f));
+            context.DrawImageWithEffect(_source, new Rect(0f, 0f, 32f, 32f), invert: 1f);
         }
     }
 }

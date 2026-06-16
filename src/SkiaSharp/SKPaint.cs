@@ -76,6 +76,8 @@ public class SKPaint : IDisposable
             var c = new Vector4(Color.R / 255.0f, Color.G / 255.0f, Color.B / 255.0f, Color.A / 255.0f);
             penBrush = new SolidColorBrush(c);
         }
+        var (dashArray, dashOffset) = MapDashEffect(PathEffect, StrokeWidth);
+
         return new Pen(
             penBrush,
             StrokeWidth,
@@ -83,7 +85,9 @@ public class SKPaint : IDisposable
             StrokeMiter,
             MapStrokeCap(StrokeCap),
             MapStrokeCap(StrokeCap),
-            MapStrokeCap(StrokeCap));
+            MapStrokeCap(StrokeCap),
+            dashArray,
+            dashOffset);
     }
 
     public void Dispose() { }
@@ -106,6 +110,43 @@ public class SKPaint : IDisposable
             SKStrokeJoin.Bevel => PenLineJoin.Bevel,
             _ => PenLineJoin.Miter
         };
+    }
+
+    private static (double[]? DashArray, double DashOffset) MapDashEffect(SKPathEffect? pathEffect, float strokeWidth)
+    {
+        if (pathEffect == null)
+        {
+            return (null, 0.0);
+        }
+
+        if (!float.IsFinite(strokeWidth) || strokeWidth <= 0f)
+        {
+            throw new NotSupportedException("Dash path effects require a positive finite stroke width.");
+        }
+
+        if (pathEffect.Intervals.Length == 0 || (pathEffect.Intervals.Length % 2) != 0)
+        {
+            throw new NotSupportedException("Dash path effects require an even number of intervals.");
+        }
+
+        var dashArray = new double[pathEffect.Intervals.Length];
+        for (var i = 0; i < pathEffect.Intervals.Length; i++)
+        {
+            var interval = pathEffect.Intervals[i];
+            if (!float.IsFinite(interval) || interval < 0f)
+            {
+                throw new NotSupportedException("Dash path effect intervals must be finite and non-negative.");
+            }
+
+            dashArray[i] = interval / strokeWidth;
+        }
+
+        if (!float.IsFinite(pathEffect.Phase))
+        {
+            throw new NotSupportedException("Dash path effect phase must be finite.");
+        }
+
+        return (dashArray, pathEffect.Phase / strokeWidth);
     }
 }
 
@@ -136,6 +177,7 @@ public class SKShader : IDisposable
         float[]? colorPos,
         SKShaderTileMode mode)
     {
+        var spreadMethod = MapTileMode(mode);
         return new SKShader(() =>
         {
             var stops = new GradientStop[colors.Length];
@@ -145,7 +187,10 @@ public class SKShader : IDisposable
                 float offset = colorPos != null ? colorPos[i] : (float)i / (colors.Length - 1);
                 stops[i] = new GradientStop(c, offset);
             }
-            return new LinearGradientBrush(new Vector2(start.X, start.Y), new Vector2(end.X, end.Y), stops);
+            return new LinearGradientBrush(new Vector2(start.X, start.Y), new Vector2(end.X, end.Y), stops)
+            {
+                SpreadMethod = spreadMethod
+            };
         });
     }
 
@@ -156,6 +201,7 @@ public class SKShader : IDisposable
         float[]? colorPos,
         SKShaderTileMode mode)
     {
+        var spreadMethod = MapTileMode(mode);
         return new SKShader(() =>
         {
             var stops = new GradientStop[colors.Length];
@@ -165,7 +211,10 @@ public class SKShader : IDisposable
                 float offset = colorPos != null ? colorPos[i] : (float)i / (colors.Length - 1);
                 stops[i] = new GradientStop(c, offset);
             }
-            return new RadialGradientBrush(new Vector2(center.X, center.Y), radius, stops);
+            return new RadialGradientBrush(new Vector2(center.X, center.Y), radius, stops)
+            {
+                SpreadMethod = spreadMethod
+            };
         });
     }
 
@@ -183,6 +232,18 @@ public class SKShader : IDisposable
     }
 
     public void Dispose() { }
+
+    private static GradientSpreadMethod MapTileMode(SKShaderTileMode mode)
+    {
+        return mode switch
+        {
+            SKShaderTileMode.Clamp => GradientSpreadMethod.Pad,
+            SKShaderTileMode.Repeat => GradientSpreadMethod.Repeat,
+            SKShaderTileMode.Mirror => GradientSpreadMethod.Reflect,
+            SKShaderTileMode.Decal => throw new NotSupportedException("SKShaderTileMode.Decal is not supported by ProGPU gradient brushes."),
+            _ => GradientSpreadMethod.Pad
+        };
+    }
 }
 
 public class SKColorFilter : IDisposable
@@ -252,7 +313,7 @@ public class SKPathEffect : IDisposable
 
     private SKPathEffect(float[] intervals, float phase)
     {
-        Intervals = intervals;
+        Intervals = (float[])intervals.Clone();
         Phase = phase;
     }
 
