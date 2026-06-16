@@ -364,52 +364,237 @@ public class SKRoundRect : IDisposable
 
 public class SKRegion : IDisposable
 {
-    private SKPath? _path;
-    private SKRectI _rect;
+    private readonly List<SKRectI> _rects = new();
+    private SKRectI _bounds;
 
-    public bool IsEmpty => (_path == null || _path.IsEmpty) && _rect.Width <= 0;
+    public bool IsEmpty => _rects.Count == 0;
 
-    public SKRectI Bounds => _rect;
+    public SKRectI Bounds => _bounds;
 
     public SKRegion() { }
 
     public bool Contains(int x, int y)
     {
-        return x >= _rect.Left && x < _rect.Right && y >= _rect.Top && y < _rect.Bottom;
+        foreach (var rect in _rects)
+        {
+            if (Contains(rect, x, y))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public bool SetPath(SKPath path)
     {
-        _path = path;
         var b = path.Bounds;
-        _rect = new SKRectI((int)Math.Floor(b.Left), (int)Math.Floor(b.Top), (int)Math.Ceiling(b.Right), (int)Math.Ceiling(b.Bottom));
-        return true;
+        SetSingleRect(new SKRectI((int)Math.Floor(b.Left), (int)Math.Floor(b.Top), (int)Math.Ceiling(b.Right), (int)Math.Ceiling(b.Bottom)));
+        return !IsEmpty;
     }
 
     public bool SetRect(SKRectI rect)
     {
-        _rect = rect;
-        _path = null;
-        return true;
+        SetSingleRect(rect);
+        return !IsEmpty;
     }
 
     public bool Op(SKRectI rect, SKRegionOperation op)
     {
-        if (op == SKRegionOperation.Replace)
+        switch (op)
         {
-            _rect = rect;
-            _path = null;
-            return true;
+            case SKRegionOperation.Replace:
+                SetSingleRect(rect);
+                break;
+            case SKRegionOperation.Intersect:
+                IntersectWith(rect);
+                break;
+            case SKRegionOperation.Union:
+                AddRect(rect);
+                break;
+            case SKRegionOperation.Difference:
+                DifferenceWith(rect);
+                break;
+            case SKRegionOperation.ReverseDifference:
+                ReverseDifferenceWith(rect);
+                break;
+            case SKRegionOperation.Xor:
+                XorWith(rect);
+                break;
+            default:
+                return false;
         }
-        
-        // Approximate other ops by union-ing bounds
-        _rect = new SKRectI(
-            Math.Min(_rect.Left, rect.Left),
-            Math.Min(_rect.Top, rect.Top),
-            Math.Max(_rect.Right, rect.Right),
-            Math.Max(_rect.Bottom, rect.Bottom)
-        );
-        return true;
+
+        UpdateBounds();
+        return !IsEmpty;
+    }
+
+    private void SetSingleRect(SKRectI rect)
+    {
+        _rects.Clear();
+        AddRect(rect);
+        UpdateBounds();
+    }
+
+    private void AddRect(SKRectI rect)
+    {
+        if (!IsValid(rect))
+        {
+            return;
+        }
+
+        _rects.Add(rect);
+    }
+
+    private void IntersectWith(SKRectI rect)
+    {
+        if (!IsValid(rect))
+        {
+            _rects.Clear();
+            return;
+        }
+
+        for (int i = _rects.Count - 1; i >= 0; i--)
+        {
+            var intersection = Intersect(_rects[i], rect);
+            if (IsValid(intersection))
+            {
+                _rects[i] = intersection;
+            }
+            else
+            {
+                _rects.RemoveAt(i);
+            }
+        }
+    }
+
+    private void DifferenceWith(SKRectI rect)
+    {
+        if (!IsValid(rect) || _rects.Count == 0)
+        {
+            return;
+        }
+
+        var result = new List<SKRectI>(_rects.Count);
+        foreach (var source in _rects)
+        {
+            AddDifference(result, source, rect);
+        }
+
+        _rects.Clear();
+        _rects.AddRange(result);
+    }
+
+    private void ReverseDifferenceWith(SKRectI rect)
+    {
+        var result = new List<SKRectI>();
+        AddIfValid(result, rect);
+        foreach (var existing in _rects)
+        {
+            for (int i = result.Count - 1; i >= 0; i--)
+            {
+                var current = result[i];
+                result.RemoveAt(i);
+                AddDifference(result, current, existing);
+            }
+        }
+
+        _rects.Clear();
+        _rects.AddRange(result);
+    }
+
+    private void XorWith(SKRectI rect)
+    {
+        var left = new List<SKRectI>();
+        foreach (var existing in _rects)
+        {
+            AddDifference(left, existing, rect);
+        }
+
+        var right = new List<SKRectI>();
+        AddIfValid(right, rect);
+        foreach (var existing in _rects)
+        {
+            for (int i = right.Count - 1; i >= 0; i--)
+            {
+                var current = right[i];
+                right.RemoveAt(i);
+                AddDifference(right, current, existing);
+            }
+        }
+
+        _rects.Clear();
+        _rects.AddRange(left);
+        _rects.AddRange(right);
+    }
+
+    private static void AddDifference(List<SKRectI> result, SKRectI source, SKRectI cutter)
+    {
+        if (!IsValid(source))
+        {
+            return;
+        }
+
+        var overlap = Intersect(source, cutter);
+        if (!IsValid(overlap))
+        {
+            result.Add(source);
+            return;
+        }
+
+        AddIfValid(result, new SKRectI(source.Left, source.Top, source.Right, overlap.Top));
+        AddIfValid(result, new SKRectI(source.Left, overlap.Bottom, source.Right, source.Bottom));
+        AddIfValid(result, new SKRectI(source.Left, overlap.Top, overlap.Left, overlap.Bottom));
+        AddIfValid(result, new SKRectI(overlap.Right, overlap.Top, source.Right, overlap.Bottom));
+    }
+
+    private static void AddIfValid(List<SKRectI> result, SKRectI rect)
+    {
+        if (IsValid(rect))
+        {
+            result.Add(rect);
+        }
+    }
+
+    private void UpdateBounds()
+    {
+        if (_rects.Count == 0)
+        {
+            _bounds = SKRectI.Empty;
+            return;
+        }
+
+        var bounds = _rects[0];
+        for (int i = 1; i < _rects.Count; i++)
+        {
+            var rect = _rects[i];
+            bounds = new SKRectI(
+                Math.Min(bounds.Left, rect.Left),
+                Math.Min(bounds.Top, rect.Top),
+                Math.Max(bounds.Right, rect.Right),
+                Math.Max(bounds.Bottom, rect.Bottom));
+        }
+
+        _bounds = bounds;
+    }
+
+    private static SKRectI Intersect(SKRectI left, SKRectI right)
+    {
+        return new SKRectI(
+            Math.Max(left.Left, right.Left),
+            Math.Max(left.Top, right.Top),
+            Math.Min(left.Right, right.Right),
+            Math.Min(left.Bottom, right.Bottom));
+    }
+
+    private static bool Contains(SKRectI rect, int x, int y)
+    {
+        return x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
+    }
+
+    private static bool IsValid(SKRectI rect)
+    {
+        return rect.Width > 0 && rect.Height > 0;
     }
 
     public void Dispose() { }

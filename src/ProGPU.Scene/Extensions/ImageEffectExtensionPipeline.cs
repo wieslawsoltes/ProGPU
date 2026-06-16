@@ -157,7 +157,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             public nint BindGroupPtr; // BindGroup*
         }
 
-        private readonly Dictionary<(bool IsOffscreen, GpuTextureAlphaMode SourceAlphaMode), nint> _cachedPipelines = new();
+        private readonly Dictionary<(bool IsOffscreen, GpuTextureAlphaMode SourceAlphaMode, GpuBlendMode BlendMode), nint> _cachedPipelines = new();
         private WgpuContext? _contextRef;
         private BindGroupLayout* _effectBindGroupLayout;
         private BindGroupLayout* _textureBindGroupLayout;
@@ -373,7 +373,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
             var sourceAlphaMode = p.Texture.AlphaMode;
-            var pipelineCacheKey = (isOffscreen, sourceAlphaMode);
+            var pipelineCacheKey = (isOffscreen, sourceAlphaMode, dc.BlendMode);
             if (!_cachedPipelines.TryGetValue(pipelineCacheKey, out var activePipelinePtr))
             {
                 var shaderModule = compositor.PipelineCache.GetOrCreateShader("ImageEffectShader", ShaderCode, "ImageEffect WGSL Shader");
@@ -396,14 +396,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
                 var pipeline = compositor.PipelineCache.GetOrCreateRenderPipeline(
                     isOffscreen
-                        ? $"ImageEffectPipeline_Offscreen_{sourceAlphaMode}"
-                        : $"ImageEffectPipeline_{sourceAlphaMode}",
+                        ? $"ImageEffectPipeline_Offscreen_{sourceAlphaMode}_{dc.BlendMode}"
+                        : $"ImageEffectPipeline_{sourceAlphaMode}_{dc.BlendMode}",
                     shaderModule,
                     vertexBufferLayouts: layouts,
                     topology: PrimitiveTopology.TriangleList,
                     targetFormat: compositor.RenderFormat,
                     sampleCount: isOffscreen ? 1u : 4u,
                     pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout,
+                    blendMode: dc.BlendMode,
                     sourceAlphaMode: sourceAlphaMode
                 );
 

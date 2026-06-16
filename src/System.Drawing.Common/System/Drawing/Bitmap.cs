@@ -190,6 +190,7 @@ public class Bitmap : Image
     private PixelFormat _lockedPixelFormat;
     private int _lockedStride;
     private bool _lockedWriteBack;
+    private GpuTextureAlphaMode _lockedTextureAlphaMode;
 
     public BitmapData LockBits(Rectangle rect, ImageLockMode flags, PixelFormat format)
     {
@@ -206,8 +207,9 @@ public class Bitmap : Image
         _lockedPixelFormat = format;
         _lockedStride = stride;
         _lockedWriteBack = flags != ImageLockMode.ReadOnly;
+        _lockedTextureAlphaMode = _texture.AlphaMode;
 
-        CopyRgbaToLockBuffer(fullPixels, _lockedBytes, rect, format, stride);
+        CopyRgbaToLockBuffer(fullPixels, _lockedBytes, rect, format, stride, _lockedTextureAlphaMode);
         
         _lockedHandle = GCHandle.Alloc(_lockedBytes, GCHandleType.Pinned);
 
@@ -234,7 +236,7 @@ public class Bitmap : Image
         return (bytesPerRow + 3) & ~3;
     }
 
-    private void CopyRgbaToLockBuffer(byte[] source, byte[] destination, Rectangle rect, PixelFormat format, int stride)
+    private void CopyRgbaToLockBuffer(byte[] source, byte[] destination, Rectangle rect, PixelFormat format, int stride, GpuTextureAlphaMode sourceAlphaMode)
     {
         for (int y = 0; y < rect.Height; y++)
         {
@@ -247,8 +249,25 @@ public class Bitmap : Image
                 var g = source[src + 1];
                 var b = source[src + 2];
                 var a = source[src + 3];
+                ConvertPixelFromTextureAlphaMode(ref r, ref g, ref b, a, sourceAlphaMode, format);
                 WriteLockPixel(destination, dstOffset, x, format, r, g, b, a);
             }
+        }
+    }
+
+    private static void ConvertPixelFromTextureAlphaMode(ref byte r, ref byte g, ref byte b, byte a, GpuTextureAlphaMode sourceAlphaMode, PixelFormat lockPixelFormat)
+    {
+        if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied && lockPixelFormat != PixelFormat.Format32bppPArgb)
+        {
+            r = UnpremultiplyChannel(r, a);
+            g = UnpremultiplyChannel(g, a);
+            b = UnpremultiplyChannel(b, a);
+        }
+        else if (sourceAlphaMode == GpuTextureAlphaMode.Straight && lockPixelFormat == PixelFormat.Format32bppPArgb)
+        {
+            r = PremultiplyChannel(r, a);
+            g = PremultiplyChannel(g, a);
+            b = PremultiplyChannel(b, a);
         }
     }
 
@@ -314,8 +333,9 @@ public class Bitmap : Image
             if (_lockedWriteBack)
             {
                 var rgba = ConvertLockBufferToRgba(_lockedBytes, _lockedRect, _lockedPixelFormat, _lockedStride);
+                ConvertPixelsToTextureAlphaMode(rgba, _lockedPixelFormat, _lockedTextureAlphaMode);
                 _texture.WritePixelsSubRect(rgba, (uint)_lockedRect.X, (uint)_lockedRect.Y, (uint)_lockedRect.Width, (uint)_lockedRect.Height);
-                _texture.AlphaMode = GpuTextureAlphaMode.Straight;
+                _texture.AlphaMode = _lockedTextureAlphaMode;
                 _hasDefinedPixels = true;
             }
 
@@ -323,6 +343,29 @@ public class Bitmap : Image
             _lockedStride = 0;
             _lockedPixelFormat = default;
             _lockedWriteBack = false;
+            _lockedTextureAlphaMode = default;
+        }
+    }
+
+    private static void ConvertPixelsToTextureAlphaMode(byte[] rgba, PixelFormat lockPixelFormat, GpuTextureAlphaMode targetAlphaMode)
+    {
+        var lockPixelsArePremultiplied = lockPixelFormat == PixelFormat.Format32bppPArgb;
+
+        for (int offset = 0; offset < rgba.Length; offset += 4)
+        {
+            var alpha = rgba[offset + 3];
+            if (targetAlphaMode == GpuTextureAlphaMode.Premultiplied && !lockPixelsArePremultiplied)
+            {
+                rgba[offset] = PremultiplyChannel(rgba[offset], alpha);
+                rgba[offset + 1] = PremultiplyChannel(rgba[offset + 1], alpha);
+                rgba[offset + 2] = PremultiplyChannel(rgba[offset + 2], alpha);
+            }
+            else if (targetAlphaMode == GpuTextureAlphaMode.Straight && lockPixelsArePremultiplied)
+            {
+                rgba[offset] = UnpremultiplyChannel(rgba[offset], alpha);
+                rgba[offset + 1] = UnpremultiplyChannel(rgba[offset + 1], alpha);
+                rgba[offset + 2] = UnpremultiplyChannel(rgba[offset + 2], alpha);
+            }
         }
     }
 

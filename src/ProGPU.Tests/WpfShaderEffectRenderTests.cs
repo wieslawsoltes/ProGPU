@@ -318,6 +318,35 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
         }
     }
 
+    [Fact]
+    public void WpfShaderEffectVisualBlendsPremultipliedVisualSource()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        var visual = new SemiTransparentShaderEffectSourceVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+
+            var effect = Assert.IsType<WpfShaderEffect>(visual.Effect);
+            Assert.False(effect.IsFailed, effect.LastError);
+
+            var pixel = ReadPixel(window.ReadPixels(), window.Width, x: 16, y: 16);
+
+            Assert.InRange(pixel.R, 112, 145);
+            Assert.InRange(pixel.G, 0, 16);
+            Assert.InRange(pixel.B, 0, 16);
+            Assert.Equal(255, pixel.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private sealed class ShaderEffectVisual : FrameworkElement
     {
         private readonly WpfShaderEffectParams _effect;
@@ -431,6 +460,28 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
                 new SolidColorBrush(new Vector4(0.2f, 0.8f, 0.1f, 1f)),
                 null,
                 new Rect(24, 20, 64, 48));
+        }
+    }
+
+    private sealed class SemiTransparentShaderEffectSourceVisual : FrameworkElement
+    {
+        public SemiTransparentShaderEffectSourceVisual()
+        {
+            Width = 32f;
+            Height = 32f;
+            Effect = new WpfShaderEffect(new WpfShaderEffectParams
+            {
+                ShaderKey = "test_visual_wpf_shader_effect_premultiplied_source",
+                SamplingMode = TextureSamplingMode.Nearest
+            });
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(1f, 0f, 0f, 0.5f)),
+                null,
+                new Rect(0f, 0f, 32f, 32f));
         }
     }
 }

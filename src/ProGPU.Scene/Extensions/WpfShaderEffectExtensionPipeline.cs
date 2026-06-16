@@ -423,6 +423,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             return;
         }
 
+        if (!p.TryGetPrimaryTexture(out var primaryTexture))
+        {
+            return;
+        }
+
         var sourceLayout = GetOrCreateSourceLayout(compositor, activeRegisters);
         if (dc.MaskTexture != null && !sourceLayout.IncludeMask)
         {
@@ -431,10 +436,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             return;
         }
 
+        var sourceAlphaMode = primaryTexture.AlphaMode;
         var shaderKey = p.GetStableShaderKey() + "_" + sourceLayout.LayoutKey;
         var pipelineKey = isOffscreen
-            ? shaderKey + "_wpf_effect_offscreen"
-            : shaderKey + "_wpf_effect_onscreen";
+            ? $"{shaderKey}_wpf_effect_offscreen_{sourceAlphaMode}_{dc.BlendMode}"
+            : $"{shaderKey}_wpf_effect_onscreen_{sourceAlphaMode}_{dc.BlendMode}";
 
         var cache = compositor.PipelineCache;
         RenderPipeline* activePipeline = null;
@@ -452,7 +458,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         if (activePipeline == null)
         {
-            activePipeline = CreatePipeline(compositor, p, sourceLayout, shaderKey, pipelineKey, isOffscreen);
+            activePipeline = CreatePipeline(compositor, p, sourceLayout, shaderKey, pipelineKey, isOffscreen, dc.BlendMode, sourceAlphaMode);
             if (activePipeline == null)
             {
                 return;
@@ -496,10 +502,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         var gpuRes = _pool[_usedCount++];
         Span<float> uniformFloats = stackalloc float[WpfShaderEffectParams.UniformFloatCount];
-        if (!p.TryGetPrimaryTexture(out var primaryTexture))
-        {
-            return;
-        }
 
         p.CopyUniformFloats(uniformFloats, primaryTexture.Width, primaryTexture.Height);
         uniformFloats[WpfShaderEffectParams.CanvasWidthMetadataIndex] = compositor.CurrentWidth;
@@ -599,7 +601,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         SourceLayoutResources sourceLayout,
         string shaderKey,
         string pipelineKey,
-        bool isOffscreen)
+        bool isOffscreen,
+        GpuBlendMode blendMode,
+        GpuTextureAlphaMode sourceAlphaMode)
     {
         try
         {
@@ -646,7 +650,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                     topology: PrimitiveTopology.TriangleList,
                     targetFormat: compositor.RenderFormat,
                     sampleCount: isOffscreen ? 1u : 4u,
-                    pipelineLayout: isOffscreen ? sourceLayout.OffscreenPipelineLayout : sourceLayout.OnscreenPipelineLayout);
+                    pipelineLayout: isOffscreen ? sourceLayout.OffscreenPipelineLayout : sourceLayout.OnscreenPipelineLayout,
+                    blendMode: blendMode,
+                    sourceAlphaMode: sourceAlphaMode);
             }
             finally
             {

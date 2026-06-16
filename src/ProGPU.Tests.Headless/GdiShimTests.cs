@@ -153,6 +153,36 @@ public class GdiShimTests
         Assert.Equal(Color.FromArgb(128, 0, 0, 255).ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
     }
 
+    [Fact]
+    public void UnlockBitsPreservesPremultipliedBitmapAlphaModeForSubRect()
+    {
+        using var bitmap = new Bitmap(2, 1);
+        bitmap.GpuTexture.WritePixels(new byte[]
+        {
+            128, 0, 0, 128,
+            0, 0, 128, 128
+        });
+        bitmap.GpuTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+
+        BitmapData data = bitmap.LockBits(
+            new Rectangle(0, 0, 1, 1),
+            ImageLockMode.ReadWrite,
+            PixelFormat.Format32bppArgb);
+
+        try
+        {
+            WriteBgra(data.Scan0, Color.FromArgb(128, 0, 255, 0));
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+
+        Assert.Equal(GpuTextureAlphaMode.Premultiplied, bitmap.GpuTexture.AlphaMode);
+        Assert.Equal(Color.FromArgb(128, 0, 255, 0).ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.FromArgb(128, 0, 0, 255).ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+    }
+
     [Theory]
     [InlineData(-1, 0, 1, 1)]
     [InlineData(0, -1, 1, 1)]

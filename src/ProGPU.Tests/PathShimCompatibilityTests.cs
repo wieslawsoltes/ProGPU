@@ -131,6 +131,42 @@ public sealed class PathShimCompatibilityTests
     }
 
     [Fact]
+    public void SkRegionIntersectRestrictsContainsAndBounds()
+    {
+        using var region = new SKRegion();
+
+        Assert.True(region.SetRect(new SKRectI(0, 0, 10, 10)));
+        Assert.True(region.Op(new SKRectI(5, 5, 15, 15), SKRegionOperation.Intersect));
+
+        Assert.False(region.Contains(4, 5));
+        Assert.False(region.Contains(5, 4));
+        Assert.True(region.Contains(5, 5));
+        Assert.True(region.Contains(9, 9));
+        Assert.False(region.Contains(10, 10));
+        Assert.Equal(5, region.Bounds.Left);
+        Assert.Equal(5, region.Bounds.Top);
+        Assert.Equal(10, region.Bounds.Right);
+        Assert.Equal(10, region.Bounds.Bottom);
+    }
+
+    [Fact]
+    public void SkRegionDifferenceRemovesOverlappingRect()
+    {
+        using var region = new SKRegion();
+
+        Assert.True(region.SetRect(new SKRectI(0, 0, 10, 10)));
+        Assert.True(region.Op(new SKRectI(4, 0, 10, 10), SKRegionOperation.Difference));
+
+        Assert.True(region.Contains(3, 5));
+        Assert.False(region.Contains(4, 5));
+        Assert.False(region.Contains(9, 5));
+        Assert.Equal(0, region.Bounds.Left);
+        Assert.Equal(0, region.Bounds.Top);
+        Assert.Equal(4, region.Bounds.Right);
+        Assert.Equal(10, region.Bounds.Bottom);
+    }
+
+    [Fact]
     public void WpfPathGeometryParseHonorsFillRulePrefix()
     {
         var evenOdd = WpfPathGeometry.Parse("F0 M 0 0 L 10 0 L 10 10 Z");
