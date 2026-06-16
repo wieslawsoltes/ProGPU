@@ -123,6 +123,18 @@ public class GdiShimTests
         Assert.Equal(128, Marshal.ReadByte(pixel, 3));
     }
 
+    [Fact]
+    public void GetPixelUnpremultipliesPremultipliedBitmapPixels()
+    {
+        using var bitmap = new Bitmap(1, 1);
+        bitmap.GpuTexture.WritePixels(new byte[] { 128, 0, 0, 128 });
+        bitmap.GpuTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+
+        var color = bitmap.GetPixel(0, 0);
+
+        Assert.Equal(Color.FromArgb(128, 255, 0, 0).ToArgb(), color.ToArgb());
+    }
+
     [Theory]
     [InlineData(-1, 0, 1, 1)]
     [InlineData(0, -1, 1, 1)]

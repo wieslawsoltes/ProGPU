@@ -101,7 +101,19 @@ public class Bitmap : Image
         Flush();
         byte[] pixels = _texture.ReadPixels();
         int offset = (y * Width + x) * 4;
-        return Color.FromArgb(pixels[offset + 3], pixels[offset], pixels[offset + 1], pixels[offset + 2]);
+        byte alpha = pixels[offset + 3];
+        byte red = pixels[offset];
+        byte green = pixels[offset + 1];
+        byte blue = pixels[offset + 2];
+
+        if (_texture.AlphaMode == GpuTextureAlphaMode.Premultiplied)
+        {
+            red = UnpremultiplyChannel(red, alpha);
+            green = UnpremultiplyChannel(green, alpha);
+            blue = UnpremultiplyChannel(blue, alpha);
+        }
+
+        return Color.FromArgb(alpha, red, green, blue);
     }
 
     public void SetPixel(int x, int y, Color color)
@@ -150,6 +162,11 @@ public class Bitmap : Image
 
     private static byte UnpremultiplyChannel(byte channel, byte alpha)
     {
+        if (alpha == 0)
+        {
+            return 0;
+        }
+
         return (byte)Math.Min(255, (channel * 255 + alpha / 2) / alpha);
     }
 
