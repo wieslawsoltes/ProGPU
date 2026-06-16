@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using Silk.NET.WebGPU;
 using SkiaSharp;
@@ -60,6 +61,41 @@ public sealed class SkSurfaceBackendRenderTargetTests
         var exception = Assert.Throws<NotSupportedException>(
             () => SKSurface.Create(grContext, renderTarget, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888));
         Assert.Contains("GpuTexture", exception.Message);
+    }
+
+    [Fact]
+    public void CpuBackedUnpremulSurfaceConvertsAtGpuBoundary()
+    {
+        var pixels = Marshal.AllocHGlobal(4);
+        try
+        {
+            Marshal.Copy(new byte[] { 255, 0, 0, 128 }, 0, pixels, 4);
+
+            using var surface = SKSurface.Create(
+                new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Unpremul),
+                pixels,
+                rowBytes: 4);
+
+            using (var snapshot = surface.Snapshot())
+            {
+                var rawGpuPixels = snapshot.Texture.ReadPixels();
+                Assert.Equal(new byte[] { 128, 0, 0, 128 }, rawGpuPixels);
+            }
+
+            surface.Canvas.Clear(new SKColor(0, 255, 0, 128));
+            surface.Flush();
+
+            var cpuPixels = new byte[4];
+            Marshal.Copy(pixels, cpuPixels, 0, cpuPixels.Length);
+            Assert.Equal(0, cpuPixels[0]);
+            Assert.Equal(255, cpuPixels[1]);
+            Assert.Equal(0, cpuPixels[2]);
+            Assert.InRange(cpuPixels[3], 96, 136);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pixels);
+        }
     }
 
     private static void AssertPixel(byte[] pixels, int width, int x, int y, byte r, byte g, byte b, byte a)

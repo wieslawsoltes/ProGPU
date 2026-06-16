@@ -237,7 +237,10 @@ public unsafe class RenderPipelineCache : IDisposable
                 blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrc, Operation = BlendOperation.Add };
                 break;
             case GpuBlendMode.Plus:
-                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
+                var plusSourceColorFactor = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied
+                    ? BlendFactor.One
+                    : BlendFactor.SrcAlpha;
+                blendState.Color = new BlendComponent { SrcFactor = plusSourceColorFactor, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
                 blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
                 break;
             case GpuBlendMode.Clear:

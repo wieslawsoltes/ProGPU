@@ -19,6 +19,7 @@ public class SKSurface : IDisposable
     private readonly int _height;
     private readonly bool _ownsTexture;
     private readonly SKColorType _colorType;
+    private readonly SKAlphaType _alphaType;
     private bool _hasTextureContents;
 
     private static readonly Dictionary<WgpuContext, Compositor> _compositorCache = new();
@@ -38,7 +39,7 @@ public class SKSurface : IDisposable
         }
     }
 
-    private SKSurface(WgpuContext context, int width, int height, GpuTexture? texture, bool ownsTexture, IntPtr pixels, int rowBytes, SKColorType colorType)
+    private SKSurface(WgpuContext context, int width, int height, GpuTexture? texture, bool ownsTexture, IntPtr pixels, int rowBytes, SKColorType colorType, SKAlphaType alphaType)
     {
         _context = context;
         _width = width;
@@ -48,6 +49,7 @@ public class SKSurface : IDisposable
         _pixels = pixels;
         _rowBytes = rowBytes;
         _colorType = colorType;
+        _alphaType = alphaType;
 
         _drawingContext = new DrawingContext();
         Canvas = new SKCanvas(_drawingContext, width, height, context);
@@ -67,21 +69,9 @@ public class SKSurface : IDisposable
                         byte* srcRow = src + y * actualRowBytes;
                         byte* dstRow = dst + y * _width * 4;
                         
-                        if (_colorType == SKColorType.Bgra8888)
+                        for (int x = 0; x < _width; x++)
                         {
-                            for (int x = 0; x < _width; x++)
-                            {
-                                int srcIdx = x * 4;
-                                int dstIdx = x * 4;
-                                dstRow[dstIdx] = srcRow[srcIdx + 2];     // R (from BGRA B)
-                                dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G (from BGRA G)
-                                dstRow[dstIdx + 2] = srcRow[srcIdx];     // B (from BGRA R)
-                                dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A (from BGRA A)
-                            }
-                        }
-                        else
-                        {
-                            System.Buffer.MemoryCopy(srcRow, dstRow, _width * 4, _width * 4);
+                            CopyPixelToRgbaPremultiplied(srcRow, dstRow, x, _colorType, _alphaType);
                         }
                     }
                 }
@@ -107,7 +97,7 @@ public class SKSurface : IDisposable
             TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
             "SKSurface Backing Texture"
         );
-        return new SKSurface(ctx, info.Width, info.Height, texture, true, IntPtr.Zero, 0, info.ColorType);
+        return new SKSurface(ctx, info.Width, info.Height, texture, true, IntPtr.Zero, 0, info.ColorType, info.AlphaType);
     }
 
     public static SKSurface Create(SKImageInfo info, IntPtr pixels, int rowBytes)
@@ -126,7 +116,7 @@ public class SKSurface : IDisposable
             TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
             "SKSurface CPU-backed Backing Texture"
         );
-        return new SKSurface(ctx, info.Width, info.Height, texture, true, pixels, rowBytes, info.ColorType);
+        return new SKSurface(ctx, info.Width, info.Height, texture, true, pixels, rowBytes, info.ColorType, info.AlphaType);
     }
 
     public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType)
@@ -152,7 +142,7 @@ public class SKSurface : IDisposable
             throw new InvalidOperationException("The backend render target texture must include TextureUsage.RenderAttachment.");
         }
 
-        return new SKSurface(grContext.Context, renderTarget.Width, renderTarget.Height, texture, false, IntPtr.Zero, 0, colorType);
+        return new SKSurface(grContext.Context, renderTarget.Width, renderTarget.Height, texture, false, IntPtr.Zero, 0, colorType, SKAlphaType.Premul);
     }
 
     public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKColorSpace colorSpace)
@@ -175,7 +165,7 @@ public class SKSurface : IDisposable
             TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
             "SKSurface Offscreen Texture"
         );
-        return new SKSurface(grContext.Context, imageInfo.Width, imageInfo.Height, texture, true, IntPtr.Zero, 0, imageInfo.ColorType);
+        return new SKSurface(grContext.Context, imageInfo.Width, imageInfo.Height, texture, true, IntPtr.Zero, 0, imageInfo.ColorType, imageInfo.AlphaType);
     }
 
     public void Flush()
@@ -209,21 +199,9 @@ public class SKSurface : IDisposable
                         byte* srcRow = src + y * _width * 4;
                         byte* dstRow = dst + y * actualRowBytes;
                         
-                        if (_colorType == SKColorType.Bgra8888)
+                        for (int x = 0; x < _width; x++)
                         {
-                            for (int x = 0; x < _width; x++)
-                            {
-                                int srcIdx = x * 4;
-                                int dstIdx = x * 4;
-                                dstRow[dstIdx] = srcRow[srcIdx + 2];     // B (source R)
-                                dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G (source G)
-                                dstRow[dstIdx + 2] = srcRow[srcIdx];     // R (source B)
-                                dstRow[dstIdx + 3] = srcRow[srcIdx + 3]; // A (source A)
-                            }
-                        }
-                        else
-                        {
-                            System.Buffer.MemoryCopy(srcRow, dstRow, _width * 4, _width * 4);
+                            CopyRgbaTexturePixelToSurface(srcRow, dstRow, x, _colorType, _alphaType, _gpuTexture.AlphaMode);
                         }
                     }
                 }
@@ -250,7 +228,8 @@ public class SKSurface : IDisposable
             (uint)_height,
             TextureFormat.Rgba8Unorm,
             TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
-            "SKSurface Snapshot Texture"
+            "SKSurface Snapshot Texture",
+            alphaMode: _gpuTexture.AlphaMode
         );
 
         var wgpu = _context.Wgpu;
@@ -292,6 +271,102 @@ public class SKSurface : IDisposable
         wgpu.CommandEncoderRelease(encoder);
 
         return SKImage.FromOwnedTexture(snapshotTexture);
+    }
+
+    private static unsafe void CopyPixelToRgbaPremultiplied(byte* sourceRow, byte* destinationRow, int x, SKColorType colorType, SKAlphaType alphaType)
+    {
+        int offset = x * 4;
+        byte red;
+        byte green;
+        byte blue;
+        byte alpha;
+
+        if (colorType == SKColorType.Bgra8888)
+        {
+            blue = sourceRow[offset];
+            green = sourceRow[offset + 1];
+            red = sourceRow[offset + 2];
+            alpha = sourceRow[offset + 3];
+        }
+        else
+        {
+            red = sourceRow[offset];
+            green = sourceRow[offset + 1];
+            blue = sourceRow[offset + 2];
+            alpha = sourceRow[offset + 3];
+        }
+
+        if (alphaType == SKAlphaType.Opaque)
+        {
+            alpha = 255;
+        }
+        else if (alphaType == SKAlphaType.Unpremul)
+        {
+            red = PremultiplyChannel(red, alpha);
+            green = PremultiplyChannel(green, alpha);
+            blue = PremultiplyChannel(blue, alpha);
+        }
+
+        destinationRow[offset] = red;
+        destinationRow[offset + 1] = green;
+        destinationRow[offset + 2] = blue;
+        destinationRow[offset + 3] = alpha;
+    }
+
+    private static unsafe void CopyRgbaTexturePixelToSurface(byte* sourceRow, byte* destinationRow, int x, SKColorType colorType, SKAlphaType alphaType, GpuTextureAlphaMode sourceAlphaMode)
+    {
+        int offset = x * 4;
+        byte red = sourceRow[offset];
+        byte green = sourceRow[offset + 1];
+        byte blue = sourceRow[offset + 2];
+        byte alpha = sourceRow[offset + 3];
+
+        if (alphaType == SKAlphaType.Opaque)
+        {
+            alpha = 255;
+        }
+        else if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied && alphaType == SKAlphaType.Unpremul)
+        {
+            red = UnpremultiplyChannel(red, alpha);
+            green = UnpremultiplyChannel(green, alpha);
+            blue = UnpremultiplyChannel(blue, alpha);
+        }
+        else if (sourceAlphaMode == GpuTextureAlphaMode.Straight && alphaType == SKAlphaType.Premul)
+        {
+            red = PremultiplyChannel(red, alpha);
+            green = PremultiplyChannel(green, alpha);
+            blue = PremultiplyChannel(blue, alpha);
+        }
+
+        if (colorType == SKColorType.Bgra8888)
+        {
+            destinationRow[offset] = blue;
+            destinationRow[offset + 1] = green;
+            destinationRow[offset + 2] = red;
+            destinationRow[offset + 3] = alpha;
+        }
+        else
+        {
+            destinationRow[offset] = red;
+            destinationRow[offset + 1] = green;
+            destinationRow[offset + 2] = blue;
+            destinationRow[offset + 3] = alpha;
+        }
+    }
+
+    private static byte PremultiplyChannel(byte value, byte alpha)
+    {
+        return (byte)((value * alpha + 127) / 255);
+    }
+
+    private static byte UnpremultiplyChannel(byte value, byte alpha)
+    {
+        if (alpha == 0)
+        {
+            return 0;
+        }
+
+        return (byte)Math.Min(255, (value * 255 + alpha / 2) / alpha);
     }
 
     public void Dispose()

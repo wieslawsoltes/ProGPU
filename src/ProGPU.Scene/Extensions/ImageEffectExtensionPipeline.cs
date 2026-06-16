@@ -31,7 +31,7 @@ struct EffectUniforms {
     hasMask: f32,
     canvasWidth: f32,
     canvasHeight: f32,
-    _pad0: f32,
+    sourceIsPremultiplied: f32,
     _pad1: f32,
 };
 
@@ -123,14 +123,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     
     color = clamp(color, vec4<f32>(0.0), vec4<f32>(1.0));
     
-    // Apply mask if hasMask is set
+    var maskAlpha = 1.0;
     if (effect.hasMask > 0.5) {
         let screen_uv = input.position.xy / vec2<f32>(effect.canvasWidth, effect.canvasHeight);
-        let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
-        color = color * maskAlpha;
+        maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
     }
-    
-    return color * input.color;
+
+    let coverage = input.color.a * maskAlpha;
+    if (effect.sourceIsPremultiplied > 0.5) {
+        return vec4<f32>(color.rgb * input.color.rgb * coverage, color.a * coverage);
+    }
+
+    return vec4<f32>(color.rgb * input.color.rgb, color.a * coverage);
 }
 ";
 
@@ -147,7 +151,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             public float HasMask;
             public float CanvasWidth;
             public float CanvasHeight;
-            public float Pad0;
+            public float SourceIsPremultiplied;
             public float Pad1;
         }
 
@@ -457,7 +461,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 BlurSigma = p.BlurSigma,
                 HasMask = effectiveMaskTexture != null ? 1f : 0f,
                 CanvasWidth = compositor.CurrentWidth,
-                CanvasHeight = compositor.CurrentHeight
+                CanvasHeight = compositor.CurrentHeight,
+                SourceIsPremultiplied = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f
             });
 
             // 2. Texture & Sampler BindGroup (Group 2)
