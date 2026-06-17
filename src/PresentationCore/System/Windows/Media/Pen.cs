@@ -36,8 +36,19 @@ public class Pen
     public ProGPU.Vector.Pen? ToNative()
     {
         if (Brush == null) return null;
+        return CreateNativePen(Brush.ToNative());
+    }
+
+    public ProGPU.Vector.Pen? ToNative(Rect targetBounds)
+    {
+        if (Brush == null) return null;
+        return CreateNativePen(Brush.ToNative(targetBounds));
+    }
+
+    private ProGPU.Vector.Pen CreateNativePen(ProGPU.Vector.Brush brush)
+    {
         return new ProGPU.Vector.Pen(
-            Brush.ToNative(),
+            brush,
             (float)Thickness,
             ToNativeLineJoin(LineJoin),
             (float)global::System.Math.Max(1.0, MiterLimit),

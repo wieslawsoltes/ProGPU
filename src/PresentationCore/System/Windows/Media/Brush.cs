@@ -26,6 +26,11 @@ public abstract class Brush
 
     public abstract ProGPU.Vector.Brush ToNative();
 
+    public virtual ProGPU.Vector.Brush ToNative(Rect targetBounds)
+    {
+        return ToNative();
+    }
+
     protected void OnChanged()
     {
         unchecked

@@ -12,6 +12,8 @@ using VectorColorInterpolationMode = ProGPU.Vector.GradientColorInterpolationMod
 using VectorGradientSpreadMethod = ProGPU.Vector.GradientSpreadMethod;
 using VectorLinearGradientBrush = ProGPU.Vector.LinearGradientBrush;
 using VectorRadialGradientBrush = ProGPU.Vector.RadialGradientBrush;
+using SceneDrawingContext = ProGPU.Scene.DrawingContext;
+using WpfDrawingContext = System.Windows.Media.DrawingContext;
 
 namespace ProGPU.Tests;
 
@@ -52,6 +54,36 @@ public sealed class WpfGradientBrushShimTests
     }
 
     [Fact]
+    public void LinearGradientBrushMapsRelativeCoordinatesToTargetBounds()
+    {
+        var brush = new WpfLinearGradientBrush(WpfColors.Red, WpfColors.Blue, new Point(0, 0), new Point(1, 1));
+
+        var native = Assert.IsType<VectorLinearGradientBrush>(brush.ToNative(new Rect(10, 20, 80, 40)));
+
+        Assert.Equal(10f, native.StartPoint.X);
+        Assert.Equal(20f, native.StartPoint.Y);
+        Assert.Equal(90f, native.EndPoint.X);
+        Assert.Equal(60f, native.EndPoint.Y);
+    }
+
+    [Fact]
+    public void DrawingContextDrawRectangleMapsRelativeLinearGradientToDrawBounds()
+    {
+        var nativeContext = new SceneDrawingContext();
+        using var context = new WpfDrawingContext(nativeContext);
+        var brush = new WpfLinearGradientBrush(WpfColors.Red, WpfColors.Blue, new Point(0, 0), new Point(1, 1));
+
+        context.DrawRectangle(brush, null, new Rect(10, 20, 80, 40));
+
+        var command = Assert.Single(nativeContext.Commands);
+        var native = Assert.IsType<VectorLinearGradientBrush>(command.Brush);
+        Assert.Equal(10f, native.StartPoint.X);
+        Assert.Equal(20f, native.StartPoint.Y);
+        Assert.Equal(90f, native.EndPoint.X);
+        Assert.Equal(60f, native.EndPoint.Y);
+    }
+
+    [Fact]
     public void RadialGradientBrushLowersWpfStateToNativeGradientBrush()
     {
         var brush = new WpfRadialGradientBrush
@@ -78,6 +110,27 @@ public sealed class WpfGradientBrushShimTests
         Assert.Equal(0.8f, native.RadiusY);
         Assert.Equal(VectorGradientSpreadMethod.Reflect, native.SpreadMethod);
         Assert.Equal(2, native.Stops.Length);
+    }
+
+    [Fact]
+    public void RadialGradientBrushMapsRelativeCoordinatesAndRadiiToTargetBounds()
+    {
+        var brush = new WpfRadialGradientBrush(WpfColors.Yellow, WpfColors.Transparent)
+        {
+            Center = new Point(0.25, 0.5),
+            GradientOrigin = new Point(0.75, 0.25),
+            RadiusX = 0.5,
+            RadiusY = 0.25
+        };
+
+        var native = Assert.IsType<VectorRadialGradientBrush>(brush.ToNative(new Rect(10, 20, 80, 40)));
+
+        Assert.Equal(30f, native.Center.X);
+        Assert.Equal(40f, native.Center.Y);
+        Assert.Equal(70f, native.GradientOrigin.X);
+        Assert.Equal(30f, native.GradientOrigin.Y);
+        Assert.Equal(40f, native.RadiusX);
+        Assert.Equal(10f, native.RadiusY);
     }
 
     [Fact]

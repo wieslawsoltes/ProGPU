@@ -383,6 +383,18 @@ public abstract class GradientBrush : Brush
             color.A / 255f);
     }
 
+    protected static Point MapRelativePoint(Point point, Rect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return point;
+        }
+
+        return new Point(
+            bounds.X + point.X * bounds.Width,
+            bounds.Y + point.Y * bounds.Height);
+    }
+
     private void OnGradientStopsChanged(object? sender, EventArgs e)
     {
         OnChanged();
@@ -474,9 +486,26 @@ public sealed class LinearGradientBrush : GradientBrush
 
     public override ProGpuBrush ToNative()
     {
+        return CreateNativeBrush(StartPoint, EndPoint);
+    }
+
+    public override ProGpuBrush ToNative(Rect targetBounds)
+    {
+        if (MappingMode != BrushMappingMode.RelativeToBoundingBox)
+        {
+            return ToNative();
+        }
+
+        return CreateNativeBrush(
+            MapRelativePoint(StartPoint, targetBounds),
+            MapRelativePoint(EndPoint, targetBounds));
+    }
+
+    private ProGpuBrush CreateNativeBrush(Point startPoint, Point endPoint)
+    {
         var brush = new ProGpuLinearGradientBrush(
-            new Vector2((float)StartPoint.X, (float)StartPoint.Y),
-            new Vector2((float)EndPoint.X, (float)EndPoint.Y),
+            new Vector2((float)startPoint.X, (float)startPoint.Y),
+            new Vector2((float)endPoint.X, (float)endPoint.Y),
             ToNativeStops());
         ApplyGradientState(brush);
         return brush;
@@ -576,11 +605,30 @@ public sealed class RadialGradientBrush : GradientBrush
 
     public override ProGpuBrush ToNative()
     {
+        return CreateNativeBrush(Center, GradientOrigin, RadiusX, RadiusY);
+    }
+
+    public override ProGpuBrush ToNative(Rect targetBounds)
+    {
+        if (MappingMode != BrushMappingMode.RelativeToBoundingBox)
+        {
+            return ToNative();
+        }
+
+        return CreateNativeBrush(
+            MapRelativePoint(Center, targetBounds),
+            MapRelativePoint(GradientOrigin, targetBounds),
+            RadiusX * targetBounds.Width,
+            RadiusY * targetBounds.Height);
+    }
+
+    private ProGpuBrush CreateNativeBrush(Point center, Point gradientOrigin, double radiusX, double radiusY)
+    {
         var brush = new ProGpuRadialGradientBrush(
-            new Vector2((float)Center.X, (float)Center.Y),
-            new Vector2((float)GradientOrigin.X, (float)GradientOrigin.Y),
-            (float)RadiusX,
-            (float)RadiusY,
+            new Vector2((float)center.X, (float)center.Y),
+            new Vector2((float)gradientOrigin.X, (float)gradientOrigin.Y),
+            (float)radiusX,
+            (float)radiusY,
             ToNativeStops());
         ApplyGradientState(brush);
         return brush;

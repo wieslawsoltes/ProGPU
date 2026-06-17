@@ -739,8 +739,18 @@ public class SKCanvas : IDisposable
     private GpuTexture RetainImageTexture(SKImage image)
     {
         var source = image.Texture;
+        var targetContext = _gpuContext != null && !_gpuContext.IsDisposed
+            ? _gpuContext
+            : source.Context;
+        if (!ReferenceEquals(source.Context, targetContext))
+        {
+            throw new InvalidOperationException(
+                "SKCanvas.DrawImage cannot draw an SKImage from a different WebGPU context. " +
+                "Create the image in the same GRContext/SKSurface context before recording the draw.");
+        }
+
         var retainedTexture = new GpuTexture(
-            source.Context,
+            targetContext,
             source.Width,
             source.Height,
             source.Format,
