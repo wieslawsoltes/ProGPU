@@ -123,6 +123,42 @@ public sealed class SkSurfaceBackendRenderTargetTests
     }
 
     [Fact]
+    public void CreateFromBackendRenderTargetRequiresCopySrcForSnapshot()
+    {
+        using var grContext = GRContext.CreateGl() ?? throw new InvalidOperationException("Failed to create GRContext.");
+        using var texture = new GpuTexture(
+            grContext.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopyDst | TextureUsage.TextureBinding,
+            "SKSurface wrapped render target missing CopySrc test");
+        using var renderTarget = new GRBackendRenderTarget(4, 4, texture);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => SKSurface.Create(grContext, renderTarget, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888));
+        Assert.Contains("CopySrc", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateFromBackendRenderTargetRejectsMultisampledTargets()
+    {
+        using var grContext = GRContext.CreateGl() ?? throw new InvalidOperationException("Failed to create GRContext.");
+        using var texture = new GpuTexture(
+            grContext.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
+            "SKSurface wrapped render target multisample test");
+        using var renderTarget = new GRBackendRenderTarget(4, 4, sampleCount: 4, texture);
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => SKSurface.Create(grContext, renderTarget, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888));
+        Assert.Contains("single-sampled", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateFromBottomLeftBackendRenderTargetFlipsIntoWrappedTexture()
     {
         using var grContext = GRContext.CreateGl() ?? throw new InvalidOperationException("Failed to create GRContext.");

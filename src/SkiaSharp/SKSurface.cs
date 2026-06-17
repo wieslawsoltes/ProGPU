@@ -178,6 +178,16 @@ public class SKSurface : IDisposable
             throw new InvalidOperationException("The backend render target texture must include TextureUsage.RenderAttachment.");
         }
 
+        if ((texture.Usage & TextureUsage.CopySrc) == 0)
+        {
+            throw new InvalidOperationException("The backend render target texture must include TextureUsage.CopySrc so SKSurface.Snapshot can copy from it.");
+        }
+
+        if (renderTarget.SampleCount != 1 || texture.SampleCount != 1)
+        {
+            throw new NotSupportedException("This WebGPU-backed Skia shim can only wrap single-sampled backend render targets.");
+        }
+
         return new SKSurface(grContext.Context, renderTarget.Width, renderTarget.Height, texture, false, IntPtr.Zero, 0, colorType, SKAlphaType.Premul, origin);
     }
 
