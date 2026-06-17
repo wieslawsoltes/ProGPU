@@ -142,6 +142,41 @@ public sealed class CompositorReviewRegressionTests
     }
 
     [Fact]
+    public void RenderOffscreenRunsExtensionFrameScopeForTopLevelPass()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "RenderOffscreen Extension Frame Scope Test");
+        var extension = new CountingExtension();
+        window.Compositor.RegisterExtension(9001, extension);
+
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(32f, 32f)
+        };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 16f, 16f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        Assert.Equal(1, extension.BeginFrameCount);
+        Assert.Equal(1, extension.EndFrameCount);
+    }
+
+    [Fact]
     public void CachedTextureBindGroupsAreQueuedWhenSourceTextureIsDisposed()
     {
         using var window = new HeadlessWindow(16, 16);
@@ -496,6 +531,39 @@ public sealed class CompositorReviewRegressionTests
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class CountingExtension : ICompositorExtension
+    {
+        public int BeginFrameCount { get; private set; }
+
+        public int EndFrameCount { get; private set; }
+
+        public void Compile(
+            Compositor compositor,
+            IRenderDataProvider? provider,
+            Matrix4x4 transform,
+            ref RenderCommand cmd)
+        {
+        }
+
+        public unsafe void Render(
+            Compositor compositor,
+            void* renderPassEncoder,
+            bool isOffscreen,
+            in Compositor.CompositorDrawCall dc)
+        {
+        }
+
+        public void BeginFrame(Compositor compositor)
+        {
+            BeginFrameCount++;
+        }
+
+        public void EndFrame(Compositor compositor)
+        {
+            EndFrameCount++;
+        }
+    }
 
     private sealed class MixedColorGlyphRunVisual : FrameworkElement
     {

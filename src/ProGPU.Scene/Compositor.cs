@@ -216,6 +216,7 @@ public unsafe class Compositor : IDisposable
 
     private readonly List<ICompositorExtension> _registeredExtensions = new();
     private readonly Dictionary<int, ICompositorExtension> _extensionsById = new();
+    private int _extensionFrameDepth;
 
     public void RegisterExtension(int id, ICompositorExtension extension)
     {
@@ -232,6 +233,41 @@ public unsafe class Compositor : IDisposable
         {
             return _extensionsById.TryGetValue(id, out var ext) ? ext : null;
         }
+    }
+
+    private bool BeginExtensionFrame()
+    {
+        bool ownsFrame = _extensionFrameDepth++ == 0;
+        if (!ownsFrame)
+        {
+            return false;
+        }
+
+        lock (_registeredExtensions)
+        {
+            foreach (var ext in _registeredExtensions)
+            {
+                ext.BeginFrame(this);
+            }
+        }
+
+        return true;
+    }
+
+    private void EndExtensionFrame(bool ownsFrame)
+    {
+        if (ownsFrame)
+        {
+            lock (_registeredExtensions)
+            {
+                foreach (var ext in _registeredExtensions)
+                {
+                    ext.EndFrame(this);
+                }
+            }
+        }
+
+        _extensionFrameDepth--;
     }
 
     // Decoupled hooks to remove hard dependency on UI layer
@@ -1156,13 +1192,7 @@ public unsafe class Compositor : IDisposable
         _maskRenderPasses.Clear();
         _masksToReturnToPool.Clear();
 
-        lock (_registeredExtensions)
-        {
-            foreach (var ext in _registeredExtensions)
-            {
-                ext.BeginFrame(this);
-            }
-        }
+        var extensionFrame = BeginExtensionFrame();
 
         // 3. Compile Layer 0: Root Visual Scene
         _pendingVectorStart = (uint)_vectorIndicesList.Count;
@@ -1662,13 +1692,7 @@ public unsafe class Compositor : IDisposable
         _context.Wgpu.RenderPassEncoderEnd(pass);
         _context.Wgpu.RenderPassEncoderRelease(pass);
 
-        lock (_registeredExtensions)
-        {
-            foreach (var ext in _registeredExtensions)
-            {
-                ext.EndFrame(this);
-            }
-        }
+        EndExtensionFrame(extensionFrame);
 
         // Submit to queue
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Buffer") };
@@ -5890,6 +5914,8 @@ public unsafe class Compositor : IDisposable
         _pendingVectorStart = 0;
         _pendingTextStart = 0;
 
+        var extensionFrame = BeginExtensionFrame();
+
         CompileVisualTree(
             node,
             Matrix4x4.Identity,
@@ -6170,6 +6196,8 @@ public unsafe class Compositor : IDisposable
 
         _context.Wgpu.RenderPassEncoderEnd(pass);
         _context.Wgpu.RenderPassEncoderRelease(pass);
+
+        EndExtensionFrame(extensionFrame);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Offscreen Compositor Command Buffer") };
         var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
