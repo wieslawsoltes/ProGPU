@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using ProGPU.Vector;
 using ProGPU.Text;
 using ProGPU.Backend;
@@ -254,26 +255,112 @@ public struct RenderCommand
     public object? DataParam;
 }
 
-public class GpuPicture : IRenderDataProvider
+internal sealed class RetainedResourceLease : IDisposable
+{
+    private RetainedResourceOwner? _owner;
+
+    private RetainedResourceLease(RetainedResourceOwner owner)
+    {
+        _owner = owner;
+    }
+
+    public static RetainedResourceLease Create(IDisposable resource)
+    {
+        return new RetainedResourceLease(new RetainedResourceOwner(resource));
+    }
+
+    public RetainedResourceLease AddRef()
+    {
+        var owner = _owner ?? throw new ObjectDisposedException(nameof(RetainedResourceLease));
+        owner.AddRef();
+        return new RetainedResourceLease(owner);
+    }
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref _owner, null)?.Release();
+    }
+
+    private sealed class RetainedResourceOwner
+    {
+        private readonly IDisposable _resource;
+        private int _refCount = 1;
+        private int _disposed;
+
+        public RetainedResourceOwner(IDisposable resource)
+        {
+            _resource = resource;
+        }
+
+        public void AddRef()
+        {
+            while (true)
+            {
+                int count = Volatile.Read(ref _refCount);
+                if (count <= 0)
+                {
+                    throw new ObjectDisposedException(nameof(RetainedResourceOwner));
+                }
+
+                if (Interlocked.CompareExchange(ref _refCount, count + 1, count) == count)
+                {
+                    return;
+                }
+            }
+        }
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _refCount) == 0 &&
+                Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                _resource.Dispose();
+            }
+        }
+    }
+}
+
+public class GpuPicture : IRenderDataProvider, IDisposable
 {
     public RenderCommand[] Commands { get; }
     public Vector2[] PointBuffer { get; }
     public double[] DoubleBuffer { get; }
     public Line3D[] Line3DBuffer { get; }
     public float[] FloatBuffer { get; }
+    private readonly RetainedResourceLease[] _retainedResources;
+    private bool _disposed;
+
+    public int RetainedResourceCount => _retainedResources.Length;
 
     public GpuPicture(
         RenderCommand[] commands,
         Vector2[] pointBuffer,
         double[] doubleBuffer,
         Line3D[] line3dBuffer,
-        float[] floatBuffer)
+        float[] floatBuffer) : this(
+            commands,
+            pointBuffer,
+            doubleBuffer,
+            line3dBuffer,
+            floatBuffer,
+            Array.Empty<RetainedResourceLease>())
+    {
+    }
+
+    internal GpuPicture(
+        RenderCommand[] commands,
+        Vector2[] pointBuffer,
+        double[] doubleBuffer,
+        Line3D[] line3dBuffer,
+        float[] floatBuffer,
+        RetainedResourceLease[] retainedResources)
     {
         Commands = commands;
         PointBuffer = pointBuffer;
         DoubleBuffer = doubleBuffer;
         Line3DBuffer = line3dBuffer;
         FloatBuffer = floatBuffer;
+        _retainedResources = retainedResources;
     }
 
     public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
@@ -287,6 +374,25 @@ public class GpuPicture : IRenderDataProvider
 
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         new ReadOnlySpan<float>(FloatBuffer, offset, count);
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        DisposeRetainedResources(_retainedResources);
+    }
+
+    private static void DisposeRetainedResources(RetainedResourceLease[] resources)
+    {
+        foreach (var resource in resources)
+        {
+            resource.Dispose();
+        }
+    }
 }
 
 public class GpuPictureRecorder
@@ -306,7 +412,8 @@ public class GpuPictureRecorder
             _recordingContext.PointBuffer.ToArray(),
             _recordingContext.DoubleBuffer.ToArray(),
             _recordingContext.Line3DBuffer.ToArray(),
-            _recordingContext.FloatBuffer.ToArray()
+            _recordingContext.FloatBuffer.ToArray(),
+            _recordingContext.CloneRetainedResources()
         );
     }
 }
@@ -314,7 +421,7 @@ public class GpuPictureRecorder
 public class DrawingContext : IRenderDataProvider
 {
     public List<RenderCommand> Commands { get; } = new();
-    private readonly List<IDisposable> _retainedResources = new();
+    private readonly List<RetainedResourceLease> _retainedResources = new();
 
     // Reusable continuous pools to eliminate heap array allocations
     public List<Vector2> PointBuffer { get; } = new();
@@ -327,7 +434,18 @@ public class DrawingContext : IRenderDataProvider
     public void RetainResource(IDisposable resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        _retainedResources.Add(resource);
+        _retainedResources.Add(RetainedResourceLease.Create(resource));
+    }
+
+    internal RetainedResourceLease[] CloneRetainedResources()
+    {
+        var leases = new RetainedResourceLease[_retainedResources.Count];
+        for (int i = 0; i < leases.Length; i++)
+        {
+            leases[i] = _retainedResources[i].AddRef();
+        }
+
+        return leases;
     }
 
     public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
@@ -1066,6 +1184,8 @@ public class DrawingContext : IRenderDataProvider
 
             Commands.Add(adjustedCmd);
         }
+
+        _retainedResources.AddRange(other.CloneRetainedResources());
     }
 
     public void Clear()

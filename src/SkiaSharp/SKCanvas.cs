@@ -310,13 +310,20 @@ public class SKCanvas : IDisposable
             visual.Context.PopClip();
         }
 
-        GetCompositorForContext(context).RenderOffscreen(
-            visual,
-            (uint)_width,
-            (uint)_height,
-            texture,
-            padding: 0f,
-            dpiScale: 1f);
+        try
+        {
+            GetCompositorForContext(context).RenderOffscreen(
+                visual,
+                (uint)_width,
+                (uint)_height,
+                texture,
+                padding: 0f,
+                dpiScale: 1f);
+        }
+        finally
+        {
+            visual.Context.Clear();
+        }
 
         layerFrame.LayerContext.Clear();
         _ownedLayerTextures.Add(texture);

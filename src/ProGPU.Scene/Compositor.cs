@@ -2090,210 +2090,216 @@ public unsafe class Compositor : IDisposable
 
         // 2. Playback recorded commands
         var ctx = GetDrawingContext();
-        node.OnRender(ctx);
-
-        foreach (var cmd in ctx.Commands)
+        try
         {
-            int vectorStart = _vectorVerticesList.Count;
-            int textStart = _textVerticesList.Count;
-            var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
-            if (cmd.Type != RenderCommandType.DrawPath)
-            {
-                activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
-            }
+            node.OnRender(ctx);
 
-            bool savedUseGpuTransformsActive = _useGpuTransformsActive;
-            Matrix4x4 savedCameraViewMatrix = _cameraViewMatrix;
-
-            if (cmd.UseGpuTransforms)
+            foreach (var cmd in ctx.Commands)
             {
-                _useGpuTransformsActive = true;
-                _cameraViewMatrix = cmd.CameraView * globalTransform;
-                _hasGpuTransformsInFrame = true;
-                _gpuTransformsCameraView = cmd.CameraView * globalTransform;
-            }
+                int vectorStart = _vectorVerticesList.Count;
+                int textStart = _textVerticesList.Count;
+                var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
+                if (cmd.Type != RenderCommandType.DrawPath)
+                {
+                    activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
+                }
 
-            switch (cmd.Type)
-            {
-                case RenderCommandType.DrawRect:
-                    CompileRectCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawPath:
-                    CompilePathCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawHatch:
-                    CompileHatchCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawAcisSolid:
-                    CompileAcisCommand(ctx, cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawText:
-                    CompileTextCommand(cmd, node as ITextLayoutProvider, activeTransform);
-                    break;
-                case RenderCommandType.DrawTexture:
-                    CompileTextureCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.PushGeometryClip:
-                    if (cmd.Path != null) PushGeometryMask(cmd.Path, activeTransform);
-                    break;
-                case RenderCommandType.PopGeometryClip:
-                    PopGeometryMask();
-                    break;
-                case RenderCommandType.PushOpacityMask:
-                    if (cmd.Brush != null) PushOpacityMaskValue(cmd.Brush, cmd.Rect, activeTransform);
-                    break;
-                case RenderCommandType.PopOpacityMask:
-                    PopOpacityMaskValue();
-                    break;
-                case RenderCommandType.PushBlendMode:
-                    CommitPendingDrawCalls();
-                    _blendModeStack.Push(_activeBlendMode);
-                    _activeBlendMode = (GpuBlendMode)cmd.IntParam;
-                    break;
-                case RenderCommandType.PopBlendMode:
-                    CommitPendingDrawCalls();
-                    if (_blendModeStack.Count > 0) _activeBlendMode = _blendModeStack.Pop();
-                    else _activeBlendMode = GpuBlendMode.SrcOver;
-                    break;
-                case RenderCommandType.PushClip:
-                    PushClipRect(cmd.Rect, activeTransform);
-                    break;
-                case RenderCommandType.PopClip:
-                    PopClipRect();
-                    break;
-                case RenderCommandType.PushOpacity:
-                    PushOpacityValue(cmd.FontSize);
-                    break;
-                case RenderCommandType.PopOpacity:
-                    PopOpacityValue();
-                    break;
-                case RenderCommandType.DrawLine:
-                    CompileLineCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawLine3D:
-                    CompileLine3DCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawEllipse:
-                    CompileEllipseCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawCircle:
-                    CompileCircleCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawRoundedRect:
-                    CompileRoundedRectCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawBezier:
-                    CompileBezierCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawCubicBezier:
-                    CompileCubicBezierCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawPolyline:
-                    CompilePolylineCommand(ctx, cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawSpline:
-                    CompileSplineCommand(ctx, cmd, activeTransform);
-                    break;
-                case RenderCommandType.FillTriangle:
-                    CompileFillTriangleCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.FillQuad:
-                    CompileFillQuadCommand(cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawStaticDxf:
-                    CommitPendingDrawCalls();
-                    _drawCalls.Add(new CompositorDrawCall
-                    {
-                        Type = DrawCallType.StaticDxf,
-                        StaticBuffer = cmd.StaticBuffer,
-                        ClipRect = _activeClipRect,
-                        MaskTexture = _maskStack.Count > 0 ? _maskStack.Peek() : null,
-                        BlendMode = _activeBlendMode
-                    });
-                    _pendingVectorStart = (uint)_vectorIndicesList.Count;
-                    _pendingTextStart = (uint)_textVerticesList.Count;
-                    break;
-                case RenderCommandType.DrawExtension:
-                    {
-                        var pipeline = GetExtension(cmd.ExtensionId);
-                        if (pipeline != null)
+                bool savedUseGpuTransformsActive = _useGpuTransformsActive;
+                Matrix4x4 savedCameraViewMatrix = _cameraViewMatrix;
+
+                if (cmd.UseGpuTransforms)
+                {
+                    _useGpuTransformsActive = true;
+                    _cameraViewMatrix = cmd.CameraView * globalTransform;
+                    _hasGpuTransformsInFrame = true;
+                    _gpuTransformsCameraView = cmd.CameraView * globalTransform;
+                }
+
+                switch (cmd.Type)
+                {
+                    case RenderCommandType.DrawRect:
+                        CompileRectCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawPath:
+                        CompilePathCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawHatch:
+                        CompileHatchCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawAcisSolid:
+                        CompileAcisCommand(ctx, cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawText:
+                        CompileTextCommand(cmd, node as ITextLayoutProvider, activeTransform);
+                        break;
+                    case RenderCommandType.DrawTexture:
+                        CompileTextureCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.PushGeometryClip:
+                        if (cmd.Path != null) PushGeometryMask(cmd.Path, activeTransform);
+                        break;
+                    case RenderCommandType.PopGeometryClip:
+                        PopGeometryMask();
+                        break;
+                    case RenderCommandType.PushOpacityMask:
+                        if (cmd.Brush != null) PushOpacityMaskValue(cmd.Brush, cmd.Rect, activeTransform);
+                        break;
+                    case RenderCommandType.PopOpacityMask:
+                        PopOpacityMaskValue();
+                        break;
+                    case RenderCommandType.PushBlendMode:
+                        CommitPendingDrawCalls();
+                        _blendModeStack.Push(_activeBlendMode);
+                        _activeBlendMode = (GpuBlendMode)cmd.IntParam;
+                        break;
+                    case RenderCommandType.PopBlendMode:
+                        CommitPendingDrawCalls();
+                        if (_blendModeStack.Count > 0) _activeBlendMode = _blendModeStack.Pop();
+                        else _activeBlendMode = GpuBlendMode.SrcOver;
+                        break;
+                    case RenderCommandType.PushClip:
+                        PushClipRect(cmd.Rect, activeTransform);
+                        break;
+                    case RenderCommandType.PopClip:
+                        PopClipRect();
+                        break;
+                    case RenderCommandType.PushOpacity:
+                        PushOpacityValue(cmd.FontSize);
+                        break;
+                    case RenderCommandType.PopOpacity:
+                        PopOpacityValue();
+                        break;
+                    case RenderCommandType.DrawLine:
+                        CompileLineCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawLine3D:
+                        CompileLine3DCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawEllipse:
+                        CompileEllipseCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawCircle:
+                        CompileCircleCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawRoundedRect:
+                        CompileRoundedRectCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawBezier:
+                        CompileBezierCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawCubicBezier:
+                        CompileCubicBezierCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawPolyline:
+                        CompilePolylineCommand(ctx, cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawSpline:
+                        CompileSplineCommand(ctx, cmd, activeTransform);
+                        break;
+                    case RenderCommandType.FillTriangle:
+                        CompileFillTriangleCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.FillQuad:
+                        CompileFillQuadCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawStaticDxf:
+                        CommitPendingDrawCalls();
+                        _drawCalls.Add(new CompositorDrawCall
                         {
-                            CommitPendingDrawCalls();
-                            var localCmd = cmd;
-                            pipeline.Compile(this, ctx, activeTransform, ref localCmd);
-                            var cmdTransform = localCmd.Transform;
-                            if (cmdTransform == default || cmdTransform == new Matrix4x4())
+                            Type = DrawCallType.StaticDxf,
+                            StaticBuffer = cmd.StaticBuffer,
+                            ClipRect = _activeClipRect,
+                            MaskTexture = _maskStack.Count > 0 ? _maskStack.Peek() : null,
+                            BlendMode = _activeBlendMode
+                        });
+                        _pendingVectorStart = (uint)_vectorIndicesList.Count;
+                        _pendingTextStart = (uint)_textVerticesList.Count;
+                        break;
+                    case RenderCommandType.DrawExtension:
+                        {
+                            var pipeline = GetExtension(cmd.ExtensionId);
+                            if (pipeline != null)
                             {
-                                cmdTransform = Matrix4x4.Identity;
+                                CommitPendingDrawCalls();
+                                var localCmd = cmd;
+                                pipeline.Compile(this, ctx, activeTransform, ref localCmd);
+                                var cmdTransform = localCmd.Transform;
+                                if (cmdTransform == default || cmdTransform == new Matrix4x4())
+                                {
+                                    cmdTransform = Matrix4x4.Identity;
+                                }
+                                _drawCalls.Add(new CompositorDrawCall
+                                {
+                                    Type = DrawCallType.Extension,
+                                    ExtensionId = localCmd.ExtensionId,
+                                    IntParam = localCmd.IntParam,
+                                    FloatParam = localCmd.FloatParam,
+                                    DataParam = localCmd.DataParam,
+                                    PointBufferOffset = (int)_pendingVectorStart,
+                                    PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
+                                    DoubleBufferOffset = localCmd.DoubleBufferOffset,
+                                    DoubleBufferCount = localCmd.DoubleBufferCount,
+                                    WeightBufferOffset = localCmd.WeightBufferOffset,
+                                    WeightBufferCount = localCmd.WeightBufferCount,
+                                    FloatBufferOffset = localCmd.FloatBufferOffset,
+                                    FloatBufferCount = localCmd.FloatBufferCount,
+                                    StaticBuffer = localCmd.StaticBuffer,
+                                    Brush = localCmd.Brush,
+                                    Pen = localCmd.Pen,
+                                    Path = localCmd.Path,
+                                    Transform = activeTransform * cmdTransform,
+                                    LineThicknessOrRadius = localCmd.RadiusX,
+                                    Scale = localCmd.Scale,
+                                    Translate = localCmd.Translate,
+                                    Color = (localCmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
+                                    ClipRect = _activeClipRect,
+                                    MaskTexture = _maskStack.Count > 0 ? _maskStack.Peek() : null,
+                                    BlendMode = _activeBlendMode
+                                });
+                                _pendingVectorStart = (uint)_vectorIndicesList.Count;
+                                _pendingTextStart = (uint)_textVerticesList.Count;
                             }
-                            _drawCalls.Add(new CompositorDrawCall
-                            {
-                                Type = DrawCallType.Extension,
-                                ExtensionId = localCmd.ExtensionId,
-                                IntParam = localCmd.IntParam,
-                                FloatParam = localCmd.FloatParam,
-                                DataParam = localCmd.DataParam,
-                                PointBufferOffset = (int)_pendingVectorStart,
-                                PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
-                                DoubleBufferOffset = localCmd.DoubleBufferOffset,
-                                DoubleBufferCount = localCmd.DoubleBufferCount,
-                                WeightBufferOffset = localCmd.WeightBufferOffset,
-                                WeightBufferCount = localCmd.WeightBufferCount,
-                                FloatBufferOffset = localCmd.FloatBufferOffset,
-                                FloatBufferCount = localCmd.FloatBufferCount,
-                                StaticBuffer = localCmd.StaticBuffer,
-                                Brush = localCmd.Brush,
-                                Pen = localCmd.Pen,
-                                Path = localCmd.Path,
-                                Transform = activeTransform * cmdTransform,
-                                LineThicknessOrRadius = localCmd.RadiusX,
-                                Scale = localCmd.Scale,
-                                Translate = localCmd.Translate,
-                                Color = (localCmd.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f),
-                                ClipRect = _activeClipRect,
-                                MaskTexture = _maskStack.Count > 0 ? _maskStack.Peek() : null,
-                                BlendMode = _activeBlendMode
-                            });
-                            _pendingVectorStart = (uint)_vectorIndicesList.Count;
-                            _pendingTextStart = (uint)_textVerticesList.Count;
                         }
+                        break;
+                    case RenderCommandType.DrawGpuLineSeries:
+                        CompileGpuLineSeriesCommand(ctx, cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawGpuScatterSeries:
+                        CompileGpuScatterSeriesCommand(ctx, cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawPicture:
+                        CompilePicture(ctx, cmd.Picture, activeTransform);
+                        break;
+                    case RenderCommandType.DrawGlyphRun:
+                        CompileGlyphRunCommand(cmd, activeTransform);
+                        break;
+                }
+
+                if (cmd.UseGpuTransforms)
+                {
+                    for (int i = vectorStart; i < _vectorVerticesList.Count; i++)
+                    {
+                        var v = _vectorVerticesList[i];
+                        v.ShapeType += 100f;
+                        _vectorVerticesList[i] = v;
                     }
-                    break;
-                case RenderCommandType.DrawGpuLineSeries:
-                    CompileGpuLineSeriesCommand(ctx, cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawGpuScatterSeries:
-                    CompileGpuScatterSeriesCommand(ctx, cmd, activeTransform);
-                    break;
-                case RenderCommandType.DrawPicture:
-                    CompilePicture(ctx, cmd.Picture, activeTransform);
-                    break;
-                case RenderCommandType.DrawGlyphRun:
-                    CompileGlyphRunCommand(cmd, activeTransform);
-                    break;
-            }
-
-            if (cmd.UseGpuTransforms)
-            {
-                for (int i = vectorStart; i < _vectorVerticesList.Count; i++)
-                {
-                    var v = _vectorVerticesList[i];
-                    v.ShapeType += 100f;
-                    _vectorVerticesList[i] = v;
+                    for (int i = textStart; i < _textVerticesList.Count; i++)
+                    {
+                        var v = _textVerticesList[i];
+                        v.ScaleBoldItalicUseMvp.W = ForceTextUseMvp(v.ScaleBoldItalicUseMvp.W);
+                        _textVerticesList[i] = v;
+                    }
                 }
-                for (int i = textStart; i < _textVerticesList.Count; i++)
-                {
-                    var v = _textVerticesList[i];
-                    v.ScaleBoldItalicUseMvp.W = ForceTextUseMvp(v.ScaleBoldItalicUseMvp.W);
-                    _textVerticesList[i] = v;
-                }
-            }
 
-            _useGpuTransformsActive = savedUseGpuTransformsActive;
-            _cameraViewMatrix = savedCameraViewMatrix;
+                _useGpuTransformsActive = savedUseGpuTransformsActive;
+                _cameraViewMatrix = savedCameraViewMatrix;
+            }
         }
-
-        ReleaseDrawingContext();
+        finally
+        {
+            ctx.Clear();
+            ReleaseDrawingContext();
+        }
 
         if (!isTemplated)
         {

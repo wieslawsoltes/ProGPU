@@ -232,7 +232,15 @@ public class SKSurface : IDisposable
         visual.Context.Append(_drawingContext);
 
         var compositor = GetCompositorForContext(_context, _gpuTexture.Format);
-        compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, _hasTextureContents);
+        try
+        {
+            compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, _hasTextureContents);
+        }
+        finally
+        {
+            visual.Context.Clear();
+        }
+
         _hasTextureContents = true;
 
         // If CPU-backed surface, read pixels back and copy to memory pointer

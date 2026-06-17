@@ -641,6 +641,104 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void GpuPictureKeepsRetainedImageTextureAfterRecorderReuse()
+    {
+        var recorder = new GpuPictureRecorder();
+        var context = recorder.BeginRecording(new Rect(0f, 0f, 16f, 16f));
+        using var canvas = new SKCanvas(context, 16f, 16f);
+        using var bitmap = new SKBitmap(1, 1);
+        using var image = SKImage.FromBitmap(bitmap);
+
+        canvas.DrawImage(
+            image,
+            new SKRect(0f, 0f, 1f, 1f),
+            new SKRect(0f, 0f, 1f, 1f),
+            null!);
+
+        using var picture = recorder.EndRecording();
+        var command = Assert.Single(picture.Commands);
+        var retainedTexture = command.Texture!;
+        Assert.Equal(1, context.RetainedResourceCount);
+        Assert.Equal(1, picture.RetainedResourceCount);
+
+        var retainedTextureDisposed = false;
+        void OnTextureDisposed(ulong id)
+        {
+            if (id == retainedTexture.Id)
+            {
+                retainedTextureDisposed = true;
+            }
+        }
+
+        GpuTexture.OnDisposedWithId += OnTextureDisposed;
+        try
+        {
+            recorder.BeginRecording(new Rect(0f, 0f, 16f, 16f));
+
+            Assert.False(retainedTextureDisposed);
+            Assert.Equal(0, context.RetainedResourceCount);
+
+            picture.Dispose();
+
+            Assert.True(retainedTextureDisposed);
+        }
+        finally
+        {
+            GpuTexture.OnDisposedWithId -= OnTextureDisposed;
+        }
+    }
+
+    [Fact]
+    public void AppendKeepsRetainedImageTextureAfterSourceContextClears()
+    {
+        var source = new DrawingContext();
+        var target = new DrawingContext();
+        using var canvas = new SKCanvas(source, 16f, 16f);
+        using var bitmap = new SKBitmap(1, 1);
+        using var image = SKImage.FromBitmap(bitmap);
+
+        canvas.DrawImage(
+            image,
+            new SKRect(0f, 0f, 1f, 1f),
+            new SKRect(0f, 0f, 1f, 1f),
+            null!);
+        target.Append(source);
+
+        var command = Assert.Single(target.Commands);
+        var retainedTexture = command.Texture!;
+        Assert.Equal(1, source.RetainedResourceCount);
+        Assert.Equal(1, target.RetainedResourceCount);
+
+        var retainedTextureDisposed = false;
+        void OnTextureDisposed(ulong id)
+        {
+            if (id == retainedTexture.Id)
+            {
+                retainedTextureDisposed = true;
+            }
+        }
+
+        GpuTexture.OnDisposedWithId += OnTextureDisposed;
+        try
+        {
+            source.Clear();
+
+            Assert.False(retainedTextureDisposed);
+            Assert.Equal(0, source.RetainedResourceCount);
+            Assert.Equal(1, target.RetainedResourceCount);
+
+            target.Clear();
+
+            Assert.True(retainedTextureDisposed);
+            Assert.Equal(0, target.RetainedResourceCount);
+        }
+        finally
+        {
+            GpuTexture.OnDisposedWithId -= OnTextureDisposed;
+        }
+    }
+
+    [Fact]
     public void DrawImageRejectsSourceTexturesFromDifferentContext()
     {
         using var sourceContext = new WgpuContext();
