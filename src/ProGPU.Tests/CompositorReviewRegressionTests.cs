@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Reflection;
 using GdiBitmap = System.Drawing.Bitmap;
+using GdiGraphics = System.Drawing.Graphics;
+using GdiInterpolationMode = System.Drawing.Drawing2D.InterpolationMode;
+using GdiRectangle = System.Drawing.Rectangle;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Backend;
@@ -19,6 +22,42 @@ namespace ProGPU.Tests;
 
 public sealed class CompositorReviewRegressionTests
 {
+    [Theory]
+    [InlineData(GdiInterpolationMode.NearestNeighbor, TextureSamplingMode.Nearest)]
+    [InlineData(GdiInterpolationMode.Bicubic, TextureSamplingMode.Cubic)]
+    [InlineData(GdiInterpolationMode.HighQualityBicubic, TextureSamplingMode.Cubic)]
+    [InlineData(GdiInterpolationMode.Default, TextureSamplingMode.Linear)]
+    [InlineData(GdiInterpolationMode.Low, TextureSamplingMode.Linear)]
+    [InlineData(GdiInterpolationMode.High, TextureSamplingMode.Linear)]
+    [InlineData(GdiInterpolationMode.Bilinear, TextureSamplingMode.Linear)]
+    [InlineData(GdiInterpolationMode.HighQualityBilinear, TextureSamplingMode.Linear)]
+    public void GdiDrawImageMapsInterpolationModeToTextureSampling(
+        GdiInterpolationMode interpolationMode,
+        TextureSamplingMode expectedSamplingMode)
+    {
+        var previous = WgpuContext.Current;
+        var window = HeadlessWindow.Shared;
+
+        try
+        {
+            WgpuContext.Current = window.Context;
+            using var destination = new GdiBitmap(4, 4);
+            using var source = new GdiBitmap(2, 2);
+            using var graphics = GdiGraphics.FromImage(destination);
+
+            graphics.InterpolationMode = interpolationMode;
+            graphics.DrawImage(source, new GdiRectangle(0, 0, 4, 4));
+
+            var command = Assert.Single(graphics.DrawingContext.Commands);
+            Assert.Equal(RenderCommandType.DrawTexture, command.Type);
+            Assert.Equal(expectedSamplingMode, command.TextureSamplingMode);
+        }
+        finally
+        {
+            WgpuContext.Current = previous;
+        }
+    }
+
     [Fact]
     public void ShimGpuProvidersPreferCurrentContextOverFirstActiveContext()
     {

@@ -488,8 +488,18 @@ public class Graphics : IDisposable
             Texture = retainedTexture,
             Rect = new Rect(rect.X, rect.Y, rect.Width, rect.Height),
             Transform = CurrentTransform4x4(),
-            TextureSamplingMode = TextureSamplingMode.Linear
+            TextureSamplingMode = GetTextureSamplingMode()
         });
+    }
+
+    private TextureSamplingMode GetTextureSamplingMode()
+    {
+        return InterpolationMode switch
+        {
+            InterpolationMode.NearestNeighbor => TextureSamplingMode.Nearest,
+            InterpolationMode.Bicubic or InterpolationMode.HighQualityBicubic => TextureSamplingMode.Cubic,
+            _ => TextureSamplingMode.Linear
+        };
     }
 
     private GpuTexture RetainBitmapTexture(Bitmap bitmap)
