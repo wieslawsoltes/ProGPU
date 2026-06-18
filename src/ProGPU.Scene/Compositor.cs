@@ -5696,10 +5696,12 @@ public unsafe class Compositor : IDisposable
         if (node.Size.X <= 0f || node.Size.Y <= 0f) return;
 
         // Compute high-DPI scaling factor dynamically from the compositor target context
-        float dpiScale = _currentDpiScale;
+        float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
 
-        uint w = (uint)MathF.Max(1f, node.Size.X * dpiScale);
-        uint h = (uint)MathF.Max(1f, node.Size.Y * dpiScale);
+        uint logicalRenderWidth = (uint)MathF.Max(1f, MathF.Ceiling(node.Size.X));
+        uint logicalRenderHeight = (uint)MathF.Max(1f, MathF.Ceiling(node.Size.Y));
+        uint w = (uint)MathF.Max(1f, MathF.Ceiling(node.Size.X * dpiScale));
+        uint h = (uint)MathF.Max(1f, MathF.Ceiling(node.Size.Y * dpiScale));
 
         bool hasCached = node.LayerTexture != null;
         bool cachedTextureSizeChanged = hasCached
@@ -5724,8 +5726,8 @@ public unsafe class Compositor : IDisposable
                 // Render the subtree of node offscreen centered with 0 padding into node.LayerTexture
                 RenderOffscreen(
                     node,
-                    (uint)node.Size.X,
-                    (uint)node.Size.Y,
+                    logicalRenderWidth,
+                    logicalRenderHeight,
                     node.LayerTexture,
                     0f,
                     dpiScale,

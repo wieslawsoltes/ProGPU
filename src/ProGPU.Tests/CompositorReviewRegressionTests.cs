@@ -142,6 +142,33 @@ public sealed class CompositorReviewRegressionTests
     }
 
     [Fact]
+    public void CachedLayerUsesCeilingForFractionalPhysicalTextureSize()
+    {
+        using var window = new HeadlessWindow(128, 64);
+        using var target = new GpuTexture(
+            window.Context,
+            126,
+            26,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Fractional Layer Cache Target");
+        var visual = new CachedLayerResizeVisual(new Vector2(100.5f, 20.25f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 101,
+            height: 21,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1.25f);
+
+        Assert.NotNull(visual.LayerTexture);
+        Assert.Equal(126u, visual.LayerTexture.Width);
+        Assert.Equal(26u, visual.LayerTexture.Height);
+        Assert.False(visual.IsDirty);
+    }
+
+    [Fact]
     public void TransformedEllipticalRoundedRectanglePathFallbackAppliesTransformOnce()
     {
         var window = HeadlessWindow.Shared;
@@ -891,13 +918,18 @@ public sealed class CompositorReviewRegressionTests
     private sealed class CachedLayerResizeVisual : DrawingVisual
     {
         public CachedLayerResizeVisual()
+            : this(new Vector2(32f, 16f))
         {
-            Size = new Vector2(32f, 16f);
+        }
+
+        public CachedLayerResizeVisual(Vector2 size)
+        {
+            Size = size;
             CacheAsLayer = true;
             Context.DrawRectangle(
                 new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
                 pen: null,
-                new Rect(0f, 0f, 32f, 16f));
+                new Rect(Vector2.Zero, size));
         }
     }
 
