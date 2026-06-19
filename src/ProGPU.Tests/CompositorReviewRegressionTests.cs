@@ -22,6 +22,30 @@ namespace ProGPU.Tests;
 
 public sealed class CompositorReviewRegressionTests
 {
+    [Fact]
+    public void CombinedPathAtlasBoundsUseGeometryCoordinatesBeforePadding()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        var combined = new PathGeometry
+        {
+            IsCombined = true,
+            Op = 2,
+            PathA = PrimitivePathGeometry.CreateRectangle(10f, 15f, 20f, 10f),
+            PathB = PrimitivePathGeometry.CreateRectangle(40f, 35f, 20f, 5f)
+        };
+
+        var info = atlas.GetOrCreatePath(combined, scale: 2f);
+
+        Assert.Equal(10f, info.UnscaledMinX, precision: 3);
+        Assert.Equal(15f, info.UnscaledMinY, precision: 3);
+        Assert.Equal(60f, info.UnscaledMaxX, precision: 3);
+        Assert.Equal(40f, info.UnscaledMaxY, precision: 3);
+        Assert.Equal(16f, info.MinX);
+        Assert.Equal(26f, info.MinY);
+        Assert.Equal(108u, info.Width);
+        Assert.Equal(58u, info.Height);
+    }
+
     [Theory]
     [InlineData(GdiInterpolationMode.NearestNeighbor, TextureSamplingMode.Nearest)]
     [InlineData(GdiInterpolationMode.Bicubic, TextureSamplingMode.Cubic)]

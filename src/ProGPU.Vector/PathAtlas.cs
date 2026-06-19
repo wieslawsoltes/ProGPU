@@ -493,7 +493,9 @@ public unsafe class PathAtlas : IDisposable
 
         if (path.IsCombined)
         {
-            if (path.PathA == null || path.PathB == null)
+            if (path.PathA == null ||
+                path.PathB == null ||
+                !path.TryGetBounds(out var combinedMin, out var combinedMax))
             {
                 info = new PathInfo
                 {
@@ -517,72 +519,24 @@ public unsafe class PathAtlas : IDisposable
                 return info;
             }
 
-            var infoA = GetOrCreatePath(path.PathA, scale);
-            var infoB = GetOrCreatePath(path.PathB, scale);
+            unscaledMinX = combinedMin.X;
+            unscaledMinY = combinedMin.Y;
+            unscaledMaxX = combinedMax.X;
+            unscaledMaxY = combinedMax.Y;
 
-            int xStartA = (int)infoA.MinX;
-            int yStartA = (int)infoA.MinY;
-            int wA = (int)infoA.Width;
-            int hA = (int)infoA.Height;
+            float minX = unscaledMinX * scale;
+            float minY = unscaledMinY * scale;
+            float maxX = unscaledMaxX * scale;
+            float maxY = unscaledMaxY * scale;
 
-            int xStartB = (int)infoB.MinX;
-            int yStartB = (int)infoB.MinY;
-            int wB = (int)infoB.Width;
-            int hB = (int)infoB.Height;
+            int padding = 4;
+            xStart = (int)Math.Floor(minX) - padding;
+            int xEnd = (int)Math.Ceiling(maxX) + padding;
+            yStart = (int)Math.Floor(minY) - padding;
+            int yEnd = (int)Math.Ceiling(maxY) + padding;
 
-            if (path.Op == 0) // Difference (A - B)
-            {
-                xStart = xStartA;
-                yStart = yStartA;
-                width = wA;
-                height = hA;
-            }
-            else if (path.Op == 4) // ReverseDifference (B - A)
-            {
-                xStart = xStartB;
-                yStart = yStartB;
-                width = wB;
-                height = hB;
-            }
-            else if (path.Op == 1) // Intersect
-            {
-                int xStartDest = Math.Max(xStartA, xStartB);
-                int yStartDest = Math.Max(yStartA, yStartB);
-                int xEndDest = Math.Min(xStartA + wA, xStartB + wB);
-                int yEndDest = Math.Min(yStartA + hA, yStartB + hB);
-
-                if (xEndDest <= xStartDest || yEndDest <= yStartDest)
-                {
-                    xStart = 0;
-                    yStart = 0;
-                    width = 0;
-                    height = 0;
-                }
-                else
-                {
-                    xStart = xStartDest;
-                    yStart = yStartDest;
-                    width = xEndDest - xStartDest;
-                    height = yEndDest - yStartDest;
-                }
-            }
-            else // Union (2) / XOR (3)
-            {
-                int xStartDest = Math.Min(xStartA, xStartB);
-                int yStartDest = Math.Min(yStartA, yStartB);
-                int xEndDest = Math.Max(xStartA + wA, xStartB + wB);
-                int yEndDest = Math.Max(yStartA + hA, yStartB + hB);
-
-                xStart = xStartDest;
-                yStart = yStartDest;
-                width = xEndDest - xStartDest;
-                height = yEndDest - yStartDest;
-            }
-
-            unscaledMinX = xStart / scale;
-            unscaledMinY = yStart / scale;
-            unscaledMaxX = (xStart + width) / scale;
-            unscaledMaxY = (yStart + height) / scale;
+            width = xEnd - xStart;
+            height = yEnd - yStart;
         }
         else
         {
