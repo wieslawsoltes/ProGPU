@@ -15,6 +15,30 @@ public enum PenLineCap
     Triangle = 3
 }
 
+public class DashStyle
+{
+    private double[] _dashes = global::System.Array.Empty<double>();
+
+    public DashStyle()
+        : this(global::System.Array.Empty<double>(), 0)
+    {
+    }
+
+    public DashStyle(double[] dashes, double offset)
+    {
+        Dashes = dashes;
+        Offset = offset;
+    }
+
+    public double[] Dashes
+    {
+        get => (double[])_dashes.Clone();
+        set => _dashes = value is null ? global::System.Array.Empty<double>() : (double[])value.Clone();
+    }
+
+    public double Offset { get; set; }
+}
+
 public class Pen
 {
     public Brush? Brush { get; set; }
@@ -24,6 +48,7 @@ public class Pen
     public PenLineCap StartLineCap { get; set; } = PenLineCap.Flat;
     public PenLineCap EndLineCap { get; set; } = PenLineCap.Flat;
     public PenLineCap DashCap { get; set; } = PenLineCap.Flat;
+    public DashStyle? DashStyle { get; set; }
 
     public Pen() { }
 
@@ -64,7 +89,9 @@ public class Pen
             (float)global::System.Math.Max(1.0, MiterLimit),
             ToNativeLineCap(StartLineCap),
             ToNativeLineCap(EndLineCap),
-            ToNativeLineCap(DashCap));
+            ToNativeLineCap(DashCap),
+            GetScaledDashArray(thicknessScale),
+            DashStyle?.Offset ?? 0.0);
     }
 
     private float GetScaledThickness(float thicknessScale)
@@ -75,6 +102,34 @@ public class Pen
         }
 
         return (float)Thickness * thicknessScale;
+    }
+
+    private double[]? GetScaledDashArray(float thicknessScale)
+    {
+        if (DashStyle?.Dashes is not { Length: > 0 } dashes)
+        {
+            return null;
+        }
+
+        var dashScale = Thickness * thicknessScale;
+        if (!double.IsFinite(dashScale) || dashScale < 0.0)
+        {
+            dashScale = 0.0;
+        }
+
+        var scaledDashes = new double[dashes.Length];
+        for (var i = 0; i < dashes.Length; i++)
+        {
+            var dash = dashes[i];
+            if (!double.IsFinite(dash) || dash < 0.0)
+            {
+                return null;
+            }
+
+            scaledDashes[i] = dash * dashScale;
+        }
+
+        return scaledDashes;
     }
 
     private static ProGPU.Vector.PenLineJoin ToNativeLineJoin(PenLineJoin lineJoin)
