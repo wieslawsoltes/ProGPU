@@ -1579,6 +1579,7 @@ public unsafe class Compositor : IDisposable
         };
 
         var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+        ApplyRenderPassViewport(pass, renderWidth, renderHeight);
 
         DrawCallType? currentType = null;
         GpuBlendMode? currentBlendMode = null;
@@ -5636,6 +5637,13 @@ public unsafe class Compositor : IDisposable
         }
     }
 
+    private unsafe void ApplyRenderPassViewport(RenderPassEncoder* pass, uint targetWidth, uint targetHeight)
+    {
+        targetWidth = Math.Max(1u, targetWidth);
+        targetHeight = Math.Max(1u, targetHeight);
+        _context.Wgpu.RenderPassEncoderSetViewport(pass, 0f, 0f, targetWidth, targetHeight, 0f, 1f);
+    }
+
     ~Compositor()
     {
         // Do not call Dispose() or native WebGPU release APIs during finalization.
@@ -6166,6 +6174,7 @@ public unsafe class Compositor : IDisposable
         };
 
         var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+        ApplyRenderPassViewport(pass, targetTexture.Width, targetTexture.Height);
 
         DrawCallType? currentType = null;
         GpuBlendMode? currentBlendMode = null;
