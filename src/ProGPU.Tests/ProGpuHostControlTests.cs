@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using Avalonia.Rendering.Composition;
 using ProGPU.Avalonia;
@@ -93,5 +94,88 @@ public class ProGpuHostControlTests
         releaseMethod.Invoke(control, null);
 
         Assert.Null(field.GetValue(control));
+    }
+
+    [Fact]
+    public void SwapchainImageDisposesStagingBufferThroughDeferredQueue()
+    {
+        var context = new WgpuContext();
+        var swapchainImageType = typeof(ProGpuHostControl).GetNestedType(
+            "SwapchainImage",
+            BindingFlags.NonPublic)
+            ?? throw new MissingMemberException(typeof(ProGpuHostControl).FullName, "SwapchainImage");
+        var stagingBufferField = swapchainImageType.GetField(
+            "StagingBuffer",
+            BindingFlags.Instance | BindingFlags.Public)
+            ?? throw new MissingFieldException(swapchainImageType.FullName, "StagingBuffer");
+        var stagingBufferSizeField = swapchainImageType.GetField(
+            "StagingBufferSize",
+            BindingFlags.Instance | BindingFlags.Public)
+            ?? throw new MissingFieldException(swapchainImageType.FullName, "StagingBufferSize");
+        var bytesPerRowField = swapchainImageType.GetField(
+            "BytesPerRow",
+            BindingFlags.Instance | BindingFlags.Public)
+            ?? throw new MissingFieldException(swapchainImageType.FullName, "BytesPerRow");
+        var image = Activator.CreateInstance(
+            swapchainImageType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: [context],
+            culture: null)
+            ?? throw new InvalidOperationException("Expected SwapchainImage instance.");
+        var stagingBuffer = new IntPtr(0x1234);
+
+        stagingBufferField.SetValue(image, stagingBuffer);
+        stagingBufferSizeField.SetValue(image, 256u);
+        bytesPerRowField.SetValue(image, 64u);
+
+        try
+        {
+            ((IDisposable)image).Dispose();
+
+            Assert.Contains(stagingBuffer, context.PendingBuffers);
+            Assert.Equal(IntPtr.Zero, stagingBufferField.GetValue(image));
+            Assert.Equal(0u, stagingBufferSizeField.GetValue(image));
+            Assert.Equal(0u, bytesPerRowField.GetValue(image));
+        }
+        finally
+        {
+            context.PendingBuffers.Clear();
+        }
+    }
+
+    [Fact]
+    public void AvaloniaHostStagingBuffersUseDeferredDisposalQueue()
+    {
+        string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
+
+        Assert.Contains("_context.QueueBufferDisposal(StagingBuffer)", source, StringComparison.Ordinal);
+        Assert.Contains("_wgpuContext.QueueBufferDisposal((IntPtr)_stagingBuffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferDestroy((GpuBuffer*)StagingBuffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferRelease((GpuBuffer*)StagingBuffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferDestroy(_stagingBuffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferRelease(_stagingBuffer)", source, StringComparison.Ordinal);
+    }
+
+    private static string FindProGpuHostControlSource()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+             directory != null;
+             directory = directory.Parent)
+        {
+            foreach (string candidate in new[]
+                     {
+                         Path.Combine(directory.FullName, "ProGPU.Avalonia", "ProGpuHostControl.cs"),
+                         Path.Combine(directory.FullName, "src", "ProGPU.Avalonia", "ProGpuHostControl.cs")
+                     })
+            {
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        throw new FileNotFoundException("Could not locate ProGPU.Avalonia ProGpuHostControl.cs.");
     }
 }

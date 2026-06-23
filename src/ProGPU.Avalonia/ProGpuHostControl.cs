@@ -58,7 +58,7 @@ public class ProGpuHostControl : Control
             _context = context;
         }
 
-        public unsafe void Dispose()
+        public void Dispose()
         {
             if (ImportedImage != null)
             {
@@ -89,9 +89,14 @@ public class ProGpuHostControl : Control
 
             if (StagingBuffer != IntPtr.Zero)
             {
-                _context.Wgpu.BufferDestroy((GpuBuffer*)StagingBuffer);
-                _context.Wgpu.BufferRelease((GpuBuffer*)StagingBuffer);
+                if (!_context.IsDisposed)
+                {
+                    _context.QueueBufferDisposal(StagingBuffer);
+                }
+
                 StagingBuffer = IntPtr.Zero;
+                StagingBufferSize = 0;
+                BytesPerRow = 0;
             }
         }
     }
@@ -1325,11 +1330,7 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 
         if (_stagingBuffer == null || _stagingBufferSize < requiredBufferSize)
         {
-            if (_stagingBuffer != null)
-            {
-                _wgpuContext.Wgpu.BufferDestroy(_stagingBuffer);
-                _wgpuContext.Wgpu.BufferRelease(_stagingBuffer);
-            }
+            QueueStagingBufferDisposal();
             
             var bufferDesc = new BufferDescriptor
             {
@@ -1492,12 +1493,7 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
             _winuiRoot = null;
         }
 
-        if (_stagingBuffer != null && _wgpuContext != null)
-        {
-            _wgpuContext.Wgpu.BufferDestroy(_stagingBuffer);
-            _wgpuContext.Wgpu.BufferRelease(_stagingBuffer);
-            _stagingBuffer = null;
-        }
+        QueueStagingBufferDisposal();
 
         _writeableBitmap?.Dispose();
         _writeableBitmap = null;
@@ -1505,6 +1501,23 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
         _offscreenTexture?.Dispose();
         _offscreenTexture = null;
 
+    }
+
+    private void QueueStagingBufferDisposal()
+    {
+        if (_stagingBuffer == null)
+        {
+            return;
+        }
+
+        if (_wgpuContext is { IsDisposed: false })
+        {
+            _wgpuContext.QueueBufferDisposal((IntPtr)_stagingBuffer);
+        }
+
+        _stagingBuffer = null;
+        _stagingBufferSize = 0;
+        _bytesPerRow = 0;
     }
 }
 
