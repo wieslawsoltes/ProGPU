@@ -1032,6 +1032,45 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void DrawImageUsesCurrentContextForDeferredDrawingContext()
+    {
+        using var sourceContext = new WgpuContext();
+        sourceContext.Initialize(null);
+        using var targetContext = new WgpuContext();
+        targetContext.Initialize(null);
+        using var sourceTexture = new GpuTexture(
+            sourceContext,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
+            "Cross-context SKImage current target source");
+        using var image = SKImage.FromTexture(sourceTexture);
+        var context = new DrawingContext();
+        var previous = WgpuContext.Current;
+        WgpuContext.Current = targetContext;
+
+        try
+        {
+            using var canvas = new SKCanvas(context, 16f, 16f);
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                canvas.DrawImage(
+                    image,
+                    new SKRect(0f, 0f, 1f, 1f),
+                    new SKRect(0f, 0f, 1f, 1f),
+                    null!));
+
+            Assert.Contains("different WebGPU context", exception.Message, StringComparison.Ordinal);
+            Assert.Empty(context.Commands);
+            Assert.Equal(0, context.RetainedResourceCount);
+        }
+        finally
+        {
+            WgpuContext.Current = previous;
+        }
+    }
+
+    [Fact]
     public void DrawImageDoesNotLeakBlendModeWhenImageRetentionFails()
     {
         using var sourceContext = new WgpuContext();

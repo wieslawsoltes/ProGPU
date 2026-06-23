@@ -863,9 +863,12 @@ public class SKCanvas : IDisposable
     private GpuTexture RetainImageTexture(SKImage image)
     {
         var source = image.Texture;
+        var currentContext = WgpuContext.Current;
         var targetContext = _gpuContext != null && !_gpuContext.IsDisposed
             ? _gpuContext
-            : source.Context;
+            : currentContext != null && !currentContext.IsDisposed
+                ? currentContext
+                : source.Context;
         if (!ReferenceEquals(source.Context, targetContext))
         {
             throw new InvalidOperationException(
