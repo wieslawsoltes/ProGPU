@@ -17,7 +17,9 @@ using ProGPU.Transpiler;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
 using SkiaSharp;
+using WpfDrawingContext = System.Windows.Media.DrawingContext;
 using WpfPixelFormats = System.Windows.Media.Imaging.PixelFormats;
+using WpfRect = System.Windows.Rect;
 using WpfWriteableBitmap = System.Windows.Media.Imaging.WriteableBitmap;
 using Xunit;
 
@@ -217,6 +219,97 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
         finally
         {
+            WgpuContext.Current = previous;
+        }
+    }
+
+    [Fact]
+    public void GdiBitmapFlushClearsRecordedResourcesWhenRenderFails()
+    {
+        var previous = WgpuContext.Current;
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        try
+        {
+            WgpuContext.Current = context;
+            using var source = new GdiBitmap(1, 1);
+            using var target = new GdiBitmap(2, 2);
+            using var graphics = GdiGraphics.FromImage(target);
+            graphics.DrawImage(source, new GdiRectangle(0, 0, 1, 1));
+
+            var retainedTexture = Assert.Single(
+                target.RecordedContext.Commands,
+                static command => command.Texture != null).Texture!;
+            Assert.Equal(1, target.RecordedContext.RetainedResourceCount);
+
+            var compositor = GetGdiBitmapCompositor(target);
+            compositor.RegisterExtension(9907, new ThrowingCompileExtension("Synthetic GDI bitmap flush failure."));
+            target.RecordedContext.DrawExtension(9907);
+
+            var retainedTextureDisposed = false;
+            void OnTextureDisposed(ulong id)
+            {
+                if (id == retainedTexture.Id)
+                {
+                    retainedTextureDisposed = true;
+                }
+            }
+
+            GpuTexture.OnDisposedWithId += OnTextureDisposed;
+            try
+            {
+                var exception = Assert.Throws<System.InvalidOperationException>(() => target.Flush());
+                Assert.Contains("Synthetic GDI bitmap flush failure", exception.Message, System.StringComparison.Ordinal);
+            }
+            finally
+            {
+                GpuTexture.OnDisposedWithId -= OnTextureDisposed;
+            }
+
+            Assert.Empty(target.RecordedContext.Commands);
+            Assert.Equal(0, target.RecordedContext.RetainedResourceCount);
+            Assert.True(retainedTextureDisposed);
+        }
+        finally
+        {
+            WgpuContext.Current = previous;
+        }
+    }
+
+    [Fact]
+    public void WpfDrawImageRejectsCrossContextBitmapSourcesBeforeRecording()
+    {
+        var previous = WgpuContext.Current;
+        using var sourceContext = new WgpuContext();
+        sourceContext.Initialize(null);
+        using var targetContext = new WgpuContext();
+        targetContext.Initialize(null);
+        WpfWriteableBitmap? bitmap = null;
+
+        try
+        {
+            WgpuContext.Current = sourceContext;
+            bitmap = new WpfWriteableBitmap(
+                1,
+                1,
+                96d,
+                96d,
+                WpfPixelFormats.Pbgra32,
+                palette: null);
+
+            WgpuContext.Current = targetContext;
+            var nativeContext = new DrawingContext();
+            using var drawingContext = new WpfDrawingContext(nativeContext);
+
+            var exception = Assert.Throws<System.InvalidOperationException>(
+                () => drawingContext.DrawImage(bitmap, new WpfRect(0, 0, 1, 1)));
+            Assert.Contains("different WebGPU context", exception.Message, System.StringComparison.Ordinal);
+            Assert.Empty(nativeContext.Commands);
+        }
+        finally
+        {
+            bitmap?.GpuTexture.Dispose();
             WgpuContext.Current = previous;
         }
     }
@@ -1136,6 +1229,16 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         return drawCalls.ToArray();
     }
 
+    private static Compositor GetGdiBitmapCompositor(GdiBitmap bitmap)
+    {
+        var providerType = typeof(GdiBitmap).Assembly.GetType("System.Drawing.GpuProvider", throwOnError: true)!;
+        var method = providerType.GetMethod(
+            "GetCompositor",
+            BindingFlags.Static | BindingFlags.Public)
+            ?? throw new MissingMethodException(providerType.FullName, "GetCompositor");
+        return (Compositor)method.Invoke(null, [bitmap.GpuTexture.Context])!;
+    }
+
     private static T GetCompositorField<T>(Compositor compositor, string fieldName)
     {
         var field = typeof(Compositor).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
@@ -1558,6 +1661,26 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         public void EndFrame(Compositor compositor)
         {
             EndFrameCount++;
+        }
+    }
+
+    private sealed class ThrowingCompileExtension(string message) : ICompositorExtension
+    {
+        public void Compile(
+            Compositor compositor,
+            IRenderDataProvider? provider,
+            Matrix4x4 transform,
+            ref RenderCommand cmd)
+        {
+            throw new System.InvalidOperationException(message);
+        }
+
+        public unsafe void Render(
+            Compositor compositor,
+            void* renderPassEncoder,
+            bool isOffscreen,
+            in Compositor.CompositorDrawCall dc)
+        {
         }
     }
 

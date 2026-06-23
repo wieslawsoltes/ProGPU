@@ -711,7 +711,7 @@ public class ProGpuHostControl : Control
         {
             foreach (var img in _swapchainImages)
             {
-                img.Dispose();
+                img?.Dispose();
             }
             _swapchainImages = null;
         }

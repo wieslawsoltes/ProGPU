@@ -118,6 +118,12 @@ public class DrawingContext : IDisposable
         if (imageSource is Imaging.BitmapSource bitmapSource)
         {
             var texture = bitmapSource.GpuTexture;
+            var targetContext = GpuProvider.Context;
+            if (!ReferenceEquals(texture.Context, targetContext))
+            {
+                throw new InvalidOperationException("Cannot draw a WPF BitmapSource from a different WebGPU context into this DrawingContext.");
+            }
+
             var nativeRect = new ProGPU.Scene.Rect((float)rectangle.X, (float)rectangle.Y, (float)rectangle.Width, (float)rectangle.Height);
 
             int start = _nativeContext.Commands.Count;

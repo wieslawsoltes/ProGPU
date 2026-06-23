@@ -84,19 +84,25 @@ public class Bitmap : Image
         NormalizeExistingContentsForPremultipliedRenderTarget();
 
         var visual = new GraphicsVisual(_recordedContext);
-        GpuProvider.GetCompositor(_texture.Context).RenderOffscreen(
-            visual,
-            (uint)Width,
-            (uint)Height,
-            _texture,
-            padding: 0f,
-            dpiScale: 1f,
-            loadExistingContents: _hasDefinedPixels
-        );
+        try
+        {
+            GpuProvider.GetCompositor(_texture.Context).RenderOffscreen(
+                visual,
+                (uint)Width,
+                (uint)Height,
+                _texture,
+                padding: 0f,
+                dpiScale: 1f,
+                loadExistingContents: _hasDefinedPixels
+            );
 
-        _texture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
-        _recordedContext.Clear();
-        _hasDefinedPixels = true;
+            _texture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+            _hasDefinedPixels = true;
+        }
+        finally
+        {
+            _recordedContext.Clear();
+        }
     }
 
     public Color GetPixel(int x, int y)

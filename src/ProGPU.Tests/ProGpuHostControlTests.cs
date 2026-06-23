@@ -70,4 +70,28 @@ public class ProGpuHostControlTests
         Assert.Equal(4, copyParameters.Length);
         Assert.Equal(typeof(WgpuContext), copyParameters[0].ParameterType);
     }
+
+    [Fact]
+    public void ReleaseSharedResourcesIgnoresPartiallyInitializedSwapchainImages()
+    {
+        var control = new ProGpuHostControl();
+        var swapchainImageType = typeof(ProGpuHostControl).GetNestedType(
+            "SwapchainImage",
+            BindingFlags.NonPublic)
+            ?? throw new MissingMemberException(typeof(ProGpuHostControl).FullName, "SwapchainImage");
+        var field = typeof(ProGpuHostControl).GetField(
+            "_swapchainImages",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(typeof(ProGpuHostControl).FullName, "_swapchainImages");
+        var releaseMethod = typeof(ProGpuHostControl).GetMethod(
+            "ReleaseSharedResources",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(typeof(ProGpuHostControl).FullName, "ReleaseSharedResources");
+
+        field.SetValue(control, Array.CreateInstance(swapchainImageType, 2));
+
+        releaseMethod.Invoke(control, null);
+
+        Assert.Null(field.GetValue(control));
+    }
 }
