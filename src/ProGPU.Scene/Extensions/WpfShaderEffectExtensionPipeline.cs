@@ -452,7 +452,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 {
                     if (kvp.Value.BindGroupPtr != 0 && !compositor.Context.IsDisposed)
                     {
-                        compositor.Context.Wgpu.BindGroupRelease((BindGroup*)kvp.Value.BindGroupPtr);
+                        QueueBindGroupRelease(compositor.Context, kvp.Value.BindGroupPtr);
                     }
 
                     keysToRemove ??= new List<string>();
@@ -622,12 +622,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             return;
         }
 
-        var wgpu = _contextRef.Wgpu;
         foreach (var resource in _pool)
         {
             if (resource.BindGroupPtr != 0)
             {
-                wgpu.BindGroupRelease((BindGroup*)resource.BindGroupPtr);
+                QueueBindGroupRelease(_contextRef, resource.BindGroupPtr);
             }
 
             resource.UniformBuffer.Dispose();
@@ -635,7 +634,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         if (_effectBindGroupLayout != null)
         {
-            wgpu.BindGroupLayoutRelease(_effectBindGroupLayout);
+            _contextRef.QueueBindGroupLayoutDisposal((IntPtr)_effectBindGroupLayout);
             _effectBindGroupLayout = null;
         }
 
@@ -643,19 +642,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         {
             if (layout.SourceBindGroupLayout != null)
             {
-                wgpu.BindGroupLayoutRelease(layout.SourceBindGroupLayout);
+                _contextRef.QueueBindGroupLayoutDisposal((IntPtr)layout.SourceBindGroupLayout);
                 layout.SourceBindGroupLayout = null;
             }
 
             if (layout.OnscreenPipelineLayout != null)
             {
-                wgpu.PipelineLayoutRelease(layout.OnscreenPipelineLayout);
+                _contextRef.QueuePipelineLayoutDisposal((IntPtr)layout.OnscreenPipelineLayout);
                 layout.OnscreenPipelineLayout = null;
             }
 
             if (layout.OffscreenPipelineLayout != null)
             {
-                wgpu.PipelineLayoutRelease(layout.OffscreenPipelineLayout);
+                _contextRef.QueuePipelineLayoutDisposal((IntPtr)layout.OffscreenPipelineLayout);
                 layout.OffscreenPipelineLayout = null;
             }
         }
@@ -664,7 +663,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         {
             if (cached.BindGroupPtr != 0)
             {
-                wgpu.BindGroupRelease((BindGroup*)cached.BindGroupPtr);
+                QueueBindGroupRelease(_contextRef, cached.BindGroupPtr);
             }
         }
 
@@ -673,6 +672,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         _sourceLayouts.Clear();
         _fallbackTexture?.Dispose();
         _fallbackTexture = null;
+    }
+
+    private static void QueueBindGroupRelease(WgpuContext context, nint bindGroupPtr)
+    {
+        if (bindGroupPtr != 0 && !context.IsDisposed)
+        {
+            context.QueueBindGroupDisposal((IntPtr)bindGroupPtr);
+        }
     }
 
     private RenderPipeline* CreatePipeline(

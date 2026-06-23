@@ -1043,6 +1043,56 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void WpfShaderEffectPipelineDisposeQueuesGpuHandles()
+    {
+        using var window = new HeadlessWindow(16, 16);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "WPF Shader Effect Disposal Queue Source");
+        source.WritePixels(new byte[] { 255, 0, 0, 255 });
+        var effect = new WpfShaderEffectParams
+        {
+            Texture = source,
+            Rect = new Rect(0f, 0f, 16f, 16f),
+            ShaderKey = $"review_wpf_shader_effect_disposal_{System.Guid.NewGuid():N}"
+        };
+        window.Content = new WpfShaderEffectDisposalVisual(effect);
+
+        try
+        {
+            window.Render();
+
+            Assert.False(effect.IsFailed, effect.LastError);
+            var extension = Assert.IsAssignableFrom<IDisposable>(
+                window.Compositor.GetExtension(CompositorBuiltInExtensions.WpfShaderEffect));
+
+            lock (window.Context.DisposalLock)
+            {
+                Assert.Empty(window.Context.PendingBindGroups);
+            }
+
+            extension.Dispose();
+
+            lock (window.Context.DisposalLock)
+            {
+                Assert.NotEmpty(window.Context.PendingBindGroups);
+                Assert.NotEmpty(window.Context.PendingBindGroupLayouts);
+                Assert.NotEmpty(window.Context.PendingPipelineLayouts);
+            }
+
+            window.Context.CleanupPendingResources();
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public unsafe void GpuBufferDisposeQueuesNativeBufferDisposal()
     {
         using var window = new HeadlessWindow(16, 16);
@@ -1673,6 +1723,23 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             context.DrawExtension(
                 CompositorBuiltInExtensions.ShaderToy,
                 dataParam: _shader);
+        }
+    }
+
+    private sealed class WpfShaderEffectDisposalVisual : FrameworkElement
+    {
+        private readonly WpfShaderEffectParams _effect;
+
+        public WpfShaderEffectDisposalVisual(WpfShaderEffectParams effect)
+        {
+            _effect = effect;
+            Width = 16f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawWpfShaderEffect(_effect);
         }
     }
 
