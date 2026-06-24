@@ -218,13 +218,15 @@ namespace ProGPU.Transpiler
         public string Type { get; }
         public string Name { get; }
         public Expression Initializer { get; }
+        public int? ArraySize { get; }
         public bool IsConst { get; set; }
         public bool IsUniform { get; set; }
-        public VariableDeclarationStatement(string type, string name, Expression initializer)
+        public VariableDeclarationStatement(string type, string name, Expression initializer, int? arraySize = null)
         {
             Type = type;
             Name = name;
             Initializer = initializer;
+            ArraySize = arraySize;
         }
     }
 
@@ -1015,10 +1017,10 @@ namespace ProGPU.Transpiler
             string currentVarName = name;
             while (true)
             {
+                int? arraySize = null;
                 if (Match(TokenType.Punctuation, "["))
                 {
-                    var sizeExpr = ParseExpression();
-                    Consume(TokenType.Punctuation, "]", "Expected ']' after array size");
+                    arraySize = ParseArraySizeAfterOpenBracket();
                 }
 
                 Expression initializer = null;
@@ -1027,7 +1029,7 @@ namespace ProGPU.Transpiler
                     initializer = ParseExpression();
                 }
 
-                decls.Add(new VariableDeclarationStatement(type, currentVarName, initializer)
+                decls.Add(new VariableDeclarationStatement(type, currentVarName, initializer, arraySize)
                 {
                     IsConst = isConst,
                     IsUniform = isUniform
@@ -1228,11 +1230,11 @@ namespace ProGPU.Transpiler
             do
             {
                 string name = Consume(TokenType.Identifier, "Expected variable name").Value;
+                int? arraySize = null;
 
                 if (Match(TokenType.Punctuation, "["))
                 {
-                    var sizeExpr = ParseExpression();
-                    Consume(TokenType.Punctuation, "]", "Expected ']' after array size");
+                    arraySize = ParseArraySizeAfterOpenBracket();
                 }
 
                 Expression initializer = null;
@@ -1241,7 +1243,7 @@ namespace ProGPU.Transpiler
                     initializer = ParseExpression();
                 }
 
-                decls.Add(new VariableDeclarationStatement(type, name, initializer)
+                decls.Add(new VariableDeclarationStatement(type, name, initializer, arraySize)
                 {
                     IsConst = isConst,
                     IsUniform = isUniform
@@ -1251,6 +1253,19 @@ namespace ProGPU.Transpiler
 
             Consume(TokenType.Punctuation, ";", "Expected ';' after variable declaration");
             return decls;
+        }
+
+        private int ParseArraySizeAfterOpenBracket()
+        {
+            var sizeExpr = ParseExpression();
+            Consume(TokenType.Punctuation, "]", "Expected ']' after array size");
+
+            if (sizeExpr is LiteralExpression { Value: int size } && size > 0)
+            {
+                return size;
+            }
+
+            throw new NotSupportedException("Only positive integer literal ShaderToy array sizes are supported.");
         }
 
         private Expression ParsePrimary()
@@ -1487,7 +1502,7 @@ namespace ProGPU.Transpiler
                 {
                     ResolveExpression(v.Initializer);
                 }
-                _currentScope.Declare(v.Name, v.Type);
+                _currentScope.Declare(v.Name, GetDeclarationResolvedType(v));
                 return;
             }
         }
@@ -1514,7 +1529,7 @@ namespace ProGPU.Transpiler
                 {
                     ResolveExpression(v.Initializer);
                 }
-                _currentScope.Declare(v.Name, v.Type);
+                _currentScope.Declare(v.Name, GetDeclarationResolvedType(v));
             }
             else if (stmt is IfStatement ifs)
             {
@@ -1672,6 +1687,13 @@ namespace ProGPU.Transpiler
 
         private static bool IsVector(string type) => type != null && (type.StartsWith("vec") || type.StartsWith("ivec") || type.StartsWith("uvec") || type.StartsWith("bvec"));
 
+        private static string GetDeclarationResolvedType(VariableDeclarationStatement declaration)
+        {
+            return declaration.ArraySize.HasValue
+                ? $"{declaration.Type}[]"
+                : declaration.Type;
+        }
+
         private string GetFunctionReturnType(string name, List<string> argTypes)
         {
             if (name == "cos" || name == "sin" || name == "abs" || name == "tan" || name == "sqrt" || name == "log" || name == "exp" || name == "floor" || name == "ceil" || name == "fract" || name == "sign" || name == "normalize")
@@ -1811,7 +1833,7 @@ namespace ProGPU.Transpiler
 
         private string GenerateGlobalVariable(VariableDeclarationStatement node)
         {
-            string typeStr = MapType(node.Type);
+            string typeStr = MapDeclarationType(node);
             return $"var<private> {ResolveIdentifier(node.Name)}: {typeStr};";
         }
 
@@ -1923,7 +1945,7 @@ namespace ProGPU.Transpiler
             }
             if (stmt is VariableDeclarationStatement v)
             {
-                string typeStr = MapType(v.Type);
+                string typeStr = MapDeclarationType(v);
                 if (v.Initializer != null)
                 {
                     if (v.Initializer is AssignmentExpression assign)
@@ -2082,7 +2104,7 @@ namespace ProGPU.Transpiler
 
         private string GenerateForInitializerDeclaration(VariableDeclarationStatement declaration)
         {
-            string typeStr = MapType(declaration.Type);
+            string typeStr = MapDeclarationType(declaration);
             return declaration.Initializer != null
                 ? $"var {ResolveIdentifier(declaration.Name)}: {typeStr} = {GenerateExpression(declaration.Initializer)}"
                 : $"var {ResolveIdentifier(declaration.Name)}: {typeStr}";
@@ -2440,6 +2462,14 @@ namespace ProGPU.Transpiler
         private static bool IsVector(string type) => type != null && (type.StartsWith("vec") || type.StartsWith("ivec") || type.StartsWith("uvec") || type.StartsWith("bvec"));
 
         private static bool IsScalar(string type) => type == "float" || type == "int" || type == "uint";
+
+        private static string MapDeclarationType(VariableDeclarationStatement declaration)
+        {
+            var elementType = MapType(declaration.Type);
+            return declaration.ArraySize.HasValue
+                ? $"array<{elementType}, {declaration.ArraySize.Value}>"
+                : elementType;
+        }
 
         private static string MapType(string glslType) => ShaderToyTranspiler.MapType(glslType);
         private static string ResolveIdentifier(string name) => ShaderToyTranspiler.ResolveIdentifier(name);

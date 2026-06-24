@@ -111,4 +111,24 @@ void mainImage(out vec4 color, in vec2 coord) {
         Assert.Contains("i = i + 1;", wgsl);
         Assert.Contains("i = i - 1;", wgsl);
     }
+
+    [Fact]
+    public void LocalArrayDeclarationPreservesElementCount()
+    {
+        const string glsl = """
+void mainImage(out vec4 color, in vec2 coord) {
+    float weights[3];
+    weights[0] = 0.25;
+    weights[1] = 0.5;
+    weights[2] = 0.25;
+    color = vec4(weights[0] + weights[1] + weights[2], 0.0, 0.0, 1.0);
+}
+""";
+
+        var wgsl = ShaderToyTranspiler.Translate(glsl);
+
+        Assert.Contains("var weights: array<f32, 3>;", wgsl);
+        Assert.Contains("weights[0] = 0.25;", wgsl);
+        Assert.DoesNotContain("var weights: f32;", wgsl);
+    }
 }
