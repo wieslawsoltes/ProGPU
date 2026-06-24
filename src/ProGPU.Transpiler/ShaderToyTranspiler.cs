@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Text;
 
@@ -468,31 +469,364 @@ namespace ProGPU.Transpiler
             public bool IsActive => ParentIsActive && CurrentBranchActive;
         }
 
-        private static bool EvaluateBooleanExpression(string expr)
+        private sealed class PreprocessorExpressionParser
         {
-            expr = expr.Replace(" ", "").Replace("\t", "");
-            string last;
-            do
-            {
-                last = expr;
-                expr = expr.Replace("!1", "0");
-                expr = expr.Replace("!0", "1");
-                expr = expr.Replace("(1)", "1");
-                expr = expr.Replace("(0)", "0");
-                expr = expr.Replace("1&&1", "1");
-                expr = expr.Replace("1&&0", "0");
-                expr = expr.Replace("0&&1", "0");
-                expr = expr.Replace("0&&0", "0");
-                expr = expr.Replace("1||1", "1");
-                expr = expr.Replace("1||0", "1");
-                expr = expr.Replace("0||1", "1");
-                expr = expr.Replace("0||0", "0");
-            } while (expr != last);
+            private readonly string _text;
+            private int _index;
 
-            return expr.Contains('1') && !expr.Contains('0');
+            public PreprocessorExpressionParser(string text)
+            {
+                _text = text;
+            }
+
+            public long Parse()
+            {
+                long value = ParseLogicalOr();
+                SkipWhitespace();
+                if (_index < _text.Length)
+                {
+                    throw new InvalidOperationException("Unexpected preprocessor expression token.");
+                }
+
+                return value;
+            }
+
+            private long ParseLogicalOr()
+            {
+                long value = ParseLogicalAnd();
+                while (Match("||"))
+                {
+                    long right = ParseLogicalAnd();
+                    value = value != 0 || right != 0 ? 1 : 0;
+                }
+
+                return value;
+            }
+
+            private long ParseLogicalAnd()
+            {
+                long value = ParseBitwiseOr();
+                while (Match("&&"))
+                {
+                    long right = ParseBitwiseOr();
+                    value = value != 0 && right != 0 ? 1 : 0;
+                }
+
+                return value;
+            }
+
+            private long ParseBitwiseOr()
+            {
+                long value = ParseBitwiseXor();
+                while (!Peek("||") && Match("|"))
+                {
+                    value |= ParseBitwiseXor();
+                }
+
+                return value;
+            }
+
+            private long ParseBitwiseXor()
+            {
+                long value = ParseBitwiseAnd();
+                while (Match("^"))
+                {
+                    value ^= ParseBitwiseAnd();
+                }
+
+                return value;
+            }
+
+            private long ParseBitwiseAnd()
+            {
+                long value = ParseEquality();
+                while (!Peek("&&") && Match("&"))
+                {
+                    value &= ParseEquality();
+                }
+
+                return value;
+            }
+
+            private long ParseEquality()
+            {
+                long value = ParseRelational();
+                while (true)
+                {
+                    if (Match("=="))
+                    {
+                        value = value == ParseRelational() ? 1 : 0;
+                    }
+                    else if (Match("!="))
+                    {
+                        value = value != ParseRelational() ? 1 : 0;
+                    }
+                    else
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            private long ParseRelational()
+            {
+                long value = ParseShift();
+                while (true)
+                {
+                    if (Match("<="))
+                    {
+                        value = value <= ParseShift() ? 1 : 0;
+                    }
+                    else if (Match(">="))
+                    {
+                        value = value >= ParseShift() ? 1 : 0;
+                    }
+                    else if (!Peek("<<") && Match("<"))
+                    {
+                        value = value < ParseShift() ? 1 : 0;
+                    }
+                    else if (!Peek(">>") && Match(">"))
+                    {
+                        value = value > ParseShift() ? 1 : 0;
+                    }
+                    else
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            private long ParseShift()
+            {
+                long value = ParseAdditive();
+                while (true)
+                {
+                    if (Match("<<"))
+                    {
+                        value <<= ClampShift(ParseAdditive());
+                    }
+                    else if (Match(">>"))
+                    {
+                        value >>= ClampShift(ParseAdditive());
+                    }
+                    else
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            private long ParseAdditive()
+            {
+                long value = ParseMultiplicative();
+                while (true)
+                {
+                    if (Match("+"))
+                    {
+                        value += ParseMultiplicative();
+                    }
+                    else if (Match("-"))
+                    {
+                        value -= ParseMultiplicative();
+                    }
+                    else
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            private long ParseMultiplicative()
+            {
+                long value = ParseUnary();
+                while (true)
+                {
+                    if (Match("*"))
+                    {
+                        value *= ParseUnary();
+                    }
+                    else if (Match("/"))
+                    {
+                        long divisor = ParseUnary();
+                        value = divisor == 0 ? 0 : value / divisor;
+                    }
+                    else if (Match("%"))
+                    {
+                        long divisor = ParseUnary();
+                        value = divisor == 0 ? 0 : value % divisor;
+                    }
+                    else
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            private long ParseUnary()
+            {
+                if (Match("!"))
+                {
+                    return ParseUnary() == 0 ? 1 : 0;
+                }
+
+                if (Match("~"))
+                {
+                    return ~ParseUnary();
+                }
+
+                if (Match("+"))
+                {
+                    return ParseUnary();
+                }
+
+                if (Match("-"))
+                {
+                    return -ParseUnary();
+                }
+
+                return ParsePrimary();
+            }
+
+            private long ParsePrimary()
+            {
+                SkipWhitespace();
+                if (Match("("))
+                {
+                    long value = ParseLogicalOr();
+                    if (!Match(")"))
+                    {
+                        throw new InvalidOperationException("Expected ')' in preprocessor expression.");
+                    }
+
+                    return value;
+                }
+
+                return ParseNumber();
+            }
+
+            private long ParseNumber()
+            {
+                SkipWhitespace();
+                int start = _index;
+                if (start >= _text.Length)
+                {
+                    throw new InvalidOperationException("Expected preprocessor expression value.");
+                }
+
+                if (start + 1 < _text.Length && _text[start] == '0' && (_text[start + 1] == 'x' || _text[start + 1] == 'X'))
+                {
+                    _index += 2;
+                    int digitsStart = _index;
+                    while (_index < _text.Length && IsHexDigit(_text[_index]))
+                    {
+                        _index++;
+                    }
+
+                    if (_index == digitsStart)
+                    {
+                        throw new InvalidOperationException("Expected hexadecimal preprocessor literal.");
+                    }
+
+                    string digits = _text.Substring(digitsStart, _index - digitsStart);
+                    ConsumeIntegerSuffix();
+                    return unchecked((long)Convert.ToUInt64(digits, 16));
+                }
+
+                while (_index < _text.Length && char.IsDigit(_text[_index]))
+                {
+                    _index++;
+                }
+
+                if (_index < _text.Length && _text[_index] == '.')
+                {
+                    _index++;
+                    while (_index < _text.Length && char.IsDigit(_text[_index]))
+                    {
+                        _index++;
+                    }
+                }
+
+                if (_index == start)
+                {
+                    throw new InvalidOperationException("Expected numeric preprocessor literal.");
+                }
+
+                string literal = _text.Substring(start, _index - start);
+                ConsumeIntegerSuffix();
+                if (literal.Contains('.'))
+                {
+                    return double.TryParse(literal, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && Math.Abs(value) > double.Epsilon
+                        ? 1
+                        : 0;
+                }
+
+                return long.Parse(literal, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            }
+
+            private bool Match(string token)
+            {
+                SkipWhitespace();
+                if (!Peek(token))
+                {
+                    return false;
+                }
+
+                _index += token.Length;
+                return true;
+            }
+
+            private bool Peek(string token)
+            {
+                SkipWhitespace();
+                return _index + token.Length <= _text.Length &&
+                    string.CompareOrdinal(_text, _index, token, 0, token.Length) == 0;
+            }
+
+            private void SkipWhitespace()
+            {
+                while (_index < _text.Length && char.IsWhiteSpace(_text[_index]))
+                {
+                    _index++;
+                }
+            }
+
+            private void ConsumeIntegerSuffix()
+            {
+                while (_index < _text.Length)
+                {
+                    char c = _text[_index];
+                    if (c is 'u' or 'U' or 'l' or 'L')
+                    {
+                        _index++;
+                        continue;
+                    }
+
+                    break;
+                }
+            }
+
+            private static bool IsHexDigit(char c)
+            {
+                return (c >= '0' && c <= '9') ||
+                    (c >= 'a' && c <= 'f') ||
+                    (c >= 'A' && c <= 'F');
+            }
+
+            private static int ClampShift(long value)
+            {
+                if (value <= 0)
+                {
+                    return 0;
+                }
+
+                return value >= 63 ? 63 : (int)value;
+            }
         }
 
-        private static bool EvaluateCondition(string expr, HashSet<string> definedMacros)
+        private static bool EvaluateCondition(
+            string expr,
+            HashSet<string> definedMacros,
+            Dictionary<string, string> simpleDefines)
         {
             expr = expr.Trim();
             if (expr == "0" || expr.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
@@ -506,25 +840,41 @@ namespace ProGPU.Transpiler
             });
 
             var idRegex = new Regex(@"\b[a-zA-Z_][a-zA-Z0-9_]*\b", RegexOptions.Compiled);
-            expr = idRegex.Replace(expr, m =>
+            for (int pass = 0; pass < 16; pass++)
             {
-                string word = m.Value;
-                if (word == "true" || word == "1") return "1";
-                if (word == "false" || word == "0") return "0";
-                if (definedMacros.Contains(word))
+                string expanded = idRegex.Replace(expr, m =>
                 {
-                    return "1";
+                    string word = m.Value;
+                    if (word == "true") return "1";
+                    if (word == "false") return "0";
+                    if (simpleDefines.TryGetValue(word, out var value))
+                    {
+                        return string.IsNullOrWhiteSpace(value) ? "1" : value;
+                    }
+
+                    if (definedMacros.Contains(word))
+                    {
+                        return "1";
+                    }
+
+                    return "0";
+                });
+
+                if (expanded == expr)
+                {
+                    break;
                 }
-                return "0";
-            });
+
+                expr = expanded;
+            }
 
             try
             {
-                return EvaluateBooleanExpression(expr);
+                return new PreprocessorExpressionParser(expr).Parse() != 0;
             }
             catch
             {
-                return expr.Contains('1');
+                return false;
             }
         }
 
@@ -578,7 +928,7 @@ namespace ProGPU.Transpiler
                         int multilineCommentIdx = expr.IndexOf("/*");
                         if (multilineCommentIdx >= 0) expr = expr.Substring(0, multilineCommentIdx).Trim();
 
-                        bool cond = EvaluateCondition(expr, definedMacros);
+                        bool cond = EvaluateCondition(expr, definedMacros, simpleDefines);
                         stateStack.Push(new BlockState { ParentIsActive = isCurrentlyActive, CurrentBranchActive = cond, AnyBranchWasActive = cond });
                         newLines.Add("");
                     }
@@ -599,7 +949,7 @@ namespace ProGPU.Transpiler
                             }
                             else
                             {
-                                bool cond = EvaluateCondition(expr, definedMacros);
+                                bool cond = EvaluateCondition(expr, definedMacros, simpleDefines);
                                 state.CurrentBranchActive = cond;
                                 if (cond) state.AnyBranchWasActive = true;
                             }

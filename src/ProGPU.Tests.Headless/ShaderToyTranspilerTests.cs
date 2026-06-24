@@ -61,6 +61,42 @@ void mainImage(out vec4 color, in vec2 coord) {
     }
 
     [Fact]
+    public void NumericPreprocessorConditionsEvaluateIntegerConstants()
+    {
+        const string glsl = """
+#define MODE 2
+void mainImage(out vec4 color, in vec2 coord) {
+#if 2
+    float enabled = 1.0;
+#else
+    float enabled = 0.0;
+#endif
+#if MODE == 2 && (4 >> 1) == 2
+    enabled = enabled + 2.0;
+#endif
+#if 10
+    enabled = enabled + 3.0;
+#endif
+#if 0
+    enabled = enabled + 8.0;
+#elif MODE >= 2
+    enabled = enabled + 4.0;
+#endif
+    color = vec4(enabled, 0.0, 0.0, 1.0);
+}
+""";
+
+        var wgsl = ShaderToyTranspiler.Translate(glsl);
+
+        Assert.Contains("var enabled: f32 = 1.0;", wgsl);
+        Assert.Contains("enabled = (enabled + 2.0);", wgsl);
+        Assert.Contains("enabled = (enabled + 3.0);", wgsl);
+        Assert.Contains("enabled = (enabled + 4.0);", wgsl);
+        Assert.DoesNotContain("var enabled: f32 = 0.0;", wgsl);
+        Assert.DoesNotContain("enabled = (enabled + 8.0);", wgsl);
+    }
+
+    [Fact]
     public void IntegerVectorSwizzlesPreserveVectorFamily()
     {
         const string glsl = """
