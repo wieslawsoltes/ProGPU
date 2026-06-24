@@ -283,6 +283,35 @@ public sealed class SkSurfaceBackendRenderTargetTests
     }
 
     [Fact]
+    public void CpuBackedOpaqueSurfaceUnpremultipliesBeforeForcingAlpha()
+    {
+        var pixels = Marshal.AllocHGlobal(4);
+        try
+        {
+            Marshal.Copy(new byte[] { 0, 0, 0, 255 }, 0, pixels, 4);
+
+            using var surface = SKSurface.Create(
+                new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Opaque),
+                pixels,
+                rowBytes: 4);
+
+            surface.Canvas.Clear(new SKColor(255, 0, 0, 128));
+            surface.Flush();
+
+            var cpuPixels = new byte[4];
+            Marshal.Copy(pixels, cpuPixels, 0, cpuPixels.Length);
+            Assert.InRange(cpuPixels[0], 240, 255);
+            Assert.Equal(0, cpuPixels[1]);
+            Assert.Equal(0, cpuPixels[2]);
+            Assert.Equal(255, cpuPixels[3]);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pixels);
+        }
+    }
+
+    [Fact]
     public void CpuBackedSurfaceRejectsRowBytesSmallerThanPixelWidth()
     {
         var pixels = Marshal.AllocHGlobal(8);

@@ -85,6 +85,27 @@ void mainImage(out vec4 color, in vec2 coord) {
     }
 
     [Fact]
+    public void ShiftOperatorsEmitWgsl()
+    {
+        const string glsl = """
+void mainImage(out vec4 color, in vec2 coord) {
+    uint x = 1u << 3u;
+    x >>= 1u;
+    x <<= 2u;
+    uint y = x >> 1u;
+    color = vec4(float(y), 0.0, 0.0, 1.0);
+}
+""";
+
+        var wgsl = ShaderToyTranspiler.Translate(glsl);
+
+        Assert.Contains("var x: u32 = (1u << 3u);", wgsl);
+        Assert.Contains("x >>= 1u;", wgsl);
+        Assert.Contains("x <<= 2u;", wgsl);
+        Assert.Contains("var y: u32 = (x >> 1u);", wgsl);
+    }
+
+    [Fact]
     public void ShaderToyFrameRateUniformMapsToInputStruct()
     {
         const string glsl = """

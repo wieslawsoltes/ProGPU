@@ -736,7 +736,7 @@ namespace ProGPU.Transpiler
                 @"|(?<hex>\b0[xX][0-9a-fA-F]+[uU]?\b)" +
                 @"|(?<int>\b\d+[uU]?\b)" +
                 @"|(?<id>\b[a-zA-Z_][a-zA-Z0-9_]*\b)" +
-                @"|(?<op>\+\+|--|\+=|-=|\*=|\/=|==|!=|<=|>=|&&|\|\||[+\-*/%<>=!?:\(\)\{\}\[\],;\.&|^~])" +
+                @"|(?<op>\+\+|--|<<=|>>=|\+=|-=|\*=|\/=|==|!=|<=|>=|<<|>>|&&|\|\||[+\-*/%<>=!?:\(\)\{\}\[\],;\.&|^~])" +
                 @"|(?<space>\s+)",
                 RegexOptions.Compiled
             );
@@ -1418,7 +1418,7 @@ namespace ProGPU.Transpiler
             return op switch
             {
                 "," => 1,
-                "=" or "+=" or "-=" or "*=" or "/=" => 2,
+                "=" or "+=" or "-=" or "*=" or "/=" or "<<=" or ">>=" => 2,
                 "?" => 3,
                 "||" => 4,
                 "&&" => 5,
@@ -1426,7 +1426,7 @@ namespace ProGPU.Transpiler
                 "^" => 7,
                 "&" => 8,
                 "==" or "!=" => 9,
-                "<" or ">" or "<=" or ">=" => 10,
+                "<" or ">" or "<=" or ">=" or "<<" or ">>" => 10,
                 "+" or "-" => 11,
                 "*" or "/" or "%" => 12,
                 _ => 0
@@ -1438,16 +1438,16 @@ namespace ProGPU.Transpiler
             if (token.Type != TokenType.Operator) return false;
             var val = token.Value;
             return val == "," || val == "=" || val == "+=" || val == "-=" ||
-                   val == "*=" || val == "/=" || val == "?" || val == "||" ||
+                   val == "*=" || val == "/=" || val == "<<=" || val == ">>=" || val == "?" || val == "||" ||
                    val == "&&" || val == "|" || val == "^" || val == "&" ||
                    val == "==" || val == "!=" || val == "<" || val == ">" ||
-                   val == "<=" || val == ">=" || val == "+" || val == "-" ||
+                   val == "<=" || val == ">=" || val == "<<" || val == ">>" || val == "+" || val == "-" ||
                    val == "*" || val == "/" || val == "%";
         }
 
         private static bool IsAssignmentOperator(string op)
         {
-            return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=";
+            return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "<<=" || op == ">>=";
         }
     }
 

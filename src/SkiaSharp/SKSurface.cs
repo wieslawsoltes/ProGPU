@@ -418,11 +418,8 @@ public class SKSurface : IDisposable
         byte blue = sourceRow[offset + 2];
         byte alpha = sourceRow[offset + 3];
 
-        if (alphaType == SKAlphaType.Opaque)
-        {
-            alpha = 255;
-        }
-        else if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied && alphaType == SKAlphaType.Unpremul)
+        if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied &&
+            (alphaType == SKAlphaType.Unpremul || alphaType == SKAlphaType.Opaque))
         {
             red = UnpremultiplyChannel(red, alpha);
             green = UnpremultiplyChannel(green, alpha);
@@ -433,6 +430,11 @@ public class SKSurface : IDisposable
             red = PremultiplyChannel(red, alpha);
             green = PremultiplyChannel(green, alpha);
             blue = PremultiplyChannel(blue, alpha);
+        }
+
+        if (alphaType == SKAlphaType.Opaque)
+        {
+            alpha = 255;
         }
 
         if (colorType == SKColorType.Bgra8888)
