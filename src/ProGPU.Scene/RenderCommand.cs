@@ -1162,21 +1162,25 @@ public class DrawingContext : IRenderDataProvider
                     adjustedCmd.Type == RenderCommandType.DrawRoundedRect ||
                     adjustedCmd.Type == RenderCommandType.PushOpacityMask)
                 {
-                    adjustedCmd.Rect = new Rect(adjustedCmd.Rect.Position + translation, adjustedCmd.Rect.Size);
+                    TranslateRectBackedCommand(ref adjustedCmd, translation);
                 }
                 else if (adjustedCmd.Type == RenderCommandType.PushGeometryClip)
                 {
-                    var translationTransform = Matrix4x4.CreateTranslation(translation.X, translation.Y, 0f);
-                    var commandTransform = adjustedCmd.Transform == default
-                        ? Matrix4x4.Identity
-                        : adjustedCmd.Transform;
-                    adjustedCmd.Transform = commandTransform * translationTransform;
+                    ComposeAppendTranslation(ref adjustedCmd, translation);
                 }
                 else
                 {
-                    if (adjustedCmd.Type == RenderCommandType.DrawExtension)
+                    if (adjustedCmd.Type == RenderCommandType.DrawExtension &&
+                        IsRectBackedExtensionDataParam(adjustedCmd.DataParam))
                     {
-                        adjustedCmd.DataParam = TranslateExtensionDataParam(adjustedCmd.DataParam, translation);
+                        if (HasNonIdentityTransform(adjustedCmd))
+                        {
+                            ComposeAppendTranslation(ref adjustedCmd, translation);
+                        }
+                        else
+                        {
+                            adjustedCmd.DataParam = TranslateExtensionDataParam(adjustedCmd.DataParam, translation);
+                        }
                     }
 
                     adjustedCmd.Position += translation;
@@ -1200,6 +1204,37 @@ public class DrawingContext : IRenderDataProvider
         }
 
         _retainedResources.AddRange(other.CloneRetainedResources());
+    }
+
+    private static void TranslateRectBackedCommand(ref RenderCommand command, Vector2 translation)
+    {
+        if (HasNonIdentityTransform(command))
+        {
+            ComposeAppendTranslation(ref command, translation);
+        }
+        else
+        {
+            command.Rect = TranslateRect(command.Rect, translation);
+        }
+    }
+
+    private static void ComposeAppendTranslation(ref RenderCommand command, Vector2 translation)
+    {
+        var translationTransform = Matrix4x4.CreateTranslation(translation.X, translation.Y, 0f);
+        var commandTransform = command.Transform == default
+            ? Matrix4x4.Identity
+            : command.Transform;
+        command.Transform = commandTransform * translationTransform;
+    }
+
+    private static bool HasNonIdentityTransform(RenderCommand command)
+    {
+        return command.Transform != default && command.Transform != Matrix4x4.Identity;
+    }
+
+    private static bool IsRectBackedExtensionDataParam(object? dataParam)
+    {
+        return dataParam is ImageEffectParams or WpfShaderEffectParams or ShaderToyParams;
     }
 
     private static object? TranslateExtensionDataParam(object? dataParam, Vector2 translation)

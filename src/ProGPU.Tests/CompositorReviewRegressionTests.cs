@@ -1478,6 +1478,55 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void AppendComposesTransformedTextureRectAfterCommandTransform()
+    {
+        var source = new DrawingContext();
+        var textureTransform = Matrix4x4.CreateScale(2f, 3f, 1f);
+        source.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Rect = new Rect(2f, 3f, 10f, 11f),
+            Transform = textureTransform
+        });
+
+        var target = new DrawingContext();
+        target.Append(source, new Vector2(20f, 30f));
+
+        var command = Assert.Single(target.Commands);
+        Assert.Equal(RenderCommandType.DrawTexture, command.Type);
+        Assert.Equal(new Rect(2f, 3f, 10f, 11f), command.Rect);
+        Assert.Equal(textureTransform * Matrix4x4.CreateTranslation(20f, 30f, 0f), command.Transform);
+    }
+
+    [Fact]
+    public void AppendComposesTransformedExtensionRectAfterCommandTransform()
+    {
+        var source = new DrawingContext();
+        var effectTransform = Matrix4x4.CreateScale(2f, 3f, 1f);
+        var parameters = new ImageEffectParams
+        {
+            Texture = null!,
+            Rect = new Rect(2f, 3f, 10f, 11f)
+        };
+        source.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawExtension,
+            ExtensionId = CompositorBuiltInExtensions.ImageEffect,
+            DataParam = parameters,
+            Transform = effectTransform
+        });
+
+        var target = new DrawingContext();
+        target.Append(source, new Vector2(20f, 30f));
+
+        var command = Assert.Single(target.Commands);
+        var appended = Assert.IsType<ImageEffectParams>(command.DataParam);
+        Assert.Same(parameters, appended);
+        Assert.Equal(new Rect(2f, 3f, 10f, 11f), appended.Rect);
+        Assert.Equal(effectTransform * Matrix4x4.CreateTranslation(20f, 30f, 0f), command.Transform);
+    }
+
+    [Fact]
     public void AppendTranslatesImageEffectPayloadRect()
     {
         var source = new DrawingContext();
