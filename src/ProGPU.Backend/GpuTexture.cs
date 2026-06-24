@@ -346,6 +346,10 @@ public unsafe class GpuTexture : IDisposable
     public byte[] ReadPixels()
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (!Usage.HasFlag(TextureUsage.CopySrc))
+        {
+            throw new InvalidOperationException("Texture was not created with CopySrc usage.");
+        }
 
         var wgpu = _context.Wgpu;
         var device = _context.Device;

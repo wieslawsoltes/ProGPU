@@ -1651,7 +1651,10 @@ public unsafe class Compositor : IDisposable
 
         foreach (var dc in _drawCalls)
         {
-            ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: true);
+            if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: true))
+            {
+                continue;
+            }
 
             if (dc.Type == DrawCallType.Vector)
             {
@@ -5672,7 +5675,7 @@ public unsafe class Compositor : IDisposable
         return p;
     }
 
-    private unsafe void ApplyDrawCallScissor(
+    private unsafe bool ApplyDrawCallScissor(
         RenderPassEncoder* pass,
         CompositorDrawCall dc,
         bool useRenderTargetViewport)
@@ -5695,8 +5698,11 @@ public unsafe class Compositor : IDisposable
             uint sw = (uint)Math.Round(rw);
             uint sh = (uint)Math.Round(rh);
 
-            sw = Math.Max(1u, sw);
-            sh = Math.Max(1u, sh);
+            if (sw == 0 || sh == 0)
+            {
+                return false;
+            }
+
             sx += viewportX;
             sy += viewportY;
 
@@ -5706,17 +5712,20 @@ public unsafe class Compositor : IDisposable
             {
                 sw = Math.Min(sw, viewportRight - sx);
                 sh = Math.Min(sh, viewportBottom - sy);
+                if (sw == 0 || sh == 0)
+                {
+                    return false;
+                }
+
                 _context.Wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+                return true;
             }
-            else
-            {
-                _context.Wgpu.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, 1, 1);
-            }
+
+            return false;
         }
-        else
-        {
-            _context.Wgpu.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, targetWidth, targetHeight);
-        }
+
+        _context.Wgpu.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, targetWidth, targetHeight);
+        return true;
     }
 
     private unsafe void ApplyRenderPassViewport(
@@ -6333,7 +6342,10 @@ public unsafe class Compositor : IDisposable
 
         foreach (var dc in _drawCalls)
         {
-            ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false);
+            if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false))
+            {
+                continue;
+            }
 
             if (dc.Type == DrawCallType.Vector)
             {
@@ -8523,7 +8535,10 @@ public unsafe class Compositor : IDisposable
 
             foreach (var dc in maskPass.DrawCalls)
             {
-                ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: !isOffscreen);
+                if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: !isOffscreen))
+                {
+                    continue;
+                }
 
                 if (dc.Type == DrawCallType.Vector)
                 {

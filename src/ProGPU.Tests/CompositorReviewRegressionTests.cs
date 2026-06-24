@@ -1415,6 +1415,22 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void GpuTextureReadPixelsRejectsTextureWithoutCopySrcUsage()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "ReadPixels Missing CopySrc Texture");
+
+        var exception = Assert.Throws<System.InvalidOperationException>(() => texture.ReadPixels());
+        Assert.Equal("Texture was not created with CopySrc usage.", exception.Message);
+    }
+
+    [Fact]
     public void RenderOffscreenBumpsTargetGenerationForWpfShaderEffectCache()
     {
         using var window = new HeadlessWindow(16, 16);

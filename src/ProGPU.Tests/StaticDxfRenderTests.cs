@@ -51,6 +51,33 @@ public sealed class StaticDxfRenderTests
     }
 
     [Fact]
+    public void DrawStaticDxfSkipsCollapsedNestedClip()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        using var buffer = CreateStaticRect(window.Compositor, new Rect(0, 0, 32, 32));
+        window.Content = new CollapsedNestedClipStaticDxfVisual(buffer);
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var clippedEdge = ReadPixel(pixels, window.Width, x: 16, y: 8);
+
+            Assert.True(clippedEdge.R <= 35, $"Expected collapsed clip edge to keep background red low, found {clippedEdge}.");
+            Assert.True(clippedEdge.G <= 35, $"Expected collapsed clip edge to keep background green low, found {clippedEdge}.");
+            Assert.True(clippedEdge.B >= 220, $"Expected collapsed clip edge to remain blue background, found {clippedEdge}.");
+            Assert.Equal(255, clippedEdge.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void DrawStaticDxfHonorsActiveBlendMode()
     {
         var window = HeadlessWindow.Shared;
@@ -296,6 +323,30 @@ public sealed class StaticDxfRenderTests
                 StaticBuffer = _commandBuffer
             });
             context.PopBlendMode();
+        }
+    }
+
+    private sealed class CollapsedNestedClipStaticDxfVisual : FrameworkElement
+    {
+        private readonly DxfStaticBuffer _buffer;
+        private readonly SolidColorBrush _background = new(new Vector4(0f, 0f, 1f, 1f));
+
+        public CollapsedNestedClipStaticDxfVisual(DxfStaticBuffer buffer)
+        {
+            _buffer = buffer;
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 32f, 32f));
+
+            context.PushClip(new Rect(0f, 0f, 16f, 16f));
+            context.PushClip(new Rect(16f, 0f, 16f, 16f));
+            context.DrawStaticDxf(_buffer);
+            context.PopClip();
+            context.PopClip();
         }
     }
 
