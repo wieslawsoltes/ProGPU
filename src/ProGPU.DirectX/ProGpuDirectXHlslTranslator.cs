@@ -1556,9 +1556,44 @@ internal static class ProGpuDirectXHlslTranslator
             return "@builtin(position)";
         }
 
+        if (IsSystemSemantic(semantic, "SV_VertexID"))
+        {
+            return "@builtin(vertex_index)";
+        }
+
+        if (IsSystemSemantic(semantic, "SV_InstanceID"))
+        {
+            return "@builtin(instance_index)";
+        }
+
+        if (IsSystemSemantic(semantic, "SV_DispatchThreadID"))
+        {
+            return "@builtin(global_invocation_id)";
+        }
+
+        if (IsSystemSemantic(semantic, "SV_GroupID"))
+        {
+            return "@builtin(workgroup_id)";
+        }
+
+        if (IsSystemSemantic(semantic, "SV_GroupThreadID"))
+        {
+            return "@builtin(local_invocation_id)";
+        }
+
+        if (IsSystemSemantic(semantic, "SV_GroupIndex"))
+        {
+            return "@builtin(local_invocation_index)";
+        }
+
         if (IsSystemSemantic(semantic, "SV_Target"))
         {
             return $"@location({GetSemanticIndex(semantic)})";
+        }
+
+        if (IsBuiltinSemantic(semantic))
+        {
+            throw new NotSupportedException($"Unsupported HLSL system-value semantic '{semantic}'.");
         }
 
         return $"@location({location})";

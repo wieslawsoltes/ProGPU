@@ -111,6 +111,33 @@ VertexOutput VSMain(VertexInput input)
 }
 """;
 
+    private const string SystemValueStructInstancedVertexHlsl = """
+StructuredBuffer<float2> TrianglePositions : register(t0);
+StructuredBuffer<float2> InstanceOffsets : register(t1);
+StructuredBuffer<float4> InstanceColors : register(t2);
+
+struct VertexInput
+{
+    uint vertexId : SV_VertexID;
+    uint instanceId : SV_InstanceID;
+};
+
+struct VertexOutput
+{
+    float4 position : SV_Position;
+    float4 color : COLOR0;
+};
+
+VertexOutput VSMain(VertexInput input)
+{
+    VertexOutput output;
+    float2 position = TrianglePositions[input.vertexId] + InstanceOffsets[input.instanceId];
+    output.position = float4(position, 0.0, 1.0);
+    output.color = InstanceColors[input.instanceId];
+    return output;
+}
+""";
+
     private const string TransformVertexHlsl = """
 cbuffer Transform : register(b0)
 {
@@ -736,6 +763,29 @@ void CSMain()
     }
 
     [Fact]
+    public void HlslTextShaderTranslatesSystemValueFieldsInsideStructs()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = SystemValueStructInstancedVertexHlsl,
+            EntryPoint = "VSMain"
+        });
+
+        Assert.NotNull(shader.BackendSource);
+        Assert.Contains("@builtin(vertex_index) vertexId: u32", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@builtin(instance_index) instanceId: u32", shader.BackendSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("@location(0) vertexId: u32", shader.BackendSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("@location(0) instanceId: u32", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@binding(64) var<storage, read> TrianglePositions: array<vec2<f32>>;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@binding(65) var<storage, read> InstanceOffsets: array<vec2<f32>>;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@binding(66) var<storage, read> InstanceColors: array<vec4<f32>>;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var position: vec2<f32> = TrianglePositions[input.vertexId] + InstanceOffsets[input.instanceId];", shader.BackendSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HlslTextShaderTranslatesRwStructuredBufferResources()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
@@ -1349,6 +1399,132 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(right.R < 50, $"Expected low red right instanced triangle, actual: {right}");
         Assert.True(right.G > 200, $"Expected green right instanced triangle, actual: {right}");
         Assert.True(left.A > 200 && right.A > 200, $"Expected opaque instanced triangles, actual: left {left}, right {right}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedHlslSystemValueStructInstancedDrawCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var trianglePositions = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 24,
+            Usage = DxBufferUsage.Structured | DxBufferUsage.ShaderResource | DxBufferUsage.CopyDestination,
+            StrideInBytes = 8,
+            Label = "System Value Triangle Positions"
+        });
+        trianglePositions.Write<float>(
+        [
+             0.0f, -0.35f,
+             0.35f, 0.35f,
+            -0.35f, 0.35f
+        ]);
+        using var instanceOffsets = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 16,
+            Usage = DxBufferUsage.Structured | DxBufferUsage.ShaderResource | DxBufferUsage.CopyDestination,
+            StrideInBytes = 8,
+            Label = "System Value Instance Offsets"
+        });
+        instanceOffsets.Write<float>(
+        [
+            -0.45f, 0.0f,
+             0.45f, 0.0f
+        ]);
+        using var instanceColors = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 32,
+            Usage = DxBufferUsage.Structured | DxBufferUsage.ShaderResource | DxBufferUsage.CopyDestination,
+            StrideInBytes = 16,
+            Label = "System Value Instance Colors"
+        });
+        instanceColors.Write<float>(
+        [
+            1.0f, 0.0f, 0.0f, 1.0f,
+            0.0f, 1.0f, 0.0f, 1.0f
+        ]);
+        using var trianglePositionsView = device.CreateShaderResourceView(
+            trianglePositions,
+            new DxShaderResourceViewDescriptor
+            {
+                Dimension = DxResourceViewDimension.Buffer,
+                ElementCount = 3,
+                ElementStrideInBytes = 8
+            });
+        using var instanceOffsetsView = device.CreateShaderResourceView(
+            instanceOffsets,
+            new DxShaderResourceViewDescriptor
+            {
+                Dimension = DxResourceViewDimension.Buffer,
+                ElementCount = 2,
+                ElementStrideInBytes = 8
+            });
+        using var instanceColorsView = device.CreateShaderResourceView(
+            instanceColors,
+            new DxShaderResourceViewDescriptor
+            {
+                Dimension = DxResourceViewDimension.Buffer,
+                ElementCount = 2,
+                ElementStrideInBytes = 16
+            });
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = SystemValueStructInstancedVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL System Value Struct Instanced Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughPixelHlsl,
+            EntryPoint = "PSMain",
+            Label = "HLSL System Value Struct Pixel"
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetShaderResource(DxShaderStage.Vertex, 0, trianglePositionsView);
+        context.SetShaderResource(DxShaderStage.Vertex, 1, instanceOffsetsView);
+        context.SetShaderResource(DxShaderStage.Vertex, 2, instanceColorsView);
+        context.DrawInstanced(3, 2);
+        context.Flush();
+
+        Assert.True(vertexShader.HasBackendShaderModule);
+        Assert.Contains("@builtin(vertex_index) vertexId: u32", vertexShader.BackendSource!, StringComparison.Ordinal);
+        Assert.Contains("@builtin(instance_index) instanceId: u32", vertexShader.BackendSource!, StringComparison.Ordinal);
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var left = ReadRgbaPixel(pixels, 32, 8, 16);
+        var right = ReadRgbaPixel(pixels, 32, 24, 16);
+        Assert.True(left.R > 200, $"Expected red left system-value instanced triangle, actual: {left}");
+        Assert.True(left.G < 50, $"Expected low green left system-value instanced triangle, actual: {left}");
+        Assert.True(right.R < 50, $"Expected low red right system-value instanced triangle, actual: {right}");
+        Assert.True(right.G > 200, $"Expected green right system-value instanced triangle, actual: {right}");
+        Assert.True(left.A > 200 && right.A > 200, $"Expected opaque system-value instanced triangles, actual: left {left}, right {right}");
     }
 
     [Fact]
