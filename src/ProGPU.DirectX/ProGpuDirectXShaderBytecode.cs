@@ -22,6 +22,22 @@ public enum DxShaderProgramKind
     Compute
 }
 
+public enum DxReflectedShaderResourceType
+{
+    ConstantBuffer = 0,
+    TextureBuffer = 1,
+    Texture = 2,
+    Sampler = 3,
+    UnorderedAccessTyped = 4,
+    StructuredBuffer = 5,
+    UnorderedAccessStructured = 6,
+    ByteAddressBuffer = 7,
+    UnorderedAccessByteAddress = 8,
+    UnorderedAccessAppendStructured = 9,
+    UnorderedAccessConsumeStructured = 10,
+    UnorderedAccessStructuredWithCounter = 11
+}
+
 public sealed record DxShaderBytecodeChunk(string FourCC, uint Offset, uint Size);
 
 public sealed record DxShaderSignatureParameter(
@@ -40,6 +56,18 @@ public sealed record DxReflectedShaderResourceBinding(
     uint Dimension,
     uint BindPoint,
     uint BindCount,
+    uint Flags);
+
+public sealed record DxReflectedShaderBindingRequirement(
+    string Name,
+    ProGpuDirectXBindingKind Kind,
+    DxShaderStage Stage,
+    uint Slot,
+    uint Count,
+    uint NativeBinding,
+    uint RawType,
+    uint RawReturnType,
+    uint RawDimension,
     uint Flags);
 
 public sealed record ProGpuDirectXShaderBytecodeInfo
@@ -86,6 +114,36 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
     {
         ArgumentNullException.ThrowIfNull(fourCC);
         return Chunks.FirstOrDefault(chunk => string.Equals(chunk.FourCC, fourCC, StringComparison.Ordinal));
+    }
+
+    public bool TryCreateBindingRequirements(
+        DxShaderStage stage,
+        out IReadOnlyList<DxReflectedShaderBindingRequirement> requirements)
+    {
+        var entries = new List<DxReflectedShaderBindingRequirement>();
+        foreach (var resource in ResourceBindings)
+        {
+            if (!TryMapBindingKind(resource.Type, out var kind))
+            {
+                requirements = Array.Empty<DxReflectedShaderBindingRequirement>();
+                return false;
+            }
+
+            entries.Add(new DxReflectedShaderBindingRequirement(
+                resource.Name,
+                kind,
+                stage,
+                resource.BindPoint,
+                resource.BindCount,
+                ProGpuDirectXNativeBindingMap.GetNativeBinding(stage, kind, resource.BindPoint),
+                resource.Type,
+                resource.ReturnType,
+                resource.Dimension,
+                resource.Flags));
+        }
+
+        requirements = entries;
+        return true;
     }
 
     public bool TryCreateInputLayoutDescriptor(
@@ -142,6 +200,28 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
     {
         return parameter.SystemValueType != 0 ||
             parameter.SemanticName.StartsWith("SV_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryMapBindingKind(uint resourceType, out ProGpuDirectXBindingKind kind)
+    {
+        kind = resourceType switch
+        {
+            (uint)DxReflectedShaderResourceType.ConstantBuffer => ProGpuDirectXBindingKind.ConstantBuffer,
+            (uint)DxReflectedShaderResourceType.TextureBuffer => ProGpuDirectXBindingKind.ShaderResourceView,
+            (uint)DxReflectedShaderResourceType.Texture => ProGpuDirectXBindingKind.ShaderResourceView,
+            (uint)DxReflectedShaderResourceType.Sampler => ProGpuDirectXBindingKind.Sampler,
+            (uint)DxReflectedShaderResourceType.StructuredBuffer => ProGpuDirectXBindingKind.ShaderResourceView,
+            (uint)DxReflectedShaderResourceType.ByteAddressBuffer => ProGpuDirectXBindingKind.ShaderResourceView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessTyped => ProGpuDirectXBindingKind.UnorderedAccessView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessStructured => ProGpuDirectXBindingKind.UnorderedAccessView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessByteAddress => ProGpuDirectXBindingKind.UnorderedAccessView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessAppendStructured => ProGpuDirectXBindingKind.UnorderedAccessView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessConsumeStructured => ProGpuDirectXBindingKind.UnorderedAccessView,
+            (uint)DxReflectedShaderResourceType.UnorderedAccessStructuredWithCounter => ProGpuDirectXBindingKind.UnorderedAccessView,
+            _ => default
+        };
+
+        return resourceType is >= (uint)DxReflectedShaderResourceType.ConstantBuffer and <= (uint)DxReflectedShaderResourceType.UnorderedAccessStructuredWithCounter;
     }
 
     private static bool TryInferInputElementFormat(DxShaderSignatureParameter parameter, out DxResourceFormat format)

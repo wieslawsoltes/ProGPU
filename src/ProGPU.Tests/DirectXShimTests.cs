@@ -1190,6 +1190,55 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void HlslBytecodeResourceDefinitionInfersBindingRequirements()
+    {
+        var bytecode = CreateDxbcBytecode(
+            ("RDEF", CreateResourceDefinitionChunk(
+                ("PerDrawConstants", (uint)DxReflectedShaderResourceType.ConstantBuffer, 0u, 0u, 0u, 1u, 0u),
+                ("DiffuseTexture", (uint)DxReflectedShaderResourceType.Texture, 5u, 4u, 1u, 1u, 0u),
+                ("LinearSampler", (uint)DxReflectedShaderResourceType.Sampler, 0u, 0u, 0u, 1u, 0u),
+                ("PointBuffer", (uint)DxReflectedShaderResourceType.StructuredBuffer, 0u, 1u, 2u, 1u, 0u),
+                ("OutputTexture", (uint)DxReflectedShaderResourceType.UnorderedAccessTyped, 5u, 4u, 0u, 1u, 0u))),
+            ("SHEX", CreateProgramChunk(DxShaderProgramKind.Pixel, 5, 0)));
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslBytecode,
+            Bytecode = bytecode
+        });
+
+        Assert.NotNull(shader.BytecodeInfo);
+        Assert.True(shader.BytecodeInfo.TryCreateBindingRequirements(DxShaderStage.Pixel, out var requirements));
+        Assert.Equal(5, requirements.Count);
+
+        AssertBindingRequirement(requirements, "PerDrawConstants", ProGpuDirectXBindingKind.ConstantBuffer, slot: 0, nativeBinding: 512);
+        AssertBindingRequirement(requirements, "DiffuseTexture", ProGpuDirectXBindingKind.ShaderResourceView, slot: 1, nativeBinding: 577);
+        AssertBindingRequirement(requirements, "LinearSampler", ProGpuDirectXBindingKind.Sampler, slot: 0, nativeBinding: 768);
+        AssertBindingRequirement(requirements, "PointBuffer", ProGpuDirectXBindingKind.ShaderResourceView, slot: 2, nativeBinding: 578);
+        AssertBindingRequirement(requirements, "OutputTexture", ProGpuDirectXBindingKind.UnorderedAccessView, slot: 0, nativeBinding: 832);
+    }
+
+    [Fact]
+    public void HlslBytecodeResourceDefinitionRejectsUnknownBindingTypes()
+    {
+        var bytecode = CreateDxbcBytecode(
+            ("RDEF", CreateResourceDefinitionChunk(("MysteryResource", 99u, 0u, 0u, 0u, 1u, 0u))),
+            ("SHEX", CreateProgramChunk(DxShaderProgramKind.Pixel, 5, 0)));
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslBytecode,
+            Bytecode = bytecode
+        });
+
+        Assert.NotNull(shader.BytecodeInfo);
+        Assert.False(shader.BytecodeInfo.TryCreateBindingRequirements(DxShaderStage.Pixel, out var requirements));
+        Assert.Empty(requirements);
+    }
+
+    [Fact]
     public void HlslBytecodeInputSignatureInfersInputLayoutDescriptor()
     {
         var bytecode = CreateDxbcBytecode(
@@ -5000,6 +5049,21 @@ float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
         });
         Assert.Throws<ArgumentException>(() =>
             context.SetConstantBuffer(DxShaderStage.Vertex, 0, vertexBuffer));
+    }
+
+    private static void AssertBindingRequirement(
+        IReadOnlyList<DxReflectedShaderBindingRequirement> requirements,
+        string name,
+        ProGpuDirectXBindingKind kind,
+        uint slot,
+        uint nativeBinding)
+    {
+        var requirement = Assert.Single(requirements, requirement => requirement.Name == name);
+        Assert.Equal(kind, requirement.Kind);
+        Assert.Equal(DxShaderStage.Pixel, requirement.Stage);
+        Assert.Equal(slot, requirement.Slot);
+        Assert.Equal(1u, requirement.Count);
+        Assert.Equal(nativeBinding, requirement.NativeBinding);
     }
 
     private static byte[] CreateDxbcBytecode(params (string FourCC, byte[] Data)[] chunks)
