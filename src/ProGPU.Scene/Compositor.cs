@@ -1261,7 +1261,7 @@ public unsafe class Compositor : IDisposable
             width == (uint)_context.Window.Size.X &&
             height == (uint)_context.Window.Size.Y)
         {
-            _currentDpiScale = (float)_context.Window.FramebufferSize.X / _context.Window.Size.X;
+            _currentDpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(_context.Window);
         }
 
         var totalSw = System.Diagnostics.Stopwatch.StartNew();

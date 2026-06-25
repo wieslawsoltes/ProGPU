@@ -489,11 +489,7 @@ namespace Microsoft.UI.Xaml.Controls
             var wgpuContext = GetActiveWgpuContext();
             if (wgpuContext == null) return;
 
-            float dpiScale = 1.0f;
-            if (wgpuContext.Window != null && wgpuContext.Window.Size.X > 0)
-            {
-                dpiScale = (float)wgpuContext.Window.FramebufferSize.X / wgpuContext.Window.Size.X;
-            }
+            float dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(wgpuContext.Window);
 
             uint width = (uint)Math.Max(1, Size.X * dpiScale);
             uint height = (uint)Math.Max(1, Size.Y * dpiScale);

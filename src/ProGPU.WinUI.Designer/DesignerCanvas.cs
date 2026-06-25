@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Reflection;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using ProGPU.Text;
@@ -1203,7 +1204,7 @@ public class DesignerCanvas : Panel
             var activeWindow = WindowManager.ActiveWindows.Count > 0 ? WindowManager.ActiveWindows[0] : null;
             if (activeWindow != null && activeWindow.SilkWindow != null)
             {
-                dpiScale = (float)activeWindow.SilkWindow.FramebufferSize.X / activeWindow.SilkWindow.Size.X;
+                dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(activeWindow.SilkWindow);
             }
         }
 

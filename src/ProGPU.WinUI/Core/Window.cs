@@ -106,6 +106,7 @@ public class Window
         _silkWindow.Load += OnLoad;
         _silkWindow.Render += OnRender;
         _silkWindow.Resize += OnResize;
+        _silkWindow.FramebufferResize += OnFramebufferResize;
         _silkWindow.Closing += OnClosing;
 
         _silkWindow.Initialize();
@@ -150,7 +151,7 @@ public class Window
         }
 
         var inputContext = _silkWindow.CreateInput();
-        _inputState = InputSystem.Initialize(inputContext, _content);
+        _inputState = InputSystem.Initialize(inputContext, _content, NormalizePointerPosition);
     }
 
     private unsafe void OnRender(double delta)
@@ -167,11 +168,16 @@ public class Window
         // Raise Rendering event
         Rendering?.Invoke(this, delta);
 
+        var framebufferSize = GetCurrentFramebufferSize();
+        _wgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y);
+        float dpiScale = ResolveWindowDpiScale(framebufferSize);
+        Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
+
         // Core animation updates
         _content.UpdateAnimations((float)delta);
 
-        _content.Measure(new Vector2(_silkWindow.Size.X, _silkWindow.Size.Y));
-        _content.Arrange(new Rect(0, 0, _silkWindow.Size.X, _silkWindow.Size.Y));
+        _content.Measure(logicalSize);
+        _content.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
 
         TextureView* targetView = null;
         if (_wgpuContext.Surface != null)
@@ -197,7 +203,14 @@ public class Window
 
         if (targetView != null)
         {
-            _compositor.RenderScene(_content, (uint)_silkWindow.Size.X, (uint)_silkWindow.Size.Y, targetView);
+            _compositor.RenderScene(
+                _content,
+                (uint)MathF.Ceiling(logicalSize.X),
+                (uint)MathF.Ceiling(logicalSize.Y),
+                (uint)framebufferSize.X,
+                (uint)framebufferSize.Y,
+                dpiScale,
+                targetView);
             
             _wgpuContext.Wgpu.SurfacePresent(_wgpuContext.Surface);
             _wgpuContext.Wgpu.TextureViewRelease(targetView);
@@ -207,8 +220,62 @@ public class Window
     private void OnResize(Vector2D<int> newSize)
     {
         if (_wgpuContext == null || _silkWindow == null) return;
-        _wgpuContext.ConfigureSwapChain((uint)_silkWindow.FramebufferSize.X, (uint)_silkWindow.FramebufferSize.Y);
+        var framebufferSize = GetCurrentFramebufferSize();
+        _wgpuContext.ConfigureSwapChain((uint)framebufferSize.X, (uint)framebufferSize.Y);
         _content?.Invalidate();
+    }
+
+    private void OnFramebufferResize(Vector2D<int> newSize)
+    {
+        if (_wgpuContext == null || _silkWindow == null) return;
+        var framebufferSize = NormalizeFramebufferSize(newSize);
+        _wgpuContext.ConfigureSwapChain((uint)framebufferSize.X, (uint)framebufferSize.Y);
+        _content?.Invalidate();
+    }
+
+    private Vector2D<int> GetCurrentFramebufferSize()
+    {
+        return _silkWindow != null
+            ? NormalizeFramebufferSize(_silkWindow.FramebufferSize)
+            : new Vector2D<int>(1, 1);
+    }
+
+    private static Vector2D<int> NormalizeFramebufferSize(Vector2D<int> framebufferSize)
+    {
+        return new Vector2D<int>(
+            Math.Max(1, framebufferSize.X),
+            Math.Max(1, framebufferSize.Y));
+    }
+
+    private float ResolveWindowDpiScale(Vector2D<int> framebufferSize)
+    {
+        double monitorScale = 1.0;
+        if (_silkWindow != null && _silkWindow.Size.X > 0)
+        {
+            monitorScale = (double)framebufferSize.X / _silkWindow.Size.X;
+        }
+
+        return (float)DisplayScaleResolver.ResolveWindowDisplayScale(_silkWindow, monitorScale);
+    }
+
+    private static Vector2 ResolveLogicalClientSize(Vector2D<int> framebufferSize, float dpiScale)
+    {
+        float scale = float.IsFinite(dpiScale) && dpiScale > 0f ? dpiScale : 1f;
+        return new Vector2(
+            MathF.Max(1f, framebufferSize.X / scale),
+            MathF.Max(1f, framebufferSize.Y / scale));
+    }
+
+    private Vector2 NormalizePointerPosition(Vector2 pointerPosition)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return pointerPosition;
+        }
+
+        return InputSystem.NormalizePointerPositionForDpi(
+            pointerPosition,
+            ResolveWindowDpiScale(GetCurrentFramebufferSize()));
     }
 
     private void OnClosing()

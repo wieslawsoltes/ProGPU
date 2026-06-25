@@ -19,17 +19,22 @@ public static class DevToolsInputSystem
     private static FrameworkElement? _focusedElement;
     private static Vector2 _lastMousePos;
     private static FrameworkElement? _capturedElement;
+    private static Func<Vector2, Vector2>? _pointerPositionTransform;
 
-    public static void Initialize(IInputContext input, FrameworkElement root)
+    public static void Initialize(
+        IInputContext input,
+        FrameworkElement root,
+        Func<Vector2, Vector2>? pointerPositionTransform = null)
     {
         _root = root;
         _hoveredElement = null;
         _focusedElement = null;
         _capturedElement = null;
+        _pointerPositionTransform = pointerPositionTransform;
 
         foreach (var mouse in input.Mice)
         {
-            mouse.MouseMove += (m, pos) => OnMouseMove(new Vector2(pos.X, pos.Y));
+            mouse.MouseMove += (m, pos) => OnMouseMove(NormalizeInputPosition(new Vector2(pos.X, pos.Y)));
             mouse.MouseDown += (m, btn) => OnMouseDown(btn);
             mouse.MouseUp += (m, btn) => OnMouseUp(btn);
             mouse.Scroll += (m, scroll) => OnMouseScroll(new Vector2(scroll.X, scroll.Y));
@@ -41,6 +46,11 @@ public static class DevToolsInputSystem
             keyboard.KeyUp += (kb, key, code) => OnKeyUp(key);
             keyboard.KeyChar += (kb, c) => OnKeyChar(c);
         }
+    }
+
+    private static Vector2 NormalizeInputPosition(Vector2 pointerPosition)
+    {
+        return _pointerPositionTransform?.Invoke(pointerPosition) ?? pointerPosition;
     }
 
     public static void CapturePointer(FrameworkElement? element)

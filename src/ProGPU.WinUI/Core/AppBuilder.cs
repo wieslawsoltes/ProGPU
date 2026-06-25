@@ -53,6 +53,8 @@ public class AppRunner<TApp> where TApp : Application, new()
         System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
+        WindowsDpiAwareness.TryEnablePerMonitorV2();
+
         // Set static dispatcher delegate for asynchronous work
         Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue = UIThread.Post;
 

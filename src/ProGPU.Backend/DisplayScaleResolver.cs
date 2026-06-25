@@ -8,6 +8,17 @@ public static class DisplayScaleResolver
 {
     private const string ObjCLibrary = "/usr/lib/libobjc.A.dylib";
 
+    public static double ResolveWindowDisplayScale(IWindow? window)
+    {
+        double monitorDpiScale = 1.0;
+        if (window != null && window.Size.X > 0 && window.FramebufferSize.X > 0)
+        {
+            monitorDpiScale = (double)window.FramebufferSize.X / window.Size.X;
+        }
+
+        return ResolveWindowDisplayScale(window, monitorDpiScale);
+    }
+
     public static double ResolveWindowDisplayScale(IWindow? window, double monitorDpiScale)
     {
         return ResolveDisplayScaleWithPlatformFallback(
@@ -45,12 +56,60 @@ public static class DisplayScaleResolver
 
     public static double? TryResolveNativeWindowDisplayScale(IWindow? window)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            return TryResolveWindowsWindowDisplayScale(window);
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             return TryResolveMacOsBackingScaleFactor(window);
         }
 
         return null;
+    }
+
+    private static double? TryResolveWindowsWindowDisplayScale(IWindow? window)
+    {
+        try
+        {
+            nint hwnd = TryGetWin32WindowHandle(window);
+            if (hwnd == 0)
+            {
+                return null;
+            }
+
+            uint dpi = GetDpiForWindow(hwnd);
+            return dpi > 0 ? dpi / 96.0 : null;
+        }
+        catch (DllNotFoundException)
+        {
+            return null;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return null;
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
+    private static nint TryGetWin32WindowHandle(IWindow? window)
+    {
+        if (window is not INativeWindowSource nativeWindowSource)
+        {
+            return 0;
+        }
+
+        (IntPtr Hwnd, IntPtr Hdc, IntPtr HInstance)? win32 = nativeWindowSource.Native?.Win32;
+        if (!win32.HasValue || win32.Value.Hwnd == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        return win32.Value.Hwnd;
     }
 
     private static double? TryResolveMacOsBackingScaleFactor(IWindow? window)
@@ -185,4 +244,7 @@ public static class DisplayScaleResolver
 
     [DllImport(ObjCLibrary, EntryPoint = "objc_msgSend")]
     private static extern double objc_msgSend_Double(nint receiver, nint selector);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
 }

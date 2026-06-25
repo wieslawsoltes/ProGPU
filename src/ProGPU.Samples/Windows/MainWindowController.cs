@@ -511,8 +511,17 @@ public static unsafe class MainWindowController
         // Update animated cogs if currently in Compute FX, Image Effects, or Image & Buttons (ImageRepeatShowcasePage)
         if ((AppState._activeCategory == "Compute FX" || AppState._activeCategory == "Image Effects" || AppState._activeCategory == "Image & Buttons") && AppState._gearCanvasVisual != null)
         {
-            float winX = AppState._window?.Size.X ?? AppState._topLevelGrid.Size.X;
-            float winY = AppState._window?.Size.Y ?? AppState._topLevelGrid.Size.Y;
+            Vector2 logicalWindowSize = AppState._topLevelGrid.Size;
+            if ((logicalWindowSize.X <= 0f || logicalWindowSize.Y <= 0f) && AppState._window != null)
+            {
+                float dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(AppState._window);
+                logicalWindowSize = new Vector2(
+                    AppState._window.FramebufferSize.X / dpiScale,
+                    AppState._window.FramebufferSize.Y / dpiScale);
+            }
+
+            float winX = logicalWindowSize.X;
+            float winY = logicalWindowSize.Y;
 
             AppState._gearCanvasVisual.Measure(new Vector2(winX - 300f, winY - 140f));
             AppState._gearCanvasVisual.Arrange(new Rect(0, 0, winX - 300f, winY - 140f));

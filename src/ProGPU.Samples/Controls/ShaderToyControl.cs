@@ -225,11 +225,7 @@ namespace Microsoft.UI.Xaml.Controls
             float activeScale = RenderScale;
             if (activeScale <= 0f)
             {
-                activeScale = 1.0f;
-                if (wgpuContext.Window != null && wgpuContext.Window.Size.X > 0)
-                {
-                    activeScale = (float)wgpuContext.Window.FramebufferSize.X / wgpuContext.Window.Size.X;
-                }
+                activeScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(wgpuContext.Window);
             }
 
             // 1. Calculate resolution uniform (in physical pixels)

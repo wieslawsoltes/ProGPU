@@ -39,6 +39,7 @@ public static unsafe class DevToolsWindowController
         AppState._devToolsWindow.Load += OnDevToolsWindowLoad;
         AppState._devToolsWindow.Render += OnDevToolsWindowRender;
         AppState._devToolsWindow.Resize += OnDevToolsWindowResize;
+        AppState._devToolsWindow.FramebufferResize += OnDevToolsFramebufferResize;
         AppState._devToolsWindow.Closing += OnDevToolsWindowClosing;
 
         AppState._devToolsWindow.Initialize();
@@ -55,7 +56,7 @@ public static unsafe class DevToolsWindowController
         AppState._devToolsCompositor = new Compositor(AppState._devToolsWgpuContext, AppState._devToolsWgpuContext.SwapChainFormat);
 
         _inputContext = AppState._devToolsWindow.CreateInput();
-        DevToolsInputSystem.Initialize(_inputContext, AppState._devToolsPanel!);
+        DevToolsInputSystem.Initialize(_inputContext, AppState._devToolsPanel!, NormalizeDevToolsPointerPosition);
 
         AppState._devToolsPanel?.RefreshVisualTree();
     }
@@ -69,8 +70,13 @@ public static unsafe class DevToolsWindowController
 
         try
         {
-            AppState._devToolsPanel.Measure(new Vector2(AppState._devToolsWindow.Size.X, AppState._devToolsWindow.Size.Y));
-            AppState._devToolsPanel.Arrange(new Rect(0, 0, AppState._devToolsWindow.Size.X, AppState._devToolsWindow.Size.Y));
+            var framebufferSize = GetDevToolsFramebufferSize();
+            AppState._devToolsWgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y);
+            float dpiScale = ResolveDevToolsDpiScale(framebufferSize);
+            Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
+
+            AppState._devToolsPanel.Measure(logicalSize);
+            AppState._devToolsPanel.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
 
             if (AppState._screenCompositor != null)
             {
@@ -103,7 +109,14 @@ public static unsafe class DevToolsWindowController
 
             if (targetView != null)
             {
-                AppState._devToolsCompositor.RenderScene(AppState._devToolsPanel, (uint)AppState._devToolsWindow.Size.X, (uint)AppState._devToolsWindow.Size.Y, targetView);
+                AppState._devToolsCompositor.RenderScene(
+                    AppState._devToolsPanel,
+                    (uint)MathF.Ceiling(logicalSize.X),
+                    (uint)MathF.Ceiling(logicalSize.Y),
+                    (uint)framebufferSize.X,
+                    (uint)framebufferSize.Y,
+                    dpiScale,
+                    targetView);
                 
                 AppState._devToolsWgpuContext.Wgpu.SurfacePresent(AppState._devToolsWgpuContext.Surface);
                 AppState._devToolsWgpuContext.Wgpu.TextureViewRelease(targetView);
@@ -123,13 +136,77 @@ public static unsafe class DevToolsWindowController
         WgpuContext.Current = AppState._devToolsWgpuContext;
         try
         {
-            AppState._devToolsWgpuContext.ConfigureSwapChain((uint)AppState._devToolsWindow.FramebufferSize.X, (uint)AppState._devToolsWindow.FramebufferSize.Y);
+            var framebufferSize = GetDevToolsFramebufferSize();
+            AppState._devToolsWgpuContext.ConfigureSwapChain((uint)framebufferSize.X, (uint)framebufferSize.Y);
             AppState._devToolsPanel?.Invalidate();
         }
         finally
         {
             WgpuContext.Current = oldContext;
         }
+    }
+
+    private static void OnDevToolsFramebufferResize(Vector2D<int> newSize)
+    {
+        if (AppState._devToolsWgpuContext == null || AppState._devToolsWindow == null) return;
+
+        var oldContext = WgpuContext.Current;
+        WgpuContext.Current = AppState._devToolsWgpuContext;
+        try
+        {
+            var framebufferSize = NormalizeFramebufferSize(newSize);
+            AppState._devToolsWgpuContext.ConfigureSwapChain((uint)framebufferSize.X, (uint)framebufferSize.Y);
+            AppState._devToolsPanel?.Invalidate();
+        }
+        finally
+        {
+            WgpuContext.Current = oldContext;
+        }
+    }
+
+    private static Vector2D<int> GetDevToolsFramebufferSize()
+    {
+        return AppState._devToolsWindow != null
+            ? NormalizeFramebufferSize(AppState._devToolsWindow.FramebufferSize)
+            : new Vector2D<int>(1, 1);
+    }
+
+    private static Vector2D<int> NormalizeFramebufferSize(Vector2D<int> framebufferSize)
+    {
+        return new Vector2D<int>(
+            Math.Max(1, framebufferSize.X),
+            Math.Max(1, framebufferSize.Y));
+    }
+
+    private static float ResolveDevToolsDpiScale(Vector2D<int> framebufferSize)
+    {
+        double monitorScale = 1.0;
+        if (AppState._devToolsWindow != null && AppState._devToolsWindow.Size.X > 0)
+        {
+            monitorScale = (double)framebufferSize.X / AppState._devToolsWindow.Size.X;
+        }
+
+        return (float)DisplayScaleResolver.ResolveWindowDisplayScale(AppState._devToolsWindow, monitorScale);
+    }
+
+    private static Vector2 ResolveLogicalClientSize(Vector2D<int> framebufferSize, float dpiScale)
+    {
+        float scale = float.IsFinite(dpiScale) && dpiScale > 0f ? dpiScale : 1f;
+        return new Vector2(
+            MathF.Max(1f, framebufferSize.X / scale),
+            MathF.Max(1f, framebufferSize.Y / scale));
+    }
+
+    private static Vector2 NormalizeDevToolsPointerPosition(Vector2 pointerPosition)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return pointerPosition;
+        }
+
+        return InputSystem.NormalizePointerPositionForDpi(
+            pointerPosition,
+            ResolveDevToolsDpiScale(GetDevToolsFramebufferSize()));
     }
 
     private static void OnDevToolsWindowClosing()

@@ -18,6 +18,7 @@ public class WindowInputState
     public FrameworkElement? HoveredElement;
     public FrameworkElement? FocusedElement;
     public Vector2 LastMousePos;
+    public Func<Vector2, Vector2>? PointerPositionTransform;
     public FrameworkElement? CapturedElement;
     public bool IsShiftPressed;
     public bool IsControlPressed;
@@ -124,6 +125,13 @@ public static class InputSystem
     public static FrameworkElement? FocusedElement => _focusedElement;
     public static Vector2 LastMousePosition => _lastMousePos;
 
+    public static Vector2 NormalizePointerPositionForDpi(Vector2 pointerPosition, float dpiScale)
+    {
+        return float.IsFinite(dpiScale) && dpiScale > 0f
+            ? pointerPosition / dpiScale
+            : pointerPosition;
+    }
+
     public static bool IsKeyboardFocusActive
     {
         get => Current.IsKeyboardFocusActive;
@@ -188,15 +196,23 @@ public static class InputSystem
         }
     }
 
-    public static WindowInputState Initialize(IInputContext input, FrameworkElement? root = null)
+    public static WindowInputState Initialize(
+        IInputContext input,
+        FrameworkElement? root = null,
+        Func<Vector2, Vector2>? pointerPositionTransform = null)
     {
-        var state = new WindowInputState { Root = root, InputContext = input };
+        var state = new WindowInputState
+        {
+            Root = root,
+            InputContext = input,
+            PointerPositionTransform = pointerPositionTransform
+        };
 
         foreach (var mouse in input.Mice)
         {
             mouse.MouseMove += (m, pos) => {
                 _currentState = state;
-                OnMouseMove(new Vector2(pos.X, pos.Y));
+                OnMouseMove(NormalizeInputPosition(state, new Vector2(pos.X, pos.Y)));
             };
             mouse.MouseDown += (m, btn) => {
                 _currentState = state;
@@ -235,6 +251,11 @@ public static class InputSystem
         }
 
         return state;
+    }
+
+    private static Vector2 NormalizeInputPosition(WindowInputState state, Vector2 pointerPosition)
+    {
+        return state.PointerPositionTransform?.Invoke(pointerPosition) ?? pointerPosition;
     }
 
     public static void SetFocus(FrameworkElement? element)

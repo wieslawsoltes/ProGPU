@@ -43,11 +43,7 @@ public static class VisualDesignerPage
             DesignerFont = AppState._font,
             DesignerFontCourier = AppState._fontCourier,
             GetDpiScale = () => {
-                if (AppState._window != null && AppState._window.Size.X > 0)
-                {
-                    return (float)AppState._window.FramebufferSize.X / AppState._window.Size.X;
-                }
-                return 1.0f;
+                return (float)DisplayScaleResolver.ResolveWindowDisplayScale(AppState._window);
             }
         };
 
