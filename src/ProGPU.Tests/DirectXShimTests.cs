@@ -504,6 +504,60 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void SciChartRenderContextRecordsBatchedTextureVerticesAndClip()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(device, 64, 32);
+        using var texture = renderContext.CreateTexture(2, 2);
+        texture.SetData(
+        [
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF)
+        ]);
+        ProGpuDirectXSciChartTextureVertex[] vertices =
+        [
+            new(0, 0, 0, 0, 0xFF00FF00),
+            new(16, 0, 1, 0, 0xFF00FF00),
+            new(16, 16, 1, 1, 0xFF00FF00),
+            new(0, 0, 0, 0, 0xFF00FF00),
+            new(16, 16, 1, 1, 0xFF00FF00),
+            new(0, 16, 0, 1, 0xFF00FF00)
+        ];
+
+        renderContext.SetClipRect(new DxRect(0, 0, 8, 16));
+        renderContext.DrawTextureVertices(
+            vertices,
+            vertexCount: vertices.Length,
+            indexCount: vertices.Length,
+            texture,
+            new ProGpuDirectXSciChartVertexTransform(),
+            ProGpuDirectXSciChartTextureFiltering.Point);
+
+        Assert.Single(renderContext.TextureVertexDraws);
+        Assert.Equal(new DxRect(0, 0, 8, 16), renderContext.TextureVertexDraws[0].ClipRect);
+        Assert.Equal(vertices.Length, renderContext.TextureVertexDraws[0].Vertices.Count);
+        Assert.Equal(ProGpuDirectXCommandKind.Draw, renderContext.ImmediateContext.Commands[^1].Kind);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawTextureVertices(vertices, vertices.Length, vertices.Length + 1, texture, default));
+
+        renderContext.BeginFrame();
+        Assert.Empty(renderContext.TextureDraws);
+        Assert.Empty(renderContext.TextureVertexDraws);
+
+        renderContext.SetClipRect(new DxRect(100, 100, 8, 8));
+        renderContext.DrawTextureVertices(
+            vertices,
+            vertexCount: vertices.Length,
+            indexCount: vertices.Length,
+            texture,
+            new ProGpuDirectXSciChartVertexTransform(),
+            ProGpuDirectXSciChartTextureFiltering.Point);
+        Assert.Empty(renderContext.TextureVertexDraws);
+    }
+
+    [Fact]
     public void ImmediateContextRecordsSciChartStyleRenderCommands()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
@@ -1345,6 +1399,63 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(center.G < 50, $"Expected low green center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after SciChart texture draw, actual: {center}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedSciChartBatchedTextureVertexCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            16,
+            16,
+            DxResourceFormat.R8G8B8A8Unorm);
+        using var texture = renderContext.CreateTexture(2, 2);
+        texture.SetData(
+        [
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF)
+        ]);
+        ProGpuDirectXSciChartTextureVertex[] vertices =
+        [
+            new(0, 0, 0, 0, 0xFF00FF00),
+            new(16, 0, 1, 0, 0xFF00FF00),
+            new(16, 16, 1, 1, 0xFF00FF00),
+            new(0, 0, 0, 0, 0xFF00FF00),
+            new(16, 16, 1, 1, 0xFF00FF00),
+            new(0, 16, 0, 1, 0xFF00FF00)
+        ];
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.SetClipRect(new DxRect(0, 0, 8, 16));
+        renderContext.DrawTextureVertices(
+            vertices,
+            vertexCount: vertices.Length,
+            indexCount: vertices.Length,
+            texture,
+            new ProGpuDirectXSciChartVertexTransform(),
+            ProGpuDirectXSciChartTextureFiltering.Point);
+        renderContext.Flush();
+
+        Assert.Single(renderContext.TextureVertexDraws);
+        Assert.Equal(1ul, renderContext.ImmediateContext.SubmittedDrawCount);
+
+        var targetPixels = renderContext.ReadTargetPixels();
+        var clippedIn = ReadRgbaPixel(targetPixels, 16, 4, 8);
+        Assert.True(clippedIn.R < 50, $"Expected tinted green low red pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.G > 200, $"Expected tinted green pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.B < 50, $"Expected tinted green low blue pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.A > 200, $"Expected opaque tinted pixel inside SciChart clip, actual: {clippedIn}");
+
+        var clippedOut = ReadRgbaPixel(targetPixels, 16, 12, 8);
+        Assert.True(clippedOut.R < 50, $"Expected black pixel outside SciChart clip, actual: {clippedOut}");
+        Assert.True(clippedOut.G < 50, $"Expected black pixel outside SciChart clip, actual: {clippedOut}");
+        Assert.True(clippedOut.B < 50, $"Expected black pixel outside SciChart clip, actual: {clippedOut}");
+        Assert.True(clippedOut.A > 200, $"Expected opaque clear alpha outside SciChart clip, actual: {clippedOut}");
     }
 
     [Fact]
