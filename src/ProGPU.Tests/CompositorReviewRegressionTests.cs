@@ -1606,6 +1606,53 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void DrawCallScissorPreservesNonEmptySubpixelClips()
+    {
+        var subpixel = InvokeTryComputeScissorRect(
+            new Rect(0.2f, 0.2f, 0.4f, 0.4f),
+            dpiScale: 1f,
+            viewportX: 0,
+            viewportY: 0,
+            targetWidth: 16,
+            targetHeight: 16);
+
+        Assert.True(subpixel.Result);
+        Assert.Equal(0u, subpixel.X);
+        Assert.Equal(0u, subpixel.Y);
+        Assert.Equal(1u, subpixel.Width);
+        Assert.Equal(1u, subpixel.Height);
+
+        var offsetAndScaled = InvokeTryComputeScissorRect(
+            new Rect(3.2f, 4.25f, 0.4f, 0.4f),
+            dpiScale: 2f,
+            viewportX: 5,
+            viewportY: 7,
+            targetWidth: 32,
+            targetHeight: 32);
+
+        Assert.True(offsetAndScaled.Result);
+        Assert.Equal(11u, offsetAndScaled.X);
+        Assert.Equal(15u, offsetAndScaled.Y);
+        Assert.Equal(2u, offsetAndScaled.Width);
+        Assert.Equal(2u, offsetAndScaled.Height);
+
+        Assert.False(InvokeTryComputeScissorRect(
+            new Rect(20f, 0f, 1f, 1f),
+            dpiScale: 1f,
+            viewportX: 0,
+            viewportY: 0,
+            targetWidth: 16,
+            targetHeight: 16).Result);
+        Assert.False(InvokeTryComputeScissorRect(
+            new Rect(1f, 1f, 0f, 4f),
+            dpiScale: 1f,
+            viewportX: 0,
+            viewportY: 0,
+            targetWidth: 16,
+            targetHeight: 16).Result);
+    }
+
+    [Fact]
     public void RenderOffscreenBumpsTargetGenerationForWpfShaderEffectCache()
     {
         using var window = new HeadlessWindow(16, 16);
@@ -2402,6 +2449,35 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var field = typeof(Compositor).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field.SetValue(compositor, value);
+    }
+
+    private static (bool Result, uint X, uint Y, uint Width, uint Height) InvokeTryComputeScissorRect(
+        Rect rect,
+        float dpiScale,
+        uint viewportX,
+        uint viewportY,
+        uint targetWidth,
+        uint targetHeight)
+    {
+        var method = typeof(Compositor).GetMethod(
+            "TryComputeScissorRect",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(typeof(Compositor).FullName, "TryComputeScissorRect");
+        object?[] args =
+        [
+            rect,
+            dpiScale,
+            viewportX,
+            viewportY,
+            targetWidth,
+            targetHeight,
+            0u,
+            0u,
+            0u,
+            0u
+        ];
+        bool result = (bool)method.Invoke(null, args)!;
+        return (result, (uint)args[6]!, (uint)args[7]!, (uint)args[8]!, (uint)args[9]!);
     }
 
     private static IList GetPathAtlasTempBuffers(Compositor compositor)

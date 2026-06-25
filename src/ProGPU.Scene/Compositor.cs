@@ -5698,45 +5698,100 @@ public unsafe class Compositor : IDisposable
 
         if (dc.ClipRect.HasValue)
         {
-            var rect = dc.ClipRect.Value;
-            float rx = Math.Max(0f, rect.X * _currentDpiScale);
-            float ry = Math.Max(0f, rect.Y * _currentDpiScale);
-            float rw = Math.Max(0f, rect.Width * _currentDpiScale);
-            float rh = Math.Max(0f, rect.Height * _currentDpiScale);
-
-            uint sx = (uint)Math.Round(rx);
-            uint sy = (uint)Math.Round(ry);
-            uint sw = (uint)Math.Round(rw);
-            uint sh = (uint)Math.Round(rh);
-
-            if (sw == 0 || sh == 0)
+            if (!TryComputeScissorRect(
+                    dc.ClipRect.Value,
+                    _currentDpiScale,
+                    viewportX,
+                    viewportY,
+                    targetWidth,
+                    targetHeight,
+                    out uint sx,
+                    out uint sy,
+                    out uint sw,
+                    out uint sh))
             {
                 return false;
             }
 
-            sx += viewportX;
-            sy += viewportY;
-
-            uint viewportRight = viewportX + targetWidth;
-            uint viewportBottom = viewportY + targetHeight;
-            if (sx < viewportRight && sy < viewportBottom)
-            {
-                sw = Math.Min(sw, viewportRight - sx);
-                sh = Math.Min(sh, viewportBottom - sy);
-                if (sw == 0 || sh == 0)
-                {
-                    return false;
-                }
-
-                _context.Wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
-                return true;
-            }
-
-            return false;
+            _context.Wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+            return true;
         }
 
         _context.Wgpu.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, targetWidth, targetHeight);
         return true;
+    }
+
+    private static bool TryComputeScissorRect(
+        Rect rect,
+        float dpiScale,
+        uint viewportX,
+        uint viewportY,
+        uint targetWidth,
+        uint targetHeight,
+        out uint sx,
+        out uint sy,
+        out uint sw,
+        out uint sh)
+    {
+        sx = 0;
+        sy = 0;
+        sw = 0;
+        sh = 0;
+
+        if (dpiScale <= 0f ||
+            targetWidth == 0 ||
+            targetHeight == 0)
+        {
+            return false;
+        }
+
+        float clipLeft = rect.X * dpiScale;
+        float clipTop = rect.Y * dpiScale;
+        float clipRight = (rect.X + rect.Width) * dpiScale;
+        float clipBottom = (rect.Y + rect.Height) * dpiScale;
+
+        if (!float.IsFinite(clipLeft) ||
+            !float.IsFinite(clipTop) ||
+            !float.IsFinite(clipRight) ||
+            !float.IsFinite(clipBottom) ||
+            clipRight <= clipLeft ||
+            clipBottom <= clipTop)
+        {
+            return false;
+        }
+
+        float viewportLeft = 0f;
+        float viewportTop = 0f;
+        float viewportRight = targetWidth;
+        float viewportBottom = targetHeight;
+
+        float clippedLeft = Math.Max(viewportLeft, clipLeft);
+        float clippedTop = Math.Max(viewportTop, clipTop);
+        float clippedRight = Math.Min(viewportRight, clipRight);
+        float clippedBottom = Math.Min(viewportBottom, clipBottom);
+
+        if (clippedRight <= clippedLeft ||
+            clippedBottom <= clippedTop)
+        {
+            return false;
+        }
+
+        uint localX = (uint)Math.Floor(clippedLeft);
+        uint localY = (uint)Math.Floor(clippedTop);
+        uint localRight = (uint)Math.Ceiling(clippedRight);
+        uint localBottom = (uint)Math.Ceiling(clippedBottom);
+
+        if (localRight <= localX ||
+            localBottom <= localY)
+        {
+            return false;
+        }
+
+        sx = viewportX + localX;
+        sy = viewportY + localY;
+        sw = Math.Min(localRight, targetWidth) - localX;
+        sh = Math.Min(localBottom, targetHeight) - localY;
+        return sw > 0 && sh > 0;
     }
 
     private unsafe void ApplyRenderPassViewport(
