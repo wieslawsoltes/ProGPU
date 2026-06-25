@@ -268,7 +268,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             uint acisRecordIndex = (uint)recordsList.Count;
             recordsList.Add(new GpuAcisRecord
             {
-                Transform = cmd.Transform * transform,
+                Transform = transform,
                 Color = penSolidColor,
                 StartEdge = startEdge,
                 EdgeCount = edgeCount,

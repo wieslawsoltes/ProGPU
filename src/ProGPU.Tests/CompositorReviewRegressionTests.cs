@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using GdiBitmap = System.Drawing.Bitmap;
 using GdiGraphics = System.Drawing.Graphics;
@@ -57,6 +58,36 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(26f, info.MinY);
         Assert.Equal(108u, info.Width);
         Assert.Equal(58u, info.Height);
+    }
+
+    [Fact]
+    public void AcisSolidPipelineUsesAlreadyComposedTransformOnce()
+    {
+        var compositor = CreateUninitializedCompositorForExtensionCompile();
+        var pipeline = new AcisSolidExtensionPipeline();
+        var modelTransform = Matrix4x4.CreateTranslation(10f, 0f, 0f);
+        var parentTransform = Matrix4x4.CreateScale(2f, 3f, 1f);
+        var composedTransform = modelTransform * parentTransform;
+        var oldDoubleAppliedTransform = modelTransform * composedTransform;
+        var brush = new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f));
+        var cmd = new RenderCommand
+        {
+            Type = RenderCommandType.DrawExtension,
+            ExtensionId = CompositorBuiltInExtensions.AcisSolid,
+            Pen = new Pen(brush, 2f),
+            Edges3D =
+            [
+                new Line3D(new Vector3(0f, 0f, 0f), new Vector3(5f, 0f, 0f))
+            ],
+            Transform = modelTransform
+        };
+
+        pipeline.Compile(compositor, provider: null, composedTransform, ref cmd);
+
+        var records = GetPrivateField<List<GpuAcisRecord>>(pipeline, "_dynamicRecords");
+        var record = Assert.Single(records);
+        Assert.Equal(composedTransform, record.Transform);
+        Assert.NotEqual(oldDoubleAppliedTransform, record.Transform);
     }
 
     [Fact]
@@ -2408,6 +2439,17 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         return drawCalls.ToArray();
     }
 
+    private static Compositor CreateUninitializedCompositorForExtensionCompile()
+    {
+        var compositor = (Compositor)RuntimeHelpers.GetUninitializedObject(typeof(Compositor));
+        SetCompositorField(compositor, "_vectorVerticesList", new List<VectorVertex>());
+        SetCompositorField(compositor, "_vectorIndicesList", new List<uint>());
+        SetCompositorField(compositor, "_activeBrushes", new List<GpuBrush>());
+        SetCompositorField(compositor, "_activeGradientStops", new List<GpuGradientStop>());
+        SetCompositorField(compositor, "_activeOpacity", 1.0f);
+        return compositor;
+    }
+
     private static Compositor GetGdiBitmapCompositor(GdiBitmap bitmap)
     {
         var providerType = typeof(GdiBitmap).Assembly.GetType("System.Drawing.GpuProvider", throwOnError: true)!;
@@ -2435,6 +2477,13 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var field = typeof(Compositor).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return Assert.IsType<T>(field.GetValue(compositor));
+    }
+
+    private static T GetPrivateField<T>(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsType<T>(field.GetValue(target));
     }
 
     private static object? GetRawCompositorField(Compositor compositor, string fieldName)
