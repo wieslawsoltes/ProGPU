@@ -96,6 +96,50 @@ public sealed class ProGpuDirectXDevice : IDisposable
         return new ProGpuDirectXComputePipeline(this, descriptor);
     }
 
+    public ProGpuDirectXShaderResourceView CreateShaderResourceView(
+        ProGpuDirectXTexture2D texture,
+        DxShaderResourceViewDescriptor? descriptor = null)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(texture);
+        return new ProGpuDirectXShaderResourceView(this, texture, descriptor ?? new DxShaderResourceViewDescriptor());
+    }
+
+    public ProGpuDirectXShaderResourceView CreateShaderResourceView(
+        ProGpuDirectXBuffer buffer,
+        DxShaderResourceViewDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return new ProGpuDirectXShaderResourceView(this, buffer, descriptor);
+    }
+
+    public ProGpuDirectXUnorderedAccessView CreateUnorderedAccessView(
+        ProGpuDirectXTexture2D texture,
+        DxUnorderedAccessViewDescriptor? descriptor = null)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(texture);
+        return new ProGpuDirectXUnorderedAccessView(this, texture, descriptor ?? new DxUnorderedAccessViewDescriptor());
+    }
+
+    public ProGpuDirectXUnorderedAccessView CreateUnorderedAccessView(
+        ProGpuDirectXBuffer buffer,
+        DxUnorderedAccessViewDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return new ProGpuDirectXUnorderedAccessView(this, buffer, descriptor);
+    }
+
+    public ProGpuDirectXSamplerState CreateSamplerState(DxSamplerDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        return new ProGpuDirectXSamplerState(this, descriptor);
+    }
+
     internal void ThrowIfDisposed()
     {
         if (_isDisposed)

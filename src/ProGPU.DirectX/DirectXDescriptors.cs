@@ -150,3 +150,47 @@ public sealed record DxComputePipelineDescriptor
 }
 
 public sealed record DxDispatchCall(uint ThreadGroupCountX, uint ThreadGroupCountY, uint ThreadGroupCountZ);
+
+public sealed record DxShaderResourceViewDescriptor
+{
+    public DxResourceViewDimension Dimension { get; init; } = DxResourceViewDimension.Texture2D;
+    public DxResourceFormat Format { get; init; } = DxResourceFormat.Unknown;
+    public uint MostDetailedMip { get; init; }
+    public uint MipLevels { get; init; } = 1;
+    public uint FirstArraySlice { get; init; }
+    public uint ArraySize { get; init; } = 1;
+    public uint FirstElement { get; init; }
+    public uint ElementCount { get; init; }
+    public uint ElementStrideInBytes { get; init; }
+    public string Label { get; init; } = "DirectXShaderResourceView";
+}
+
+public sealed record DxUnorderedAccessViewDescriptor
+{
+    public DxResourceViewDimension Dimension { get; init; } = DxResourceViewDimension.Texture2D;
+    public DxResourceFormat Format { get; init; } = DxResourceFormat.Unknown;
+    public uint MipSlice { get; init; }
+    public uint FirstArraySlice { get; init; }
+    public uint ArraySize { get; init; } = 1;
+    public uint FirstElement { get; init; }
+    public uint ElementCount { get; init; }
+    public uint ElementStrideInBytes { get; init; }
+    public string Label { get; init; } = "DirectXUnorderedAccessView";
+}
+
+public sealed record DxSamplerDescriptor
+{
+    public DxFilter Filter { get; init; } = DxFilter.MinMagMipLinear;
+    public DxTextureAddressMode AddressU { get; init; } = DxTextureAddressMode.Clamp;
+    public DxTextureAddressMode AddressV { get; init; } = DxTextureAddressMode.Clamp;
+    public DxTextureAddressMode AddressW { get; init; } = DxTextureAddressMode.Clamp;
+    public DxComparisonFunction? ComparisonFunction { get; init; }
+    public float MinimumLod { get; init; }
+    public float MaximumLod { get; init; } = 32f;
+    public ushort MaximumAnisotropy { get; init; } = 1;
+    public string Label { get; init; } = "DirectXSamplerState";
+}
+
+public sealed record DxShaderResourceBinding(DxShaderStage Stage, uint Slot);
+
+public sealed record DxCopyResourceCall(string Kind);

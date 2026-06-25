@@ -248,6 +248,103 @@ fn cs_main() {
     }
 
     [Fact]
+    public void CanCreateAndBindShaderResourcesAndSamplers()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var texture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 256,
+            Height = 128,
+            Usage = DxTextureUsage.ShaderResource | DxTextureUsage.CopySource
+        });
+        using var structuredBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 4096,
+            Usage = DxBufferUsage.ShaderResource | DxBufferUsage.CopyDestination,
+            StrideInBytes = 32
+        });
+        using var textureView = device.CreateShaderResourceView(texture);
+        using var bufferView = device.CreateShaderResourceView(
+            structuredBuffer,
+            new DxShaderResourceViewDescriptor
+            {
+                Dimension = DxResourceViewDimension.Buffer,
+                FirstElement = 0,
+                ElementCount = 128,
+                ElementStrideInBytes = 32
+            });
+        using var sampler = device.CreateSamplerState(new DxSamplerDescriptor
+        {
+            Filter = DxFilter.Anisotropic,
+            AddressU = DxTextureAddressMode.Wrap,
+            AddressV = DxTextureAddressMode.Clamp,
+            MaximumAnisotropy = 4
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetShaderResource(DxShaderStage.Pixel, 0, textureView);
+        context.SetShaderResource(DxShaderStage.Vertex, 1, bufferView);
+        context.SetSampler(DxShaderStage.Pixel, 0, sampler);
+
+        var pixelSlot = new DxShaderResourceBinding(DxShaderStage.Pixel, 0);
+        var vertexSlot = new DxShaderResourceBinding(DxShaderStage.Vertex, 1);
+
+        Assert.False(textureView.HasBackendTextureView);
+        Assert.False(sampler.HasBackendSampler);
+        Assert.Same(textureView, context.ShaderResourceViews[pixelSlot]);
+        Assert.Same(bufferView, context.ShaderResourceViews[vertexSlot]);
+        Assert.Same(sampler, context.Samplers[pixelSlot]);
+        Assert.Equal(ProGpuDirectXCommandKind.SetShaderResource, context.Commands[0].Kind);
+        Assert.Equal(pixelSlot, context.Commands[0].ResourceBinding);
+        Assert.Equal(ProGpuDirectXCommandKind.SetSampler, context.Commands[2].Kind);
+        Assert.Equal(4, sampler.Descriptor.MaximumAnisotropy);
+    }
+
+    [Fact]
+    public void CanCreateUnorderedAccessViewsAndRecordCopies()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var sourceTexture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 64,
+            Height = 64,
+            Usage = DxTextureUsage.ShaderResource | DxTextureUsage.CopySource
+        });
+        using var destinationTexture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 64,
+            Height = 64,
+            Usage = DxTextureUsage.UnorderedAccess | DxTextureUsage.CopyDestination | DxTextureUsage.ShaderResource
+        });
+        using var sourceBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 256,
+            Usage = DxBufferUsage.CopySource
+        });
+        using var destinationBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 512,
+            Usage = DxBufferUsage.CopyDestination
+        });
+        using var uav = device.CreateUnorderedAccessView(destinationTexture);
+        using var context = device.CreateImmediateContext();
+
+        context.SetUnorderedAccessView(0, uav);
+        context.CopyResource(destinationTexture, sourceTexture);
+        context.CopyResource(destinationBuffer, sourceBuffer);
+
+        Assert.False(uav.HasBackendTextureView);
+        Assert.Same(uav, context.UnorderedAccessViews[0]);
+        Assert.Equal(ProGpuDirectXCommandKind.SetUnorderedAccessView, context.Commands[0].Kind);
+        Assert.Equal(ProGpuDirectXCommandKind.CopyTexture, context.Commands[1].Kind);
+        Assert.Same(sourceTexture, context.Commands[1].SourceTexture);
+        Assert.Same(destinationTexture, context.Commands[1].DestinationTexture);
+        Assert.Equal(ProGpuDirectXCommandKind.CopyBuffer, context.Commands[2].Kind);
+        Assert.Same(sourceBuffer, context.Commands[2].SourceBuffer);
+        Assert.Same(destinationBuffer, context.Commands[2].DestinationBuffer);
+    }
+
+    [Fact]
     public void InvalidDescriptorsAreRejected()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
@@ -272,5 +369,42 @@ fn cs_main() {
                 SourceKind = DxShaderSourceKind.Wgsl,
                 Source = ""
             }));
+
+        using var renderOnlyTexture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 16,
+            Height = 16,
+            Usage = DxTextureUsage.RenderTarget
+        });
+        Assert.Throws<ArgumentException>(() => device.CreateShaderResourceView(renderOnlyTexture));
+
+        using var shaderBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 128,
+            Usage = DxBufferUsage.ShaderResource
+        });
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            device.CreateShaderResourceView(
+                shaderBuffer,
+                new DxShaderResourceViewDescriptor
+                {
+                    Dimension = DxResourceViewDimension.Buffer,
+                    ElementCount = 0
+                }));
+
+        using var copySource = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 16,
+            Height = 16,
+            Usage = DxTextureUsage.CopySource
+        });
+        using var mismatchedDestination = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 16,
+            Usage = DxTextureUsage.CopyDestination
+        });
+        using var context = device.CreateImmediateContext();
+        Assert.Throws<ArgumentOutOfRangeException>(() => context.CopyResource(mismatchedDestination, copySource));
     }
 }

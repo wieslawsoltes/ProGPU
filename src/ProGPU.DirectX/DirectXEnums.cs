@@ -34,6 +34,18 @@ public enum DxShaderStage
     Compute
 }
 
+[Flags]
+public enum DxShaderStageFlags
+{
+    None = 0,
+    Vertex = 1 << 0,
+    Pixel = 1 << 1,
+    Geometry = 1 << 2,
+    Compute = 1 << 3,
+    AllGraphics = Vertex | Pixel | Geometry,
+    All = Vertex | Pixel | Geometry | Compute
+}
+
 public enum DxShaderSourceKind
 {
     Wgsl,
@@ -165,4 +177,28 @@ public enum DxColorWriteMask
     Blue = 1 << 2,
     Alpha = 1 << 3,
     All = Red | Green | Blue | Alpha
+}
+
+public enum DxResourceViewDimension
+{
+    Unknown,
+    Buffer,
+    Texture2D,
+    Texture2DArray
+}
+
+public enum DxFilter
+{
+    MinMagMipPoint,
+    MinMagMipLinear,
+    Anisotropic,
+    ComparisonMinMagMipLinear
+}
+
+public enum DxTextureAddressMode
+{
+    Wrap,
+    Mirror,
+    Clamp,
+    Border
 }

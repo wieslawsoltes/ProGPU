@@ -234,6 +234,30 @@ internal static class ProGpuDirectXFormatConverter
         return result;
     }
 
+    public static FilterMode ToFilterMode(DxFilter filter)
+    {
+        return filter == DxFilter.MinMagMipPoint
+            ? FilterMode.Nearest
+            : FilterMode.Linear;
+    }
+
+    public static MipmapFilterMode ToMipmapFilterMode(DxFilter filter)
+    {
+        return filter == DxFilter.MinMagMipPoint
+            ? MipmapFilterMode.Nearest
+            : MipmapFilterMode.Linear;
+    }
+
+    public static AddressMode ToAddressMode(DxTextureAddressMode mode)
+    {
+        return mode switch
+        {
+            DxTextureAddressMode.Wrap => AddressMode.Repeat,
+            DxTextureAddressMode.Mirror => AddressMode.MirrorRepeat,
+            _ => AddressMode.ClampToEdge
+        };
+    }
+
     public static GpuTextureAlphaMode ToTextureAlphaMode(DxResourceFormat format)
     {
         return format is DxResourceFormat.B8G8R8A8Unorm or DxResourceFormat.R8G8B8A8Unorm

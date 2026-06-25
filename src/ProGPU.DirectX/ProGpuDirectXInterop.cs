@@ -11,6 +11,9 @@ public interface IProGpuDirectXNativeInterop
     bool TryGetShaderHandle(ProGpuDirectXShader shader, out ProGpuDirectXNativeHandle handle);
     bool TryGetGraphicsPipelineHandle(ProGpuDirectXGraphicsPipeline pipeline, out ProGpuDirectXNativeHandle handle);
     bool TryGetComputePipelineHandle(ProGpuDirectXComputePipeline pipeline, out ProGpuDirectXNativeHandle handle);
+    bool TryGetShaderResourceViewHandle(ProGpuDirectXShaderResourceView view, out ProGpuDirectXNativeHandle handle);
+    bool TryGetUnorderedAccessViewHandle(ProGpuDirectXUnorderedAccessView view, out ProGpuDirectXNativeHandle handle);
+    bool TryGetSamplerHandle(ProGpuDirectXSamplerState sampler, out ProGpuDirectXNativeHandle handle);
 }
 
 public sealed unsafe class ProGpuDirectXBackendInterop : IProGpuDirectXNativeInterop
@@ -68,6 +71,48 @@ public sealed unsafe class ProGpuDirectXBackendInterop : IProGpuDirectXNativeInt
         if (pipeline.BackendPipelineHandle != IntPtr.Zero)
         {
             handle = new ProGpuDirectXNativeHandle("WebGPU.ComputePipeline", pipeline.BackendPipelineHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
+    }
+
+    public bool TryGetShaderResourceViewHandle(ProGpuDirectXShaderResourceView view, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        if (view.BackendTextureViewHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.TextureView", view.BackendTextureViewHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
+    }
+
+    public bool TryGetUnorderedAccessViewHandle(ProGpuDirectXUnorderedAccessView view, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        if (view.BackendTextureViewHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.TextureView", view.BackendTextureViewHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
+    }
+
+    public bool TryGetSamplerHandle(ProGpuDirectXSamplerState sampler, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(sampler);
+
+        if (sampler.BackendSamplerHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.Sampler", sampler.BackendSamplerHandle);
             return true;
         }
 

@@ -22,6 +22,11 @@ public enum ProGpuDirectXCommandKind
     SetRasterizerState,
     SetGraphicsPipeline,
     SetComputePipeline,
+    SetShaderResource,
+    SetSampler,
+    SetUnorderedAccessView,
+    CopyTexture,
+    CopyBuffer,
     ClearRenderTarget,
     ClearDepthStencil,
     Draw,
@@ -46,9 +51,18 @@ public sealed record ProGpuDirectXCommand
     public ProGpuDirectXInputLayout? InputLayout { get; init; }
     public ProGpuDirectXGraphicsPipeline? GraphicsPipeline { get; init; }
     public ProGpuDirectXComputePipeline? ComputePipeline { get; init; }
+    public ProGpuDirectXShaderResourceView? ShaderResourceView { get; init; }
+    public ProGpuDirectXSamplerState? Sampler { get; init; }
+    public ProGpuDirectXUnorderedAccessView? UnorderedAccessView { get; init; }
     public DxBlendStateDescriptor? BlendState { get; init; }
     public DxDepthStencilStateDescriptor? DepthStencilState { get; init; }
     public DxRasterizerStateDescriptor? RasterizerState { get; init; }
+    public DxShaderResourceBinding? ResourceBinding { get; init; }
+    public ProGpuDirectXTexture2D? SourceTexture { get; init; }
+    public ProGpuDirectXTexture2D? DestinationTexture { get; init; }
+    public ProGpuDirectXBuffer? SourceBuffer { get; init; }
+    public ProGpuDirectXBuffer? DestinationBuffer { get; init; }
+    public DxCopyResourceCall? Copy { get; init; }
 }
 
 public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
@@ -65,6 +79,9 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     private ProGpuDirectXShader? _computeShader;
     private ProGpuDirectXGraphicsPipeline? _graphicsPipeline;
     private ProGpuDirectXComputePipeline? _computePipeline;
+    private readonly Dictionary<DxShaderResourceBinding, ProGpuDirectXShaderResourceView?> _shaderResourceViews = new();
+    private readonly Dictionary<DxShaderResourceBinding, ProGpuDirectXSamplerState?> _samplers = new();
+    private readonly Dictionary<uint, ProGpuDirectXUnorderedAccessView?> _unorderedAccessViews = new();
     private bool _isDisposed;
 
     internal ProGpuDirectXDeviceContext(ProGpuDirectXDevice device)
@@ -95,6 +112,12 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     public ProGpuDirectXGraphicsPipeline? GraphicsPipeline => _graphicsPipeline;
 
     public ProGpuDirectXComputePipeline? ComputePipeline => _computePipeline;
+
+    public IReadOnlyDictionary<DxShaderResourceBinding, ProGpuDirectXShaderResourceView?> ShaderResourceViews => _shaderResourceViews;
+
+    public IReadOnlyDictionary<DxShaderResourceBinding, ProGpuDirectXSamplerState?> Samplers => _samplers;
+
+    public IReadOnlyDictionary<uint, ProGpuDirectXUnorderedAccessView?> UnorderedAccessViews => _unorderedAccessViews;
 
     public void SetRenderTargets(ProGpuDirectXTexture2D? renderTarget, ProGpuDirectXTexture2D? depthStencil = null)
     {
@@ -290,6 +313,95 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             Kind = ProGpuDirectXCommandKind.SetComputePipeline,
             ComputePipeline = pipeline
+        });
+    }
+
+    public void SetShaderResource(DxShaderStage stage, uint slot, ProGpuDirectXShaderResourceView? view)
+    {
+        ThrowIfDisposed();
+        var binding = new DxShaderResourceBinding(stage, slot);
+        _shaderResourceViews[binding] = view;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetShaderResource,
+            ResourceBinding = binding,
+            ShaderResourceView = view
+        });
+    }
+
+    public void SetSampler(DxShaderStage stage, uint slot, ProGpuDirectXSamplerState? sampler)
+    {
+        ThrowIfDisposed();
+        var binding = new DxShaderResourceBinding(stage, slot);
+        _samplers[binding] = sampler;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetSampler,
+            ResourceBinding = binding,
+            Sampler = sampler
+        });
+    }
+
+    public void SetUnorderedAccessView(uint slot, ProGpuDirectXUnorderedAccessView? view)
+    {
+        ThrowIfDisposed();
+        _unorderedAccessViews[slot] = view;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetUnorderedAccessView,
+            UnorderedAccessView = view,
+            ResourceBinding = new DxShaderResourceBinding(DxShaderStage.Compute, slot)
+        });
+    }
+
+    public void CopyResource(ProGpuDirectXTexture2D destination, ProGpuDirectXTexture2D source)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(source);
+        ValidateTextureCopy(destination, source);
+
+        if (destination.BackendTexture is { IsDisposed: false } destinationTexture &&
+            source.BackendTexture is { IsDisposed: false } sourceTexture)
+        {
+            destinationTexture.CopyFrom(sourceTexture);
+        }
+
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.CopyTexture,
+            DestinationTexture = destination,
+            SourceTexture = source,
+            Copy = new DxCopyResourceCall("Texture2D")
+        });
+    }
+
+    public void CopyResource(ProGpuDirectXBuffer destination, ProGpuDirectXBuffer source)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(source);
+        if (destination.Descriptor.SizeInBytes < source.Descriptor.SizeInBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination), "Destination buffer is smaller than the source buffer.");
+        }
+
+        if ((destination.Descriptor.Usage & DxBufferUsage.CopyDestination) == 0)
+        {
+            throw new ArgumentException("Destination buffer was not created with copy-destination usage.", nameof(destination));
+        }
+
+        if ((source.Descriptor.Usage & DxBufferUsage.CopySource) == 0)
+        {
+            throw new ArgumentException("Source buffer was not created with copy-source usage.", nameof(source));
+        }
+
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.CopyBuffer,
+            DestinationBuffer = destination,
+            SourceBuffer = source,
+            Copy = new DxCopyResourceCall("Buffer")
         });
     }
 
@@ -505,9 +617,35 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
     }
 
+    private static void ValidateTextureCopy(ProGpuDirectXTexture2D destination, ProGpuDirectXTexture2D source)
+    {
+        if (destination.Width != source.Width || destination.Height != source.Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination), "Texture copies require matching dimensions.");
+        }
+
+        if (destination.Descriptor.Format != source.Descriptor.Format)
+        {
+            throw new ArgumentException("Texture copies require matching resource formats.", nameof(destination));
+        }
+
+        if ((destination.Descriptor.Usage & DxTextureUsage.CopyDestination) == 0)
+        {
+            throw new ArgumentException("Destination texture was not created with copy-destination usage.", nameof(destination));
+        }
+
+        if ((source.Descriptor.Usage & DxTextureUsage.CopySource) == 0)
+        {
+            throw new ArgumentException("Source texture was not created with copy-source usage.", nameof(source));
+        }
+    }
+
     public void Dispose()
     {
         _commands.Clear();
+        _shaderResourceViews.Clear();
+        _samplers.Clear();
+        _unorderedAccessViews.Clear();
         _isDisposed = true;
     }
 }
