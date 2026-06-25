@@ -549,6 +549,7 @@ fn fs_main() -> @location(0) vec4<f32> {
         Assert.Empty(renderContext.TextureDraws);
         Assert.Empty(renderContext.TextureVertexDraws);
         Assert.Empty(renderContext.ShapedHeatmapDraws);
+        Assert.Empty(renderContext.HeightTextureContourDraws);
 
         renderContext.SetClipRect(new DxRect(100, 100, 8, 8));
         renderContext.DrawTextureVertices(
@@ -609,6 +610,78 @@ fn fs_main() -> @location(0) vec4<f32> {
         using var unsupportedHeights = renderContext.CreateTexture(2, 2);
         Assert.Throws<NotSupportedException>(() =>
             renderContext.DrawShapedHeatmap(vertices, 1, vertices.Length - 1, 0, 1, unsupportedHeights, gradientTexture));
+    }
+
+    [Fact]
+    public void SciChartRenderContextRecordsHeightTextureContoursAndClip()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(device, 64, 32);
+        using var heightsTexture = renderContext.CreateTexture(2, 2, ProGpuDirectXSciChartTextureFormat.Float32);
+        using var contourTexture = renderContext.CreateTexture(2, 2);
+        heightsTexture.SetFloatData([0f, 0.5f, 0.5f, 1f]);
+        contourTexture.SetData(
+        [
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF)
+        ]);
+
+        renderContext.SetClipRect(new DxRect(0, 0, 8, 16));
+        renderContext.DrawHeightTextureContours(
+            heightsTexture,
+            contourTexture,
+            new DxRect(0, 0, 16, 16),
+            new DxColor(0f, 1f, 0f, 1f),
+            zMin: 0f,
+            zMax: 1f,
+            zStep: 0.5f,
+            strokeThickness: 1f,
+            opacity: 1f);
+
+        Assert.Single(renderContext.HeightTextureContourDraws);
+        Assert.Equal(new DxRect(0, 0, 8, 16), renderContext.HeightTextureContourDraws[0].ClipRect);
+        Assert.Equal(new DxRect(0, 0, 16, 16), renderContext.HeightTextureContourDraws[0].ViewportRect);
+        Assert.Equal(ProGpuDirectXCommandKind.Draw, renderContext.ImmediateContext.Commands[^1].Kind);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawHeightTextureContours(
+                heightsTexture,
+                contourTexture,
+                new DxRect(0, 0, 16, 16),
+                new DxColor(0f, 1f, 0f, 1f),
+                zMin: 0f,
+                zMax: 1f,
+                zStep: 0f,
+                strokeThickness: 1f,
+                opacity: 1f));
+
+        using var unsupportedHeights = renderContext.CreateTexture(2, 2);
+        Assert.Throws<NotSupportedException>(() =>
+            renderContext.DrawHeightTextureContours(
+                unsupportedHeights,
+                contourTexture,
+                new DxRect(0, 0, 16, 16),
+                new DxColor(0f, 1f, 0f, 1f),
+                zMin: 0f,
+                zMax: 1f,
+                zStep: 0.5f,
+                strokeThickness: 1f,
+                opacity: 1f));
+
+        renderContext.BeginFrame();
+        renderContext.SetClipRect(new DxRect(100, 100, 8, 8));
+        renderContext.DrawHeightTextureContours(
+            heightsTexture,
+            contourTexture,
+            new DxRect(0, 0, 16, 16),
+            new DxColor(0f, 1f, 0f, 1f),
+            zMin: 0f,
+            zMax: 1f,
+            zStep: 0.5f,
+            strokeThickness: 1f,
+            opacity: 1f);
+        Assert.Empty(renderContext.HeightTextureContourDraws);
     }
 
     [Fact]
@@ -1571,6 +1644,59 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(clippedOut.G < 50, $"Expected black pixel outside SciChart heatmap clip, actual: {clippedOut}");
         Assert.True(clippedOut.B < 50, $"Expected black pixel outside SciChart heatmap clip, actual: {clippedOut}");
         Assert.True(clippedOut.A > 200, $"Expected opaque clear alpha outside SciChart heatmap clip, actual: {clippedOut}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedSciChartHeightTextureContourCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            16,
+            16,
+            DxResourceFormat.R8G8B8A8Unorm);
+        using var heightsTexture = renderContext.CreateTexture(2, 2, ProGpuDirectXSciChartTextureFormat.Float32);
+        using var contourTexture = renderContext.CreateTexture(2, 2);
+        heightsTexture.SetFloatData([0.5f, 0.5f, 0.5f, 0.5f]);
+        contourTexture.SetData(
+        [
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF),
+            unchecked((int)0xFFFFFFFF)
+        ]);
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.SetClipRect(new DxRect(0, 0, 8, 16));
+        renderContext.DrawHeightTextureContours(
+            heightsTexture,
+            contourTexture,
+            new DxRect(0, 0, 16, 16),
+            new DxColor(0f, 1f, 0f, 1f),
+            zMin: 0f,
+            zMax: 1f,
+            zStep: 0.5f,
+            strokeThickness: 1f,
+            opacity: 1f);
+        renderContext.Flush();
+
+        Assert.Single(renderContext.HeightTextureContourDraws);
+        Assert.Equal(1ul, renderContext.ImmediateContext.SubmittedDrawCount);
+
+        var targetPixels = renderContext.ReadTargetPixels();
+        var clippedIn = ReadRgbaPixel(targetPixels, 16, 4, 8);
+        Assert.True(clippedIn.R < 50, $"Expected height contour low red pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.G > 200, $"Expected height contour green pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.B < 50, $"Expected height contour low blue pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.A > 200, $"Expected height contour opaque pixel inside SciChart clip, actual: {clippedIn}");
+
+        var clippedOut = ReadRgbaPixel(targetPixels, 16, 12, 8);
+        Assert.True(clippedOut.R < 50, $"Expected black pixel outside SciChart contour clip, actual: {clippedOut}");
+        Assert.True(clippedOut.G < 50, $"Expected black pixel outside SciChart contour clip, actual: {clippedOut}");
+        Assert.True(clippedOut.B < 50, $"Expected black pixel outside SciChart contour clip, actual: {clippedOut}");
+        Assert.True(clippedOut.A > 200, $"Expected opaque clear alpha outside SciChart contour clip, actual: {clippedOut}");
     }
 
     [Fact]

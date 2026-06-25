@@ -45,6 +45,18 @@ public sealed record ProGpuDirectXSciChartShapedHeatmapDraw(
     ProGpuDirectXSciChartTextureFiltering Filtering,
     DxRect? ClipRect);
 
+public sealed record ProGpuDirectXSciChartHeightTextureContoursDraw(
+    ProGpuDirectXSciChartTexture2D HeightsTexture,
+    ProGpuDirectXSciChartTexture2D ContourTexture,
+    DxRect ViewportRect,
+    DxColor Color,
+    float ZMin,
+    float ZMax,
+    float ZStep,
+    float StrokeThickness,
+    float Opacity,
+    DxRect? ClipRect);
+
 public sealed class ProGpuDirectXSciChartTexture2D : IDisposable
 {
     private ProGpuDirectXBuffer? _floatDataBuffer;
@@ -78,8 +90,6 @@ public sealed class ProGpuDirectXSciChartTexture2D : IDisposable
 
         ValidateElementCount(colorData.Length);
         Resource.WritePixels(colorData);
-        var buffer = GetOrCreateFloatDataBuffer();
-        buffer.Write(colorData[..ExpectedElementCount]);
     }
 
     public void SetFloatData(ReadOnlySpan<float> colorData)
@@ -92,6 +102,8 @@ public sealed class ProGpuDirectXSciChartTexture2D : IDisposable
 
         ValidateElementCount(colorData.Length);
         Resource.WritePixels(colorData);
+        var buffer = GetOrCreateFloatDataBuffer();
+        buffer.Write(colorData[..ExpectedElementCount]);
     }
 
     public void SetUIntData(ReadOnlySpan<uint> colorData)
@@ -193,9 +205,11 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     private readonly List<ProGpuDirectXSciChartTextureDraw> _textureDraws = new();
     private readonly List<ProGpuDirectXSciChartTextureVertexDraw> _textureVertexDraws = new();
     private readonly List<ProGpuDirectXSciChartShapedHeatmapDraw> _shapedHeatmapDraws = new();
+    private readonly List<ProGpuDirectXSciChartHeightTextureContoursDraw> _heightTextureContourDraws = new();
     private readonly Dictionary<(DxResourceFormat Format, ProGpuDirectXSciChartTextureFiltering Filtering), ProGpuDirectXGraphicsPipeline> _texturePipelines = new();
     private readonly Dictionary<(DxResourceFormat Format, ProGpuDirectXSciChartTextureFiltering Filtering), ProGpuDirectXGraphicsPipeline> _textureVertexPipelines = new();
     private readonly Dictionary<(DxResourceFormat Format, ProGpuDirectXSciChartTextureFiltering Filtering), ProGpuDirectXGraphicsPipeline> _shapedHeatmapPipelines = new();
+    private readonly Dictionary<DxResourceFormat, ProGpuDirectXGraphicsPipeline> _heightContourPipelines = new();
     private readonly Dictionary<ProGpuDirectXSciChartTextureFiltering, ProGpuDirectXSamplerState> _samplers = new();
     private ProGpuDirectXShader? _textureVertexShader;
     private ProGpuDirectXShader? _texturePixelShader;
@@ -204,6 +218,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     private ProGpuDirectXShader? _batchedTexturePixelShader;
     private ProGpuDirectXInputLayout? _batchedTextureInputLayout;
     private ProGpuDirectXShader? _shapedHeatmapPixelShader;
+    private ProGpuDirectXShader? _heightContourPixelShader;
     private DxRect? _clipRect;
     private bool _isDisposed;
 
@@ -238,6 +253,8 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
 
     public IReadOnlyList<ProGpuDirectXSciChartShapedHeatmapDraw> ShapedHeatmapDraws => _shapedHeatmapDraws;
 
+    public IReadOnlyList<ProGpuDirectXSciChartHeightTextureContoursDraw> HeightTextureContourDraws => _heightTextureContourDraws;
+
     public ProGpuDirectXSciChartTexture2D CreateTexture(
         uint width,
         uint height,
@@ -271,6 +288,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _textureDraws.Clear();
         _textureVertexDraws.Clear();
         _shapedHeatmapDraws.Clear();
+        _heightTextureContourDraws.Clear();
         _clipRect = null;
     }
 
@@ -437,6 +455,80 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _transientResources.Add(constants);
     }
 
+    public void DrawHeightTextureContours(
+        ProGpuDirectXSciChartTexture2D heightsTexture,
+        ProGpuDirectXSciChartTexture2D contourTexture,
+        DxRect viewportRect,
+        DxColor color,
+        float zMin,
+        float zMax,
+        float zStep,
+        float strokeThickness,
+        float opacity)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(heightsTexture);
+        ArgumentNullException.ThrowIfNull(contourTexture);
+        ValidateDrawRect(viewportRect);
+        ValidateHeightTextureContourInputs(heightsTexture, contourTexture, color, zMin, zMax, zStep, strokeThickness, opacity);
+
+        if (HasEmptyClip)
+        {
+            return;
+        }
+
+        var vertexBuffer = CreateTextureQuadVertexBuffer(viewportRect, heightsTexture);
+        var heightsView = _device.CreateShaderResourceView(
+            heightsTexture.GetFloatDataBuffer(),
+            new DxShaderResourceViewDescriptor
+            {
+                Dimension = DxResourceViewDimension.Buffer,
+                Format = DxResourceFormat.R32Float,
+                ElementCount = checked(heightsTexture.Width * heightsTexture.Height),
+                ElementStrideInBytes = sizeof(float),
+                Label = "SciChart Height Contour Heights"
+            });
+        var contourView = _device.CreateShaderResourceView(contourTexture.Resource);
+        var constants = CreateHeightTextureContourConstants(
+            zMin,
+            zMax,
+            zStep,
+            strokeThickness,
+            opacity,
+            heightsTexture.Width,
+            heightsTexture.Height,
+            color);
+        var sampler = GetSampler(ProGpuDirectXSciChartTextureFiltering.Linear);
+        var pipeline = GetHeightTextureContourPipeline(RenderTarget.Descriptor.Format);
+
+        _context.SetRenderTargets(RenderTarget);
+        _context.SetViewport(new DxViewport(0, 0, RenderTarget.Width, RenderTarget.Height));
+        _context.SetScissorRect(_clipRect ?? FullRenderTargetRect);
+        _context.SetGraphicsPipeline(pipeline);
+        _context.SetVertexBuffer(vertexBuffer);
+        _context.SetShaderResource(DxShaderStage.Pixel, 0, heightsView);
+        _context.SetShaderResource(DxShaderStage.Pixel, 1, contourView);
+        _context.SetConstantBuffer(DxShaderStage.Pixel, 0, constants);
+        _context.SetSampler(DxShaderStage.Pixel, 0, sampler);
+        _context.Draw(6);
+
+        _heightTextureContourDraws.Add(new ProGpuDirectXSciChartHeightTextureContoursDraw(
+            heightsTexture,
+            contourTexture,
+            viewportRect,
+            color,
+            zMin,
+            zMax,
+            zStep,
+            strokeThickness,
+            opacity,
+            _clipRect));
+        _transientResources.Add(vertexBuffer);
+        _transientResources.Add(heightsView);
+        _transientResources.Add(contourView);
+        _transientResources.Add(constants);
+    }
+
     public void Flush(bool clearRecordedCommands = true)
     {
         ThrowIfDisposed();
@@ -535,6 +627,43 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             Usage = DxBufferUsage.Constant | DxBufferUsage.CopyDestination,
             StrideInBytes = 16,
             Label = "SciChart Shaped Heatmap Constants"
+        });
+        buffer.Write(constants);
+        return buffer;
+    }
+
+    private ProGpuDirectXBuffer CreateHeightTextureContourConstants(
+        float zMin,
+        float zMax,
+        float zStep,
+        float strokeThickness,
+        float opacity,
+        uint heightTextureWidth,
+        uint heightTextureHeight,
+        DxColor color)
+    {
+        ReadOnlySpan<float> constants =
+        [
+            zMin,
+            zMax,
+            zStep,
+            strokeThickness,
+            opacity,
+            heightTextureWidth,
+            heightTextureHeight,
+            0f,
+            color.R,
+            color.G,
+            color.B,
+            color.A
+        ];
+
+        var buffer = _device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = checked((uint)(constants.Length * sizeof(float))),
+            Usage = DxBufferUsage.Constant | DxBufferUsage.CopyDestination,
+            StrideInBytes = 16,
+            Label = "SciChart Height Contour Constants"
         });
         buffer.Write(constants);
         return buffer;
@@ -731,6 +860,69 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         return pipeline;
     }
 
+    private ProGpuDirectXGraphicsPipeline GetHeightTextureContourPipeline(DxResourceFormat renderTargetFormat)
+    {
+        if (_heightContourPipelines.TryGetValue(renderTargetFormat, out var pipeline))
+        {
+            return pipeline;
+        }
+
+        _textureVertexShader ??= _device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = TextureVertexShader,
+            EntryPoint = "vs_main",
+            Label = "SciChart Texture Vertex"
+        });
+        _heightContourPixelShader ??= _device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = CreateHeightTextureContourPixelShader(),
+            EntryPoint = "fs_main",
+            Label = "SciChart Height Contour Pixel"
+        });
+        _textureInputLayout ??= _device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Label = "SciChart Texture Quad Layout",
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "TEXCOORD",
+                    Format = DxResourceFormat.R32G32Float,
+                    AlignedByteOffset = 8,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        var vertexShader = _textureVertexShader ?? throw new InvalidOperationException("SciChart contour vertex shader was not initialized.");
+        var pixelShader = _heightContourPixelShader ?? throw new InvalidOperationException("SciChart contour pixel shader was not initialized.");
+        var inputLayout = _textureInputLayout ?? throw new InvalidOperationException("SciChart contour input layout was not initialized.");
+
+        pipeline = _device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = renderTargetFormat,
+            Topology = DxPrimitiveTopology.TriangleList,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = true },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None },
+            Label = $"SciChart Height Contour Pipeline {renderTargetFormat}"
+        });
+        _heightContourPipelines[renderTargetFormat] = pipeline;
+        return pipeline;
+    }
+
     private void EnsureBatchedTextureVertexResources()
     {
         _batchedTextureVertexShader ??= _device.CreateShader(new DxShaderDescriptor
@@ -874,6 +1066,47 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
     }
 
+    private static void ValidateHeightTextureContourInputs(
+        ProGpuDirectXSciChartTexture2D heightsTexture,
+        ProGpuDirectXSciChartTexture2D contourTexture,
+        DxColor color,
+        float zMin,
+        float zMax,
+        float zStep,
+        float strokeThickness,
+        float opacity)
+    {
+        if (heightsTexture.TextureFormat != ProGpuDirectXSciChartTextureFormat.Float32)
+        {
+            throw new NotSupportedException("SciChart height contours require a Float32 heights texture.");
+        }
+
+        if (contourTexture.TextureFormat != ProGpuDirectXSciChartTextureFormat.Bgra8)
+        {
+            throw new NotSupportedException("SciChart height contours require a Bgra8 contour texture.");
+        }
+
+        if (!float.IsFinite(zMin) || !float.IsFinite(zMax) || !float.IsFinite(zStep) || zMax <= zMin || zStep <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zStep), "SciChart height contours require finite zMin/zMax and a positive zStep.");
+        }
+
+        if (!float.IsFinite(strokeThickness) || strokeThickness <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(strokeThickness), "SciChart height contour stroke thickness must be finite and positive.");
+        }
+
+        if (!float.IsFinite(opacity) || opacity < 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity), "SciChart height contour opacity must be finite and non-negative.");
+        }
+
+        if (!float.IsFinite(color.R) || !float.IsFinite(color.G) || !float.IsFinite(color.B) || !float.IsFinite(color.A))
+        {
+            throw new ArgumentOutOfRangeException(nameof(color), "SciChart height contour color must contain finite channels.");
+        }
+    }
+
     private static void ValidateVertexRange(int vertexLength, int startIndex, int count)
     {
         if (startIndex < 0 || startIndex > vertexLength)
@@ -973,6 +1206,72 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
 """;
     }
 
+    private static string CreateHeightTextureContourPixelShader()
+    {
+        return $$"""
+struct ContourParams {
+    zMin: f32,
+    zMax: f32,
+    zStep: f32,
+    strokeThickness: f32,
+    opacity: f32,
+    heightTextureWidth: f32,
+    heightTextureHeight: f32,
+    _pad0: f32,
+    color: vec4<f32>,
+};
+
+@group(0) @binding({{ProGpuDirectXNativeBindingMap.GetConstantBufferBinding(DxShaderStage.Pixel, 0)}}) var<uniform> Contour: ContourParams;
+@group(0) @binding({{ProGpuDirectXNativeBindingMap.GetShaderResourceBinding(DxShaderStage.Pixel, 0)}}) var<storage, read> Heights: array<f32>;
+@group(0) @binding({{ProGpuDirectXNativeBindingMap.GetShaderResourceBinding(DxShaderStage.Pixel, 1)}}) var ContourTexture: texture_2d<f32>;
+@group(0) @binding({{ProGpuDirectXNativeBindingMap.GetSamplerBinding(DxShaderStage.Pixel, 0)}}) var SourceSampler: sampler;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+fn load_height(coord: vec2<i32>, heightSize: vec2<i32>) -> f32 {
+    let clampedCoord = clamp(coord, vec2<i32>(0, 0), heightSize - vec2<i32>(1, 1));
+    let heightIndex = u32(clampedCoord.y * heightSize.x + clampedCoord.x);
+    return Heights[heightIndex];
+}
+
+@fragment
+fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
+    let heightSize = vec2<i32>(i32(Contour.heightTextureWidth), i32(Contour.heightTextureHeight));
+    let centerCoord = clamp(
+        vec2<i32>(input.uv * vec2<f32>(heightSize)),
+        vec2<i32>(0, 0),
+        heightSize - vec2<i32>(1, 1));
+    let height = load_height(centerCoord, heightSize);
+    if (height < Contour.zMin || height > Contour.zMax) {
+        discard;
+    }
+
+    let contourIndex = round((height - Contour.zMin) / Contour.zStep);
+    let contourHeight = Contour.zMin + contourIndex * Contour.zStep;
+    if (contourHeight < Contour.zMin || contourHeight > Contour.zMax) {
+        discard;
+    }
+
+    let heightDx = abs(load_height(centerCoord + vec2<i32>(1, 0), heightSize) - height);
+    let heightDy = abs(load_height(centerCoord + vec2<i32>(0, 1), heightSize) - height);
+    let heightPerPixel = max(max(heightDx, heightDy), Contour.zStep * 0.001);
+    let threshold = heightPerPixel * max(Contour.strokeThickness, 1.0);
+    let distanceToContour = abs(height - contourHeight);
+    var lineAlpha = 1.0 - smoothstep(threshold, threshold * 2.0, distanceToContour);
+    let contourMask = textureSample(ContourTexture, SourceSampler, input.uv);
+    lineAlpha = lineAlpha * clamp(Contour.opacity, 0.0, 1.0) * Contour.color.a * contourMask.a;
+    if (lineAlpha <= 0.001) {
+        discard;
+    }
+
+    return vec4<f32>(Contour.color.rgb, lineAlpha);
+}
+""";
+    }
+
     private static string TextureVertexShader => """
 struct VertexIn {
     @location(0) position: vec2<f32>,
@@ -1057,6 +1356,11 @@ fn vs_main(input: VertexIn) -> VertexOut {
             pipeline.Dispose();
         }
 
+        foreach (var pipeline in _heightContourPipelines.Values)
+        {
+            pipeline.Dispose();
+        }
+
         foreach (var sampler in _samplers.Values)
         {
             sampler.Dispose();
@@ -1067,6 +1371,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
         _batchedTextureVertexShader?.Dispose();
         _batchedTexturePixelShader?.Dispose();
         _shapedHeatmapPixelShader?.Dispose();
+        _heightContourPixelShader?.Dispose();
         _context.Dispose();
         RenderTarget.Dispose();
         _isDisposed = true;
