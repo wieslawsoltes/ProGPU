@@ -36,7 +36,8 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
         ProGpuDirectXDevice device,
         DxShaderStageFlags stageMask,
         IReadOnlyList<ProGpuDirectXBindingEntry> entries,
-        string label)
+        string label,
+        bool createStandaloneBackendBindGroup)
     {
         _device = device;
         StageMask = stageMask;
@@ -44,7 +45,8 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
         Label = label;
         BindingKey = BuildBindingKey(entries);
 
-        if (entries.Count > 0 &&
+        if (createStandaloneBackendBindGroup &&
+            entries.Count > 0 &&
             device.Context is { } context &&
             device.IsGpuBacked &&
             TryCreateBackendBindGroup(context, entries, label, out var layout, out var bindGroup))
@@ -71,6 +73,41 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
     internal BindGroupLayout* BackendBindGroupLayout => (BindGroupLayout*)_backendBindGroupLayout;
 
     internal BindGroup* BackendBindGroup => (BindGroup*)_backendBindGroup;
+
+    internal BindGroup* CreateBackendBindGroupFromLayout(
+        WgpuContext context,
+        BindGroupLayout* layout,
+        string label)
+    {
+        if (layout == null || !CanCreateBackendBindGroup(Entries))
+        {
+            return null;
+        }
+
+        var bindGroupEntries = stackalloc BindGroupEntry[Entries.Count];
+        for (var i = 0; i < Entries.Count; i++)
+        {
+            bindGroupEntries[i] = CreateBindGroupEntry(Entries[i]);
+        }
+
+        var bindGroupLabelPtr = SilkMarshal.StringToPtr(label);
+        try
+        {
+            var bindGroupDesc = new BindGroupDescriptor
+            {
+                Label = (byte*)bindGroupLabelPtr,
+                Layout = layout,
+                EntryCount = (uint)Entries.Count,
+                Entries = bindGroupEntries
+            };
+
+            return context.Wgpu.DeviceCreateBindGroup(context.Device, &bindGroupDesc);
+        }
+        finally
+        {
+            SilkMarshal.Free(bindGroupLabelPtr);
+        }
+    }
 
     private static string BuildBindingKey(IReadOnlyList<ProGpuDirectXBindingEntry> entries)
     {

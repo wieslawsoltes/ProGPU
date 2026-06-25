@@ -627,7 +627,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             Draw = draw,
             GraphicsPipeline = _graphicsPipeline,
             VertexBuffers = SnapshotVertexBuffers(),
-            BindingSnapshot = CreateBindingSnapshotCore(DxShaderStageFlags.AllGraphics, "ProGPU DirectX Draw Bindings")
+            BindingSnapshot = CreateBindingSnapshotCore(
+                DxShaderStageFlags.AllGraphics,
+                "ProGPU DirectX Draw Bindings",
+                createStandaloneBackendBindGroup: false)
         });
     }
 
@@ -662,7 +665,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             VertexBuffers = SnapshotVertexBuffers(),
             IndexBuffer = _indexBuffer,
             IndexFormat = effectiveIndexFormat,
-            BindingSnapshot = CreateBindingSnapshotCore(DxShaderStageFlags.AllGraphics, "ProGPU DirectX DrawIndexed Bindings")
+            BindingSnapshot = CreateBindingSnapshotCore(
+                DxShaderStageFlags.AllGraphics,
+                "ProGPU DirectX DrawIndexed Bindings",
+                createStandaloneBackendBindGroup: false)
         });
     }
 
@@ -679,7 +685,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             Kind = ProGpuDirectXCommandKind.Dispatch,
             Dispatch = new DxDispatchCall(threadGroupCountX, threadGroupCountY, threadGroupCountZ),
             ComputePipeline = _computePipeline,
-            BindingSnapshot = CreateBindingSnapshotCore(DxShaderStageFlags.Compute, "ProGPU DirectX Dispatch Bindings")
+            BindingSnapshot = CreateBindingSnapshotCore(
+                DxShaderStageFlags.Compute,
+                "ProGPU DirectX Dispatch Bindings",
+                createStandaloneBackendBindGroup: false)
         });
     }
 
@@ -718,10 +727,13 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
     }
 
-    private ProGpuDirectXBindingSnapshot CreateBindingSnapshotCore(DxShaderStageFlags stages, string label)
+    private ProGpuDirectXBindingSnapshot CreateBindingSnapshotCore(
+        DxShaderStageFlags stages,
+        string label,
+        bool createStandaloneBackendBindGroup = true)
     {
         var entries = BuildBindingEntries(stages);
-        return new ProGpuDirectXBindingSnapshot(_device, stages, entries, label);
+        return new ProGpuDirectXBindingSnapshot(_device, stages, entries, label, createStandaloneBackendBindGroup);
     }
 
     private IReadOnlyDictionary<uint, ProGpuDirectXBuffer> SnapshotVertexBuffers()
@@ -1208,11 +1220,6 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             throw new InvalidOperationException("GPU-backed DirectX draw requires a backend graphics pipeline.");
         }
 
-        if (command.BindingSnapshot is { Entries.Count: > 0, HasBackendBindGroup: false })
-        {
-            throw new InvalidOperationException("GPU-backed DirectX draw requires backend-compatible binding resources.");
-        }
-
         RenderPassDepthStencilAttachment depthAttachment = default;
         var depthTexture = command.DepthStencilTexture?.BackendTexture;
         var hasDepthAttachment = depthTexture is { IsDisposed: false, ViewPtr: not null };
@@ -1244,6 +1251,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
         CommandBuffer* commandBuffer = null;
+        BindGroupLayout* pipelineBindGroupLayout = null;
+        BindGroup* pipelineBindGroup = null;
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
@@ -1284,9 +1293,24 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                     command.GraphicsPipeline.Descriptor.DepthStencilState.StencilReference);
             }
 
-            if (command.BindingSnapshot is { HasBackendBindGroup: true } snapshot)
+            if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
             {
-                context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, snapshot.BackendBindGroup, 0, null);
+                pipelineBindGroupLayout = context.Wgpu.RenderPipelineGetBindGroupLayout(pipeline.BackendPipeline, 0);
+                if (pipelineBindGroupLayout == null)
+                {
+                    throw new InvalidOperationException("GPU-backed DirectX draw could not resolve the pipeline bind-group layout.");
+                }
+
+                pipelineBindGroup = snapshot.CreateBackendBindGroupFromLayout(
+                    context,
+                    pipelineBindGroupLayout,
+                    "ProGPU DirectX Draw Pipeline Bindings");
+                if (pipelineBindGroup == null)
+                {
+                    throw new InvalidOperationException("GPU-backed DirectX draw could not create a pipeline-compatible bind group.");
+                }
+
+                context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
             }
 
             if (command.VertexBuffers is { Count: > 0 } vertexBuffers)
@@ -1386,6 +1410,16 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             if (encoder != null)
             {
                 context.Wgpu.CommandEncoderRelease(encoder);
+            }
+
+            if (pipelineBindGroup != null)
+            {
+                context.Wgpu.BindGroupRelease(pipelineBindGroup);
+            }
+
+            if (pipelineBindGroupLayout != null)
+            {
+                context.Wgpu.BindGroupLayoutRelease(pipelineBindGroupLayout);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -1623,11 +1657,6 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             throw new InvalidOperationException("GPU-backed DirectX dispatch requires a backend compute pipeline.");
         }
 
-        if (command.BindingSnapshot is { Entries.Count: > 0, HasBackendBindGroup: false })
-        {
-            throw new InvalidOperationException("GPU-backed DirectX dispatch requires backend-compatible binding resources.");
-        }
-
         if (command.Dispatch is not { } dispatch)
         {
             return;
@@ -1637,6 +1666,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         CommandEncoder* encoder = null;
         ComputePassEncoder* pass = null;
         CommandBuffer* commandBuffer = null;
+        BindGroupLayout* pipelineBindGroupLayout = null;
+        BindGroup* pipelineBindGroup = null;
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
@@ -1654,9 +1685,24 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             }
 
             context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline.BackendPipeline);
-            if (command.BindingSnapshot is { HasBackendBindGroup: true } snapshot)
+            if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
             {
-                context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, snapshot.BackendBindGroup, 0, null);
+                pipelineBindGroupLayout = context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline.BackendPipeline, 0);
+                if (pipelineBindGroupLayout == null)
+                {
+                    throw new InvalidOperationException("GPU-backed DirectX dispatch could not resolve the pipeline bind-group layout.");
+                }
+
+                pipelineBindGroup = snapshot.CreateBackendBindGroupFromLayout(
+                    context,
+                    pipelineBindGroupLayout,
+                    "ProGPU DirectX Dispatch Pipeline Bindings");
+                if (pipelineBindGroup == null)
+                {
+                    throw new InvalidOperationException("GPU-backed DirectX dispatch could not create a pipeline-compatible bind group.");
+                }
+
+                context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
             }
 
             context.Wgpu.ComputePassEncoderDispatchWorkgroups(
@@ -1692,6 +1738,16 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             if (encoder != null)
             {
                 context.Wgpu.CommandEncoderRelease(encoder);
+            }
+
+            if (pipelineBindGroup != null)
+            {
+                context.Wgpu.BindGroupRelease(pipelineBindGroup);
+            }
+
+            if (pipelineBindGroupLayout != null)
+            {
+                context.Wgpu.BindGroupLayoutRelease(pipelineBindGroupLayout);
             }
 
             SilkMarshal.Free(labelPtr);

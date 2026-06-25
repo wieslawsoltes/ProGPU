@@ -13,8 +13,16 @@ internal static class ProGpuDirectXHlslTranslator
         @"\b(?<type>[A-Za-z_]\w*)\s+(?<name>[A-Za-z_]\w*)\s*:\s*(?<semantic>[A-Za-z_]\w*)\s*;",
         RegexOptions.Compiled);
 
+    private static readonly Regex s_cbufferRegex = new(
+        @"\bcbuffer\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*b(?<slot>\d+)\s*\))?\s*\{(?<body>.*?)\}\s*;",
+        RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+    private static readonly Regex s_cbufferFieldRegex = new(
+        @"\b(?<type>[A-Za-z_]\w*)\s+(?<name>[A-Za-z_]\w*)\s*;",
+        RegexOptions.Compiled);
+
     private static readonly Regex s_unsupportedRegex = new(
-        @"\b(cbuffer|tbuffer|Texture\w*|Sampler\w*|RWTexture\w*|StructuredBuffer|RWStructuredBuffer|ByteAddressBuffer|RWByteAddressBuffer)\b|\bmul\s*\(",
+        @"\b(tbuffer|Texture\w*|Sampler\w*|RWTexture\w*|StructuredBuffer|RWStructuredBuffer|ByteAddressBuffer|RWByteAddressBuffer)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool TryTranslate(DxShaderDescriptor descriptor, out string wgsl)
@@ -35,6 +43,7 @@ internal static class ProGpuDirectXHlslTranslator
 
         try
         {
+            var constantBuffers = ParseConstantBuffers(source);
             var structs = ParseStructs(source);
             if (!TryParseFunction(source, descriptor.EntryPoint!, out var function))
             {
@@ -43,9 +52,9 @@ internal static class ProGpuDirectXHlslTranslator
 
             wgsl = descriptor.Stage switch
             {
-                DxShaderStage.Vertex => TranslateVertexShader(structs, function),
-                DxShaderStage.Pixel => TranslatePixelShader(structs, function),
-                DxShaderStage.Compute => TranslateComputeShader(function),
+                DxShaderStage.Vertex => TranslateVertexShader(constantBuffers, structs, function),
+                DxShaderStage.Pixel => TranslatePixelShader(constantBuffers, structs, function),
+                DxShaderStage.Compute => TranslateComputeShader(constantBuffers, function),
                 _ => string.Empty
             };
 
@@ -59,10 +68,12 @@ internal static class ProGpuDirectXHlslTranslator
     }
 
     private static string TranslateVertexShader(
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
         IReadOnlyDictionary<string, HlslStruct> structs,
         HlslFunction function)
     {
         var builder = new StringBuilder();
+        AppendConstantBuffers(builder, constantBuffers);
         AppendStructs(builder, structs);
         builder.Append("@vertex\n");
         builder
@@ -85,15 +96,17 @@ internal static class ProGpuDirectXHlslTranslator
             throw new NotSupportedException("Vertex HLSL translation requires a struct return or SV_Position return semantic.");
         }
 
-        AppendTranslatedBody(builder, function.Body, allowReturnValue: true);
+        AppendTranslatedBody(builder, function.Body, constantBuffers, allowReturnValue: true);
         return builder.ToString();
     }
 
     private static string TranslatePixelShader(
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
         IReadOnlyDictionary<string, HlslStruct> structs,
         HlslFunction function)
     {
         var builder = new StringBuilder();
+        AppendConstantBuffers(builder, constantBuffers);
         AppendStructs(builder, structs);
         builder.Append("@fragment\n");
         builder
@@ -116,11 +129,13 @@ internal static class ProGpuDirectXHlslTranslator
             throw new NotSupportedException("Pixel HLSL translation requires a struct return or SV_Target return semantic.");
         }
 
-        AppendTranslatedBody(builder, function.Body, allowReturnValue: true);
+        AppendTranslatedBody(builder, function.Body, constantBuffers, allowReturnValue: true);
         return builder.ToString();
     }
 
-    private static string TranslateComputeShader(HlslFunction function)
+    private static string TranslateComputeShader(
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
+        HlslFunction function)
     {
         if (!string.Equals(function.ReturnType, "void", StringComparison.Ordinal))
         {
@@ -129,6 +144,7 @@ internal static class ProGpuDirectXHlslTranslator
 
         var (x, y, z) = function.NumThreads ?? (1u, 1u, 1u);
         var builder = new StringBuilder();
+        AppendConstantBuffers(builder, constantBuffers);
         builder
             .Append("@compute @workgroup_size(")
             .Append(x)
@@ -142,8 +158,35 @@ internal static class ProGpuDirectXHlslTranslator
             .Append(TranslateParameters(function.Parameters, new Dictionary<string, HlslStruct>()))
             .Append(')');
 
-        AppendTranslatedBody(builder, function.Body, allowReturnValue: false);
+        AppendTranslatedBody(builder, function.Body, constantBuffers, allowReturnValue: false);
         return builder.ToString();
+    }
+
+    private static void AppendConstantBuffers(StringBuilder builder, IReadOnlyList<HlslConstantBuffer> constantBuffers)
+    {
+        foreach (var constantBuffer in constantBuffers)
+        {
+            builder.Append("struct ").Append(constantBuffer.Name).Append(" {\n");
+            foreach (var field in constantBuffer.Fields)
+            {
+                builder
+                    .Append("    ")
+                    .Append(field.Name)
+                    .Append(": ")
+                    .Append(MapType(field.Type))
+                    .Append(",\n");
+            }
+
+            builder
+                .Append("}\n")
+                .Append("@group(0) @binding(")
+                .Append(constantBuffer.Register)
+                .Append(") var<uniform> ")
+                .Append(constantBuffer.VariableName)
+                .Append(": ")
+                .Append(constantBuffer.Name)
+                .Append(";\n\n");
+        }
     }
 
     private static void AppendStructs(StringBuilder builder, IReadOnlyDictionary<string, HlslStruct> structs)
@@ -195,7 +238,11 @@ internal static class ProGpuDirectXHlslTranslator
             }));
     }
 
-    private static void AppendTranslatedBody(StringBuilder builder, string body, bool allowReturnValue)
+    private static void AppendTranslatedBody(
+        StringBuilder builder,
+        string body,
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
+        bool allowReturnValue)
     {
         builder.Append(" {\n");
         foreach (var rawStatement in body.Split(';'))
@@ -215,7 +262,7 @@ internal static class ProGpuDirectXHlslTranslator
 
                 builder
                     .Append("    return ")
-                    .Append(TranslateExpression(statement["return ".Length..].Trim()))
+                    .Append(TranslateExpression(statement["return ".Length..].Trim(), constantBuffers))
                     .Append(";\n");
                 continue;
             }
@@ -244,7 +291,7 @@ internal static class ProGpuDirectXHlslTranslator
                     .Append("    ")
                     .Append(assignment.Groups["left"].Value)
                     .Append(" = ")
-                    .Append(TranslateExpression(assignment.Groups["right"].Value.Trim()))
+                    .Append(TranslateExpression(assignment.Groups["right"].Value.Trim(), constantBuffers))
                     .Append(";\n");
                 continue;
             }
@@ -253,6 +300,39 @@ internal static class ProGpuDirectXHlslTranslator
         }
 
         builder.Append("}\n");
+    }
+
+    private static List<HlslConstantBuffer> ParseConstantBuffers(string source)
+    {
+        var constantBuffers = new List<HlslConstantBuffer>();
+        foreach (Match match in s_cbufferRegex.Matches(source))
+        {
+            var name = match.Groups["name"].Value;
+            var register = match.Groups["slot"].Success
+                ? uint.Parse(match.Groups["slot"].Value)
+                : 0u;
+            var fields = new List<HlslConstantBufferField>();
+
+            foreach (Match fieldMatch in s_cbufferFieldRegex.Matches(match.Groups["body"].Value))
+            {
+                fields.Add(new HlslConstantBufferField(
+                    fieldMatch.Groups["type"].Value,
+                    fieldMatch.Groups["name"].Value));
+            }
+
+            if (fields.Count == 0)
+            {
+                throw new NotSupportedException($"HLSL cbuffer '{name}' has no translatable fields.");
+            }
+
+            constantBuffers.Add(new HlslConstantBuffer(
+                name,
+                ToVariableName(name),
+                register,
+                fields));
+        }
+
+        return constantBuffers;
     }
 
     private static Dictionary<string, HlslStruct> ParseStructs(string source)
@@ -378,12 +458,35 @@ internal static class ProGpuDirectXHlslTranslator
         return Regex.Replace(noBlockComments, @"//.*?$", string.Empty, RegexOptions.Multiline);
     }
 
-    private static string TranslateExpression(string expression)
+    private static string TranslateExpression(string expression, IReadOnlyList<HlslConstantBuffer> constantBuffers)
     {
-        return Regex.Replace(
-            expression,
+        var trimmed = expression.Trim();
+        var mul = Regex.Match(
+            trimmed,
+            @"^mul\s*\(\s*(?<left>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\s*,\s*(?<right>.+)\s*\)$",
+            RegexOptions.Singleline);
+        if (mul.Success)
+        {
+            return $"{TranslateExpression(mul.Groups["left"].Value, constantBuffers)} * {TranslateExpression(mul.Groups["right"].Value, constantBuffers)}";
+        }
+
+        var translated = Regex.Replace(
+            trimmed,
             @"\b(?<type>float|float2|float3|float4|uint|uint2|uint3|uint4|int|int2|int3|int4)\s*\(",
             match => $"{MapType(match.Groups["type"].Value)}(");
+
+        foreach (var constantBuffer in constantBuffers)
+        {
+            foreach (var field in constantBuffer.Fields)
+            {
+                translated = Regex.Replace(
+                    translated,
+                    $@"(?<!\.)\b{Regex.Escape(field.Name)}\b",
+                    $"{constantBuffer.VariableName}.{field.Name}");
+            }
+        }
+
+        return translated;
     }
 
     private static string GetFieldAttribute(string semantic, uint location)
@@ -475,6 +578,7 @@ internal static class ProGpuDirectXHlslTranslator
             "float2" => "vec2<f32>",
             "float3" => "vec3<f32>",
             "float4" => "vec4<f32>",
+            "float4x4" => "mat4x4<f32>",
             "uint" => "u32",
             "uint2" => "vec2<u32>",
             "uint3" => "vec3<u32>",
@@ -490,13 +594,29 @@ internal static class ProGpuDirectXHlslTranslator
     private static bool IsKnownScalarOrVectorType(string type)
     {
         return type is "float" or "float2" or "float3" or "float4" or
+            "float4x4" or
             "uint" or "uint2" or "uint3" or "uint4" or
             "int" or "int2" or "int3" or "int4";
+    }
+
+    private static string ToVariableName(string name)
+    {
+        return name.Length == 0
+            ? name
+            : char.ToLowerInvariant(name[0]) + name[1..];
     }
 
     private sealed record HlslStruct(string Name, IReadOnlyList<HlslField> Fields);
 
     private sealed record HlslField(string Type, string Name, string Semantic);
+
+    private sealed record HlslConstantBuffer(
+        string Name,
+        string VariableName,
+        uint Register,
+        IReadOnlyList<HlslConstantBufferField> Fields);
+
+    private sealed record HlslConstantBufferField(string Type, string Name);
 
     private readonly record struct HlslFunction(
         string Name,
