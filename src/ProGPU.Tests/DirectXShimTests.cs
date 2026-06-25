@@ -550,6 +550,7 @@ fn fs_main() -> @location(0) vec4<f32> {
         Assert.Empty(renderContext.LineBatchDraws);
         Assert.Empty(renderContext.ColumnBatchDraws);
         Assert.Empty(renderContext.RectBatchDraws);
+        Assert.Empty(renderContext.SpriteBatchDraws);
         Assert.Empty(renderContext.TextureVertexDraws);
         Assert.Empty(renderContext.ShapedHeatmapDraws);
         Assert.Empty(renderContext.HeightTextureContourDraws);
@@ -807,6 +808,60 @@ fn fs_main() -> @location(0) vec4<f32> {
             count: vertices.Length,
             transform: new ProGpuDirectXSciChartVertexTransform());
         Assert.Empty(renderContext.RectBatchDraws);
+    }
+
+    [Fact]
+    public void SciChartRenderContextRecordsSpriteBatchesAndClip()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(device, 64, 32);
+        using var sprite = renderContext.CreateSprite(4, 4);
+        using var strokeSprite = renderContext.CreateSprite(4, 4);
+        sprite.SetData(Enumerable.Repeat(unchecked((int)0xFFFFFFFF), 16).ToArray());
+        strokeSprite.SetData(Enumerable.Repeat(unchecked((int)0xFFFFFFFF), 16).ToArray());
+        ProGpuDirectXSciChartSpriteVertex[] vertices =
+        [
+            new(8, 8, 0xFF00FF00, 0xFFFF0000),
+            new(24, 8, 0x0000FF00, 0xFFFF0000),
+            new(float.NaN, 8, 0xFF00FF00, 0xFFFF0000)
+        ];
+
+        renderContext.SetClipRect(new DxRect(0, 0, 16, 16));
+        renderContext.DrawSpritesBatch(
+            vertices,
+            count: vertices.Length,
+            sprite,
+            strokeSprite,
+            transform: new ProGpuDirectXSciChartVertexTransform(),
+            centeredAmount: 0.5f,
+            ProGpuDirectXSciChartTextureFiltering.Point);
+
+        Assert.Single(renderContext.SpriteBatchDraws);
+        Assert.Equal(new DxRect(0, 0, 16, 16), renderContext.SpriteBatchDraws[0].ClipRect);
+        Assert.Equal(0.5f, renderContext.SpriteBatchDraws[0].CenteredAmount);
+        Assert.Equal(vertices.Length, renderContext.SpriteBatchDraws[0].Vertices.Count);
+        var drawVertexCounts = renderContext.ImmediateContext.Commands
+            .Where(command => command.Kind == ProGpuDirectXCommandKind.Draw)
+            .Select(command => (command.Draw ?? throw new InvalidOperationException("Expected SciChart sprite draw payload.")).VertexCount)
+            .ToArray();
+        Assert.Equal([6u, 12u], drawVertexCounts);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawSpritesBatch(vertices, count: 0, sprite, null, default, 0.5f));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawSpritesBatch(vertices, count: vertices.Length + 1, sprite, null, default, 0.5f));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawSpritesBatch(vertices, count: vertices.Length, sprite, null, default, float.NaN));
+
+        renderContext.BeginFrame();
+        renderContext.SetClipRect(new DxRect(100, 100, 8, 8));
+        renderContext.DrawSpritesBatch(
+            vertices,
+            count: vertices.Length,
+            sprite,
+            strokeSprite,
+            transform: new ProGpuDirectXSciChartVertexTransform(),
+            centeredAmount: 0.5f);
+        Assert.Empty(renderContext.SpriteBatchDraws);
     }
 
     [Fact]
@@ -1651,6 +1706,54 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(center.G < 50, $"Expected low green center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after SciChart texture draw, actual: {center}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedSciChartSpriteBatchCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            16,
+            16,
+            DxResourceFormat.R8G8B8A8Unorm);
+        using var sprite = renderContext.CreateSprite(8, 16);
+        sprite.SetData(Enumerable.Repeat(unchecked((int)0xFFFFFFFF), 128).ToArray());
+        ProGpuDirectXSciChartSpriteVertex[] vertices =
+        [
+            new(0, 0, 0xFF00FF00, 0x00000000),
+            new(8, 0, 0xFFFF0000, 0x00000000)
+        ];
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.SetClipRect(new DxRect(0, 0, 8, 16));
+        renderContext.DrawSpritesBatch(
+            vertices,
+            count: vertices.Length,
+            sprite,
+            strokeSprite: null,
+            transform: new ProGpuDirectXSciChartVertexTransform(),
+            centeredAmount: 0f,
+            ProGpuDirectXSciChartTextureFiltering.Point);
+        renderContext.Flush();
+
+        Assert.Single(renderContext.SpriteBatchDraws);
+        Assert.Equal(1ul, renderContext.ImmediateContext.SubmittedDrawCount);
+
+        var targetPixels = renderContext.ReadTargetPixels();
+        var clippedIn = ReadRgbaPixel(targetPixels, 16, 4, 8);
+        Assert.True(clippedIn.R < 50, $"Expected sprite batch low red pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.G > 200, $"Expected sprite batch green pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.B < 50, $"Expected sprite batch low blue pixel inside SciChart clip, actual: {clippedIn}");
+        Assert.True(clippedIn.A > 200, $"Expected sprite batch opaque pixel inside SciChart clip, actual: {clippedIn}");
+
+        var clippedOut = ReadRgbaPixel(targetPixels, 16, 12, 8);
+        Assert.True(clippedOut.R < 50, $"Expected black pixel outside SciChart sprite clip, actual: {clippedOut}");
+        Assert.True(clippedOut.G < 50, $"Expected black pixel outside SciChart sprite clip, actual: {clippedOut}");
+        Assert.True(clippedOut.B < 50, $"Expected black pixel outside SciChart sprite clip, actual: {clippedOut}");
+        Assert.True(clippedOut.A > 200, $"Expected opaque clear alpha outside SciChart sprite clip, actual: {clippedOut}");
     }
 
     [Fact]
