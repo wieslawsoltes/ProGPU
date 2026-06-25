@@ -72,6 +72,30 @@ public sealed class ProGpuDirectXDevice : IDisposable
         return new ProGpuDirectXSwapChain(this, descriptor);
     }
 
+    public ProGpuDirectXShader CreateShader(DxShaderDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        return new ProGpuDirectXShader(this, descriptor);
+    }
+
+    public ProGpuDirectXInputLayout CreateInputLayout(DxInputLayoutDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        return new ProGpuDirectXInputLayout(descriptor);
+    }
+
+    public ProGpuDirectXGraphicsPipeline CreateGraphicsPipeline(DxGraphicsPipelineDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        return new ProGpuDirectXGraphicsPipeline(this, descriptor);
+    }
+
+    public ProGpuDirectXComputePipeline CreateComputePipeline(DxComputePipelineDescriptor descriptor)
+    {
+        ThrowIfDisposed();
+        return new ProGpuDirectXComputePipeline(this, descriptor);
+    }
+
     internal void ThrowIfDisposed()
     {
         if (_isDisposed)

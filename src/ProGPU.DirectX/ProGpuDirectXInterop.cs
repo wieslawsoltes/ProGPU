@@ -8,6 +8,9 @@ public sealed record ProGpuDirectXNativeHandle(
 public interface IProGpuDirectXNativeInterop
 {
     bool TryGetNativeHandle(ProGpuDirectXResource resource, out ProGpuDirectXNativeHandle handle);
+    bool TryGetShaderHandle(ProGpuDirectXShader shader, out ProGpuDirectXNativeHandle handle);
+    bool TryGetGraphicsPipelineHandle(ProGpuDirectXGraphicsPipeline pipeline, out ProGpuDirectXNativeHandle handle);
+    bool TryGetComputePipelineHandle(ProGpuDirectXComputePipeline pipeline, out ProGpuDirectXNativeHandle handle);
 }
 
 public sealed unsafe class ProGpuDirectXBackendInterop : IProGpuDirectXNativeInterop
@@ -28,5 +31,47 @@ public sealed unsafe class ProGpuDirectXBackendInterop : IProGpuDirectXNativeInt
                 handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
                 return false;
         }
+    }
+
+    public bool TryGetShaderHandle(ProGpuDirectXShader shader, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(shader);
+
+        if (shader.BackendShaderModuleHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.ShaderModule", shader.BackendShaderModuleHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
+    }
+
+    public bool TryGetGraphicsPipelineHandle(ProGpuDirectXGraphicsPipeline pipeline, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        if (pipeline.BackendPipelineHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.RenderPipeline", pipeline.BackendPipelineHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
+    }
+
+    public bool TryGetComputePipelineHandle(ProGpuDirectXComputePipeline pipeline, out ProGpuDirectXNativeHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        if (pipeline.BackendPipelineHandle != IntPtr.Zero)
+        {
+            handle = new ProGpuDirectXNativeHandle("WebGPU.ComputePipeline", pipeline.BackendPipelineHandle);
+            return true;
+        }
+
+        handle = new ProGpuDirectXNativeHandle("None", IntPtr.Zero);
+        return false;
     }
 }

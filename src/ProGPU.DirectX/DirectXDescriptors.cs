@@ -68,3 +68,85 @@ public sealed record DxDrawIndexedCall(
     uint InstanceCount,
     uint StartInstanceLocation,
     DxIndexFormat IndexFormat);
+
+public sealed record DxShaderDescriptor
+{
+    public required DxShaderStage Stage { get; init; }
+    public DxShaderSourceKind SourceKind { get; init; } = DxShaderSourceKind.Wgsl;
+    public string? Source { get; init; }
+    public ReadOnlyMemory<byte> Bytecode { get; init; } = ReadOnlyMemory<byte>.Empty;
+    public string? EntryPoint { get; init; }
+    public string Label { get; init; } = "DirectXShader";
+}
+
+public sealed record DxInputElementDescriptor
+{
+    public required string SemanticName { get; init; }
+    public uint SemanticIndex { get; init; }
+    public DxResourceFormat Format { get; init; } = DxResourceFormat.R32G32B32A32Float;
+    public uint InputSlot { get; init; }
+    public uint AlignedByteOffset { get; init; }
+    public DxInputClassification InputSlotClass { get; init; } = DxInputClassification.PerVertexData;
+    public uint InstanceDataStepRate { get; init; }
+    public uint? ShaderLocation { get; init; }
+}
+
+public sealed record DxInputLayoutDescriptor
+{
+    public IReadOnlyList<DxInputElementDescriptor> Elements { get; init; } = Array.Empty<DxInputElementDescriptor>();
+    public string Label { get; init; } = "DirectXInputLayout";
+}
+
+public sealed record DxRasterizerStateDescriptor
+{
+    public DxFillMode FillMode { get; init; } = DxFillMode.Solid;
+    public DxCullMode CullMode { get; init; } = DxCullMode.Back;
+    public DxFrontFace FrontFace { get; init; } = DxFrontFace.CounterClockwise;
+    public bool ScissorEnable { get; init; }
+    public int DepthBias { get; init; }
+    public float DepthBiasClamp { get; init; }
+    public float SlopeScaledDepthBias { get; init; }
+}
+
+public sealed record DxBlendStateDescriptor
+{
+    public bool EnableBlend { get; init; } = true;
+    public DxBlendFactor SourceColor { get; init; } = DxBlendFactor.SourceAlpha;
+    public DxBlendFactor DestinationColor { get; init; } = DxBlendFactor.InverseSourceAlpha;
+    public DxBlendOperation ColorOperation { get; init; } = DxBlendOperation.Add;
+    public DxBlendFactor SourceAlpha { get; init; } = DxBlendFactor.One;
+    public DxBlendFactor DestinationAlpha { get; init; } = DxBlendFactor.InverseSourceAlpha;
+    public DxBlendOperation AlphaOperation { get; init; } = DxBlendOperation.Add;
+    public DxColorWriteMask WriteMask { get; init; } = DxColorWriteMask.All;
+}
+
+public sealed record DxDepthStencilStateDescriptor
+{
+    public bool DepthEnable { get; init; }
+    public DxDepthWriteMask DepthWriteMask { get; init; } = DxDepthWriteMask.All;
+    public DxComparisonFunction DepthFunction { get; init; } = DxComparisonFunction.LessEqual;
+    public bool StencilEnable { get; init; }
+}
+
+public sealed record DxGraphicsPipelineDescriptor
+{
+    public required ProGpuDirectXShader VertexShader { get; init; }
+    public ProGpuDirectXShader? PixelShader { get; init; }
+    public ProGpuDirectXInputLayout? InputLayout { get; init; }
+    public DxPrimitiveTopology Topology { get; init; } = DxPrimitiveTopology.TriangleList;
+    public DxResourceFormat RenderTargetFormat { get; init; } = DxResourceFormat.B8G8R8A8Unorm;
+    public DxResourceFormat DepthStencilFormat { get; init; } = DxResourceFormat.Unknown;
+    public uint SampleCount { get; init; } = 1;
+    public DxRasterizerStateDescriptor RasterizerState { get; init; } = new();
+    public DxBlendStateDescriptor BlendState { get; init; } = new();
+    public DxDepthStencilStateDescriptor DepthStencilState { get; init; } = new();
+    public string Label { get; init; } = "DirectXGraphicsPipeline";
+}
+
+public sealed record DxComputePipelineDescriptor
+{
+    public required ProGpuDirectXShader ComputeShader { get; init; }
+    public string Label { get; init; } = "DirectXComputePipeline";
+}
+
+public sealed record DxDispatchCall(uint ThreadGroupCountX, uint ThreadGroupCountY, uint ThreadGroupCountZ);

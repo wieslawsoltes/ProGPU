@@ -12,10 +12,21 @@ public enum ProGpuDirectXCommandKind
     SetVertexBuffer,
     SetIndexBuffer,
     SetConstantBuffer,
+    SetInputLayout,
+    SetVertexShader,
+    SetPixelShader,
+    SetGeometryShader,
+    SetComputeShader,
+    SetBlendState,
+    SetDepthStencilState,
+    SetRasterizerState,
+    SetGraphicsPipeline,
+    SetComputePipeline,
     ClearRenderTarget,
     ClearDepthStencil,
     Draw,
     DrawIndexed,
+    Dispatch,
     Present
 }
 
@@ -30,6 +41,14 @@ public sealed record ProGpuDirectXCommand
     public DxPrimitiveTopology Topology { get; init; }
     public DxDrawCall? Draw { get; init; }
     public DxDrawIndexedCall? DrawIndexed { get; init; }
+    public DxDispatchCall? Dispatch { get; init; }
+    public ProGpuDirectXShader? Shader { get; init; }
+    public ProGpuDirectXInputLayout? InputLayout { get; init; }
+    public ProGpuDirectXGraphicsPipeline? GraphicsPipeline { get; init; }
+    public ProGpuDirectXComputePipeline? ComputePipeline { get; init; }
+    public DxBlendStateDescriptor? BlendState { get; init; }
+    public DxDepthStencilStateDescriptor? DepthStencilState { get; init; }
+    public DxRasterizerStateDescriptor? RasterizerState { get; init; }
 }
 
 public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
@@ -39,6 +58,13 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     private ProGpuDirectXTexture2D? _renderTarget;
     private ProGpuDirectXTexture2D? _depthStencil;
     private DxPrimitiveTopology _topology = DxPrimitiveTopology.TriangleList;
+    private ProGpuDirectXInputLayout? _inputLayout;
+    private ProGpuDirectXShader? _vertexShader;
+    private ProGpuDirectXShader? _pixelShader;
+    private ProGpuDirectXShader? _geometryShader;
+    private ProGpuDirectXShader? _computeShader;
+    private ProGpuDirectXGraphicsPipeline? _graphicsPipeline;
+    private ProGpuDirectXComputePipeline? _computePipeline;
     private bool _isDisposed;
 
     internal ProGpuDirectXDeviceContext(ProGpuDirectXDevice device)
@@ -55,6 +81,20 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     public DxViewport Viewport { get; private set; }
 
     public DxRect ScissorRect { get; private set; }
+
+    public ProGpuDirectXInputLayout? InputLayout => _inputLayout;
+
+    public ProGpuDirectXShader? VertexShader => _vertexShader;
+
+    public ProGpuDirectXShader? PixelShader => _pixelShader;
+
+    public ProGpuDirectXShader? GeometryShader => _geometryShader;
+
+    public ProGpuDirectXShader? ComputeShader => _computeShader;
+
+    public ProGpuDirectXGraphicsPipeline? GraphicsPipeline => _graphicsPipeline;
+
+    public ProGpuDirectXComputePipeline? ComputePipeline => _computePipeline;
 
     public void SetRenderTargets(ProGpuDirectXTexture2D? renderTarget, ProGpuDirectXTexture2D? depthStencil = null)
     {
@@ -134,6 +174,125 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         });
     }
 
+    public void SetInputLayout(ProGpuDirectXInputLayout? inputLayout)
+    {
+        ThrowIfDisposed();
+        _inputLayout = inputLayout;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetInputLayout,
+            InputLayout = inputLayout
+        });
+    }
+
+    public void SetVertexShader(ProGpuDirectXShader? shader)
+    {
+        ThrowIfDisposed();
+        ValidateShaderStage(shader, DxShaderStage.Vertex);
+        _vertexShader = shader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetVertexShader,
+            Shader = shader
+        });
+    }
+
+    public void SetPixelShader(ProGpuDirectXShader? shader)
+    {
+        ThrowIfDisposed();
+        ValidateShaderStage(shader, DxShaderStage.Pixel);
+        _pixelShader = shader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetPixelShader,
+            Shader = shader
+        });
+    }
+
+    public void SetGeometryShader(ProGpuDirectXShader? shader)
+    {
+        ThrowIfDisposed();
+        ValidateShaderStage(shader, DxShaderStage.Geometry);
+        _geometryShader = shader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetGeometryShader,
+            Shader = shader
+        });
+    }
+
+    public void SetComputeShader(ProGpuDirectXShader? shader)
+    {
+        ThrowIfDisposed();
+        ValidateShaderStage(shader, DxShaderStage.Compute);
+        _computeShader = shader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetComputeShader,
+            Shader = shader
+        });
+    }
+
+    public void SetBlendState(DxBlendStateDescriptor blendState)
+    {
+        ThrowIfDisposed();
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetBlendState,
+            BlendState = blendState
+        });
+    }
+
+    public void SetDepthStencilState(DxDepthStencilStateDescriptor depthStencilState)
+    {
+        ThrowIfDisposed();
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetDepthStencilState,
+            DepthStencilState = depthStencilState
+        });
+    }
+
+    public void SetRasterizerState(DxRasterizerStateDescriptor rasterizerState)
+    {
+        ThrowIfDisposed();
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetRasterizerState,
+            RasterizerState = rasterizerState
+        });
+    }
+
+    public void SetGraphicsPipeline(ProGpuDirectXGraphicsPipeline pipeline)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pipeline);
+        _graphicsPipeline = pipeline;
+        _topology = pipeline.Descriptor.Topology;
+        _inputLayout = pipeline.Descriptor.InputLayout;
+        _vertexShader = pipeline.Descriptor.VertexShader;
+        _pixelShader = pipeline.Descriptor.PixelShader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetGraphicsPipeline,
+            GraphicsPipeline = pipeline,
+            Topology = _topology
+        });
+    }
+
+    public void SetComputePipeline(ProGpuDirectXComputePipeline pipeline)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pipeline);
+        _computePipeline = pipeline;
+        _computeShader = pipeline.Descriptor.ComputeShader;
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.SetComputePipeline,
+            ComputePipeline = pipeline
+        });
+    }
+
     public void ClearRenderTarget(ProGpuDirectXTexture2D renderTarget, DxColor color)
     {
         ThrowIfDisposed();
@@ -166,7 +325,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             Kind = ProGpuDirectXCommandKind.Draw,
             Topology = _topology,
-            Draw = draw
+            Draw = draw,
+            GraphicsPipeline = _graphicsPipeline
         });
     }
 
@@ -191,7 +351,24 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             Kind = ProGpuDirectXCommandKind.DrawIndexed,
             Topology = _topology,
-            DrawIndexed = draw
+            DrawIndexed = draw,
+            GraphicsPipeline = _graphicsPipeline
+        });
+    }
+
+    public void Dispatch(uint threadGroupCountX, uint threadGroupCountY, uint threadGroupCountZ)
+    {
+        ThrowIfDisposed();
+        if (threadGroupCountX == 0 || threadGroupCountY == 0 || threadGroupCountZ == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(threadGroupCountX), "Dispatch dimensions must be non-zero.");
+        }
+
+        _commands.Add(new ProGpuDirectXCommand
+        {
+            Kind = ProGpuDirectXCommandKind.Dispatch,
+            Dispatch = new DxDispatchCall(threadGroupCountX, threadGroupCountY, threadGroupCountZ),
+            ComputePipeline = _computePipeline
         });
     }
 
@@ -317,6 +494,14 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         if (_isDisposed)
         {
             throw new ObjectDisposedException(nameof(ProGpuDirectXDeviceContext));
+        }
+    }
+
+    private static void ValidateShaderStage(ProGpuDirectXShader? shader, DxShaderStage stage)
+    {
+        if (shader is not null && shader.Descriptor.Stage != stage)
+        {
+            throw new ArgumentException($"Expected a {stage} shader.", nameof(shader));
         }
     }
 

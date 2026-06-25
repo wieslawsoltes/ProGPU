@@ -5,6 +5,37 @@ namespace ProGPU.Tests;
 
 public sealed class DirectXShimTests
 {
+    private const string PassthroughWgsl = """
+struct VertexIn {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: VertexIn) -> VertexOut {
+    var output: VertexOut;
+    output.position = vec4<f32>(input.position, 1.0);
+    output.color = input.color;
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
+    return input.color;
+}
+""";
+
+    private const string ComputeWgsl = """
+@compute @workgroup_size(1)
+fn cs_main() {
+}
+""";
+
     [Fact]
     public void MetadataDeviceAdvertisesSciChartFeatureLevelRange()
     {
@@ -85,6 +116,138 @@ public sealed class DirectXShimTests
     }
 
     [Fact]
+    public void CanCreateSciChartStyleShaderInputLayoutAndPipelineMetadata()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = PassthroughWgsl
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = PassthroughWgsl
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "COLOR",
+                    Format = DxResourceFormat.R32G32B32A32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            Topology = DxPrimitiveTopology.TriangleList,
+            RenderTargetFormat = DxResourceFormat.B8G8R8A8Unorm,
+            DepthStencilFormat = DxResourceFormat.D24UnormS8UInt,
+            DepthStencilState = new DxDepthStencilStateDescriptor
+            {
+                DepthEnable = true,
+                DepthWriteMask = DxDepthWriteMask.All,
+                DepthFunction = DxComparisonFunction.LessEqual
+            },
+            RasterizerState = new DxRasterizerStateDescriptor
+            {
+                CullMode = DxCullMode.Back,
+                FrontFace = DxFrontFace.CounterClockwise,
+                ScissorEnable = true
+            }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetGraphicsPipeline(pipeline);
+        context.DrawIndexed(36, indexFormat: DxIndexFormat.UInt16);
+
+        Assert.False(vertexShader.HasBackendShaderModule);
+        Assert.False(pipeline.HasBackendPipeline);
+        Assert.Equal(28u, inputLayout.GetInferredStride(0));
+        Assert.Contains(vertexShader.SourceHash, pipeline.PipelineKey, StringComparison.Ordinal);
+        Assert.Same(pipeline, context.GraphicsPipeline);
+        Assert.Equal(ProGpuDirectXCommandKind.SetGraphicsPipeline, context.Commands[0].Kind);
+        Assert.Equal(ProGpuDirectXCommandKind.DrawIndexed, context.Commands[1].Kind);
+        Assert.Same(pipeline, context.Commands[1].GraphicsPipeline);
+        Assert.Equal(DxIndexFormat.UInt16, context.Commands[1].DrawIndexed!.IndexFormat);
+    }
+
+    [Fact]
+    public void HlslBytecodeShadersRemainMetadataUntilTranslatorOrNativeFacadeIsConnected()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslBytecode,
+            Bytecode = new byte[] { 0x44, 0x58, 0x42, 0x43 }
+        });
+
+        Assert.False(shader.HasBackendShaderModule);
+        Assert.Equal("vs_main", shader.EntryPoint);
+        Assert.NotEqual(string.Empty, shader.SourceHash);
+    }
+
+    [Fact]
+    public void RejectsMismatchedPipelineShaderStages()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = PassthroughWgsl
+        });
+
+        Assert.Throws<ArgumentException>(() =>
+            device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+            {
+                VertexShader = pixelShader
+            }));
+    }
+
+    [Fact]
+    public void CanRecordComputePipelineAndDispatchMetadata()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var computeShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Compute,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = ComputeWgsl
+        });
+        using var pipeline = device.CreateComputePipeline(new DxComputePipelineDescriptor
+        {
+            ComputeShader = computeShader
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetComputePipeline(pipeline);
+        context.Dispatch(8, 4, 1);
+
+        Assert.False(pipeline.HasBackendPipeline);
+        Assert.Same(pipeline, context.ComputePipeline);
+        Assert.Equal(ProGpuDirectXCommandKind.Dispatch, context.Commands[1].Kind);
+        Assert.Equal(new DxDispatchCall(8, 4, 1), context.Commands[1].Dispatch);
+    }
+
+    [Fact]
     public void InvalidDescriptorsAreRejected()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
@@ -100,6 +263,14 @@ public sealed class DirectXShimTests
             device.CreateBuffer(new DxBufferDescriptor
             {
                 SizeInBytes = 0
+            }));
+
+        Assert.Throws<ArgumentException>(() =>
+            device.CreateShader(new DxShaderDescriptor
+            {
+                Stage = DxShaderStage.Pixel,
+                SourceKind = DxShaderSourceKind.Wgsl,
+                Source = ""
             }));
     }
 }

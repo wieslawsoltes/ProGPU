@@ -26,6 +26,21 @@ public enum DxResourceFormat
     D32Float
 }
 
+public enum DxShaderStage
+{
+    Vertex,
+    Pixel,
+    Geometry,
+    Compute
+}
+
+public enum DxShaderSourceKind
+{
+    Wgsl,
+    HlslText,
+    HlslBytecode
+}
+
 public enum DxPrimitiveTopology
 {
     Undefined,
@@ -73,4 +88,81 @@ public enum DxIndexFormat
 {
     UInt16,
     UInt32
+}
+
+public enum DxInputClassification
+{
+    PerVertexData,
+    PerInstanceData
+}
+
+public enum DxFillMode
+{
+    Solid,
+    Wireframe
+}
+
+public enum DxCullMode
+{
+    None,
+    Front,
+    Back
+}
+
+public enum DxFrontFace
+{
+    CounterClockwise,
+    Clockwise
+}
+
+public enum DxComparisonFunction
+{
+    Never,
+    Less,
+    Equal,
+    LessEqual,
+    Greater,
+    NotEqual,
+    GreaterEqual,
+    Always
+}
+
+public enum DxDepthWriteMask
+{
+    Zero,
+    All
+}
+
+public enum DxBlendFactor
+{
+    Zero,
+    One,
+    SourceColor,
+    InverseSourceColor,
+    SourceAlpha,
+    InverseSourceAlpha,
+    DestinationColor,
+    InverseDestinationColor,
+    DestinationAlpha,
+    InverseDestinationAlpha
+}
+
+public enum DxBlendOperation
+{
+    Add,
+    Subtract,
+    ReverseSubtract,
+    Min,
+    Max
+}
+
+[Flags]
+public enum DxColorWriteMask
+{
+    None = 0,
+    Red = 1 << 0,
+    Green = 1 << 1,
+    Blue = 1 << 2,
+    Alpha = 1 << 3,
+    All = Red | Green | Blue | Alpha
 }
