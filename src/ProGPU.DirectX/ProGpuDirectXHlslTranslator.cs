@@ -57,8 +57,12 @@ internal static class ProGpuDirectXHlslTranslator
         @"\bSamplerState\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*s(?<slot>\d+)\s*\))?\s*;",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex s_samplerComparisonStateResourceRegex = new(
+        @"\bSamplerComparisonState\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*s(?<slot>\d+)\s*\))?\s*;",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex s_textureMethodCallStartRegex = new(
-        @"(?<texture>[A-Za-z_]\w*)\.(?<method>SampleLevel|SampleBias|SampleGrad|Sample|Load)\s*\(",
+        @"(?<texture>[A-Za-z_]\w*)\.(?<method>SampleCmpLevelZero|SampleCmp|SampleLevel|SampleBias|SampleGrad|Sample|Load)\s*\(",
         RegexOptions.Compiled);
 
     private static readonly Regex s_byteAddressBufferMethodCallStartRegex = new(
@@ -78,7 +82,7 @@ internal static class ProGpuDirectXHlslTranslator
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex s_unsupportedRegex = new(
-        @"\b(tbuffer|Texture(?!(?:2D|2DArray)\b)\w*|Sampler(?!State\b)\w*|RWTexture\w*)\b",
+        @"\b(tbuffer|Texture(?!(?:2D|2DArray)\b)\w*|Sampler(?!(?:State|ComparisonState)\b)\w*|RWTexture\w*)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool TryTranslate(DxShaderDescriptor descriptor, out string wgsl)
@@ -307,7 +311,7 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(ProGpuDirectXNativeBindingMap.GetShaderResourceBinding(stage, resource.Register))
                         .Append(") var ")
                         .Append(resource.Name)
-                        .Append(": texture_2d<f32>;\n");
+                        .Append(resource.UsesComparisonSampling ? ": texture_depth_2d;\n" : ": texture_2d<f32>;\n");
                     break;
                 case HlslShaderResourceKind.Texture2DArray:
                     builder
@@ -315,7 +319,7 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(ProGpuDirectXNativeBindingMap.GetShaderResourceBinding(stage, resource.Register))
                         .Append(") var ")
                         .Append(resource.Name)
-                        .Append(": texture_2d_array<f32>;\n");
+                        .Append(resource.UsesComparisonSampling ? ": texture_depth_2d_array;\n" : ": texture_2d_array<f32>;\n");
                     break;
                 case HlslShaderResourceKind.StructuredBuffer:
                 case HlslShaderResourceKind.Buffer:
@@ -372,12 +376,15 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(": array<atomic<u32>>;\n");
                     break;
                 case HlslShaderResourceKind.SamplerState:
+                case HlslShaderResourceKind.SamplerComparisonState:
                     builder
                         .Append("@group(0) @binding(")
                         .Append(ProGpuDirectXNativeBindingMap.GetSamplerBinding(stage, resource.Register))
                         .Append(") var ")
                         .Append(resource.Name)
-                        .Append(": sampler;\n");
+                        .Append(resource.Kind == HlslShaderResourceKind.SamplerComparisonState
+                            ? ": sampler_comparison;\n"
+                            : ": sampler;\n");
                     break;
                 default:
                     throw new NotSupportedException($"Unsupported HLSL shader resource '{resource.Kind}'.");
@@ -657,7 +664,7 @@ internal static class ProGpuDirectXHlslTranslator
             .Where(resource => IsUnorderedAccessSlotKind(resource.Kind))
             .Select(resource => resource.Match));
         var usedSamplerRegisters = CreateExplicitRegisterSet(pendingResources
-            .Where(resource => resource.Kind == HlslShaderResourceKind.SamplerState)
+            .Where(resource => IsSamplerSlotKind(resource.Kind))
             .Select(resource => resource.Match));
         uint nextSrvRegister = 0;
         uint nextUavRegister = 0;
@@ -668,7 +675,8 @@ internal static class ProGpuDirectXHlslTranslator
             var match = pendingResource.Match;
             var register = pendingResource.Kind switch
             {
-                HlslShaderResourceKind.SamplerState => ResolveRegister(match, usedSamplerRegisters, ref nextSamplerRegister),
+                HlslShaderResourceKind.SamplerState or
+                HlslShaderResourceKind.SamplerComparisonState => ResolveRegister(match, usedSamplerRegisters, ref nextSamplerRegister),
                 HlslShaderResourceKind.RWStructuredBuffer or
                 HlslShaderResourceKind.RWBuffer or
                 HlslShaderResourceKind.RWByteAddressBuffer => ResolveRegister(match, usedUavRegisters, ref nextUavRegister),
@@ -688,7 +696,8 @@ internal static class ProGpuDirectXHlslTranslator
                     resources.Add(new HlslShaderResource(
                         pendingResource.Kind,
                         match.Groups["name"].Value,
-                        register));
+                        register,
+                        UsesComparisonSampling: UsesComparisonSampling(source, match.Groups["name"].Value)));
                     break;
 
                 case HlslShaderResourceKind.StructuredBuffer:
@@ -707,10 +716,13 @@ internal static class ProGpuDirectXHlslTranslator
                 case HlslShaderResourceKind.ByteAddressBuffer:
                 case HlslShaderResourceKind.RWByteAddressBuffer:
                 case HlslShaderResourceKind.SamplerState:
+                case HlslShaderResourceKind.SamplerComparisonState:
                     resources.Add(new HlslShaderResource(
                         pendingResource.Kind,
                         match.Groups["name"].Value,
-                        register));
+                        register,
+                        UsesComparisonSampling: pendingResource.Kind == HlslShaderResourceKind.SamplerComparisonState ||
+                            UsesComparisonSampling(source, match.Groups["name"].Value)));
                     break;
 
                 default:
@@ -736,6 +748,7 @@ internal static class ProGpuDirectXHlslTranslator
         AddPendingResources(resources, HlslShaderResourceKind.ByteAddressBuffer, s_byteAddressBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.RWByteAddressBuffer, s_rwByteAddressBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.SamplerState, s_samplerStateResourceRegex.Matches(source));
+        AddPendingResources(resources, HlslShaderResourceKind.SamplerComparisonState, s_samplerComparisonStateResourceRegex.Matches(source));
         return resources;
     }
 
@@ -795,6 +808,20 @@ internal static class ProGpuDirectXHlslTranslator
         return kind is HlslShaderResourceKind.RWStructuredBuffer or
             HlslShaderResourceKind.RWBuffer or
             HlslShaderResourceKind.RWByteAddressBuffer;
+    }
+
+    private static bool IsSamplerSlotKind(HlslShaderResourceKind kind)
+    {
+        return kind is HlslShaderResourceKind.SamplerState or
+            HlslShaderResourceKind.SamplerComparisonState;
+    }
+
+    private static bool UsesComparisonSampling(string source, string resourceName)
+    {
+        return Regex.IsMatch(
+            source,
+            $@"\b{Regex.Escape(resourceName)}\s*\.\s*SampleCmp(?:LevelZero)?\s*\(",
+            RegexOptions.IgnoreCase);
     }
 
     private static Dictionary<string, HlslStruct> ParseStructs(string source)
@@ -1415,6 +1442,26 @@ internal static class ProGpuDirectXHlslTranslator
                     coordinates,
                     ddx,
                     ddy);
+            }
+            else if (string.Equals(method, "SampleCmp", StringComparison.Ordinal) ||
+                string.Equals(method, "SampleCmpLevelZero", StringComparison.Ordinal))
+            {
+                if (arguments.Count != 3)
+                {
+                    throw new NotSupportedException($"HLSL Texture2D.{method} requires sampler, coordinate, and compare-value arguments.");
+                }
+
+                var sampler = arguments[0].Trim();
+                var textureResource = ValidateTextureComparisonSampleResources(texture, sampler, shaderResources);
+                var coordinates = TranslateExpression(arguments[1], constantBuffers, shaderResources, localTypes);
+                AppendTextureSampleCall(
+                    builder,
+                    textureResource,
+                    "textureSampleCompare",
+                    texture,
+                    sampler,
+                    coordinates,
+                    TranslateExpression(arguments[2], constantBuffers, shaderResources, localTypes));
             }
             else
             {
@@ -2044,6 +2091,24 @@ internal static class ProGpuDirectXHlslTranslator
         return textureResource;
     }
 
+    private static HlslShaderResource ValidateTextureComparisonSampleResources(
+        string texture,
+        string sampler,
+        IReadOnlyList<HlslShaderResource> shaderResources)
+    {
+        var textureResource = FindTextureResource(texture, shaderResources);
+        if (textureResource is null ||
+            !textureResource.UsesComparisonSampling ||
+            !shaderResources.Any(resource =>
+                resource.Kind == HlslShaderResourceKind.SamplerComparisonState &&
+                string.Equals(resource.Name, sampler, StringComparison.Ordinal)))
+        {
+            throw new NotSupportedException("HLSL texture comparison sampling requires declared Texture2D or Texture2DArray and SamplerComparisonState resources.");
+        }
+
+        return textureResource;
+    }
+
     private static HlslShaderResource ValidateTextureResource(
         string texture,
         IReadOnlyList<HlslShaderResource> shaderResources)
@@ -2469,7 +2534,8 @@ internal static class ProGpuDirectXHlslTranslator
         HlslShaderResourceKind Kind,
         string Name,
         uint Register,
-        string? ElementType = null);
+        string? ElementType = null,
+        bool UsesComparisonSampling = false);
 
     private sealed record PendingHlslShaderResource(HlslShaderResourceKind Kind, Match Match);
 
@@ -2483,7 +2549,8 @@ internal static class ProGpuDirectXHlslTranslator
         RWStructuredBuffer,
         RWBuffer,
         RWByteAddressBuffer,
-        SamplerState
+        SamplerState,
+        SamplerComparisonState
     }
 
     private readonly record struct HlslFunction(

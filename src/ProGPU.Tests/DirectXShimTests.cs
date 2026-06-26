@@ -2145,6 +2145,35 @@ float4 PSMain(float2 uv : TEXCOORD0) : SV_Target
     }
 
     [Fact]
+    public void HlslTextShaderTranslatesTextureComparisonSampleCalls()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = """
+Texture2D ShadowMap : register(t2);
+SamplerComparisonState ShadowSampler : register(s3);
+
+float4 PSMain(float3 shadow : TEXCOORD0) : SV_Target
+{
+    float visibility = ShadowMap.SampleCmp(ShadowSampler, shadow.xy, shadow.z);
+    float visibilityLevelZero = ShadowMap.SampleCmpLevelZero(ShadowSampler, shadow.xy, shadow.z);
+    return float4(visibility, visibilityLevelZero, 0.0, 1.0);
+}
+""",
+            EntryPoint = "PSMain"
+        });
+
+        Assert.NotNull(shader.BackendSource);
+        Assert.Contains("@binding(578) var ShadowMap: texture_depth_2d;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@binding(771) var ShadowSampler: sampler_comparison;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var visibility: f32 = textureSampleCompare(ShadowMap, ShadowSampler, shadow.xy, shadow.z);", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var visibilityLevelZero: f32 = textureSampleCompare(ShadowMap, ShadowSampler, shadow.xy, shadow.z);", shader.BackendSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HlslTextShaderAssignsRegistersToUnannotatedConstantBuffers()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
