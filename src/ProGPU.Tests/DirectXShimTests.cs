@@ -3315,7 +3315,7 @@ VertexOutput VSMain(VertexInput input)
     }
 
     [Fact]
-    public void GpuBackedHlslFragmentFrontFacePipelineHonorsBackendCapability()
+    public void GpuBackedHlslFragmentFrontFacePipelineUsesNativeEmulationWhenBackendCapabilityIsMissing()
     {
         using var wgpu = new WgpuContext();
         wgpu.Initialize(null);
@@ -3352,7 +3352,7 @@ VertexOutput VSMain(VertexInput input)
             Stage = DxShaderStage.Pixel,
             SourceKind = DxShaderSourceKind.HlslText,
             Source = """
-float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
+float4 PSMain(float4 color : COLOR0, bool isFrontFace : SV_IsFrontFace) : SV_Target
 {
     return isFrontFace
         ? float4(1.0, 0.0, 0.0, 1.0)
@@ -3396,11 +3396,9 @@ float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
         Assert.True(pixelShader.HasBackendShaderModule);
         Assert.Contains("@builtin(front_facing) isFrontFace: bool", pixelShader.BackendSource!, StringComparison.Ordinal);
         Assert.Contains("vec4<bool>(isFrontFace, isFrontFace, isFrontFace, isFrontFace)", pixelShader.BackendSource, StringComparison.Ordinal);
-        Assert.Equal(device.Capabilities.SupportsFragmentFrontFacingBuiltin, pipeline.HasBackendPipeline);
-        if (!device.Capabilities.SupportsFragmentFrontFacingBuiltin)
-        {
-            return;
-        }
+        Assert.False(device.Capabilities.SupportsFragmentFrontFacingBuiltin);
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.True(pipeline.UsesFragmentFrontFacingEmulation);
 
         context.SetRenderTargets(target);
         context.SetViewport(new DxViewport(0, 0, 32, 32));
@@ -3418,6 +3416,268 @@ float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
         Assert.True(center.G < 50, $"Expected low green center pixel after HLSL fragment system-value draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after HLSL fragment system-value draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after HLSL fragment system-value draw, actual: {center}");
+    }
+
+    [Fact]
+    public void GpuBackedHlslFragmentFrontFaceEmulationRendersBackFacingBranch()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 84,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination,
+            StrideInBytes = 28
+        });
+        vertexBuffer.Write<float>(
+        [
+            -0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.0f,  0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
+        ]);
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = """
+float4 PSMain(float4 color : COLOR0, bool isFrontFace : SV_IsFrontFace) : SV_Target
+{
+    return isFrontFace
+        ? float4(1.0, 0.0, 0.0, 1.0)
+        : float4(0.0, 0.0, 1.0, 1.0);
+}
+""",
+            EntryPoint = "PSMain",
+            Label = "HLSL FrontFace Pixel"
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "COLOR",
+                    Format = DxResourceFormat.R32G32B32A32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor
+            {
+                CullMode = DxCullMode.None,
+                FrontFace = DxFrontFace.Clockwise
+            }
+        });
+        using var context = device.CreateImmediateContext();
+
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.True(pipeline.UsesFragmentFrontFacingEmulation);
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetVertexBuffer(vertexBuffer);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R < 50, $"Expected low red center pixel after back-facing emulation draw, actual: {center}");
+        Assert.True(center.G < 50, $"Expected low green center pixel after back-facing emulation draw, actual: {center}");
+        Assert.True(center.B > 200, $"Expected blue center pixel after back-facing emulation draw, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel after back-facing emulation draw, actual: {center}");
+    }
+
+    [Fact]
+    public void GpuBackedWgslFrontFacingOverrideVariantDraws()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = SolidTriangleWgsl,
+            EntryPoint = "vs_main",
+            Label = "WGSL Triangle Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = """
+@fragment
+fn PSMain() -> @location(0) vec4<f32> {
+    return select(vec4<f32>(0.0, 0.0, 1.0, 1.0), vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<bool>(true, true, true, true));
+}
+""",
+            EntryPoint = "PSMain",
+            Label = "WGSL FrontFace Override Pixel"
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R > 200, $"Expected red center pixel after WGSL override draw, actual: {center}");
+        Assert.True(center.G < 50, $"Expected low green center pixel after WGSL override draw, actual: {center}");
+        Assert.True(center.B < 50, $"Expected low blue center pixel after WGSL override draw, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel after WGSL override draw, actual: {center}");
+    }
+
+    [Fact]
+    public void GpuBackedWgslFrontFacingOverrideVariantDrawsWithHlslVertexInput()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 84,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination,
+            StrideInBytes = 28
+        });
+        vertexBuffer.Write<float>(
+        [
+            -0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.0f,  0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
+        ]);
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.Wgsl,
+            Source = """
+@fragment
+fn PSMain(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+    return select(vec4<f32>(0.0, 0.0, 1.0, 1.0), vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<bool>(true, true, true, true));
+}
+""",
+            EntryPoint = "PSMain",
+            Label = "WGSL FrontFace Override Pixel"
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "COLOR",
+                    Format = DxResourceFormat.R32G32B32A32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetVertexBuffer(vertexBuffer);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R > 200, $"Expected red center pixel after WGSL override HLSL vertex draw, actual: {center}");
+        Assert.True(center.G < 50, $"Expected low green center pixel after WGSL override HLSL vertex draw, actual: {center}");
+        Assert.True(center.B < 50, $"Expected low blue center pixel after WGSL override HLSL vertex draw, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel after WGSL override HLSL vertex draw, actual: {center}");
     }
 
     [Fact]

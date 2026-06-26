@@ -69,7 +69,7 @@ public sealed unsafe class ProGpuDirectXShader : IDisposable
 
     internal ShaderModule* BackendShaderModule => (ShaderModule*)_backendShaderModule;
 
-    private static ShaderModule* CreateWgslShaderModule(
+    internal static ShaderModule* CreateWgslShaderModule(
         WgpuContext context,
         DxShaderDescriptor descriptor,
         string source)
@@ -269,6 +269,10 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
 {
     private readonly ProGpuDirectXDevice _device;
     private readonly IntPtr _backendPipeline;
+    private readonly IntPtr _frontFacingFrontPipeline;
+    private readonly IntPtr _frontFacingBackPipeline;
+    private readonly IntPtr _frontFacingTrueShaderModule;
+    private readonly IntPtr _frontFacingFalseShaderModule;
     private bool _isDisposed;
 
     internal ProGpuDirectXGraphicsPipeline(ProGpuDirectXDevice device, DxGraphicsPipelineDescriptor descriptor)
@@ -300,6 +304,15 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
             if (descriptor.PixelShader is { UsesFragmentFrontFacingBuiltin: true } &&
                 !device.Capabilities.SupportsFragmentFrontFacingBuiltin)
             {
+                TryCreateFrontFacingEmulationPipelines(
+                    context,
+                    descriptor,
+                    EffectiveInputLayout,
+                    PipelineKey,
+                    out _frontFacingFrontPipeline,
+                    out _frontFacingBackPipeline,
+                    out _frontFacingTrueShaderModule,
+                    out _frontFacingFalseShaderModule);
                 return;
             }
 
@@ -327,17 +340,27 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
 
     public string? ReflectedBindingRequirementsFailureReason { get; }
 
-    public bool HasBackendPipeline => _backendPipeline != IntPtr.Zero;
+    public bool HasBackendPipeline => _backendPipeline != IntPtr.Zero || UsesFragmentFrontFacingEmulation;
+
+    public bool UsesFragmentFrontFacingEmulation =>
+        _frontFacingFrontPipeline != IntPtr.Zero ||
+        _frontFacingBackPipeline != IntPtr.Zero;
 
     public IntPtr BackendPipelineHandle => _backendPipeline;
 
     internal RenderPipeline* BackendPipeline => (RenderPipeline*)_backendPipeline;
 
+    internal RenderPipeline* FrontFacingFrontPipeline => (RenderPipeline*)_frontFacingFrontPipeline;
+
+    internal RenderPipeline* FrontFacingBackPipeline => (RenderPipeline*)_frontFacingBackPipeline;
+
     private static RenderPipeline* CreateBackendPipeline(
         WgpuContext context,
         DxGraphicsPipelineDescriptor descriptor,
         ProGpuDirectXInputLayout? effectiveInputLayout,
-        string pipelineKey)
+        string pipelineKey,
+        ShaderModule* pixelShaderModuleOverride = null,
+        DxRasterizerStateDescriptor? rasterizerStateOverride = null)
     {
         if (!descriptor.VertexShader.HasBackendShaderModule)
         {
@@ -450,13 +473,16 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
             {
                 fragmentState = new FragmentState
                 {
-                    Module = descriptor.PixelShader.BackendShaderModule,
+                    Module = pixelShaderModuleOverride != null
+                        ? pixelShaderModuleOverride
+                        : descriptor.PixelShader.BackendShaderModule,
                     EntryPoint = (byte*)fsEntryPtr,
                     TargetCount = 1,
                     Targets = &colorTarget
                 };
             }
 
+            var rasterizerState = rasterizerStateOverride ?? descriptor.RasterizerState;
             var depthStencilEnabled = descriptor.DepthStencilFormat != DxResourceFormat.Unknown &&
                 (descriptor.DepthStencilState.DepthEnable || descriptor.DepthStencilState.StencilEnable);
             var depthStencilState = new DepthStencilState
@@ -471,9 +497,9 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
                 StencilBack = CreateStencilFaceState(descriptor.DepthStencilState.BackFace),
                 StencilReadMask = descriptor.DepthStencilState.StencilReadMask,
                 StencilWriteMask = descriptor.DepthStencilState.StencilWriteMask,
-                DepthBias = descriptor.RasterizerState.DepthBias,
-                DepthBiasClamp = descriptor.RasterizerState.DepthBiasClamp,
-                DepthBiasSlopeScale = descriptor.RasterizerState.SlopeScaledDepthBias
+                DepthBias = rasterizerState.DepthBias,
+                DepthBiasClamp = rasterizerState.DepthBiasClamp,
+                DepthBiasSlopeScale = rasterizerState.SlopeScaledDepthBias
             };
 
             var pipelineDesc = new RenderPipelineDescriptor
@@ -485,8 +511,8 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
                 {
                     Topology = GetBackendPrimitiveTopology(descriptor),
                     StripIndexFormat = IndexFormat.Undefined,
-                    FrontFace = ProGpuDirectXFormatConverter.ToFrontFace(descriptor.RasterizerState.FrontFace),
-                    CullMode = ProGpuDirectXFormatConverter.ToCullMode(descriptor.RasterizerState.CullMode)
+                    FrontFace = ProGpuDirectXFormatConverter.ToFrontFace(rasterizerState.FrontFace),
+                    CullMode = ProGpuDirectXFormatConverter.ToCullMode(rasterizerState.CullMode)
                 },
                 DepthStencil = depthStencilEnabled ? &depthStencilState : null,
                 Multisample = new MultisampleState
@@ -515,6 +541,69 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
                 SilkMarshal.Free(fsEntryPtr);
             }
         }
+    }
+
+    private static bool TryCreateFrontFacingEmulationPipelines(
+        WgpuContext context,
+        DxGraphicsPipelineDescriptor descriptor,
+        ProGpuDirectXInputLayout? effectiveInputLayout,
+        string pipelineKey,
+        out IntPtr frontPipeline,
+        out IntPtr backPipeline,
+        out IntPtr trueShaderModule,
+        out IntPtr falseShaderModule)
+    {
+        frontPipeline = IntPtr.Zero;
+        backPipeline = IntPtr.Zero;
+        trueShaderModule = IntPtr.Zero;
+        falseShaderModule = IntPtr.Zero;
+
+        if (descriptor.PixelShader?.BackendSource is not { } pixelSource ||
+            descriptor.Topology is not (DxPrimitiveTopology.TriangleList or DxPrimitiveTopology.TriangleStrip) ||
+            descriptor.RasterizerState.FillMode != DxFillMode.Solid)
+        {
+            return false;
+        }
+
+        if ((descriptor.RasterizerState.CullMode is DxCullMode.None or DxCullMode.Back) &&
+            ProGpuDirectXFrontFacingEmulation.TryCreateOverrideSource(pixelSource, isFrontFacing: true, out var trueSource))
+        {
+            trueShaderModule = (IntPtr)ProGpuDirectXShader.CreateWgslShaderModule(
+                context,
+                descriptor.PixelShader.Descriptor with { Label = $"{descriptor.PixelShader.Descriptor.Label} FrontFacingTrue" },
+                trueSource);
+            if (trueShaderModule != IntPtr.Zero)
+            {
+                frontPipeline = (IntPtr)CreateBackendPipeline(
+                    context,
+                    descriptor,
+                    effectiveInputLayout,
+                    $"{pipelineKey}|front-facing-true",
+                    (ShaderModule*)trueShaderModule,
+                    descriptor.RasterizerState with { CullMode = DxCullMode.Back });
+            }
+        }
+
+        if ((descriptor.RasterizerState.CullMode is DxCullMode.None or DxCullMode.Front) &&
+            ProGpuDirectXFrontFacingEmulation.TryCreateOverrideSource(pixelSource, isFrontFacing: false, out var falseSource))
+        {
+            falseShaderModule = (IntPtr)ProGpuDirectXShader.CreateWgslShaderModule(
+                context,
+                descriptor.PixelShader.Descriptor with { Label = $"{descriptor.PixelShader.Descriptor.Label} FrontFacingFalse" },
+                falseSource);
+            if (falseShaderModule != IntPtr.Zero)
+            {
+                backPipeline = (IntPtr)CreateBackendPipeline(
+                    context,
+                    descriptor,
+                    effectiveInputLayout,
+                    $"{pipelineKey}|front-facing-false",
+                    (ShaderModule*)falseShaderModule,
+                    descriptor.RasterizerState with { CullMode = DxCullMode.Front });
+            }
+        }
+
+        return frontPipeline != IntPtr.Zero || backPipeline != IntPtr.Zero;
     }
 
     private static PrimitiveTopology GetBackendPrimitiveTopology(DxGraphicsPipelineDescriptor descriptor)
@@ -672,6 +761,30 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
             _device.Context is { IsDisposed: false } context)
         {
             context.QueueRenderPipelineDisposal(_backendPipeline);
+        }
+
+        if (_frontFacingFrontPipeline != IntPtr.Zero &&
+            _device.Context is { IsDisposed: false } frontContext)
+        {
+            frontContext.QueueRenderPipelineDisposal(_frontFacingFrontPipeline);
+        }
+
+        if (_frontFacingBackPipeline != IntPtr.Zero &&
+            _device.Context is { IsDisposed: false } backContext)
+        {
+            backContext.QueueRenderPipelineDisposal(_frontFacingBackPipeline);
+        }
+
+        if (_frontFacingTrueShaderModule != IntPtr.Zero &&
+            _device.Context is { IsDisposed: false } trueContext)
+        {
+            trueContext.QueueShaderModuleDisposal(_frontFacingTrueShaderModule);
+        }
+
+        if (_frontFacingFalseShaderModule != IntPtr.Zero &&
+            _device.Context is { IsDisposed: false } falseContext)
+        {
+            falseContext.QueueShaderModuleDisposal(_frontFacingFalseShaderModule);
         }
 
         _isDisposed = true;

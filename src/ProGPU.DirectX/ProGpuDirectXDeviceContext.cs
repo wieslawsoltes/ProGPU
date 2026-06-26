@@ -1366,7 +1366,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             throw new InvalidOperationException("GPU-backed DirectX draw requires a render target with a backend texture view.");
         }
 
-        if (command.GraphicsPipeline is not { BackendPipeline: not null } pipeline)
+        if (command.GraphicsPipeline is not { HasBackendPipeline: true } pipeline)
         {
             throw new InvalidOperationException("GPU-backed DirectX draw requires a backend graphics pipeline.");
         }
@@ -1402,8 +1402,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
         CommandBuffer* commandBuffer = null;
-        BindGroupLayout* pipelineBindGroupLayout = null;
-        BindGroup* pipelineBindGroup = null;
+        var bindGroupsToRelease = new List<IntPtr>();
+        var bindGroupLayoutsToRelease = new List<IntPtr>();
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
@@ -1435,33 +1435,12 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 return;
             }
 
-            context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline.BackendPipeline);
             ApplyRenderState(context, pass, command, renderTarget.Width, renderTarget.Height);
             if (command.GraphicsPipeline.Descriptor.DepthStencilState.StencilEnable)
             {
                 context.Wgpu.RenderPassEncoderSetStencilReference(
                     pass,
                     command.GraphicsPipeline.Descriptor.DepthStencilState.StencilReference);
-            }
-
-            if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
-            {
-                pipelineBindGroupLayout = context.Wgpu.RenderPipelineGetBindGroupLayout(pipeline.BackendPipeline, 0);
-                if (pipelineBindGroupLayout == null)
-                {
-                    throw new InvalidOperationException("GPU-backed DirectX draw could not resolve the pipeline bind-group layout.");
-                }
-
-                pipelineBindGroup = snapshot.CreateBackendBindGroupFromLayout(
-                    context,
-                    pipelineBindGroupLayout,
-                    "ProGPU DirectX Draw Pipeline Bindings");
-                if (pipelineBindGroup == null)
-                {
-                    throw new InvalidOperationException("GPU-backed DirectX draw could not create a pipeline-compatible bind group.");
-                }
-
-                context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
             }
 
             if (command.VertexBuffers is { Count: > 0 } vertexBuffers)
@@ -1477,61 +1456,39 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 }
             }
 
-            var isWireframeTriangleDraw = IsWireframeTriangleDraw(command);
-            if (TryGetWireframeIndexBuffer(context, command, out var wireframeIndexBuffer, out var wireframeBaseVertex, out var wireframeInstanceCount, out var wireframeStartInstance))
+            if (pipeline.UsesFragmentFrontFacingEmulation)
             {
-                context.Wgpu.RenderPassEncoderSetIndexBuffer(
-                    pass,
-                    wireframeIndexBuffer.Buffer.BufferPtr,
-                    IndexFormat.Uint32,
-                    0,
-                    wireframeIndexBuffer.Buffer.Size);
-
-                context.Wgpu.RenderPassEncoderDrawIndexed(
-                    pass,
-                    wireframeIndexBuffer.IndexCount,
-                    wireframeInstanceCount,
-                    0,
-                    wireframeBaseVertex,
-                    wireframeStartInstance);
-
-                SubmittedWireframeDrawCount++;
-            }
-            else if (isWireframeTriangleDraw)
-            {
-                // A triangle-list/strip wireframe draw with fewer than one source triangle has no edges.
-            }
-            else if (command.Kind == ProGpuDirectXCommandKind.DrawIndexed)
-            {
-                if (command.IndexBuffer?.BackendBuffer is not { BufferPtr: not null } indexBuffer ||
-                    command.DrawIndexed is null)
+                if (pipeline.FrontFacingFrontPipeline != null)
                 {
-                    throw new InvalidOperationException("GPU-backed DirectX DrawIndexed requires a backend index buffer.");
+                    ExecuteGpuBackedDrawPass(
+                        context,
+                        pass,
+                        command,
+                        pipeline.FrontFacingFrontPipeline,
+                        bindGroupsToRelease,
+                        bindGroupLayoutsToRelease);
                 }
 
-                context.Wgpu.RenderPassEncoderSetIndexBuffer(
-                    pass,
-                    indexBuffer.BufferPtr,
-                    ProGpuDirectXFormatConverter.ToIndexFormat(command.DrawIndexed.IndexFormat),
-                    0,
-                    indexBuffer.Size);
-
-                context.Wgpu.RenderPassEncoderDrawIndexed(
-                    pass,
-                    command.DrawIndexed.IndexCount,
-                    command.DrawIndexed.InstanceCount,
-                    command.DrawIndexed.StartIndexLocation,
-                    command.DrawIndexed.BaseVertexLocation,
-                    command.DrawIndexed.StartInstanceLocation);
+                if (pipeline.FrontFacingBackPipeline != null)
+                {
+                    ExecuteGpuBackedDrawPass(
+                        context,
+                        pass,
+                        command,
+                        pipeline.FrontFacingBackPipeline,
+                        bindGroupsToRelease,
+                        bindGroupLayoutsToRelease);
+                }
             }
-            else if (command.Draw is { } draw)
+            else
             {
-                context.Wgpu.RenderPassEncoderDraw(
+                ExecuteGpuBackedDrawPass(
+                    context,
                     pass,
-                    draw.VertexCount,
-                    draw.InstanceCount,
-                    draw.StartVertexLocation,
-                    draw.StartInstanceLocation);
+                    command,
+                    pipeline.BackendPipeline,
+                    bindGroupsToRelease,
+                    bindGroupLayoutsToRelease);
             }
 
             context.Wgpu.RenderPassEncoderEnd(pass);
@@ -1563,17 +1520,107 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 context.Wgpu.CommandEncoderRelease(encoder);
             }
 
-            if (pipelineBindGroup != null)
+            foreach (var bindGroup in bindGroupsToRelease)
             {
-                context.Wgpu.BindGroupRelease(pipelineBindGroup);
+                context.Wgpu.BindGroupRelease((BindGroup*)bindGroup);
             }
 
-            if (pipelineBindGroupLayout != null)
+            foreach (var bindGroupLayout in bindGroupLayoutsToRelease)
             {
-                context.Wgpu.BindGroupLayoutRelease(pipelineBindGroupLayout);
+                context.Wgpu.BindGroupLayoutRelease((BindGroupLayout*)bindGroupLayout);
             }
 
             SilkMarshal.Free(labelPtr);
+        }
+    }
+
+    private void ExecuteGpuBackedDrawPass(
+        ProGPU.Backend.WgpuContext context,
+        RenderPassEncoder* pass,
+        ProGpuDirectXCommand command,
+        RenderPipeline* renderPipeline,
+        List<IntPtr> bindGroupsToRelease,
+        List<IntPtr> bindGroupLayoutsToRelease)
+    {
+        context.Wgpu.RenderPassEncoderSetPipeline(pass, renderPipeline);
+        if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
+        {
+            var pipelineBindGroupLayout = context.Wgpu.RenderPipelineGetBindGroupLayout(renderPipeline, 0);
+            if (pipelineBindGroupLayout == null)
+            {
+                throw new InvalidOperationException("GPU-backed DirectX draw could not resolve the pipeline bind-group layout.");
+            }
+
+            bindGroupLayoutsToRelease.Add((IntPtr)pipelineBindGroupLayout);
+
+            var pipelineBindGroup = snapshot.CreateBackendBindGroupFromLayout(
+                context,
+                pipelineBindGroupLayout,
+                "ProGPU DirectX Draw Pipeline Bindings");
+            if (pipelineBindGroup == null)
+            {
+                throw new InvalidOperationException("GPU-backed DirectX draw could not create a pipeline-compatible bind group.");
+            }
+
+            bindGroupsToRelease.Add((IntPtr)pipelineBindGroup);
+            context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
+        }
+
+        var isWireframeTriangleDraw = IsWireframeTriangleDraw(command);
+        if (TryGetWireframeIndexBuffer(context, command, out var wireframeIndexBuffer, out var wireframeBaseVertex, out var wireframeInstanceCount, out var wireframeStartInstance))
+        {
+            context.Wgpu.RenderPassEncoderSetIndexBuffer(
+                pass,
+                wireframeIndexBuffer.Buffer.BufferPtr,
+                IndexFormat.Uint32,
+                0,
+                wireframeIndexBuffer.Buffer.Size);
+
+            context.Wgpu.RenderPassEncoderDrawIndexed(
+                pass,
+                wireframeIndexBuffer.IndexCount,
+                wireframeInstanceCount,
+                0,
+                wireframeBaseVertex,
+                wireframeStartInstance);
+
+            SubmittedWireframeDrawCount++;
+        }
+        else if (isWireframeTriangleDraw)
+        {
+            // A triangle-list/strip wireframe draw with fewer than one source triangle has no edges.
+        }
+        else if (command.Kind == ProGpuDirectXCommandKind.DrawIndexed)
+        {
+            if (command.IndexBuffer?.BackendBuffer is not { BufferPtr: not null } indexBuffer ||
+                command.DrawIndexed is null)
+            {
+                throw new InvalidOperationException("GPU-backed DirectX DrawIndexed requires a backend index buffer.");
+            }
+
+            context.Wgpu.RenderPassEncoderSetIndexBuffer(
+                pass,
+                indexBuffer.BufferPtr,
+                ProGpuDirectXFormatConverter.ToIndexFormat(command.DrawIndexed.IndexFormat),
+                0,
+                indexBuffer.Size);
+
+            context.Wgpu.RenderPassEncoderDrawIndexed(
+                pass,
+                command.DrawIndexed.IndexCount,
+                command.DrawIndexed.InstanceCount,
+                command.DrawIndexed.StartIndexLocation,
+                command.DrawIndexed.BaseVertexLocation,
+                command.DrawIndexed.StartInstanceLocation);
+        }
+        else if (command.Draw is { } draw)
+        {
+            context.Wgpu.RenderPassEncoderDraw(
+                pass,
+                draw.VertexCount,
+                draw.InstanceCount,
+                draw.StartVertexLocation,
+                draw.StartInstanceLocation);
         }
     }
 
