@@ -3523,6 +3523,114 @@ float4 PSMain(float4 color : COLOR0, bool isFrontFace : SV_IsFrontFace) : SV_Tar
     }
 
     [Fact]
+    public void GpuBackedHlslFragmentFrontFaceInputStructUsesNativeEmulation()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 84,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination,
+            StrideInBytes = 28
+        });
+        vertexBuffer.Write<float>(
+        [
+            -0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.0f,  0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
+        ]);
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = """
+struct PixelInput
+{
+    float4 color : COLOR0;
+    bool isFrontFace : SV_IsFrontFace;
+};
+
+float4 PSMain(PixelInput input) : SV_Target
+{
+    return input.isFrontFace
+        ? input.color
+        : float4(0.0, 0.0, 1.0, 1.0);
+}
+""",
+            EntryPoint = "PSMain",
+            Label = "HLSL FrontFace Struct Pixel"
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "COLOR",
+                    Format = DxResourceFormat.R32G32B32A32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        Assert.True(pixelShader.HasBackendShaderModule);
+        Assert.Contains("@builtin(front_facing) isFrontFace: bool", pixelShader.BackendSource!, StringComparison.Ordinal);
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.True(pipeline.UsesFragmentFrontFacingEmulation);
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetVertexBuffer(vertexBuffer);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R > 200, $"Expected red center pixel after input-struct front-facing emulation draw, actual: {center}");
+        Assert.True(center.G < 50, $"Expected low green center pixel after input-struct front-facing emulation draw, actual: {center}");
+        Assert.True(center.B < 50, $"Expected low blue center pixel after input-struct front-facing emulation draw, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel after input-struct front-facing emulation draw, actual: {center}");
+    }
+
+    [Fact]
     public void GpuBackedWgslFrontFacingOverrideVariantDraws()
     {
         using var wgpu = new WgpuContext();
