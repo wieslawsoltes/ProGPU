@@ -1,3 +1,8 @@
+using System.Numerics;
+using ProGPU.Scene;
+using ProGPU.Text;
+using ProGPU.Vector;
+
 namespace ProGPU.DirectX;
 
 public enum ProGpuDirectXSciChartTextureFormat
@@ -25,6 +30,21 @@ public enum ProGpuDirectXSciChartSpriteAnchor
     BottomLeft,
     Bottom,
     BottomRight
+}
+
+public enum ProGpuDirectXSciChartTextAlignment
+{
+    Left,
+    Center,
+    Right
+}
+
+public enum ProGpuDirectXSciChartVerticalTextAlignment
+{
+    Top,
+    Center,
+    Bottom,
+    Baseline
 }
 
 public sealed record ProGpuDirectXSciChartPen2D
@@ -93,6 +113,29 @@ public sealed record ProGpuDirectXSciChartBrush2D
 
 public readonly record struct ProGpuDirectXSciChartPoint(float X, float Y);
 
+public sealed class ProGpuDirectXSciChartFont
+{
+    internal ProGpuDirectXSciChartFont(
+        TtfFont font,
+        string familyName,
+        string sourcePath,
+        int faceIndex)
+    {
+        Font = font ?? throw new ArgumentNullException(nameof(font));
+        FamilyName = familyName;
+        SourcePath = sourcePath;
+        FaceIndex = faceIndex;
+    }
+
+    internal TtfFont Font { get; }
+
+    public string FamilyName { get; }
+
+    public string SourcePath { get; }
+
+    public int FaceIndex { get; }
+}
+
 public readonly record struct ProGpuDirectXSciChartAreaSegment(
     ProGpuDirectXSciChartPoint Start,
     ProGpuDirectXSciChartPoint End);
@@ -114,6 +157,20 @@ public sealed record ProGpuDirectXSciChartTextureDraw(
     DxRect ViewportRect,
     ProGpuDirectXSciChartTextureFiltering Filtering,
     bool IsUniform);
+
+public sealed record ProGpuDirectXSciChartTextDraw(
+    string Text,
+    ProGpuDirectXSciChartFont Font,
+    float FontSize,
+    uint ColorArgb,
+    ProGpuDirectXSciChartPoint Position,
+    float RotationRadians,
+    ProGpuDirectXSciChartTextAlignment HorizontalAlignment,
+    ProGpuDirectXSciChartVerticalTextAlignment VerticalAlignment,
+    bool IsBold,
+    bool IsItalic,
+    bool IsAntiAliased,
+    DxRect? ClipRect);
 
 public readonly record struct ProGpuDirectXSciChartTextureVertex(
     float X,
@@ -469,6 +526,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     private readonly ProGpuDirectXDeviceContext _context;
     private readonly List<IDisposable> _transientResources = new();
     private readonly List<ProGpuDirectXSciChartTextureDraw> _textureDraws = new();
+    private readonly List<ProGpuDirectXSciChartTextDraw> _textDraws = new();
     private readonly List<ProGpuDirectXSciChartPrimitiveDraw> _primitiveDraws = new();
     private readonly List<ProGpuDirectXSciChartLineBatchDraw> _lineBatchDraws = new();
     private readonly List<ProGpuDirectXSciChartMountainBatchDraw> _mountainBatchDraws = new();
@@ -499,6 +557,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     private ProGpuDirectXInputLayout? _batchedTextureInputLayout;
     private ProGpuDirectXShader? _shapedHeatmapPixelShader;
     private ProGpuDirectXShader? _heightContourPixelShader;
+    private Compositor? _textCompositor;
     private DxRect? _clipRect;
     private bool _isDisposed;
 
@@ -530,6 +589,8 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     public ProGpuDirectXTexture2D RenderTarget { get; }
 
     public IReadOnlyList<ProGpuDirectXSciChartTextureDraw> TextureDraws => _textureDraws;
+
+    public IReadOnlyList<ProGpuDirectXSciChartTextDraw> TextDraws => _textDraws;
 
     public IReadOnlyList<ProGpuDirectXSciChartPrimitiveDraw> PrimitiveDraws => _primitiveDraws;
 
@@ -602,6 +663,61 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         return new ProGpuDirectXSciChartBrush2D(startColorArgb, endColorArgb, gradientRotationAngle);
     }
 
+    public ProGpuDirectXSciChartFont CreateFont(string familyNameOrFilePath, int faceIndex = 0)
+    {
+        ThrowIfDisposed();
+        if (string.IsNullOrWhiteSpace(familyNameOrFilePath))
+        {
+            throw new ArgumentException("SciChart fonts require a family name or font file path.", nameof(familyNameOrFilePath));
+        }
+
+        if (faceIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(faceIndex), "SciChart font face indices must be non-negative.");
+        }
+
+        if (File.Exists(familyNameOrFilePath))
+        {
+            var fullPath = Path.GetFullPath(familyNameOrFilePath);
+            var fontInfo = FontApi.ParseFontInfo(fullPath);
+            var font = new TtfFont(fullPath, faceIndex);
+            return new ProGpuDirectXSciChartFont(
+                font,
+                fontInfo?.FamilyName ?? Path.GetFileNameWithoutExtension(fullPath),
+                fullPath,
+                faceIndex);
+        }
+
+        var systemFont = FontApi.FindSystemFont(familyNameOrFilePath)
+            ?? throw new FileNotFoundException($"SciChart font '{familyNameOrFilePath}' was not found.");
+        return new ProGpuDirectXSciChartFont(
+            new TtfFont(systemFont.FilePath, systemFont.FaceIndex),
+            systemFont.FamilyName,
+            systemFont.FilePath,
+            systemFont.FaceIndex);
+    }
+
+    public ProGpuDirectXSciChartFont CreateDefaultFont()
+    {
+        ThrowIfDisposed();
+        var systemFont = FontApi.FindSystemFont(
+                "Arial",
+                "Helvetica",
+                "Helvetica Neue",
+                "Segoe UI",
+                "DejaVu Sans",
+                ".SF NS Text",
+                "San Francisco")
+            ?? FontApi.GetSystemFonts().FirstOrDefault(font => File.Exists(font.FilePath))
+            ?? throw new FileNotFoundException("No system font was found for the SciChart DirectX shim.");
+
+        return new ProGpuDirectXSciChartFont(
+            new TtfFont(systemFont.FilePath, systemFont.FaceIndex),
+            systemFont.FamilyName,
+            systemFont.FilePath,
+            systemFont.FaceIndex);
+    }
+
     public void Clear(DxColor color)
     {
         ThrowIfDisposed();
@@ -614,6 +730,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
     {
         ThrowIfDisposed();
         _textureDraws.Clear();
+        _textDraws.Clear();
         _primitiveDraws.Clear();
         _lineBatchDraws.Clear();
         _mountainBatchDraws.Clear();
@@ -680,6 +797,46 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _textureDraws.Add(new ProGpuDirectXSciChartTextureDraw(texture, effectiveRect, filtering, isUniform));
         _transientResources.Add(vertexBuffer);
         _transientResources.Add(shaderResourceView);
+    }
+
+    public void DrawText(
+        string text,
+        ProGpuDirectXSciChartFont font,
+        float fontSize,
+        uint colorArgb,
+        ProGpuDirectXSciChartPoint position,
+        float rotationRadians = 0f,
+        ProGpuDirectXSciChartTextAlignment horizontalAlignment = ProGpuDirectXSciChartTextAlignment.Left,
+        ProGpuDirectXSciChartVerticalTextAlignment verticalAlignment = ProGpuDirectXSciChartVerticalTextAlignment.Top,
+        bool isBold = false,
+        bool isItalic = false,
+        bool isAntiAliased = true)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(font);
+        ValidateText(text, fontSize, position, rotationRadians);
+
+        if (string.IsNullOrEmpty(text) || !HasVisibleColor(colorArgb) || HasEmptyClip)
+        {
+            return;
+        }
+
+        var draw = new ProGpuDirectXSciChartTextDraw(
+            text,
+            font,
+            fontSize,
+            colorArgb,
+            position,
+            rotationRadians,
+            horizontalAlignment,
+            verticalAlignment,
+            isBold,
+            isItalic,
+            isAntiAliased,
+            _clipRect);
+
+        RenderTextDraw(draw);
+        _textDraws.Add(draw);
     }
 
     public void DrawLine(
@@ -1676,6 +1833,94 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         new(0, 0, checked((int)RenderTarget.Width), checked((int)RenderTarget.Height));
 
     private bool HasEmptyClip => _clipRect is { Width: <= 0 } or { Height: <= 0 };
+
+    private void RenderTextDraw(ProGpuDirectXSciChartTextDraw draw)
+    {
+        if (!_device.IsGpuBacked ||
+            _device.Context is not { IsDisposed: false } ||
+            RenderTarget.BackendTexture is not { IsDisposed: false } targetTexture)
+        {
+            return;
+        }
+
+        Flush(clearRecordedCommands: true);
+
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(RenderTarget.Width, RenderTarget.Height)
+        };
+        var context = visual.Context;
+        if (draw.ClipRect is { } clipRect)
+        {
+            context.PushClip(new Rect(clipRect.X, clipRect.Y, clipRect.Width, clipRect.Height));
+        }
+
+        context.DrawText(
+            draw.Text,
+            draw.Font.Font,
+            draw.FontSize,
+            new SolidColorBrush(ToColorVector(draw.ColorArgb)),
+            ResolveTextOrigin(draw),
+            draw.IsBold,
+            draw.IsItalic,
+            draw.RotationRadians,
+            draw.IsAntiAliased ? TextRenderingMode.Grayscale : TextRenderingMode.Aliased,
+            TextHintingMode.Auto);
+
+        if (draw.ClipRect is not null)
+        {
+            context.PopClip();
+        }
+
+        GetOrCreateTextCompositor().RenderOffscreen(
+            visual,
+            RenderTarget.Width,
+            RenderTarget.Height,
+            targetTexture,
+            padding: 0f,
+            dpiScale: 1f,
+            clearColor: null,
+            loadExistingContents: true);
+    }
+
+    private Compositor GetOrCreateTextCompositor()
+    {
+        if (_textCompositor is { } compositor)
+        {
+            return compositor;
+        }
+
+        var context = _device.Context
+            ?? throw new InvalidOperationException("A GPU-backed WgpuContext is required for SciChart text rendering.");
+        _textCompositor = new Compositor(
+            context,
+            ProGpuDirectXFormatConverter.ToTextureFormat(RenderTarget.Descriptor.Format));
+        return _textCompositor;
+    }
+
+    private static Vector2 ResolveTextOrigin(ProGpuDirectXSciChartTextDraw draw)
+    {
+        var layout = new TextLayout(draw.Text, draw.Font.Font, draw.FontSize);
+        var x = draw.Position.X;
+        var y = draw.Position.Y;
+
+        x -= draw.HorizontalAlignment switch
+        {
+            ProGpuDirectXSciChartTextAlignment.Center => layout.MeasuredSize.X / 2f,
+            ProGpuDirectXSciChartTextAlignment.Right => layout.MeasuredSize.X,
+            _ => 0f
+        };
+
+        y -= draw.VerticalAlignment switch
+        {
+            ProGpuDirectXSciChartVerticalTextAlignment.Center => layout.MeasuredSize.Y / 2f,
+            ProGpuDirectXSciChartVerticalTextAlignment.Bottom => layout.MeasuredSize.Y,
+            ProGpuDirectXSciChartVerticalTextAlignment.Baseline => draw.Font.Font.Ascender * draw.FontSize / draw.Font.Font.UnitsPerEm,
+            _ => 0f
+        };
+
+        return new Vector2(x, y);
+    }
 
     private ProGpuDirectXBuffer CreateTextureQuadVertexBuffer(
         DxRect viewportRect,
@@ -3509,6 +3754,30 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
     }
 
+    private static void ValidateText(
+        string text,
+        float fontSize,
+        ProGpuDirectXSciChartPoint position,
+        float rotationRadians)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        if (!float.IsFinite(fontSize) || fontSize <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fontSize), "SciChart text requires a finite positive font size.");
+        }
+
+        if (!HasFinitePoint(position))
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), "SciChart text positions must be finite.");
+        }
+
+        if (!float.IsFinite(rotationRadians))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rotationRadians), "SciChart text rotation must be finite.");
+        }
+    }
+
     private static void ValidateDrawableTexture(ProGpuDirectXSciChartTexture2D texture)
     {
         if (texture.TextureFormat is not (ProGpuDirectXSciChartTextureFormat.Bgra8 or ProGpuDirectXSciChartTextureFormat.Float32))
@@ -4270,6 +4539,15 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         vertexData[offset + 3] = ((colorArgb >> 24) & 0xFF) / 255f;
     }
 
+    private static Vector4 ToColorVector(uint colorArgb)
+    {
+        return new Vector4(
+            ((colorArgb >> 16) & 0xFF) / 255f,
+            ((colorArgb >> 8) & 0xFF) / 255f,
+            (colorArgb & 0xFF) / 255f,
+            ((colorArgb >> 24) & 0xFF) / 255f);
+    }
+
     private static void AppendColorArgb(List<float> vertexData, uint colorArgb)
     {
         vertexData.Add(((colorArgb >> 16) & 0xFF) / 255f);
@@ -4561,6 +4839,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
         _batchedTexturePixelShader?.Dispose();
         _shapedHeatmapPixelShader?.Dispose();
         _heightContourPixelShader?.Dispose();
+        _textCompositor?.Dispose();
         _context.Dispose();
         RenderTarget.Dispose();
         _isDisposed = true;

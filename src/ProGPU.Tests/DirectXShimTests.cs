@@ -505,6 +505,68 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void SciChartRenderContextRecordsTextDrawsAndClip()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(device, 64, 32);
+        var font = TryCreateSciChartFont(renderContext);
+        if (font is null)
+        {
+            return;
+        }
+
+        renderContext.SetClipRect(new DxRect(0, 0, 32, 16));
+        renderContext.DrawText(
+            "Axis",
+            font,
+            12f,
+            0xFF00FF00,
+            new ProGpuDirectXSciChartPoint(16, 8),
+            rotationRadians: 0.25f,
+            horizontalAlignment: ProGpuDirectXSciChartTextAlignment.Center,
+            verticalAlignment: ProGpuDirectXSciChartVerticalTextAlignment.Baseline,
+            isBold: true,
+            isItalic: true,
+            isAntiAliased: false);
+
+        Assert.Single(renderContext.TextDraws);
+        var draw = renderContext.TextDraws[0];
+        Assert.Equal("Axis", draw.Text);
+        Assert.Equal(font, draw.Font);
+        Assert.Equal(12f, draw.FontSize);
+        Assert.Equal(0xFF00FF00u, draw.ColorArgb);
+        Assert.Equal(new ProGpuDirectXSciChartPoint(16, 8), draw.Position);
+        Assert.Equal(0.25f, draw.RotationRadians);
+        Assert.Equal(ProGpuDirectXSciChartTextAlignment.Center, draw.HorizontalAlignment);
+        Assert.Equal(ProGpuDirectXSciChartVerticalTextAlignment.Baseline, draw.VerticalAlignment);
+        Assert.True(draw.IsBold);
+        Assert.True(draw.IsItalic);
+        Assert.False(draw.IsAntiAliased);
+        Assert.Equal(new DxRect(0, 0, 32, 16), draw.ClipRect);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            renderContext.DrawText(null!, font, 12f, 0xFF00FF00, new ProGpuDirectXSciChartPoint(0, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawText("Axis", font, 0f, 0xFF00FF00, new ProGpuDirectXSciChartPoint(0, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawText("Axis", font, 12f, 0xFF00FF00, new ProGpuDirectXSciChartPoint(float.NaN, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawText("Axis", font, 12f, 0xFF00FF00, new ProGpuDirectXSciChartPoint(0, 0), float.NaN));
+
+        renderContext.BeginFrame();
+        Assert.Empty(renderContext.TextDraws);
+
+        renderContext.SetClipRect(new DxRect(100, 100, 8, 8));
+        renderContext.DrawText(
+            "Axis",
+            font,
+            12f,
+            0xFF00FF00,
+            new ProGpuDirectXSciChartPoint(16, 8));
+        Assert.Empty(renderContext.TextDraws);
+    }
+
+    [Fact]
     public void SciChartRenderContextRecordsBatchedTextureVerticesAndClip()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
@@ -2537,6 +2599,37 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(center.G < 50, $"Expected low green center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after SciChart texture draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after SciChart texture draw, actual: {center}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedSciChartTextDrawCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            96,
+            48,
+            DxResourceFormat.R8G8B8A8Unorm);
+        var font = TryCreateSciChartFont(renderContext);
+        if (font is null)
+        {
+            return;
+        }
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.DrawText(
+            "WPF",
+            font,
+            28f,
+            0xFF00FF00,
+            new ProGpuDirectXSciChartPoint(4, 4));
+        renderContext.Flush();
+
+        Assert.Single(renderContext.TextDraws);
+        var targetPixels = renderContext.ReadTargetPixels();
+        AssertContainsGreenPixel(targetPixels, 96, "SciChart text draw");
     }
 
     [Fact]
@@ -6188,6 +6281,32 @@ float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
         Assert.True(pixel.G < 50, $"Expected low green pixel in {region}, actual: {pixel}");
         Assert.True(pixel.B < 50, $"Expected low blue pixel in {region}, actual: {pixel}");
         Assert.True(pixel.A > 200, $"Expected opaque pixel in {region}, actual: {pixel}");
+    }
+
+    private static void AssertContainsGreenPixel(byte[] pixels, int width, string region)
+    {
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            var pixel = (R: pixels[offset], G: pixels[offset + 1], B: pixels[offset + 2], A: pixels[offset + 3]);
+            if (pixel.R < 80 && pixel.G > 80 && pixel.B < 80 && pixel.A > 0)
+            {
+                return;
+            }
+        }
+
+        Assert.Fail($"Expected at least one green pixel in {region} ({width}px-wide RGBA buffer).");
+    }
+
+    private static ProGpuDirectXSciChartFont? TryCreateSciChartFont(ProGpuDirectXSciChartRenderContext2D renderContext)
+    {
+        try
+        {
+            return renderContext.CreateDefaultFont();
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
     }
 
     private static (byte R, byte G, byte B, byte A) ReadRgbaPixel(byte[] pixels, int width, int x, int y)
