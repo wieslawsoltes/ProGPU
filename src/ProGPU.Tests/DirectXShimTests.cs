@@ -492,6 +492,43 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void NativeDependencyInspectorReportsPInvokeModulesAndEntries()
+    {
+        var report = ProGpuDirectXNativeDependencyInspector.Inspect(typeof(NativeDependencyFixture).Assembly);
+
+        Assert.True(report.RequiresNativeRuntime);
+        Assert.True(report.RequiresModule("USER32.DLL"));
+        Assert.True(report.RequiresModule("d3d11.dll"));
+        Assert.True(report.RequiresModule("VXccelEngine3D.dll"));
+        Assert.False(report.RequiresModule("*.so"));
+        Assert.False(report.RequiresModule(".So"));
+        Assert.Contains("user32.dll", report.DescribeModules(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("d3d11.dll", report.DescribeModules(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            report.ModuleHints,
+            hint => hint.ModuleName.Equals("VXccelEngine3D.dll", StringComparison.OrdinalIgnoreCase)
+                && hint.Source == "AssemblyString");
+
+        var messageBoxImport = Assert.Single(
+            report.Imports,
+            import => import.TypeName.Contains(nameof(NativeDependencyFixture), StringComparison.Ordinal)
+                && import.MethodName == nameof(NativeDependencyFixture.MessageBoxW));
+        Assert.Equal("user32.dll", messageBoxImport.ModuleName);
+        Assert.Equal("MessageBoxW", messageBoxImport.EntryPoint);
+        Assert.Equal(CallingConvention.StdCall, messageBoxImport.CallingConvention);
+        Assert.Equal(CharSet.Unicode, messageBoxImport.CharSet);
+        Assert.True(messageBoxImport.SetLastError);
+
+        var d3dImport = Assert.Single(
+            report.Imports,
+            import => import.TypeName.Contains(nameof(NativeDependencyFixture), StringComparison.Ordinal)
+                && import.MethodName == nameof(NativeDependencyFixture.D3D11CreateDevice));
+        Assert.Equal("d3d11.dll", d3dImport.ModuleName);
+        Assert.Equal("D3D11CreateDevice", d3dImport.EntryPoint);
+        Assert.True(d3dImport.ExactSpelling);
+    }
+
+    [Fact]
     public void RequireGpuBackedResourcesFailsClosedWithoutContext()
     {
         Assert.Throws<InvalidOperationException>(() =>
@@ -499,6 +536,19 @@ fn fs_main() -> @location(0) vec4<f32> {
             {
                 RequireGpuBackedResources = true
             }));
+    }
+
+    private static class NativeDependencyFixture
+    {
+        [DllImport("user32.dll", EntryPoint = "MessageBoxW", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall, SetLastError = true)]
+        internal static extern int MessageBoxW(IntPtr hwnd, string text, string caption, uint type);
+
+        [DllImport("d3d11.dll", EntryPoint = "D3D11CreateDevice", ExactSpelling = true)]
+        internal static extern int D3D11CreateDevice();
+
+        internal static string GetDynamicModuleName() => "VXccelEngine3D.dll";
+
+        internal static string GetInvalidPatternModuleNames() => "*.so .So";
     }
 
     [Fact]
