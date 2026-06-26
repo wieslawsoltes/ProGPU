@@ -25,6 +25,10 @@ internal static class ProGpuDirectXHlslTranslator
         @"\bTexture2D(?:\s*<\s*(?<type>[A-Za-z_]\w*)\s*>)?\s+(?<name>[A-Za-z_]\w*)\s*:\s*register\s*\(\s*t(?<slot>\d+)\s*\)\s*;",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex s_texture2DArrayResourceRegex = new(
+        @"\bTexture2DArray(?:\s*<\s*(?<type>[A-Za-z_]\w*)\s*>)?\s+(?<name>[A-Za-z_]\w*)\s*:\s*register\s*\(\s*t(?<slot>\d+)\s*\)\s*;",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex s_structuredBufferResourceRegex = new(
         @"\bStructuredBuffer\s*<\s*(?<type>[A-Za-z_]\w*)\s*>\s+(?<name>[A-Za-z_]\w*)\s*:\s*register\s*\(\s*t(?<slot>\d+)\s*\)\s*;",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -74,7 +78,7 @@ internal static class ProGpuDirectXHlslTranslator
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex s_unsupportedRegex = new(
-        @"\b(tbuffer|Texture(?!2D\b)\w*|Sampler(?!State\b)\w*|RWTexture\w*)\b",
+        @"\b(tbuffer|Texture(?!(?:2D|2DArray)\b)\w*|Sampler(?!State\b)\w*|RWTexture\w*)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool TryTranslate(DxShaderDescriptor descriptor, out string wgsl)
@@ -291,6 +295,14 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(") var ")
                         .Append(resource.Name)
                         .Append(": texture_2d<f32>;\n");
+                    break;
+                case HlslShaderResourceKind.Texture2DArray:
+                    builder
+                        .Append("@group(0) @binding(")
+                        .Append(ProGpuDirectXNativeBindingMap.GetShaderResourceBinding(stage, resource.Register))
+                        .Append(") var ")
+                        .Append(resource.Name)
+                        .Append(": texture_2d_array<f32>;\n");
                     break;
                 case HlslShaderResourceKind.StructuredBuffer:
                 case HlslShaderResourceKind.Buffer:
@@ -557,6 +569,20 @@ internal static class ProGpuDirectXHlslTranslator
 
             resources.Add(new HlslShaderResource(
                 HlslShaderResourceKind.Texture2D,
+                match.Groups["name"].Value,
+                uint.Parse(match.Groups["slot"].Value)));
+        }
+
+        foreach (Match match in s_texture2DArrayResourceRegex.Matches(source))
+        {
+            var resourceType = match.Groups["type"].Success ? match.Groups["type"].Value : "float4";
+            if (!string.Equals(resourceType, "float4", StringComparison.Ordinal))
+            {
+                throw new NotSupportedException($"HLSL Texture2DArray resource type '{resourceType}' is not supported.");
+            }
+
+            resources.Add(new HlslShaderResource(
+                HlslShaderResourceKind.Texture2DArray,
                 match.Groups["name"].Value,
                 uint.Parse(match.Groups["slot"].Value)));
         }
@@ -1110,15 +1136,9 @@ internal static class ProGpuDirectXHlslTranslator
                 }
 
                 var sampler = arguments[0].Trim();
-                ValidateTextureSampleResources(texture, sampler, shaderResources);
-                builder
-                    .Append("textureSample(")
-                    .Append(texture)
-                    .Append(", ")
-                    .Append(sampler)
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[1], constantBuffers, shaderResources))
-                    .Append(')');
+                var textureResource = ValidateTextureSampleResources(texture, sampler, shaderResources);
+                var coordinates = TranslateExpression(arguments[1], constantBuffers, shaderResources);
+                AppendTextureSampleCall(builder, textureResource, "textureSample", texture, sampler, coordinates);
             }
             else if (string.Equals(method, "SampleLevel", StringComparison.Ordinal))
             {
@@ -1128,17 +1148,16 @@ internal static class ProGpuDirectXHlslTranslator
                 }
 
                 var sampler = arguments[0].Trim();
-                ValidateTextureSampleResources(texture, sampler, shaderResources);
-                builder
-                    .Append("textureSampleLevel(")
-                    .Append(texture)
-                    .Append(", ")
-                    .Append(sampler)
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[1], constantBuffers, shaderResources))
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[2], constantBuffers, shaderResources))
-                    .Append(')');
+                var textureResource = ValidateTextureSampleResources(texture, sampler, shaderResources);
+                var coordinates = TranslateExpression(arguments[1], constantBuffers, shaderResources);
+                AppendTextureSampleCall(
+                    builder,
+                    textureResource,
+                    "textureSampleLevel",
+                    texture,
+                    sampler,
+                    coordinates,
+                    TranslateExpression(arguments[2], constantBuffers, shaderResources));
             }
             else if (string.Equals(method, "SampleBias", StringComparison.Ordinal))
             {
@@ -1148,17 +1167,16 @@ internal static class ProGpuDirectXHlslTranslator
                 }
 
                 var sampler = arguments[0].Trim();
-                ValidateTextureSampleResources(texture, sampler, shaderResources);
-                builder
-                    .Append("textureSampleBias(")
-                    .Append(texture)
-                    .Append(", ")
-                    .Append(sampler)
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[1], constantBuffers, shaderResources))
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[2], constantBuffers, shaderResources))
-                    .Append(')');
+                var textureResource = ValidateTextureSampleResources(texture, sampler, shaderResources);
+                var coordinates = TranslateExpression(arguments[1], constantBuffers, shaderResources);
+                AppendTextureSampleCall(
+                    builder,
+                    textureResource,
+                    "textureSampleBias",
+                    texture,
+                    sampler,
+                    coordinates,
+                    TranslateExpression(arguments[2], constantBuffers, shaderResources));
             }
             else if (string.Equals(method, "SampleGrad", StringComparison.Ordinal))
             {
@@ -1168,19 +1186,25 @@ internal static class ProGpuDirectXHlslTranslator
                 }
 
                 var sampler = arguments[0].Trim();
-                ValidateTextureSampleResources(texture, sampler, shaderResources);
-                builder
-                    .Append("textureSampleGrad(")
-                    .Append(texture)
-                    .Append(", ")
-                    .Append(sampler)
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[1], constantBuffers, shaderResources))
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[2], constantBuffers, shaderResources))
-                    .Append(", ")
-                    .Append(TranslateExpression(arguments[3], constantBuffers, shaderResources))
-                    .Append(')');
+                var textureResource = ValidateTextureSampleResources(texture, sampler, shaderResources);
+                var coordinates = TranslateExpression(arguments[1], constantBuffers, shaderResources);
+                var ddx = TranslateExpression(arguments[2], constantBuffers, shaderResources);
+                var ddy = TranslateExpression(arguments[3], constantBuffers, shaderResources);
+                if (textureResource.Kind == HlslShaderResourceKind.Texture2DArray)
+                {
+                    ddx = AppendVectorMemberAccess(ddx, "xy");
+                    ddy = AppendVectorMemberAccess(ddy, "xy");
+                }
+
+                AppendTextureSampleCall(
+                    builder,
+                    textureResource,
+                    "textureSampleGrad",
+                    texture,
+                    sampler,
+                    coordinates,
+                    ddx,
+                    ddy);
             }
             else
             {
@@ -1189,7 +1213,7 @@ internal static class ProGpuDirectXHlslTranslator
                     throw new NotSupportedException("HLSL Texture2D.Load requires a location argument and optional texel offset.");
                 }
 
-                ValidateTextureResource(texture, shaderResources);
+                var textureResource = ValidateTextureResource(texture, shaderResources);
                 var location = TranslateExpression(arguments[0], constantBuffers, shaderResources);
                 var coordinates = AppendVectorMemberAccess(location, "xy");
                 if (arguments.Count == 2)
@@ -1202,15 +1226,67 @@ internal static class ProGpuDirectXHlslTranslator
                     .Append(texture)
                     .Append(", ")
                     .Append(coordinates)
-                    .Append(", ")
-                    .Append(AppendVectorMemberAccess(location, "z"))
-                    .Append(')');
+                    .Append(", ");
+                if (textureResource.Kind == HlslShaderResourceKind.Texture2DArray)
+                {
+                    builder
+                        .Append("i32(")
+                        .Append(AppendVectorMemberAccess(location, "z"))
+                        .Append("), ")
+                        .Append(AppendVectorMemberAccess(location, "w"));
+                }
+                else
+                {
+                    builder.Append(AppendVectorMemberAccess(location, "z"));
+                }
+
+                builder.Append(')');
             }
 
             searchIndex = closeParen + 1;
         }
 
         return builder.ToString();
+    }
+
+    private static void AppendTextureSampleCall(
+        StringBuilder builder,
+        HlslShaderResource textureResource,
+        string wgslFunction,
+        string texture,
+        string sampler,
+        string coordinates,
+        params string[] additionalArguments)
+    {
+        builder
+            .Append(wgslFunction)
+            .Append('(')
+            .Append(texture)
+            .Append(", ")
+            .Append(sampler)
+            .Append(", ");
+
+        if (textureResource.Kind == HlslShaderResourceKind.Texture2DArray)
+        {
+            builder
+                .Append(AppendVectorMemberAccess(coordinates, "xy"))
+                .Append(", i32(")
+                .Append(AppendVectorMemberAccess(coordinates, "z"))
+                .Append(')');
+        }
+        else
+        {
+            builder.Append(coordinates);
+        }
+
+        foreach (var argument in additionalArguments)
+        {
+            builder
+                .Append(", ")
+                .Append(argument);
+        }
+
+        builder.Append(')');
     }
 
     private static string TranslateByteAddressBufferReadMethodCalls(
@@ -1640,28 +1716,34 @@ internal static class ProGpuDirectXHlslTranslator
         return arguments;
     }
 
-    private static void ValidateTextureSampleResources(
+    private static HlslShaderResource ValidateTextureSampleResources(
         string texture,
         string sampler,
         IReadOnlyList<HlslShaderResource> shaderResources)
     {
-        if (!HasTextureResource(texture, shaderResources) ||
+        var textureResource = FindTextureResource(texture, shaderResources);
+        if (textureResource is null ||
             !shaderResources.Any(resource =>
                 resource.Kind == HlslShaderResourceKind.SamplerState &&
                 string.Equals(resource.Name, sampler, StringComparison.Ordinal)))
         {
-            throw new NotSupportedException("HLSL Texture2D sampling requires declared Texture2D and SamplerState resources.");
+            throw new NotSupportedException("HLSL texture sampling requires declared Texture2D or Texture2DArray and SamplerState resources.");
         }
+
+        return textureResource;
     }
 
-    private static void ValidateTextureResource(
+    private static HlslShaderResource ValidateTextureResource(
         string texture,
         IReadOnlyList<HlslShaderResource> shaderResources)
     {
-        if (!HasTextureResource(texture, shaderResources))
+        var textureResource = FindTextureResource(texture, shaderResources);
+        if (textureResource is null)
         {
-            throw new NotSupportedException("HLSL Texture2D.Load requires a declared Texture2D resource.");
+            throw new NotSupportedException("HLSL texture Load requires a declared Texture2D or Texture2DArray resource.");
         }
+
+        return textureResource;
     }
 
     private static void ValidateByteAddressBufferResource(
@@ -1690,12 +1772,12 @@ internal static class ProGpuDirectXHlslTranslator
             resource.Kind is HlslShaderResourceKind.ByteAddressBuffer or HlslShaderResourceKind.RWByteAddressBuffer);
     }
 
-    private static bool HasTextureResource(
+    private static HlslShaderResource? FindTextureResource(
         string texture,
         IReadOnlyList<HlslShaderResource> shaderResources)
     {
-        return shaderResources.Any(resource =>
-            resource.Kind == HlslShaderResourceKind.Texture2D &&
+        return shaderResources.FirstOrDefault(resource =>
+            (resource.Kind is HlslShaderResourceKind.Texture2D or HlslShaderResourceKind.Texture2DArray) &&
             string.Equals(resource.Name, texture, StringComparison.Ordinal));
     }
 
@@ -1916,6 +1998,7 @@ internal static class ProGpuDirectXHlslTranslator
     private enum HlslShaderResourceKind
     {
         Texture2D,
+        Texture2DArray,
         StructuredBuffer,
         Buffer,
         ByteAddressBuffer,

@@ -2068,6 +2068,41 @@ float4 PSMain(float2 uv : TEXCOORD0) : SV_Target
     }
 
     [Fact]
+    public void HlslTextShaderTranslatesTexture2DArraySampleCallsInsideExpressions()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = """
+Texture2DArray SourceTextureArray : register(t2);
+SamplerState SourceSampler : register(s1);
+
+float4 PSMain(float3 uvw : TEXCOORD0) : SV_Target
+{
+    float4 sampled = SourceTextureArray.Sample(SourceSampler, uvw);
+    float4 leveled = SourceTextureArray.SampleLevel(SourceSampler, uvw, 0.0);
+    float4 biased = SourceTextureArray.SampleBias(SourceSampler, uvw, 0.0);
+    float4 grad = SourceTextureArray.SampleGrad(SourceSampler, uvw, float2(0.0, 0.0), float2(0.0, 0.0));
+    float4 loaded = SourceTextureArray.Load(int4(0, 0, 1, 0), int2(0, 0));
+    return sampled + leveled + biased + grad + loaded;
+}
+""",
+            EntryPoint = "PSMain"
+        });
+
+        Assert.NotNull(shader.BackendSource);
+        Assert.Contains("@binding(578) var SourceTextureArray: texture_2d_array<f32>;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("@binding(769) var SourceSampler: sampler;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var sampled: vec4<f32> = textureSample(SourceTextureArray, SourceSampler, uvw.xy, i32(uvw.z));", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var leveled: vec4<f32> = textureSampleLevel(SourceTextureArray, SourceSampler, uvw.xy, i32(uvw.z), 0.0);", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var biased: vec4<f32> = textureSampleBias(SourceTextureArray, SourceSampler, uvw.xy, i32(uvw.z), 0.0);", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var grad: vec4<f32> = textureSampleGrad(SourceTextureArray, SourceSampler, uvw.xy, i32(uvw.z), (vec2<f32>(0.0, 0.0)).xy, (vec2<f32>(0.0, 0.0)).xy);", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var loaded: vec4<f32> = textureLoad(SourceTextureArray, ((vec4<i32>(0, 0, 1, 0)).xy + vec2<i32>(0, 0)), i32((vec4<i32>(0, 0, 1, 0)).z), (vec4<i32>(0, 0, 1, 0)).w);", shader.BackendSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HlslTextShaderTranslatesConditionalExpressions()
     {
         using var device = ProGpuDirectXDevice.CreateMetadataDevice();
