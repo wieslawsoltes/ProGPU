@@ -2826,6 +2826,44 @@ VertexOutput VSMain(VertexInput input)
     }
 
     [Fact]
+    public void FlushSubmitsGpuBackedSciChartConcavePolygonFillCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            32,
+            32,
+            DxResourceFormat.R8G8B8A8Unorm);
+        ProGpuDirectXSciChartPoint[] points =
+        [
+            new(0, 0),
+            new(32, 0),
+            new(32, 8),
+            new(8, 8),
+            new(8, 24),
+            new(32, 24),
+            new(32, 32),
+            new(0, 32)
+        ];
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.FillPolygon(renderContext.CreateBrush(0xFF00FF00), points);
+        renderContext.Flush();
+
+        Assert.Single(renderContext.PrimitiveDraws);
+        Assert.Equal(ProGpuDirectXSciChartPrimitiveKind.PolygonFill, renderContext.PrimitiveDraws[0].Kind);
+        Assert.Equal(1ul, renderContext.ImmediateContext.SubmittedDrawCount);
+
+        var targetPixels = renderContext.ReadTargetPixels();
+        AssertGreenPixel(targetPixels, 32, 16, 4, "top C-shape bar");
+        AssertGreenPixel(targetPixels, 32, 4, 16, "left C-shape bar");
+        AssertGreenPixel(targetPixels, 32, 16, 28, "bottom C-shape bar");
+        AssertBlackPixel(targetPixels, 32, 16, 16, "C-shape hollow");
+    }
+
+    [Fact]
     public void FlushSubmitsGpuBackedSciChartBatchedTextureVertexCommands()
     {
         using var wgpu = new WgpuContext();
@@ -5945,6 +5983,24 @@ float4 PSMain(bool isFrontFace : SV_IsFrontFace) : SV_Target
         {
             bytes.Add(0);
         }
+    }
+
+    private static void AssertGreenPixel(byte[] pixels, int width, int x, int y, string region)
+    {
+        var pixel = ReadRgbaPixel(pixels, width, x, y);
+        Assert.True(pixel.R < 50, $"Expected low red pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.G > 200, $"Expected green pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.B < 50, $"Expected low blue pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.A > 200, $"Expected opaque pixel in {region}, actual: {pixel}");
+    }
+
+    private static void AssertBlackPixel(byte[] pixels, int width, int x, int y, string region)
+    {
+        var pixel = ReadRgbaPixel(pixels, width, x, y);
+        Assert.True(pixel.R < 50, $"Expected low red pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.G < 50, $"Expected low green pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.B < 50, $"Expected low blue pixel in {region}, actual: {pixel}");
+        Assert.True(pixel.A > 200, $"Expected opaque pixel in {region}, actual: {pixel}");
     }
 
     private static (byte R, byte G, byte B, byte A) ReadRgbaPixel(byte[] pixels, int width, int x, int y)

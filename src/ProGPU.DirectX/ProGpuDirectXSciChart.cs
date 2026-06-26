@@ -1714,27 +1714,194 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         out uint submittedVertexCount)
     {
         var vertexData = new List<float>(checked(Math.Max(points.Length - 2, 0) * 18));
-        if (HasVisibleColor(colorArgb)
-            && HasFinitePoint(points[0]))
+        if (HasVisibleColor(colorArgb))
         {
-            var origin = points[0];
-            for (var i = 1; i < points.Length - 1; i++)
-            {
-                var pt1 = points[i];
-                var pt2 = points[i + 1];
-                if (!HasFinitePoint(pt1)
-                    || !HasFinitePoint(pt2))
-                {
-                    continue;
-                }
-
-                AppendSolidColorVertex(vertexData, origin.X, origin.Y, colorArgb);
-                AppendSolidColorVertex(vertexData, pt1.X, pt1.Y, colorArgb);
-                AppendSolidColorVertex(vertexData, pt2.X, pt2.Y, colorArgb);
-            }
+            AppendTriangulatedPolygon(vertexData, points, colorArgb);
         }
 
         return CreateSolidColorVertexBuffer(vertexData, "SciChartPrimitivePolygonFillVertices", out submittedVertexCount);
+    }
+
+    private void AppendTriangulatedPolygon(
+        List<float> vertexData,
+        ReadOnlySpan<ProGpuDirectXSciChartPoint> points,
+        uint colorArgb)
+    {
+        var polygon = CopyFinitePolygonPoints(points);
+        if (polygon.Count < 3)
+        {
+            return;
+        }
+
+        var signedArea = GetSignedArea(polygon);
+        if (Math.Abs(signedArea) <= float.Epsilon)
+        {
+            return;
+        }
+
+        var isCounterClockwise = signedArea > 0f;
+        var indices = new List<int>(polygon.Count);
+        for (var i = 0; i < polygon.Count; i++)
+        {
+            indices.Add(i);
+        }
+
+        var guard = polygon.Count * polygon.Count;
+        var cursor = 0;
+        while (indices.Count > 3 && guard-- > 0)
+        {
+            cursor %= indices.Count;
+            var previousIndex = indices[(cursor + indices.Count - 1) % indices.Count];
+            var currentIndex = indices[cursor];
+            var nextIndex = indices[(cursor + 1) % indices.Count];
+            var previous = polygon[previousIndex];
+            var current = polygon[currentIndex];
+            var next = polygon[nextIndex];
+            var cross = Cross(previous, current, next);
+            if (Math.Abs(cross) <= 0.0001f)
+            {
+                indices.RemoveAt(cursor);
+                continue;
+            }
+
+            if (IsPolygonEar(polygon, indices, previousIndex, currentIndex, nextIndex, isCounterClockwise))
+            {
+                AppendSolidColorTriangle(vertexData, previous, current, next, colorArgb);
+                indices.RemoveAt(cursor);
+                continue;
+            }
+
+            cursor++;
+        }
+
+        if (indices.Count == 3)
+        {
+            AppendSolidColorTriangle(
+                vertexData,
+                polygon[indices[0]],
+                polygon[indices[1]],
+                polygon[indices[2]],
+                colorArgb);
+        }
+    }
+
+    private static List<ProGpuDirectXSciChartPoint> CopyFinitePolygonPoints(
+        ReadOnlySpan<ProGpuDirectXSciChartPoint> points)
+    {
+        var polygon = new List<ProGpuDirectXSciChartPoint>(points.Length);
+        foreach (var point in points)
+        {
+            if (!HasFinitePoint(point))
+            {
+                continue;
+            }
+
+            if (polygon.Count == 0
+                || !AreSamePoint(polygon[^1], point))
+            {
+                polygon.Add(point);
+            }
+        }
+
+        if (polygon.Count > 1
+            && AreSamePoint(polygon[0], polygon[^1]))
+        {
+            polygon.RemoveAt(polygon.Count - 1);
+        }
+
+        return polygon;
+    }
+
+    private static bool IsPolygonEar(
+        IReadOnlyList<ProGpuDirectXSciChartPoint> polygon,
+        IReadOnlyList<int> indices,
+        int previousIndex,
+        int currentIndex,
+        int nextIndex,
+        bool isCounterClockwise)
+    {
+        var previous = polygon[previousIndex];
+        var current = polygon[currentIndex];
+        var next = polygon[nextIndex];
+        var cross = Cross(previous, current, next);
+        if (isCounterClockwise ? cross <= 0.0001f : cross >= -0.0001f)
+        {
+            return false;
+        }
+
+        foreach (var index in indices)
+        {
+            if (index == previousIndex
+                || index == currentIndex
+                || index == nextIndex)
+            {
+                continue;
+            }
+
+            if (IsPointInTriangle(polygon[index], previous, current, next))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void AppendSolidColorTriangle(
+        List<float> vertexData,
+        ProGpuDirectXSciChartPoint pt0,
+        ProGpuDirectXSciChartPoint pt1,
+        ProGpuDirectXSciChartPoint pt2,
+        uint colorArgb)
+    {
+        AppendSolidColorVertex(vertexData, pt0.X, pt0.Y, colorArgb);
+        AppendSolidColorVertex(vertexData, pt1.X, pt1.Y, colorArgb);
+        AppendSolidColorVertex(vertexData, pt2.X, pt2.Y, colorArgb);
+    }
+
+    private static float GetSignedArea(IReadOnlyList<ProGpuDirectXSciChartPoint> points)
+    {
+        var area = 0f;
+        for (var i = 0; i < points.Count; i++)
+        {
+            var current = points[i];
+            var next = points[(i + 1) % points.Count];
+            area += (current.X * next.Y) - (next.X * current.Y);
+        }
+
+        return area * 0.5f;
+    }
+
+    private static float Cross(
+        ProGpuDirectXSciChartPoint pt0,
+        ProGpuDirectXSciChartPoint pt1,
+        ProGpuDirectXSciChartPoint pt2)
+    {
+        return ((pt1.X - pt0.X) * (pt2.Y - pt0.Y))
+            - ((pt1.Y - pt0.Y) * (pt2.X - pt0.X));
+    }
+
+    private static bool IsPointInTriangle(
+        ProGpuDirectXSciChartPoint point,
+        ProGpuDirectXSciChartPoint pt0,
+        ProGpuDirectXSciChartPoint pt1,
+        ProGpuDirectXSciChartPoint pt2)
+    {
+        const float tolerance = 0.0001f;
+        var cross0 = Cross(point, pt0, pt1);
+        var cross1 = Cross(point, pt1, pt2);
+        var cross2 = Cross(point, pt2, pt0);
+        var hasNegative = cross0 < -tolerance || cross1 < -tolerance || cross2 < -tolerance;
+        var hasPositive = cross0 > tolerance || cross1 > tolerance || cross2 > tolerance;
+        return !(hasNegative && hasPositive);
+    }
+
+    private static bool AreSamePoint(
+        ProGpuDirectXSciChartPoint pt0,
+        ProGpuDirectXSciChartPoint pt1)
+    {
+        return Math.Abs(pt0.X - pt1.X) <= 0.0001f
+            && Math.Abs(pt0.Y - pt1.Y) <= 0.0001f;
     }
 
     private ProGpuDirectXBuffer? CreateAreaFillVertexBuffer(
