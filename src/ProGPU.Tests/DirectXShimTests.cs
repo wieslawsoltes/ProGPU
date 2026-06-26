@@ -2917,6 +2917,39 @@ VertexOutput VSMain(VertexInput input)
     }
 
     [Fact]
+    public void FlushSubmitsGpuBackedSciChartTextDrawCommandsWithClip()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext2D(
+            device,
+            96,
+            48,
+            DxResourceFormat.R8G8B8A8Unorm);
+        var font = TryCreateSciChartFont(renderContext);
+        if (font is null)
+        {
+            return;
+        }
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.SetClipRect(new DxRect(0, 0, 32, 48));
+        renderContext.DrawText(
+            "WPF",
+            font,
+            28f,
+            0xFF00FF00,
+            new ProGpuDirectXSciChartPoint(4, 4));
+        renderContext.Flush();
+
+        Assert.Single(renderContext.TextDraws);
+        var targetPixels = renderContext.ReadTargetPixels();
+        AssertContainsGreenPixelInRegion(targetPixels, 96, 0, 0, 32, 48, "SciChart clipped text draw");
+        AssertNoGreenPixelInRegion(targetPixels, 96, 40, 0, 56, 48, "outside SciChart clipped text draw");
+    }
+
+    [Fact]
     public void FlushSubmitsGpuBackedSciChartMountainBatchCommands()
     {
         using var wgpu = new WgpuContext();
@@ -7501,6 +7534,52 @@ float4 PSMain() : SV_Target
         }
 
         Assert.Fail($"Expected at least one green pixel in {region} ({width}px-wide RGBA buffer).");
+    }
+
+    private static void AssertContainsGreenPixelInRegion(
+        byte[] pixels,
+        int width,
+        int x,
+        int y,
+        int regionWidth,
+        int regionHeight,
+        string region)
+    {
+        for (var row = y; row < y + regionHeight; row++)
+        {
+            for (var column = x; column < x + regionWidth; column++)
+            {
+                var pixel = ReadRgbaPixel(pixels, width, column, row);
+                if (pixel.R < 80 && pixel.G > 80 && pixel.B < 80 && pixel.A > 0)
+                {
+                    return;
+                }
+            }
+        }
+
+        Assert.Fail($"Expected at least one green pixel in {region}.");
+    }
+
+    private static void AssertNoGreenPixelInRegion(
+        byte[] pixels,
+        int width,
+        int x,
+        int y,
+        int regionWidth,
+        int regionHeight,
+        string region)
+    {
+        for (var row = y; row < y + regionHeight; row++)
+        {
+            for (var column = x; column < x + regionWidth; column++)
+            {
+                var pixel = ReadRgbaPixel(pixels, width, column, row);
+                if (pixel.R < 80 && pixel.G > 80 && pixel.B < 80 && pixel.A > 0)
+                {
+                    Assert.Fail($"Expected no green pixels in {region}, found {pixel} at ({column}, {row}).");
+                }
+            }
+        }
     }
 
     private static ProGpuDirectXSciChartFont? TryCreateSciChartFont(ProGpuDirectXSciChartRenderContext2D renderContext)
