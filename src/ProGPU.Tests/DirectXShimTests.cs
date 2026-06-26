@@ -247,6 +247,24 @@ float4 PSMain(VertexOutput input) : SV_Target
 }
 """;
 
+    private const string TextureComparisonSamplePixelHlsl = """
+Texture2D ShadowMap : register(t0);
+SamplerComparisonState ShadowSampler : register(s0);
+
+struct VertexOutput
+{
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+float4 PSMain(VertexOutput input) : SV_Target
+{
+    float passNear = ShadowMap.SampleCmp(ShadowSampler, input.uv, 0.25);
+    float passFar = ShadowMap.SampleCmpLevelZero(ShadowSampler, input.uv, 0.75);
+    return float4(passNear, passFar, 0.0, 1.0);
+}
+""";
+
     private const string Texture2DArraySamplePixelHlsl = """
 Texture2DArray SourceTextureArray : register(t0);
 SamplerState SourceSampler : register(s0);
@@ -5781,6 +5799,135 @@ float4 PSMain() : SV_Target
         Assert.True(center.G < 50, $"Expected low green center pixel after HLSL texture sample draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after HLSL texture sample draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after HLSL texture sample draw, actual: {center}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedHlslTextDrawCommandsWithComparisonSampler()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var shadowMap = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.D32Float,
+            Usage = DxTextureUsage.DepthStencil | DxTextureUsage.ShaderResource,
+            Label = "Comparison Shadow Map"
+        });
+        using var shadowView = device.CreateShaderResourceView(shadowMap);
+        using var shadowSampler = device.CreateSamplerState(new DxSamplerDescriptor
+        {
+            Filter = DxFilter.ComparisonMinMagMipLinear,
+            AddressU = DxTextureAddressMode.Clamp,
+            AddressV = DxTextureAddressMode.Clamp,
+            ComparisonFunction = DxComparisonFunction.LessEqual
+        });
+        using var constants = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 64,
+            Usage = DxBufferUsage.Constant | DxBufferUsage.CopyDestination,
+            Label = "Comparison Transform Constants"
+        });
+        constants.Write<float>(
+        [
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f
+        ]);
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 60,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination,
+            StrideInBytes = 20
+        });
+        vertexBuffer.Write<float>(
+        [
+            -0.8f, -0.8f, 0.0f, 0.0f, 0.0f,
+             0.8f, -0.8f, 0.0f, 1.0f, 0.0f,
+             0.0f,  0.8f, 0.0f, 0.5f, 1.0f
+        ]);
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = TexturedTransformVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL Comparison Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = TextureComparisonSamplePixelHlsl,
+            EntryPoint = "PSMain",
+            Label = "HLSL Comparison Pixel"
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "TEXCOORD",
+                    Format = DxResourceFormat.R32G32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.ClearDepthStencil(shadowMap, DxDepthStencilClearFlags.Depth, depth: 0.5f, stencil: 0);
+        context.Flush();
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetVertexBuffer(vertexBuffer);
+        context.SetConstantBuffer(DxShaderStage.Vertex, 0, constants);
+        context.SetShaderResource(DxShaderStage.Pixel, 0, shadowView);
+        context.SetSampler(DxShaderStage.Pixel, 0, shadowSampler);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.True(pixelShader.HasBackendShaderModule);
+        Assert.Contains("@binding(576) var ShadowMap: texture_depth_2d;", pixelShader.BackendSource!, StringComparison.Ordinal);
+        Assert.Contains("@binding(768) var ShadowSampler: sampler_comparison;", pixelShader.BackendSource!, StringComparison.Ordinal);
+        Assert.Contains("textureSampleCompare(ShadowMap, ShadowSampler, input.uv, 0.25)", pixelShader.BackendSource!, StringComparison.Ordinal);
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R > 200, $"Expected near comparison to pass after HLSL SampleCmp draw, actual: {center}");
+        Assert.True(center.G < 50, $"Expected far comparison to fail after HLSL SampleCmp draw, actual: {center}");
+        Assert.True(center.B < 50, $"Expected low blue after HLSL SampleCmp draw, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel after HLSL SampleCmp draw, actual: {center}");
     }
 
     [Fact]
