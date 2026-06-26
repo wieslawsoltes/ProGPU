@@ -354,6 +354,21 @@ public sealed record ProGpuDirectXSciChartMesh3DDraw(
     DxCullMode CullMode,
     DxRect? ClipRect);
 
+public sealed record ProGpuDirectXSciChartSurfaceMesh3DDraw(
+    IReadOnlyList<float> Heights,
+    int Columns,
+    int Rows,
+    Vector2 XRange,
+    Vector2 ZRange,
+    uint LowColorArgb,
+    uint HighColorArgb,
+    IReadOnlyList<ProGpuDirectXSciChartVertex3D> Vertices,
+    IReadOnlyList<uint> Indices,
+    Matrix4x4 WorldViewProjection,
+    Vector3 LightDirection,
+    DxCullMode CullMode,
+    DxRect? ClipRect);
+
 public sealed class ProGpuDirectXSciChartTexture2D : IDisposable
 {
     private ProGpuDirectXBuffer? _floatDataBuffer;
@@ -4876,6 +4891,7 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
     private readonly List<IDisposable> _transientResources = new();
     private readonly List<ProGpuDirectXSciChartPointCloud3DDraw> _pointCloudDraws = new();
     private readonly List<ProGpuDirectXSciChartMesh3DDraw> _meshDraws = new();
+    private readonly List<ProGpuDirectXSciChartSurfaceMesh3DDraw> _surfaceMeshDraws = new();
     private readonly Dictionary<(DxPrimitiveTopology Topology, DxCullMode CullMode), ProGpuDirectXGraphicsPipeline> _pipelines = new();
     private ProGpuDirectXShader? _vertexShader;
     private ProGpuDirectXShader? _pixelShader;
@@ -4922,11 +4938,14 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
 
     public IReadOnlyList<ProGpuDirectXSciChartMesh3DDraw> MeshDraws => _meshDraws;
 
+    public IReadOnlyList<ProGpuDirectXSciChartSurfaceMesh3DDraw> SurfaceMeshDraws => _surfaceMeshDraws;
+
     public void BeginFrame()
     {
         ThrowIfDisposed();
         _pointCloudDraws.Clear();
         _meshDraws.Clear();
+        _surfaceMeshDraws.Clear();
         _clipRect = null;
     }
 
@@ -5028,6 +5047,64 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
         _meshDraws.Add(new ProGpuDirectXSciChartMesh3DDraw(
             copiedVertices,
             copiedIndices,
+            worldViewProjection,
+            light,
+            cullMode,
+            _clipRect));
+        _transientResources.Add(vertexBuffer);
+        _transientResources.Add(indexBuffer);
+        _transientResources.Add(cameraBuffer);
+    }
+
+    public void DrawSurfaceMesh(
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        Matrix4x4 worldViewProjection,
+        Vector2? xRange = null,
+        Vector2? zRange = null,
+        uint lowColorArgb = 0xFF1455D9,
+        uint highColorArgb = 0xFFFFD166,
+        Vector3? lightDirection = null,
+        DxCullMode cullMode = DxCullMode.Back)
+    {
+        ThrowIfDisposed();
+        ValidateSurfaceMesh(heights, columns, rows, xRange, zRange);
+        ValidateMatrix(worldViewProjection);
+        if (!Enum.IsDefined(cullMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cullMode), "Unknown SciChart 3D surface mesh cull mode.");
+        }
+
+        if (HasEmptyClip)
+        {
+            return;
+        }
+
+        var resolvedXRange = xRange ?? new Vector2(-1f, 1f);
+        var resolvedZRange = zRange ?? new Vector2(0.25f, 0.75f);
+        var copiedHeights = heights.ToArray();
+        var vertices = CreateSurfaceMeshVertices(copiedHeights, columns, rows, resolvedXRange, resolvedZRange, lowColorArgb, highColorArgb);
+        var indices = CreateSurfaceMeshIndices(columns, rows);
+        var light = ResolveLightDirection(lightDirection);
+        var vertexBuffer = CreateVertexBuffer(vertices);
+        var indexBuffer = CreateIndexBuffer(indices);
+        var cameraBuffer = CreateCameraBuffer(worldViewProjection, light);
+        var pipeline = GetPipeline(DxPrimitiveTopology.TriangleList, cullMode);
+
+        SetDrawState(pipeline, vertexBuffer, cameraBuffer);
+        _context.SetIndexBuffer(indexBuffer, DxIndexFormat.UInt32);
+        _context.DrawIndexed((uint)indices.Length, indexFormat: DxIndexFormat.UInt32);
+        _surfaceMeshDraws.Add(new ProGpuDirectXSciChartSurfaceMesh3DDraw(
+            copiedHeights,
+            columns,
+            rows,
+            resolvedXRange,
+            resolvedZRange,
+            lowColorArgb,
+            highColorArgb,
+            vertices,
+            indices,
             worldViewProjection,
             light,
             cullMode,
@@ -5204,6 +5281,110 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
         return buffer;
     }
 
+    private static ProGpuDirectXSciChartVertex3D[] CreateSurfaceMeshVertices(
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        Vector2 xRange,
+        Vector2 zRange,
+        uint lowColorArgb,
+        uint highColorArgb)
+    {
+        var vertices = new ProGpuDirectXSciChartVertex3D[checked(columns * rows)];
+        var minHeight = float.PositiveInfinity;
+        var maxHeight = float.NegativeInfinity;
+        foreach (var height in heights)
+        {
+            minHeight = Math.Min(minHeight, height);
+            maxHeight = Math.Max(maxHeight, height);
+        }
+
+        var heightRange = maxHeight - minHeight;
+        for (var row = 0; row < rows; row++)
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                var index = checked(row * columns + column);
+                var height = heights[index];
+                var normal = CreateSurfaceNormal(heights, columns, rows, column, row, xRange, zRange);
+                var colorWeight = heightRange <= 0.000001f
+                    ? 0.5f
+                    : Math.Clamp((height - minHeight) / heightRange, 0f, 1f);
+                vertices[index] = new ProGpuDirectXSciChartVertex3D(
+                    Lerp(xRange.X, xRange.Y, columns == 1 ? 0f : column / (float)(columns - 1)),
+                    height,
+                    Lerp(zRange.X, zRange.Y, rows == 1 ? 0f : row / (float)(rows - 1)),
+                    normal.X,
+                    normal.Y,
+                    normal.Z,
+                    LerpColorArgb(lowColorArgb, highColorArgb, colorWeight));
+            }
+        }
+
+        return vertices;
+    }
+
+    private static uint[] CreateSurfaceMeshIndices(int columns, int rows)
+    {
+        var indices = new uint[checked((columns - 1) * (rows - 1) * 6)];
+        var target = 0;
+        for (var row = 0; row < rows - 1; row++)
+        {
+            for (var column = 0; column < columns - 1; column++)
+            {
+                var topLeft = checked((uint)(row * columns + column));
+                var topRight = topLeft + 1;
+                var bottomLeft = checked((uint)((row + 1) * columns + column));
+                var bottomRight = bottomLeft + 1;
+
+                indices[target++] = topLeft;
+                indices[target++] = bottomLeft;
+                indices[target++] = topRight;
+                indices[target++] = topRight;
+                indices[target++] = bottomLeft;
+                indices[target++] = bottomRight;
+            }
+        }
+
+        return indices;
+    }
+
+    private static Vector3 CreateSurfaceNormal(
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        int column,
+        int row,
+        Vector2 xRange,
+        Vector2 zRange)
+    {
+        var left = CreateSurfacePosition(heights, columns, rows, Math.Max(0, column - 1), row, xRange, zRange);
+        var right = CreateSurfacePosition(heights, columns, rows, Math.Min(columns - 1, column + 1), row, xRange, zRange);
+        var top = CreateSurfacePosition(heights, columns, rows, column, Math.Max(0, row - 1), xRange, zRange);
+        var bottom = CreateSurfacePosition(heights, columns, rows, column, Math.Min(rows - 1, row + 1), xRange, zRange);
+        var dx = right - left;
+        var dz = bottom - top;
+        var normal = Vector3.Cross(dz, dx);
+        return normal.LengthSquared() <= 0.000001f
+            ? new Vector3(0f, 1f, 0f)
+            : Vector3.Normalize(normal);
+    }
+
+    private static Vector3 CreateSurfacePosition(
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        int column,
+        int row,
+        Vector2 xRange,
+        Vector2 zRange)
+    {
+        return new Vector3(
+            Lerp(xRange.X, xRange.Y, columns == 1 ? 0f : column / (float)(columns - 1)),
+            heights[checked(row * columns + column)],
+            Lerp(zRange.X, zRange.Y, rows == 1 ? 0f : row / (float)(rows - 1)));
+    }
+
     private DxRect FullRenderTargetRect =>
         new(0, 0, checked((int)RenderTarget.Width), checked((int)RenderTarget.Height));
 
@@ -5255,6 +5436,56 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
         }
     }
 
+    private static void ValidateSurfaceMesh(
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        Vector2? xRange,
+        Vector2? zRange)
+    {
+        if (columns < 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(columns), "SciChart 3D surface meshes require at least two columns.");
+        }
+
+        if (rows < 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rows), "SciChart 3D surface meshes require at least two rows.");
+        }
+
+        var expectedHeightCount = checked(columns * rows);
+        if (heights.Length != expectedHeightCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D surface mesh heights must exactly match columns times rows.");
+        }
+
+        foreach (var height in heights)
+        {
+            if (!float.IsFinite(height))
+            {
+                throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D surface mesh heights must be finite.");
+            }
+        }
+
+        if (xRange is { } resolvedXRange)
+        {
+            ValidateSurfaceRange(resolvedXRange, nameof(xRange));
+        }
+
+        if (zRange is { } resolvedZRange)
+        {
+            ValidateSurfaceRange(resolvedZRange, nameof(zRange));
+        }
+    }
+
+    private static void ValidateSurfaceRange(Vector2 range, string parameterName)
+    {
+        if (!float.IsFinite(range.X) || !float.IsFinite(range.Y))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, "SciChart 3D surface mesh ranges must contain finite values.");
+        }
+    }
+
     private static void ValidateMatrix(Matrix4x4 matrix)
     {
         if (!float.IsFinite(matrix.M11) || !float.IsFinite(matrix.M12) || !float.IsFinite(matrix.M13) || !float.IsFinite(matrix.M14) ||
@@ -5291,6 +5522,23 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
         target[offset + 1] = ((colorArgb >> 8) & 0xFF) / 255f;
         target[offset + 2] = (colorArgb & 0xFF) / 255f;
         target[offset + 3] = ((colorArgb >> 24) & 0xFF) / 255f;
+    }
+
+    private static float Lerp(float start, float end, float amount) => start + ((end - start) * amount);
+
+    private static uint LerpColorArgb(uint startArgb, uint endArgb, float amount)
+    {
+        static byte LerpChannel(uint startArgb, uint endArgb, int shift, float amount)
+        {
+            var start = (int)((startArgb >> shift) & 0xFF);
+            var end = (int)((endArgb >> shift) & 0xFF);
+            return (byte)Math.Clamp((int)MathF.Round(start + ((end - start) * amount)), 0, 255);
+        }
+
+        return ((uint)LerpChannel(startArgb, endArgb, 24, amount) << 24) |
+            ((uint)LerpChannel(startArgb, endArgb, 16, amount) << 16) |
+            ((uint)LerpChannel(startArgb, endArgb, 8, amount) << 8) |
+            LerpChannel(startArgb, endArgb, 0, amount);
     }
 
     private static string SciChart3DVertexShader => """

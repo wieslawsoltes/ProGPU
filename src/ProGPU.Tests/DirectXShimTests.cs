@@ -520,6 +520,7 @@ fn fs_main() -> @location(0) vec4<f32> {
             new( 0.75f, -0.75f, 0.5f, 0f, 0f, 1f, 0xFF00FF00),
             new( 0.00f,  0.75f, 0.5f, 0f, 0f, 1f, 0xFF0000FF)
         ];
+        float[] surfaceHeights = [-0.75f, -0.75f, 0.75f, 0.75f];
         uint[] indices = [0, 1, 2];
 
         renderContext.SetClipRect(new DxRect(0, 0, 32, 64));
@@ -530,11 +531,27 @@ fn fs_main() -> @location(0) vec4<f32> {
             Matrix4x4.Identity,
             new Vector3(0f, 0f, 1f),
             DxCullMode.None);
+        renderContext.DrawSurfaceMesh(
+            surfaceHeights,
+            columns: 2,
+            rows: 2,
+            worldViewProjection: Matrix4x4.Identity,
+            xRange: new Vector2(-0.75f, 0.75f),
+            zRange: new Vector2(0.25f, 0.25f),
+            lowColorArgb: 0xFF0000FF,
+            highColorArgb: 0xFFFF0000,
+            lightDirection: new Vector3(0f, 0f, -1f),
+            cullMode: DxCullMode.None);
 
         Assert.Single(renderContext.PointCloudDraws);
         Assert.Single(renderContext.MeshDraws);
+        Assert.Single(renderContext.SurfaceMeshDraws);
         Assert.Equal(new DxRect(0, 0, 32, 64), renderContext.PointCloudDraws[0].ClipRect);
         Assert.Equal(new DxRect(0, 0, 32, 64), renderContext.MeshDraws[0].ClipRect);
+        Assert.Equal(new DxRect(0, 0, 32, 64), renderContext.SurfaceMeshDraws[0].ClipRect);
+        Assert.Equal(4, renderContext.SurfaceMeshDraws[0].Vertices.Count);
+        Assert.Equal(6, renderContext.SurfaceMeshDraws[0].Indices.Count);
+        Assert.Equal(surfaceHeights, renderContext.SurfaceMeshDraws[0].Heights);
         Assert.Equal(DxPrimitiveTopology.TriangleList, renderContext.ImmediateContext.GraphicsPipeline?.Descriptor.Topology);
         Assert.Equal(DxResourceFormat.D32Float, renderContext.ImmediateContext.GraphicsPipeline?.Descriptor.DepthStencilFormat);
         Assert.True(renderContext.ImmediateContext.GraphicsPipeline?.Descriptor.DepthStencilState.DepthEnable);
@@ -546,6 +563,10 @@ fn fs_main() -> @location(0) vec4<f32> {
             renderContext.DrawTriangleMesh(meshVertices, [0, 1, 3], Matrix4x4.Identity));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             renderContext.DrawPointCloud(pointVertices, Matrix4x4.Identity, Vector3.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawSurfaceMesh([0f, 1f, 2f], columns: 2, rows: 2, worldViewProjection: Matrix4x4.Identity));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderContext.DrawSurfaceMesh([0f, float.NaN, 1f, 2f], columns: 2, rows: 2, worldViewProjection: Matrix4x4.Identity));
     }
 
     [Fact]
@@ -2694,6 +2715,49 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(center.G < 50, $"Expected far green triangle to fail depth at center, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after SciChart 3D draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after SciChart 3D draw, actual: {center}");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedSciChart3DSurfaceMeshCommandsWithClip()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var renderContext = new ProGpuDirectXSciChartRenderContext3D(
+            device,
+            32,
+            32,
+            DxResourceFormat.R8G8B8A8Unorm);
+        float[] heights = [-0.8f, -0.8f, 0.8f, 0.8f];
+
+        renderContext.Clear(DxColor.Black);
+        renderContext.SetClipRect(new DxRect(0, 0, 16, 32));
+        renderContext.DrawSurfaceMesh(
+            heights,
+            columns: 2,
+            rows: 2,
+            worldViewProjection: Matrix4x4.Identity,
+            xRange: new Vector2(-0.8f, 0.8f),
+            zRange: new Vector2(0.25f, 0.25f),
+            lowColorArgb: 0xFF0000FF,
+            highColorArgb: 0xFFFF0000,
+            lightDirection: new Vector3(0f, 0f, -1f),
+            cullMode: DxCullMode.None);
+        renderContext.Flush();
+
+        Assert.Equal(1ul, renderContext.ImmediateContext.SubmittedDrawCount);
+        Assert.Single(renderContext.SurfaceMeshDraws);
+
+        var targetPixels = renderContext.ReadTargetPixels();
+        var clippedIn = ReadRgbaPixel(targetPixels, 32, 8, 16);
+        Assert.True(clippedIn.R + clippedIn.G + clippedIn.B > 20, $"Expected visible SciChart 3D surface mesh pixel inside clip, actual: {clippedIn}");
+        Assert.True(clippedIn.A > 200, $"Expected opaque SciChart 3D surface mesh pixel inside clip, actual: {clippedIn}");
+
+        var clippedOut = ReadRgbaPixel(targetPixels, 32, 24, 16);
+        Assert.True(clippedOut.R < 50, $"Expected black pixel outside SciChart 3D surface mesh clip, actual: {clippedOut}");
+        Assert.True(clippedOut.G < 50, $"Expected black pixel outside SciChart 3D surface mesh clip, actual: {clippedOut}");
+        Assert.True(clippedOut.B < 50, $"Expected black pixel outside SciChart 3D surface mesh clip, actual: {clippedOut}");
+        Assert.True(clippedOut.A > 200, $"Expected opaque clear alpha outside SciChart 3D surface mesh clip, actual: {clippedOut}");
     }
 
     [Fact]
