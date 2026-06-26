@@ -33,6 +33,11 @@ public sealed record DxBufferDescriptor
     public string Label { get; init; } = "DirectXBuffer";
 }
 
+public sealed record DxVertexBufferBinding(
+    ProGpuDirectXBuffer Buffer,
+    uint StrideInBytes,
+    ulong OffsetBytes);
+
 public sealed record DxTexture2DDescriptor
 {
     public required uint Width { get; init; }

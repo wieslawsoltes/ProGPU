@@ -2432,7 +2432,7 @@ VertexOutput VSMain(VertexInput input)
         using var context = device.CreateImmediateContext();
 
         context.SetVertexBuffer(0, vertexBuffer0);
-        context.SetVertexBuffer(1, vertexBuffer1);
+        context.SetVertexBuffer(1, vertexBuffer1, strideInBytes: 20, offsetBytes: 32);
         context.SetIndexBuffer(indexBuffer, DxIndexFormat.UInt16);
         context.DrawIndexed(6);
 
@@ -2442,9 +2442,41 @@ VertexOutput VSMain(VertexInput input)
         Assert.NotNull(command.VertexBuffers);
         Assert.Same(vertexBuffer0, command.VertexBuffers[0]);
         Assert.Same(vertexBuffer1, command.VertexBuffers[1]);
+        Assert.NotNull(command.VertexBufferBindings);
+        Assert.Same(vertexBuffer0, command.VertexBufferBindings[0].Buffer);
+        Assert.Equal(16u, command.VertexBufferBindings[0].StrideInBytes);
+        Assert.Equal(0ul, command.VertexBufferBindings[0].OffsetBytes);
+        Assert.Same(vertexBuffer1, command.VertexBufferBindings[1].Buffer);
+        Assert.Equal(20u, command.VertexBufferBindings[1].StrideInBytes);
+        Assert.Equal(32ul, command.VertexBufferBindings[1].OffsetBytes);
+        Assert.Equal(20u, context.VertexBufferBindings[1].StrideInBytes);
+        Assert.Equal(32ul, context.VertexBufferBindings[1].OffsetBytes);
         Assert.Same(indexBuffer, command.IndexBuffer);
         Assert.Equal(DxIndexFormat.UInt16, command.DrawIndexed!.IndexFormat);
         Assert.Equal(DxIndexFormat.UInt16, command.IndexFormat);
+    }
+
+    [Fact]
+    public void SetVertexBufferValidatesUsageStrideAndOffset()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 128,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination
+        });
+        using var indexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 64,
+            Usage = DxBufferUsage.Index | DxBufferUsage.CopyDestination
+        });
+        using var context = device.CreateImmediateContext();
+
+        Assert.Throws<ArgumentException>(() => context.SetVertexBuffer(0, indexBuffer, 16));
+        var offsetException = Assert.Throws<ArgumentOutOfRangeException>(() => context.SetVertexBuffer(0, vertexBuffer, 16, 128));
+        Assert.Equal("offsetBytes", offsetException.ParamName);
+        var strideException = Assert.Throws<ArgumentOutOfRangeException>(() => context.SetVertexBuffer(0, vertexBuffer, 0));
+        Assert.Equal("strideInBytes", strideException.ParamName);
     }
 
     [Fact]
@@ -2624,6 +2656,99 @@ VertexOutput VSMain(VertexInput input)
         Assert.True(center.G < 50, $"Expected low green center pixel after HLSL DirectX draw, actual: {center}");
         Assert.True(center.B < 50, $"Expected low blue center pixel after HLSL DirectX draw, actual: {center}");
         Assert.True(center.A > 200, $"Expected opaque center pixel after HLSL DirectX draw, actual: {center}");
+    }
+
+    [Fact]
+    public void GpuBackedDrawUsesVertexBufferBindingOffset()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var target = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 32,
+            Height = 32,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.RenderTarget | DxTextureUsage.CopySource
+        });
+        using var vertexBuffer = device.CreateBuffer(new DxBufferDescriptor
+        {
+            SizeInBytes = 168,
+            Usage = DxBufferUsage.Vertex | DxBufferUsage.CopyDestination,
+            StrideInBytes = 28
+        });
+        vertexBuffer.Write<float>(
+        [
+            -0.8f, -0.8f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f,
+             0.8f, -0.8f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f,
+             0.0f,  0.8f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f,
+            -0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.8f, -0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+             0.0f,  0.8f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f
+        ]);
+        using var vertexShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Vertex,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughVertexHlsl,
+            EntryPoint = "VSMain",
+            Label = "HLSL Vertex"
+        });
+        using var pixelShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Pixel,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = PassthroughPixelHlsl,
+            EntryPoint = "PSMain",
+            Label = "HLSL Pixel"
+        });
+        var inputLayout = device.CreateInputLayout(new DxInputLayoutDescriptor
+        {
+            Elements =
+            [
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "POSITION",
+                    Format = DxResourceFormat.R32G32B32Float,
+                    AlignedByteOffset = 0,
+                    ShaderLocation = 0
+                },
+                new DxInputElementDescriptor
+                {
+                    SemanticName = "COLOR",
+                    Format = DxResourceFormat.R32G32B32A32Float,
+                    AlignedByteOffset = 12,
+                    ShaderLocation = 1
+                }
+            ]
+        });
+        using var pipeline = device.CreateGraphicsPipeline(new DxGraphicsPipelineDescriptor
+        {
+            VertexShader = vertexShader,
+            PixelShader = pixelShader,
+            InputLayout = inputLayout,
+            RenderTargetFormat = DxResourceFormat.R8G8B8A8Unorm,
+            BlendState = new DxBlendStateDescriptor { EnableBlend = false },
+            RasterizerState = new DxRasterizerStateDescriptor { CullMode = DxCullMode.None }
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetRenderTargets(target);
+        context.SetViewport(new DxViewport(0, 0, 32, 32));
+        context.ClearRenderTarget(target, DxColor.Black);
+        context.SetGraphicsPipeline(pipeline);
+        context.SetVertexBuffer(0, vertexBuffer, strideInBytes: 28, offsetBytes: 84);
+        context.Draw(3);
+        context.Flush();
+
+        Assert.Equal(1ul, context.SubmittedDrawCount);
+
+        var pixels = target.BackendTexture!.ReadPixels();
+        var center = ReadRgbaPixel(pixels, 32, 16, 16);
+        Assert.True(center.R > 200, $"Expected red center pixel from offset vertex binding, actual: {center}");
+        Assert.True(center.G < 50, $"Expected skipped green vertices from offset vertex binding, actual: {center}");
+        Assert.True(center.B < 50, $"Expected low blue center pixel from offset vertex binding, actual: {center}");
+        Assert.True(center.A > 200, $"Expected opaque center pixel from offset vertex binding, actual: {center}");
     }
 
     [Fact]

@@ -55,6 +55,8 @@ public sealed record ProGpuDirectXCommand
     public ProGpuDirectXGraphicsPipeline? GraphicsPipeline { get; init; }
     public ProGpuDirectXComputePipeline? ComputePipeline { get; init; }
     public IReadOnlyDictionary<uint, ProGpuDirectXBuffer>? VertexBuffers { get; init; }
+    public IReadOnlyDictionary<uint, DxVertexBufferBinding>? VertexBufferBindings { get; init; }
+    public DxVertexBufferBinding? VertexBufferBinding { get; init; }
     public ProGpuDirectXBuffer? IndexBuffer { get; init; }
     public ProGpuDirectXTexture2D? DepthStencilTexture { get; init; }
     public ProGpuDirectXRenderTargetView? RenderTargetView { get; init; }
@@ -98,6 +100,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     private ProGpuDirectXGraphicsPipeline? _graphicsPipeline;
     private ProGpuDirectXComputePipeline? _computePipeline;
     private readonly Dictionary<uint, ProGpuDirectXBuffer> _vertexBuffers = new();
+    private readonly Dictionary<uint, DxVertexBufferBinding> _vertexBufferBindings = new();
     private ProGpuDirectXBuffer? _indexBuffer;
     private DxIndexFormat _indexFormat = DxIndexFormat.UInt32;
     private readonly Dictionary<DxConstantBufferBinding, ProGpuDirectXBuffer?> _constantBuffers = new();
@@ -195,6 +198,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     public IReadOnlyDictionary<DxShaderResourceBinding, ProGpuDirectXSamplerState?> Samplers => _samplers;
 
     public IReadOnlyDictionary<uint, ProGpuDirectXBuffer> VertexBuffers => _vertexBuffers;
+
+    public IReadOnlyDictionary<uint, DxVertexBufferBinding> VertexBufferBindings => _vertexBufferBindings;
 
     public ProGpuDirectXBuffer? IndexBuffer => _indexBuffer;
 
@@ -296,7 +301,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         SetVertexBuffer(0, buffer);
     }
 
+    public void SetVertexBuffer(ProGpuDirectXBuffer buffer, uint strideInBytes, ulong offsetBytes = 0)
+    {
+        SetVertexBuffer(0, buffer, strideInBytes, offsetBytes);
+    }
+
     public void SetVertexBuffer(uint slot, ProGpuDirectXBuffer buffer)
+    {
+        SetVertexBuffer(slot, buffer, 0, 0);
+    }
+
+    public void SetVertexBuffer(uint slot, ProGpuDirectXBuffer buffer, uint strideInBytes, ulong offsetBytes = 0)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(buffer);
@@ -305,12 +320,29 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             throw new ArgumentException("Buffer was not created with vertex-buffer usage.", nameof(buffer));
         }
 
+        if (offsetBytes >= buffer.Descriptor.SizeInBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(offsetBytes), "Vertex-buffer offset must be inside the buffer.");
+        }
+
+        if (_device.IsGpuBacked && (offsetBytes % 4ul) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(offsetBytes), "GPU-backed vertex-buffer offsets must be aligned to 4 bytes.");
+        }
+
+        var binding = new DxVertexBufferBinding(
+            buffer,
+            ResolveVertexStride(slot, buffer, strideInBytes),
+            offsetBytes);
+
         _vertexBuffers[slot] = buffer;
+        _vertexBufferBindings[slot] = binding;
         _commands.Add(new ProGpuDirectXCommand
         {
             Kind = ProGpuDirectXCommandKind.SetVertexBuffer,
             BufferSlot = slot,
-            Buffer = buffer
+            Buffer = buffer,
+            VertexBufferBinding = binding
         });
     }
 
@@ -778,6 +810,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             Draw = draw,
             GraphicsPipeline = _graphicsPipeline,
             VertexBuffers = SnapshotVertexBuffers(),
+            VertexBufferBindings = SnapshotVertexBufferBindings(),
             BindingSnapshot = CreateBindingSnapshotCore(
                 DxShaderStageFlags.AllGraphics,
                 "ProGPU DirectX Draw Bindings",
@@ -826,6 +859,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             DrawIndexed = draw,
             GraphicsPipeline = _graphicsPipeline,
             VertexBuffers = SnapshotVertexBuffers(),
+            VertexBufferBindings = SnapshotVertexBufferBindings(),
             IndexBuffer = _indexBuffer,
             IndexFormat = effectiveIndexFormat,
             BindingSnapshot = CreateBindingSnapshotCore(
@@ -1012,6 +1046,36 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         return _vertexBuffers.Count == 0
             ? new Dictionary<uint, ProGpuDirectXBuffer>()
             : _vertexBuffers.ToDictionary(pair => pair.Key, pair => pair.Value);
+    }
+
+    private IReadOnlyDictionary<uint, DxVertexBufferBinding> SnapshotVertexBufferBindings()
+    {
+        return _vertexBufferBindings.Count == 0
+            ? new Dictionary<uint, DxVertexBufferBinding>()
+            : _vertexBufferBindings.ToDictionary(pair => pair.Key, pair => pair.Value);
+    }
+
+    private uint ResolveVertexStride(uint slot, ProGpuDirectXBuffer buffer, uint strideInBytes)
+    {
+        if (strideInBytes > 0)
+        {
+            return strideInBytes;
+        }
+
+        if (buffer.Descriptor.StrideInBytes > 0)
+        {
+            return buffer.Descriptor.StrideInBytes;
+        }
+
+        var inferredStride = _inputLayout?.GetInferredStride(slot) ??
+            _graphicsPipeline?.EffectiveInputLayout?.GetInferredStride(slot) ??
+            0;
+        if (inferredStride > 0)
+        {
+            return inferredStride;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(strideInBytes), "Vertex-buffer stride must be non-zero or inferable from the active input layout.");
     }
 
     private IReadOnlyList<ProGpuDirectXBindingEntry> BuildBindingEntries(DxShaderStageFlags stages)
@@ -1557,7 +1621,30 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                     command.GraphicsPipeline.Descriptor.DepthStencilState.StencilReference);
             }
 
-            if (command.VertexBuffers is { Count: > 0 } vertexBuffers)
+            if (command.VertexBufferBindings is { Count: > 0 } vertexBufferBindings)
+            {
+                foreach (var pair in vertexBufferBindings.OrderBy(pair => pair.Key))
+                {
+                    if (pair.Value.Buffer.BackendBuffer is not { BufferPtr: not null } buffer)
+                    {
+                        throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
+                    }
+
+                    var offsetBytes = pair.Value.OffsetBytes;
+                    if (offsetBytes >= buffer.Size)
+                    {
+                        throw new InvalidOperationException("GPU-backed DirectX vertex-buffer binding offset is outside the backend buffer.");
+                    }
+
+                    context.Wgpu.RenderPassEncoderSetVertexBuffer(
+                        pass,
+                        pair.Key,
+                        buffer.BufferPtr,
+                        offsetBytes,
+                        buffer.Size - offsetBytes);
+                }
+            }
+            else if (command.VertexBuffers is { Count: > 0 } vertexBuffers)
             {
                 foreach (var pair in vertexBuffers.OrderBy(pair => pair.Key))
                 {
