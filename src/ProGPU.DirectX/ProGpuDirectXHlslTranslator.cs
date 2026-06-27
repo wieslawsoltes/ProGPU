@@ -391,7 +391,7 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(resource.Name)
                         .Append(": texture_storage_2d<")
                         .Append(MapStorageTextureFormat(resource.ElementType!))
-                        .Append(", write>;\n");
+                        .Append(resource.UsesStorageTextureRead ? ", read_write>;\n" : ", write>;\n");
                     break;
                 case HlslShaderResourceKind.RWByteAddressBuffer:
                     if (stage != DxShaderStage.Compute)
@@ -759,7 +759,9 @@ internal static class ProGpuDirectXHlslTranslator
                         pendingResource.Kind,
                         match.Groups["name"].Value,
                         register,
-                        elementType));
+                        elementType,
+                        UsesStorageTextureRead: pendingResource.Kind == HlslShaderResourceKind.RWTexture2D &&
+                            UsesRwTexture2DRead(source, match.Groups["name"].Value)));
                     break;
 
                 case HlslShaderResourceKind.ByteAddressBuffer:
@@ -1013,6 +1015,7 @@ internal static class ProGpuDirectXHlslTranslator
         }
 
         var translated = TranslateByteAddressBufferReadMethodCalls(trimmed, constantBuffers, shaderResources, localTypes);
+        translated = TranslateRwTexture2DReadIndexers(translated, constantBuffers, shaderResources, localTypes);
         translated = TranslateTextureMethodCalls(translated, constantBuffers, shaderResources, localTypes);
         translated = TranslateHlslIntrinsicCalls(translated, constantBuffers, shaderResources, localTypes);
         translated = Regex.Replace(
@@ -1560,6 +1563,52 @@ internal static class ProGpuDirectXHlslTranslator
             }
 
             searchIndex = closeParen + 1;
+        }
+
+        return builder.ToString();
+    }
+
+    private static string TranslateRwTexture2DReadIndexers(
+        string expression,
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
+        IReadOnlyList<HlslShaderResource> shaderResources,
+        IReadOnlyDictionary<string, string>? localTypes)
+    {
+        var builder = new StringBuilder();
+        var searchIndex = 0;
+        while (searchIndex < expression.Length)
+        {
+            var match = Regex.Match(expression[searchIndex..], @"\b(?<texture>[A-Za-z_]\w*)\s*\[");
+            if (!match.Success)
+            {
+                builder.Append(expression, searchIndex, expression.Length - searchIndex);
+                break;
+            }
+
+            var matchIndex = searchIndex + match.Index;
+            var texture = match.Groups["texture"].Value;
+            var openBracket = matchIndex + match.Length - 1;
+            var closeBracket = FindMatchingBracket(expression, openBracket);
+            if (closeBracket < 0)
+            {
+                throw new NotSupportedException($"HLSL RWTexture2D indexer '{texture}' is missing a closing bracket.");
+            }
+
+            if (FindRwTexture2DResource(texture, shaderResources) is null)
+            {
+                builder.Append(expression, searchIndex, closeBracket + 1 - searchIndex);
+                searchIndex = closeBracket + 1;
+                continue;
+            }
+
+            builder.Append(expression, searchIndex, matchIndex - searchIndex);
+            builder
+                .Append("textureLoad(")
+                .Append(texture)
+                .Append(", ")
+                .Append(TranslateExpression(expression[(openBracket + 1)..closeBracket], constantBuffers, shaderResources, localTypes))
+                .Append(')');
+            searchIndex = closeBracket + 1;
         }
 
         return builder.ToString();
@@ -2141,6 +2190,93 @@ internal static class ProGpuDirectXHlslTranslator
         return -1;
     }
 
+    private static int FindMatchingBracket(string expression, int openBracket)
+    {
+        var depth = 0;
+        for (var i = openBracket; i < expression.Length; i++)
+        {
+            if (expression[i] == '[')
+            {
+                depth++;
+            }
+            else if (expression[i] == ']')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool UsesRwTexture2DRead(string source, string texture)
+    {
+        var pattern = $@"\b{Regex.Escape(texture)}\s*\[";
+        foreach (Match match in Regex.Matches(source, pattern))
+        {
+            var lineStart = source.LastIndexOfAny(new[] { ';', '{', '}' }, Math.Max(0, match.Index - 1));
+            var statementStart = lineStart < 0 ? 0 : lineStart + 1;
+            var statementEnd = source.IndexOf(';', match.Index);
+            if (statementEnd < 0)
+            {
+                statementEnd = source.Length;
+            }
+
+            var assignment = FindAssignmentOperator(source, statementStart, statementEnd);
+            if (assignment >= 0 && (statementEnd < 0 || assignment < statementEnd))
+            {
+                var beforeAssignment = source[statementStart..assignment];
+                if (beforeAssignment.Contains(match.Value, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int FindAssignmentOperator(string source, int start, int end)
+    {
+        var parenDepth = 0;
+        var bracketDepth = 0;
+        for (var i = start; i < end; i++)
+        {
+            switch (source[i])
+            {
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    bracketDepth--;
+                    break;
+                case '=' when parenDepth == 0 && bracketDepth == 0:
+                    var previous = i > start ? source[i - 1] : '\0';
+                    var next = i + 1 < end ? source[i + 1] : '\0';
+                    if (previous is '=' or '!' or '<' or '>' or '+' or '-' or '*' or '/' or '%' or '&' or '|' or '^' ||
+                        next is '=' or '>')
+                    {
+                        continue;
+                    }
+
+                    return i;
+            }
+        }
+
+        return -1;
+    }
+
     private static List<string> SplitTopLevelArguments(string argumentText)
     {
         var arguments = new List<string>();
@@ -2653,7 +2789,8 @@ internal static class ProGpuDirectXHlslTranslator
         string Name,
         uint Register,
         string? ElementType = null,
-        bool UsesComparisonSampling = false);
+        bool UsesComparisonSampling = false,
+        bool UsesStorageTextureRead = false);
 
     private sealed record PendingHlslShaderResource(HlslShaderResourceKind Kind, Match Match);
 

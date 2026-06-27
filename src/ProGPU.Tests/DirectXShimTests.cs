@@ -367,6 +367,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 }
 """;
 
+    private const string RwTexture2DReadWriteComputeHlsl = """
+RWTexture2D<float4> Output : register(u0);
+
+[numthreads(1, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float4 previous = Output[int2(id.xy)];
+    Output[int2(id.xy)] = float4(previous.r, 1.0, previous.b, previous.a);
+}
+""";
+
     private const string ByteAddressBufferComputeHlsl = """
 ByteAddressBuffer Input : register(t0);
 RWByteAddressBuffer Output : register(u0);
@@ -3484,6 +3495,24 @@ void CSMain()
         Assert.Contains("@binding(1856) var Output: texture_storage_2d<rgba8unorm, write>;", shader.BackendSource, StringComparison.Ordinal);
         Assert.Contains("@compute @workgroup_size(1, 1, 1)\nfn CSMain(@builtin(global_invocation_id) id: vec3<u32>)", shader.BackendSource, StringComparison.Ordinal);
         Assert.Contains("textureStore(Output, vec2<i32>(id.xy), vec4<f32>(0.0, 1.0, 0.0, 1.0));", shader.BackendSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HlslTextShaderTranslatesRwTexture2DReadIndexers()
+    {
+        using var device = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var shader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Compute,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = RwTexture2DReadWriteComputeHlsl,
+            EntryPoint = "CSMain"
+        });
+
+        Assert.NotNull(shader.BackendSource);
+        Assert.Contains("@binding(1856) var Output: texture_storage_2d<rgba8unorm, read_write>;", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("var previous: vec4<f32> = textureLoad(Output, vec2<i32>(id.xy));", shader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("textureStore(Output, vec2<i32>(id.xy), vec4<f32>(previous.r, 1.0, previous.b, previous.a));", shader.BackendSource, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -9743,6 +9772,89 @@ float4 PSMain() : SV_Target
         Assert.True(pixels[1] > 200, $"Expected green storage-texture write, actual G={pixels[1]}.");
         Assert.Equal(0, pixels[2]);
         Assert.True(pixels[3] > 200, $"Expected opaque storage-texture write, actual A={pixels[3]}.");
+    }
+
+    [Fact]
+    public void FlushSubmitsGpuBackedHlslRwTexture2DReadWriteDispatchCommands()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        using var output = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 4,
+            Height = 4,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.UnorderedAccess | DxTextureUsage.CopySource | DxTextureUsage.CopyDestination,
+            CpuAccess = DxCpuAccessFlags.Read | DxCpuAccessFlags.Write,
+            Label = "RWTexture2D ReadWrite Output"
+        });
+        byte[] initialPixels =
+        [
+            128, 0, 64, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255
+        ];
+        output.WritePixels(initialPixels);
+        using var outputView = device.CreateUnorderedAccessView(
+            output,
+            new DxUnorderedAccessViewDescriptor
+            {
+                Format = DxResourceFormat.R8G8B8A8Unorm,
+                Access = DxUnorderedAccessViewAccess.ReadWrite,
+                Label = "RWTexture2D ReadWrite Output UAV"
+            });
+        using var computeShader = device.CreateShader(new DxShaderDescriptor
+        {
+            Stage = DxShaderStage.Compute,
+            SourceKind = DxShaderSourceKind.HlslText,
+            Source = RwTexture2DReadWriteComputeHlsl,
+            EntryPoint = "CSMain",
+            Label = "HLSL RWTexture2D ReadWrite Compute"
+        });
+
+        Assert.NotNull(computeShader.BackendSource);
+        Assert.Contains("@binding(1856) var Output: texture_storage_2d<rgba8unorm, read_write>;", computeShader.BackendSource, StringComparison.Ordinal);
+        Assert.Contains("textureLoad(Output, vec2<i32>(id.xy))", computeShader.BackendSource, StringComparison.Ordinal);
+
+        if (!device.Capabilities.SupportsReadWriteStorageTextures)
+        {
+            return;
+        }
+
+        using var pipeline = device.CreateComputePipeline(new DxComputePipelineDescriptor
+        {
+            ComputeShader = computeShader
+        });
+        using var context = device.CreateImmediateContext();
+
+        context.SetComputePipeline(pipeline);
+        context.SetUnorderedAccessView(0, outputView);
+        context.Dispatch(1, 1, 1);
+        context.Flush();
+
+        Assert.True(computeShader.HasBackendShaderModule);
+        Assert.True(pipeline.HasBackendPipeline);
+        Assert.Equal(1ul, context.SubmittedDispatchCount);
+
+        var pixels = output.ReadPixels();
+        Assert.InRange(pixels[0], 120, 136);
+        Assert.True(pixels[1] > 200, $"Expected green storage-texture read/write result, actual G={pixels[1]}.");
+        Assert.InRange(pixels[2], 56, 72);
+        Assert.True(pixels[3] > 200, $"Expected opaque storage-texture read/write result, actual A={pixels[3]}.");
     }
 
     [Fact]
