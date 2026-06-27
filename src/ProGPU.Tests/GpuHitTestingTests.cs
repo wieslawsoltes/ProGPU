@@ -16,6 +16,7 @@ public sealed class GpuHitTestingTests
         Assert.Equal(32, Marshal.SizeOf<GpuHitTestNode>());
         Assert.Equal(32, Marshal.SizeOf<GpuHitTestQuery>());
         Assert.Equal(32, Marshal.SizeOf<GpuHitTestResult>());
+        Assert.Equal(48, Marshal.SizeOf<GpuPathSegment>());
     }
 
     [Fact]
@@ -101,6 +102,26 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheBuildsPathPrimitiveSegments()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 77,
+            Path = CreateTrianglePath(),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
+        Assert.Equal(77, primitive.Id);
+        Assert.Equal(3, index.PathSegments.Count);
+    }
+
+    [Fact]
     public void RenderCommandCacheFeedsGpuHitTesting()
     {
         using var context = new WgpuContext();
@@ -122,6 +143,62 @@ public sealed class GpuHitTestingTests
 
         bool outside = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(15f, 15f), out _);
         Assert.False(outside);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuPathFillHitTesting()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = CreateTrianglePath(),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.CreateTranslation(10f, 20f, 0f), id: 88);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool hit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(15f, 24f), out GpuHitTestResult result);
+
+        Assert.True(hit);
+        Assert.Equal(88, result.Id);
+
+        bool outside = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(19f, 29f), out GpuHitTestResult outsideResult);
+        Assert.False(outside);
+        Assert.False(outsideResult.HasHit);
+        Assert.True(outsideResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuPathStrokeHitTesting()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(0f, 0f));
+        figure.Segments.Add(new LineSegment(new Vector2(20f, 0f)));
+        path.Figures.Add(figure);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = path,
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 4f)
+        }, Matrix4x4.Identity, id: 89);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool hit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(10f, 1.5f), out GpuHitTestResult result);
+
+        Assert.True(hit);
+        Assert.Equal(89, result.Id);
+
+        bool outside = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(10f, 4f), out GpuHitTestResult outsideResult);
+        Assert.False(outside);
+        Assert.False(outsideResult.HasHit);
     }
 
     [Fact]
@@ -190,5 +267,15 @@ public sealed class GpuHitTestingTests
         Assert.False(result.HasHit);
         Assert.Equal(1u, result.CandidateCount);
         Assert.Equal(1u, result.PreciseTests);
+    }
+
+    private static PathGeometry CreateTrianglePath()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(10f, 0f)));
+        figure.Segments.Add(new LineSegment(new Vector2(0f, 10f)));
+        path.Figures.Add(figure);
+        return path;
     }
 }

@@ -15,7 +15,9 @@ public enum GpuHitTestPrimitiveKind : uint
     RectangleStroke = 2,
     EllipseFill = 3,
     EllipseStroke = 4,
-    LineStroke = 5
+    LineStroke = 5,
+    PathFill = 6,
+    PathStroke = 7
 }
 
 [Flags]
@@ -247,6 +249,54 @@ public readonly struct GpuHitTestPrimitive
             zIndex);
     }
 
+    public static GpuHitTestPrimitive PathFill(
+        int id,
+        Vector2 min,
+        Vector2 max,
+        uint startSegment,
+        uint segmentCount,
+        FillRule fillRule,
+        Matrix4x4 transform,
+        float zIndex = 0f)
+    {
+        return new GpuHitTestPrimitive(
+            GpuHitTestPrimitiveKind.PathFill,
+            id,
+            TransformBoundsMin(min, max, transform),
+            TransformBoundsMax(min, max, transform),
+            new Vector4(min.X, min.Y, max.X, max.Y),
+            new Vector4(startSegment, segmentCount, (uint)fillRule, 0f),
+            CreateInverseTransformRow0(transform),
+            CreateInverseTransformRow1(transform),
+            zIndex);
+    }
+
+    public static GpuHitTestPrimitive PathStroke(
+        int id,
+        Vector2 min,
+        Vector2 max,
+        uint startSegment,
+        uint segmentCount,
+        float strokeThickness,
+        float tolerance,
+        Matrix4x4 transform,
+        float zIndex = 0f)
+    {
+        float padding = MathF.Max(0f, (MathF.Abs(strokeThickness) * 0.5f) + MathF.Max(0f, tolerance));
+        Vector2 paddedMin = min - new Vector2(padding);
+        Vector2 paddedMax = max + new Vector2(padding);
+        return new GpuHitTestPrimitive(
+            GpuHitTestPrimitiveKind.PathStroke,
+            id,
+            TransformBoundsMin(paddedMin, paddedMax, transform),
+            TransformBoundsMax(paddedMin, paddedMax, transform),
+            new Vector4(min.X, min.Y, max.X, max.Y),
+            new Vector4(startSegment, segmentCount, strokeThickness, tolerance),
+            CreateInverseTransformRow0(transform),
+            CreateInverseTransformRow1(transform),
+            zIndex);
+    }
+
     private static Vector2 TransformBoundsMin(Vector2 min, Vector2 max, Matrix4x4 transform)
     {
         GetTransformedBounds(min, max, transform, out Vector2 transformedMin, out _);
@@ -349,25 +399,39 @@ public sealed class GpuHitTestIndex
     private GpuHitTestIndex(
         GpuHitTestPrimitive[] primitives,
         GpuHitTestNode[] nodes,
-        uint[] primitiveIndices)
+        uint[] primitiveIndices,
+        GpuPathSegment[] pathSegments)
     {
         PrimitiveArray = primitives;
         NodeArray = nodes;
         PrimitiveIndexArray = primitiveIndices;
+        PathSegmentArray = pathSegments;
         Primitives = primitives;
         Nodes = nodes;
         PrimitiveIndices = primitiveIndices;
+        PathSegments = pathSegments;
     }
 
     public IReadOnlyList<GpuHitTestPrimitive> Primitives { get; }
     public IReadOnlyList<GpuHitTestNode> Nodes { get; }
     public IReadOnlyList<uint> PrimitiveIndices { get; }
+    public IReadOnlyList<GpuPathSegment> PathSegments { get; }
     internal GpuHitTestPrimitive[] PrimitiveArray { get; }
     internal GpuHitTestNode[] NodeArray { get; }
     internal uint[] PrimitiveIndexArray { get; }
+    internal GpuPathSegment[] PathSegmentArray { get; }
 
     public static GpuHitTestIndex Build(
         ReadOnlySpan<GpuHitTestPrimitive> primitives,
+        int maxDepth = 8,
+        int maxPrimitivesPerNode = 32)
+    {
+        return Build(primitives, ReadOnlySpan<GpuPathSegment>.Empty, maxDepth, maxPrimitivesPerNode);
+    }
+
+    public static GpuHitTestIndex Build(
+        ReadOnlySpan<GpuHitTestPrimitive> primitives,
+        ReadOnlySpan<GpuPathSegment> pathSegments,
         int maxDepth = 8,
         int maxPrimitivesPerNode = 32)
     {
@@ -382,12 +446,14 @@ public sealed class GpuHitTestIndex
         }
 
         var primitiveArray = primitives.ToArray();
+        var pathSegmentArray = pathSegments.ToArray();
         if (primitiveArray.Length == 0)
         {
             return new GpuHitTestIndex(
                 primitiveArray,
                 [new GpuHitTestNode(Vector2.Zero, Vector2.Zero, 0, 0, 0, 0)],
-                []);
+                [],
+                pathSegmentArray);
         }
 
         Vector2 min = primitiveArray[0].BoundsMin;
@@ -409,7 +475,8 @@ public sealed class GpuHitTestIndex
         return new GpuHitTestIndex(
             primitiveArray,
             builder.Nodes.ToArray(),
-            builder.PrimitiveIndices.ToArray());
+            builder.PrimitiveIndices.ToArray(),
+            pathSegmentArray);
     }
 
     private sealed class Builder
@@ -677,6 +744,7 @@ public sealed class GpuHitTestDeviceIndex : IDisposable
         PrimitiveCount = checked((uint)index.PrimitiveArray.Length);
         NodeCount = checked((uint)index.NodeArray.Length);
         PrimitiveIndexCount = checked((uint)index.PrimitiveIndexArray.Length);
+        PathSegmentCount = checked((uint)index.PathSegmentArray.Length);
 
         QueryBuffer = new GpuBuffer(context, QueryBufferSize, BufferUsage.Storage | BufferUsage.CopyDst, "GPU Hit Test Query");
         NodeBuffer = new GpuBuffer(
@@ -694,11 +762,20 @@ public sealed class GpuHitTestDeviceIndex : IDisposable
             checked((uint)(index.PrimitiveArray.Length * Marshal.SizeOf<GpuHitTestPrimitive>())),
             BufferUsage.Storage | BufferUsage.CopyDst,
             "GPU Hit Test Primitives");
+        GpuPathSegment[] pathSegments = index.PathSegmentArray.Length > 0
+            ? index.PathSegmentArray
+            : [default];
+        PathSegmentBuffer = new GpuBuffer(
+            context,
+            checked((uint)(pathSegments.Length * Marshal.SizeOf<GpuPathSegment>())),
+            BufferUsage.Storage | BufferUsage.CopyDst,
+            "GPU Hit Test Path Segments");
         ResultBuffer = new GpuBuffer(context, ResultBufferSize, BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.CopySrc, "GPU Hit Test Result");
 
         NodeBuffer.Write(index.NodeArray);
         PrimitiveIndexBuffer.Write(index.PrimitiveIndexArray);
         PrimitiveBuffer.Write(index.PrimitiveArray);
+        PathSegmentBuffer.Write(pathSegments);
     }
 
     public GpuHitTestIndex Index { get; }
@@ -707,10 +784,12 @@ public sealed class GpuHitTestDeviceIndex : IDisposable
     internal GpuBuffer NodeBuffer { get; }
     internal GpuBuffer PrimitiveIndexBuffer { get; }
     internal GpuBuffer PrimitiveBuffer { get; }
+    internal GpuBuffer PathSegmentBuffer { get; }
     internal GpuBuffer ResultBuffer { get; }
     internal uint PrimitiveCount { get; }
     internal uint NodeCount { get; }
     internal uint PrimitiveIndexCount { get; }
+    internal uint PathSegmentCount { get; }
 
     public static bool TryCreate(WgpuContext context, GpuHitTestIndex index, out GpuHitTestDeviceIndex? deviceIndex)
     {
@@ -740,6 +819,7 @@ public sealed class GpuHitTestDeviceIndex : IDisposable
         NodeBuffer.Dispose();
         PrimitiveIndexBuffer.Dispose();
         PrimitiveBuffer.Dispose();
+        PathSegmentBuffer.Dispose();
         ResultBuffer.Dispose();
         _isDisposed = true;
         GC.SuppressFinalize(this);
@@ -813,7 +893,8 @@ public static unsafe class GpuHitTestEngine
                 RootNodeIndex = 0,
                 PrimitiveCount = deviceIndex.PrimitiveCount,
                 NodeCount = deviceIndex.NodeCount,
-                PrimitiveIndexCount = deviceIndex.PrimitiveIndexCount
+                PrimitiveIndexCount = deviceIndex.PrimitiveIndexCount,
+                Pad0 = deviceIndex.PathSegmentCount
             };
             var initialResult = new GpuHitTestResult
             {
@@ -836,17 +917,18 @@ public static unsafe class GpuHitTestEngine
             try
             {
                 bindGroupLayout = context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
-                var entries = stackalloc BindGroupEntry[5];
+                var entries = stackalloc BindGroupEntry[6];
                 entries[0] = new BindGroupEntry { Binding = 0, Buffer = deviceIndex.QueryBuffer.BufferPtr, Offset = 0, Size = deviceIndex.QueryBuffer.Size };
                 entries[1] = new BindGroupEntry { Binding = 1, Buffer = deviceIndex.NodeBuffer.BufferPtr, Offset = 0, Size = deviceIndex.NodeBuffer.Size };
                 entries[2] = new BindGroupEntry { Binding = 2, Buffer = deviceIndex.PrimitiveIndexBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PrimitiveIndexBuffer.Size };
                 entries[3] = new BindGroupEntry { Binding = 3, Buffer = deviceIndex.PrimitiveBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PrimitiveBuffer.Size };
                 entries[4] = new BindGroupEntry { Binding = 4, Buffer = deviceIndex.ResultBuffer.BufferPtr, Offset = 0, Size = deviceIndex.ResultBuffer.Size };
+                entries[5] = new BindGroupEntry { Binding = 5, Buffer = deviceIndex.PathSegmentBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PathSegmentBuffer.Size };
 
                 var bgDesc = new BindGroupDescriptor
                 {
                     Layout = bindGroupLayout,
-                    EntryCount = 5,
+                    EntryCount = 6,
                     Entries = entries
                 };
                 bindGroup = context.Wgpu.DeviceCreateBindGroup(context.Device, &bgDesc);
@@ -922,7 +1004,7 @@ struct HitTestQuery {
     node_count: u32,
     primitive_index_count: u32,
     flags: u32,
-    pad0: u32,
+    path_segment_count: u32,
 };
 
 struct HitTestNode {
@@ -947,6 +1029,17 @@ struct HitTestPrimitive {
     z_index: f32,
 };
 
+struct PathSegment {
+    p0: vec2<f32>,
+    p1: vec2<f32>,
+    p2: vec2<f32>,
+    p3: vec2<f32>,
+    segment_type: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
+};
+
 struct HitTestResult {
     hit: u32,
     id: i32,
@@ -963,6 +1056,7 @@ struct HitTestResult {
 @group(0) @binding(2) var<storage, read> primitive_indices: array<u32>;
 @group(0) @binding(3) var<storage, read> primitives: array<HitTestPrimitive>;
 @group(0) @binding(4) var<storage, read_write> result: HitTestResult;
+@group(0) @binding(5) var<storage, read> path_segments: array<PathSegment>;
 
 const FLAG_VISIBLE: u32 = 1u;
 const FLAG_HIT_TEST_VISIBLE: u32 = 2u;
@@ -972,10 +1066,20 @@ const KIND_RECT_STROKE: u32 = 2u;
 const KIND_ELLIPSE_FILL: u32 = 3u;
 const KIND_ELLIPSE_STROKE: u32 = 4u;
 const KIND_LINE_STROKE: u32 = 5u;
+const KIND_PATH_FILL: u32 = 6u;
+const KIND_PATH_STROKE: u32 = 7u;
+const FILL_RULE_EVEN_ODD: u32 = 0u;
 const CAP_FLAT: u32 = 0u;
 const CAP_SQUARE: u32 = 1u;
 const CAP_ROUND: u32 = 2u;
 const CAP_TRIANGLE: u32 = 3u;
+const SEGMENT_LINE: u32 = 0u;
+const SEGMENT_QUADRATIC: u32 = 1u;
+const SEGMENT_CUBIC: u32 = 2u;
+const SEGMENT_ARC: u32 = 3u;
+const PATH_QUADRATIC_STEPS: u32 = 16u;
+const PATH_CUBIC_STEPS: u32 = 24u;
+const PATH_ARC_STEPS: u32 = 24u;
 
 fn finite2(value: vec2<f32>) -> bool {
     return all(abs(value) < vec2<f32>(3.402823e38, 3.402823e38));
@@ -1160,6 +1264,267 @@ fn contains_line_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     return contains_line_cap(point, end, direction, signed_distance, along - length, half_stroke, end_cap, false);
 }
 
+fn distance_squared_to_segment(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>) -> f32 {
+    let segment = end - start;
+    let length_squared = dot(segment, segment);
+    if (length_squared <= 0.00000001) {
+        let delta = point - start;
+        return dot(delta, delta);
+    }
+
+    let t = clamp(dot(point - start, segment) / length_squared, 0.0, 1.0);
+    let projection = start + segment * t;
+    let delta = point - projection;
+    return dot(delta, delta);
+}
+
+fn evaluate_quadratic(start: vec2<f32>, control: vec2<f32>, end: vec2<f32>, t: f32) -> vec2<f32> {
+    let u = 1.0 - t;
+    return (u * u * start) + (2.0 * u * t * control) + (t * t * end);
+}
+
+fn evaluate_cubic(start: vec2<f32>, control0: vec2<f32>, control1: vec2<f32>, end: vec2<f32>, t: f32) -> vec2<f32> {
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    return (uu * u * start) +
+        (3.0 * uu * t * control0) +
+        (3.0 * u * tt * control1) +
+        (tt * t * end);
+}
+
+fn evaluate_arc(segment: PathSegment, t: f32) -> vec2<f32> {
+    let theta_start = bitcast<f32>(segment.pad0);
+    let delta_theta = bitcast<f32>(segment.pad1);
+    let rotation = bitcast<f32>(segment.pad2);
+    let theta = theta_start + delta_theta * t;
+    let local = vec2<f32>(cos(theta) * segment.p3.x, sin(theta) * segment.p3.y);
+    let c = cos(rotation);
+    let s = sin(rotation);
+    return segment.p2 + vec2<f32>(
+        (local.x * c) - (local.y * s),
+        (local.x * s) + (local.y * c));
+}
+
+struct PathEdgeResult {
+    boundary: bool,
+    crosses: bool,
+    winding_delta: i32,
+};
+
+fn test_path_fill_edge(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>, tolerance: f32) -> PathEdgeResult {
+    var edge: PathEdgeResult;
+    edge.boundary = false;
+    edge.crosses = false;
+    edge.winding_delta = 0;
+
+    if (distance_squared_to_segment(point, start, end) <= tolerance * tolerance) {
+        edge.boundary = true;
+        return edge;
+    }
+
+    let crosses_y = (start.y > point.y) != (end.y > point.y);
+    if (crosses_y) {
+        let intersection_x = ((end.x - start.x) * (point.y - start.y) / (end.y - start.y)) + start.x;
+        edge.crosses = point.x < intersection_x;
+
+        let cross = cross2(end - start, point - start);
+        if (start.y <= point.y) {
+            if (end.y > point.y && cross > 0.0) {
+                edge.winding_delta = 1;
+            }
+        } else if (end.y <= point.y && cross < 0.0) {
+            edge.winding_delta = -1;
+        }
+    }
+
+    return edge;
+}
+
+struct PathFillState {
+    boundary: bool,
+    even_odd: bool,
+    winding: i32,
+};
+
+fn accumulate_path_fill_edge(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>, tolerance: f32, fill_rule: u32, state: PathFillState) -> PathFillState {
+    var next = state;
+    let edge = test_path_fill_edge(point, start, end, tolerance);
+    if (edge.boundary) {
+        next.boundary = true;
+        return next;
+    }
+
+    if (fill_rule == FILL_RULE_EVEN_ODD) {
+        if (edge.crosses) {
+            next.even_odd = !next.even_odd;
+        }
+    } else {
+        next.winding = next.winding + edge.winding_delta;
+    }
+
+    return next;
+}
+
+fn contains_path_fill(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
+    let start_segment = u32(primitive.data1.x + 0.5);
+    let segment_count = u32(primitive.data1.y + 0.5);
+    let fill_rule = u32(primitive.data1.z + 0.5);
+    if (segment_count == 0u || start_segment >= query.path_segment_count) {
+        return false;
+    }
+
+    let end_segment = min(start_segment + segment_count, query.path_segment_count);
+    var state: PathFillState;
+    state.boundary = false;
+    state.even_odd = false;
+    state.winding = 0;
+
+    var segment_index = start_segment;
+    loop {
+        if (segment_index >= end_segment) {
+            break;
+        }
+
+        let segment = path_segments[segment_index];
+        if (segment.segment_type == SEGMENT_LINE) {
+            state = accumulate_path_fill_edge(point, segment.p0, segment.p1, 0.0001, fill_rule, state);
+        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_QUADRATIC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                state = accumulate_path_fill_edge(point, previous, next_point, 0.0001, fill_rule, state);
+                previous = next_point;
+                step = step + 1u;
+            }
+        } else if (segment.segment_type == SEGMENT_CUBIC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_CUBIC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_cubic(segment.p0, segment.p1, segment.p2, segment.p3, f32(step) / f32(PATH_CUBIC_STEPS));
+                state = accumulate_path_fill_edge(point, previous, next_point, 0.0001, fill_rule, state);
+                previous = next_point;
+                step = step + 1u;
+            }
+        } else if (segment.segment_type == SEGMENT_ARC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_ARC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_arc(segment, f32(step) / f32(PATH_ARC_STEPS));
+                state = accumulate_path_fill_edge(point, previous, next_point, 0.0001, fill_rule, state);
+                previous = next_point;
+                step = step + 1u;
+            }
+        }
+
+        if (state.boundary) {
+            return true;
+        }
+
+        segment_index = segment_index + 1u;
+    }
+
+    if (fill_rule == FILL_RULE_EVEN_ODD) {
+        return state.even_odd;
+    }
+
+    return state.winding != 0;
+}
+
+fn path_stroke_line_hit(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>, half_stroke: f32) -> bool {
+    return distance_squared_to_segment(point, start, end) <= half_stroke * half_stroke;
+}
+
+fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
+    let start_segment = u32(primitive.data1.x + 0.5);
+    let segment_count = u32(primitive.data1.y + 0.5);
+    let stroke = abs(primitive.data1.z);
+    if (stroke <= 0.0 || segment_count == 0u || start_segment >= query.path_segment_count) {
+        return false;
+    }
+
+    let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.w);
+    let end_segment = min(start_segment + segment_count, query.path_segment_count);
+    var segment_index = start_segment;
+    loop {
+        if (segment_index >= end_segment) {
+            break;
+        }
+
+        let segment = path_segments[segment_index];
+        if (segment.segment_type == SEGMENT_LINE) {
+            if (path_stroke_line_hit(point, segment.p0, segment.p1, half_stroke)) {
+                return true;
+            }
+        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_QUADRATIC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                    return true;
+                }
+
+                previous = next_point;
+                step = step + 1u;
+            }
+        } else if (segment.segment_type == SEGMENT_CUBIC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_CUBIC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_cubic(segment.p0, segment.p1, segment.p2, segment.p3, f32(step) / f32(PATH_CUBIC_STEPS));
+                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                    return true;
+                }
+
+                previous = next_point;
+                step = step + 1u;
+            }
+        } else if (segment.segment_type == SEGMENT_ARC) {
+            var previous = segment.p0;
+            var step = 1u;
+            loop {
+                if (step > PATH_ARC_STEPS) {
+                    break;
+                }
+
+                let next_point = evaluate_arc(segment, f32(step) / f32(PATH_ARC_STEPS));
+                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                    return true;
+                }
+
+                previous = next_point;
+                step = step + 1u;
+            }
+        }
+
+        segment_index = segment_index + 1u;
+    }
+
+    return false;
+}
+
 fn precise_hit(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     if ((primitive.flags & FLAG_VISIBLE) == 0u || (primitive.flags & FLAG_HIT_TEST_VISIBLE) == 0u) {
         return false;
@@ -1193,6 +1558,14 @@ fn precise_hit(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
 
     if (primitive.kind == KIND_LINE_STROKE) {
         return contains_line_stroke(local_point, primitive);
+    }
+
+    if (primitive.kind == KIND_PATH_FILL) {
+        return contains_path_fill(local_point, primitive);
+    }
+
+    if (primitive.kind == KIND_PATH_STROKE) {
+        return contains_path_stroke(local_point, primitive);
     }
 
     return false;

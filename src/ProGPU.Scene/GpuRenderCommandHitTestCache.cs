@@ -10,6 +10,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
     private const float OpacityEpsilon = 0.0001f;
 
     private readonly List<GpuHitTestPrimitive> _primitives = new();
+    private readonly List<GpuPathSegment> _pathSegments = new();
     private readonly Stack<ClipState> _clipStack = new();
     private readonly Stack<float> _opacityStack = new();
     private float _activeOpacity = 1f;
@@ -20,6 +21,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
     public void Clear()
     {
         _primitives.Clear();
+        _pathSegments.Clear();
         _clipStack.Clear();
         _opacityStack.Clear();
         _activeOpacity = 1f;
@@ -74,7 +76,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
                 AddLine(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawPath:
-                AddPathBounds(command, activeTransform, primitiveId, zIndex);
+                AddPath(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawTexture:
             case RenderCommandType.PushOpacityMask:
@@ -100,7 +102,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
 
     public GpuHitTestIndex BuildIndex(int maxDepth = 8, int maxPrimitivesPerNode = 32)
     {
-        return GpuHitTestIndex.Build(_primitives.ToArray(), maxDepth, maxPrimitivesPerNode);
+        return GpuHitTestIndex.Build(_primitives.ToArray(), _pathSegments.ToArray(), maxDepth, maxPrimitivesPerNode);
     }
 
     private void AddRect(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
@@ -168,6 +170,64 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             0f,
             transform,
             zIndex));
+    }
+
+    private void AddPath(RenderCommand command, Matrix4x4 activeTransform, int id, float zIndex)
+    {
+        if (command.Path == null || command.Brush == null && command.Pen == null)
+        {
+            return;
+        }
+
+        var (records, segments) = PathAtlas.CompilePath(
+            command.Path,
+            out float minX,
+            out float minY,
+            out float maxX,
+            out float maxY);
+        if (records.Length == 0 || segments.Length == 0)
+        {
+            AddPathBounds(command, activeTransform, id, zIndex);
+            return;
+        }
+
+        Matrix4x4 transform = command.Transform == default
+            ? activeTransform
+            : command.Transform * activeTransform;
+
+        var min = new Vector2(minX, minY);
+        var max = new Vector2(maxX, maxY);
+        uint startSegment = checked((uint)_pathSegments.Count);
+        uint segmentCount = checked((uint)segments.Length);
+        _pathSegments.AddRange(segments);
+
+        if (command.Brush != null)
+        {
+            AddPrimitive(GpuHitTestPrimitive.PathFill(
+                id,
+                min,
+                max,
+                startSegment,
+                segmentCount,
+                command.Path.FillRule,
+                transform,
+                zIndex));
+            zIndex += 0.25f;
+        }
+
+        if (command.Pen is { Thickness: > 0f } pen)
+        {
+            AddPrimitive(GpuHitTestPrimitive.PathStroke(
+                id,
+                min,
+                max,
+                startSegment,
+                segmentCount,
+                pen.Thickness,
+                0f,
+                transform,
+                zIndex));
+        }
     }
 
     private void AddPathBounds(RenderCommand command, Matrix4x4 activeTransform, int id, float zIndex)
