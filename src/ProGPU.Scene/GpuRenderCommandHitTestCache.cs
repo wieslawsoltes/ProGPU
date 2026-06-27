@@ -170,6 +170,21 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             return;
         }
 
+        if (pen.HasDashPattern)
+        {
+            var linePath = new PathGeometry();
+            var figure = new PathFigure(command.Position);
+            figure.Segments.Add(new LineSegment(command.Position2));
+            linePath.Figures.Add(figure);
+
+            if (Compositor.TryCreateDashedStrokePath(linePath, pen, out var strokePath))
+            {
+                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, Compositor.CreateUndashedPen(pen));
+            }
+
+            return;
+        }
+
         AddPrimitive(GpuHitTestPrimitive.LineStroke(
             id,
             command.Position,

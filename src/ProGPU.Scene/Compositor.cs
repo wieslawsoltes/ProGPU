@@ -367,6 +367,55 @@ public unsafe class Compositor : IDisposable
         }
     }
 
+    private void AddHitTestStateCommand(RenderCommand command, Matrix4x4 transform)
+    {
+        if (!IsHitTestStateCommand(command.Type))
+        {
+            return;
+        }
+
+        AddHitTestCommand(command, transform);
+    }
+
+    private void AddHitTestDrawCommand(RenderCommand command, Matrix4x4 transform)
+    {
+        if (IsHitTestStateCommand(command.Type))
+        {
+            return;
+        }
+
+        AddHitTestCommand(command, transform);
+    }
+
+    private static bool IsHitTestStateCommand(RenderCommandType type)
+    {
+        return type is
+            RenderCommandType.PushClip or
+            RenderCommandType.PopClip or
+            RenderCommandType.PushGeometryClip or
+            RenderCommandType.PopGeometryClip or
+            RenderCommandType.PushOpacity or
+            RenderCommandType.PopOpacity;
+    }
+
+    private void EnsurePathHitTestCompilation(PathGeometry path)
+    {
+        try
+        {
+            _pathAtlas.TryGetCompiledHitTestPath(
+                path,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
     private readonly List<ICompositorExtension> _registeredExtensions = new();
     private readonly Dictionary<int, ICompositorExtension> _extensionsById = new();
     private int _extensionFrameDepth;
@@ -2451,7 +2500,7 @@ public unsafe class Compositor : IDisposable
                     _gpuTransformsCameraView = cmd.CameraView * globalTransform;
                 }
 
-                AddHitTestCommand(cmd, activeTransform);
+                AddHitTestStateCommand(cmd, activeTransform);
 
                 switch (cmd.Type)
                 {
@@ -2612,6 +2661,8 @@ public unsafe class Compositor : IDisposable
                         CompileGlyphRunCommand(cmd, activeTransform);
                         break;
                 }
+
+                AddHitTestDrawCommand(cmd, activeTransform);
 
                 if (cmd.UseGpuTransforms)
                 {
@@ -2948,6 +2999,7 @@ public unsafe class Compositor : IDisposable
         int startIndex = _vectorVerticesList.Count;
 
         transform = (cmd.Transform == default) ? transform : cmd.Transform * transform;
+        EnsurePathHitTestCompilation(cmd.Path);
 
         if (cmd.Brush != null)
         {

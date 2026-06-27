@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
@@ -289,11 +290,61 @@ public sealed class GpuHitTestingTests
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
         Assert.Equal(1, compiler.CallCount);
+        Assert.Equal(1, compiler.CompileCount);
         var primitive = Assert.Single(index.Primitives);
         Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
         Assert.Equal(78, primitive.Id);
         Assert.Equal(3f, primitive.Data1.Y);
         Assert.Equal(3, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheUsesPrecompiledPathMetadataWithoutRecompiling()
+    {
+        var compiler = new CountingPathHitTestCompilationCache();
+        var path = CreateTrianglePath();
+        compiler.Prewarm(path);
+        var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 79,
+            Path = path,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(1, compiler.CallCount);
+        Assert.Equal(0, compiler.CompileCount);
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
+        Assert.Equal(79, primitive.Id);
+        Assert.Equal(3, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsDashedLineAsGpuPathStroke()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine,
+            HitTestId = 80,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Pen = new Pen(
+                new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+                thickness: 2f,
+                dashArray: [2.0, 2.0])
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(80, primitive.Id);
+        Assert.NotEmpty(index.PathSegments);
     }
 
     [Fact]
@@ -1785,7 +1836,15 @@ public sealed class GpuHitTestingTests
 
     private sealed class CountingPathHitTestCompilationCache : IPathHitTestCompilationCache
     {
+        private readonly Dictionary<PathGeometry, CachedPathData> _cache = new();
+
         public int CallCount { get; private set; }
+        public int CompileCount { get; private set; }
+
+        public void Prewarm(PathGeometry path)
+        {
+            _cache[path] = Compile(path);
+        }
 
         public bool TryGetCompiledHitTestPath(
             PathGeometry path,
@@ -1797,13 +1856,39 @@ public sealed class GpuHitTestingTests
             out float localMaxY)
         {
             CallCount++;
-            (records, segments) = PathAtlas.CompilePath(
-                path,
-                out localMinX,
-                out localMinY,
-                out localMaxX,
-                out localMaxY);
+            if (!_cache.TryGetValue(path, out var cached))
+            {
+                CompileCount++;
+                cached = Compile(path);
+                _cache[path] = cached;
+            }
+
+            records = cached.Records;
+            segments = cached.Segments;
+            localMinX = cached.LocalMinX;
+            localMinY = cached.LocalMinY;
+            localMaxX = cached.LocalMaxX;
+            localMaxY = cached.LocalMaxY;
             return segments.Length != 0;
         }
+
+        private static CachedPathData Compile(PathGeometry path)
+        {
+            var (records, segments) = PathAtlas.CompilePath(
+                path,
+                out float localMinX,
+                out float localMinY,
+                out float localMaxX,
+                out float localMaxY);
+            return new CachedPathData(records, segments, localMinX, localMinY, localMaxX, localMaxY);
+        }
+
+        private readonly record struct CachedPathData(
+            GpuPathRecord[] Records,
+            GpuPathSegment[] Segments,
+            float LocalMinX,
+            float LocalMinY,
+            float LocalMaxX,
+            float LocalMaxY);
     }
 }
