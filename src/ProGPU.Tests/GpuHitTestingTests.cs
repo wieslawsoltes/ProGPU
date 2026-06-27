@@ -515,7 +515,7 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void TryQueryBoundsAllReturnsBoundsCandidateWithoutPointPreciseTesting()
+    public void TryQueryBoundsAllRejectsEllipseCornerFalsePositiveOnGpu()
     {
         using var context = new WgpuContext();
         context.Initialize(null);
@@ -536,12 +536,117 @@ public sealed class GpuHitTestingTests
             out int hitCount,
             out GpuHitTestResult summary);
 
+        Assert.False(hit);
+        Assert.Equal(0, hitCount);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+    }
+
+    [Fact]
+    public void TryQueryBoundsAllClassifiesEllipseRectRegionIntersectionDetailOnGpu()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        GpuHitTestPrimitive[] primitives =
+        [
+            GpuHitTestPrimitive.EllipseFill(20, new Vector2(0f, 0f), new Vector2(10f, 10f))
+        ];
+        var index = GpuHitTestIndex.Build(primitives, maxDepth: 2, maxPrimitivesPerNode: 1);
+        var results = new GpuHitTestResult[4];
+
+        bool hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(7f, 4f),
+            new Vector2(12f, 6f),
+            results,
+            out int hitCount,
+            out GpuHitTestResult summary);
+
         Assert.True(hit);
         Assert.Equal(1, hitCount);
         Assert.Equal(20, results[0].Id);
         Assert.Equal((uint)GpuHitTestIntersectionDetail.Intersects, results[0].IntersectionDetail);
         Assert.Equal(1u, summary.CandidateCount);
-        Assert.Equal(0u, summary.PreciseTests);
+        Assert.Equal(1u, summary.PreciseTests);
+
+        Array.Clear(results);
+        hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(4f, 4f),
+            new Vector2(6f, 6f),
+            results,
+            out hitCount,
+            out summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.FullyContains, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+
+        Array.Clear(results);
+        hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(-1f, -1f),
+            new Vector2(11f, 11f),
+            results,
+            out hitCount,
+            out summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.FullyInside, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+    }
+
+    [Fact]
+    public void TryQueryBoundsAllRejectsEllipseStrokeHoleOnGpu()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        GpuHitTestPrimitive[] primitives =
+        [
+            GpuHitTestPrimitive.EllipseStroke(30, new Vector2(0f, 0f), new Vector2(10f, 10f), strokeThickness: 2f)
+        ];
+        var index = GpuHitTestIndex.Build(primitives, maxDepth: 2, maxPrimitivesPerNode: 1);
+        var results = new GpuHitTestResult[4];
+
+        bool hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(4.5f, 4.5f),
+            new Vector2(5.5f, 5.5f),
+            results,
+            out int hitCount,
+            out GpuHitTestResult summary);
+
+        Assert.False(hit);
+        Assert.Equal(0, hitCount);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+
+        Array.Clear(results);
+        hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(9.5f, 4.5f),
+            new Vector2(10.5f, 5.5f),
+            results,
+            out hitCount,
+            out summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal(30, results[0].Id);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.Intersects, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
     }
 
     [Fact]

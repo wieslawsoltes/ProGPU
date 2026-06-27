@@ -1409,6 +1409,22 @@ fn transform_to_local(point: vec2<f32>, primitive: HitTestPrimitive) -> vec2<f32
         point.x * primitive.inverse_transform1.x + point.y * primitive.inverse_transform1.y + primitive.inverse_transform1.z);
 }
 
+fn transform_bounds_to_local_min(region_min: vec2<f32>, region_max: vec2<f32>, primitive: HitTestPrimitive) -> vec2<f32> {
+    let p0 = transform_to_local(region_min, primitive);
+    let p1 = transform_to_local(vec2<f32>(region_max.x, region_min.y), primitive);
+    let p2 = transform_to_local(region_max, primitive);
+    let p3 = transform_to_local(vec2<f32>(region_min.x, region_max.y), primitive);
+    return min(min(p0, p1), min(p2, p3));
+}
+
+fn transform_bounds_to_local_max(region_min: vec2<f32>, region_max: vec2<f32>, primitive: HitTestPrimitive) -> vec2<f32> {
+    let p0 = transform_to_local(region_min, primitive);
+    let p1 = transform_to_local(vec2<f32>(region_max.x, region_min.y), primitive);
+    let p2 = transform_to_local(region_max, primitive);
+    let p3 = transform_to_local(vec2<f32>(region_min.x, region_max.y), primitive);
+    return max(max(p0, p1), max(p2, p3));
+}
+
 fn contains_rounded_rect(point: vec2<f32>, min_value: vec2<f32>, max_value: vec2<f32>, radius: vec2<f32>) -> bool {
     if (!contains_bounds(point, min_value, max_value)) {
         return false;
@@ -1474,6 +1490,50 @@ fn contains_ellipse(point: vec2<f32>, min_value: vec2<f32>, max_value: vec2<f32>
     let center = (min_value + max_value) * 0.5;
     let normalized = (point - center) / radii;
     return dot(normalized, normalized) <= 1.0;
+}
+
+fn rect_intersects_ellipse(rect_min: vec2<f32>, rect_max: vec2<f32>, ellipse_min: vec2<f32>, ellipse_max: vec2<f32>) -> bool {
+    let radii = (ellipse_max - ellipse_min) * 0.5;
+    if (radii.x <= 0.0 || radii.y <= 0.0) {
+        return false;
+    }
+
+    let center = (ellipse_min + ellipse_max) * 0.5;
+    let closest = clamp(center, rect_min, rect_max);
+    let normalized = (closest - center) / radii;
+    return dot(normalized, normalized) <= 1.0;
+}
+
+fn ellipse_contains_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, ellipse_min: vec2<f32>, ellipse_max: vec2<f32>) -> bool {
+    return contains_ellipse(rect_min, ellipse_min, ellipse_max) &&
+        contains_ellipse(vec2<f32>(rect_max.x, rect_min.y), ellipse_min, ellipse_max) &&
+        contains_ellipse(rect_max, ellipse_min, ellipse_max) &&
+        contains_ellipse(vec2<f32>(rect_min.x, rect_max.y), ellipse_min, ellipse_max);
+}
+
+fn rect_intersects_ellipse_stroke(rect_min: vec2<f32>, rect_max: vec2<f32>, primitive: HitTestPrimitive) -> bool {
+    let stroke = abs(primitive.data1.x);
+    if (stroke <= 0.0) {
+        return false;
+    }
+
+    let tolerance = max(0.0, primitive.data1.y);
+    let half_stroke = stroke * 0.5 + tolerance;
+    let original_min = primitive.data0.xy;
+    let original_max = primitive.data0.zw;
+    let outer_min = original_min - vec2<f32>(half_stroke, half_stroke);
+    let outer_max = original_max + vec2<f32>(half_stroke, half_stroke);
+    if (!rect_intersects_ellipse(rect_min, rect_max, outer_min, outer_max)) {
+        return false;
+    }
+
+    let inner_min = original_min + vec2<f32>(half_stroke, half_stroke);
+    let inner_max = original_max - vec2<f32>(half_stroke, half_stroke);
+    if (inner_max.x <= inner_min.x || inner_max.y <= inner_min.y) {
+        return true;
+    }
+
+    return !ellipse_contains_rect(rect_min, rect_max, inner_min, inner_max);
 }
 
 fn contains_ellipse_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
@@ -1859,6 +1919,11 @@ fn primitive_can_fully_contain_query_bounds(primitive: HitTestPrimitive) -> bool
     return false;
 }
 
+fn primitive_uses_precise_bounds_region_test(primitive: HitTestPrimitive) -> bool {
+    return primitive_is_axis_aligned(primitive) &&
+        (primitive.kind == KIND_ELLIPSE_FILL || primitive.kind == KIND_ELLIPSE_STROKE);
+}
+
 fn classify_bounds_intersection_detail(primitive: HitTestPrimitive) -> u32 {
     let region_min = query_region_min();
     let region_max = query_region_max();
@@ -1868,6 +1933,24 @@ fn classify_bounds_intersection_detail(primitive: HitTestPrimitive) -> u32 {
 
     if (contains_rect_bounds(region_min, region_max, primitive.bounds_min, primitive.bounds_max)) {
         return INTERSECTION_DETAIL_FULLY_INSIDE;
+    }
+
+    if (primitive_uses_precise_bounds_region_test(primitive)) {
+        let local_region_min = transform_bounds_to_local_min(region_min, region_max, primitive);
+        let local_region_max = transform_bounds_to_local_max(region_min, region_max, primitive);
+        if (primitive.kind == KIND_ELLIPSE_FILL) {
+            if (!rect_intersects_ellipse(local_region_min, local_region_max, primitive.data0.xy, primitive.data0.zw)) {
+                return INTERSECTION_DETAIL_EMPTY;
+            }
+
+            if (ellipse_contains_rect(local_region_min, local_region_max, primitive.data0.xy, primitive.data0.zw)) {
+                return INTERSECTION_DETAIL_FULLY_CONTAINS;
+            }
+        } else if (primitive.kind == KIND_ELLIPSE_STROKE) {
+            if (!rect_intersects_ellipse_stroke(local_region_min, local_region_max, primitive)) {
+                return INTERSECTION_DETAIL_EMPTY;
+            }
+        }
     }
 
     if (primitive_can_fully_contain_query_bounds(primitive) && contains_rect_bounds(primitive.bounds_min, primitive.bounds_max, region_min, region_max)) {
@@ -2010,7 +2093,14 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                     if (query_uses_bounds()) {
                         if (primitive_is_hit_test_visible(primitive) && query_intersects_bounds(primitive.bounds_min, primitive.bounds_max)) {
                             results[0].candidate_count = results[0].candidate_count + 1u;
-                            record_hit(primitive_index, primitive, classify_bounds_intersection_detail(primitive));
+                            if (primitive_uses_precise_bounds_region_test(primitive)) {
+                                results[0].precise_tests = results[0].precise_tests + 1u;
+                            }
+
+                            let intersection_detail = classify_bounds_intersection_detail(primitive);
+                            if (intersection_detail != INTERSECTION_DETAIL_EMPTY) {
+                                record_hit(primitive_index, primitive, intersection_detail);
+                            }
                         }
                     } else if (contains_bounds(query.point, primitive.bounds_min, primitive.bounds_max)) {
                         results[0].candidate_count = results[0].candidate_count + 1u;
