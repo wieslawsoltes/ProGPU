@@ -348,6 +348,32 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheReusesRecordedDashedLineGeometryCache()
+    {
+        var context = new DrawingContext();
+        var pen = new Pen(
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            thickness: 2f,
+            dashArray: [2.0, 2.0]);
+        context.DrawLine(pen, new Vector2(0f, 0f), new Vector2(10f, 0f));
+        var command = Assert.Single(context.Commands);
+        Assert.True(command.GeometryCache!.TryGetDashedStrokePath(pen, out var dashedPath, out _));
+
+        var compiler = new CountingPathHitTestCompilationCache();
+        compiler.Prewarm(dashedPath);
+        var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
+
+        builder.AddCommand(command, Matrix4x4.Identity, id: 88);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(88, primitive.Id);
+        Assert.Equal(1, compiler.CallCount);
+        Assert.Equal(0, compiler.CompileCount);
+    }
+
+    [Fact]
     public void RenderCommandCacheBuildsPolylineAsGpuPathStroke()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
@@ -396,6 +422,105 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheBuildsQuadraticBezierAsGpuPathStroke()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawBezier,
+            HitTestId = 85,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(10f, 10f),
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f)
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(85, primitive.Id);
+        var segment = Assert.Single(index.PathSegments);
+        Assert.Equal(1u, segment.SegmentType);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsCubicBezierAsGpuPathStroke()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawCubicBezier,
+            HitTestId = 86,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(10f, 10f),
+            Position4 = new Vector2(0f, 10f),
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f)
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(86, primitive.Id);
+        var segment = Assert.Single(index.PathSegments);
+        Assert.Equal(2u, segment.SegmentType);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsDashedBezierAsGpuPathStroke()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawBezier,
+            HitTestId = 87,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(10f, 10f),
+            Pen = new Pen(
+                new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+                thickness: 2f,
+                dashArray: [2.0, 2.0])
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(87, primitive.Id);
+        Assert.NotEmpty(index.PathSegments);
+    }
+
+    [Fact]
+    public void RenderCommandCacheReusesRecordedQuadraticBezierGeometryCache()
+    {
+        var context = new DrawingContext();
+        context.DrawQuadraticBezier(
+            new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f),
+            new Vector2(0f, 0f),
+            new Vector2(10f, 0f),
+            new Vector2(10f, 10f));
+        var command = Assert.Single(context.Commands);
+        var cachedPath = command.GeometryCache!.StrokePath;
+        Assert.NotNull(cachedPath);
+
+        var compiler = new CountingPathHitTestCompilationCache();
+        compiler.Prewarm(cachedPath);
+        var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
+
+        builder.AddCommand(command, Matrix4x4.Identity, id: 89);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(89, primitive.Id);
+        Assert.Equal(1, compiler.CallCount);
+        Assert.Equal(0, compiler.CompileCount);
+    }
+
+    [Fact]
     public void RenderCommandCacheBuildsTriangleAsGpuPathFill()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
@@ -441,6 +566,27 @@ public sealed class GpuHitTestingTests
             Assert.Equal(84, primitive.Id);
         });
         Assert.Equal(6, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void DrawingContextAppendTranslationInvalidatesRecordedGeometryCache()
+    {
+        var source = new DrawingContext();
+        source.DrawQuadraticBezier(
+            new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f),
+            new Vector2(0f, 0f),
+            new Vector2(10f, 0f),
+            new Vector2(10f, 10f));
+        Assert.NotNull(source.Commands[0].GeometryCache);
+
+        var target = new DrawingContext();
+        target.Append(source, new Vector2(5f, 6f));
+
+        var translated = Assert.Single(target.Commands);
+        Assert.Null(translated.GeometryCache);
+        Assert.Equal(new Vector2(5f, 6f), translated.Position);
+        Assert.Equal(new Vector2(15f, 6f), translated.Position2);
+        Assert.Equal(new Vector2(15f, 16f), translated.Position3);
     }
 
     [Fact]
@@ -700,6 +846,61 @@ public sealed class GpuHitTestingTests
 
         Assert.True(fillHit);
         Assert.Equal(95, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuQuadraticBezierStrokeHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawBezier,
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f),
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(10f, 10f)
+        }, Matrix4x4.Identity, id: 96);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool strokeHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(7.5f, 2.5f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(2f, 8f), out GpuHitTestResult missResult);
+
+        Assert.True(strokeHit);
+        Assert.Equal(96, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuCubicBezierStrokeHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawCubicBezier,
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 2f),
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(10f, 10f),
+            Position4 = new Vector2(0f, 10f)
+        }, Matrix4x4.Identity, id: 97);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool strokeHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(7.5f, 5f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(0.5f, 5f), out GpuHitTestResult missResult);
+
+        Assert.True(strokeHit);
+        Assert.Equal(97, result.Id);
         Assert.False(boundsOnlyMiss);
         Assert.False(missResult.HasHit);
         Assert.True(missResult.CandidateCount > 0);

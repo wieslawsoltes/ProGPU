@@ -3105,15 +3105,22 @@ public unsafe class Compositor : IDisposable
         {
             if (cmd.Pen.HasDashPattern)
             {
-                if (!TryCreateDashedStrokePath(cmd.Path, cmd.Pen, out var dashedPath))
+                PathGeometry dashedPath;
+                Pen undashedPen;
+                if (cmd.GeometryCache?.TryGetDashedStrokePath(cmd.Pen, out dashedPath, out undashedPen) != true)
                 {
-                    throw new NotSupportedException("Dashed strokes are not supported for this path geometry.");
+                    if (!TryCreateDashedStrokePath(cmd.Path, cmd.Pen, out dashedPath))
+                    {
+                        throw new NotSupportedException("Dashed strokes are not supported for this path geometry.");
+                    }
+
+                    undashedPen = CreateUndashedPen(cmd.Pen);
                 }
 
                 var dashedCmd = cmd;
                 dashedCmd.Brush = null;
                 dashedCmd.Path = dashedPath;
-                dashedCmd.Pen = CreateUndashedPen(cmd.Pen);
+                dashedCmd.Pen = undashedPen;
                 dashedCmd.Transform = default;
                 if (_activeClipRect.HasValue)
                 {
@@ -4305,10 +4312,8 @@ public unsafe class Compositor : IDisposable
         if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
         if (cmd.Pen.HasDashPattern)
         {
-            var path = new PathGeometry();
-            var figure = new PathFigure(cmd.Position);
-            figure.Segments.Add(new LineSegment(cmd.Position2));
-            path.Figures.Add(figure);
+            var path = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateLinePath(cmd.Position, cmd.Position2);
 
             var pathCmd = cmd;
             pathCmd.Type = RenderCommandType.DrawPath;

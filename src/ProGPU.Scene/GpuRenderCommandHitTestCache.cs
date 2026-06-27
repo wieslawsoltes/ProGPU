@@ -94,6 +94,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             case RenderCommandType.DrawLine:
                 AddLine(command, activeTransform, primitiveId, zIndex);
                 break;
+            case RenderCommandType.DrawBezier:
+                AddQuadraticBezier(command, activeTransform, primitiveId, zIndex);
+                break;
+            case RenderCommandType.DrawCubicBezier:
+                AddCubicBezier(command, activeTransform, primitiveId, zIndex);
+                break;
             case RenderCommandType.DrawPath:
                 AddPath(command, activeTransform, primitiveId, zIndex);
                 break;
@@ -109,6 +115,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
                 break;
             case RenderCommandType.FillTriangle:
                 AddTriangleFill(
+                    command.GeometryCache?.FillPath,
                     command.Position,
                     command.Position2,
                     command.Position3,
@@ -188,14 +195,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
 
         if (pen.HasDashPattern)
         {
-            var linePath = new PathGeometry();
-            var figure = new PathFigure(command.Position);
-            figure.Segments.Add(new LineSegment(command.Position2));
-            linePath.Figures.Add(figure);
+            var linePath = command.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateLinePath(command.Position, command.Position2);
 
-            if (Compositor.TryCreateDashedStrokePath(linePath, pen, out var strokePath))
+            if (TryGetDashedStrokePath(command, linePath, pen, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, Compositor.CreateUndashedPen(pen));
+                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
             }
 
             return;
@@ -213,9 +218,65 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             zIndex));
     }
 
+    private void AddQuadraticBezier(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    {
+        if (command.Pen is not { Thickness: > 0f } pen)
+        {
+            return;
+        }
+
+        AddBezierPathStroke(
+            command.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateQuadraticBezierPath(command.Position, command.Position2, command.Position3),
+            pen,
+            command.GeometryCache,
+            transform,
+            id,
+            zIndex);
+    }
+
+    private void AddCubicBezier(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    {
+        if (command.Pen is not { Thickness: > 0f } pen)
+        {
+            return;
+        }
+
+        AddBezierPathStroke(
+            command.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateCubicBezierPath(command.Position, command.Position2, command.Position3, command.Position4),
+            pen,
+            command.GeometryCache,
+            transform,
+            id,
+            zIndex);
+    }
+
+    private void AddBezierPathStroke(
+        PathGeometry path,
+        Pen pen,
+        RenderCommandGeometryCache? geometryCache,
+        Matrix4x4 transform,
+        int id,
+        float zIndex)
+    {
+        if (pen.HasDashPattern)
+        {
+            if (TryGetDashedStrokePath(geometryCache, path, pen, out var strokePath, out var strokePen))
+            {
+                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+            }
+
+            return;
+        }
+
+        TryAddPathStrokePrimitive(path, transform, id, zIndex, pen);
+    }
+
     private void AddPath(RenderCommand command, Matrix4x4 activeTransform, int id, float zIndex)
     {
-        if (command.Path == null || command.Brush == null && command.Pen == null)
+        var commandPath = command.Path;
+        if (commandPath == null || command.Brush == null && command.Pen == null)
         {
             return;
         }
@@ -227,14 +288,14 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         Pen? pen = command.Pen is { Thickness: > 0f } activePen ? activePen : null;
         if (pen?.HasDashPattern != true)
         {
-            if (!TryCompileHitTestPath(command.Path, out var path))
+            if (!TryCompileHitTestPath(command.GeometryCache?.FillPath ?? commandPath, out var path))
             {
                 return;
             }
 
             if (command.Brush != null)
             {
-                AddPathFillPrimitive(path, command.Path.FillRule, transform, id, zIndex);
+                AddPathFillPrimitive(path, commandPath.FillRule, transform, id, zIndex);
                 zIndex += 0.25f;
             }
 
@@ -247,18 +308,50 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         }
 
         if (command.Brush != null &&
-            TryCompileHitTestPath(command.Path, out var fillPath))
+            TryCompileHitTestPath(command.GeometryCache?.FillPath ?? commandPath, out var fillPath))
         {
-            AddPathFillPrimitive(fillPath, command.Path.FillRule, transform, id, zIndex);
+            AddPathFillPrimitive(fillPath, commandPath.FillRule, transform, id, zIndex);
             zIndex += 0.25f;
         }
 
-        if (!Compositor.TryCreateDashedStrokePath(command.Path, pen, out var strokePath))
+        if (!TryGetDashedStrokePath(command, commandPath, pen, out var strokePath, out var strokePen))
         {
             return;
         }
 
-        TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, Compositor.CreateUndashedPen(pen));
+        TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+    }
+
+    private static bool TryGetDashedStrokePath(
+        in RenderCommand command,
+        PathGeometry fallbackPath,
+        Pen pen,
+        out PathGeometry strokePath,
+        out Pen strokePen)
+    {
+        return TryGetDashedStrokePath(command.GeometryCache, fallbackPath, pen, out strokePath, out strokePen);
+    }
+
+    private static bool TryGetDashedStrokePath(
+        RenderCommandGeometryCache? geometryCache,
+        PathGeometry fallbackPath,
+        Pen pen,
+        out PathGeometry strokePath,
+        out Pen strokePen)
+    {
+        if (geometryCache?.TryGetDashedStrokePath(pen, out strokePath, out strokePen) == true)
+        {
+            return true;
+        }
+
+        if (!Compositor.TryCreateDashedStrokePath(fallbackPath, pen, out strokePath))
+        {
+            strokePen = null!;
+            return false;
+        }
+
+        strokePen = Compositor.CreateUndashedPen(pen);
+        return true;
     }
 
     private bool TryCompileHitTestPath(PathGeometry path, out CompiledHitTestPath compiledPath)
@@ -418,6 +511,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
     }
 
     private void AddTriangleFill(
+        PathGeometry? cachedPath,
         Vector2 p1,
         Vector2 p2,
         Vector2 p3,
@@ -431,7 +525,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             return;
         }
 
-        var path = CreateTrianglePath(p1, p2, p3);
+        var path = cachedPath ?? RenderCommandGeometryCache.CreateTrianglePath(p1, p2, p3);
         if (TryCompileHitTestPath(path, out var compiledPath))
         {
             AddPathFillPrimitive(compiledPath, path.FillRule, transform, id, zIndex);
@@ -446,6 +540,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         }
 
         AddTriangleFill(
+            command.GeometryCache?.FillPath,
             command.Position,
             command.Position2,
             command.Position3,
@@ -454,6 +549,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             id,
             zIndex);
         AddTriangleFill(
+            command.GeometryCache?.SecondaryFillPath,
             command.Position,
             command.Position3,
             command.Position4,
@@ -476,12 +572,13 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             return;
         }
 
-        var path = CreatePolylinePath(points, command.IsClosed);
+        var path = command.GeometryCache?.StrokePath ??
+            RenderCommandGeometryCache.CreatePolylinePath(points, command.IsClosed);
         if (pen.HasDashPattern)
         {
-            if (Compositor.TryCreateDashedStrokePath(path, pen, out var strokePath))
+            if (TryGetDashedStrokePath(command, path, pen, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, Compositor.CreateUndashedPen(pen));
+                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
             }
 
             return;
@@ -500,29 +597,6 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         return command.PolylinePoints is { Length: > 0 } points
             ? points
             : ReadOnlySpan<Vector2>.Empty;
-    }
-
-    private static PathGeometry CreatePolylinePath(ReadOnlySpan<Vector2> points, bool isClosed)
-    {
-        var path = new PathGeometry();
-        var figure = new PathFigure(points[0], isClosed);
-        for (int i = 1; i < points.Length; i++)
-        {
-            figure.Segments.Add(new LineSegment(points[i]));
-        }
-
-        path.Figures.Add(figure);
-        return path;
-    }
-
-    private static PathGeometry CreateTrianglePath(Vector2 p1, Vector2 p2, Vector2 p3)
-    {
-        var path = new PathGeometry();
-        var figure = new PathFigure(p1, isClosed: true);
-        figure.Segments.Add(new LineSegment(p2));
-        figure.Segments.Add(new LineSegment(p3));
-        path.Figures.Add(figure);
-        return path;
     }
 
     private void AddPrimitive(GpuHitTestPrimitive primitive)

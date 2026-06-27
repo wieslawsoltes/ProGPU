@@ -150,6 +150,170 @@ public interface IRenderDataProvider
     ReadOnlySpan<float> GetFloats(int offset, int count);
 }
 
+public sealed class RenderCommandGeometryCache
+{
+    private int _dashedStrokeSignature;
+    private PathGeometry? _dashedStrokePath;
+    private Pen? _undashedStrokePen;
+
+    private RenderCommandGeometryCache(
+        PathGeometry? strokePath,
+        PathGeometry? fillPath,
+        PathGeometry? secondaryFillPath)
+    {
+        StrokePath = strokePath;
+        FillPath = fillPath;
+        SecondaryFillPath = secondaryFillPath;
+    }
+
+    public PathGeometry? StrokePath { get; }
+    public PathGeometry? FillPath { get; }
+    public PathGeometry? SecondaryFillPath { get; }
+
+    public static RenderCommandGeometryCache ForPath(PathGeometry path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return new RenderCommandGeometryCache(path, path, null);
+    }
+
+    public static RenderCommandGeometryCache ForStrokePath(PathGeometry path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return new RenderCommandGeometryCache(path, null, null);
+    }
+
+    public static RenderCommandGeometryCache ForFillPath(PathGeometry path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return new RenderCommandGeometryCache(null, path, null);
+    }
+
+    public static RenderCommandGeometryCache ForFillPaths(PathGeometry primaryPath, PathGeometry secondaryPath)
+    {
+        ArgumentNullException.ThrowIfNull(primaryPath);
+        ArgumentNullException.ThrowIfNull(secondaryPath);
+        return new RenderCommandGeometryCache(null, primaryPath, secondaryPath);
+    }
+
+    public bool TryGetDashedStrokePath(Pen pen, out PathGeometry dashedStrokePath, out Pen undashedStrokePen)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+
+        if (StrokePath == null)
+        {
+            dashedStrokePath = null!;
+            undashedStrokePen = null!;
+            return false;
+        }
+
+        int signature = ComputeDashedStrokeSignature(pen);
+        if (_dashedStrokePath != null &&
+            _undashedStrokePen != null &&
+            _dashedStrokeSignature == signature)
+        {
+            dashedStrokePath = _dashedStrokePath;
+            undashedStrokePen = _undashedStrokePen;
+            return true;
+        }
+
+        if (!Compositor.TryCreateDashedStrokePath(StrokePath, pen, out dashedStrokePath))
+        {
+            undashedStrokePen = null!;
+            return false;
+        }
+
+        undashedStrokePen = Compositor.CreateUndashedPen(pen);
+        _dashedStrokePath = dashedStrokePath;
+        _undashedStrokePen = undashedStrokePen;
+        _dashedStrokeSignature = signature;
+        return true;
+    }
+
+    public static PathGeometry CreateLinePath(Vector2 start, Vector2 end)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(start);
+        figure.Segments.Add(new LineSegment(end));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    public static PathGeometry CreatePolylinePath(ReadOnlySpan<Vector2> points, bool isClosed)
+    {
+        var path = new PathGeometry();
+        if (points.Length == 0)
+        {
+            return path;
+        }
+
+        var figure = new PathFigure(points[0], isClosed);
+        for (int i = 1; i < points.Length; i++)
+        {
+            figure.Segments.Add(new LineSegment(points[i]));
+        }
+
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    public static PathGeometry CreateTrianglePath(Vector2 p1, Vector2 p2, Vector2 p3)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(p1, isClosed: true);
+        figure.Segments.Add(new LineSegment(p2));
+        figure.Segments.Add(new LineSegment(p3));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    public static PathGeometry CreateQuadraticBezierPath(Vector2 start, Vector2 control, Vector2 end)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(start);
+        figure.Segments.Add(new QuadraticBezierSegment(control, end));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    public static PathGeometry CreateCubicBezierPath(Vector2 start, Vector2 control1, Vector2 control2, Vector2 end)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(start);
+        figure.Segments.Add(new CubicBezierSegment(control1, control2, end));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    private static int ComputeDashedStrokeSignature(Pen pen)
+    {
+        var hash = new HashCode();
+        hash.Add(pen.Brush);
+        hash.Add(pen.Thickness);
+        hash.Add(pen.LineJoin);
+        hash.Add(pen.MiterLimit);
+        hash.Add(pen.StartLineCap);
+        hash.Add(pen.EndLineCap);
+        hash.Add(pen.DashCap);
+        hash.Add(pen.DashOffset);
+
+        var dashArray = pen.DashArray;
+        if (dashArray != null)
+        {
+            hash.Add(dashArray.Length);
+            for (int i = 0; i < dashArray.Length; i++)
+            {
+                hash.Add(dashArray[i]);
+            }
+        }
+        else
+        {
+            hash.Add(0);
+        }
+
+        return hash.ToHashCode();
+    }
+}
+
 public struct RenderCommand
 {
     public RenderCommandType Type;
@@ -158,6 +322,7 @@ public struct RenderCommand
     public Brush? Brush;
     public Pen? Pen;
     public PathGeometry? Path;
+    public RenderCommandGeometryCache? GeometryCache;
     
     // Typography properties
     public string? Text;
@@ -481,7 +646,8 @@ public class DrawingContext : IRenderDataProvider
             Type = RenderCommandType.DrawPath,
             Brush = brush,
             Pen = pen,
-            Path = path
+            Path = path,
+            GeometryCache = RenderCommandGeometryCache.ForPath(path)
         });
     }
 
@@ -493,7 +659,8 @@ public class DrawingContext : IRenderDataProvider
             Brush = brush,
             Pen = pen,
             Path = path,
-            Transform = transform
+            Transform = transform,
+            GeometryCache = RenderCommandGeometryCache.ForPath(path)
         });
     }
 
@@ -684,7 +851,9 @@ public class DrawingContext : IRenderDataProvider
             Type = RenderCommandType.DrawLine,
             Pen = pen,
             Position = p1,
-            Position2 = p2
+            Position2 = p2,
+            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
+                RenderCommandGeometryCache.CreateLinePath(p1, p2))
         });
     }
 
@@ -778,7 +947,9 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             Position = p0,
             Position2 = p1,
-            Position3 = p2
+            Position3 = p2,
+            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
+                RenderCommandGeometryCache.CreateQuadraticBezierPath(p0, p1, p2))
         });
     }
 
@@ -791,7 +962,9 @@ public class DrawingContext : IRenderDataProvider
             Position = p0,
             Position2 = p1,
             Position3 = p2,
-            Position4 = p3
+            Position4 = p3,
+            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
+                RenderCommandGeometryCache.CreateCubicBezierPath(p0, p1, p2, p3))
         });
     }
 
@@ -803,7 +976,9 @@ public class DrawingContext : IRenderDataProvider
             Brush = brush,
             Position = p1,
             Position2 = p2,
-            Position3 = p3
+            Position3 = p3,
+            GeometryCache = RenderCommandGeometryCache.ForFillPath(
+                RenderCommandGeometryCache.CreateTrianglePath(p1, p2, p3))
         });
     }
 
@@ -816,7 +991,10 @@ public class DrawingContext : IRenderDataProvider
             Position = p1,
             Position2 = p2,
             Position3 = p3,
-            Position4 = p4
+            Position4 = p4,
+            GeometryCache = RenderCommandGeometryCache.ForFillPaths(
+                RenderCommandGeometryCache.CreateTrianglePath(p1, p2, p3),
+                RenderCommandGeometryCache.CreateTrianglePath(p1, p3, p4))
         });
     }
 
@@ -843,7 +1021,9 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             PointBufferOffset = offset,
             PointBufferCount = count,
-            IsClosed = isClosed
+            IsClosed = isClosed,
+            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
+                RenderCommandGeometryCache.CreatePolylinePath(points, isClosed))
         });
     }
 
@@ -1177,6 +1357,8 @@ public class DrawingContext : IRenderDataProvider
                         adjustedCmd.PolylinePoints = newPoints;
                     }
                 }
+
+                adjustedCmd.GeometryCache = null;
             }
 
             Commands.Add(adjustedCmd);
