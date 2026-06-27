@@ -650,6 +650,136 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void TryQueryBoundsAllRejectsPathFillBoundsFalsePositiveOnGpu()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = CreateTrianglePath(),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity, id: 40);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+        var results = new GpuHitTestResult[4];
+
+        bool hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(8f, 8f),
+            new Vector2(9f, 9f),
+            results,
+            out int hitCount,
+            out GpuHitTestResult summary);
+
+        Assert.False(hit);
+        Assert.Equal(0, hitCount);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+    }
+
+    [Fact]
+    public void TryQueryBoundsAllClassifiesPathFillRectRegionIntersectionDetailOnGpu()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = CreateTrianglePath(),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity, id: 41);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+        var results = new GpuHitTestResult[4];
+
+        bool hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(1f, 1f),
+            new Vector2(2f, 2f),
+            results,
+            out int hitCount,
+            out GpuHitTestResult summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal(41, results[0].Id);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.FullyContains, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+
+        Array.Clear(results);
+        hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(9f, 0.25f),
+            new Vector2(11f, 0.75f),
+            results,
+            out hitCount,
+            out summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal(41, results[0].Id);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.Intersects, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+    }
+
+    [Fact]
+    public void TryQueryBoundsAllRejectsPathStrokeBoundsFalsePositiveOnGpu()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var path = CreateDiagonalLinePath();
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = path,
+            Pen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), 1f)
+        }, Matrix4x4.Identity, id: 42);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+        var results = new GpuHitTestResult[4];
+
+        bool hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(0f, 9f),
+            new Vector2(1f, 10f),
+            results,
+            out int hitCount,
+            out GpuHitTestResult summary);
+
+        Assert.False(hit);
+        Assert.Equal(0, hitCount);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+
+        Array.Clear(results);
+        hit = GpuHitTestEngine.TryQueryBoundsAll(
+            context,
+            index,
+            new Vector2(4.9f, 5.2f),
+            new Vector2(5.1f, 5.4f),
+            results,
+            out hitCount,
+            out summary);
+
+        Assert.True(hit);
+        Assert.Equal(1, hitCount);
+        Assert.Equal(42, results[0].Id);
+        Assert.Equal((uint)GpuHitTestIntersectionDetail.Intersects, results[0].IntersectionDetail);
+        Assert.Equal(1u, summary.CandidateCount);
+        Assert.Equal(1u, summary.PreciseTests);
+    }
+
+    [Fact]
     public void TryHitTestPointRejectsEllipseCornerAfterBroadPhaseCandidate()
     {
         using var context = new WgpuContext();
@@ -675,6 +805,15 @@ public sealed class GpuHitTestingTests
         var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
         figure.Segments.Add(new LineSegment(new Vector2(10f, 0f)));
         figure.Segments.Add(new LineSegment(new Vector2(0f, 10f)));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    private static PathGeometry CreateDiagonalLinePath()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(0f, 0f));
+        figure.Segments.Add(new LineSegment(new Vector2(10f, 10f)));
         path.Figures.Add(figure);
         return path;
     }
