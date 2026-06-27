@@ -91,6 +91,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             case RenderCommandType.DrawEllipse:
                 AddEllipse(command, activeTransform, primitiveId, zIndex);
                 break;
+            case RenderCommandType.DrawCircle:
+                AddCircle(command, activeTransform, primitiveId, zIndex);
+                break;
             case RenderCommandType.DrawLine:
                 AddLine(command, activeTransform, primitiveId, zIndex);
                 break;
@@ -184,6 +187,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         {
             AddPrimitive(GpuHitTestPrimitive.EllipseStroke(id, min, max, pen.Thickness, 0f, transform, zIndex));
         }
+    }
+
+    private void AddCircle(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    {
+        command.RadiusY = command.RadiusX;
+        AddEllipse(command, transform, id, zIndex);
     }
 
     private void AddLine(RenderCommand command, Matrix4x4 transform, int id, float zIndex)

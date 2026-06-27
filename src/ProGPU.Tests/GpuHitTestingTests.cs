@@ -236,6 +236,47 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheCachesCircleAsEllipseHelperDataForGpuHitTesting()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawCircle,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            Pen = new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 1f)), thickness: 2f),
+            Position2 = new Vector2(6f, 12f),
+            RadiusX = 4f
+        }, Matrix4x4.Identity, id: 26);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Collection(
+            index.Primitives,
+            fill =>
+            {
+                Assert.Equal(26, fill.Id);
+                Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, fill.Kind);
+                Assert.Equal(new Vector2(2f, 8f), fill.BoundsMin);
+                Assert.Equal(new Vector2(10f, 16f), fill.BoundsMax);
+                Assert.Equal(6f, fill.Data2.X);
+                Assert.Equal(12f, fill.Data2.Y);
+                Assert.Equal(0.25f, fill.Data2.Z, 6);
+                Assert.Equal(0.25f, fill.Data2.W, 6);
+            },
+            stroke =>
+            {
+                Assert.Equal(26, stroke.Id);
+                Assert.Equal(GpuHitTestPrimitiveKind.EllipseStroke, stroke.Kind);
+                Assert.Equal(new Vector2(1f, 7f), stroke.BoundsMin);
+                Assert.Equal(new Vector2(11f, 17f), stroke.BoundsMax);
+                Assert.Equal(6f, stroke.Data2.X);
+                Assert.Equal(12f, stroke.Data2.Y);
+                Assert.Equal(0.25f, stroke.Data2.Z, 6);
+                Assert.Equal(0.25f, stroke.Data2.W, 6);
+            });
+    }
+
+    [Fact]
     public void RenderCommandCacheUsesExplicitTextureHitTestId()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
@@ -902,6 +943,32 @@ public sealed class GpuHitTestingTests
         Assert.True(strokeHit);
         Assert.Equal(97, result.Id);
         Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuCircleHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawCircle,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            Position2 = new Vector2(10f, 10f),
+            RadiusX = 5f
+        }, Matrix4x4.Identity, id: 98);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool hit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(10f, 10f), out GpuHitTestResult result);
+        bool cornerMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(5f, 5f), out GpuHitTestResult missResult);
+
+        Assert.True(hit);
+        Assert.Equal(98, result.Id);
+        Assert.False(cornerMiss);
         Assert.False(missResult.HasHit);
         Assert.True(missResult.CandidateCount > 0);
     }
