@@ -255,12 +255,6 @@ public readonly struct GpuHitTestPrimitive
         float padding = MathF.Max(0f, (MathF.Abs(strokeThickness) * 0.5f) + MathF.Max(0f, tolerance));
         Vector2 min = Vector2.Min(start, end) - new Vector2(padding);
         Vector2 max = Vector2.Max(start, end) + new Vector2(padding);
-        Vector2 segment = end - start;
-        float length = segment.Length();
-        Vector2 direction = float.IsFinite(length) && length > 0.0001f
-            ? segment / length
-            : Vector2.Zero;
-        float cachedLength = float.IsFinite(length) ? length : 0f;
         return new GpuHitTestPrimitive(
             GpuHitTestPrimitiveKind.LineStroke,
             id,
@@ -268,7 +262,7 @@ public readonly struct GpuHitTestPrimitive
             TransformBoundsMax(min, max, transform),
             new Vector4(start.X, start.Y, end.X, end.Y),
             new Vector4(strokeThickness, tolerance, (uint)startCap, (uint)endCap),
-            new Vector4(direction.X, direction.Y, cachedLength, 0f),
+            CreateLineStrokeHitTestData(start, end),
             CreateInverseTransformRow0(transform),
             CreateInverseTransformRow1(transform),
             zIndex);
@@ -337,6 +331,17 @@ public readonly struct GpuHitTestPrimitive
         float inverseRadiusX = float.IsFinite(radii.X) && MathF.Abs(radii.X) > 0.0001f ? 1f / radii.X : 0f;
         float inverseRadiusY = float.IsFinite(radii.Y) && MathF.Abs(radii.Y) > 0.0001f ? 1f / radii.Y : 0f;
         return new Vector4(center.X, center.Y, inverseRadiusX, inverseRadiusY);
+    }
+
+    private static Vector4 CreateLineStrokeHitTestData(Vector2 start, Vector2 end)
+    {
+        Vector2 segment = end - start;
+        float length = segment.Length();
+        Vector2 direction = float.IsFinite(length) && length > 0.0001f
+            ? segment / length
+            : Vector2.Zero;
+        float cachedLength = float.IsFinite(length) ? length : 0f;
+        return new Vector4(direction.X, direction.Y, cachedLength, 0f);
     }
 
     private static Vector2 TransformBoundsMax(Vector2 min, Vector2 max, Matrix4x4 transform)
@@ -1928,6 +1933,35 @@ fn distance_squared_to_segment(point: vec2<f32>, start: vec2<f32>, end: vec2<f32
     return dot(delta, delta);
 }
 
+fn line_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_radii: vec2<f32>, primitive: HitTestPrimitive) -> bool {
+    let stroke = abs(primitive.data1.x);
+    if (stroke <= 0.0 || query_inverse_radii.x <= 0.0 || query_inverse_radii.y <= 0.0) {
+        return false;
+    }
+
+    let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.y);
+    let start_cap = u32(primitive.data1.z);
+    let end_cap = u32(primitive.data1.w);
+    let direction = primitive.data2.xy;
+    let segment_length = primitive.data2.z;
+    let normalized_stroke_radius = half_stroke * max(query_inverse_radii.x, query_inverse_radii.y);
+    let hit_radius = 1.0 + normalized_stroke_radius;
+    if (segment_length <= 0.0001) {
+        if (start_cap == CAP_FLAT && end_cap == CAP_FLAT) {
+            return false;
+        }
+
+        let normalized_point = (primitive.data0.xy - query_center) * query_inverse_radii;
+        return dot(normalized_point, normalized_point) <= hit_radius * hit_radius;
+    }
+
+    let start_extension = select(half_stroke, 0.0, start_cap == CAP_FLAT);
+    let end_extension = select(half_stroke, 0.0, end_cap == CAP_FLAT);
+    let start = (primitive.data0.xy - (direction * start_extension) - query_center) * query_inverse_radii;
+    let end = (primitive.data0.zw + (direction * end_extension) - query_center) * query_inverse_radii;
+    return distance_squared_to_segment(vec2<f32>(0.0, 0.0), start, end) <= hit_radius * hit_radius;
+}
+
 fn distance_squared_to_rect(point: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f32>) -> f32 {
     let closest = clamp(point, rect_min, rect_max);
     let delta = point - closest;
@@ -2572,7 +2606,8 @@ fn primitive_uses_precise_ellipse_region_test(primitive: HitTestPrimitive) -> bo
             abs(primitive.data1.x) <= 0.00001 &&
             abs(primitive.data1.y) <= 0.00001) ||
             primitive.kind == KIND_ELLIPSE_FILL ||
-            primitive.kind == KIND_ELLIPSE_STROKE);
+            primitive.kind == KIND_ELLIPSE_STROKE ||
+            primitive.kind == KIND_LINE_STROKE);
 }
 
 fn classify_ellipse_region_intersection_detail(primitive: HitTestPrimitive) -> u32 {
@@ -2607,6 +2642,12 @@ fn classify_ellipse_region_intersection_detail(primitive: HitTestPrimitive) -> u
             let query_center = (local_region_min + local_region_max) * 0.5;
             let query_inverse_radii = ellipse_inverse_radii_from_bounds(local_region_min, local_region_max);
             if (!ellipse_stroke_intersects_ellipse_region(query_center, query_inverse_radii, primitive)) {
+                return INTERSECTION_DETAIL_EMPTY;
+            }
+        } else if (primitive.kind == KIND_LINE_STROKE) {
+            let query_center = (local_region_min + local_region_max) * 0.5;
+            let query_inverse_radii = ellipse_inverse_radii_from_bounds(local_region_min, local_region_max);
+            if (!line_stroke_intersects_ellipse_region(query_center, query_inverse_radii, primitive)) {
                 return INTERSECTION_DETAIL_EMPTY;
             }
         } else {
