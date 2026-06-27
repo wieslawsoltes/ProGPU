@@ -396,6 +396,54 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheBuildsTriangleAsGpuPathFill()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.FillTriangle,
+            HitTestId = 83,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(0f, 10f),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
+        Assert.Equal(83, primitive.Id);
+        Assert.Equal(3, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsQuadAsRenderedTrianglePathFills()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.FillQuad,
+            HitTestId = 84,
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(2f, 2f),
+            Position4 = new Vector2(0f, 10f),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.PathFill, primitive.Kind);
+            Assert.Equal(84, primitive.Id);
+        });
+        Assert.Equal(6, index.PathSegments.Count);
+    }
+
+    [Fact]
     public void RenderCommandCacheSkipsUncompiledPathsInsteadOfAddingBoundsHit()
     {
         var combined = new PathGeometry
@@ -597,6 +645,61 @@ public sealed class GpuHitTestingTests
 
         Assert.True(strokeHit);
         Assert.Equal(93, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuTriangleFillHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.FillTriangle,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(0f, 10f)
+        }, Matrix4x4.Identity, id: 94);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool fillHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(2f, 2f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(8f, 8f), out GpuHitTestResult missResult);
+
+        Assert.True(fillHit);
+        Assert.Equal(94, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuQuadFillHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.FillQuad,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            Position = new Vector2(0f, 0f),
+            Position2 = new Vector2(10f, 0f),
+            Position3 = new Vector2(2f, 2f),
+            Position4 = new Vector2(0f, 10f)
+        }, Matrix4x4.Identity, id: 95);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool fillHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(1f, 1f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(9f, 1.5f), out GpuHitTestResult missResult);
+
+        Assert.True(fillHit);
+        Assert.Equal(95, result.Id);
         Assert.False(boundsOnlyMiss);
         Assert.False(missResult.HasHit);
         Assert.True(missResult.CandidateCount > 0);

@@ -108,10 +108,17 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
                 AddGlyphBounds(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.FillTriangle:
-                AddTriangleBounds(command, activeTransform, primitiveId, zIndex);
+                AddTriangleFill(
+                    command.Position,
+                    command.Position2,
+                    command.Position3,
+                    command.Brush,
+                    activeTransform,
+                    primitiveId,
+                    zIndex);
                 break;
             case RenderCommandType.FillQuad:
-                AddQuadBounds(command, activeTransform, primitiveId, zIndex);
+                AddQuadFill(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawPolyline:
                 AddPolyline(command, activeTransform, primitiveId, zIndex, provider);
@@ -410,18 +417,50 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         AddPrimitive(GpuHitTestPrimitive.Bounds(id, min, max + new Vector2(padding), transform, zIndex));
     }
 
-    private void AddTriangleBounds(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    private void AddTriangleFill(
+        Vector2 p1,
+        Vector2 p2,
+        Vector2 p3,
+        Brush? brush,
+        Matrix4x4 transform,
+        int id,
+        float zIndex)
     {
-        Vector2 min = Vector2.Min(command.Position, Vector2.Min(command.Position2, command.Position3));
-        Vector2 max = Vector2.Max(command.Position, Vector2.Max(command.Position2, command.Position3));
-        AddPrimitive(GpuHitTestPrimitive.Bounds(id, min, max, transform, zIndex));
+        if (brush == null)
+        {
+            return;
+        }
+
+        var path = CreateTrianglePath(p1, p2, p3);
+        if (TryCompileHitTestPath(path, out var compiledPath))
+        {
+            AddPathFillPrimitive(compiledPath, path.FillRule, transform, id, zIndex);
+        }
     }
 
-    private void AddQuadBounds(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    private void AddQuadFill(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
     {
-        Vector2 min = Vector2.Min(Vector2.Min(command.Position, command.Position2), Vector2.Min(command.Position3, command.Position4));
-        Vector2 max = Vector2.Max(Vector2.Max(command.Position, command.Position2), Vector2.Max(command.Position3, command.Position4));
-        AddPrimitive(GpuHitTestPrimitive.Bounds(id, min, max, transform, zIndex));
+        if (command.Brush == null)
+        {
+            return;
+        }
+
+        AddTriangleFill(
+            command.Position,
+            command.Position2,
+            command.Position3,
+            command.Brush,
+            transform,
+            id,
+            zIndex);
+        AddTriangleFill(
+            command.Position,
+            command.Position3,
+            command.Position4,
+            command.Brush,
+            transform,
+            id,
+            zIndex + 0.125f);
     }
 
     private void AddPolyline(
@@ -472,6 +511,16 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             figure.Segments.Add(new LineSegment(points[i]));
         }
 
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    private static PathGeometry CreateTrianglePath(Vector2 p1, Vector2 p2, Vector2 p3)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(p1, isClosed: true);
+        figure.Segments.Add(new LineSegment(p2));
+        figure.Segments.Add(new LineSegment(p3));
         path.Figures.Add(figure);
         return path;
     }
