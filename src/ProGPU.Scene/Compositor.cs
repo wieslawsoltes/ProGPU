@@ -6174,12 +6174,14 @@ public unsafe class Compositor : IDisposable
         if (node.ClipBounds.HasValue)
         {
             PushClipRect(node.ClipBounds.Value, compositeTransform);
+            _hitTestCacheBuilder.PushClip(node.ClipBounds.Value, compositeTransform);
             scope |= VisualCompositeScope.Clip;
         }
 
         if (node.OuterClipBounds.HasValue)
         {
             PushClipRect(node.OuterClipBounds.Value, parentTransform);
+            _hitTestCacheBuilder.PushClip(node.OuterClipBounds.Value, parentTransform);
             scope |= VisualCompositeScope.OuterClip;
         }
 
@@ -6212,11 +6214,13 @@ public unsafe class Compositor : IDisposable
 
         if ((scope & VisualCompositeScope.OuterClip) != 0)
         {
+            _hitTestCacheBuilder.PopClip();
             PopClipRect();
         }
 
         if ((scope & VisualCompositeScope.Clip) != 0)
         {
+            _hitTestCacheBuilder.PopClip();
             PopClipRect();
         }
     }

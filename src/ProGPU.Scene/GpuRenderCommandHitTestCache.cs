@@ -342,7 +342,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         _primitives.Add(primitive);
     }
 
-    private void PushClip(Rect rect, Matrix4x4 transform)
+    public void PushClip(Rect rect, Matrix4x4 transform)
     {
         var (min, max) = ToMinMax(rect);
         TransformBounds(min, max, transform, out Vector2 clipMin, out Vector2 clipMax);
@@ -373,7 +373,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         _clipStack.Push(new ClipState(clipMin, clipMax));
     }
 
-    private void PopClip()
+    public void PopClip()
     {
         if (_clipStack.Count > 0)
         {

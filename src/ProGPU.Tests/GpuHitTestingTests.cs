@@ -84,6 +84,43 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheAppliesVisualClipScopes()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.PushClip(new Rect(10f, 10f, 20f, 20f), Matrix4x4.CreateTranslation(5f, 0f, 0f));
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawRect,
+            Rect = new Rect(0f, 0f, 100f, 100f),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity, id: 7);
+        builder.PopClip();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawRect,
+            Rect = new Rect(50f, 50f, 10f, 10f),
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+        }, Matrix4x4.Identity, id: 8);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Collection(
+            index.Primitives,
+            clipped =>
+            {
+                Assert.Equal(7, clipped.Id);
+                Assert.Equal(new Vector2(15f, 10f), clipped.BoundsMin);
+                Assert.Equal(new Vector2(35f, 30f), clipped.BoundsMax);
+            },
+            unclipped =>
+            {
+                Assert.Equal(8, unclipped.Id);
+                Assert.Equal(new Vector2(50f, 50f), unclipped.BoundsMin);
+                Assert.Equal(new Vector2(60f, 60f), unclipped.BoundsMax);
+            });
+    }
+
+    [Fact]
     public void RenderCommandCacheUsesCommandHitTestId()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
