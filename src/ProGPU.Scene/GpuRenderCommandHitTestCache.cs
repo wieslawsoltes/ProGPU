@@ -179,6 +179,50 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             return;
         }
 
+        Matrix4x4 transform = command.Transform == default
+            ? activeTransform
+            : command.Transform * activeTransform;
+
+        Pen? pen = command.Pen is { Thickness: > 0f } activePen ? activePen : null;
+        if (pen?.HasDashPattern != true)
+        {
+            if (!TryCompileHitTestPath(command.Path, out var path))
+            {
+                return;
+            }
+
+            if (command.Brush != null)
+            {
+                AddPathFillPrimitive(path, command.Path.FillRule, transform, id, zIndex);
+                zIndex += 0.25f;
+            }
+
+            if (pen != null)
+            {
+                AddPathStrokePrimitive(path, transform, id, zIndex, pen);
+            }
+
+            return;
+        }
+
+        if (command.Brush != null &&
+            TryCompileHitTestPath(command.Path, out var fillPath))
+        {
+            AddPathFillPrimitive(fillPath, command.Path.FillRule, transform, id, zIndex);
+            zIndex += 0.25f;
+        }
+
+        if (!Compositor.TryCreateDashedStrokePath(command.Path, pen, out var strokePath))
+        {
+            return;
+        }
+
+        TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, Compositor.CreateUndashedPen(pen));
+    }
+
+    private bool TryCompileHitTestPath(PathGeometry path, out CompiledHitTestPath compiledPath)
+    {
+        compiledPath = default;
         GpuPathRecord[] records;
         GpuPathSegment[] segments;
         float minX;
@@ -188,7 +232,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         try
         {
             (records, segments) = PathAtlas.CompilePath(
-                command.Path,
+                path,
                 out minX,
                 out minY,
                 out maxX,
@@ -196,52 +240,81 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         }
         catch (InvalidOperationException)
         {
-            return;
+            return false;
         }
 
         if (records.Length == 0 || segments.Length == 0)
         {
-            return;
+            return false;
         }
-
-        Matrix4x4 transform = command.Transform == default
-            ? activeTransform
-            : command.Transform * activeTransform;
 
         var min = new Vector2(minX, minY);
         var max = new Vector2(maxX, maxY);
         uint startSegment = checked((uint)_pathSegments.Count);
         uint segmentCount = checked((uint)segments.Length);
         _pathSegments.AddRange(segments);
-
-        if (command.Brush != null)
-        {
-            AddPrimitive(GpuHitTestPrimitive.PathFill(
-                id,
-                min,
-                max,
-                startSegment,
-                segmentCount,
-                command.Path.FillRule,
-                transform,
-                zIndex));
-            zIndex += 0.25f;
-        }
-
-        if (command.Pen is { Thickness: > 0f } pen)
-        {
-            AddPrimitive(GpuHitTestPrimitive.PathStroke(
-                id,
-                min,
-                max,
-                startSegment,
-                segmentCount,
-                pen.Thickness,
-                0f,
-                transform,
-                zIndex));
-        }
+        compiledPath = new CompiledHitTestPath(min, max, startSegment, segmentCount);
+        return true;
     }
+
+    private void AddPathFillPrimitive(
+        CompiledHitTestPath path,
+        FillRule fillRule,
+        Matrix4x4 transform,
+        int id,
+        float zIndex)
+    {
+        AddPrimitive(GpuHitTestPrimitive.PathFill(
+            id,
+            path.Min,
+            path.Max,
+            path.StartSegment,
+            path.SegmentCount,
+            fillRule,
+            transform,
+            zIndex));
+    }
+
+    private bool TryAddPathStrokePrimitive(
+        PathGeometry path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        Pen pen)
+    {
+        if (!TryCompileHitTestPath(path, out var strokePath))
+        {
+            return false;
+        }
+
+        AddPathStrokePrimitive(strokePath, transform, id, zIndex, pen);
+        return true;
+    }
+
+    private void AddPathStrokePrimitive(
+        CompiledHitTestPath path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        Pen pen)
+    {
+        AddPrimitive(GpuHitTestPrimitive.PathStroke(
+            id,
+            path.Min,
+            path.Max,
+            path.StartSegment,
+            path.SegmentCount,
+            pen.Thickness,
+            0f,
+            transform,
+            zIndex));
+    }
+
+    private readonly record struct CompiledHitTestPath(
+        Vector2 Min,
+        Vector2 Max,
+        uint StartSegment,
+        uint SegmentCount);
 
     private void AddBounds(Rect rect, Matrix4x4 transform, int id, float zIndex)
     {

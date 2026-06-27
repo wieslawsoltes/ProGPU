@@ -283,6 +283,43 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheUsesDashedPathSegmentsForStrokeHitTesting()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(0f, 0f));
+        figure.Segments.Add(new LineSegment(new Vector2(20f, 0f)));
+        path.Figures.Add(figure);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 91,
+            Path = path,
+            Pen = new Pen(
+                new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+                thickness: 2f,
+                dashArray: [2.0, 2.0])
+        }, Matrix4x4.Identity);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.True(index.PathSegments.Count > 1);
+
+        bool dashHit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(2f, 0f), out GpuHitTestResult dashResult);
+        bool gapHit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(6f, 0f), out GpuHitTestResult gapResult);
+
+        Assert.True(dashHit);
+        Assert.Equal(91, dashResult.Id);
+        Assert.False(gapHit);
+        Assert.False(gapResult.HasHit);
+    }
+
+    [Fact]
     public void TryHitTestPointReusesUploadedDeviceIndex()
     {
         using var context = new WgpuContext();

@@ -3444,7 +3444,7 @@ public unsafe class Compositor : IDisposable
         }
     }
 
-    private static bool TryCreateDashedStrokePath(PathGeometry source, Pen pen, out PathGeometry dashedPath)
+    internal static bool TryCreateDashedStrokePath(PathGeometry source, Pen pen, out PathGeometry dashedPath)
     {
         dashedPath = new PathGeometry
         {
@@ -3622,7 +3622,7 @@ public unsafe class Compositor : IDisposable
         dashedPath.Figures.Add(figure);
     }
 
-    private static Pen CreateUndashedPen(Pen pen)
+    internal static Pen CreateUndashedPen(Pen pen)
     {
         return new Pen(
             pen.Brush,
