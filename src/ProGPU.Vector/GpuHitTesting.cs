@@ -367,16 +367,17 @@ public readonly struct GpuHitTestNode
     }
 }
 
-[StructLayout(LayoutKind.Sequential, Size = 32)]
+[StructLayout(LayoutKind.Sequential, Size = 40)]
 public struct GpuHitTestQuery
 {
     public Vector2 Point;
+    public Vector2 RegionMax;
     public uint RootNodeIndex;
     public uint PrimitiveCount;
     public uint NodeCount;
     public uint PrimitiveIndexCount;
     public uint Flags;
-    public uint Pad0;
+    public uint PathSegmentCount;
 }
 
 [StructLayout(LayoutKind.Sequential, Size = 32)]
@@ -724,7 +725,7 @@ public sealed class GpuHitTestIndex
 
 public sealed class GpuHitTestDeviceIndex : IDisposable
 {
-    private const uint QueryBufferSize = 32;
+    private static readonly uint QueryBufferSize = checked((uint)Marshal.SizeOf<GpuHitTestQuery>());
     private const uint ResultBufferSize = 32;
     public const int MaxHitResultCount = 256;
 
@@ -836,7 +837,7 @@ public sealed class GpuHitTestDeviceIndex : IDisposable
 
 public static unsafe class GpuHitTestEngine
 {
-    private const uint QueryBufferSize = 32;
+    private const uint QueryModeBoundsFlag = 0x8000_0000u;
     private const uint ResultBufferSize = 32;
 
     public static bool TryHitTestPoint(GpuHitTestIndex index, Vector2 point, out GpuHitTestResult result)
@@ -898,11 +899,12 @@ public static unsafe class GpuHitTestEngine
             var query = new GpuHitTestQuery
             {
                 Point = point,
+                RegionMax = point,
                 RootNodeIndex = 0,
                 PrimitiveCount = deviceIndex.PrimitiveCount,
                 NodeCount = deviceIndex.NodeCount,
                 PrimitiveIndexCount = deviceIndex.PrimitiveIndexCount,
-                Pad0 = deviceIndex.PathSegmentCount
+                PathSegmentCount = deviceIndex.PathSegmentCount
             };
             var initialResult = new GpuHitTestResult
             {
@@ -1055,19 +1057,100 @@ public static unsafe class GpuHitTestEngine
 
         int requestedCount = Math.Min(results.Length, GpuHitTestDeviceIndex.MaxHitResultCount);
         uint requestedCountU = checked((uint)requestedCount);
+        var query = CreateQuery(deviceIndex, point, point, requestedCountU);
 
+        return TryQueryAll(context, cache, deviceIndex, query, results, out hitCount, out summary);
+    }
+
+    public static bool TryQueryBoundsAll(
+        WgpuContext context,
+        GpuHitTestIndex index,
+        Vector2 min,
+        Vector2 max,
+        Span<GpuHitTestResult> results,
+        out int hitCount,
+        out GpuHitTestResult summary)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(index);
+
+        if (!GpuHitTestDeviceIndex.TryCreate(context, index, out GpuHitTestDeviceIndex? deviceIndex) || deviceIndex == null)
+        {
+            hitCount = 0;
+            summary = default;
+            return false;
+        }
+
+        using (deviceIndex)
+        using (var cache = new RenderPipelineCache(context))
+        {
+            return TryQueryBoundsAll(context, cache, deviceIndex, min, max, results, out hitCount, out summary);
+        }
+    }
+
+    public static bool TryQueryBoundsAll(
+        WgpuContext context,
+        RenderPipelineCache cache,
+        GpuHitTestDeviceIndex deviceIndex,
+        Vector2 min,
+        Vector2 max,
+        Span<GpuHitTestResult> results,
+        out int hitCount,
+        out GpuHitTestResult summary)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(cache);
+        ArgumentNullException.ThrowIfNull(deviceIndex);
+        if (!ReferenceEquals(context, deviceIndex.Context))
+        {
+            throw new ArgumentException("The GPU hit-test device index belongs to a different WebGPU context.", nameof(deviceIndex));
+        }
+
+        if (results.IsEmpty)
+        {
+            hitCount = 0;
+            summary = default;
+            return false;
+        }
+
+        int requestedCount = Math.Min(results.Length, GpuHitTestDeviceIndex.MaxHitResultCount);
+        uint requestedCountU = checked((uint)requestedCount);
+        var query = CreateQuery(deviceIndex, min, max, QueryModeBoundsFlag | requestedCountU);
+
+        return TryQueryAll(context, cache, deviceIndex, query, results, out hitCount, out summary);
+    }
+
+    private static GpuHitTestQuery CreateQuery(
+        GpuHitTestDeviceIndex deviceIndex,
+        Vector2 point,
+        Vector2 regionMax,
+        uint flags)
+    {
+        return new GpuHitTestQuery
+        {
+            Point = point,
+            RegionMax = regionMax,
+            RootNodeIndex = 0,
+            PrimitiveCount = deviceIndex.PrimitiveCount,
+            NodeCount = deviceIndex.NodeCount,
+            PrimitiveIndexCount = deviceIndex.PrimitiveIndexCount,
+            Flags = flags,
+            PathSegmentCount = deviceIndex.PathSegmentCount
+        };
+    }
+
+    private static bool TryQueryAll(
+        WgpuContext context,
+        RenderPipelineCache cache,
+        GpuHitTestDeviceIndex deviceIndex,
+        GpuHitTestQuery query,
+        Span<GpuHitTestResult> results,
+        out int hitCount,
+        out GpuHitTestResult summary)
+    {
+        int requestedCount = Math.Min(results.Length, GpuHitTestDeviceIndex.MaxHitResultCount);
         lock (context.RenderLock)
         {
-            var query = new GpuHitTestQuery
-            {
-                Point = point,
-                RootNodeIndex = 0,
-                PrimitiveCount = deviceIndex.PrimitiveCount,
-                NodeCount = deviceIndex.NodeCount,
-                PrimitiveIndexCount = deviceIndex.PrimitiveIndexCount,
-                Flags = requestedCountU,
-                Pad0 = deviceIndex.PathSegmentCount
-            };
             var initialResult = new GpuHitTestResult
             {
                 Hit = 0,
@@ -1181,6 +1264,7 @@ public static unsafe class GpuHitTestEngine
     internal const string ShaderSource = """
 struct HitTestQuery {
     point: vec2<f32>,
+    region_max: vec2<f32>,
     root_node_index: u32,
     primitive_count: u32,
     node_count: u32,
@@ -1262,6 +1346,8 @@ const SEGMENT_ARC: u32 = 3u;
 const PATH_QUADRATIC_STEPS: u32 = 16u;
 const PATH_CUBIC_STEPS: u32 = 24u;
 const PATH_ARC_STEPS: u32 = 24u;
+const QUERY_MODE_BOUNDS: u32 = 2147483648u;
+const QUERY_RESULT_CAPACITY_MASK: u32 = 65535u;
 
 fn finite2(value: vec2<f32>) -> bool {
     return all(abs(value) < vec2<f32>(3.402823e38, 3.402823e38));
@@ -1269,6 +1355,34 @@ fn finite2(value: vec2<f32>) -> bool {
 
 fn contains_bounds(point: vec2<f32>, min_value: vec2<f32>, max_value: vec2<f32>) -> bool {
     return point.x >= min_value.x && point.x <= max_value.x && point.y >= min_value.y && point.y <= max_value.y;
+}
+
+fn intersects_bounds(a_min: vec2<f32>, a_max: vec2<f32>, b_min: vec2<f32>, b_max: vec2<f32>) -> bool {
+    return a_max.x >= b_min.x && a_min.x <= b_max.x && a_max.y >= b_min.y && a_min.y <= b_max.y;
+}
+
+fn query_uses_bounds() -> bool {
+    return (query.flags & QUERY_MODE_BOUNDS) != 0u;
+}
+
+fn query_result_capacity() -> u32 {
+    return query.flags & QUERY_RESULT_CAPACITY_MASK;
+}
+
+fn query_region_min() -> vec2<f32> {
+    return min(query.point, query.region_max);
+}
+
+fn query_region_max() -> vec2<f32> {
+    return max(query.point, query.region_max);
+}
+
+fn query_intersects_bounds(min_value: vec2<f32>, max_value: vec2<f32>) -> bool {
+    if (query_uses_bounds()) {
+        return intersects_bounds(query_region_min(), query_region_max(), min_value, max_value);
+    }
+
+    return contains_bounds(query.point, min_value, max_value);
 }
 
 fn transform_to_local(point: vec2<f32>, primitive: HitTestPrimitive) -> vec2<f32> {
@@ -1707,8 +1821,12 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     return false;
 }
 
+fn primitive_is_hit_test_visible(primitive: HitTestPrimitive) -> bool {
+    return (primitive.flags & FLAG_VISIBLE) != 0u && (primitive.flags & FLAG_HIT_TEST_VISIBLE) != 0u;
+}
+
 fn precise_hit(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
-    if ((primitive.flags & FLAG_VISIBLE) == 0u || (primitive.flags & FLAG_HIT_TEST_VISIBLE) == 0u) {
+    if (!primitive_is_hit_test_visible(primitive)) {
         return false;
     }
 
@@ -1761,16 +1879,12 @@ fn write_hit_result(slot: u32, primitive_index: u32, primitive: HitTestPrimitive
 }
 
 fn record_hit(primitive_index: u32, primitive: HitTestPrimitive) {
-    if (query.flags == 0u) {
+    let capacity = query_result_capacity();
+    if (capacity == 0u) {
         if (results[0].hit == 0u || primitive.z_index >= results[0].z_index) {
             write_hit_result(0u, primitive_index, primitive);
         }
 
-        return;
-    }
-
-    let capacity = query.flags;
-    if (capacity == 0u) {
         return;
     }
 
@@ -1804,7 +1918,7 @@ fn record_hit(primitive_index: u32, primitive: HitTestPrimitive) {
 
 @compute @workgroup_size(1)
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    if (global_id.x != 0u || query.node_count == 0u || query.primitive_count == 0u || !finite2(query.point)) {
+    if (global_id.x != 0u || query.node_count == 0u || query.primitive_count == 0u || !finite2(query.point) || !finite2(query.region_max)) {
         return;
     }
 
@@ -1825,7 +1939,7 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         let node = nodes[node_index];
         results[0].nodes_visited = results[0].nodes_visited + 1u;
-        if (!contains_bounds(query.point, node.bounds_min, node.bounds_max)) {
+        if (!query_intersects_bounds(node.bounds_min, node.bounds_max)) {
             continue;
         }
 
@@ -1840,7 +1954,12 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let primitive_index = primitive_indices[primitive_lookup];
                 if (primitive_index < query.primitive_count) {
                     let primitive = primitives[primitive_index];
-                    if (contains_bounds(query.point, primitive.bounds_min, primitive.bounds_max)) {
+                    if (query_uses_bounds()) {
+                        if (primitive_is_hit_test_visible(primitive) && query_intersects_bounds(primitive.bounds_min, primitive.bounds_max)) {
+                            results[0].candidate_count = results[0].candidate_count + 1u;
+                            record_hit(primitive_index, primitive);
+                        }
+                    } else if (contains_bounds(query.point, primitive.bounds_min, primitive.bounds_max)) {
                         results[0].candidate_count = results[0].candidate_count + 1u;
                         results[0].precise_tests = results[0].precise_tests + 1u;
                         if (precise_hit(query.point, primitive)) {
