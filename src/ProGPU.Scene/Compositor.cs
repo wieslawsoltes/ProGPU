@@ -2477,6 +2477,8 @@ public unsafe class Compositor : IDisposable
             ? PushVisualCompositeScope(node, globalTransform, parentTransform)
             : VisualCompositeScope.None;
 
+        AddVisualHitTestBounds(node, globalTransform);
+
         bool isTemplated = node.HasTemplate;
         if (isTemplated)
         {
@@ -2724,6 +2726,23 @@ public unsafe class Compositor : IDisposable
         PopVisualCompositeScope(visualScope);
 
         node.IsDirty = false;
+    }
+
+    private void AddVisualHitTestBounds(Visual node, Matrix4x4 globalTransform)
+    {
+        if (node.HitTestId == 0 || node.Size.X <= 0f || node.Size.Y <= 0f)
+        {
+            return;
+        }
+
+        AddHitTestCommand(
+            new RenderCommand
+            {
+                Type = RenderCommandType.DrawTexture,
+                Rect = new Rect(Vector2.Zero, node.Size)
+            },
+            globalTransform,
+            node.HitTestId);
     }
 
     private void CompilePicture(DrawingContext parentContext, GpuPicture? picture, Matrix4x4 globalTransform)
