@@ -49,6 +49,10 @@ internal static class ProGpuDirectXHlslTranslator
         @"\bRWBuffer\s*<\s*(?<type>[A-Za-z_]\w*)\s*>\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*u(?<slot>\d+)\s*\))?\s*;",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex s_rwTexture2DResourceRegex = new(
+        @"\bRWTexture2D(?:\s*<\s*(?<type>[A-Za-z_]\w*)\s*>)?\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*u(?<slot>\d+)\s*\))?\s*;",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex s_byteAddressBufferResourceRegex = new(
         @"\bByteAddressBuffer\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*register\s*\(\s*t(?<slot>\d+)\s*\))?\s*;",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -86,7 +90,7 @@ internal static class ProGpuDirectXHlslTranslator
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex s_unsupportedRegex = new(
-        @"\b(tbuffer|Texture(?!(?:2D|2DArray|3D)\b)\w*|Sampler(?!(?:State|ComparisonState)\b)\w*|RWTexture\w*)\b",
+        @"\b(tbuffer|Texture(?!(?:2D|2DArray|3D)\b)\w*|Sampler(?!(?:State|ComparisonState)\b)\w*|RWTexture(?!(?:2D)\b)\w*)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool TryTranslate(DxShaderDescriptor descriptor, out string wgsl)
@@ -371,6 +375,24 @@ internal static class ProGpuDirectXHlslTranslator
                         .Append(MapResourceElementType(resource.ElementType!, structs))
                         .Append(">;\n");
                     break;
+                case HlslShaderResourceKind.RWTexture2D:
+                    if (stage != DxShaderStage.Compute)
+                    {
+                        throw new NotSupportedException($"HLSL {resource.Kind} resources are currently supported only for compute shaders.");
+                    }
+
+                    builder
+                        .Append("@group(0) @binding(")
+                        .Append(ProGpuDirectXNativeBindingMap.GetNativeBinding(
+                            stage,
+                            ProGpuDirectXBindingKind.UnorderedAccessView,
+                            resource.Register))
+                        .Append(") var ")
+                        .Append(resource.Name)
+                        .Append(": texture_storage_2d<")
+                        .Append(MapStorageTextureFormat(resource.ElementType!))
+                        .Append(", write>;\n");
+                    break;
                 case HlslShaderResourceKind.RWByteAddressBuffer:
                     if (stage != DxShaderStage.Compute)
                     {
@@ -497,6 +519,7 @@ internal static class ProGpuDirectXHlslTranslator
             }
 
             if (TryTranslateByteAddressBufferStoreStatement(builder, statement, constantBuffers, shaderResources, localTypes) ||
+                TryTranslateRwTexture2DWriteStatement(builder, statement, constantBuffers, shaderResources, localTypes) ||
                 TryTranslateClipStatement(builder, statement, constantBuffers, shaderResources, localTypes, allowDiscard) ||
                 TryTranslateByteAddressBufferInterlockedStatement(builder, statement, constantBuffers, shaderResources, localTypes))
             {
@@ -691,6 +714,7 @@ internal static class ProGpuDirectXHlslTranslator
                 HlslShaderResourceKind.SamplerComparisonState => ResolveRegister(match, usedSamplerRegisters, ref nextSamplerRegister),
                 HlslShaderResourceKind.RWStructuredBuffer or
                 HlslShaderResourceKind.RWBuffer or
+                HlslShaderResourceKind.RWTexture2D or
                 HlslShaderResourceKind.RWByteAddressBuffer => ResolveRegister(match, usedUavRegisters, ref nextUavRegister),
                 _ => ResolveRegister(match, usedSrvRegisters, ref nextSrvRegister)
             };
@@ -717,8 +741,20 @@ internal static class ProGpuDirectXHlslTranslator
                 case HlslShaderResourceKind.Buffer:
                 case HlslShaderResourceKind.RWStructuredBuffer:
                 case HlslShaderResourceKind.RWBuffer:
+                case HlslShaderResourceKind.RWTexture2D:
                     var elementType = match.Groups["type"].Value;
+                    if (pendingResource.Kind == HlslShaderResourceKind.RWTexture2D &&
+                        string.IsNullOrWhiteSpace(elementType))
+                    {
+                        elementType = "float4";
+                    }
+
                     _ = MapResourceElementType(elementType, structs);
+                    if (pendingResource.Kind == HlslShaderResourceKind.RWTexture2D)
+                    {
+                        _ = MapStorageTextureFormat(elementType);
+                    }
+
                     resources.Add(new HlslShaderResource(
                         pendingResource.Kind,
                         match.Groups["name"].Value,
@@ -759,6 +795,7 @@ internal static class ProGpuDirectXHlslTranslator
         AddPendingResources(resources, HlslShaderResourceKind.Buffer, s_typedBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.RWStructuredBuffer, s_rwStructuredBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.RWBuffer, s_rwTypedBufferResourceRegex.Matches(source));
+        AddPendingResources(resources, HlslShaderResourceKind.RWTexture2D, s_rwTexture2DResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.ByteAddressBuffer, s_byteAddressBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.RWByteAddressBuffer, s_rwByteAddressBufferResourceRegex.Matches(source));
         AddPendingResources(resources, HlslShaderResourceKind.SamplerState, s_samplerStateResourceRegex.Matches(source));
@@ -822,6 +859,7 @@ internal static class ProGpuDirectXHlslTranslator
     {
         return kind is HlslShaderResourceKind.RWStructuredBuffer or
             HlslShaderResourceKind.RWBuffer or
+            HlslShaderResourceKind.RWTexture2D or
             HlslShaderResourceKind.RWByteAddressBuffer;
     }
 
@@ -1699,6 +1737,41 @@ internal static class ProGpuDirectXHlslTranslator
         return true;
     }
 
+    private static bool TryTranslateRwTexture2DWriteStatement(
+        StringBuilder builder,
+        string statement,
+        IReadOnlyList<HlslConstantBuffer> constantBuffers,
+        IReadOnlyList<HlslShaderResource> shaderResources,
+        IReadOnlyDictionary<string, string>? localTypes)
+    {
+        var match = Regex.Match(
+            statement,
+            @"^(?<texture>[A-Za-z_]\w*)\s*\[\s*(?<coordinates>.+)\s*\]\s*=\s*(?<value>.+)$",
+            RegexOptions.Singleline);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var texture = match.Groups["texture"].Value;
+        if (FindRwTexture2DResource(texture, shaderResources) is null)
+        {
+            return false;
+        }
+
+        var coordinates = TranslateExpression(match.Groups["coordinates"].Value, constantBuffers, shaderResources, localTypes);
+        var value = TranslateExpression(match.Groups["value"].Value, constantBuffers, shaderResources, localTypes);
+        builder
+            .Append("    textureStore(")
+            .Append(texture)
+            .Append(", ")
+            .Append(coordinates)
+            .Append(", ")
+            .Append(value)
+            .Append(");\n");
+        return true;
+    }
+
     private static bool TryTranslateClipStatement(
         StringBuilder builder,
         string statement,
@@ -2170,6 +2243,15 @@ internal static class ProGpuDirectXHlslTranslator
             resource.Kind is HlslShaderResourceKind.ByteAddressBuffer or HlslShaderResourceKind.RWByteAddressBuffer);
     }
 
+    private static HlslShaderResource? FindRwTexture2DResource(
+        string texture,
+        IReadOnlyList<HlslShaderResource> shaderResources)
+    {
+        return shaderResources.FirstOrDefault(resource =>
+            resource.Kind == HlslShaderResourceKind.RWTexture2D &&
+            string.Equals(resource.Name, texture, StringComparison.Ordinal));
+    }
+
     private static HlslShaderResource? FindTextureResource(
         string texture,
         IReadOnlyList<HlslShaderResource> shaderResources)
@@ -2379,6 +2461,20 @@ internal static class ProGpuDirectXHlslTranslator
                 : throw new NotSupportedException($"Unsupported HLSL buffer resource element type '{type}'.");
     }
 
+    private static string MapStorageTextureFormat(string type)
+    {
+        return type switch
+        {
+            "float" => "r32float",
+            "float4" => "rgba8unorm",
+            "uint" => "r32uint",
+            "uint4" => "rgba32uint",
+            "int" => "r32sint",
+            "int4" => "rgba32sint",
+            _ => throw new NotSupportedException($"Unsupported HLSL RWTexture2D element type '{type}'.")
+        };
+    }
+
     private static string MapType(string type)
     {
         return type switch
@@ -2571,6 +2667,7 @@ internal static class ProGpuDirectXHlslTranslator
         ByteAddressBuffer,
         RWStructuredBuffer,
         RWBuffer,
+        RWTexture2D,
         RWByteAddressBuffer,
         SamplerState,
         SamplerComparisonState
