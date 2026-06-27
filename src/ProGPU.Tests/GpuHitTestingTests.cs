@@ -546,6 +546,115 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheBuildsGpuLineSeriesAsGpuPathStroke()
+    {
+        var context = new DrawingContext();
+        context.DrawGpuLineSeries(
+            [0f, 0f, 10f, 0f, 10f, 10f],
+            pointsCount: 3,
+            thickness: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 101);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(101, primitive.Id);
+        Assert.Equal(2, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheChunksLargeGpuLineSeriesForQuadtreeHitTesting()
+    {
+        var points = new float[130 * 2];
+        for (int i = 0; i < 130; i++)
+        {
+            points[i * 2] = i;
+            points[i * 2 + 1] = 0f;
+        }
+
+        var context = new DrawingContext();
+        context.DrawGpuLineSeries(
+            points,
+            pointsCount: 130,
+            thickness: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 102);
+
+        var index = builder.BuildIndex(maxDepth: 4, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+            Assert.Equal(102, primitive.Id);
+        });
+        Assert.Equal(129, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsStaticGpuLineSeriesFromCachedBuffer()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        float[] points = [0f, 0f, 10f, 0f, 10f, 10f];
+        using var buffer = new GpuSeriesBuffer
+        {
+            CachedInterleaved = points
+        };
+        buffer.Upload(points, pointsCount: 3);
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawExtension,
+            ExtensionId = CompositorBuiltInExtensions.GpuLineSeries,
+            StaticBuffer = buffer,
+            RadiusX = 2f,
+            Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+            Scale = Vector2.One,
+            Translate = Vector2.Zero,
+            Transform = Matrix4x4.Identity
+        }, Matrix4x4.Identity, id: 103);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+        Assert.Equal(103, primitive.Id);
+        Assert.Equal(2, index.PathSegments.Count);
+    }
+
+    [Fact]
+    public void RenderCommandCacheBuildsGpuScatterSeriesAsGpuEllipseFills()
+    {
+        var context = new DrawingContext();
+        context.DrawGpuScatterSeries(
+            [5f, 5f, 20f, 20f],
+            pointsCount: 2,
+            radius: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 104);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, primitive.Kind);
+            Assert.Equal(104, primitive.Id);
+        });
+    }
+
+    [Fact]
     public void RenderCommandCacheBuildsQuadraticBezierAsGpuPathStroke()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
@@ -947,6 +1056,92 @@ public sealed class GpuHitTestingTests
         Assert.Equal(99, result.Id);
         Assert.False(boundsOnlyMiss);
         Assert.False(missResult.HasHit);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuLineSeriesStrokeHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var context = new DrawingContext();
+        context.DrawGpuLineSeries(
+            [0f, 0f, 10f, 0f, 10f, 10f],
+            pointsCount: 3,
+            thickness: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 105);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool strokeHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(5f, 0.5f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(5f, 5f), out GpuHitTestResult missResult);
+
+        Assert.True(strokeHit);
+        Assert.Equal(105, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
+    }
+
+    [Fact]
+    public void RenderCommandCacheKeepsGpuLineSeriesNullGapsForHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var context = new DrawingContext();
+        context.DrawGpuLineSeries(
+            [0f, 0f, 10f, 0f, float.NaN, float.NaN, 20f, 0f, 30f, 0f],
+            pointsCount: 5,
+            thickness: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 106);
+        var index = builder.BuildIndex(maxDepth: 3, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.Equal(2, index.PathSegments.Count);
+
+        bool firstSegmentHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(5f, 0.5f), out GpuHitTestResult firstResult);
+        bool secondSegmentHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(25f, 0.5f), out GpuHitTestResult secondResult);
+        bool gapHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(15f, 0.5f), out GpuHitTestResult gapResult);
+
+        Assert.True(firstSegmentHit);
+        Assert.Equal(106, firstResult.Id);
+        Assert.True(secondSegmentHit);
+        Assert.Equal(106, secondResult.Id);
+        Assert.False(gapHit);
+        Assert.False(gapResult.HasHit);
+    }
+
+    [Fact]
+    public void RenderCommandCacheFeedsGpuScatterSeriesHitTesting()
+    {
+        using var gpu = new WgpuContext();
+        gpu.Initialize(null);
+
+        var context = new DrawingContext();
+        context.DrawGpuScatterSeries(
+            [5f, 5f, 20f, 20f],
+            pointsCount: 2,
+            radius: 2f,
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, context, id: 107);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        bool markerHit = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(6f, 5f), out GpuHitTestResult result);
+        bool boundsOnlyMiss = GpuHitTestEngine.TryHitTestPoint(gpu, index, new Vector2(7f, 7f), out GpuHitTestResult missResult);
+
+        Assert.True(markerHit);
+        Assert.Equal(107, result.Id);
+        Assert.False(boundsOnlyMiss);
+        Assert.False(missResult.HasHit);
+        Assert.True(missResult.CandidateCount > 0);
     }
 
     [Fact]

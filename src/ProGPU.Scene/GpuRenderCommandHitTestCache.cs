@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using ProGPU.Backend;
 using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
 public sealed class GpuRenderCommandHitTestCacheBuilder
 {
+    private const int MaxLineSeriesSegmentsPerPathPrimitive = 128;
     private const float OpacityEpsilon = 0.0001f;
 
     private readonly IPathHitTestCompilationCache? _pathHitTestCompilationCache;
@@ -132,6 +134,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
                 break;
             case RenderCommandType.DrawPolyline:
                 AddPolyline(command, activeTransform, primitiveId, zIndex, provider);
+                break;
+            case RenderCommandType.DrawGpuLineSeries:
+                AddGpuLineSeries(command, activeTransform, primitiveId, zIndex, provider);
+                break;
+            case RenderCommandType.DrawGpuScatterSeries:
+                AddGpuScatterSeries(command, activeTransform, primitiveId, zIndex, provider);
                 break;
             case RenderCommandType.DrawExtension:
                 AddExtension(command, activeTransform, primitiveId, zIndex, provider);
@@ -606,9 +614,17 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         float zIndex,
         IRenderDataProvider? provider)
     {
-        if (command.ExtensionId == CompositorBuiltInExtensions.Spline)
+        switch (command.ExtensionId)
         {
-            AddSpline(command, transform, id, zIndex, provider);
+            case CompositorBuiltInExtensions.Spline:
+                AddSpline(command, transform, id, zIndex, provider);
+                break;
+            case CompositorBuiltInExtensions.GpuLineSeries:
+                AddGpuLineSeries(command, transform, id, zIndex, provider);
+                break;
+            case CompositorBuiltInExtensions.GpuScatterSeries:
+                AddGpuScatterSeries(command, transform, id, zIndex, provider);
+                break;
         }
     }
 
@@ -659,6 +675,132 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         TryAddPathStrokePrimitive(path, transform, id, zIndex, pen);
     }
 
+    private void AddGpuLineSeries(
+        RenderCommand command,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        IRenderDataProvider? provider)
+    {
+        ReadOnlySpan<float> floats = GetSeriesFloats(command, provider, out int pointsCount);
+        if (pointsCount < 2 || floats.Length < pointsCount * 2)
+        {
+            return;
+        }
+
+        float thickness = MathF.Max(1f, command.RadiusX);
+        var pen = new Pen(command.Brush ?? new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), thickness);
+        Vector2 scale = NormalizeSeriesScale(command.Scale);
+        Vector2 translate = command.Translate;
+        Matrix4x4 seriesTransform = GetCommandTransform(command, transform);
+
+        PathGeometry? path = null;
+        PathFigure? figure = null;
+        Vector2 previous = default;
+        bool hasPrevious = false;
+        int segmentCount = 0;
+        int chunkIndex = 0;
+
+        for (int i = 0; i < pointsCount; i++)
+        {
+            if (!TryReadSeriesPoint(floats, i, stride: 2, scale, translate, out Vector2 point))
+            {
+                FlushLineSeriesPath();
+                hasPrevious = false;
+                continue;
+            }
+
+            if (!hasPrevious)
+            {
+                previous = point;
+                hasPrevious = true;
+                continue;
+            }
+
+            if (path == null || figure == null)
+            {
+                path = new PathGeometry();
+                figure = new PathFigure(previous);
+                path.Figures.Add(figure);
+            }
+
+            figure.Segments.Add(new LineSegment(point));
+            segmentCount++;
+
+            if (segmentCount >= MaxLineSeriesSegmentsPerPathPrimitive)
+            {
+                FlushLineSeriesPath();
+            }
+
+            previous = point;
+        }
+
+        FlushLineSeriesPath();
+
+        void FlushLineSeriesPath()
+        {
+            if (path == null || segmentCount == 0)
+            {
+                path = null;
+                figure = null;
+                segmentCount = 0;
+                return;
+            }
+
+            TryAddPathStrokePrimitive(path, seriesTransform, id, zIndex + chunkIndex * 0.0001f, pen);
+            chunkIndex++;
+            path = null;
+            figure = null;
+            segmentCount = 0;
+        }
+    }
+
+    private void AddGpuScatterSeries(
+        RenderCommand command,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        IRenderDataProvider? provider)
+    {
+        ReadOnlySpan<float> floats = GetSeriesFloats(command, provider, out int pointsCount);
+        if (pointsCount <= 0)
+        {
+            return;
+        }
+
+        int stride = floats.Length >= pointsCount * 3 ? 3 : 2;
+        if (floats.Length < pointsCount * stride)
+        {
+            return;
+        }
+
+        Vector2 scale = NormalizeSeriesScale(command.Scale);
+        Vector2 translate = command.Translate;
+        Matrix4x4 seriesTransform = GetCommandTransform(command, transform);
+        float defaultRadius = command.RadiusX;
+        for (int i = 0; i < pointsCount; i++)
+        {
+            if (!TryReadSeriesPoint(floats, i, stride, scale, translate, out Vector2 center))
+            {
+                continue;
+            }
+
+            float radius = stride == 3 ? floats[i * stride + 2] : defaultRadius;
+            if (!float.IsFinite(radius) || radius <= 0f)
+            {
+                continue;
+            }
+
+            var extent = new Vector2(radius);
+            AddPrimitive(GpuHitTestPrimitive.EllipseFill(
+                id,
+                center - extent,
+                center + extent,
+                seriesTransform,
+                zIndex + i * 0.0001f));
+        }
+    }
+
     private static ReadOnlySpan<Vector2> GetPolylinePoints(RenderCommand command, IRenderDataProvider? provider)
     {
         return GetPointBuffer(command, provider);
@@ -684,6 +826,66 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             : inlineValues is { Length: > 0 } values
                 ? values
                 : ReadOnlySpan<double>.Empty;
+    }
+
+    private static ReadOnlySpan<float> GetSeriesFloats(
+        RenderCommand command,
+        IRenderDataProvider? provider,
+        out int pointsCount)
+    {
+        if (command.StaticBuffer is GpuSeriesBuffer { CachedInterleaved: { Length: > 0 } cachedInterleaved } seriesBuffer)
+        {
+            pointsCount = seriesBuffer.PointsCount;
+            return cachedInterleaved;
+        }
+
+        pointsCount = command.GpuPointsCount;
+        if (provider != null && command.FloatBufferCount > 0)
+        {
+            return provider.GetFloats(command.FloatBufferOffset, command.FloatBufferCount);
+        }
+
+        return command.GpuPoints is { Length: > 0 } points
+            ? points
+            : ReadOnlySpan<float>.Empty;
+    }
+
+    private static bool TryReadSeriesPoint(
+        ReadOnlySpan<float> floats,
+        int pointIndex,
+        int stride,
+        Vector2 scale,
+        Vector2 translate,
+        out Vector2 point)
+    {
+        point = default;
+        int offset = pointIndex * stride;
+        if (offset + 1 >= floats.Length)
+        {
+            return false;
+        }
+
+        float x = floats[offset];
+        float y = floats[offset + 1];
+        if (!float.IsFinite(x) || !float.IsFinite(y))
+        {
+            return false;
+        }
+
+        point = new Vector2(x * scale.X + translate.X, y * scale.Y + translate.Y);
+        return float.IsFinite(point.X) && float.IsFinite(point.Y);
+    }
+
+    private static Vector2 NormalizeSeriesScale(Vector2 scale)
+    {
+        return scale == Vector2.Zero ? Vector2.One : scale;
+    }
+
+    private static Matrix4x4 GetCommandTransform(RenderCommand command, Matrix4x4 activeTransform)
+    {
+        return command.Transform == default || command.Transform == Matrix4x4.Identity
+            ? activeTransform
+            : command.Transform * activeTransform;
     }
 
     private void AddPrimitive(GpuHitTestPrimitive primitive)

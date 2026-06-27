@@ -1132,6 +1132,8 @@ public class DrawingContext : IRenderDataProvider
             RadiusX = thickness,
             Brush = brush,
             SeriesCacheKey = new object(),
+            Scale = Vector2.One,
+            Translate = Vector2.Zero,
             Transform = Matrix4x4.Identity
         });
     }
@@ -1156,6 +1158,8 @@ public class DrawingContext : IRenderDataProvider
             RadiusX = radius,
             Brush = brush,
             SeriesCacheKey = new object(),
+            Scale = Vector2.One,
+            Translate = Vector2.Zero,
             Transform = Matrix4x4.Identity
         });
     }
