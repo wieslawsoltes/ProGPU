@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace System.Windows.Media;
 
-public abstract class Geometry
+public abstract class Geometry : ProGPU.Scene.INativePathGeometrySource
 {
     public Transform? Transform { get; set; }
 
@@ -13,5 +13,10 @@ public abstract class Geometry
         path = null!;
         transform = Matrix4x4.Identity;
         return false;
+    }
+
+    bool ProGPU.Scene.INativePathGeometrySource.TryGetPathGeometry(out ProGPU.Vector.PathGeometry path, out Matrix4x4 transform)
+    {
+        return TryGetPathGeometry(out path, out transform);
     }
 }
