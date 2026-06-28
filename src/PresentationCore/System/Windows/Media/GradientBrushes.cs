@@ -31,7 +31,7 @@ public enum GradientSpreadMethod
     Repeat = 2
 }
 
-public sealed class GradientStop
+public sealed class GradientStop : IPortableInvalidationSource
 {
     private Color _color;
     private double _offset;
@@ -90,9 +90,16 @@ public sealed class GradientStop
 
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    bool IPortableInvalidationSource.TrySubscribeInvalidated(EventHandler handler, out IDisposable subscription)
+    {
+        Changed += handler;
+        subscription = new PortableInvalidationSubscription(() => Changed -= handler);
+        return true;
+    }
 }
 
-public sealed class GradientStopCollection : IList<GradientStop>, INotifyCollectionChanged
+public sealed class GradientStopCollection : IList<GradientStop>, INotifyCollectionChanged, IPortableInvalidationSource
 {
     private readonly List<GradientStop> _items;
     private uint _changeVersion;
@@ -268,6 +275,13 @@ public sealed class GradientStopCollection : IList<GradientStop>, INotifyCollect
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    bool IPortableInvalidationSource.TrySubscribeInvalidated(EventHandler handler, out IDisposable subscription)
+    {
+        Changed += handler;
+        subscription = new PortableInvalidationSubscription(() => Changed -= handler);
+        return true;
     }
 }
 

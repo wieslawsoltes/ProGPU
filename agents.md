@@ -9,7 +9,7 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 ### A0. Reflection-Free WPF Port Support
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 
-Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, drawing-content, render-data, visual-state, visual-layout, and bitmap-source pixel seams.
+Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, drawing-content, render-data, invalidation, visual-state, visual-layout, and bitmap-source pixel seams.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 ProGPU achieves high-performance vector graphics and text rendering matching macOS Retina quality. When modifying or extending text visuals (`TextVisual.cs`, `Compositor.cs`, `GlyphAtlas.cs`):

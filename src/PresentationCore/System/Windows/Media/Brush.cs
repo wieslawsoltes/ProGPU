@@ -1,6 +1,6 @@
 namespace System.Windows.Media;
 
-public abstract class Brush
+public abstract class Brush : ProGPU.Wpf.Interop.IPortableInvalidationSource
 {
     private double _opacity = 1.0;
     private uint _changeVersion;
@@ -39,5 +39,12 @@ public abstract class Brush
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    bool ProGPU.Wpf.Interop.IPortableInvalidationSource.TrySubscribeInvalidated(EventHandler handler, out IDisposable subscription)
+    {
+        Changed += handler;
+        subscription = new ProGPU.Wpf.Interop.PortableInvalidationSubscription(() => Changed -= handler);
+        return true;
     }
 }
