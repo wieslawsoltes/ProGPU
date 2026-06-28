@@ -172,6 +172,8 @@ public interface IPortableWindowActivationServiceRegistrar
 
     void Register(PortableWindowActivationCallbacks callbacks);
 
+    bool TryIsCurrentApplicationMainWindow(object window, out bool isMainWindow);
+
     bool TryCloseWindow(object window, out PortableWindowCloseResult result);
 
     bool TrySetActivationState(object window, bool isActive);
