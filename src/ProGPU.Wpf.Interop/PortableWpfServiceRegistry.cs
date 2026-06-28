@@ -47,14 +47,111 @@ public interface IPortableMediaContextRenderServiceRegistrar
     void Clear();
 }
 
+public sealed class PortableWindowActivationCallbacks
+{
+    public PortableWindowActivationCallbacks(
+        Func<object, object?> activate,
+        Action<object>? show = null,
+        Action<object>? hide = null,
+        Action<object, object>? setWindowState = null,
+        Action<object, string>? setTitle = null,
+        Action<object, double, double>? setClientSize = null,
+        Action<object, double, double>? setPosition = null,
+        Action<object, bool>? setTopmost = null,
+        Action<object, object, object>? setWindowBorder = null,
+        Action<object>? close = null,
+        Action<object>? run = null,
+        Action<object>? dispose = null,
+        Func<object, bool>? dragMove = null,
+        Func<object, IntPtr>? getHandle = null)
+    {
+        Activate = activate ?? throw new ArgumentNullException(nameof(activate));
+        Show = show;
+        Hide = hide;
+        SetWindowState = setWindowState;
+        SetTitle = setTitle;
+        SetClientSize = setClientSize;
+        SetPosition = setPosition;
+        SetTopmost = setTopmost;
+        SetWindowBorder = setWindowBorder;
+        Close = close;
+        Run = run;
+        Dispose = dispose;
+        DragMove = dragMove;
+        GetHandle = getHandle;
+    }
+
+    public Func<object, object?> Activate { get; }
+
+    public Action<object>? Show { get; }
+
+    public Action<object>? Hide { get; }
+
+    public Action<object, object>? SetWindowState { get; }
+
+    public Action<object, string>? SetTitle { get; }
+
+    public Action<object, double, double>? SetClientSize { get; }
+
+    public Action<object, double, double>? SetPosition { get; }
+
+    public Action<object, bool>? SetTopmost { get; }
+
+    public Action<object, object, object>? SetWindowBorder { get; }
+
+    public Action<object>? Close { get; }
+
+    public Action<object>? Run { get; }
+
+    public Action<object>? Dispose { get; }
+
+    public Func<object, bool>? DragMove { get; }
+
+    public Func<object, IntPtr>? GetHandle { get; }
+}
+
+public interface IPortableWindowActivationServiceRegistrar
+{
+    Assembly SourceAssembly { get; }
+
+    void Register(PortableWindowActivationCallbacks callbacks);
+
+    void Clear();
+}
+
 public static class PortableWpfServiceRegistry
 {
     private static readonly object SyncRoot = new();
+    private static readonly Dictionary<Assembly, IPortableWindowActivationServiceRegistrar> WindowActivationServices = new();
     private static readonly Dictionary<Assembly, IPortableClipboardServiceRegistrar> ClipboardServices = new();
     private static readonly Dictionary<Assembly, IPortableLauncherServiceRegistrar> LauncherServices = new();
     private static readonly Dictionary<Assembly, IPortableMessageBoxServiceRegistrar> MessageBoxServices = new();
     private static readonly Dictionary<Assembly, IPortableFileDialogServiceRegistrar> FileDialogServices = new();
     private static readonly Dictionary<Assembly, IPortableMediaContextRenderServiceRegistrar> MediaContextRenderServices = new();
+
+    public static IDisposable RegisterWindowActivationService(IPortableWindowActivationServiceRegistrar service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+
+        lock (SyncRoot)
+        {
+            WindowActivationServices[service.SourceAssembly] = service;
+        }
+
+        return new Registration<IPortableWindowActivationServiceRegistrar>(service, WindowActivationServices);
+    }
+
+    public static bool TryGetWindowActivationService(
+        Assembly sourceAssembly,
+        out IPortableWindowActivationServiceRegistrar service)
+    {
+        ArgumentNullException.ThrowIfNull(sourceAssembly);
+
+        lock (SyncRoot)
+        {
+            return WindowActivationServices.TryGetValue(sourceAssembly, out service!);
+        }
+    }
 
     public static IDisposable RegisterClipboardService(IPortableClipboardServiceRegistrar service)
     {
@@ -213,6 +310,7 @@ public static class PortableWpfServiceRegistry
         {
             return service switch
             {
+                IPortableWindowActivationServiceRegistrar windowActivationService => windowActivationService.SourceAssembly,
                 IPortableClipboardServiceRegistrar clipboardService => clipboardService.SourceAssembly,
                 IPortableLauncherServiceRegistrar launcherService => launcherService.SourceAssembly,
                 IPortableMessageBoxServiceRegistrar messageBoxService => messageBoxService.SourceAssembly,
