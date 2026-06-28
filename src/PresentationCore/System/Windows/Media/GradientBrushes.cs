@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Numerics;
 using System.Windows;
+using ProGPU.Wpf.Interop;
 using ProGpuBrush = ProGPU.Vector.Brush;
 using ProGpuColorInterpolationMode = ProGPU.Vector.GradientColorInterpolationMode;
 using ProGpuGradientSpreadMethod = ProGPU.Vector.GradientSpreadMethod;
@@ -358,6 +359,18 @@ public abstract class GradientBrush : Brush
         return stops;
     }
 
+    protected PortableGradientStop[] ToPortableStops()
+    {
+        var stops = new PortableGradientStop[GradientStops.Count];
+        for (var i = 0; i < stops.Length; i++)
+        {
+            var stop = GradientStops[i];
+            stops[i] = new PortableGradientStop(ToPortableColor(stop.Color), stop.Offset);
+        }
+
+        return stops;
+    }
+
     protected void ApplyGradientState(ProGpuBrush brush)
     {
         brush.Opacity = (float)Math.Clamp(Opacity, 0.0, 1.0);
@@ -416,9 +429,38 @@ public abstract class GradientBrush : Brush
             ? ProGpuColorInterpolationMode.ScRgbLinearInterpolation
             : ProGpuColorInterpolationMode.SRgbLinearInterpolation;
     }
+
+    protected PortableBrushMappingMode ToPortableMappingMode()
+    {
+        return MappingMode == BrushMappingMode.Absolute
+            ? PortableBrushMappingMode.Absolute
+            : PortableBrushMappingMode.RelativeToBoundingBox;
+    }
+
+    protected PortableGradientSpreadMethod ToPortableSpreadMethod()
+    {
+        return SpreadMethod switch
+        {
+            GradientSpreadMethod.Reflect => PortableGradientSpreadMethod.Reflect,
+            GradientSpreadMethod.Repeat => PortableGradientSpreadMethod.Repeat,
+            _ => PortableGradientSpreadMethod.Pad
+        };
+    }
+
+    protected PortableGradientColorInterpolationMode ToPortableColorInterpolationMode()
+    {
+        return ColorInterpolationMode == ColorInterpolationMode.ScRgbLinearInterpolation
+            ? PortableGradientColorInterpolationMode.ScRgbLinearInterpolation
+            : PortableGradientColorInterpolationMode.SRgbLinearInterpolation;
+    }
+
+    private static PortableColor ToPortableColor(Color color)
+    {
+        return new PortableColor(color.A, color.R, color.G, color.B);
+    }
 }
 
-public sealed class LinearGradientBrush : GradientBrush
+public sealed class LinearGradientBrush : GradientBrush, IPortableBrushSource
 {
     private Point _startPoint = new(0, 0);
     private Point _endPoint = new(1, 1);
@@ -501,6 +543,19 @@ public sealed class LinearGradientBrush : GradientBrush
             MapRelativePoint(EndPoint, targetBounds));
     }
 
+    bool IPortableBrushSource.TryGetPortableBrush(out PortableBrush brush)
+    {
+        brush = PortableBrush.LinearGradient(
+            new PortablePoint(StartPoint.X, StartPoint.Y),
+            new PortablePoint(EndPoint.X, EndPoint.Y),
+            ToPortableStops(),
+            Opacity,
+            ToPortableMappingMode(),
+            ToPortableSpreadMethod(),
+            ToPortableColorInterpolationMode());
+        return true;
+    }
+
     private ProGpuBrush CreateNativeBrush(Point startPoint, Point endPoint)
     {
         var brush = new ProGpuLinearGradientBrush(
@@ -521,7 +576,7 @@ public sealed class LinearGradientBrush : GradientBrush
     }
 }
 
-public sealed class RadialGradientBrush : GradientBrush
+public sealed class RadialGradientBrush : GradientBrush, IPortableBrushSource
 {
     private Point _center = new(0.5, 0.5);
     private Point _gradientOrigin = new(0.5, 0.5);
@@ -620,6 +675,21 @@ public sealed class RadialGradientBrush : GradientBrush
             MapRelativePoint(GradientOrigin, targetBounds),
             RadiusX * targetBounds.Width,
             RadiusY * targetBounds.Height);
+    }
+
+    bool IPortableBrushSource.TryGetPortableBrush(out PortableBrush brush)
+    {
+        brush = PortableBrush.RadialGradient(
+            new PortablePoint(Center.X, Center.Y),
+            new PortablePoint(GradientOrigin.X, GradientOrigin.Y),
+            RadiusX,
+            RadiusY,
+            ToPortableStops(),
+            Opacity,
+            ToPortableMappingMode(),
+            ToPortableSpreadMethod(),
+            ToPortableColorInterpolationMode());
+        return true;
     }
 
     private ProGpuBrush CreateNativeBrush(Point center, Point gradientOrigin, double radiusX, double radiusY)
