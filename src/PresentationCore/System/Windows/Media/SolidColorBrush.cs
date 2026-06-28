@@ -1,8 +1,9 @@
 using System.Numerics;
+using ProGPU.Wpf.Interop;
 
 namespace System.Windows.Media;
 
-public class SolidColorBrush : Brush
+public class SolidColorBrush : Brush, IPortableBrushSource
 {
     private Color _color;
 
@@ -34,5 +35,13 @@ public class SolidColorBrush : Brush
         {
             Opacity = (float)Math.Clamp(Opacity, 0.0, 1.0)
         };
+    }
+
+    bool IPortableBrushSource.TryGetPortableBrush(out PortableBrush brush)
+    {
+        brush = PortableBrush.SolidColor(
+            new PortableColor(Color.A, Color.R, Color.G, Color.B),
+            Opacity);
+        return true;
     }
 }

@@ -1,3 +1,5 @@
+using ProGPU.Wpf.Interop;
+
 namespace System.Windows.Media;
 
 public enum PenLineJoin
@@ -39,7 +41,7 @@ public class DashStyle
     public double Offset { get; set; }
 }
 
-public class Pen
+public class Pen : IPortablePenSource
 {
     public Brush? Brush { get; set; }
     public double Thickness { get; set; } = 1.0;
@@ -145,5 +147,27 @@ public class Pen
             PenLineCap.Triangle => ProGPU.Vector.PenLineCap.Triangle,
             _ => ProGPU.Vector.PenLineCap.Flat
         };
+    }
+
+    bool IPortablePenSource.TryGetPortablePen(out PortablePen pen)
+    {
+        pen = null!;
+        if (Brush is not IPortableBrushSource brushSource
+            || !brushSource.TryGetPortableBrush(out var portableBrush))
+        {
+            return false;
+        }
+
+        pen = new PortablePen(
+            portableBrush,
+            Thickness,
+            (PortablePenLineCap)StartLineCap,
+            (PortablePenLineCap)EndLineCap,
+            (PortablePenLineCap)DashCap,
+            (PortablePenLineJoin)LineJoin,
+            MiterLimit,
+            DashStyle?.Dashes,
+            DashStyle?.Offset ?? 0.0);
+        return true;
     }
 }
