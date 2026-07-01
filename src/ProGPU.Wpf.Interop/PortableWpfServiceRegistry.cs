@@ -262,6 +262,15 @@ public interface IPortableWindowActivationServiceRegistrar
 
     void Register(PortableWindowActivationCallbacks callbacks);
 
+    bool TryRegisterMediaContextRenderService(
+        object window,
+        Action<object?, TimeSpan> requestRender,
+        out IDisposable? registration)
+    {
+        registration = null;
+        return false;
+    }
+
     bool TryIsCurrentApplicationMainWindow(object window, out bool isMainWindow);
 
     bool TryCloseWindow(object window, out PortableWindowCloseResult result);
