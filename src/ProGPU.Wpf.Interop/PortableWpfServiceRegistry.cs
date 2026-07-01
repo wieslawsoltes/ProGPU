@@ -133,15 +133,6 @@ public sealed class PortableFileDialogRequest
     public int FilterIndex { get; }
 }
 
-public interface IPortableMediaContextRenderServiceRegistrar
-{
-    PortableWpfServiceKey ServiceKey { get; }
-
-    IDisposable Register(Action<object?, TimeSpan> requestRender);
-
-    void Clear();
-}
-
 public sealed class PortableWindowActivationCallbacks
 {
     public PortableWindowActivationCallbacks(
@@ -310,7 +301,6 @@ public static class PortableWpfServiceRegistry
     private static readonly Dictionary<PortableWpfServiceKey, IPortableLauncherServiceRegistrar> LauncherServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableMessageBoxServiceRegistrar> MessageBoxServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableFileDialogServiceRegistrar> FileDialogServices = new();
-    private static readonly Dictionary<PortableWpfServiceKey, IPortableMediaContextRenderServiceRegistrar> MediaContextRenderServices = new();
 
     public static IDisposable RegisterWindowActivationService(IPortableWindowActivationServiceRegistrar service)
     {
@@ -437,31 +427,6 @@ public static class PortableWpfServiceRegistry
         }
     }
 
-    public static IDisposable RegisterMediaContextRenderService(IPortableMediaContextRenderServiceRegistrar service)
-    {
-        ArgumentNullException.ThrowIfNull(service);
-        ValidateServiceKey(service.ServiceKey, nameof(service));
-
-        lock (SyncRoot)
-        {
-            MediaContextRenderServices[service.ServiceKey] = service;
-        }
-
-        return new Registration<IPortableMediaContextRenderServiceRegistrar>(service, MediaContextRenderServices);
-    }
-
-    public static bool TryGetMediaContextRenderService(
-        PortableWpfServiceKey serviceKey,
-        out IPortableMediaContextRenderServiceRegistrar service)
-    {
-        ValidateServiceKey(serviceKey, nameof(serviceKey));
-
-        lock (SyncRoot)
-        {
-            return MediaContextRenderServices.TryGetValue(serviceKey, out service!);
-        }
-    }
-
     private static void ValidateServiceKey(PortableWpfServiceKey serviceKey, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(serviceKey.Name))
@@ -512,7 +477,6 @@ public static class PortableWpfServiceRegistry
                 IPortableLauncherServiceRegistrar launcherService => launcherService.ServiceKey,
                 IPortableMessageBoxServiceRegistrar messageBoxService => messageBoxService.ServiceKey,
                 IPortableFileDialogServiceRegistrar fileDialogService => fileDialogService.ServiceKey,
-                IPortableMediaContextRenderServiceRegistrar renderService => renderService.ServiceKey,
                 _ => throw new InvalidOperationException("Unsupported portable WPF service registrar.")
             };
         }
