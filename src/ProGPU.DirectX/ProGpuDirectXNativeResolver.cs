@@ -215,7 +215,13 @@ public sealed class ProGpuDirectXNativeResolverRegistration
         return string.Join("; ", parts);
     }
 
-    public IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    public IntPtr ResolveForAnchorType(string libraryName, Type anchorType, DllImportSearchPath? searchPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(anchorType);
+        return Resolve(libraryName, anchorType.Assembly, searchPath);
+    }
+
+    internal IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
         if (!ReferenceEquals(assembly, _assembly) || string.IsNullOrWhiteSpace(libraryName))
         {
@@ -404,7 +410,19 @@ public static class ProGpuDirectXNativeResolver
     private static readonly object Gate = new();
     private static readonly Dictionary<Assembly, ProGpuDirectXNativeResolverRegistration> Registrations = [];
 
-    public static ProGpuDirectXNativeResolverRegistration CreateRegistration(
+    public static ProGpuDirectXNativeResolverRegistration CreateAnchorRegistration(
+        Type anchorType,
+        ProGpuDirectXNativeCompatibilityPlan plan,
+        ProGpuDirectXNativeResolverOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(anchorType);
+        return CreateRegistration(
+            anchorType.Assembly,
+            plan,
+            options ?? ProGpuDirectXNativeResolverOptions.Empty);
+    }
+
+    private static ProGpuDirectXNativeResolverRegistration CreateRegistration(
         Assembly assembly,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions? options = null)
@@ -415,7 +433,7 @@ public static class ProGpuDirectXNativeResolver
             options ?? ProGpuDirectXNativeResolverOptions.Empty);
     }
 
-    public static bool TryRegister(
+    private static bool TryRegister(
         Assembly assembly,
         ProGpuDirectXNativeCompatibilityPlan plan,
         out ProGpuDirectXNativeResolverRegistration registration)
@@ -423,7 +441,7 @@ public static class ProGpuDirectXNativeResolver
         return TryRegister(assembly, plan, ProGpuDirectXNativeResolverOptions.Empty, out registration);
     }
 
-    public static bool TryRegister(
+    private static bool TryRegister(
         Assembly assembly,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions? options,
@@ -452,7 +470,7 @@ public static class ProGpuDirectXNativeResolver
         }
     }
 
-    public static IReadOnlyList<ProGpuDirectXNativeResolverRegistration> RegisterAnchorAssemblies(
+    public static IReadOnlyList<ProGpuDirectXNativeResolverRegistration> RegisterAnchorTypes(
         IEnumerable<Type> anchorTypes,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions? options = null)

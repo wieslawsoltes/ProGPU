@@ -813,14 +813,14 @@ fn fs_main() -> @location(0) vec4<f32> {
     {
         var report = CreateNativeDependencyFixtureReport();
         var plan = ProGpuDirectXNativeCompatibilityPlanner.Create(report);
-        var registration = ProGpuDirectXNativeResolver.CreateRegistration(
-            typeof(NativeDependencyFixture).Assembly,
+        var registration = ProGpuDirectXNativeResolver.CreateAnchorRegistration(
+            typeof(NativeDependencyFixture),
             plan);
 
         Assert.Equal(ProGpuDirectXNativeResolverRegistrationStatus.Created, registration.Status);
-        Assert.Equal(IntPtr.Zero, registration.Resolve("d3d11.dll", typeof(NativeDependencyFixture).Assembly, null));
-        Assert.Equal(IntPtr.Zero, registration.Resolve("USER32", typeof(NativeDependencyFixture).Assembly, null));
-        Assert.Equal(IntPtr.Zero, registration.Resolve("SciChart.Charting3D.dll", typeof(NativeDependencyFixture).Assembly, null));
+        Assert.Equal(IntPtr.Zero, registration.ResolveForAnchorType("d3d11.dll", typeof(NativeDependencyFixture)));
+        Assert.Equal(IntPtr.Zero, registration.ResolveForAnchorType("USER32", typeof(NativeDependencyFixture)));
+        Assert.Equal(IntPtr.Zero, registration.ResolveForAnchorType("SciChart.Charting3D.dll", typeof(NativeDependencyFixture)));
         Assert.Contains("default facade: not configured", registration.Describe(), StringComparison.Ordinal);
 
         var d3dAttempt = Assert.Single(
@@ -846,12 +846,12 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
-    public void NativeResolverRegistersDistinctAnchorAssemblies()
+    public void NativeResolverRegistersDistinctAnchorTypes()
     {
         var report = CreateNativeDependencyFixtureReport();
         var plan = ProGpuDirectXNativeCompatibilityPlanner.Create(report);
 
-        var registrations = ProGpuDirectXNativeResolver.RegisterAnchorAssemblies(
+        var registrations = ProGpuDirectXNativeResolver.RegisterAnchorTypes(
             [typeof(NativeDependencyFixture), typeof(NativeDependencyFixture)],
             plan);
 
@@ -866,12 +866,12 @@ fn fs_main() -> @location(0) vec4<f32> {
         var report = CreateNativeDependencyFixtureReport();
         var plan = ProGpuDirectXNativeCompatibilityPlanner.Create(report);
         var missingFacadePath = Path.Combine(Path.GetTempPath(), "progpu-directx-native-facade-missing.dylib");
-        var registration = ProGpuDirectXNativeResolver.CreateRegistration(
-            typeof(NativeDependencyFixture).Assembly,
+        var registration = ProGpuDirectXNativeResolver.CreateAnchorRegistration(
+            typeof(NativeDependencyFixture),
             plan,
             new ProGpuDirectXNativeResolverOptions(missingFacadePath));
 
-        Assert.Equal(IntPtr.Zero, registration.Resolve("VXccelEngine3D.dll", typeof(NativeDependencyFixture).Assembly, null));
+        Assert.Equal(IntPtr.Zero, registration.ResolveForAnchorType("VXccelEngine3D.dll", typeof(NativeDependencyFixture)));
 
         var attempt = Assert.Single(registration.Attempts);
         Assert.Equal("VXccelEngine3D.dll", attempt.ModuleName);
