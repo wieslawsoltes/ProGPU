@@ -69,7 +69,21 @@ public sealed class PortableMessageBoxRequest
         string? defaultResult,
         string? options,
         string? fallbackResult)
+        : this(null, messageBoxText, caption, button, icon, defaultResult, options, fallbackResult)
     {
+    }
+
+    public PortableMessageBoxRequest(
+        object? owner,
+        string? messageBoxText,
+        string? caption,
+        string? button,
+        string? icon,
+        string? defaultResult,
+        string? options,
+        string? fallbackResult)
+    {
+        Owner = owner;
         MessageBoxText = messageBoxText ?? string.Empty;
         Caption = caption ?? string.Empty;
         Button = button ?? "OK";
@@ -78,6 +92,8 @@ public sealed class PortableMessageBoxRequest
         Options = options ?? "None";
         FallbackResult = fallbackResult ?? "OK";
     }
+
+    public object? Owner { get; }
 
     public string MessageBoxText { get; }
 
