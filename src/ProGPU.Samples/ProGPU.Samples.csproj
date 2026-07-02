@@ -30,5 +30,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
   </PropertyGroup>
 </Project>

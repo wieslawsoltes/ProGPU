@@ -1,0 +1,18 @@
+<Project>
+  <Target Name="_ProGpuRemoveNetCoreWindowsBaseFacade"
+          BeforeTargets="ResolveAssemblyReferences"
+          DependsOnTargets="ResolveTargetingPackAssets;ResolveLockFileReferences"
+          Condition="'$(ProGpuUseWindowsBaseShim)' == 'true'">
+    <ItemGroup>
+      <Reference Remove="@(Reference)"
+                 Condition="'%(Reference.Filename)' == 'WindowsBase'
+                            And '%(Reference.NuGetPackageId)' == 'Microsoft.NETCore.App.Ref'" />
+      <ReferencePath Remove="@(ReferencePath)"
+                     Condition="'%(ReferencePath.Filename)' == 'WindowsBase'
+                                And '%(ReferencePath.NuGetPackageId)' == 'Microsoft.NETCore.App.Ref'" />
+      <ReferencePathWithRefAssemblies Remove="@(ReferencePathWithRefAssemblies)"
+                                      Condition="'%(ReferencePathWithRefAssemblies.Filename)' == 'WindowsBase'
+                                                 And '%(ReferencePathWithRefAssemblies.NuGetPackageId)' == 'Microsoft.NETCore.App.Ref'" />
+    </ItemGroup>
+  </Target>
+</Project>

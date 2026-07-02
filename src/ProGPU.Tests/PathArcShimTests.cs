@@ -223,7 +223,8 @@ public sealed class PathArcShimTests
             new Size(110, 70),
             20,
             isLargeArc: false,
-            WpfSweepDirection.Clockwise));
+            WpfSweepDirection.Clockwise,
+            isStroked: true));
         geometry.Figures.Add(figure);
         return geometry;
     }
