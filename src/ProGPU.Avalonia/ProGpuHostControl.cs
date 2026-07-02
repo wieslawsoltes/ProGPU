@@ -335,6 +335,24 @@ public class ProGpuHostControl : Control
         }
     }
 
+    private CompositorHostFrame CreateHostFrame()
+    {
+        return CreateHostFrame(Bounds.Size);
+    }
+
+    private CompositorHostFrame CreateHostFrame(Size logicalSize)
+    {
+        double dpi = (VisualRoot as TopLevel)?.RenderScaling ?? 1.0;
+        return CompositorHostFrame.FromLogicalSize(logicalSize.Width, logicalSize.Height, dpi);
+    }
+
+    private void StoreFrameMetrics(CompositorHostFrame frame)
+    {
+        _lastDpiScale = frame.DpiScale;
+        _renderWidth = frame.RenderTargetWidth;
+        _renderHeight = frame.RenderTargetHeight;
+    }
+
     private void OnThemeChanged()
     {
         WinuiRoot?.NotifyThemeChanged();
@@ -345,11 +363,8 @@ public class ProGpuHostControl : Control
     {
         base.OnSizeChanged(e);
         if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0) return;
-        
-        double dpi = (VisualRoot as TopLevel)?.RenderScaling ?? 1.0;
-        _lastDpiScale = dpi;
-        _renderWidth = (uint)Math.Max(1, e.NewSize.Width * dpi);
-        _renderHeight = (uint)Math.Max(1, e.NewSize.Height * dpi);
+
+        StoreFrameMetrics(CreateHostFrame(e.NewSize));
 
         if (_customVisual != null)
         {
@@ -399,10 +414,7 @@ public class ProGpuHostControl : Control
         };
  
         // 4. Setup initial drawing bounds
-        double dpi = (VisualRoot as TopLevel)?.RenderScaling ?? 1.0;
-        _lastDpiScale = dpi;
-        _renderWidth = (uint)Math.Max(1, Bounds.Width * dpi);
-        _renderHeight = (uint)Math.Max(1, Bounds.Height * dpi);
+        StoreFrameMetrics(CreateHostFrame());
 
         // 5. Setup Composition Custom Visual
         SetupCompositionSurface();
@@ -896,22 +908,26 @@ public class ProGpuHostControl : Control
     {
         if (!_isInitialized || WinuiRoot == null || _wgpuContext == null || _compositor == null) return;
 
+        var hostFrame = CreateHostFrame();
+        if (!hostFrame.IsValid)
+        {
+            return;
+        }
+
+        StoreFrameMetrics(hostFrame);
+
         // 1. Force layout and animations updates recursively on WinUI Controls
         WinuiRoot.UpdateAnimations(0.016f); // Pass baseline delta time
-        WinuiRoot.Measure(new Vector2((float)Bounds.Width, (float)Bounds.Height));
-        WinuiRoot.Arrange(new WinuiRect(0, 0, (float)Bounds.Width, (float)Bounds.Height));
-
-        double dpi = (VisualRoot as TopLevel)?.RenderScaling ?? 1.0;
-        uint renderWidth = (uint)Math.Max(1, Bounds.Width * dpi);
-        uint renderHeight = (uint)Math.Max(1, Bounds.Height * dpi);
+        WinuiRoot.Measure(hostFrame.LogicalSize);
+        WinuiRoot.Arrange(new WinuiRect(0, 0, hostFrame.LogicalWidth, hostFrame.LogicalHeight));
 
         if (_isZeroCopySupported && _gpuInterop != null && _drawingSurface != null)
         {
-            if (!ResizeSharedResources(renderWidth, renderHeight))
+            if (!ResizeSharedResources(hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight))
             {
                 if (TryUseCustomVisualFallback())
                 {
-                    SendRenderStateToCustomVisual(renderWidth, renderHeight, dpi);
+                    SendRenderStateToCustomVisual(hostFrame);
                 }
                 return;
             }
@@ -932,20 +948,15 @@ public class ProGpuHostControl : Control
                 if (image != null && importedImage != null && image.WgpuTexture != null)
                 {
                     // Render directly to WebGPU offscreen target
-                    float logicalWidth = (float)(renderWidth / dpi);
-                    float logicalHeight = (float)(renderHeight / dpi);
-
                     _compositor.RenderOffscreen(
                         WinuiRoot,
-                        (uint)Math.Max(1, logicalWidth),
-                        (uint)Math.Max(1, logicalHeight),
+                        hostFrame,
                         image.WgpuTexture,
-                        0.0f,
-                        (float)dpi
+                        0.0f
                     );
 
                     // Copy GPU texture to staging buffer
-                    CopyTextureToStagingBuffer(image, renderWidth, renderHeight);
+                    CopyTextureToStagingBuffer(image, hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight);
 
                     // Asynchronously map buffer - non-blocking!
                     image.IsStagingBufferMapActive = true;
@@ -971,7 +982,7 @@ public class ProGpuHostControl : Control
                     }
 
                     // Copy staging buffer to shared texture and unmap
-                    CopyMappedToSharedTexture(context, image, renderWidth, renderHeight);
+                    CopyMappedToSharedTexture(context, image, hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight);
 
                     if (!IsCurrentZeroCopyFrame(swapchainImages, imageIndex, image, importedImage, drawingSurface, context))
                     {
@@ -993,11 +1004,11 @@ public class ProGpuHostControl : Control
         }
         else if (_customVisual != null)
         {
-            SendRenderStateToCustomVisual(renderWidth, renderHeight, dpi);
+            SendRenderStateToCustomVisual(hostFrame);
         }
     }
 
-    private void SendRenderStateToCustomVisual(uint renderWidth, uint renderHeight, double dpi)
+    private void SendRenderStateToCustomVisual(CompositorHostFrame hostFrame)
     {
         if (_customVisual == null)
         {
@@ -1008,9 +1019,7 @@ public class ProGpuHostControl : Control
         _customVisual.SendHandlerMessage(new RenderState
         {
             WinuiRoot = WinuiRoot,
-            Width = renderWidth,
-            Height = renderHeight,
-            DpiScale = dpi,
+            HostFrame = hostFrame,
             CornerRadius = CornerRadius
         });
     }
@@ -1322,9 +1331,7 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 
     private readonly object _stateLock = new();
     private Microsoft.UI.Xaml.FrameworkElement? _winuiRoot;
-    private uint _renderWidth;
-    private uint _renderHeight;
-    private double _dpiScale = 1.0;
+    private CompositorHostFrame _hostFrame;
     private bool _resourcesDirty;
     private CornerRadius _cornerRadius;
 
@@ -1359,11 +1366,9 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
             lock (_stateLock)
             {
                 _winuiRoot = state.WinuiRoot;
-                if (_renderWidth != state.Width || _renderHeight != state.Height || _dpiScale != state.DpiScale)
+                if (_hostFrame != state.HostFrame)
                 {
-                    _renderWidth = state.Width;
-                    _renderHeight = state.Height;
-                    _dpiScale = state.DpiScale;
+                    _hostFrame = state.HostFrame;
                     _resourcesDirty = true;
                 }
                 _cornerRadius = state.CornerRadius;
@@ -1424,50 +1429,41 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
     public override void OnRender(ImmediateDrawingContext drawingContext)
     {
         Microsoft.UI.Xaml.FrameworkElement? localRoot;
-        uint width;
-        uint height;
-        double dpiScale;
+        CompositorHostFrame hostFrame;
         bool resourcesDirty;
         CornerRadius cornerRadius;
 
         lock (_stateLock)
         {
             localRoot = _winuiRoot;
-            width = _renderWidth;
-            height = _renderHeight;
-            dpiScale = _dpiScale;
+            hostFrame = _hostFrame;
             resourcesDirty = _resourcesDirty;
             _resourcesDirty = false;
             cornerRadius = _cornerRadius;
         }
 
-        if (localRoot == null || width == 0 || height == 0 || _wgpuContext == null || _compositor == null)
+        if (localRoot == null || !hostFrame.IsValid || _wgpuContext == null || _compositor == null)
         {
             return;
         }
 
         if (resourcesDirty)
         {
-            ResizeResources(width, height);
+            ResizeResources(hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight);
         }
 
         // Direct WebGPU rendering to offscreen target texture
         if (_offscreenTexture != null && _stagingBuffer != null)
         {
-            float logicalWidth = (float)(width / dpiScale);
-            float logicalHeight = (float)(height / dpiScale);
-
             _compositor.RenderOffscreen(
-                localRoot, 
-                (uint)Math.Max(1, logicalWidth), 
-                (uint)Math.Max(1, logicalHeight), 
-                _offscreenTexture, 
-                0.0f, 
-                (float)dpiScale
+                localRoot,
+                hostFrame,
+                _offscreenTexture,
+                0.0f
             );
 
             uint bytesPerPixel = 4;
-            uint bufferSize = _bytesPerRow * height;
+            uint bufferSize = _bytesPerRow * hostFrame.RenderTargetHeight;
             
             var encoderDesc = new CommandEncoderDescriptor();
             var encoder = _wgpuContext.Wgpu.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
@@ -1487,14 +1483,14 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
                 {
                     Offset = 0,
                     BytesPerRow = _bytesPerRow,
-                    RowsPerImage = height
+                    RowsPerImage = hostFrame.RenderTargetHeight
                 }
             };
             
             var copySize = new Extent3D
             {
-                Width = width,
-                Height = height,
+                Width = hostFrame.RenderTargetWidth,
+                Height = hostFrame.RenderTargetHeight,
                 DepthOrArrayLayers = 1
             };
             
@@ -1523,9 +1519,9 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
                 {
                     byte* srcBytes = (byte*)mappedPtr;
                     byte* dstBytes = (byte*)locked.Address;
-                    uint rowBytes = width * bytesPerPixel;
+                    uint rowBytes = hostFrame.RenderTargetWidth * bytesPerPixel;
                     
-                    for (uint y = 0; y < height; y++)
+                    for (uint y = 0; y < hostFrame.RenderTargetHeight; y++)
                     {
                         byte* srcRow = srcBytes + (y * _bytesPerRow);
                         byte* dstRow = dstBytes + (y * (uint)locked.RowBytes);
@@ -1594,8 +1590,6 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 public struct RenderState
 {
     public Microsoft.UI.Xaml.FrameworkElement? WinuiRoot;
-    public uint Width;
-    public uint Height;
-    public double DpiScale;
+    public CompositorHostFrame HostFrame;
     public CornerRadius CornerRadius;
 }

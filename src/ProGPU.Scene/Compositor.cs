@@ -118,6 +118,14 @@ public struct CompositorMetrics
 
 public readonly record struct RenderTargetViewport(float X, float Y, float Width, float Height)
 {
+    public bool IsValid =>
+        float.IsFinite(X) &&
+        float.IsFinite(Y) &&
+        float.IsFinite(Width) &&
+        float.IsFinite(Height) &&
+        Width > 0f &&
+        Height > 0f;
+
     public static RenderTargetViewport Full(uint width, uint height)
     {
         return new RenderTargetViewport(
@@ -125,6 +133,35 @@ public readonly record struct RenderTargetViewport(float X, float Y, float Width
             0f,
             Math.Max(1u, width),
             Math.Max(1u, height));
+    }
+
+    public RenderTargetViewport Clamp(uint renderTargetWidth, uint renderTargetHeight)
+    {
+        float targetWidth = Math.Max(1u, renderTargetWidth);
+        float targetHeight = Math.Max(1u, renderTargetHeight);
+        float x = ClampFinite(X, 0f, MathF.Max(0f, targetWidth - 1f));
+        float y = ClampFinite(Y, 0f, MathF.Max(0f, targetHeight - 1f));
+        float width = IsPositiveFinite(Width)
+            ? Width
+            : targetWidth - x;
+        float height = IsPositiveFinite(Height)
+            ? Height
+            : targetHeight - y;
+
+        width = Math.Clamp(width, 1f, MathF.Max(1f, targetWidth - x));
+        height = Math.Clamp(height, 1f, MathF.Max(1f, targetHeight - y));
+
+        return new RenderTargetViewport(x, y, width, height);
+    }
+
+    private static bool IsPositiveFinite(float value)
+    {
+        return float.IsFinite(value) && value > 0f;
+    }
+
+    private static float ClampFinite(float value, float min, float max)
+    {
+        return float.IsFinite(value) ? Math.Clamp(value, min, max) : min;
     }
 }
 
@@ -1414,6 +1451,27 @@ public unsafe class Compositor : IDisposable
             renderTargetHeight,
             RenderTargetViewport.Full(renderTargetWidth, renderTargetHeight),
             dpiScale,
+            targetView);
+    }
+
+    public void RenderScene(
+        Visual root,
+        CompositorHostFrame hostFrame,
+        TextureView* targetView)
+    {
+        if (!hostFrame.IsValid)
+        {
+            return;
+        }
+
+        RenderScene(
+            root,
+            hostFrame.LogicalPixelWidth,
+            hostFrame.LogicalPixelHeight,
+            hostFrame.RenderTargetWidth,
+            hostFrame.RenderTargetHeight,
+            hostFrame.RenderTargetViewport,
+            hostFrame.DpiScale,
             targetView);
     }
 
@@ -6032,32 +6090,7 @@ public unsafe class Compositor : IDisposable
         uint targetWidth,
         uint targetHeight)
     {
-        float targetWidthF = Math.Max(1u, targetWidth);
-        float targetHeightF = Math.Max(1u, targetHeight);
-        float x = ClampFinite(viewport.X, 0f, MathF.Max(0f, targetWidthF - 1f));
-        float y = ClampFinite(viewport.Y, 0f, MathF.Max(0f, targetHeightF - 1f));
-        float width = IsPositiveFinite(viewport.Width)
-            ? viewport.Width
-            : targetWidthF - x;
-        float height = IsPositiveFinite(viewport.Height)
-            ? viewport.Height
-            : targetHeightF - y;
-
-        width = Math.Clamp(width, 1f, MathF.Max(1f, targetWidthF - x));
-        height = Math.Clamp(height, 1f, MathF.Max(1f, targetHeightF - y));
-        return new RenderTargetViewport(x, y, width, height);
-    }
-
-    private static float ClampFinite(float value, float min, float max)
-    {
-        return float.IsFinite(value)
-            ? Math.Clamp(value, min, max)
-            : min;
-    }
-
-    private static bool IsPositiveFinite(float value)
-    {
-        return float.IsFinite(value) && value > 0f;
+        return viewport.Clamp(targetWidth, targetHeight);
     }
 
     private static uint RoundNonNegativeToUInt(float value)
@@ -6446,6 +6479,34 @@ public unsafe class Compositor : IDisposable
 
         _pendingVectorStart = (uint)_vectorIndicesList.Count;
         _pendingTextStart = (uint)_textVerticesList.Count;
+    }
+
+    public void RenderOffscreen(
+        Visual node,
+        CompositorHostFrame hostFrame,
+        GpuTexture targetTexture,
+        float padding,
+        Vector4? clearColor = null,
+        bool loadExistingContents = false,
+        bool includeRootTransform = true,
+        bool includeRootVisualState = true)
+    {
+        if (!hostFrame.IsValid)
+        {
+            return;
+        }
+
+        RenderOffscreen(
+            node,
+            hostFrame.LogicalPixelWidth,
+            hostFrame.LogicalPixelHeight,
+            targetTexture,
+            padding,
+            hostFrame.DpiScale,
+            clearColor,
+            loadExistingContents,
+            includeRootTransform,
+            includeRootVisualState);
     }
 
     public void RenderOffscreen(
