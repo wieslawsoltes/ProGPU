@@ -17,16 +17,21 @@ public class LineSegment : PathSegment
 
     public LineSegment() { }
 
-    public LineSegment(Point point, bool isSmoothJoin = false, bool isStroked = true)
+    public LineSegment(Point point, bool isStroked)
     {
         Point = point;
-        IsSmoothJoin = isSmoothJoin;
         IsStroked = isStroked;
     }
 
-    public LineSegment(Vector2 point, bool isSmoothJoin = false, bool isStroked = true)
-        : this(new Point(point.X, point.Y), isSmoothJoin, isStroked)
+    public LineSegment(Vector2 point)
+        : this(new Point(point.X, point.Y), isStroked: true)
     {
+    }
+
+    public LineSegment(Vector2 point, bool isSmoothJoin, bool isStroked)
+        : this(new Point(point.X, point.Y), isStroked)
+    {
+        IsSmoothJoin = isSmoothJoin;
     }
 }
 
@@ -37,17 +42,22 @@ public class QuadraticBezierSegment : PathSegment
 
     public QuadraticBezierSegment() { }
 
-    public QuadraticBezierSegment(Point point1, Point point2, bool isSmoothJoin = false, bool isStroked = true)
+    public QuadraticBezierSegment(Point point1, Point point2, bool isStroked)
     {
         Point1 = point1;
         Point2 = point2;
-        IsSmoothJoin = isSmoothJoin;
         IsStroked = isStroked;
     }
 
-    public QuadraticBezierSegment(Vector2 point1, Vector2 point2, bool isSmoothJoin = false, bool isStroked = true)
-        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), isSmoothJoin, isStroked)
+    public QuadraticBezierSegment(Vector2 point1, Vector2 point2)
+        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), isStroked: true)
     {
+    }
+
+    public QuadraticBezierSegment(Vector2 point1, Vector2 point2, bool isSmoothJoin, bool isStroked)
+        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), isStroked)
+    {
+        IsSmoothJoin = isSmoothJoin;
     }
 }
 
@@ -59,18 +69,23 @@ public class BezierSegment : PathSegment
 
     public BezierSegment() { }
 
-    public BezierSegment(Point point1, Point point2, Point point3, bool isSmoothJoin = false, bool isStroked = true)
+    public BezierSegment(Point point1, Point point2, Point point3, bool isStroked)
     {
         Point1 = point1;
         Point2 = point2;
         Point3 = point3;
-        IsSmoothJoin = isSmoothJoin;
         IsStroked = isStroked;
     }
 
-    public BezierSegment(Vector2 point1, Vector2 point2, Vector2 point3, bool isSmoothJoin = false, bool isStroked = true)
-        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), new Point(point3.X, point3.Y), isSmoothJoin, isStroked)
+    public BezierSegment(Vector2 point1, Vector2 point2, Vector2 point3)
+        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), new Point(point3.X, point3.Y), isStroked: true)
     {
+    }
+
+    public BezierSegment(Vector2 point1, Vector2 point2, Vector2 point3, bool isSmoothJoin, bool isStroked)
+        : this(new Point(point1.X, point1.Y), new Point(point2.X, point2.Y), new Point(point3.X, point3.Y), isStroked)
+    {
+        IsSmoothJoin = isSmoothJoin;
     }
 }
 
@@ -90,15 +105,13 @@ public class ArcSegment : PathSegment
         double rotationAngle,
         bool isLargeArc,
         SweepDirection sweepDirection,
-        bool isSmoothJoin = false,
-        bool isStroked = true)
+        bool isStroked)
     {
         Point = point;
         Size = size;
         RotationAngle = rotationAngle;
         IsLargeArc = isLargeArc;
         SweepDirection = sweepDirection;
-        IsSmoothJoin = isSmoothJoin;
         IsStroked = isStroked;
     }
 
@@ -110,8 +123,9 @@ public class ArcSegment : PathSegment
         SweepDirection sweepDirection,
         bool isSmoothJoin = false,
         bool isStroked = true)
-        : this(new Point(point.X, point.Y), new Size(Math.Abs(size.X), Math.Abs(size.Y)), rotationAngle, isLargeArc, sweepDirection, isSmoothJoin, isStroked)
+        : this(new Point(point.X, point.Y), new Size(Math.Abs(size.X), Math.Abs(size.Y)), rotationAngle, isLargeArc, sweepDirection, isStroked)
     {
+        IsSmoothJoin = isSmoothJoin;
     }
 }
 
@@ -126,15 +140,56 @@ public class PathFigure
         StartPoint = startPoint;
     }
 
+    public PathFigure(Point start, IEnumerable<PathSegment> segments, bool closed)
+    {
+        StartPoint = start;
+        Segments = new PathSegmentCollection(segments);
+        IsClosed = closed;
+    }
+
     public PathFigure(Vector2 startPoint)
         : this(new Point(startPoint.X, startPoint.Y))
     {
     }
 
     public Point StartPoint { get; set; }
-    public List<PathSegment> Segments { get; } = new();
+    public PathSegmentCollection Segments { get; set; } = new();
     public bool IsClosed { get; set; }
     public bool IsFilled { get; set; } = true;
+}
+
+public class PathSegmentCollection : List<PathSegment>
+{
+    public PathSegmentCollection()
+    {
+    }
+
+    public PathSegmentCollection(IEnumerable<PathSegment> collection)
+        : base(collection)
+    {
+    }
+
+    public PathSegmentCollection(int capacity)
+        : base(capacity)
+    {
+    }
+}
+
+public class PathFigureCollection : List<PathFigure>
+{
+    public PathFigureCollection()
+    {
+    }
+
+    public PathFigureCollection(IEnumerable<PathFigure> collection)
+        : base(collection)
+    {
+    }
+
+    public PathFigureCollection(int capacity)
+        : base(capacity)
+    {
+    }
 }
 
 public enum FillRule
@@ -151,8 +206,24 @@ public enum SweepDirection
 
 public class PathGeometry : Geometry
 {
+    public PathGeometry()
+    {
+    }
+
+    public PathGeometry(IEnumerable<PathFigure> figures)
+    {
+        Figures = new PathFigureCollection(figures);
+    }
+
+    public PathGeometry(IEnumerable<PathFigure> figures, FillRule fillRule, Transform? transform)
+    {
+        Figures = new PathFigureCollection(figures);
+        FillRule = fillRule;
+        Transform = transform;
+    }
+
     public FillRule FillRule { get; set; } = FillRule.EvenOdd;
-    public List<PathFigure> Figures { get; } = new();
+    public PathFigureCollection Figures { get; set; } = new();
 
     public static new PathGeometry Parse(string pathData)
     {
@@ -179,35 +250,41 @@ public class PathGeometry : Geometry
             {
                 if (seg is ProGPU.Vector.LineSegment line)
                 {
-                    figure.Segments.Add(new LineSegment(new Vector2(line.Point.X, line.Point.Y), line.IsSmoothJoin, line.IsStroked));
+                    figure.Segments.Add(new LineSegment(ToPoint(line.Point), line.IsStroked)
+                    {
+                        IsSmoothJoin = line.IsSmoothJoin
+                    });
                 }
                 else if (seg is ProGPU.Vector.QuadraticBezierSegment quad)
                 {
-                    figure.Segments.Add(new QuadraticBezierSegment(
-                        new Vector2(quad.ControlPoint.X, quad.ControlPoint.Y),
-                        new Vector2(quad.Point.X, quad.Point.Y),
-                        quad.IsSmoothJoin,
-                        quad.IsStroked));
+                    figure.Segments.Add(new QuadraticBezierSegment(ToPoint(quad.ControlPoint), ToPoint(quad.Point), quad.IsStroked)
+                    {
+                        IsSmoothJoin = quad.IsSmoothJoin
+                    });
                 }
                 else if (seg is ProGPU.Vector.CubicBezierSegment cubic)
                 {
                     figure.Segments.Add(new BezierSegment(
-                        new Vector2(cubic.ControlPoint1.X, cubic.ControlPoint1.Y),
-                        new Vector2(cubic.ControlPoint2.X, cubic.ControlPoint2.Y),
-                        new Vector2(cubic.Point.X, cubic.Point.Y),
-                        cubic.IsSmoothJoin,
-                        cubic.IsStroked));
+                        ToPoint(cubic.ControlPoint1),
+                        ToPoint(cubic.ControlPoint2),
+                        ToPoint(cubic.Point),
+                        cubic.IsStroked)
+                    {
+                        IsSmoothJoin = cubic.IsSmoothJoin
+                    });
                 }
                 else if (seg is ProGPU.Vector.ArcSegment arc)
                 {
                     figure.Segments.Add(new ArcSegment(
-                        new Vector2(arc.Point.X, arc.Point.Y),
-                        new Vector2(arc.Size.X, arc.Size.Y),
+                        ToPoint(arc.Point),
+                        ToSize(arc.Size),
                         arc.RotationAngle,
                         arc.IsLargeArc,
                         (SweepDirection)(int)arc.SweepDirection,
-                        arc.IsSmoothJoin,
-                        arc.IsStroked));
+                        arc.IsStroked)
+                    {
+                        IsSmoothJoin = arc.IsSmoothJoin
+                    });
                 }
             }
             geom.Figures.Add(figure);
@@ -373,6 +450,11 @@ public class PathGeometry : Geometry
     private static Point ToPoint(Vector2 point)
     {
         return new Point(point.X, point.Y);
+    }
+
+    private static Size ToSize(Vector2 size)
+    {
+        return new Size(Math.Abs(size.X), Math.Abs(size.Y));
     }
 
     private static Vector2 ToVector2(Point point)

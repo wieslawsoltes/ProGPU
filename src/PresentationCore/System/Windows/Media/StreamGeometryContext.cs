@@ -56,28 +56,28 @@ internal class StreamGeometryContextImpl : StreamGeometryContext
     public override void LineTo(Point point, bool isStroked, bool isSmoothJoin)
     {
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
-        _currentFigure.Segments.Add(new LineSegment(point, isSmoothJoin, isStroked));
+        _currentFigure.Segments.Add(new LineSegment(point, isStroked)
+        {
+            IsSmoothJoin = isSmoothJoin
+        });
     }
 
     public override void QuadraticBezierTo(Point point1, Point point2, bool isStroked, bool isSmoothJoin)
     {
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
-        _currentFigure.Segments.Add(new QuadraticBezierSegment(
-            point1,
-            point2,
-            isSmoothJoin,
-            isStroked));
+        _currentFigure.Segments.Add(new QuadraticBezierSegment(point1, point2, isStroked)
+        {
+            IsSmoothJoin = isSmoothJoin
+        });
     }
 
     public override void BezierTo(Point point1, Point point2, Point point3, bool isStroked, bool isSmoothJoin)
     {
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
-        _currentFigure.Segments.Add(new BezierSegment(
-            point1,
-            point2,
-            point3,
-            isSmoothJoin,
-            isStroked));
+        _currentFigure.Segments.Add(new BezierSegment(point1, point2, point3, isStroked)
+        {
+            IsSmoothJoin = isSmoothJoin
+        });
     }
 
     public override void PolyLineTo(IList<Point> points, bool isStroked, bool isSmoothJoin)
@@ -85,7 +85,10 @@ internal class StreamGeometryContextImpl : StreamGeometryContext
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
         foreach (var pt in points)
         {
-            _currentFigure.Segments.Add(new LineSegment(pt, isSmoothJoin, isStroked));
+            _currentFigure.Segments.Add(new LineSegment(pt, isStroked)
+            {
+                IsSmoothJoin = isSmoothJoin
+            });
         }
     }
 
@@ -94,11 +97,10 @@ internal class StreamGeometryContextImpl : StreamGeometryContext
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
         for (int i = 0; i < points.Count - 1; i += 2)
         {
-            _currentFigure.Segments.Add(new QuadraticBezierSegment(
-                points[i],
-                points[i + 1],
-                isSmoothJoin,
-                isStroked));
+            _currentFigure.Segments.Add(new QuadraticBezierSegment(points[i], points[i + 1], isStroked)
+            {
+                IsSmoothJoin = isSmoothJoin
+            });
         }
     }
 
@@ -107,12 +109,10 @@ internal class StreamGeometryContextImpl : StreamGeometryContext
         if (_currentFigure == null) throw new InvalidOperationException("No current figure.");
         for (int i = 0; i < points.Count - 2; i += 3)
         {
-            _currentFigure.Segments.Add(new BezierSegment(
-                points[i],
-                points[i + 1],
-                points[i + 2],
-                isSmoothJoin,
-                isStroked));
+            _currentFigure.Segments.Add(new BezierSegment(points[i], points[i + 1], points[i + 2], isStroked)
+            {
+                IsSmoothJoin = isSmoothJoin
+            });
         }
     }
 

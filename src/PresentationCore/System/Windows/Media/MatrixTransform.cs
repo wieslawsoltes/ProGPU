@@ -7,6 +7,19 @@ public class MatrixTransform : Transform
     public Matrix Matrix { get; set; } = Matrix.Identity;
 
     public MatrixTransform() { }
+    public MatrixTransform(double m11, double m12, double m21, double m22, double offsetX, double offsetY)
+    {
+        Matrix = new Matrix
+        {
+            M11 = m11,
+            M12 = m12,
+            M21 = m21,
+            M22 = m22,
+            OffsetX = offsetX,
+            OffsetY = offsetY
+        };
+    }
+
     public MatrixTransform(Matrix matrix) { Matrix = matrix; }
 
     public override Matrix4x4 Value => new Matrix4x4(
