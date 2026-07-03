@@ -610,6 +610,21 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void NativeResolverUsesAnchorTypesWithoutReflectionAssemblyPlumbing()
+    {
+        var source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXNativeResolver.cs"));
+
+        Assert.Contains("NativeLibrary.SetDllImportResolver", source, StringComparison.Ordinal);
+        Assert.Contains("Type anchorType", source, StringComparison.Ordinal);
+        Assert.Contains("private readonly object _assembly", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("System.Reflection", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BindingFlags", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dictionary<Assembly", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("HashSet<Assembly", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal IntPtr Resolve(string libraryName, Assembly", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeCompatibilityPlannerClassifiesSciChartAndDirectXModules()
     {
         var report = CreateNativeDependencyFixtureReport();

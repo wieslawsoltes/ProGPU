@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace ProGPU.DirectX;
@@ -140,7 +139,7 @@ public sealed class ProGpuDirectXNativeResolverOptions
 
 public sealed class ProGpuDirectXNativeResolverRegistration
 {
-    private readonly Assembly _assembly;
+    private readonly object _assembly;
     private readonly ProGpuDirectXNativeResolverOptions _options;
     private readonly Dictionary<string, ProGpuDirectXNativeCompatibilityModule> _modules;
     private readonly Dictionary<string, IntPtr> _handles = new(StringComparer.OrdinalIgnoreCase);
@@ -148,15 +147,16 @@ public sealed class ProGpuDirectXNativeResolverRegistration
     private readonly object _gate = new();
 
     internal ProGpuDirectXNativeResolverRegistration(
-        Assembly assembly,
+        Type anchorType,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions options)
     {
-        _assembly = assembly ?? throw new ArgumentNullException(nameof(assembly));
+        ArgumentNullException.ThrowIfNull(anchorType);
         ArgumentNullException.ThrowIfNull(plan);
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _assembly = anchorType.Assembly;
         _modules = CreateModuleLookup(plan);
-        AssemblyName = assembly.GetName().Name ?? assembly.FullName ?? string.Empty;
+        AssemblyName = anchorType.Assembly.GetName().Name ?? anchorType.Assembly.FullName ?? string.Empty;
     }
 
     public string AssemblyName { get; }
@@ -221,7 +221,7 @@ public sealed class ProGpuDirectXNativeResolverRegistration
         return Resolve(libraryName, anchorType.Assembly, searchPath);
     }
 
-    internal IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    internal IntPtr Resolve(string libraryName, object assembly, DllImportSearchPath? searchPath)
     {
         if (!ReferenceEquals(assembly, _assembly) || string.IsNullOrWhiteSpace(libraryName))
         {
@@ -408,7 +408,7 @@ public sealed class ProGpuDirectXNativeResolverRegistration
 public static class ProGpuDirectXNativeResolver
 {
     private static readonly object Gate = new();
-    private static readonly Dictionary<Assembly, ProGpuDirectXNativeResolverRegistration> Registrations = [];
+    private static readonly Dictionary<object, ProGpuDirectXNativeResolverRegistration> Registrations = [];
 
     public static ProGpuDirectXNativeResolverRegistration CreateAnchorRegistration(
         Type anchorType,
@@ -417,36 +417,38 @@ public static class ProGpuDirectXNativeResolver
     {
         ArgumentNullException.ThrowIfNull(anchorType);
         return CreateRegistration(
-            anchorType.Assembly,
+            anchorType,
             plan,
             options ?? ProGpuDirectXNativeResolverOptions.Empty);
     }
 
     private static ProGpuDirectXNativeResolverRegistration CreateRegistration(
-        Assembly assembly,
+        Type anchorType,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions? options = null)
     {
         return new ProGpuDirectXNativeResolverRegistration(
-            assembly,
+            anchorType,
             plan,
             options ?? ProGpuDirectXNativeResolverOptions.Empty);
     }
 
     private static bool TryRegister(
-        Assembly assembly,
+        Type anchorType,
         ProGpuDirectXNativeCompatibilityPlan plan,
         out ProGpuDirectXNativeResolverRegistration registration)
     {
-        return TryRegister(assembly, plan, ProGpuDirectXNativeResolverOptions.Empty, out registration);
+        return TryRegister(anchorType, plan, ProGpuDirectXNativeResolverOptions.Empty, out registration);
     }
 
     private static bool TryRegister(
-        Assembly assembly,
+        Type anchorType,
         ProGpuDirectXNativeCompatibilityPlan plan,
         ProGpuDirectXNativeResolverOptions? options,
         out ProGpuDirectXNativeResolverRegistration registration)
     {
+        ArgumentNullException.ThrowIfNull(anchorType);
+        var assembly = anchorType.Assembly;
         lock (Gate)
         {
             if (Registrations.TryGetValue(assembly, out registration!))
@@ -454,18 +456,21 @@ public static class ProGpuDirectXNativeResolver
                 return registration.Installed;
             }
 
-            registration = CreateRegistration(assembly, plan, options);
+            var createdRegistration = CreateRegistration(anchorType, plan, options);
             try
             {
-                NativeLibrary.SetDllImportResolver(assembly, registration.Resolve);
-                registration.MarkInstalled();
+                NativeLibrary.SetDllImportResolver(
+                    assembly,
+                    (libraryName, requestedAssembly, searchPath) => createdRegistration.Resolve(libraryName, requestedAssembly, searchPath));
+                createdRegistration.MarkInstalled();
             }
             catch (InvalidOperationException ex)
             {
-                registration.MarkRejected(ex.Message);
+                createdRegistration.MarkRejected(ex.Message);
             }
 
-            Registrations[assembly] = registration;
+            Registrations[assembly] = createdRegistration;
+            registration = createdRegistration;
             return registration.Installed;
         }
     }
@@ -478,7 +483,7 @@ public static class ProGpuDirectXNativeResolver
         ArgumentNullException.ThrowIfNull(anchorTypes);
 
         var registrations = new List<ProGpuDirectXNativeResolverRegistration>();
-        var seenAssemblies = new HashSet<Assembly>();
+        var seenAssemblies = new HashSet<object>();
         foreach (var anchorType in anchorTypes)
         {
             if (anchorType is null)
@@ -492,7 +497,7 @@ public static class ProGpuDirectXNativeResolver
                 continue;
             }
 
-            TryRegister(assembly, plan, options, out var registration);
+            TryRegister(anchorType, plan, options, out var registration);
             registrations.Add(registration);
         }
 
