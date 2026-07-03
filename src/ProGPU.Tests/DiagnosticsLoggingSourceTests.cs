@@ -118,6 +118,18 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void HitTestCacheBuildUsesListSpansWithoutTemporaryArrays()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "GpuRenderCommandHitTestCache.cs"));
+
+        Assert.Contains("using System.Runtime.InteropServices;", source, StringComparison.Ordinal);
+        Assert.Contains("CollectionsMarshal.AsSpan(_primitives)", source, StringComparison.Ordinal);
+        Assert.Contains("CollectionsMarshal.AsSpan(_pathSegments)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_primitives.ToArray()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_pathSegments.ToArray()", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EffectExtensionCacheCleanupUsesPooledRemovalBuffers()
     {
         string helper = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "PooledRemovalBuffer.cs"));

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Vector;
 
@@ -175,7 +176,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
 
     public GpuHitTestIndex BuildIndex(int maxDepth = 8, int maxPrimitivesPerNode = 32)
     {
-        return GpuHitTestIndex.Build(_primitives.ToArray(), _pathSegments.ToArray(), maxDepth, maxPrimitivesPerNode);
+        return GpuHitTestIndex.Build(
+            CollectionsMarshal.AsSpan(_primitives),
+            CollectionsMarshal.AsSpan(_pathSegments),
+            maxDepth,
+            maxPrimitivesPerNode);
     }
 
     private void AddRect(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
