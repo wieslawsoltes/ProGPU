@@ -544,13 +544,7 @@ public sealed class GpuHitTestIndex
         }
 
         var builder = new Builder(primitiveArray, maxDepth, maxPrimitivesPerNode);
-        var all = new List<int>(primitiveArray.Length);
-        for (int i = 0; i < primitiveArray.Length; i++)
-        {
-            all.Add(i);
-        }
-
-        builder.AddNode(min, max, all, depth: 0);
+        builder.AddRootNode(min, max);
         return new GpuHitTestIndex(
             primitiveArray,
             builder.Nodes.ToArray(),
@@ -574,17 +568,24 @@ public sealed class GpuHitTestIndex
         public List<GpuHitTestNode> Nodes { get; } = [];
         public List<uint> PrimitiveIndices { get; } = [];
 
-        public int AddNode(Vector2 min, Vector2 max, List<int> primitiveIndices, int depth)
+        public int AddRootNode(Vector2 min, Vector2 max)
         {
             int nodeIndex = Nodes.Count;
             Nodes.Add(default);
-            FillNode(nodeIndex, min, max, primitiveIndices, depth);
+            FillNode(nodeIndex, min, max, new RootPrimitiveIndices(_primitives.Length), depth: 0);
             return nodeIndex;
         }
 
-        private void FillNode(int nodeIndex, Vector2 min, Vector2 max, List<int> primitiveIndices, int depth)
+        private void FillNode<TPrimitiveIndices>(
+            int nodeIndex,
+            Vector2 min,
+            Vector2 max,
+            TPrimitiveIndices primitiveIndices,
+            int depth)
+            where TPrimitiveIndices : struct, IPrimitiveIndexSource
         {
-            if (depth >= _maxDepth || primitiveIndices.Count <= _maxPrimitivesPerNode || min == max)
+            int primitiveCount = primitiveIndices.Count;
+            if (depth >= _maxDepth || primitiveCount <= _maxPrimitivesPerNode || min == max)
             {
                 WriteLeaf(nodeIndex, min, max, primitiveIndices);
                 return;
@@ -597,8 +598,9 @@ public sealed class GpuHitTestIndex
             List<int>? child2 = null;
             List<int>? child3 = null;
 
-            foreach (int primitiveIndex in primitiveIndices)
+            for (int i = 0; i < primitiveCount; i++)
             {
+                int primitiveIndex = primitiveIndices[i];
                 var primitive = _primitives[primitiveIndex];
                 int childIndex = FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, min, max, center);
                 if (childIndex >= 0)
@@ -614,7 +616,7 @@ public sealed class GpuHitTestIndex
 
             int childCount = CountNonEmpty(child0, child1, child2, child3);
             int retainedCount = retained?.Count ?? 0;
-            if (childCount == 0 || childCount == 1 && retainedCount == 0 && FirstNonEmpty(child0, child1, child2, child3)!.Count == primitiveIndices.Count)
+            if (childCount == 0 || childCount == 1 && retainedCount == 0 && FirstNonEmpty(child0, child1, child2, child3)!.Count == primitiveCount)
             {
                 WriteLeaf(nodeIndex, min, max, primitiveIndices);
                 return;
@@ -649,12 +651,14 @@ public sealed class GpuHitTestIndex
             FillChildNode(child3NodeIndex, 3, child3, min, max, center, depth);
         }
 
-        private void WriteLeaf(int nodeIndex, Vector2 min, Vector2 max, List<int> primitiveIndices)
+        private void WriteLeaf<TPrimitiveIndices>(int nodeIndex, Vector2 min, Vector2 max, TPrimitiveIndices primitiveIndices)
+            where TPrimitiveIndices : struct, IPrimitiveIndexSource
         {
             uint firstPrimitive = (uint)PrimitiveIndices.Count;
-            foreach (int primitiveIndex in primitiveIndices)
+            int primitiveCount = primitiveIndices.Count;
+            for (int i = 0; i < primitiveCount; i++)
             {
-                PrimitiveIndices.Add((uint)primitiveIndex);
+                PrimitiveIndices.Add((uint)primitiveIndices[i]);
             }
 
             Nodes[nodeIndex] = new GpuHitTestNode(
@@ -663,7 +667,7 @@ public sealed class GpuHitTestIndex
                 firstChild: 0,
                 childCount: 0,
                 firstPrimitive,
-                (uint)primitiveIndices.Count);
+                (uint)primitiveCount);
         }
 
         private static void AddChildPrimitive(
@@ -722,7 +726,40 @@ public sealed class GpuHitTestIndex
             }
 
             var bounds = GetChildBounds(childIndex, min, max, center);
-            FillNode(childNodeIndex, bounds.Min, bounds.Max, childPrimitives, depth + 1);
+            FillNode(childNodeIndex, bounds.Min, bounds.Max, new ListPrimitiveIndices(childPrimitives), depth + 1);
+        }
+
+        private interface IPrimitiveIndexSource
+        {
+            int Count { get; }
+
+            int this[int index] { get; }
+        }
+
+        private readonly struct RootPrimitiveIndices : IPrimitiveIndexSource
+        {
+            public RootPrimitiveIndices(int count)
+            {
+                Count = count;
+            }
+
+            public int Count { get; }
+
+            public int this[int index] => index;
+        }
+
+        private readonly struct ListPrimitiveIndices : IPrimitiveIndexSource
+        {
+            private readonly List<int> _indices;
+
+            public ListPrimitiveIndices(List<int> indices)
+            {
+                _indices = indices;
+            }
+
+            public int Count => _indices.Count;
+
+            public int this[int index] => _indices[index];
         }
 
         private static int FindContainingChild(Vector2 primitiveMin, Vector2 primitiveMax, Vector2 nodeMin, Vector2 nodeMax, Vector2 center)
