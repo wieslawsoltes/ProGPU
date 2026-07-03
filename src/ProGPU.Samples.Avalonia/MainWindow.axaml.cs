@@ -79,7 +79,11 @@ public partial class MainWindow : global::Avalonia.Controls.Window
             _frameCount = 0;
             _fpsTimer = 0;
 
-            StatsLabel.Text = $"FPS: {_currentFps:F1} | Frame: {(delta * 1000.0):F1} ms";
+            var frameState = ProGpuHost.LastPresentedFrameState;
+            string compositorMode = frameState.HasPresentedFrame
+                ? $"{frameState.PresentationMode} {frameState.HostFrame.RenderTargetWidth}x{frameState.HostFrame.RenderTargetHeight}"
+                : "pending";
+            StatsLabel.Text = $"FPS: {_currentFps:F1} | Frame: {(delta * 1000.0):F1} ms | ProGPU: {compositorMode}";
         }
 
         // Tick ProGPU visual animations

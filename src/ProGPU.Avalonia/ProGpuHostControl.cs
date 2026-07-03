@@ -32,6 +32,36 @@ using AvaloniaVector = Avalonia.Vector;
 
 namespace ProGPU.Avalonia;
 
+public enum ProGpuAvaloniaPresentationMode
+{
+    None,
+    ZeroCopySharedTexture,
+    CustomVisualReadback
+}
+
+public readonly record struct ProGpuAvaloniaHostFrameState(
+    CompositorHostFrame HostFrame,
+    ProGpuAvaloniaPresentationMode PresentationMode,
+    ulong PresentedFrameCount,
+    ulong ZeroCopyPresentedFrameCount,
+    ulong ReadbackPresentedFrameCount,
+    bool IsZeroCopyActive,
+    bool IsCustomVisualFallbackActive,
+    string GpuHandleType)
+{
+    public static ProGpuAvaloniaHostFrameState Empty { get; } = new(
+        default,
+        ProGpuAvaloniaPresentationMode.None,
+        0,
+        0,
+        0,
+        false,
+        false,
+        string.Empty);
+
+    public bool HasPresentedFrame => PresentedFrameCount > 0 && HostFrame.IsValid;
+}
+
 public class ProGpuHostControl : Control
 {
     private class SwapchainImage : IDisposable
@@ -130,11 +160,27 @@ public class ProGpuHostControl : Control
     public WgpuContext? WgpuContext => _wgpuContext;
     public WinuiCompositor? Compositor => _compositor;
 
+    public ProGpuAvaloniaHostFrameState LastPresentedFrameState
+    {
+        get
+        {
+            lock (_frameStateLock)
+            {
+                return _lastPresentedFrameState;
+            }
+        }
+    }
+
     // Core ProGPU context
     private WgpuContext? _wgpuContext;
     private WinuiCompositor? _compositor;
     private WindowInputState? _winuiInputState;
     private SharedContextLease? _contextLease;
+    private readonly object _frameStateLock = new();
+    private ProGpuAvaloniaHostFrameState _lastPresentedFrameState = ProGpuAvaloniaHostFrameState.Empty;
+    private ulong _presentedFrameCount;
+    private ulong _zeroCopyPresentedFrameCount;
+    private ulong _readbackPresentedFrameCount;
 
     private sealed class SharedContextState
     {
@@ -351,6 +397,42 @@ public class ProGpuHostControl : Control
         _renderHeight = frame.RenderTargetHeight;
     }
 
+    private void RecordPresentedFrame(CompositorHostFrame frame, ProGpuAvaloniaPresentationMode mode)
+    {
+        if (!frame.IsValid || mode == ProGpuAvaloniaPresentationMode.None)
+        {
+            return;
+        }
+
+        lock (_frameStateLock)
+        {
+            _presentedFrameCount++;
+            if (mode == ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture)
+            {
+                _zeroCopyPresentedFrameCount++;
+            }
+            else if (mode == ProGpuAvaloniaPresentationMode.CustomVisualReadback)
+            {
+                _readbackPresentedFrameCount++;
+            }
+
+            _lastPresentedFrameState = new ProGpuAvaloniaHostFrameState(
+                frame,
+                mode,
+                _presentedFrameCount,
+                _zeroCopyPresentedFrameCount,
+                _readbackPresentedFrameCount,
+                _isZeroCopySupported,
+                _customVisual != null,
+                _gpuHandleType);
+        }
+    }
+
+    private void RecordReadbackPresentedFrame(CompositorHostFrame frame)
+    {
+        RecordPresentedFrame(frame, ProGpuAvaloniaPresentationMode.CustomVisualReadback);
+    }
+
     private void OnThemeChanged()
     {
         WinuiRoot?.NotifyThemeChanged();
@@ -544,7 +626,7 @@ public class ProGpuHostControl : Control
             DisposeCustomVisualFallback();
         }
 
-        _customVisualHandler ??= new ProGpuCustomVisualHandler(_wgpuContext, _compositor);
+        _customVisualHandler ??= new ProGpuCustomVisualHandler(_wgpuContext, _compositor, RecordReadbackPresentedFrame);
         _customVisual ??= compositor.CreateCustomVisual(_customVisualHandler);
         ElementComposition.SetElementChildVisual(this, _customVisual);
 
@@ -996,6 +1078,8 @@ public class ProGpuHostControl : Control
                         return;
                     }
 
+                    RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture);
+
                     // Swap the write buffer index
                     _currentWriteImageIndex = (_currentWriteImageIndex + 1) % 2;
                 }
@@ -1368,6 +1452,7 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
 {
     private readonly WgpuContext? _wgpuContext;
     private readonly WinuiCompositor? _compositor;
+    private readonly Action<CompositorHostFrame>? _framePresented;
     private GpuTexture? _offscreenTexture;
     private GpuTextureReadbackBuffer? _readbackBuffer;
     private WriteableBitmap? _writeableBitmap;
@@ -1378,10 +1463,14 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
     private bool _resourcesDirty;
     private CornerRadius _cornerRadius;
 
-    public ProGpuCustomVisualHandler(WgpuContext? wgpuContext, WinuiCompositor? compositor)
+    public ProGpuCustomVisualHandler(
+        WgpuContext? wgpuContext,
+        WinuiCompositor? compositor,
+        Action<CompositorHostFrame>? framePresented = null)
     {
         _wgpuContext = wgpuContext;
         _compositor = compositor;
+        _framePresented = framePresented;
     }
 
     internal bool Matches(WgpuContext context, WinuiCompositor compositor)
@@ -1515,6 +1604,8 @@ public unsafe class ProGpuCustomVisualHandler : CompositionCustomVisualHandler, 
             {
                 drawingContext.DrawBitmap(_writeableBitmap, bounds);
             }
+
+            _framePresented?.Invoke(hostFrame);
         }
     }
 

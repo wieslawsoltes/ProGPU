@@ -3,6 +3,7 @@ using System.Reflection;
 using Avalonia.Rendering.Composition;
 using ProGPU.Avalonia;
 using ProGPU.Backend;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -111,6 +112,44 @@ public class ProGpuHostControlTests
         Assert.DoesNotContain("QueueRenderUpdate();", renderMethod, StringComparison.Ordinal);
         Assert.Contains("ProGpuHost.RequestRender();", sampleSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProGpuHost.InvalidateVisual();", sampleSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AvaloniaHostExposesTypedCompositorFrameDiagnostics()
+    {
+        string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
+        string sampleSource = File.ReadAllText(FindProGpuAvaloniaSampleSource()).Replace("\r\n", "\n");
+
+        Assert.False(ProGpuAvaloniaHostFrameState.Empty.HasPresentedFrame);
+        Assert.Equal(ProGpuAvaloniaPresentationMode.None, ProGpuAvaloniaHostFrameState.Empty.PresentationMode);
+
+        var frame = CompositorHostFrame.FromLogicalSize(100, 50, 2);
+        var state = new ProGpuAvaloniaHostFrameState(
+            frame,
+            ProGpuAvaloniaPresentationMode.CustomVisualReadback,
+            3,
+            1,
+            2,
+            false,
+            true,
+            string.Empty);
+
+        Assert.True(state.HasPresentedFrame);
+        Assert.Equal(200u, state.HostFrame.RenderTargetWidth);
+        Assert.Equal(100u, state.HostFrame.RenderTargetHeight);
+        Assert.Equal(3ul, state.PresentedFrameCount);
+        Assert.Equal(1ul, state.ZeroCopyPresentedFrameCount);
+        Assert.Equal(2ul, state.ReadbackPresentedFrameCount);
+
+        Assert.Contains("public ProGpuAvaloniaHostFrameState LastPresentedFrameState", source, StringComparison.Ordinal);
+        Assert.Contains("private void RecordPresentedFrame(CompositorHostFrame frame, ProGpuAvaloniaPresentationMode mode)", source, StringComparison.Ordinal);
+        Assert.Contains("RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture);", source, StringComparison.Ordinal);
+        Assert.Contains("new ProGpuCustomVisualHandler(_wgpuContext, _compositor, RecordReadbackPresentedFrame)", source, StringComparison.Ordinal);
+        Assert.Contains("_framePresented?.Invoke(hostFrame);", source, StringComparison.Ordinal);
+        Assert.Contains("var frameState = ProGpuHost.LastPresentedFrameState;", sampleSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetField(", sampleSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetProperty(", sampleSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("BindingFlags", sampleSource, StringComparison.Ordinal);
     }
 
     [Fact]
