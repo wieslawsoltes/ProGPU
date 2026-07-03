@@ -736,8 +736,10 @@ public unsafe class PathAtlas : IDisposable
         _context.Wgpu.ComputePassEncoderSetPipeline(pass, _computePipeline);
 
         var entries = stackalloc BindGroupEntry[4];
-        var bindGroupsToRelease = new List<nint>();
-        var layoutsToRelease = new List<nint>();
+        nint[]? bindGroupsToRelease = null;
+        int bindGroupToReleaseCount = 0;
+        nint[]? layoutsToRelease = null;
+        int layoutToReleaseCount = 0;
 
         foreach (var info in _pendingPaths)
         {
@@ -824,8 +826,8 @@ public unsafe class PathAtlas : IDisposable
             uint workgroupsY = DivRoundUp(info.Height, 16);
             _context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
 
-            bindGroupsToRelease.Add((nint)bg);
-            layoutsToRelease.Add((nint)bindGroupLayout);
+            PooledRemovalBuffer.Add(ref bindGroupsToRelease, ref bindGroupToReleaseCount, _pendingPaths.Count, (nint)bg);
+            PooledRemovalBuffer.Add(ref layoutsToRelease, ref layoutToReleaseCount, _pendingPaths.Count, (nint)bindGroupLayout);
 
             _ringOffset += alignedSize;
         }
@@ -842,15 +844,18 @@ public unsafe class PathAtlas : IDisposable
         _context.Wgpu.CommandBufferRelease(cmdBuffer);
         _context.Wgpu.CommandEncoderRelease(encoder);
 
-        foreach (var bgPtr in bindGroupsToRelease)
+        for (int i = 0; i < bindGroupToReleaseCount; i++)
         {
-            _context.Wgpu.BindGroupRelease((BindGroup*)bgPtr);
-        }
-        foreach (var layoutPtr in layoutsToRelease)
-        {
-            _context.Wgpu.BindGroupLayoutRelease((BindGroupLayout*)layoutPtr);
+            _context.Wgpu.BindGroupRelease((BindGroup*)bindGroupsToRelease![i]);
         }
 
+        for (int i = 0; i < layoutToReleaseCount; i++)
+        {
+            _context.Wgpu.BindGroupLayoutRelease((BindGroupLayout*)layoutsToRelease![i]);
+        }
+
+        PooledRemovalBuffer.Return(bindGroupsToRelease, bindGroupToReleaseCount);
+        PooledRemovalBuffer.Return(layoutsToRelease, layoutToReleaseCount);
         _pendingPaths.Clear();
     }
 

@@ -154,6 +154,26 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("keysToRemove ??= new List<Compositor.TextureCacheKey>();", imageEffect, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PathAtlasCleanupUsesPooledRemovalBuffers()
+    {
+        string helper = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PooledRemovalBuffer.cs"));
+        string pathAtlas = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathAtlas.cs"));
+
+        Assert.Contains("internal static class PooledRemovalBuffer", helper, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<T>.Shared.Rent(Math.Max(1, capacity))", helper, StringComparison.Ordinal);
+        Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences<T>()", helper, StringComparison.Ordinal);
+
+        Assert.Contains("nint[]? bindGroupsToRelease = null;", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("PooledRemovalBuffer.Add(ref bindGroupsToRelease", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("PooledRemovalBuffer.Return(bindGroupsToRelease, bindGroupToReleaseCount)", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("nint[]? layoutsToRelease = null;", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("PooledRemovalBuffer.Add(ref layoutsToRelease", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("PooledRemovalBuffer.Return(layoutsToRelease, layoutToReleaseCount)", pathAtlas, StringComparison.Ordinal);
+        Assert.DoesNotContain("var bindGroupsToRelease = new List<nint>();", pathAtlas, StringComparison.Ordinal);
+        Assert.DoesNotContain("var layoutsToRelease = new List<nint>();", pathAtlas, StringComparison.Ordinal);
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
