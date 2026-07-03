@@ -1,5 +1,6 @@
 using ProGPU.Scene;
 using ProGPU.Backend;
+using System.IO;
 using System.Runtime.CompilerServices;
 using Xunit;
 
@@ -182,6 +183,23 @@ public class WpfShaderEffectParamsTests
         Assert.Same(sourceTexture, primaryTexture);
     }
 
+    [Fact]
+    public void ShaderEffectPipelineCollectsSamplerRegistersWithoutPerRenderArray()
+    {
+        var source = File.ReadAllText(FindRepoFile(
+            "src",
+            "ProGPU.Scene",
+            "Extensions",
+            "WpfShaderEffectExtensionPipeline.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains("Span<int> activeRegisters = stackalloc int[WpfShaderEffectParams.MaxSamplerRegisterCount];", source, StringComparison.Ordinal);
+        Assert.Contains("var activeRegisterCount = CollectActiveSamplerRegisters(p, activeRegisters);", source, StringComparison.Ordinal);
+        Assert.Contains("var activeRegisterSpan = activeRegisters[..activeRegisterCount];", source, StringComparison.Ordinal);
+        Assert.Contains("Registers = activeRegisters.ToArray()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static int[] CollectActiveSamplerRegisters", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("return registers[..count].ToArray();", source, StringComparison.Ordinal);
+    }
+
     private static int GetRenderCacheKey(WpfShaderEffect effect)
     {
         var method = typeof(WpfShaderEffect).GetMethod(
@@ -205,5 +223,22 @@ public class WpfShaderEffectParamsTests
             .GetSetMethod(nonPublic: true);
         Assert.NotNull(setter);
         setter.Invoke(texture, new object[] { generation });
+    }
+
+    private static string FindRepoFile(params string[] pathParts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            var candidate = Path.Combine(new[] { directory.FullName }.Concat(pathParts).ToArray());
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find repo file '{Path.Combine(pathParts)}'.");
     }
 }

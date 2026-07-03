@@ -271,7 +271,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         _fallbackTexture.WritePixels(new byte[] { 0, 0, 0, 0 });
     }
 
-    private SourceLayoutResources GetOrCreateSourceLayout(Compositor compositor, int[] activeRegisters)
+    private SourceLayoutResources GetOrCreateSourceLayout(Compositor compositor, ReadOnlySpan<int> activeRegisters)
     {
         var includeMask = compositor.Context.CanBindWpfShaderEffectMask(activeRegisters.Length);
         var layoutKey = BuildSourceLayoutKey(activeRegisters, includeMask);
@@ -357,7 +357,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             var resources = new SourceLayoutResources
             {
                 LayoutKey = layoutKey,
-                Registers = activeRegisters,
+                Registers = activeRegisters.ToArray(),
                 IncludeMask = includeMask,
                 SourceBindGroupLayout = sourceBindGroupLayout,
                 OnscreenPipelineLayout = onscreenPipelineLayout,
@@ -485,18 +485,20 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
         EnsureLayouts(compositor);
 
-        var activeRegisters = CollectActiveSamplerRegisters(p);
-        if (activeRegisters.Length == 0)
+        Span<int> activeRegisters = stackalloc int[WpfShaderEffectParams.MaxSamplerRegisterCount];
+        var activeRegisterCount = CollectActiveSamplerRegisters(p, activeRegisters);
+        if (activeRegisterCount == 0)
         {
             return;
         }
 
+        var activeRegisterSpan = activeRegisters[..activeRegisterCount];
         if (!p.TryGetPrimaryTexture(out var primaryTexture))
         {
             return;
         }
 
-        if (!ValidateSamplerTextureContexts(compositor.Context, p, activeRegisters, out var textureContextError))
+        if (!ValidateSamplerTextureContexts(compositor.Context, p, activeRegisterSpan, out var textureContextError))
         {
             p.LastError = textureContextError;
             return;
@@ -507,7 +509,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             p.LastError = null;
         }
 
-        var sourceLayout = GetOrCreateSourceLayout(compositor, activeRegisters);
+        var sourceLayout = GetOrCreateSourceLayout(compositor, activeRegisterSpan);
         if (dc.MaskTexture != null && !sourceLayout.IncludeMask)
         {
             p.LastError = MaskSamplerLimitError;
@@ -923,20 +925,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         return true;
     }
 
-    private static int[] CollectActiveSamplerRegisters(WpfShaderEffectParams parameters)
+    private static int CollectActiveSamplerRegisters(WpfShaderEffectParams parameters, Span<int> activeRegisters)
     {
-        Span<int> registers = stackalloc int[WpfShaderEffectParams.MaxSamplerRegisterCount];
         var count = 0;
 
         for (var register = 0; register < WpfShaderEffectParams.MaxSamplerRegisterCount; register++)
         {
             if (parameters.TryGetSampler(register, out _, out _))
             {
-                registers[count++] = register;
+                activeRegisters[count++] = register;
             }
         }
 
-        return registers[..count].ToArray();
+        return count;
     }
 
     private static string BuildSourceLayoutKey(ReadOnlySpan<int> activeRegisters, bool includeMask)
