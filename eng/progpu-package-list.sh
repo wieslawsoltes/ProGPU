@@ -16,7 +16,7 @@ progpu_package_ids=(
   ProGPU.Avalonia
   ProGPU.Uno
   ProGPU.Dxf
-  ProGPU.Wpf.Interop
+  LibreWPF.Interop
 )
 
 progpu_package_projects=(
@@ -54,7 +54,7 @@ progpu_package_purposes=(
   "Avalonia integration and compositor backend adapter."
   "Uno/WinUI integration and compositor backend adapter."
   "DXF import/rendering support for ProGPU vector scenes."
-  "Small WPF interop contracts consumed by the ProGPU WPF SDK lane."
+  "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
 )
 
 if [[ "${#progpu_package_ids[@]}" -ne "${#progpu_package_projects[@]}" ||

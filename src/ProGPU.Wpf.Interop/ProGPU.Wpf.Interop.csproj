@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>LibreWPF.Interop</PackageId>
+    <PackageDescription>LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET WPF SDK lane.</PackageDescription>
+    <PackageTags>librewpf;progpu;webgpu;silk.net;wpf;interop</PackageTags>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\..\eng\ProGPU.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>

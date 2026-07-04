@@ -23,7 +23,7 @@ ProGPU release packages are built from `eng/progpu-package-list.sh` by the `Rele
 | `ProGPU.Avalonia` | Avalonia integration and compositor backend adapter. | `src/ProGPU.Avalonia/ProGPU.Avalonia.csproj` |
 | `ProGPU.Uno` | Uno/WinUI integration and compositor backend adapter. | `src/ProGPU.Uno/ProGPU.Uno.csproj` |
 | `ProGPU.Dxf` | DXF import/rendering support for ProGPU vector scenes. | `src/ProGPU.Dxf/ProGPU.Dxf.csproj` |
-| `ProGPU.Wpf.Interop` | Small WPF interop contracts consumed by the ProGPU WPF SDK lane. | `src/ProGPU.Wpf.Interop/ProGPU.Wpf.Interop.csproj` |
+| `LibreWPF.Interop` | LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane. | `src/ProGPU.Wpf.Interop/ProGPU.Wpf.Interop.csproj` |
 
 Local package build:
 
