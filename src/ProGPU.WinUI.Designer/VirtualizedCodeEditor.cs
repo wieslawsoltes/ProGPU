@@ -47,7 +47,7 @@ public class VirtualizedCodeEditor : Control
     private int _selectEndChar = -1;
     private Vector2 _lastLocalPointerPosition;
 
-    public TtfFont? Font
+    public new TtfFont? Font
     {
         get => _font;
         set
@@ -526,7 +526,11 @@ public class VirtualizedCodeEditor : Control
         string text = _lines[lineIdx];
         if (string.IsNullOrEmpty(text)) return 0;
 
-        TtfFont font = Font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        TtfFont? font = Font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        if (font == null)
+        {
+            return 0;
+        }
         float fontSize = _fontSize;
         float accumulatedX = 0f;
 

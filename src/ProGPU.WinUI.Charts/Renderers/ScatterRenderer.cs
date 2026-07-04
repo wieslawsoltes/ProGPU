@@ -37,7 +37,7 @@ namespace ProGPU.WinUI.Charts.Renderers
                     scs.GpuBuffer.AssociatedData != scs.Data || scs.GpuBuffer.AssociatedDataVersion != scs.Data.Version)
                 {
                     int requiredLength = count * 3;
-                    float[] interleaved = scs.GpuBuffer.CachedInterleaved;
+                    float[]? interleaved = scs.GpuBuffer.CachedInterleaved;
                     if (interleaved == null || interleaved.Length != requiredLength)
                     {
                         interleaved = new float[requiredLength];

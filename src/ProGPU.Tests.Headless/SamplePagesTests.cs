@@ -1030,19 +1030,25 @@ public class SamplePagesTests : IDisposable
         string markdownContent = "";
         if (File.Exists(specPath))
         {
-            markdownContent = File.ReadAllText(specPath);
+            try
+            {
+                markdownContent = File.ReadAllText(specPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.WriteLine($"[Headless] Falling back to generated markdown because '{specPath}' is inaccessible: {ex.Message}");
+            }
         }
-        else
+
+        if (markdownContent.Length == 0)
         {
-            // Fallback: Generate a massive markdown document of 2000 lines
+            // Fallback: Generate a massive dense markdown document.
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("# Mock Massive Markdown Document");
-            for (int i = 0; i < 500; i++)
+            for (int i = 0; i < 1500; i++)
             {
-                sb.AppendLine($"## Section {i}");
-                sb.AppendLine($"This is paragraph {i} of a massive mock document to verify virtualized block-based flow layout and rendering performance.");
-                sb.AppendLine($"- List item A for block {i}");
-                sb.AppendLine($"- List item B for block {i}");
+                sb.AppendLine($"Paragraph {i}: This dense generated markdown content verifies virtualized block-based flow layout, scrolling, and rendering without depending on a local Downloads fixture.");
+                sb.AppendLine();
             }
             markdownContent = sb.ToString();
         }
@@ -1106,7 +1112,9 @@ public class SamplePagesTests : IDisposable
 
         var propBlocks = typeof(MarkdownTextBlock).GetField("_blocks", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        for (float offset = 0f; offset <= scrollViewer.ContentHeight; offset += scrollStep)
+        var viewportHeight = scrollViewer.Size.Y > 0f ? scrollViewer.Size.Y : scrollViewer.HeightConstraint ?? 600f;
+        var maxScrollOffset = Math.Max(0f, scrollViewer.ContentHeight - viewportHeight);
+        for (float offset = 0f; offset <= maxScrollOffset; offset += scrollStep)
         {
             scrollViewer.VerticalOffset = offset;
             
@@ -1115,7 +1123,9 @@ public class SamplePagesTests : IDisposable
             scrollFrames++;
 
             var currentChars = markdownBlock.PositionedChars;
-            Assert.NotEmpty(currentChars); // MUST have active characters in viewport at ALL scroll offsets!
+            Assert.True(
+                currentChars.Count > 0,
+                $"Expected active characters at requested offset {offset}, actual offset {scrollViewer.VerticalOffset}, content height {scrollViewer.ContentHeight}, viewport height {viewportHeight}."); // MUST have active characters in viewport at ALL scroll offsets!
             maxCharsRendered = Math.Max(maxCharsRendered, currentChars.Count);
 
             // Access the blocks to check the active memory recycling
@@ -2109,4 +2119,3 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
         window.Content = null;
     }
 }
-

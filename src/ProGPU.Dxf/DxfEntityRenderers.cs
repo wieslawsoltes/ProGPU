@@ -1289,8 +1289,6 @@ public class DxfImageRenderer : IDxfEntityRenderer
 
         if (context.IsOffScreen(rect.Position, rect.Position + rect.Size)) return;
 
-        // Try to load local image path if definition exists
-        ProGPU.Backend.GpuTexture? texture = null;
         string? filename = null;
         if (dxfImage.Definition != null && !string.IsNullOrEmpty(dxfImage.Definition.File))
         {
@@ -1432,5 +1430,4 @@ public class DxfWipeoutRenderer : IDxfEntityRenderer
         }
     }
 }
-
 

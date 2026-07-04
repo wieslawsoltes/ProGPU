@@ -230,40 +230,40 @@ public class Toolbox : Border
             _listPanel.AddChild(item);
         }
 
-        searchBox.TextChanged += (s, e) =>
-        {
-            string query = searchBox.Text.Trim();
-            
-            // Remove all item children
-            while (_listPanel.Children.Count > 0)
-            {
-                _listPanel.RemoveChild(_listPanel.Children[0]);
-            }
-            
-            // Re-add matching items
-            foreach (var item in _allItems)
-            {
-                if (string.IsNullOrEmpty(query) || 
-                    item.ControlName.Contains(query, StringComparison.OrdinalIgnoreCase) || 
-                    item.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
-                {
-                    _listPanel.AddChild(item);
-                }
-            }
-            
-            // Reset vertical offset to ensure results are visible and not scrolled out of view
-            _scrollViewer.VerticalOffset = 0f;
-            
-            _listPanel.InvalidateMeasure();
-            _listPanel.InvalidateArrange();
-            _listPanel.Invalidate();
-        };
-
         _scrollViewer = new ScrollViewer
         {
             Content = _listPanel,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
+        };
+
+        searchBox.TextChanged += (s, e) =>
+        {
+            string query = searchBox.Text.Trim();
+
+            // Remove all item children
+            while (_listPanel.Children.Count > 0)
+            {
+                _listPanel.RemoveChild(_listPanel.Children[0]);
+            }
+
+            // Re-add matching items
+            foreach (var item in _allItems)
+            {
+                if (string.IsNullOrEmpty(query) ||
+                    item.ControlName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                    item.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    _listPanel.AddChild(item);
+                }
+            }
+
+            // Reset vertical offset to ensure results are visible and not scrolled out of view
+            _scrollViewer.VerticalOffset = 0f;
+
+            _listPanel.InvalidateMeasure();
+            _listPanel.InvalidateArrange();
+            _listPanel.Invalidate();
         };
 
         mainGrid.AddChild(_scrollViewer);

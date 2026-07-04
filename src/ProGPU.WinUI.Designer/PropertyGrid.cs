@@ -101,7 +101,7 @@ public class PropertyGrid : Border
     private readonly ProGPU.Text.TtfFont? _font;
     private readonly RichTextBlock _titleText;
 
-    public event Action? PropertyChanged;
+    public new event Action? PropertyChanged;
 
     public FrameworkElement? SelectedElement
     {

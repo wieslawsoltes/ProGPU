@@ -56,7 +56,7 @@ public class StylePanel : Border
     private TextBox _txtOpacity = null!;
     private ComboBox _cmbVisibility = null!;
 
-    public event Action? PropertyChanged;
+    public new event Action? PropertyChanged;
 
     public FrameworkElement? SelectedElement
     {

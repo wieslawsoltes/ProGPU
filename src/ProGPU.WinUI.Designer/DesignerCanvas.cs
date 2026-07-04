@@ -47,7 +47,7 @@ public class DesignerCanvas : Panel
     private SelectionAdorner? _selectionAdorner;
 
 
-    public event EventHandler<DragEventArgs>? DragOver;
+    public new event EventHandler<DragEventArgs>? DragOver;
     public new event EventHandler<DragEventArgs>? Drop;
 
     public float? ActiveVerticalSnapX { get; set; }
@@ -965,6 +965,14 @@ public class DesignerCanvas : Panel
         base.OnDragOver(e);
         _isExternalDragActive = true;
         _dragOverPosition = (e.Position - PanOffset) / ZoomScale;
+
+        var args = new ProGPU.WinUI.Designer.DragEventArgs(e.Data, _dragOverPosition.Value);
+        DragOver?.Invoke(this, args);
+        if (args.Handled)
+        {
+            e.Handled = true;
+        }
+
         Invalidate();
     }
 

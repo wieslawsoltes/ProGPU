@@ -450,11 +450,6 @@ public class DesignerHost : Grid
         _workspaceCenter.AddChild(toolbarBorder);
         Grid.SetRow(toolbarBorder, 0);
 
-        _designerCanvas.SelectionChanged += () => {
-            _stylePanel.SelectedElement = _designerCanvas.SelectedElement;
-            _propertyGrid.SelectedElement = _designerCanvas.SelectedElement;
-            UpdateOutline();
-        };
         _designerCanvas.CanvasModified += OnCanvasModified;
         
         var canvasScrollViewer = new ScrollViewer
@@ -481,6 +476,12 @@ public class DesignerHost : Grid
             _designerCanvas.UpdateSelectionAdorner();
             _designerCanvas.Invalidate();
             OnCanvasModified();
+            UpdateOutline();
+        };
+
+        _designerCanvas.SelectionChanged += () => {
+            _stylePanel.SelectedElement = _designerCanvas.SelectedElement;
+            _propertyGrid.SelectedElement = _designerCanvas.SelectedElement;
             UpdateOutline();
         };
 
@@ -582,8 +583,8 @@ public class DesignerHost : Grid
         Grid.SetColumn(toggleBottomBtn, 1);
         bottomHeader.AddChild(toggleBottomBtn);
 
-        TtfFont primaryFont = DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
-        TtfFont courierFont = DesignerFontCourier ?? DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        TtfFont? primaryFont = DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        TtfFont? courierFont = DesignerFontCourier ?? DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
 
         if (_outlinesLabelText != null) _outlinesLabelText.Font = primaryFont;
         if (_webflowLabelText != null) _webflowLabelText.Font = primaryFont;
@@ -601,13 +602,13 @@ public class DesignerHost : Grid
         UpdateOutline();
     }
 
-    public void InitializeFonts(TtfFont mainFont, TtfFont codeFont)
+    public void InitializeFonts(TtfFont? mainFont, TtfFont? codeFont)
     {
         DesignerFont = mainFont;
         DesignerFontCourier = codeFont;
 
-        TtfFont primaryFont = DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
-        TtfFont courierFont = DesignerFontCourier ?? DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        TtfFont? primaryFont = DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
+        TtfFont? courierFont = DesignerFontCourier ?? DesignerFont ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont;
         
         foreach (var child in Children)
         {
@@ -629,7 +630,7 @@ public class DesignerHost : Grid
         OnCanvasModified();
     }
 
-    private void ApplyFontToVisualTree(Visual element, TtfFont mainFont, TtfFont codeFont)
+    private void ApplyFontToVisualTree(Visual element, TtfFont? mainFont, TtfFont? codeFont)
     {
         if (element is VirtualizedCodeEditor vce)
         {
@@ -1073,7 +1074,11 @@ public class DesignerHost : Grid
                 {
                     if (child is FrameworkElement childFe)
                     {
-                        clonePanel.Children.Add(CloneElement(childFe));
+                        var childClone = CloneElement(childFe);
+                        if (childClone != null)
+                        {
+                            clonePanel.Children.Add(childClone);
+                        }
                     }
                 }
             }
@@ -1172,7 +1177,11 @@ public class DesignerHost : Grid
                 {
                     if (child is FrameworkElement childFe)
                     {
-                        clonePanel.Children.Add(CloneElementForUndo(childFe));
+                        var childClone = CloneElementForUndo(childFe);
+                        if (childClone != null)
+                        {
+                            clonePanel.Children.Add(childClone);
+                        }
                     }
                 }
             }

@@ -118,8 +118,7 @@ public class DesignerCanvasTests
 
         // Assert selection adorner was added to AdornerSurface
         Assert.Single(canvas.AdornerSurface.Children);
-        var adorner = canvas.AdornerSurface.Children[0] as SelectionAdorner;
-        Assert.NotNull(adorner);
+        var adorner = Assert.IsType<SelectionAdorner>(canvas.AdornerSurface.Children[0]);
         Assert.Same(button, adorner.AssociatedElement);
 
         // Assert 9 thumbs exist as children in SelectionAdorner (8 resize + 1 rotate)
@@ -271,8 +270,7 @@ public class DesignerCanvasTests
 
         // Get the selection adorner
         Assert.Single(canvas.AdornerSurface.Children);
-        var adorner = canvas.AdornerSurface.Children[0] as SelectionAdorner;
-        Assert.NotNull(adorner);
+        var adorner = Assert.IsType<SelectionAdorner>(canvas.AdornerSurface.Children[0]);
 
         // The button size should be stretched to the StackPanel's width (400f)
         Assert.Equal(400f, button.Size.X);
@@ -481,14 +479,14 @@ public class DesignerCanvasTests
 
         // Act - Verify selection adorner captures sizes
         Assert.Single(canvas.AdornerSurface.Children);
-        var adorner = canvas.AdornerSurface.Children[0] as SelectionAdorner;
-        Assert.NotNull(adorner);
+        var adorner = Assert.IsType<SelectionAdorner>(canvas.AdornerSurface.Children[0]);
+        var associatedElement = Assert.IsType<Button>(adorner.AssociatedElement);
 
         // Assert spacing properties are verified
-        Assert.Equal(10f, adorner.AssociatedElement.Margin.Left);
-        Assert.Equal(15f, adorner.AssociatedElement.Margin.Top);
-        Assert.Equal(5f, adorner.AssociatedElement.Padding.Left);
-        Assert.Equal(5f, adorner.AssociatedElement.Padding.Top);
+        Assert.Equal(10f, associatedElement.Margin.Left);
+        Assert.Equal(15f, associatedElement.Margin.Top);
+        Assert.Equal(5f, associatedElement.Padding.Left);
+        Assert.Equal(5f, associatedElement.Padding.Top);
     }
 
     [Fact]

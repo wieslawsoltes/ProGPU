@@ -583,13 +583,12 @@ public class DxfRenderContext
         
         DxfMLeader? currentMLeader = null;
         bool inContextData = false;
-        bool inLeader = false;
         bool inLeaderLine = false;
         
         var currentLeaderLinePoints = new List<Vector3>();
         
         float cx = 0f, cy = 0f, cz = 0f;
-        bool hasX = false, hasY = false, hasZ = false;
+        bool hasX = false, hasY = false;
 
         while ((line = reader.ReadLine()) != null)
         {
@@ -611,7 +610,6 @@ public class DxfRenderContext
                     {
                         currentMLeader = new DxfMLeader();
                         inContextData = false;
-                        inLeader = false;
                         inLeaderLine = false;
                     }
                     continue;
@@ -631,19 +629,11 @@ public class DxfRenderContext
                     {
                         inContextData = false;
                     }
-                    else if (code == 302 && val == "LEADER{")
-                    {
-                        inLeader = true;
-                    }
-                    else if (code == 303 && val == "}")
-                    {
-                        inLeader = false;
-                    }
                     else if (code == 304 && val == "LEADER_LINE{")
                     {
                         inLeaderLine = true;
                         currentLeaderLinePoints = new List<Vector3>();
-                        hasX = hasY = hasZ = false;
+                        hasX = hasY = false;
                         cx = cy = cz = 0f;
                     }
                     else if (code == 305 && val == "}")
@@ -695,7 +685,7 @@ public class DxfRenderContext
                             if (hasX && hasY)
                             {
                                 currentLeaderLinePoints.Add(new Vector3(cx, cy, cz));
-                                hasX = hasY = hasZ = false;
+                                hasX = hasY = false;
                                 cz = 0f;
                             }
                             if (float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x))
@@ -717,12 +707,11 @@ public class DxfRenderContext
                             if (float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z))
                             {
                                 cz = z;
-                                hasZ = true;
                             }
                             if (hasX && hasY)
                             {
                                 currentLeaderLinePoints.Add(new Vector3(cx, cy, cz));
-                                hasX = hasY = hasZ = false;
+                                hasX = hasY = false;
                                 cz = 0f;
                             }
                         }
