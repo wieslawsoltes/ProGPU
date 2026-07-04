@@ -184,6 +184,33 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void GpuHitTestIndexBuilderUsesPooledPrimitiveBuckets()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs"));
+
+        Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
+        Assert.Contains("PrimitiveIndexBucket retained = default;", source, StringComparison.Ordinal);
+        Assert.Contains("PrimitiveIndexBucket child0 = default;", source, StringComparison.Ordinal);
+        Assert.Contains("AddChildPrimitive(ref child0, ref child1, ref child2, ref child3, childIndex, primitiveIndex)", source, StringComparison.Ordinal);
+        Assert.Contains("private struct PrimitiveIndexBucket : IPrimitiveIndexSource, IDisposable", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Rent(InitialCapacity)", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Rent(items.Length * 2)", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Return(items)", source, StringComparison.Ordinal);
+        Assert.Contains("CountNonEmpty(in child0, in child1, in child2, in child3)", source, StringComparison.Ordinal);
+        Assert.Contains("AddChildNodeSlot(in child0)", source, StringComparison.Ordinal);
+        Assert.Contains("FillChildNode(child0NodeIndex, 0, in child0, min, max, center, depth);", source, StringComparison.Ordinal);
+        Assert.Contains("retained.Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("child0.Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("private readonly struct RootPrimitiveIndices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("List<int>? retained", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("List<int>? child0", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("retained ??= [];", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private readonly struct ListPrimitiveIndices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ListPrimitiveIndices(childPrimitives)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new List<int>", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EffectExtensionCacheCleanupUsesPooledRemovalBuffers()
     {
         string helper = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "PooledRemovalBuffer.cs"));

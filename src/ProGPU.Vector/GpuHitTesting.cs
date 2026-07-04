@@ -604,63 +604,67 @@ public sealed class GpuHitTestIndex
             }
 
             Vector2 center = (min + max) * 0.5f;
-            List<int>? retained = null;
-            List<int>? child0 = null;
-            List<int>? child1 = null;
-            List<int>? child2 = null;
-            List<int>? child3 = null;
+            PrimitiveIndexBucket retained = default;
+            PrimitiveIndexBucket child0 = default;
+            PrimitiveIndexBucket child1 = default;
+            PrimitiveIndexBucket child2 = default;
+            PrimitiveIndexBucket child3 = default;
 
-            for (int i = 0; i < primitiveCount; i++)
+            try
             {
-                int primitiveIndex = primitiveIndices[i];
-                var primitive = _primitives[primitiveIndex];
-                int childIndex = FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, min, max, center);
-                if (childIndex >= 0)
+                for (int i = 0; i < primitiveCount; i++)
                 {
-                    AddChildPrimitive(ref child0, ref child1, ref child2, ref child3, childIndex, primitiveIndex);
+                    int primitiveIndex = primitiveIndices[i];
+                    var primitive = _primitives[primitiveIndex];
+                    int childIndex = FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, min, max, center);
+                    if (childIndex >= 0)
+                    {
+                        AddChildPrimitive(ref child0, ref child1, ref child2, ref child3, childIndex, primitiveIndex);
+                    }
+                    else
+                    {
+                        retained.Add(primitiveIndex);
+                    }
                 }
-                else
-                {
-                    retained ??= [];
-                    retained.Add(primitiveIndex);
-                }
-            }
 
-            int childCount = CountNonEmpty(child0, child1, child2, child3);
-            int retainedCount = retained?.Count ?? 0;
-            if (childCount == 0 || childCount == 1 && retainedCount == 0 && FirstNonEmpty(child0, child1, child2, child3)!.Count == primitiveCount)
+                int childCount = CountNonEmpty(in child0, in child1, in child2, in child3);
+                int retainedCount = retained.Count;
+                if (childCount == 0 || HasSingleUnsplitChild(childCount, retainedCount, primitiveCount, in child0, in child1, in child2, in child3))
+                {
+                    WriteLeaf(nodeIndex, min, max, primitiveIndices);
+                    return;
+                }
+
+                uint firstPrimitive = (uint)PrimitiveIndices.Count;
+                AddPrimitiveIndices(retained);
+
+                uint firstChild = (uint)Nodes.Count;
+                int child0NodeIndex = AddChildNodeSlot(in child0);
+                int child1NodeIndex = AddChildNodeSlot(in child1);
+                int child2NodeIndex = AddChildNodeSlot(in child2);
+                int child3NodeIndex = AddChildNodeSlot(in child3);
+
+                Nodes[nodeIndex] = new GpuHitTestNode(
+                    min,
+                    max,
+                    firstChild,
+                    (uint)childCount,
+                    firstPrimitive,
+                    (uint)retainedCount);
+
+                FillChildNode(child0NodeIndex, 0, in child0, min, max, center, depth);
+                FillChildNode(child1NodeIndex, 1, in child1, min, max, center, depth);
+                FillChildNode(child2NodeIndex, 2, in child2, min, max, center, depth);
+                FillChildNode(child3NodeIndex, 3, in child3, min, max, center, depth);
+            }
+            finally
             {
-                WriteLeaf(nodeIndex, min, max, primitiveIndices);
-                return;
+                retained.Dispose();
+                child0.Dispose();
+                child1.Dispose();
+                child2.Dispose();
+                child3.Dispose();
             }
-
-            uint firstPrimitive = (uint)PrimitiveIndices.Count;
-            if (retained != null)
-            {
-                foreach (int retainedPrimitive in retained)
-                {
-                    PrimitiveIndices.Add((uint)retainedPrimitive);
-                }
-            }
-
-            uint firstChild = (uint)Nodes.Count;
-            int child0NodeIndex = AddChildNodeSlot(child0);
-            int child1NodeIndex = AddChildNodeSlot(child1);
-            int child2NodeIndex = AddChildNodeSlot(child2);
-            int child3NodeIndex = AddChildNodeSlot(child3);
-
-            Nodes[nodeIndex] = new GpuHitTestNode(
-                min,
-                max,
-                firstChild,
-                (uint)childCount,
-                firstPrimitive,
-                (uint)retainedCount);
-
-            FillChildNode(child0NodeIndex, 0, child0, min, max, center, depth);
-            FillChildNode(child1NodeIndex, 1, child1, min, max, center, depth);
-            FillChildNode(child2NodeIndex, 2, child2, min, max, center, depth);
-            FillChildNode(child3NodeIndex, 3, child3, min, max, center, depth);
         }
 
         private void WriteLeaf<TPrimitiveIndices>(int nodeIndex, Vector2 min, Vector2 max, TPrimitiveIndices primitiveIndices)
@@ -668,10 +672,7 @@ public sealed class GpuHitTestIndex
         {
             uint firstPrimitive = (uint)PrimitiveIndices.Count;
             int primitiveCount = primitiveIndices.Count;
-            for (int i = 0; i < primitiveCount; i++)
-            {
-                PrimitiveIndices.Add((uint)primitiveIndices[i]);
-            }
+            AddPrimitiveIndices(primitiveIndices);
 
             Nodes[nodeIndex] = new GpuHitTestNode(
                 min,
@@ -682,38 +683,44 @@ public sealed class GpuHitTestIndex
                 (uint)primitiveCount);
         }
 
+        private void AddPrimitiveIndices<TPrimitiveIndices>(TPrimitiveIndices primitiveIndices)
+            where TPrimitiveIndices : struct, IPrimitiveIndexSource
+        {
+            int primitiveCount = primitiveIndices.Count;
+            for (int i = 0; i < primitiveCount; i++)
+            {
+                PrimitiveIndices.Add((uint)primitiveIndices[i]);
+            }
+        }
+
         private static void AddChildPrimitive(
-            ref List<int>? child0,
-            ref List<int>? child1,
-            ref List<int>? child2,
-            ref List<int>? child3,
+            ref PrimitiveIndexBucket child0,
+            ref PrimitiveIndexBucket child1,
+            ref PrimitiveIndexBucket child2,
+            ref PrimitiveIndexBucket child3,
             int childIndex,
             int primitiveIndex)
         {
             switch (childIndex)
             {
                 case 0:
-                    child0 ??= [];
                     child0.Add(primitiveIndex);
                     break;
                 case 1:
-                    child1 ??= [];
                     child1.Add(primitiveIndex);
                     break;
                 case 2:
-                    child2 ??= [];
                     child2.Add(primitiveIndex);
                     break;
                 default:
-                    child3 ??= [];
                     child3.Add(primitiveIndex);
                     break;
             }
         }
 
-        private int AddChildNodeSlot(List<int>? childPrimitives)
+        private int AddChildNodeSlot(in PrimitiveIndexBucket childPrimitives)
         {
-            if (childPrimitives is not { Count: > 0 })
+            if (childPrimitives.Count == 0)
             {
                 return -1;
             }
@@ -726,19 +733,19 @@ public sealed class GpuHitTestIndex
         private void FillChildNode(
             int childNodeIndex,
             int childIndex,
-            List<int>? childPrimitives,
+            in PrimitiveIndexBucket childPrimitives,
             Vector2 min,
             Vector2 max,
             Vector2 center,
             int depth)
         {
-            if (childNodeIndex < 0 || childPrimitives is not { Count: > 0 })
+            if (childNodeIndex < 0 || childPrimitives.Count == 0)
             {
                 return;
             }
 
             var bounds = GetChildBounds(childIndex, min, max, center);
-            FillNode(childNodeIndex, bounds.Min, bounds.Max, new ListPrimitiveIndices(childPrimitives), depth + 1);
+            FillNode(childNodeIndex, bounds.Min, bounds.Max, childPrimitives, depth + 1);
         }
 
         private interface IPrimitiveIndexSource
@@ -760,18 +767,77 @@ public sealed class GpuHitTestIndex
             public int this[int index] => index;
         }
 
-        private readonly struct ListPrimitiveIndices : IPrimitiveIndexSource
+        private struct PrimitiveIndexBucket : IPrimitiveIndexSource, IDisposable
         {
-            private readonly List<int> _indices;
+            private const int InitialCapacity = 4;
 
-            public ListPrimitiveIndices(List<int> indices)
+            private int _first;
+            private int[]? _items;
+            private int _count;
+
+            public readonly int Count => _count;
+
+            public readonly int this[int index]
             {
-                _indices = indices;
+                get
+                {
+                    if ((uint)index >= (uint)_count)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(index));
+                    }
+
+                    return _items is null ? _first : _items[index];
+                }
             }
 
-            public int Count => _indices.Count;
+            public void Add(int primitiveIndex)
+            {
+                if (_items is { } items)
+                {
+                    if (_count == items.Length)
+                    {
+                        Grow(items);
+                        items = _items!;
+                    }
 
-            public int this[int index] => _indices[index];
+                    items[_count] = primitiveIndex;
+                    _count++;
+                    return;
+                }
+
+                if (_count == 0)
+                {
+                    _first = primitiveIndex;
+                    _count = 1;
+                    return;
+                }
+
+                int[] rented = ArrayPool<int>.Shared.Rent(InitialCapacity);
+                rented[0] = _first;
+                rented[1] = primitiveIndex;
+                _items = rented;
+                _count = 2;
+            }
+
+            public void Dispose()
+            {
+                if (_items is { } items)
+                {
+                    ArrayPool<int>.Shared.Return(items);
+                    _items = null;
+                }
+
+                _first = 0;
+                _count = 0;
+            }
+
+            private void Grow(int[] items)
+            {
+                int[] expanded = ArrayPool<int>.Shared.Rent(items.Length * 2);
+                items.AsSpan(0, _count).CopyTo(expanded);
+                ArrayPool<int>.Shared.Return(items);
+                _items = expanded;
+            }
         }
 
         private static int FindContainingChild(Vector2 primitiveMin, Vector2 primitiveMax, Vector2 nodeMin, Vector2 nodeMax, Vector2 center)
@@ -791,21 +857,42 @@ public sealed class GpuHitTestIndex
             return -1;
         }
 
-        private static int CountNonEmpty(List<int>? child0, List<int>? child1, List<int>? child2, List<int>? child3)
+        private static int CountNonEmpty(
+            in PrimitiveIndexBucket child0,
+            in PrimitiveIndexBucket child1,
+            in PrimitiveIndexBucket child2,
+            in PrimitiveIndexBucket child3)
         {
-            return (child0 is { Count: > 0 } ? 1 : 0)
-                + (child1 is { Count: > 0 } ? 1 : 0)
-                + (child2 is { Count: > 0 } ? 1 : 0)
-                + (child3 is { Count: > 0 } ? 1 : 0);
+            return (child0.Count > 0 ? 1 : 0)
+                + (child1.Count > 0 ? 1 : 0)
+                + (child2.Count > 0 ? 1 : 0)
+                + (child3.Count > 0 ? 1 : 0);
         }
 
-        private static List<int>? FirstNonEmpty(List<int>? child0, List<int>? child1, List<int>? child2, List<int>? child3)
+        private static bool HasSingleUnsplitChild(
+            int childCount,
+            int retainedCount,
+            int primitiveCount,
+            in PrimitiveIndexBucket child0,
+            in PrimitiveIndexBucket child1,
+            in PrimitiveIndexBucket child2,
+            in PrimitiveIndexBucket child3)
         {
-            return child0 is { Count: > 0 } ? child0 :
-                child1 is { Count: > 0 } ? child1 :
-                child2 is { Count: > 0 } ? child2 :
-                child3 is { Count: > 0 } ? child3 :
-                null;
+            return childCount == 1 &&
+                retainedCount == 0 &&
+                FirstNonEmptyCount(in child0, in child1, in child2, in child3) == primitiveCount;
+        }
+
+        private static int FirstNonEmptyCount(
+            in PrimitiveIndexBucket child0,
+            in PrimitiveIndexBucket child1,
+            in PrimitiveIndexBucket child2,
+            in PrimitiveIndexBucket child3)
+        {
+            return child0.Count > 0 ? child0.Count :
+                child1.Count > 0 ? child1.Count :
+                child2.Count > 0 ? child2.Count :
+                child3.Count;
         }
 
         private static (Vector2 Min, Vector2 Max) GetChildBounds(int index, Vector2 min, Vector2 max, Vector2 center)

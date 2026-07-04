@@ -35,20 +35,25 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void HitTestIndexBuilderCreatesChildPrimitiveListsLazily()
+    public void HitTestIndexBuilderUsesPooledPrimitiveBuckets()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs")).Replace("\r\n", "\n");
 
-        Assert.Contains("List<int>? retained = null;", source, StringComparison.Ordinal);
-        Assert.Contains("List<int>? child0 = null;", source, StringComparison.Ordinal);
+        Assert.Contains("PrimitiveIndexBucket retained = default;", source, StringComparison.Ordinal);
+        Assert.Contains("PrimitiveIndexBucket child0 = default;", source, StringComparison.Ordinal);
         Assert.Contains("AddChildPrimitive(ref child0, ref child1, ref child2, ref child3, childIndex, primitiveIndex)", source, StringComparison.Ordinal);
-        Assert.Contains("CountNonEmpty(child0, child1, child2, child3)", source, StringComparison.Ordinal);
-        Assert.Contains("int child0NodeIndex = AddChildNodeSlot(child0);", source, StringComparison.Ordinal);
-        Assert.Contains("FillChildNode(child0NodeIndex, 0, child0, min, max, center, depth);", source, StringComparison.Ordinal);
+        Assert.Contains("CountNonEmpty(in child0, in child1, in child2, in child3)", source, StringComparison.Ordinal);
+        Assert.Contains("int child0NodeIndex = AddChildNodeSlot(in child0);", source, StringComparison.Ordinal);
+        Assert.Contains("FillChildNode(child0NodeIndex, 0, in child0, min, max, center, depth);", source, StringComparison.Ordinal);
+        Assert.Contains("private struct PrimitiveIndexBucket : IPrimitiveIndexSource, IDisposable", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Rent(InitialCapacity)", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Rent(items.Length * 2)", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Return(items)", source, StringComparison.Ordinal);
+        Assert.Contains("retained.Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("child0.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("var builder = new Builder(primitives, maxDepth, maxPrimitivesPerNode);", source, StringComparison.Ordinal);
         Assert.Contains("builder.AddRootNode(min, max);", source, StringComparison.Ordinal);
         Assert.Contains("new RootPrimitiveIndices(_primitives.Length)", source, StringComparison.Ordinal);
-        Assert.Contains("new ListPrimitiveIndices(childPrimitives)", source, StringComparison.Ordinal);
         Assert.Contains("private ref struct Builder", source, StringComparison.Ordinal);
         Assert.Contains("private readonly ReadOnlySpan<GpuHitTestPrimitive> _primitives;", source, StringComparison.Ordinal);
         Assert.Contains("CopySpan(primitives)", source, StringComparison.Ordinal);
@@ -60,6 +65,11 @@ public sealed class GpuHitTestingTests
         Assert.DoesNotContain("var all = new List<int>(primitiveArray.Length);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("builder.AddNode(min, max, all, depth: 0);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var retained = new List<int>();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("List<int>? retained", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("List<int>? child0", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("retained ??= [];", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private readonly struct ListPrimitiveIndices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ListPrimitiveIndices(childPrimitives)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var childPrimitiveLists = new List<int>[4];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("childPrimitiveLists[i] = [];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new (Vector2 Min, Vector2 Max, List<int> Primitives, int NodeIndex)[childCount]", source, StringComparison.Ordinal);
