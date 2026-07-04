@@ -4,7 +4,7 @@ using System.Numerics;
 
 namespace System.Windows.Media;
 
-public class GlyphRun : IPortableGlyphRunSource
+public class GlyphRun : IPortableGlyphRunSource, IPortableNativeGlyphRunSource
 {
     public ushort[] GlyphIndices { get; set; } = Array.Empty<ushort>();
     public Vector2[] GlyphPositions { get; set; } = Array.Empty<Vector2>();
@@ -51,6 +51,31 @@ public class GlyphRun : IPortableGlyphRunSource
         return GlyphIndices.Length > 0 && FontSize > 0 && Font != null;
     }
 
+    bool IPortableNativeGlyphRunSource.TryGetPortableNativeGlyphRun(out PortableNativeGlyphRun glyphRun)
+    {
+        glyphRun = new PortableNativeGlyphRun
+        {
+            GlyphIndices = GlyphIndices,
+            GlyphPositions = GlyphPositions,
+            BaselineOrigin = Position,
+            FontRenderingEmSize = FontSize,
+            NativeFont = Font,
+            IsBold = IsBold,
+            IsItalic = IsItalic
+        };
+
+        if (TryUseNativeTransform(Transform, out var transform))
+        {
+            glyphRun.HasTransform = true;
+            glyphRun.Transform = transform;
+        }
+
+        return GlyphIndices.Length > 0
+            && GlyphPositions.Length >= GlyphIndices.Length
+            && FontSize > 0
+            && Font != null;
+    }
+
     private static bool TryGetPortableTransform(Matrix4x4 transform, out PortableMatrix3x2 portableTransform)
     {
         portableTransform = PortableMatrix3x2.Identity;
@@ -80,6 +105,23 @@ public class GlyphRun : IPortableGlyphRunSource
             transform.M22,
             transform.M41,
             transform.M42);
+        return true;
+    }
+
+    private static bool TryUseNativeTransform(Matrix4x4 transform, out Matrix4x4 nativeTransform)
+    {
+        nativeTransform = Matrix4x4.Identity;
+        if (transform.IsIdentity)
+        {
+            return false;
+        }
+
+        if (!TryGetPortableTransform(transform, out _))
+        {
+            return false;
+        }
+
+        nativeTransform = transform;
         return true;
     }
 
