@@ -214,8 +214,16 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("using System.Runtime.InteropServices;", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_primitives)", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_pathSegments)", source, StringComparison.Ordinal);
+        Assert.Contains("private SmallValueStack<ClipState> _clipStack;", source, StringComparison.Ordinal);
+        Assert.Contains("private SmallValueStack<float> _opacityStack;", source, StringComparison.Ordinal);
+        Assert.Contains("private struct SmallValueStack<T>", source, StringComparison.Ordinal);
+        Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences<T>()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_primitives.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_pathSegments.ToArray()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private readonly Stack<ClipState> _clipStack", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private readonly Stack<float> _opacityStack", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Stack<ClipState>", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Stack<float>", source, StringComparison.Ordinal);
     }
 
     [Fact]

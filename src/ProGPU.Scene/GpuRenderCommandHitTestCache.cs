@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Vector;
@@ -16,8 +17,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
     private readonly IPathHitTestCompilationCache? _pathHitTestCompilationCache;
     private readonly List<GpuHitTestPrimitive> _primitives = new();
     private readonly List<GpuPathSegment> _pathSegments = new();
-    private readonly Stack<ClipState> _clipStack = new();
-    private readonly Stack<float> _opacityStack = new();
+    private SmallValueStack<ClipState> _clipStack;
+    private SmallValueStack<float> _opacityStack;
     private float _activeOpacity = 1f;
     private int _nextId;
 
@@ -944,12 +945,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         {
             clipMin = Vector2.Max(clipMin, active.Min);
             clipMax = Vector2.Min(clipMax, active.Max);
+            _clipStack.Push(active.WithBounds(clipMin, clipMax));
+            return;
         }
 
-        _clipStack.Push(
-            _clipStack.TryPeek(out ClipState inherited)
-                ? inherited.WithBounds(clipMin, clipMax)
-                : new ClipState(clipMin, clipMax));
+        _clipStack.Push(new ClipState(clipMin, clipMax));
     }
 
     private void PushGeometryClip(RenderCommand command, Matrix4x4 activeTransform)
@@ -1077,6 +1077,119 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             PenLineCap.Triangle => LineGeometryCap.Triangle,
             _ => LineGeometryCap.Flat
         };
+    }
+
+    private struct SmallValueStack<T>
+    {
+        private const int InitialArrayCapacity = 4;
+
+        private T _first;
+        private T[]? _items;
+        private int _count;
+
+        public readonly int Count => _count;
+
+        public void Push(T item)
+        {
+            if (_count == 0)
+            {
+                _first = item;
+                if (_items != null)
+                {
+                    _items[0] = item;
+                }
+
+                _count = 1;
+                return;
+            }
+
+            var items = EnsureArray(_count + 1);
+            items[_count] = item;
+            _count++;
+        }
+
+        public T Pop()
+        {
+            if (_count == 0)
+            {
+                throw new InvalidOperationException("Cannot pop an empty stack.");
+            }
+
+            _count--;
+            if (_items != null)
+            {
+                var item = _items[_count];
+                if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                {
+                    _items[_count] = default!;
+                    if (_count == 0)
+                    {
+                        _first = default!;
+                    }
+                }
+
+                return item;
+            }
+
+            var first = _first;
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                _first = default!;
+            }
+
+            return first;
+        }
+
+        public readonly bool TryPeek(out T item)
+        {
+            if (_count == 0)
+            {
+                item = default!;
+                return false;
+            }
+
+            item = _items != null
+                ? _items[_count - 1]
+                : _first;
+            return true;
+        }
+
+        public void Clear()
+        {
+            if (_items != null && RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                Array.Clear(_items, 0, _count);
+                _first = default!;
+            }
+            else if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                _first = default!;
+            }
+
+            _count = 0;
+        }
+
+        private T[] EnsureArray(int capacity)
+        {
+            var items = _items;
+            if (items == null)
+            {
+                items = new T[Math.Max(InitialArrayCapacity, capacity)];
+                items[0] = _first;
+                _items = items;
+                return items;
+            }
+
+            if (capacity <= items.Length)
+            {
+                return items;
+            }
+
+            var larger = new T[Math.Max(capacity, items.Length * 2)];
+            Array.Copy(items, larger, _count);
+            _items = larger;
+            return larger;
+        }
     }
 
     private readonly record struct ClipState(
