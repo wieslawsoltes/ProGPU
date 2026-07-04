@@ -181,6 +181,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", lineSeriesPipeline, StringComparison.Ordinal);
         Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", scatterSeriesPipeline, StringComparison.Ordinal);
+        Assert.Contains("private static void AddDashedLineFigures(", source, StringComparison.Ordinal);
+        Assert.Contains("DashPattern.Advance(\n                intervals,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("pattern.TryCreateLineSegments(", source, StringComparison.Ordinal);
         Assert.Contains("cmd.Edges3D is { } edges", acisPipeline, StringComparison.Ordinal);
         Assert.Contains("ReadOnlySpan<Line3D>.Empty", acisPipeline, StringComparison.Ordinal);
         Assert.DoesNotContain("cmd.Edges3D ?? new List<Line3D>()", acisPipeline, StringComparison.Ordinal);

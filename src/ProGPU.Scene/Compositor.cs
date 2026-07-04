@@ -3989,22 +3989,48 @@ public unsafe class Compositor : IDisposable
         ref int patternIndex,
         ref float distanceInPattern)
     {
-        if (!pattern.TryCreateLineSegments(
-                start,
-                end,
-                patternIndex,
-                distanceInPattern,
-                out var dashSegments,
-                out patternIndex,
-                out distanceInPattern))
+        var intervals = pattern.Intervals;
+        if (!DashPattern.TryValidateState(intervals, patternIndex, distanceInPattern))
         {
             return;
         }
 
-        foreach (var dashSegment in dashSegments)
+        var localPatternIndex = patternIndex;
+        var localDistanceInPattern = distanceInPattern;
+        DashPattern.NormalizeState(intervals, ref localPatternIndex, ref localDistanceInPattern);
+
+        var delta = end - start;
+        var length = delta.Length();
+        if (length <= StrokeEpsilon)
         {
-            AddDashedSegmentFigure(dashedPath, dashSegment.Start, new LineSegment(dashSegment.End));
+            return;
         }
+
+        var direction = delta / length;
+        var distance = 0.0f;
+        while (distance < length - StrokeEpsilon)
+        {
+            var remainingInElement = intervals[localPatternIndex] - localDistanceInPattern;
+            var step = MathF.Min(remainingInElement, length - distance);
+            if ((localPatternIndex % 2) == 0 && step > StrokeEpsilon)
+            {
+                AddDashedSegmentFigure(
+                    dashedPath,
+                    start + direction * distance,
+                    new LineSegment(start + direction * (distance + step)));
+            }
+
+            DashPattern.Advance(
+                intervals,
+                ref localPatternIndex,
+                ref localDistanceInPattern,
+                remainingInElement,
+                step);
+            distance += step;
+        }
+
+        patternIndex = localPatternIndex;
+        distanceInPattern = localDistanceInPattern;
     }
 
     private static void AddDashedSegmentFigure(PathGeometry dashedPath, Vector2 start, PathSegment segment)
