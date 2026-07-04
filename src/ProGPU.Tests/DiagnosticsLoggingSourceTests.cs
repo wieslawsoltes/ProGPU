@@ -108,7 +108,6 @@ public class DiagnosticsLoggingSourceTests
         string scatterSeriesPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "GpuScatterSeriesExtensionPipeline.cs"));
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
-        Assert.Contains("private static T[] RentStackSnapshot<T>(Stack<T> stack, out int count)", source, StringComparison.Ordinal);
         Assert.Contains("private static T[] RentListSnapshot<T>(List<T> list, out int count)", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.SetCount(list, count)", source, StringComparison.Ordinal);
         Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences<T>()", source, StringComparison.Ordinal);
@@ -118,6 +117,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private SmallValueStack<bool> _clipScopeIsGeometryMask;", source, StringComparison.Ordinal);
         Assert.Contains("private SmallValueStack<float> _opacityStack;", source, StringComparison.Ordinal);
         Assert.Contains("private SmallValueStack<GpuBlendMode> _blendModeStack;", source, StringComparison.Ordinal);
+        Assert.Contains("private SmallValueStack<GpuTexture> _maskStack;", source, StringComparison.Ordinal);
         Assert.Contains("private static T[] RentStackSnapshot<T>(in SmallValueStack<T> stack, out int count)", source, StringComparison.Ordinal);
         Assert.Contains("private static void RestoreStack<T>(ref SmallValueStack<T> stack, T[] snapshot, int count)", source, StringComparison.Ordinal);
         Assert.Contains("private struct SmallValueStack<T> : IDisposable", source, StringComparison.Ordinal);
@@ -160,18 +160,25 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("_opacityStack.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("RestoreStack(ref _blendModeStack", source, StringComparison.Ordinal);
         Assert.Contains("_blendModeStack.Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("RestoreStack(ref _maskStack", source, StringComparison.Ordinal);
+        Assert.Contains("_maskStack.Dispose();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<Rect> _clipStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<bool> _clipScopeIsGeometryMask", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<float> _opacityStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<GpuBlendMode> _blendModeStack", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private readonly Stack<GpuTexture> _maskStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new Stack<Rect>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new Stack<bool>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new Stack<float>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new Stack<GpuBlendMode>", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Stack<GpuTexture>", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static T[] RentStackSnapshot<T>(Stack<T>", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static void RestoreStack<T>(Stack<T>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreStack(_clipStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreStack(_clipScopeIsGeometryMask", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreStack(_opacityStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RestoreStack(_blendModeStack", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("RestoreStack(_maskStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_clipStack.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_clipScopeIsGeometryMask.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_opacityStack.ToArray()", source, StringComparison.Ordinal);

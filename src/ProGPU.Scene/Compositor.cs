@@ -638,7 +638,7 @@ public unsafe class Compositor : IDisposable
 
     // Masking & Blending state
     private readonly List<GpuTexture> _maskTexturePool = new();
-    private readonly Stack<GpuTexture> _maskStack = new();
+    private SmallValueStack<GpuTexture> _maskStack;
     private readonly Dictionary<GpuTexture, nint> _maskBindGroups = new();
     private readonly Dictionary<GpuTexture, nint> _maskBindGroupsOffscreen = new();
 
@@ -2489,19 +2489,6 @@ public unsafe class Compositor : IDisposable
         RestoreStack(ref _clipScopeIsGeometryMask, savedClipScopeIsGeometryMask, count);
     }
 
-    private static T[] RentStackSnapshot<T>(Stack<T> stack, out int count)
-    {
-        count = stack.Count;
-        if (count == 0)
-        {
-            return Array.Empty<T>();
-        }
-
-        var snapshot = ArrayPool<T>.Shared.Rent(count);
-        stack.CopyTo(snapshot, 0);
-        return snapshot;
-    }
-
     private static T[] RentListSnapshot<T>(List<T> list, out int count)
     {
         count = list.Count;
@@ -2513,15 +2500,6 @@ public unsafe class Compositor : IDisposable
         var snapshot = ArrayPool<T>.Shared.Rent(count);
         CollectionsMarshal.AsSpan(list).CopyTo(snapshot);
         return snapshot;
-    }
-
-    private static void RestoreStack<T>(Stack<T> stack, T[] snapshot, int count)
-    {
-        stack.Clear();
-        for (int i = count - 1; i >= 0; i--)
-        {
-            stack.Push(snapshot[i]);
-        }
     }
 
     private static T[] RentStackSnapshot<T>(in SmallValueStack<T> stack, out int count)
@@ -6260,6 +6238,7 @@ public unsafe class Compositor : IDisposable
             _clipScopeIsGeometryMask.Dispose();
             _opacityStack.Dispose();
             _blendModeStack.Dispose();
+            _maskStack.Dispose();
 
             DisposeMaskTexturePool();
 
@@ -7340,7 +7319,7 @@ public unsafe class Compositor : IDisposable
             RestoreStack(ref _blendModeStack, savedBlendModeStack, savedBlendModeStackCount);
             _activeBlendMode = savedActiveBlendMode;
 
-            RestoreStack(_maskStack, savedMaskStack, savedMaskStackCount);
+            RestoreStack(ref _maskStack, savedMaskStack, savedMaskStackCount);
 
             RestoreList(_maskRenderPasses, savedMaskRenderPasses, savedMaskRenderPassesCount);
 
@@ -7772,7 +7751,7 @@ public unsafe class Compositor : IDisposable
             RestoreStack(ref _blendModeStack, dxfSavedBlendModeStack, dxfSavedBlendModeStackCount);
             _activeBlendMode = dxfSavedActiveBlendMode;
 
-            RestoreStack(_maskStack, dxfSavedMaskStack, dxfSavedMaskStackCount);
+            RestoreStack(ref _maskStack, dxfSavedMaskStack, dxfSavedMaskStackCount);
 
             ReturnMaskRenderPassDrawCallLists();
             RestoreList(_maskRenderPasses, dxfSavedMaskRenderPasses, dxfSavedMaskRenderPassesCount);
@@ -8260,7 +8239,7 @@ public unsafe class Compositor : IDisposable
             RestoreStack(ref _blendModeStack, dxfSavedBlendModeStack, dxfSavedBlendModeStackCount);
             _activeBlendMode = dxfSavedActiveBlendMode;
 
-            RestoreStack(_maskStack, dxfSavedMaskStack, dxfSavedMaskStackCount);
+            RestoreStack(ref _maskStack, dxfSavedMaskStack, dxfSavedMaskStackCount);
 
             ReturnMaskRenderPassDrawCallLists();
             RestoreList(_maskRenderPasses, dxfSavedMaskRenderPasses, dxfSavedMaskRenderPassesCount);
