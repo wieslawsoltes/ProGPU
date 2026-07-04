@@ -229,7 +229,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
                             cachedBuffer.CachedInterleaved = new float[requiredLength];
                         }
                         floatsSpan.Slice(0, requiredLength).CopyTo(cachedBuffer.CachedInterleaved);
-                        cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount);
+                        cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount);
                     }
                     staticBuffer = cachedBuffer;
                 }

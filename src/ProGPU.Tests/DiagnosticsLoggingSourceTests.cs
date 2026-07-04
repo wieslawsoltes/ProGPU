@@ -131,6 +131,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("_maskTexturePool.ToArray()", source, StringComparison.Ordinal);
         Assert.Contains("public void Upload(ReadOnlySpan<float> interleavedCoords, int pointsCount)", seriesBuffer, StringComparison.Ordinal);
         Assert.Contains("Buffer.Write(interleavedCoords)", seriesBuffer, StringComparison.Ordinal);
+        Assert.Contains("cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount)", source, StringComparison.Ordinal);
+        Assert.Contains("cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount)", lineSeriesPipeline, StringComparison.Ordinal);
+        Assert.Contains("cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount)", scatterSeriesPipeline, StringComparison.Ordinal);
         Assert.Contains("tempBuffer.Upload(floatsSpan.Slice(0, pointsCount * 2), pointsCount)", source, StringComparison.Ordinal);
         Assert.Contains("tempBuffer.Upload(floatsSpan.Slice(0, pointsCount * 3), pointsCount)", source, StringComparison.Ordinal);
         Assert.Contains("var array = ArrayPool<float>.Shared.Rent(pointsCount * 3)", source, StringComparison.Ordinal);
@@ -143,6 +146,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("var array = new float[pointsCount * 3];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var array = new float[pointsCount * 2];", lineSeriesPipeline, StringComparison.Ordinal);
         Assert.DoesNotContain("var array = new float[pointsCount * 3];", scatterSeriesPipeline, StringComparison.Ordinal);
+        Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", lineSeriesPipeline, StringComparison.Ordinal);
+        Assert.DoesNotContain("cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount)", scatterSeriesPipeline, StringComparison.Ordinal);
         Assert.Contains("cmd.Edges3D is { } edges", acisPipeline, StringComparison.Ordinal);
         Assert.Contains("ReadOnlySpan<Line3D>.Empty", acisPipeline, StringComparison.Ordinal);
         Assert.DoesNotContain("cmd.Edges3D ?? new List<Line3D>()", acisPipeline, StringComparison.Ordinal);

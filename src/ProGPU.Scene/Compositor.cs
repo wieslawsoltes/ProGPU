@@ -8336,7 +8336,7 @@ public unsafe class Compositor : IDisposable
                         cachedBuffer.CachedInterleaved = new float[requiredLength];
                     }
                     floatsSpan.Slice(0, requiredLength).CopyTo(cachedBuffer.CachedInterleaved);
-                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount);
+                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount);
                 }
                 staticBuffer = cachedBuffer;
             }
@@ -8476,7 +8476,7 @@ public unsafe class Compositor : IDisposable
                         floatsSpan.Slice(0, requiredLength).CopyTo(cachedBuffer.CachedInterleaved);
                     }
 
-                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved, pointsCount);
+                    cachedBuffer.Upload(cachedBuffer.CachedInterleaved.AsSpan(0, requiredLength), pointsCount);
                 }
                 staticBuffer = cachedBuffer;
             }
