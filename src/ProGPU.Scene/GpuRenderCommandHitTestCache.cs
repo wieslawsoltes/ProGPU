@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -8,7 +9,7 @@ using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
-public sealed class GpuRenderCommandHitTestCacheBuilder
+public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 {
     private const int MaxLineSeriesSegmentsPerPathPrimitive = 128;
     private const int IntersectPathOperation = 1;
@@ -41,6 +42,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         _opacityStack.Clear();
         _activeOpacity = 1f;
         _nextId = 0;
+    }
+
+    public void Dispose()
+    {
+        _clipStack.Dispose();
+        _opacityStack.Dispose();
     }
 
     public void AddCommand(in RenderCommand command, Matrix4x4 activeTransform, int? id = null)
@@ -1085,7 +1092,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
         };
     }
 
-    private struct SmallValueStack<T>
+    private struct SmallValueStack<T> : IDisposable
     {
         private const int InitialArrayCapacity = 4;
 
@@ -1175,12 +1182,25 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
             _count = 0;
         }
 
+        public void Dispose()
+        {
+            var items = _items;
+            _items = null;
+            _count = 0;
+            _first = default!;
+
+            if (items != null)
+            {
+                ArrayPool<T>.Shared.Return(items, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+            }
+        }
+
         private T[] EnsureArray(int capacity)
         {
             var items = _items;
             if (items == null)
             {
-                items = new T[Math.Max(InitialArrayCapacity, capacity)];
+                items = ArrayPool<T>.Shared.Rent(Math.Max(InitialArrayCapacity, capacity));
                 items[0] = _first;
                 _items = items;
                 return items;
@@ -1191,8 +1211,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder
                 return items;
             }
 
-            var larger = new T[Math.Max(capacity, items.Length * 2)];
+            var larger = ArrayPool<T>.Shared.Rent(Math.Max(capacity, items.Length * 2));
             Array.Copy(items, larger, _count);
+            ArrayPool<T>.Shared.Return(items, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
             _items = larger;
             return larger;
         }

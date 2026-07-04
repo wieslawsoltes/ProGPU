@@ -6109,6 +6109,7 @@ public unsafe class Compositor : IDisposable
             _textureVertexBuffer.Dispose();
             _textureIndexBuffer.Dispose();
             _lastHitTestDeviceIndex?.Dispose();
+            _hitTestCacheBuilder.Dispose();
             _lastHitTestDeviceIndex = null;
             LastHitTestIndex = null;
 
