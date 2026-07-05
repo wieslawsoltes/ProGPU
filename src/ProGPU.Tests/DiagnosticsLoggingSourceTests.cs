@@ -483,6 +483,14 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("InsertSortedUniqueInputSlot(inputSlots, ref inputSlotCount", pipelines, StringComparison.Ordinal);
         Assert.Contains("private static void InsertSortedUniqueInputSlot(Span<uint> slots, ref int slotCount, uint inputSlot)", pipelines, StringComparison.Ordinal);
         Assert.Contains("for (var shift = slotCount; shift > i; shift--)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("SHA256.HashData(descriptor.Bytecode.Span)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < Elements.Count; i++)\n        {\n            var element = Elements[i];", pipelines, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < elements.Count; i++)\n        {\n            var element = elements[i];", pipelines, StringComparison.Ordinal);
+        Assert.Contains("var builder = new StringBuilder(elements.Count * 64);", pipelines, StringComparison.Ordinal);
+        Assert.Contains("for (var index = 0; index < elements.Count; index++)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("builder.Append('|');", pipelines, StringComparison.Ordinal);
+        Assert.Contains(".Append(element.InstanceDataStepRate)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("return builder.ToString();", pipelines, StringComparison.Ordinal);
         Assert.Contains("private static IReadOnlyList<DxReflectedShaderBindingRequirement> CombineReflectedBindingRequirements(\n        ProGpuDirectXShader vertexShader,\n        ProGpuDirectXShader? pixelShader)", pipelines, StringComparison.Ordinal);
         Assert.Contains("CopyReflectedBindingRequirements(vertexRequirements, requirements, ref write);", pipelines, StringComparison.Ordinal);
         Assert.Contains("CopyReflectedBindingRequirements(pixelRequirements, requirements, ref write);", pipelines, StringComparison.Ordinal);
@@ -499,6 +507,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(pair => pair.Key)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".Select(element => element.InputSlot)", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("descriptor.Bytecode.ToArray()", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var element in Elements)", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var element in elements)", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("elements.Select(\n                (e, index)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain(".Distinct()", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(slot => slot)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("params ProGpuDirectXShader?[] shaders", pipelines, StringComparison.Ordinal);

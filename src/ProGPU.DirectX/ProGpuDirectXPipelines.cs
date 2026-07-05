@@ -143,11 +143,9 @@ public sealed unsafe class ProGpuDirectXShader : IDisposable
 
     private static string ComputeSourceHash(DxShaderDescriptor descriptor)
     {
-        byte[] bytes = descriptor.SourceKind == DxShaderSourceKind.HlslBytecode
-            ? descriptor.Bytecode.ToArray()
-            : Encoding.UTF8.GetBytes(descriptor.Source ?? string.Empty);
-
-        return Convert.ToHexString(SHA256.HashData(bytes));
+        return descriptor.SourceKind == DxShaderSourceKind.HlslBytecode
+            ? Convert.ToHexString(SHA256.HashData(descriptor.Bytecode.Span))
+            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(descriptor.Source ?? string.Empty)));
     }
 
     private static string? ResolveBackendSource(DxShaderDescriptor descriptor)
@@ -230,8 +228,9 @@ public sealed class ProGpuDirectXInputLayout
     public uint GetInferredStride(uint inputSlot)
     {
         uint stride = 0;
-        foreach (var element in Elements)
+        for (var i = 0; i < Elements.Count; i++)
         {
+            var element = Elements[i];
             if (element.InputSlot != inputSlot)
             {
                 continue;
@@ -248,8 +247,9 @@ public sealed class ProGpuDirectXInputLayout
     private static void ValidateElements(IReadOnlyList<DxInputElementDescriptor> elements)
     {
         var usedLocations = new HashSet<uint>();
-        foreach (var element in elements)
+        for (var i = 0; i < elements.Count; i++)
         {
+            var element = elements[i];
             if (string.IsNullOrWhiteSpace(element.SemanticName))
             {
                 throw new ArgumentException("Input elements must provide a semantic name.", nameof(elements));
@@ -274,11 +274,35 @@ public sealed class ProGpuDirectXInputLayout
 
     private static string CreateLayoutKey(IReadOnlyList<DxInputElementDescriptor> elements)
     {
-        return string.Join(
-            "|",
-            elements.Select(
-                (e, index) =>
-                    $"{index}:{e.SemanticName}{e.SemanticIndex}:{e.Format}:{e.InputSlot}:{e.AlignedByteOffset}:{e.InputSlotClass}:{e.InstanceDataStepRate}:{e.ShaderLocation}"));
+        var builder = new StringBuilder(elements.Count * 64);
+        for (var index = 0; index < elements.Count; index++)
+        {
+            if (index != 0)
+            {
+                builder.Append('|');
+            }
+
+            var element = elements[index];
+            builder
+                .Append(index)
+                .Append(':')
+                .Append(element.SemanticName)
+                .Append(element.SemanticIndex)
+                .Append(':')
+                .Append(element.Format)
+                .Append(':')
+                .Append(element.InputSlot)
+                .Append(':')
+                .Append(element.AlignedByteOffset)
+                .Append(':')
+                .Append(element.InputSlotClass)
+                .Append(':')
+                .Append(element.InstanceDataStepRate)
+                .Append(':')
+                .Append(element.ShaderLocation);
+        }
+
+        return builder.ToString();
     }
 }
 
