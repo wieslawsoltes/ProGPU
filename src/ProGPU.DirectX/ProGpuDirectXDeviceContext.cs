@@ -1272,8 +1272,9 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
     private void ClearRecordedCommandResources()
     {
-        foreach (var command in _commands)
+        for (var i = 0; i < _commands.Count; i++)
         {
+            var command = _commands[i];
             command.BindingSnapshot?.Dispose();
         }
 
@@ -1282,8 +1283,9 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
     private void ExecuteGpuBackedCommands(ProGPU.Backend.WgpuContext context)
     {
-        foreach (var command in _commands)
+        for (var i = 0; i < _commands.Count; i++)
         {
+            var command = _commands[i];
             switch (command.Kind)
             {
                 case ProGpuDirectXCommandKind.ClearRenderTarget:

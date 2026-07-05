@@ -459,10 +459,15 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("sourceIndexBuffer.ReadWriteShadowBytes(sourceBytes, offsetBytes);", deviceContext, StringComparison.Ordinal);
         Assert.Contains("WriteWireframeLineIndices(topology, source, lineIndices);", deviceContext, StringComparison.Ordinal);
         Assert.Contains("WriteTriangleEdges(lineIndices, ref write, (uint)i, (uint)(i + 1), (uint)(i + 2));", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("private void ClearRecordedCommandResources()", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("private void ExecuteGpuBackedCommands(ProGPU.Backend.WgpuContext context)", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < _commands.Count; i++)", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("var command = _commands[i];", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("private static uint[] ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var sourceIndices = ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceIndexBuffer.ReadWriteShadowBytes(MemoryMarshal.AsBytes(result.AsSpan()), offsetBytes);", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var indices = new uint[checked((int)vertexCount)]", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var command in _commands)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();", deviceContext, StringComparison.Ordinal);
     }
 
