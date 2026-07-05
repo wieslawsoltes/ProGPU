@@ -545,6 +545,26 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void SciChartVerticalPixelUploadsUseCallerSpansAndPooledScratch()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+
+        Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
+        Assert.Contains("ReadOnlySpan<int> yCoordinates,\n        ReadOnlySpan<int> pixelColorsArgb", source, StringComparison.Ordinal);
+        Assert.Contains("CreateVerticalPixelVertexBuffer(\n            xLeft,\n            xRight,\n            yCoordinates,\n            pixelColorsArgb", source, StringComparison.Ordinal);
+        Assert.Contains("var uploadColors = ArrayPool<int>.Shared.Rent(pixelColorsArgb.Length);", source, StringComparison.Ordinal);
+        Assert.Contains("CopyVerticalPixelColors(pixelColorsArgb, opacity, yAxisIsFlipped, uploadColorSpan);", source, StringComparison.Ordinal);
+        Assert.Contains("pixelsTexture.SetData(uploadColorSpan);", source, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<int>.Shared.Return(uploadColors);", source, StringComparison.Ordinal);
+        Assert.Contains("yCoordinates.IsEmpty ? null : CopySpan(yCoordinates)", source, StringComparison.Ordinal);
+        Assert.Contains("CopySpan(pixelColorsArgb)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("var copiedCoordinates = yCoordinates.ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("var copiedColors = pixelColorsArgb.ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("var sourceColors = pixelColorsArgb.ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateVerticalPixelVertexBuffer(\n            xLeft,\n            xRight,\n            copiedCoordinates,\n            copiedColors", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DirectXTextureReadbackUsesCallerOwnedBuffers()
     {
         string texture = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuTexture.cs"));

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Scene;
@@ -978,7 +979,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             xRight,
             yStartBottom,
             yEndTop,
-            yCoordinates: null,
+            yCoordinates: ReadOnlySpan<int>.Empty,
             pixelColorsArgb,
             opacity,
             isUniform: true,
@@ -1002,10 +1003,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedCoordinates = yCoordinates.ToArray();
         if (isUniform)
         {
-            if (copiedCoordinates[0] == copiedCoordinates[^1])
+            if (yCoordinates[0] == yCoordinates[^1])
             {
                 throw new ArgumentOutOfRangeException(nameof(yCoordinates), "SciChart uniform vertical pixels require a non-empty y range.");
             }
@@ -1013,9 +1013,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             DrawVerticalPixelsTexture(
                 xLeft,
                 xRight,
-                copiedCoordinates[0],
-                copiedCoordinates[^1],
-                copiedCoordinates,
+                yCoordinates[0],
+                yCoordinates[^1],
+                yCoordinates,
                 pixelColorsArgb,
                 opacity,
                 isUniform: true,
@@ -1023,12 +1023,11 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedColors = pixelColorsArgb.ToArray();
         var vertexBuffer = CreateVerticalPixelVertexBuffer(
             xLeft,
             xRight,
-            copiedCoordinates,
-            copiedColors,
+            yCoordinates,
+            pixelColorsArgb,
             opacity,
             yAxisIsFlipped,
             out var submittedVertexCount);
@@ -1051,10 +1050,10 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _verticalPixelsDraws.Add(new ProGpuDirectXSciChartVerticalPixelsDraw(
             xLeft,
             xRight,
-            copiedCoordinates,
-            copiedCoordinates[0],
-            copiedCoordinates[^1],
-            copiedColors,
+            CopySpan(yCoordinates),
+            yCoordinates[0],
+            yCoordinates[^1],
+            CopySpan(pixelColorsArgb),
             opacity,
             IsUniform: false,
             yAxisIsFlipped,
@@ -2379,40 +2378,48 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         int xRight,
         int yStartBottom,
         int yEndTop,
-        int[]? yCoordinates,
+        ReadOnlySpan<int> yCoordinates,
         ReadOnlySpan<int> pixelColorsArgb,
         double opacity,
         bool isUniform,
         bool yAxisIsFlipped)
     {
-        var sourceColors = pixelColorsArgb.ToArray();
-        var uploadColors = CopyVerticalPixelColors(pixelColorsArgb, opacity, yAxisIsFlipped);
-        if (!ContainsVisibleColor(uploadColors))
+        var uploadColors = ArrayPool<int>.Shared.Rent(pixelColorsArgb.Length);
+        try
         {
-            return;
+            var uploadColorSpan = uploadColors.AsSpan(0, pixelColorsArgb.Length);
+            CopyVerticalPixelColors(pixelColorsArgb, opacity, yAxisIsFlipped, uploadColorSpan);
+            if (!ContainsVisibleColor(uploadColorSpan))
+            {
+                return;
+            }
+
+            var viewportRect = CreateVerticalPixelRect(xLeft, xRight, yStartBottom, yEndTop);
+            var pixelsTexture = CreateTexture(1, checked((uint)uploadColorSpan.Length));
+            pixelsTexture.SetData(uploadColorSpan);
+            DrawTexture(
+                pixelsTexture,
+                viewportRect,
+                ProGpuDirectXSciChartTextureFiltering.Point,
+                isUniform: false);
+
+            _verticalPixelsDraws.Add(new ProGpuDirectXSciChartVerticalPixelsDraw(
+                xLeft,
+                xRight,
+                yCoordinates.IsEmpty ? null : CopySpan(yCoordinates),
+                yStartBottom,
+                yEndTop,
+                CopySpan(pixelColorsArgb),
+                opacity,
+                isUniform,
+                yAxisIsFlipped,
+                _clipRect));
+            _transientResources.Add(pixelsTexture);
         }
-
-        var viewportRect = CreateVerticalPixelRect(xLeft, xRight, yStartBottom, yEndTop);
-        var pixelsTexture = CreateTexture(1, checked((uint)uploadColors.Length));
-        pixelsTexture.SetData(uploadColors);
-        DrawTexture(
-            pixelsTexture,
-            viewportRect,
-            ProGpuDirectXSciChartTextureFiltering.Point,
-            isUniform: false);
-
-        _verticalPixelsDraws.Add(new ProGpuDirectXSciChartVerticalPixelsDraw(
-            xLeft,
-            xRight,
-            yCoordinates,
-            yStartBottom,
-            yEndTop,
-            sourceColors,
-            opacity,
-            isUniform,
-            yAxisIsFlipped,
-            _clipRect));
-        _transientResources.Add(pixelsTexture);
+        finally
+        {
+            ArrayPool<int>.Shared.Return(uploadColors);
+        }
     }
 
     private ProGpuDirectXBuffer CreateBatchedTextureVertexBuffer(
@@ -4719,19 +4726,17 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         return (colorArgb & 0x00FFFFFFu) | (adjustedAlpha << 24);
     }
 
-    private static int[] CopyVerticalPixelColors(
+    private static void CopyVerticalPixelColors(
         ReadOnlySpan<int> pixelColorsArgb,
         double opacity,
-        bool reverse)
+        bool reverse,
+        Span<int> colors)
     {
-        var colors = new int[pixelColorsArgb.Length];
         for (var i = 0; i < colors.Length; i++)
         {
             var sourceIndex = reverse ? colors.Length - 1 - i : i;
             colors[i] = unchecked((int)ApplyOpacity(unchecked((uint)pixelColorsArgb[sourceIndex]), opacity));
         }
-
-        return colors;
     }
 
     private static bool ContainsVisibleColor(ReadOnlySpan<int> pixelColorsArgb)
