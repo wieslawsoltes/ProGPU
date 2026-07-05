@@ -5,9 +5,5 @@
     <Nullable>enable</Nullable>
     <AssemblyName>WindowsBase</AssemblyName>
     <RootNamespace>System.Windows</RootNamespace>
-    <WpfMicrosoftSharedKeyFile Condition="'$(WpfMicrosoftSharedKeyFile)' == ''">$(NuGetPackageRoot)microsoft.dotnet.arcade.sdk/11.0.0-beta.26229.113/tools/snk/35MSSharedLib1024.snk</WpfMicrosoftSharedKeyFile>
-    <SignAssembly>true</SignAssembly>
-    <PublicSign>true</PublicSign>
-    <AssemblyOriginatorKeyFile>$(WpfMicrosoftSharedKeyFile)</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 </Project>

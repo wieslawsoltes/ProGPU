@@ -3,7 +3,9 @@ using ProGPU.Backend;
 using ProGPU.DirectX;
 using ProGPU.Scene;
 using ProGPU.Text;
-using ProGPU.Vector;
+using ProGpuPathGeometry = ProGPU.Vector.PathGeometry;
+using WpfBrush = System.Windows.Media.Brush;
+using WpfPoint = System.Windows.Point;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -20,7 +22,9 @@ public sealed class StrongNameSigningTests
     [InlineData(typeof(ProGpuDirectXDevice))]
     [InlineData(typeof(Compositor))]
     [InlineData(typeof(TtfFont))]
-    [InlineData(typeof(PathGeometry))]
+    [InlineData(typeof(ProGpuPathGeometry))]
+    [InlineData(typeof(WpfPoint))]
+    [InlineData(typeof(WpfBrush))]
     public void ProGpuCoreAssembliesAreStrongNameSigned(Type publicType)
     {
         var token = publicType.Assembly.GetName().GetPublicKeyToken();

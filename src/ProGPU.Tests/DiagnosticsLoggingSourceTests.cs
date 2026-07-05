@@ -63,6 +63,24 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void WpfShimProjectsUseInRepoStrongNameKey()
+    {
+        string directoryBuildProps = File.ReadAllText(FindRepoFile("Directory.Build.props"));
+        string windowsBaseProject = File.ReadAllText(FindRepoFile("src", "WindowsBase", "WindowsBase.csproj"));
+        string presentationCoreProject = File.ReadAllText(FindRepoFile("src", "PresentationCore", "PresentationCore.csproj"));
+
+        Assert.Contains("<ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>", directoryBuildProps, StringComparison.Ordinal);
+        Assert.Contains("<SignAssembly Condition=\"'$(SignAssembly)' == ''\">true</SignAssembly>", directoryBuildProps, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyOriginatorKeyFile Condition=\"'$(AssemblyOriginatorKeyFile)' == ''\">$(ProGPUStrongNameKeyFile)</AssemblyOriginatorKeyFile>", directoryBuildProps, StringComparison.Ordinal);
+        Assert.DoesNotContain("35MSSharedLib1024.snk", windowsBaseProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("35MSSharedLib1024.snk", presentationCoreProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("WpfMicrosoftSharedKeyFile", windowsBaseProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("WpfMicrosoftSharedKeyFile", presentationCoreProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("<PublicSign>true</PublicSign>", windowsBaseProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("<PublicSign>true</PublicSign>", presentationCoreProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TextLayoutUsesSingleGlyphBufferForWrappingAndAlignment()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Text", "TextLayout.cs"));
