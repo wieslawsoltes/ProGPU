@@ -1234,7 +1234,7 @@ public unsafe class Compositor : IDisposable
                 Span<VertexBufferLayout> scatterVertexLayouts = stackalloc VertexBufferLayout[1];
                 scatterVertexLayouts[0] = new VertexBufferLayout
                 {
-                    ArrayStride = 12,
+                    ArrayStride = (uint)Unsafe.SizeOf<Vector3>(),
                     StepMode = VertexStepMode.Instance,
                     AttributeCount = 2,
                     Attributes = scatterAttribsPtr

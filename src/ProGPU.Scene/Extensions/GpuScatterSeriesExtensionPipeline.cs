@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using Silk.NET.Core.Native;
@@ -300,29 +301,28 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             {
                 var shaderModule = compositor.PipelineCache.GetOrCreateShader("ChartScatterShader", ChartScatterShaderCode, "ChartScatter WGSL Shader");
 
-                var scatterAttribs = new VertexAttribute[]
+                Span<VertexAttribute> attrs = stackalloc VertexAttribute[2];
+                attrs[0] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }; // center
+                attrs[1] = new VertexAttribute { Format = VertexFormat.Float32, Offset = 8, ShaderLocation = 1 }; // radiusPx
+                fixed (VertexAttribute* attrsPtr = attrs)
                 {
-                    new() { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }, // center
-                    new() { Format = VertexFormat.Float32, Offset = 8, ShaderLocation = 1 }   // radiusPx
-                };
-                fixed (VertexAttribute* scatterAttribsPtr = scatterAttribs)
-                {
-                    var scatterLayoutDesc = new VertexBufferLayout
+                    Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[1];
+                    layouts[0] = new VertexBufferLayout
                     {
-                        ArrayStride = 12,
+                        ArrayStride = (uint)Unsafe.SizeOf<Vector3>(),
                         StepMode = VertexStepMode.Instance,
                         AttributeCount = 2,
-                        Attributes = scatterAttribsPtr
+                        Attributes = attrsPtr
                     };
 
                     var pipeline = compositor.PipelineCache.GetOrCreateRenderPipeline(
                         isOffscreen ? "ChartScatter_Offscreen" : "ChartScatter",
                         shaderModule,
+                        layouts,
                         "vs_main",
                         "fs_main",
                         compositor.RenderFormat,
                         PrimitiveTopology.TriangleList,
-                        new[] { scatterLayoutDesc },
                         enableBlend: true,
                         sampleCount: isOffscreen ? 1u : 4u
                     );

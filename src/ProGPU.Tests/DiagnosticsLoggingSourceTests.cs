@@ -793,6 +793,7 @@ public class DiagnosticsLoggingSourceTests
         string acisSolid = ReadSource("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs");
         string hatch = ReadSource("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs");
         string mesh3D = ReadSource("src", "ProGPU.Scene", "Extensions", "Mesh3DExtensionPipeline.cs");
+        string scatterSeries = ReadSource("src", "ProGPU.Scene", "Extensions", "GpuScatterSeriesExtensionPipeline.cs");
         string pipelineCache = ReadSource("src", "ProGPU.Backend", "RenderPipelineCache.cs");
 
         Assert.Contains("Span<VertexAttribute> vectorAttrs = stackalloc VertexAttribute[8];", compositor, StringComparison.Ordinal);
@@ -804,6 +805,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("Span<VertexBufferLayout> vertexLayouts = stackalloc VertexBufferLayout[1];", compositor, StringComparison.Ordinal);
         Assert.Contains("ArrayStride = (uint)Unsafe.SizeOf<VectorVertex>()", compositor, StringComparison.Ordinal);
         Assert.Contains("ArrayStride = (uint)Unsafe.SizeOf<GlyphInstance>()", compositor, StringComparison.Ordinal);
+        Assert.Contains("ArrayStride = (uint)Unsafe.SizeOf<Vector3>()", compositor, StringComparison.Ordinal);
         Assert.DoesNotContain("var vertexAttribs = new VertexAttribute[]", compositor, StringComparison.Ordinal);
         Assert.DoesNotContain("var textVertexAttribs = new VertexAttribute[]", compositor, StringComparison.Ordinal);
         Assert.DoesNotContain("var scatterAttribs = new VertexAttribute[]", compositor, StringComparison.Ordinal);
@@ -823,6 +825,7 @@ public class DiagnosticsLoggingSourceTests
         AssertStackBackedLayout(acisSolid, 8, "VectorVertex");
         AssertStackBackedLayout(hatch, 8, "VectorVertex");
         AssertStackBackedLayout(mesh3D, 2, "GpuVertex3D");
+        AssertStackBackedLayout(scatterSeries, 2, "Vector3");
 
         Assert.Contains("ReadOnlySpan<VertexBufferLayout> vertexBufferLayouts", pipelineCache, StringComparison.Ordinal);
         Assert.Contains("fixed (VertexBufferLayout* pLayouts = vertexBufferLayouts)", pipelineCache, StringComparison.Ordinal);
@@ -841,7 +844,9 @@ public class DiagnosticsLoggingSourceTests
             Assert.Contains($"Span<VertexAttribute> attrs = stackalloc VertexAttribute[{attributeCount}];", source, StringComparison.Ordinal);
             Assert.Contains("Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[1];", source, StringComparison.Ordinal);
             Assert.Contains($"ArrayStride = (uint)Unsafe.SizeOf<{vertexType}>()", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("new VertexAttribute[]", source, StringComparison.Ordinal);
             Assert.DoesNotContain("new VertexBufferLayout[]", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("new[] {", source, StringComparison.Ordinal);
             Assert.DoesNotContain("Marshal.AllocHGlobal(Marshal.SizeOf<VertexAttribute>()", source, StringComparison.Ordinal);
             Assert.DoesNotContain("Marshal.FreeHGlobal((IntPtr)layouts[0].Attributes)", source, StringComparison.Ordinal);
         }
