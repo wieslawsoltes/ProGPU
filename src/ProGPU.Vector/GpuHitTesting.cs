@@ -3442,7 +3442,11 @@ fn clear_hit_result(slot: u32) {
 fn stored_result_count(capacity: u32) -> u32 {
     var count = 0u;
     loop {
-        if (count >= capacity || results[count + 1u].hit == 0u) {
+        if (count >= capacity) {
+            break;
+        }
+
+        if (results[count + 1u].hit == 0u) {
             break;
         }
 

@@ -81,6 +81,33 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void BuildWorkflowUsesExplicitRuntimeNativeWebGpuTestLanes()
+    {
+        string workflow = File.ReadAllText(FindRepoFile(".github", "workflows", "build.yml"));
+
+        Assert.Contains("rid: linux-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("rid: osx-arm64", workflow, StringComparison.Ordinal);
+        Assert.Contains("rid: win-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("Install Linux WebGPU dependencies", workflow, StringComparison.Ordinal);
+        Assert.Contains("libvulkan1", workflow, StringComparison.Ordinal);
+        Assert.Contains("mesa-vulkan-drivers", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("LD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
+        Assert.Contains("DYLD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GpuHitTestingShaderChecksResultCapacityBeforeResultListRead()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains("if (count >= capacity) {\n            break;\n        }\n\n        if (results[count + 1u].hit == 0u) {", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (count >= capacity || results[count + 1u].hit == 0u)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TextLayoutUsesSingleGlyphBufferForWrappingAndAlignment()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Text", "TextLayout.cs"));

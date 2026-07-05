@@ -20,14 +20,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-15
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            native_output: src/ProGPU.Tests/bin/Release/net10.0/linux-x64
+          - os: macos-15
+            rid: osx-arm64
+            native_output: src/ProGPU.Tests/bin/Release/net10.0/osx-arm64
+          - os: windows-latest
+            rid: win-x64
+            native_output: src/ProGPU.Tests/bin/Release/net10.0/win-x64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -35,13 +58,25 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj
+        run: dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}
 
       - name: Build tests
-        run: dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+        run: dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
 
       - name: Test
-        run: dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --no-build --verbosity normal
+        shell: pwsh
+        run: |
+          $nativeRoot = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.native_output }}"
+          $nativeRidRoot = Join-Path $nativeRoot "runtimes/${{ matrix.rid }}/native"
+          if ($IsWindows) {
+            $env:PATH = "$nativeRoot;$nativeRidRoot;$env:PATH"
+          } elseif ($IsMacOS) {
+            $env:DYLD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$env:DYLD_LIBRARY_PATH"
+          } else {
+            $env:LD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$env:LD_LIBRARY_PATH"
+          }
+
+          dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-build --verbosity normal
 
       - name: Pack shipping packages
         shell: bash
