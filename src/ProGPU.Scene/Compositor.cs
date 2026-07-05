@@ -506,8 +506,10 @@ public unsafe class Compositor : IDisposable
         {
             lock (_registeredExtensions)
             {
-                foreach (var ext in _registeredExtensions)
+                var extensionCount = _registeredExtensions.Count;
+                for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
                 {
+                    var ext = _registeredExtensions[extensionIndex];
                     ext.BeginFrame(this);
                 }
             }
@@ -529,8 +531,10 @@ public unsafe class Compositor : IDisposable
             {
                 lock (_registeredExtensions)
                 {
-                    foreach (var ext in _registeredExtensions)
+                    var extensionCount = _registeredExtensions.Count;
+                    for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
                     {
+                        var ext = _registeredExtensions[extensionIndex];
                         ext.EndFrame(this);
                     }
                 }
@@ -6149,8 +6153,10 @@ public unsafe class Compositor : IDisposable
 
             lock (_registeredExtensions)
             {
-                foreach (var ext in _registeredExtensions)
+                var extensionCount = _registeredExtensions.Count;
+                for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
                 {
+                    var ext = _registeredExtensions[extensionIndex];
                     if (ext is IDisposable disposable)
                     {
                         disposable.Dispose();
@@ -7473,8 +7479,10 @@ public unsafe class Compositor : IDisposable
         ActiveCompilationContext = new StaticCompilationContext { StaticZoom = staticZoom };
         lock (_registeredExtensions)
         {
-            foreach (var ext in _registeredExtensions)
+            var extensionCount = _registeredExtensions.Count;
+            for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
             {
+                var ext = _registeredExtensions[extensionIndex];
                 ext.BeginStaticCompile(this, ActiveCompilationContext);
             }
         }
@@ -7743,8 +7751,10 @@ public unsafe class Compositor : IDisposable
 
             lock (_registeredExtensions)
             {
-                foreach (var ext in _registeredExtensions)
+                var extensionCount = _registeredExtensions.Count;
+                for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
                 {
+                    var ext = _registeredExtensions[extensionIndex];
                     ext.EndStaticCompile(this, ActiveCompilationContext, staticBuffer);
                 }
             }
@@ -7894,8 +7904,10 @@ public unsafe class Compositor : IDisposable
         ActiveCompilationContext = new StaticCompilationContext { StaticZoom = staticZoom };
         lock (_registeredExtensions)
         {
-            foreach (var ext in _registeredExtensions)
+            var extensionCount = _registeredExtensions.Count;
+            for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
             {
+                var ext = _registeredExtensions[extensionIndex];
                 ext.BeginStaticCompile(this, ActiveCompilationContext);
             }
         }
@@ -8234,8 +8246,10 @@ public unsafe class Compositor : IDisposable
 
             lock (_registeredExtensions)
             {
-                foreach (var ext in _registeredExtensions)
+                var extensionCount = _registeredExtensions.Count;
+                for (var extensionIndex = 0; extensionIndex < extensionCount; extensionIndex++)
                 {
+                    var ext = _registeredExtensions[extensionIndex];
                     ext.EndStaticCompile(this, ActiveCompilationContext, staticBuffer);
                 }
             }

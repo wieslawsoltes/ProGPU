@@ -159,6 +159,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var commands = picture.Commands;\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var commands = context.Commands;\n            var commandCount = commands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("var textRecords = staticBuffer.TextRecords;\n            for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var extensionCount = _registeredExtensions.Count;", source, StringComparison.Ordinal);
+        Assert.Contains("var ext = _registeredExtensions[extensionIndex];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var staticDrawCalls = new List<CompositorDrawCall>();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var dc in _drawCalls)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var dc in sb.DrawCalls)", source, StringComparison.Ordinal);
@@ -180,6 +182,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var cachedBg in _persistentTextureBindGroups.Values)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _maskBindGroups.Values)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _maskBindGroupsOffscreen.Values)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var ext in _registeredExtensions)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_maskDrawCallListPool", source, StringComparison.Ordinal);
         Assert.Contains("private static void AddRemovalItem<T>(ref T[]? buffer, ref int count, int capacity, T item)", source, StringComparison.Ordinal);
         Assert.Contains("private static void ReturnRemovalBuffer<T>(T[]? buffer, int count)", source, StringComparison.Ordinal);
