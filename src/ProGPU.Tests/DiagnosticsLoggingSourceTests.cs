@@ -463,11 +463,18 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private void ExecuteGpuBackedCommands(ProGPU.Backend.WgpuContext context)", deviceContext, StringComparison.Ordinal);
         Assert.Contains("for (var i = 0; i < _commands.Count; i++)", deviceContext, StringComparison.Ordinal);
         Assert.Contains("var command = _commands[i];", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("if ((stages & DxShaderStageFlags.Vertex) != 0)", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < entries.Count; i++)", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("entries[i] = entry with", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("entries.Sort(static (left, right) =>", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("private static uint[] ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var sourceIndices = ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceIndexBuffer.ReadWriteShadowBytes(MemoryMarshal.AsBytes(result.AsSpan()), offsetBytes);", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var indices = new uint[checked((int)vertexCount)]", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var command in _commands)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static IEnumerable<DxShaderStage> EnumerateStages(", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var stage in EnumerateStages(stages))", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();", deviceContext, StringComparison.Ordinal);
     }
 

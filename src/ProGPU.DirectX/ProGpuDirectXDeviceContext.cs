@@ -1156,19 +1156,42 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     private IReadOnlyList<ProGpuDirectXBindingEntry> BuildBindingEntries(DxShaderStageFlags stages)
     {
         var entries = new List<ProGpuDirectXBindingEntry>();
-        foreach (var stage in EnumerateStages(stages))
+
+        if ((stages & DxShaderStageFlags.Vertex) != 0)
         {
-            AddStageBindings(entries, stage);
+            AddStageBindings(entries, DxShaderStage.Vertex);
         }
 
-        return entries
-            .Select(entry => entry with
+        if ((stages & DxShaderStageFlags.Pixel) != 0)
+        {
+            AddStageBindings(entries, DxShaderStage.Pixel);
+        }
+
+        if ((stages & DxShaderStageFlags.Geometry) != 0)
+        {
+            AddStageBindings(entries, DxShaderStage.Geometry);
+        }
+
+        if ((stages & DxShaderStageFlags.Compute) != 0)
+        {
+            AddStageBindings(entries, DxShaderStage.Compute);
+        }
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var entry = entries[i];
+            entries[i] = entry with
             {
                 NativeBinding = ProGpuDirectXNativeBindingMap.GetNativeBinding(entry.Stage, entry.Kind, entry.Slot)
-            })
-            .OrderBy(entry => entry.NativeBinding)
-            .ThenBy(entry => entry.Stage)
-            .ToArray();
+            };
+        }
+
+        entries.Sort(static (left, right) =>
+        {
+            var comparison = left.NativeBinding.CompareTo(right.NativeBinding);
+            return comparison != 0 ? comparison : left.Stage.CompareTo(right.Stage);
+        });
+        return entries.ToArray();
     }
 
     private void AddStageBindings(List<ProGpuDirectXBindingEntry> entries, DxShaderStage stage)
@@ -1232,29 +1255,6 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                     UnorderedAccessView = view
                 });
             }
-        }
-    }
-
-    private static IEnumerable<DxShaderStage> EnumerateStages(DxShaderStageFlags stages)
-    {
-        if ((stages & DxShaderStageFlags.Vertex) != 0)
-        {
-            yield return DxShaderStage.Vertex;
-        }
-
-        if ((stages & DxShaderStageFlags.Pixel) != 0)
-        {
-            yield return DxShaderStage.Pixel;
-        }
-
-        if ((stages & DxShaderStageFlags.Geometry) != 0)
-        {
-            yield return DxShaderStage.Geometry;
-        }
-
-        if ((stages & DxShaderStageFlags.Compute) != 0)
-        {
-            yield return DxShaderStage.Compute;
         }
     }
 
