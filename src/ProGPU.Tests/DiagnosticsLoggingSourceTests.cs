@@ -433,6 +433,7 @@ public class DiagnosticsLoggingSourceTests
         string gpuBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuBuffer.cs"));
         string resources = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs"));
         string deviceContext = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXDeviceContext.cs"));
+        string pipelines = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXPipelines.cs"));
 
         Assert.Contains("public void ReadBytes(Span<byte> destination, uint offsetBytes = 0)", gpuBuffer, StringComparison.Ordinal);
         Assert.Contains("ReadBytes(bytes, offsetBytes);", gpuBuffer, StringComparison.Ordinal);
@@ -475,6 +476,13 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("CopySortedVertexBufferSlots(vertexBuffers, sortedSlots);", deviceContext, StringComparison.Ordinal);
         Assert.Contains("private static void CopySortedVertexBufferSlots<TValue>(", deviceContext, StringComparison.Ordinal);
         Assert.Contains("slots.Sort();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("private const int BackendInputSlotStackLimit = 16;", pipelines, StringComparison.Ordinal);
+        Assert.Contains("Span<uint> inputSlots = elementCount <= BackendInputSlotStackLimit", pipelines, StringComparison.Ordinal);
+        Assert.Contains("stackalloc uint[elementCount]", pipelines, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<uint>.Shared.Rent(elementCount)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("InsertSortedUniqueInputSlot(inputSlots, ref inputSlotCount", pipelines, StringComparison.Ordinal);
+        Assert.Contains("private static void InsertSortedUniqueInputSlot(Span<uint> slots, ref int slotCount, uint inputSlot)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("for (var shift = slotCount; shift > i; shift--)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("private static uint[] ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var sourceIndices = ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceIndexBuffer.ReadWriteShadowBytes(MemoryMarshal.AsBytes(result.AsSpan()), offsetBytes);", deviceContext, StringComparison.Ordinal);
@@ -484,6 +492,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var stage in EnumerateStages(stages))", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(pair => pair.Key)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Select(element => element.InputSlot)", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Distinct()", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain(".OrderBy(slot => slot)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();", deviceContext, StringComparison.Ordinal);
     }
 

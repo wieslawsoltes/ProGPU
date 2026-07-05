@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using ProGPU.Backend;
@@ -283,6 +284,7 @@ public sealed class ProGpuDirectXInputLayout
 
 public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
 {
+    private const int BackendInputSlotStackLimit = 16;
     private readonly ProGpuDirectXDevice _device;
     private readonly IntPtr _backendPipeline;
     private readonly IntPtr _frontFacingFrontPipeline;
@@ -665,16 +667,68 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
 
     private static uint[] CreateBackendInputSlots(ProGpuDirectXInputLayout? effectiveInputLayout)
     {
-        if (effectiveInputLayout is null || effectiveInputLayout.Elements.Count == 0)
+        var elements = effectiveInputLayout?.Elements;
+        if (elements is null || elements.Count == 0)
         {
             return Array.Empty<uint>();
         }
 
-        return effectiveInputLayout.Elements
-            .Select(element => element.InputSlot)
-            .Distinct()
-            .OrderBy(slot => slot)
-            .ToArray();
+        var elementCount = elements.Count;
+        uint[]? rentedSlots = null;
+        Span<uint> inputSlots = elementCount <= BackendInputSlotStackLimit
+            ? stackalloc uint[elementCount]
+            : (rentedSlots = ArrayPool<uint>.Shared.Rent(elementCount)).AsSpan(0, elementCount);
+
+        try
+        {
+            var inputSlotCount = 0;
+            for (var i = 0; i < elements.Count; i++)
+            {
+                InsertSortedUniqueInputSlot(inputSlots, ref inputSlotCount, elements[i].InputSlot);
+            }
+
+            if (inputSlotCount == 0)
+            {
+                return Array.Empty<uint>();
+            }
+
+            var result = new uint[inputSlotCount];
+            inputSlots[..inputSlotCount].CopyTo(result);
+            return result;
+        }
+        finally
+        {
+            if (rentedSlots != null)
+            {
+                ArrayPool<uint>.Shared.Return(rentedSlots);
+            }
+        }
+    }
+
+    private static void InsertSortedUniqueInputSlot(Span<uint> slots, ref int slotCount, uint inputSlot)
+    {
+        for (var i = 0; i < slotCount; i++)
+        {
+            var existing = slots[i];
+            if (existing == inputSlot)
+            {
+                return;
+            }
+
+            if (inputSlot < existing)
+            {
+                for (var shift = slotCount; shift > i; shift--)
+                {
+                    slots[shift] = slots[shift - 1];
+                }
+
+                slots[i] = inputSlot;
+                slotCount++;
+                return;
+            }
+        }
+
+        slots[slotCount++] = inputSlot;
     }
 
     private static IReadOnlyDictionary<uint, uint> CreateBackendInputSlotMap(ProGpuDirectXInputLayout? effectiveInputLayout)
