@@ -212,7 +212,7 @@ public sealed class ProGpuDirectXInputLayout
 {
     internal ProGpuDirectXInputLayout(DxInputLayoutDescriptor descriptor)
     {
-        var elements = descriptor.Elements.ToArray();
+        var elements = CopyInputElements(descriptor.Elements);
         ValidateElements(elements);
         Descriptor = descriptor with { Elements = elements };
         Elements = elements;
@@ -242,6 +242,18 @@ public sealed class ProGpuDirectXInputLayout
         }
 
         return stride;
+    }
+
+    private static DxInputElementDescriptor[] CopyInputElements(IReadOnlyList<DxInputElementDescriptor> source)
+    {
+        var count = source.Count;
+        var elements = new DxInputElementDescriptor[count];
+        for (var i = 0; i < count; i++)
+        {
+            elements[i] = source[i];
+        }
+
+        return elements;
     }
 
     private static void ValidateElements(IReadOnlyList<DxInputElementDescriptor> elements)

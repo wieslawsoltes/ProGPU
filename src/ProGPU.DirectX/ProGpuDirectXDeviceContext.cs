@@ -1216,7 +1216,8 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             var comparison = left.NativeBinding.CompareTo(right.NativeBinding);
             return comparison != 0 ? comparison : left.Stage.CompareTo(right.Stage);
         });
-        return entries.ToArray();
+
+        return entries;
     }
 
     private void AddStageBindings(List<ProGpuDirectXBindingEntry> entries, DxShaderStage stage)

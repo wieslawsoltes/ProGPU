@@ -527,6 +527,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var unorderedAccessViewEnumerator = _unorderedAccessViews.GetEnumerator();", deviceContext, StringComparison.Ordinal);
         Assert.Contains("var cacheEnumerator = _pipelineBindGroupCache.GetEnumerator();", deviceContext, StringComparison.Ordinal);
         Assert.Contains("var cachedBindGroupEnumerator = _pipelineBindGroupCache.Values.GetEnumerator();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("return entries;\n    }\n\n    private void AddStageBindings", deviceContext, StringComparison.Ordinal);
         Assert.Contains("Span<uint> sortedSlots = slotCount <= VertexBufferSlotStackLimit", deviceContext, StringComparison.Ordinal);
         Assert.Contains("stackalloc uint[slotCount]", deviceContext, StringComparison.Ordinal);
         Assert.Contains("ArrayPool<uint>.Shared.Rent(slotCount)", deviceContext, StringComparison.Ordinal);
@@ -543,6 +544,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private static void InsertSortedUniqueInputSlot(Span<uint> slots, ref int slotCount, uint inputSlot)", pipelines, StringComparison.Ordinal);
         Assert.Contains("for (var shift = slotCount; shift > i; shift--)", pipelines, StringComparison.Ordinal);
         Assert.Contains("SHA256.HashData(descriptor.Bytecode.Span)", pipelines, StringComparison.Ordinal);
+        Assert.Contains("var elements = CopyInputElements(descriptor.Elements);", pipelines, StringComparison.Ordinal);
+        Assert.Contains("private static DxInputElementDescriptor[] CopyInputElements(IReadOnlyList<DxInputElementDescriptor> source)", pipelines, StringComparison.Ordinal);
         Assert.Contains("for (var i = 0; i < Elements.Count; i++)\n        {\n            var element = Elements[i];", pipelines, StringComparison.Ordinal);
         Assert.Contains("for (var i = 0; i < elements.Count; i++)\n        {\n            var element = elements[i];", pipelines, StringComparison.Ordinal);
         Assert.Contains("var builder = new StringBuilder(elements.Count * 64);", pipelines, StringComparison.Ordinal);
@@ -583,10 +586,12 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var candidate in _pipelineBindGroupCache.Keys)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var cached in _pipelineBindGroupCache.Values)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var pair in source)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("return entries.ToArray();", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(pair => pair.Key)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".Select(element => element.InputSlot)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("descriptor.Bytecode.ToArray()", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("descriptor.Elements.ToArray()", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var element in Elements)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var element in elements)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("elements.Select(\n                (e, index)", pipelines, StringComparison.Ordinal);
