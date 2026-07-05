@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
@@ -77,7 +76,29 @@ public unsafe class ComputeAccelerator : IDisposable
 
     }
 
-    private void RunBlurPass(CommandEncoder* encoder, ComputePipeline* pipeline, BindGroupLayout* layout, GpuTexture input, GpuTexture output, uint width, uint height, List<nint> bindGroupsToRelease)
+    private static void TrackBindGroupForRelease(Span<nint> bindGroupsToRelease, ref int count, BindGroup* bindGroup)
+    {
+        bindGroupsToRelease[count++] = (nint)bindGroup;
+    }
+
+    private void ReleaseBindGroups(ReadOnlySpan<nint> bindGroupsToRelease)
+    {
+        for (int i = 0; i < bindGroupsToRelease.Length; i++)
+        {
+            _context.Wgpu.BindGroupRelease((BindGroup*)bindGroupsToRelease[i]);
+        }
+    }
+
+    private void RunBlurPass(
+        CommandEncoder* encoder,
+        ComputePipeline* pipeline,
+        BindGroupLayout* layout,
+        GpuTexture input,
+        GpuTexture output,
+        uint width,
+        uint height,
+        Span<nint> bindGroupsToRelease,
+        ref int bindGroupToReleaseCount)
     {
         var entries = stackalloc BindGroupEntry[2];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = input.ViewPtr };
@@ -90,7 +111,7 @@ public unsafe class ComputeAccelerator : IDisposable
             Entries = entries
         };
         var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
-        bindGroupsToRelease.Add((nint)bg);
+        TrackBindGroupForRelease(bindGroupsToRelease, ref bindGroupToReleaseCount, bg);
 
         var passDesc = new ComputePassDescriptor();
         var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
@@ -128,13 +149,14 @@ public unsafe class ComputeAccelerator : IDisposable
         var blurHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurHorizPipeline, 0);
         var blurVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurVertPipeline, 0);
 
-        var bindGroupsToRelease = new List<nint>();
+        Span<nint> bindGroupsToRelease = stackalloc nint[iterations * 2];
+        var bindGroupToReleaseCount = 0;
 
         for (int i = 0; i < iterations; i++)
         {
             var hInput = (i == 0) ? source : destination;
-            RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, hInput, temp, width, height, bindGroupsToRelease);
-            RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease);
+            RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, hInput, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
+            RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
         }
 
         // Submit commands to queue
@@ -148,16 +170,23 @@ public unsafe class ComputeAccelerator : IDisposable
         _context.Wgpu.CommandBufferRelease(cmdBuffer);
         _context.Wgpu.CommandEncoderRelease(encoder);
 
-        foreach (var bgPtr in bindGroupsToRelease)
-        {
-            _context.Wgpu.BindGroupRelease((BindGroup*)bgPtr);
-        }
+        ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
 
         _context.Wgpu.BindGroupLayoutRelease(blurHLayout);
         _context.Wgpu.BindGroupLayoutRelease(blurVLayout);
     }
 
-    private void RunShadowHPass(CommandEncoder* encoder, ComputePipeline* pipeline, BindGroupLayout* layout, GpuTexture input, GpuTexture output, GpuBuffer paramsBuffer, uint width, uint height, List<nint> bindGroupsToRelease)
+    private void RunShadowHPass(
+        CommandEncoder* encoder,
+        ComputePipeline* pipeline,
+        BindGroupLayout* layout,
+        GpuTexture input,
+        GpuTexture output,
+        GpuBuffer paramsBuffer,
+        uint width,
+        uint height,
+        Span<nint> bindGroupsToRelease,
+        ref int bindGroupToReleaseCount)
     {
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = input.ViewPtr };
@@ -171,7 +200,7 @@ public unsafe class ComputeAccelerator : IDisposable
             Entries = entries
         };
         var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
-        bindGroupsToRelease.Add((nint)bg);
+        TrackBindGroupForRelease(bindGroupsToRelease, ref bindGroupToReleaseCount, bg);
 
         var passDesc = new ComputePassDescriptor();
         var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
@@ -277,20 +306,21 @@ public unsafe class ComputeAccelerator : IDisposable
         var blurHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurHorizPipeline, 0);
         var blurVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurVertPipeline, 0);
 
-        var bindGroupsToRelease = new List<nint>();
+        Span<nint> bindGroupsToRelease = stackalloc nint[iterations * 2];
+        var bindGroupToReleaseCount = 0;
 
         for (int i = 0; i < iterations; i++)
         {
             if (i == 0)
             {
-                RunShadowHPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease);
+                RunShadowHPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
             }
             else
             {
-                RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, destination, temp, width, height, bindGroupsToRelease);
+                RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, destination, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
             }
 
-            RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease);
+            RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
         }
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
@@ -302,10 +332,7 @@ public unsafe class ComputeAccelerator : IDisposable
         _context.Wgpu.CommandBufferRelease(cmdBuffer);
         _context.Wgpu.CommandEncoderRelease(encoder);
 
-        foreach (var bgPtr in bindGroupsToRelease)
-        {
-            _context.Wgpu.BindGroupRelease((BindGroup*)bgPtr);
-        }
+        ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
 
         _context.Wgpu.BindGroupLayoutRelease(shadowHLayout);
         _context.Wgpu.BindGroupLayoutRelease(blurHLayout);

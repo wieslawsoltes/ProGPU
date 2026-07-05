@@ -99,6 +99,28 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void ComputeAcceleratorTracksTransientBindGroupsWithoutListSnapshots()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Compute", "ComputeAccelerator.cs"));
+
+        Assert.Contains("Span<nint> bindGroupsToRelease = stackalloc nint[iterations * 2];", source, StringComparison.Ordinal);
+        Assert.Contains("var bindGroupToReleaseCount = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, hInput, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("RunShadowHPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, destination, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);", source, StringComparison.Ordinal);
+        Assert.Contains("private static void TrackBindGroupForRelease(Span<nint> bindGroupsToRelease, ref int count, BindGroup* bindGroup)", source, StringComparison.Ordinal);
+        Assert.Contains("bindGroupsToRelease[count++] = (nint)bindGroup;", source, StringComparison.Ordinal);
+        Assert.Contains("private void ReleaseBindGroups(ReadOnlySpan<nint> bindGroupsToRelease)", source, StringComparison.Ordinal);
+        Assert.Contains("for (int i = 0; i < bindGroupsToRelease.Length; i++)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using System.Collections.Generic;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new List<nint>()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("bindGroupsToRelease.Add", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var bgPtr in bindGroupsToRelease)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderCommandRecordingSnapshotsUseExplicitCopies()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "RenderCommand.cs"));
