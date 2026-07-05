@@ -321,10 +321,21 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("Visual[] expandedOwners = ArrayPool<Visual>.Shared.Rent(owners.Length * 2);", source, StringComparison.Ordinal);
         Assert.Contains("ArrayPool<Visual>.Shared.Return(owners, clearArray: true);", source, StringComparison.Ordinal);
         Assert.Contains("owners![i].Invalidate();", source, StringComparison.Ordinal);
+        Assert.Contains("new(StringComparer.OrdinalIgnoreCase)", source, StringComparison.Ordinal);
+        Assert.Contains("var activeAnimationEnumerator = _activeAnimations.GetEnumerator();", source, StringComparison.Ordinal);
+        Assert.Contains("while (activeAnimationEnumerator.MoveNext())", source, StringComparison.Ordinal);
+        Assert.Contains("var kvp = activeAnimationEnumerator.Current;", source, StringComparison.Ordinal);
+        Assert.Contains("IsAnimationProperty(propertyName, \"opacity\")", source, StringComparison.Ordinal);
+        Assert.Contains("private static bool IsAnimationProperty(string propertyName, string expected)", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < _children.Count; i++)", source, StringComparison.Ordinal);
+        Assert.Contains("_children[i].Parent = null;", source, StringComparison.Ordinal);
         Assert.DoesNotContain("List<Visual>? owners", source, StringComparison.Ordinal);
         Assert.DoesNotContain("owners ??= new List<Visual>();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("owners.Add(owner);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var owner in owners)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var kvp in _activeAnimations)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("propertyName.ToLowerInvariant()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var child in _children)", source, StringComparison.Ordinal);
     }
 
     [Fact]

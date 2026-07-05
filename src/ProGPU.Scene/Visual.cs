@@ -23,7 +23,7 @@ public class Visual
     private float _rotation = 0f;
     private Vector3 _centerPoint = Vector3.Zero;
     private Vector2 _renderTransformOrigin = new Vector2(0.5f, 0.5f);
-    private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new();
+    private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new(StringComparer.OrdinalIgnoreCase);
     private Rect? _clipBounds;
     private Rect? _outerClipBounds;
     private Brush? _opacityMask;
@@ -379,8 +379,10 @@ public class Visual
 
         bool changed = false;
 
-        foreach (var kvp in _activeAnimations)
+        var activeAnimationEnumerator = _activeAnimations.GetEnumerator();
+        while (activeAnimationEnumerator.MoveNext())
         {
+            var kvp = activeAnimationEnumerator.Current;
             var propertyName = kvp.Key;
             var animation = kvp.Value;
 
@@ -389,71 +391,69 @@ public class Visual
             var value = animation.CurrentValue;
             if (value == null) continue;
 
-            switch (propertyName.ToLowerInvariant())
+            if (IsAnimationProperty(propertyName, "opacity"))
             {
-                case "opacity":
-                    if (value is float fOpacity)
+                if (value is float fOpacity)
+                {
+                    if (_opacity != fOpacity)
                     {
-                        if (_opacity != fOpacity)
-                        {
-                            _opacity = fOpacity;
-                            changed = true;
-                        }
+                        _opacity = fOpacity;
+                        changed = true;
                     }
-                    break;
-
-                case "rotation":
-                    if (value is float fRotation)
+                }
+            }
+            else if (IsAnimationProperty(propertyName, "rotation"))
+            {
+                if (value is float fRotation)
+                {
+                    if (_rotation != fRotation)
                     {
-                        if (_rotation != fRotation)
-                        {
-                            _rotation = fRotation;
-                            changed = true;
-                        }
+                        _rotation = fRotation;
+                        changed = true;
                     }
-                    break;
-
-                case "offset":
-                    if (value is Vector2 vOffset)
+                }
+            }
+            else if (IsAnimationProperty(propertyName, "offset"))
+            {
+                if (value is Vector2 vOffset)
+                {
+                    if (_offset != vOffset)
                     {
-                        if (_offset != vOffset)
-                        {
-                            _offset = vOffset;
-                            changed = true;
-                        }
+                        _offset = vOffset;
+                        changed = true;
                     }
-                    break;
-
-                case "size":
-                    if (value is Vector2 vSize)
+                }
+            }
+            else if (IsAnimationProperty(propertyName, "size"))
+            {
+                if (value is Vector2 vSize)
+                {
+                    if (_size != vSize)
                     {
-                        if (_size != vSize)
-                        {
-                            _size = vSize;
-                            changed = true;
-                        }
+                        _size = vSize;
+                        changed = true;
                     }
-                    break;
-
-                case "scale":
-                    if (value is Vector3 vScale)
+                }
+            }
+            else if (IsAnimationProperty(propertyName, "scale"))
+            {
+                if (value is Vector3 vScale)
+                {
+                    if (_scale != vScale)
                     {
-                        if (_scale != vScale)
-                        {
-                            _scale = vScale;
-                            changed = true;
-                        }
+                        _scale = vScale;
+                        changed = true;
                     }
-                    else if (value is Vector2 vScale2)
+                }
+                else if (value is Vector2 vScale2)
+                {
+                    var vScale3 = new Vector3(vScale2, 1.0f);
+                    if (_scale != vScale3)
                     {
-                        var vScale3 = new Vector3(vScale2, 1.0f);
-                        if (_scale != vScale3)
-                        {
-                            _scale = vScale3;
-                            changed = true;
-                        }
+                        _scale = vScale3;
+                        changed = true;
                     }
-                    break;
+                }
             }
         }
 
@@ -461,6 +461,11 @@ public class Visual
         {
             Invalidate();
         }
+    }
+
+    private static bool IsAnimationProperty(string propertyName, string expected)
+    {
+        return string.Equals(propertyName, expected, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -515,9 +520,9 @@ public class ContainerVisual : Visual
     {
         lock (_childrenLock)
         {
-            foreach (var child in _children)
+            for (var i = 0; i < _children.Count; i++)
             {
-                child.Parent = null;
+                _children[i].Parent = null;
             }
             _children.Clear();
         }
