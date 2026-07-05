@@ -88,6 +88,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 {
     private const int MaxPipelineBindGroupCacheEntries = 512;
     private const int WireframeSourceIndexStackByteLimit = 16 * 1024;
+    private const int VertexBufferSlotStackLimit = 16;
     private readonly ProGpuDirectXDevice _device;
     private readonly List<ProGpuDirectXCommand> _commands = new();
     private ProGpuDirectXTexture2D? _renderTarget;
@@ -1883,47 +1884,85 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
             if (command.VertexBufferBindings is { Count: > 0 } vertexBufferBindings)
             {
-                foreach (var pair in vertexBufferBindings.OrderBy(pair => pair.Key))
+                var slotCount = vertexBufferBindings.Count;
+                uint[]? rentedSlots = null;
+                Span<uint> sortedSlots = slotCount <= VertexBufferSlotStackLimit
+                    ? stackalloc uint[slotCount]
+                    : (rentedSlots = ArrayPool<uint>.Shared.Rent(slotCount)).AsSpan(0, slotCount);
+
+                try
                 {
-                    if (!pipeline.TryGetBackendVertexBufferSlot(pair.Key, out var backendSlot))
+                    CopySortedVertexBufferSlots(vertexBufferBindings, sortedSlots);
+                    for (var i = 0; i < sortedSlots.Length; i++)
                     {
-                        continue;
-                    }
+                        var slot = sortedSlots[i];
+                        if (!pipeline.TryGetBackendVertexBufferSlot(slot, out var backendSlot) ||
+                            !vertexBufferBindings.TryGetValue(slot, out var binding))
+                        {
+                            continue;
+                        }
 
-                    if (pair.Value.Buffer.BackendBuffer is not { BufferPtr: not null } buffer)
+                        if (binding.Buffer.BackendBuffer is not { BufferPtr: not null } buffer)
+                        {
+                            throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
+                        }
+
+                        var offsetBytes = binding.OffsetBytes;
+                        if (offsetBytes >= buffer.Size)
+                        {
+                            throw new InvalidOperationException("GPU-backed DirectX vertex-buffer binding offset is outside the backend buffer.");
+                        }
+
+                        context.Wgpu.RenderPassEncoderSetVertexBuffer(
+                            pass,
+                            backendSlot,
+                            buffer.BufferPtr,
+                            offsetBytes,
+                            buffer.Size - offsetBytes);
+                    }
+                }
+                finally
+                {
+                    if (rentedSlots != null)
                     {
-                        throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
+                        ArrayPool<uint>.Shared.Return(rentedSlots);
                     }
-
-                    var offsetBytes = pair.Value.OffsetBytes;
-                    if (offsetBytes >= buffer.Size)
-                    {
-                        throw new InvalidOperationException("GPU-backed DirectX vertex-buffer binding offset is outside the backend buffer.");
-                    }
-
-                    context.Wgpu.RenderPassEncoderSetVertexBuffer(
-                        pass,
-                        backendSlot,
-                        buffer.BufferPtr,
-                        offsetBytes,
-                        buffer.Size - offsetBytes);
                 }
             }
             else if (command.VertexBuffers is { Count: > 0 } vertexBuffers)
             {
-                foreach (var pair in vertexBuffers.OrderBy(pair => pair.Key))
+                var slotCount = vertexBuffers.Count;
+                uint[]? rentedSlots = null;
+                Span<uint> sortedSlots = slotCount <= VertexBufferSlotStackLimit
+                    ? stackalloc uint[slotCount]
+                    : (rentedSlots = ArrayPool<uint>.Shared.Rent(slotCount)).AsSpan(0, slotCount);
+
+                try
                 {
-                    if (!pipeline.TryGetBackendVertexBufferSlot(pair.Key, out var backendSlot))
+                    CopySortedVertexBufferSlots(vertexBuffers, sortedSlots);
+                    for (var i = 0; i < sortedSlots.Length; i++)
                     {
-                        continue;
-                    }
+                        var slot = sortedSlots[i];
+                        if (!pipeline.TryGetBackendVertexBufferSlot(slot, out var backendSlot) ||
+                            !vertexBuffers.TryGetValue(slot, out var vertexBuffer))
+                        {
+                            continue;
+                        }
 
-                    if (pair.Value.BackendBuffer is not { BufferPtr: not null } buffer)
+                        if (vertexBuffer.BackendBuffer is not { BufferPtr: not null } buffer)
+                        {
+                            throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
+                        }
+
+                        context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, backendSlot, buffer.BufferPtr, 0, buffer.Size);
+                    }
+                }
+                finally
+                {
+                    if (rentedSlots != null)
                     {
-                        throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
+                        ArrayPool<uint>.Shared.Return(rentedSlots);
                     }
-
-                    context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, backendSlot, buffer.BufferPtr, 0, buffer.Size);
                 }
             }
 
@@ -2684,6 +2723,19 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
         var shifted = dimension >> checked((int)mipLevel);
         return Math.Max(1u, shifted);
+    }
+
+    private static void CopySortedVertexBufferSlots<TValue>(
+        IReadOnlyDictionary<uint, TValue> source,
+        Span<uint> slots)
+    {
+        var write = 0;
+        foreach (var pair in source)
+        {
+            slots[write++] = pair.Key;
+        }
+
+        slots.Sort();
     }
 
     private readonly record struct Texture2DSubresourceInfo(

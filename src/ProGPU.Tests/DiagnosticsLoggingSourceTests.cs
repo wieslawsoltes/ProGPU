@@ -452,6 +452,7 @@ public class DiagnosticsLoggingSourceTests
 
         Assert.Contains("using System.Buffers;", deviceContext, StringComparison.Ordinal);
         Assert.Contains("private const int WireframeSourceIndexStackByteLimit = 16 * 1024;", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("private const int VertexBufferSlotStackLimit = 16;", deviceContext, StringComparison.Ordinal);
         Assert.Contains("private static uint[] CreateWireframeLineIndicesFromIndexBuffer(", deviceContext, StringComparison.Ordinal);
         Assert.Contains("Span<byte> sourceBytes = sizeInBytes <= WireframeSourceIndexStackByteLimit", deviceContext, StringComparison.Ordinal);
         Assert.Contains("stackalloc byte[sizeInBytes]", deviceContext, StringComparison.Ordinal);
@@ -467,6 +468,13 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("for (var i = 0; i < entries.Count; i++)", deviceContext, StringComparison.Ordinal);
         Assert.Contains("entries[i] = entry with", deviceContext, StringComparison.Ordinal);
         Assert.Contains("entries.Sort(static (left, right) =>", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("Span<uint> sortedSlots = slotCount <= VertexBufferSlotStackLimit", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("stackalloc uint[slotCount]", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("ArrayPool<uint>.Shared.Rent(slotCount)", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("CopySortedVertexBufferSlots(vertexBufferBindings, sortedSlots);", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("CopySortedVertexBufferSlots(vertexBuffers, sortedSlots);", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("private static void CopySortedVertexBufferSlots<TValue>(", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("slots.Sort();", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("private static uint[] ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var sourceIndices = ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceIndexBuffer.ReadWriteShadowBytes(MemoryMarshal.AsBytes(result.AsSpan()), offsetBytes);", deviceContext, StringComparison.Ordinal);
@@ -475,6 +483,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("private static IEnumerable<DxShaderStage> EnumerateStages(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var stage in EnumerateStages(stages))", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain(".OrderBy(pair => pair.Key)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();", deviceContext, StringComparison.Ordinal);
     }
 
