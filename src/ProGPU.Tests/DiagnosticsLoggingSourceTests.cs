@@ -505,6 +505,46 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void SciChart2DBatchUploadsUseCallerSpansBeforeDurableHistoryCopies()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+
+        Assert.Contains("var vertexSpan = vertices[..count];", source, StringComparison.Ordinal);
+        Assert.Contains("var vertexSpan = vertices.Slice(startIndex, count);", source, StringComparison.Ordinal);
+        Assert.Contains("CreateLineBatchVertexBuffer(\n            vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateMountainFillVertexBuffer(\n            vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateBandFillVertexBuffer(\n            vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateBandLineVertices(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateColumnFillVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateColumnStrokeVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateRectBatchVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateSpriteBatchVertexBuffer(\n            vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("DrawColoredSpritesCore(\n            sprite,\n            vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateCandleFillVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateCandleStrokeVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateOhlcStrokeVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CreateBatchedTextureVertexBuffer(vertexSpan", source, StringComparison.Ordinal);
+        Assert.Contains("CopySpan(vertexSpan)", source, StringComparison.Ordinal);
+        Assert.Contains("private static T[] CopySpan<T>(ReadOnlySpan<T> values)", source, StringComparison.Ordinal);
+        Assert.Contains("values.CopyTo(copiedValues);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("var copiedVertices = vertices[..count].ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("var copiedVertices = vertices.Slice(startIndex, count).ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateLineBatchVertexBuffer(\n            copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateMountainFillVertexBuffer(\n            copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateBandFillVertexBuffer(\n            copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateBandLineVertices(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateColumnFillVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateColumnStrokeVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateRectBatchVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateSpriteBatchVertexBuffer(\n            copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateColoredSpriteInstanceBuffer(\n            copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateCandleFillVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateCandleStrokeVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateOhlcStrokeVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateBatchedTextureVertexBuffer(copiedVertices", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DirectXTextureReadbackUsesCallerOwnedBuffers()
     {
         string texture = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuTexture.cs"));

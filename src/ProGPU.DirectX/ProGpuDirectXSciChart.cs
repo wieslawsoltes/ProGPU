@@ -1398,9 +1398,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
+        var vertexSpan = vertices[..count];
         var vertexBuffer = CreateLineBatchVertexBuffer(
-            copiedVertices,
+            vertexSpan,
             transform,
             pen,
             isStrips,
@@ -1428,7 +1428,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _context.Draw(submittedVertexCount);
 
         _lineBatchDraws.Add(new ProGpuDirectXSciChartLineBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             pen,
             isStrips,
             isDigital,
@@ -1493,15 +1493,15 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
+        var vertexSpan = vertices[..count];
         var fillBuffer = CreateMountainFillVertexBuffer(
-            copiedVertices,
+            vertexSpan,
             brush,
             palette,
             transform,
             isDigital,
             out var fillVertexCount);
-        var lineVertices = CreateBandLineVertices(copiedVertices, useY1: false, pen, palette);
+        var lineVertices = CreateBandLineVertices(vertexSpan, useY1: false, pen, palette);
         var lineBuffer = CreateLineBatchVertexBuffer(
             lineVertices,
             transform,
@@ -1537,7 +1537,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
 
         _mountainBatchDraws.Add(new ProGpuDirectXSciChartMountainBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             pen,
             brush,
             isDigital,
@@ -1569,17 +1569,17 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
+        var vertexSpan = vertices[..count];
         var fillBuffer = CreateBandFillVertexBuffer(
-            copiedVertices,
+            vertexSpan,
             brushPositive,
             brushNegative,
             palette,
             transform,
             isDigital,
             out var fillVertexCount);
-        var lineAVertices = CreateBandLineVertices(copiedVertices, useY1: false, penA, palette);
-        var lineBVertices = CreateBandLineVertices(copiedVertices, useY1: true, penB, palette);
+        var lineAVertices = CreateBandLineVertices(vertexSpan, useY1: false, penA, palette);
+        var lineBVertices = CreateBandLineVertices(vertexSpan, useY1: true, penB, palette);
         var lineABuffer = CreateLineBatchVertexBuffer(
             lineAVertices,
             transform,
@@ -1634,7 +1634,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
 
         _bandBatchDraws.Add(new ProGpuDirectXSciChartBandBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             penA,
             penB,
             brushPositive,
@@ -1658,9 +1658,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
-        var fillBuffer = CreateColumnFillVertexBuffer(copiedVertices, transform, out var fillVertexCount);
-        var strokeBuffer = CreateColumnStrokeVertexBuffer(copiedVertices, transform, out var strokeVertexCount);
+        var vertexSpan = vertices[..count];
+        var fillBuffer = CreateColumnFillVertexBuffer(vertexSpan, transform, out var fillVertexCount);
+        var strokeBuffer = CreateColumnStrokeVertexBuffer(vertexSpan, transform, out var strokeVertexCount);
         if (fillBuffer is null && strokeBuffer is null)
         {
             return;
@@ -1691,7 +1691,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
 
         _columnBatchDraws.Add(new ProGpuDirectXSciChartColumnBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             transform,
             _clipRect));
     }
@@ -1710,8 +1710,8 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
-        var vertexBuffer = CreateRectBatchVertexBuffer(copiedVertices, transform, anchor, out var submittedVertexCount);
+        var vertexSpan = vertices[..count];
+        var vertexBuffer = CreateRectBatchVertexBuffer(vertexSpan, transform, anchor, out var submittedVertexCount);
         if (vertexBuffer is null)
         {
             return;
@@ -1729,7 +1729,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _context.Draw(submittedVertexCount);
 
         _rectBatchDraws.Add(new ProGpuDirectXSciChartRectBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             transform,
             anchor,
             _clipRect));
@@ -1764,9 +1764,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
+        var vertexSpan = vertices[..count];
         var fillBuffer = CreateSpriteBatchVertexBuffer(
-            copiedVertices,
+            vertexSpan,
             sprite,
             transform,
             centeredAmount,
@@ -1776,7 +1776,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         var strokeBuffer = strokeSprite is null
             ? null
             : CreateSpriteBatchVertexBuffer(
-                copiedVertices,
+                vertexSpan,
                 strokeSprite,
                 transform,
                 centeredAmount,
@@ -1817,7 +1817,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
 
         _spriteBatchDraws.Add(new ProGpuDirectXSciChartSpriteBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             sprite,
             strokeSprite,
             transform,
@@ -1849,10 +1849,10 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices.Slice(startIndex, count).ToArray();
+        var vertexSpan = vertices.Slice(startIndex, count);
         DrawColoredSpritesCore(
             sprite,
-            copiedVertices,
+            vertexSpan,
             startIndex,
             count,
             transform,
@@ -1905,7 +1905,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
 
     private void DrawColoredSpritesCore(
         ProGpuDirectXSciChartSprite2D sprite,
-        ProGpuDirectXSciChartColoredSpriteVertex[] copiedVertices,
+        ReadOnlySpan<ProGpuDirectXSciChartColoredSpriteVertex> vertices,
         int startIndex,
         int count,
         ProGpuDirectXSciChartVertexTransform transform,
@@ -1913,7 +1913,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         ProGpuDirectXSciChartTextureFiltering filtering)
     {
         var instanceBuffer = CreateColoredSpriteInstanceBuffer(
-            copiedVertices,
+            vertices,
             sprite,
             transform,
             centeredAmount,
@@ -1938,7 +1938,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _context.DrawInstanced(6, submittedInstanceCount);
 
         _coloredSpriteDraws.Add(new ProGpuDirectXSciChartColoredSpriteDraw(
-            copiedVertices,
+            CopySpan(vertices),
             sprite,
             startIndex,
             count,
@@ -1965,9 +1965,9 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
-        var fillBuffer = CreateCandleFillVertexBuffer(copiedVertices, width, transform, out var fillVertexCount);
-        var strokeBuffer = CreateCandleStrokeVertexBuffer(copiedVertices, width, transform, out var strokeVertexCount);
+        var vertexSpan = vertices[..count];
+        var fillBuffer = CreateCandleFillVertexBuffer(vertexSpan, width, transform, out var fillVertexCount);
+        var strokeBuffer = CreateCandleStrokeVertexBuffer(vertexSpan, width, transform, out var strokeVertexCount);
         if (fillBuffer is null && strokeBuffer is null)
         {
             return;
@@ -1998,7 +1998,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         }
 
         _financialBatchDraws.Add(new ProGpuDirectXSciChartFinancialBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             width,
             ProGpuDirectXSciChartFinancialBatchKind.Candles,
             transform,
@@ -2024,11 +2024,11 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices[..count].ToArray();
+        var vertexSpan = vertices[..count];
         var effectiveTransform = isVerticalChart
             ? new ProGpuDirectXSciChartVertexTransform(!transform.SwapAxis)
             : transform;
-        var strokeBuffer = CreateOhlcStrokeVertexBuffer(copiedVertices, width, effectiveTransform, out var strokeVertexCount);
+        var strokeBuffer = CreateOhlcStrokeVertexBuffer(vertexSpan, width, effectiveTransform, out var strokeVertexCount);
         if (strokeBuffer is null)
         {
             return;
@@ -2046,7 +2046,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _context.Draw(strokeVertexCount);
 
         _financialBatchDraws.Add(new ProGpuDirectXSciChartFinancialBatchDraw(
-            copiedVertices,
+            CopySpan(vertexSpan),
             width,
             ProGpuDirectXSciChartFinancialBatchKind.Ohlc,
             transform,
@@ -2074,8 +2074,8 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices.Slice(startIndex, count).ToArray();
-        var vertexBuffer = CreateBatchedTextureVertexBuffer(copiedVertices, transform);
+        var vertexSpan = vertices.Slice(startIndex, count);
+        var vertexBuffer = CreateBatchedTextureVertexBuffer(vertexSpan, transform);
         var shaderResourceView = _device.CreateShaderResourceView(texture.Resource);
         var sampler = GetSampler(filtering);
         var pipeline = GetBatchedTexturePipeline(RenderTarget.Descriptor.Format, filtering);
@@ -2093,7 +2093,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
 
         _textureVertexDraws.Add(new ProGpuDirectXSciChartTextureVertexDraw(
             texture,
-            copiedVertices,
+            CopySpan(vertexSpan),
             transform,
             filtering,
             _clipRect));
@@ -2123,8 +2123,8 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
             return;
         }
 
-        var copiedVertices = vertices.Slice(startIndex, count).ToArray();
-        var vertexBuffer = CreateBatchedTextureVertexBuffer(copiedVertices, default);
+        var vertexSpan = vertices.Slice(startIndex, count);
+        var vertexBuffer = CreateBatchedTextureVertexBuffer(vertexSpan, default);
         var heightsView = _device.CreateShaderResourceView(
             heightsTexture.GetFloatDataBuffer(),
             new DxShaderResourceViewDescriptor
@@ -2154,7 +2154,7 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         _shapedHeatmapDraws.Add(new ProGpuDirectXSciChartShapedHeatmapDraw(
             heightsTexture,
             gradientTexture,
-            copiedVertices,
+            CopySpan(vertexSpan),
             colorMapMin,
             colorMapMax,
             filtering,
@@ -2942,6 +2942,13 @@ public sealed class ProGpuDirectXSciChartRenderContext2D : IDisposable
         var copiedPoints = new ProGpuDirectXSciChartPoint[points.Length];
         points.CopyTo(copiedPoints);
         return copiedPoints;
+    }
+
+    private static T[] CopySpan<T>(ReadOnlySpan<T> values)
+    {
+        var copiedValues = new T[values.Length];
+        values.CopyTo(copiedValues);
+        return copiedValues;
     }
 
     private ProGpuDirectXBuffer? CreateMountainFillVertexBuffer(
