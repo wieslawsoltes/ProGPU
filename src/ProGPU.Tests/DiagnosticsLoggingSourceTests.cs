@@ -222,6 +222,16 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("int otherCommandCount = otherCommands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int commandIndex = 0; commandIndex < otherCommandCount; commandIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var cmd = otherCommands[commandIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("AppendList(PointBuffer, other.PointBuffer);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendList(DoubleBuffer, other.DoubleBuffer);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendList(Line3DBuffer, other.Line3DBuffer);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendList(FloatBuffer, other.FloatBuffer);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendArray(_retainedResources, retainedResources);", source, StringComparison.Ordinal);
+        Assert.Contains("private static void AppendList<T>(List<T> destination, List<T> source)", source, StringComparison.Ordinal);
+        Assert.Contains("private static void AppendArray<T>(List<T> destination, T[] source)", source, StringComparison.Ordinal);
+        Assert.Contains("destination.EnsureCapacity(checked(destination.Count + sourceCount));", source, StringComparison.Ordinal);
+        Assert.Contains("for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("destination.Add(source[sourceIndex]);", source, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < _retainedResources.Count; i++)", source, StringComparison.Ordinal);
         Assert.Contains("_retainedResources[i].Dispose();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_recordingContext.Commands.ToArray()", source, StringComparison.Ordinal);
@@ -232,6 +242,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var cmd in other.Commands)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var resource in resources)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var resource in _retainedResources)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("PointBuffer.AddRange", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DoubleBuffer.AddRange", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Line3DBuffer.AddRange", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("FloatBuffer.AddRange", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_retainedResources.AddRange", source, StringComparison.Ordinal);
     }
 
     [Fact]

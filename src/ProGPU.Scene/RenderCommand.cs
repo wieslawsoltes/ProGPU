@@ -1318,13 +1318,10 @@ public class DrawingContext : IRenderDataProvider
         int line3dOffset = Line3DBuffer.Count;
         int floatOffset = FloatBuffer.Count;
 
-        PointBuffer.AddRange(other.PointBuffer);
-
-        DoubleBuffer.AddRange(other.DoubleBuffer);
-
-        Line3DBuffer.AddRange(other.Line3DBuffer);
-
-        FloatBuffer.AddRange(other.FloatBuffer);
+        AppendList(PointBuffer, other.PointBuffer);
+        AppendList(DoubleBuffer, other.DoubleBuffer);
+        AppendList(Line3DBuffer, other.Line3DBuffer);
+        AppendList(FloatBuffer, other.FloatBuffer);
 
         var otherCommands = other.Commands;
         int otherCommandCount = otherCommands.Count;
@@ -1399,7 +1396,37 @@ public class DrawingContext : IRenderDataProvider
             Commands.Add(adjustedCmd);
         }
 
-        _retainedResources.AddRange(other.CloneRetainedResources());
+        var retainedResources = other.CloneRetainedResources();
+        AppendArray(_retainedResources, retainedResources);
+    }
+
+    private static void AppendList<T>(List<T> destination, List<T> source)
+    {
+        int sourceCount = source.Count;
+        if (sourceCount == 0)
+        {
+            return;
+        }
+
+        destination.EnsureCapacity(checked(destination.Count + sourceCount));
+        for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++)
+        {
+            destination.Add(source[sourceIndex]);
+        }
+    }
+
+    private static void AppendArray<T>(List<T> destination, T[] source)
+    {
+        if (source.Length == 0)
+        {
+            return;
+        }
+
+        destination.EnsureCapacity(checked(destination.Count + source.Length));
+        for (int sourceIndex = 0; sourceIndex < source.Length; sourceIndex++)
+        {
+            destination.Add(source[sourceIndex]);
+        }
     }
 
     private void TranslatePointBufferSlice(int offset, int count, Vector2 translation)
