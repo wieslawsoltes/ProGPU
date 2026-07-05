@@ -43,6 +43,27 @@ public interface IPortableFileDialogServiceRegistrar
     void Clear();
 }
 
+public interface IPortablePopupServiceRegistrar
+{
+    PortableWpfServiceKey ServiceKey { get; }
+
+    bool TryCreatePopup(PortablePopupCreateRequest request, out object? presentationSource);
+
+    bool TrySetPopupPosition(object presentationSource, int x, int y);
+
+    bool TrySetPopupSize(object presentationSource, int width, int height);
+
+    bool TryShowPopup(object presentationSource);
+
+    bool TryHidePopup(object presentationSource);
+
+    bool TrySetPopupHitTestable(object presentationSource, bool hitTestable);
+
+    bool TryDestroyPopup(object presentationSource);
+
+    void Clear();
+}
+
 public sealed class PortableLaunchRequest
 {
     public PortableLaunchRequest(Uri uri, string targetFrame, bool isTopLevel)
@@ -147,6 +168,41 @@ public sealed class PortableFileDialogRequest
     public string Filter { get; }
 
     public int FilterIndex { get; }
+}
+
+public sealed class PortablePopupCreateRequest
+{
+    public PortablePopupCreateRequest(
+        object? placementTarget,
+        object? ownerPresentationSource,
+        IntPtr ownerHandle,
+        int x,
+        int y,
+        bool isTransparent,
+        bool isChildPopup)
+    {
+        PlacementTarget = placementTarget;
+        OwnerPresentationSource = ownerPresentationSource;
+        OwnerHandle = ownerHandle;
+        X = x;
+        Y = y;
+        IsTransparent = isTransparent;
+        IsChildPopup = isChildPopup;
+    }
+
+    public object? PlacementTarget { get; }
+
+    public object? OwnerPresentationSource { get; }
+
+    public IntPtr OwnerHandle { get; }
+
+    public int X { get; }
+
+    public int Y { get; }
+
+    public bool IsTransparent { get; }
+
+    public bool IsChildPopup { get; }
 }
 
 public sealed class PortableWindowActivationCallbacks
@@ -293,6 +349,11 @@ public interface IPortableWindowActivationServiceRegistrar
 
     bool TryProcessInputEvent(object window, PortableWindowInputEvent input);
 
+    bool TryProcessPresentationSourceInputEvent(object presentationSource, PortableWindowInputEvent input)
+    {
+        return false;
+    }
+
     bool TryFlushDispatcherOperations(object window, string markerPriorityName, TimeSpan? timeout);
 
     bool TryProcessDragDropEvent(
@@ -317,6 +378,7 @@ public static class PortableWpfServiceRegistry
     private static readonly Dictionary<PortableWpfServiceKey, IPortableLauncherServiceRegistrar> LauncherServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableMessageBoxServiceRegistrar> MessageBoxServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableFileDialogServiceRegistrar> FileDialogServices = new();
+    private static readonly Dictionary<PortableWpfServiceKey, IPortablePopupServiceRegistrar> PopupServices = new();
 
     public static IDisposable RegisterWindowActivationService(IPortableWindowActivationServiceRegistrar service)
     {
@@ -443,6 +505,31 @@ public static class PortableWpfServiceRegistry
         }
     }
 
+    public static IDisposable RegisterPopupService(IPortablePopupServiceRegistrar service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        ValidateServiceKey(service.ServiceKey, nameof(service));
+
+        lock (SyncRoot)
+        {
+            PopupServices[service.ServiceKey] = service;
+        }
+
+        return new Registration<IPortablePopupServiceRegistrar>(service, PopupServices);
+    }
+
+    public static bool TryGetPopupService(
+        PortableWpfServiceKey serviceKey,
+        out IPortablePopupServiceRegistrar service)
+    {
+        ValidateServiceKey(serviceKey, nameof(serviceKey));
+
+        lock (SyncRoot)
+        {
+            return PopupServices.TryGetValue(serviceKey, out service!);
+        }
+    }
+
     private static void ValidateServiceKey(PortableWpfServiceKey serviceKey, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(serviceKey.Name))
@@ -493,6 +580,7 @@ public static class PortableWpfServiceRegistry
                 IPortableLauncherServiceRegistrar launcherService => launcherService.ServiceKey,
                 IPortableMessageBoxServiceRegistrar messageBoxService => messageBoxService.ServiceKey,
                 IPortableFileDialogServiceRegistrar fileDialogService => fileDialogService.ServiceKey,
+                IPortablePopupServiceRegistrar popupService => popupService.ServiceKey,
                 _ => throw new InvalidOperationException("Unsupported portable WPF service registrar.")
             };
         }
