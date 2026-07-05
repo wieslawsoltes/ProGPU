@@ -545,9 +545,25 @@ public sealed class GpuHitTestIndex
         builder.AddRootNode(min, max);
         return new GpuHitTestIndex(
             CopySpan(primitives),
-            builder.Nodes.ToArray(),
-            builder.PrimitiveIndices.ToArray(),
+            CopyList(builder.Nodes),
+            CopyList(builder.PrimitiveIndices),
             CopySpan(pathSegments));
+    }
+
+    private static T[] CopyList<T>(List<T> values)
+    {
+        if (values.Count == 0)
+        {
+            return Array.Empty<T>();
+        }
+
+        var array = new T[values.Count];
+        for (int i = 0; i < array.Length; i++)
+        {
+            array[i] = values[i];
+        }
+
+        return array;
     }
 
     private static T[] CopySpan<T>(ReadOnlySpan<T> values)

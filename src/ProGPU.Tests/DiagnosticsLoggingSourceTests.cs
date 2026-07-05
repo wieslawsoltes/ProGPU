@@ -412,6 +412,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("int childIndex = FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, center);", source, StringComparison.Ordinal);
         Assert.Contains("bool fitsLeft = primitiveMax.X <= center.X;", source, StringComparison.Ordinal);
         Assert.Contains("bool fitsBottom = primitiveMin.Y >= center.Y;", source, StringComparison.Ordinal);
+        Assert.Contains("CopyList(builder.Nodes)", source, StringComparison.Ordinal);
+        Assert.Contains("CopyList(builder.PrimitiveIndices)", source, StringComparison.Ordinal);
+        Assert.Contains("private static T[] CopyList<T>(List<T> values)", source, StringComparison.Ordinal);
+        Assert.Contains("array[i] = values[i];", source, StringComparison.Ordinal);
         Assert.Contains("retained.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("child0.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("private readonly struct RootPrimitiveIndices", source, StringComparison.Ordinal);
@@ -420,6 +424,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("retained ??= [];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly struct ListPrimitiveIndices", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new ListPrimitiveIndices(childPrimitives)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("builder.Nodes.ToArray()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("builder.PrimitiveIndices.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new List<int>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, min, max, center)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("for (int i = 0; i < 4; i++)\n            {\n                var child = GetChildBounds(i, nodeMin, nodeMax, center);", source, StringComparison.Ordinal);
