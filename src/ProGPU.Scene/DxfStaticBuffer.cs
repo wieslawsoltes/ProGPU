@@ -110,21 +110,28 @@ public unsafe class DxfStaticBuffer : IDisposable
     
     public void UpdateTextBuffer(GlyphInstance[] textVertices)
     {
-        if (textVertices.Length > 0)
+        UpdateTextBuffer((ReadOnlySpan<GlyphInstance>)textVertices);
+    }
+
+    public void UpdateTextBuffer(ReadOnlySpan<GlyphInstance> textVertices)
+    {
+        int textVertexCount = textVertices.Length;
+        if (textVertexCount > 0)
         {
-            if (_textVertexBufferBack == null || _textVertexBufferBack.Size < textVertices.Length * Marshal.SizeOf<GlyphInstance>())
+            uint requiredBytes = checked((uint)textVertexCount * (uint)Marshal.SizeOf<GlyphInstance>());
+            if (_textVertexBufferBack == null || _textVertexBufferBack.Size < requiredBytes)
             {
                 _textVertexBufferBack?.Dispose();
-                _textVertexBufferBack = new GpuBuffer(_context, (uint)textVertices.Length * (uint)Marshal.SizeOf<GlyphInstance>(), BufferUsage.Vertex | BufferUsage.CopyDst, "Static DXF Text Vertex Back Buffer");
+                _textVertexBufferBack = new GpuBuffer(_context, requiredBytes, BufferUsage.Vertex | BufferUsage.CopyDst, "Static DXF Text Vertex Back Buffer");
             }
-            _textVertexBufferBack.Write(new ReadOnlySpan<GlyphInstance>(textVertices));
+            _textVertexBufferBack.Write(textVertices);
             
             // Swap front and back buffer references
             var tempVertexBuffer = TextVertexBuffer;
             TextVertexBuffer = _textVertexBufferBack;
             _textVertexBufferBack = tempVertexBuffer;
 
-            TextIndexCount = (uint)textVertices.Length;
+            TextIndexCount = (uint)textVertexCount;
         }
         else
         {

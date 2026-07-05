@@ -253,6 +253,7 @@ public class DiagnosticsLoggingSourceTests
     public void CompositorTransientStateSnapshotsUseArrayPool()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Compositor.cs"));
+        string dxfStaticBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "DxfStaticBuffer.cs"));
         string seriesBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuSeriesBuffer.cs"));
         string acisPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs"));
         string hatchPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs"));
@@ -311,6 +312,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var commands = picture.Commands;\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var commands = context.Commands;\n            var commandCount = commands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("var textRecords = staticBuffer.TextRecords;\n            for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("staticBuffer.UpdateTextBuffer(CollectionsMarshal.AsSpan(_textVerticesList));", source, StringComparison.Ordinal);
+        Assert.Contains("public void UpdateTextBuffer(ReadOnlySpan<GlyphInstance> textVertices)", dxfStaticBuffer, StringComparison.Ordinal);
+        Assert.Contains("UpdateTextBuffer((ReadOnlySpan<GlyphInstance>)textVertices);", dxfStaticBuffer, StringComparison.Ordinal);
+        Assert.Contains("uint requiredBytes = checked((uint)textVertexCount * (uint)Marshal.SizeOf<GlyphInstance>());", dxfStaticBuffer, StringComparison.Ordinal);
+        Assert.Contains("_textVertexBufferBack.Write(textVertices);", dxfStaticBuffer, StringComparison.Ordinal);
         Assert.Contains("var layoutGlyphs = layout.Glyphs;", source, StringComparison.Ordinal);
         Assert.Contains("var layoutGlyphCount = layoutGlyphs.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int glyphIndex = 0; glyphIndex < layoutGlyphCount; glyphIndex++)", source, StringComparison.Ordinal);
@@ -344,6 +350,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var cmd in commands)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var cmd in context.Commands)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var record in staticBuffer.TextRecords)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("staticBuffer.UpdateTextBuffer(_textVerticesList.ToArray())", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var runGlyph in layout.Glyphs)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var maskPass in _maskRenderPasses)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var dc in maskPass.DrawCalls)", source, StringComparison.Ordinal);

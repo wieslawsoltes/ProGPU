@@ -8392,7 +8392,7 @@ public unsafe class Compositor : IDisposable
                 _textVerticesList[i] = v;
             }
 
-            staticBuffer.UpdateTextBuffer(_textVerticesList.ToArray());
+            staticBuffer.UpdateTextBuffer(CollectionsMarshal.AsSpan(_textVerticesList));
         }
         finally
         {
