@@ -884,6 +884,16 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void PolygonGeometryBoundsUsesIndexedSpanTraversal()
+    {
+        string source = ReadSource("src", "ProGPU.Vector", "PolygonGeometryBounds.cs");
+
+        Assert.Contains("for (int pointIndex = 0; pointIndex < points.Length; pointIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("Vector2 point = points[pointIndex];", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (Vector2 point in points)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PathAtlasCleanupUsesPooledRemovalBuffers()
     {
         string helper = ReadSource("src", "ProGPU.Vector", "PooledRemovalBuffer.cs");

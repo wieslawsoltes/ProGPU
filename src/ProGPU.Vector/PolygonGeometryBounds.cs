@@ -45,8 +45,9 @@ static class PolygonGeometryBounds
         var minValue = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
         var maxValue = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
 
-        foreach (Vector2 point in points)
+        for (int pointIndex = 0; pointIndex < points.Length; pointIndex++)
         {
+            Vector2 point = points[pointIndex];
             Vector2 transformed = Vector2.Transform(point, transform);
             if (!IsFinite(transformed))
             {
