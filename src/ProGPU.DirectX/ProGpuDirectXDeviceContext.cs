@@ -1057,8 +1057,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
 
         var issues = new List<ProGpuDirectXBindingValidationIssue>();
-        foreach (var requirement in requirements)
+        var requirementCount = requirements.Count;
+        for (var requirementIndex = 0; requirementIndex < requirementCount; requirementIndex++)
         {
+            var requirement = requirements[requirementIndex];
             var count = requirement.Count == 0 ? 1u : requirement.Count;
             for (uint offset = 0; offset < count; offset++)
             {
@@ -1119,16 +1121,38 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
     private IReadOnlyDictionary<uint, ProGpuDirectXBuffer> SnapshotVertexBuffers()
     {
-        return _vertexBuffers.Count == 0
-            ? new Dictionary<uint, ProGpuDirectXBuffer>()
-            : _vertexBuffers.ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (_vertexBuffers.Count == 0)
+        {
+            return new Dictionary<uint, ProGpuDirectXBuffer>();
+        }
+
+        var snapshot = new Dictionary<uint, ProGpuDirectXBuffer>(_vertexBuffers.Count);
+        var vertexBufferEnumerator = _vertexBuffers.GetEnumerator();
+        while (vertexBufferEnumerator.MoveNext())
+        {
+            var pair = vertexBufferEnumerator.Current;
+            snapshot[pair.Key] = pair.Value;
+        }
+
+        return snapshot;
     }
 
     private IReadOnlyDictionary<uint, DxVertexBufferBinding> SnapshotVertexBufferBindings()
     {
-        return _vertexBufferBindings.Count == 0
-            ? new Dictionary<uint, DxVertexBufferBinding>()
-            : _vertexBufferBindings.ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (_vertexBufferBindings.Count == 0)
+        {
+            return new Dictionary<uint, DxVertexBufferBinding>();
+        }
+
+        var snapshot = new Dictionary<uint, DxVertexBufferBinding>(_vertexBufferBindings.Count);
+        var vertexBufferBindingEnumerator = _vertexBufferBindings.GetEnumerator();
+        while (vertexBufferBindingEnumerator.MoveNext())
+        {
+            var pair = vertexBufferBindingEnumerator.Current;
+            snapshot[pair.Key] = pair.Value;
+        }
+
+        return snapshot;
     }
 
     private uint ResolveVertexStride(uint slot, ProGpuDirectXBuffer buffer, uint strideInBytes)
@@ -1197,8 +1221,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
 
     private void AddStageBindings(List<ProGpuDirectXBindingEntry> entries, DxShaderStage stage)
     {
-        foreach (var pair in _constantBuffers)
+        var constantBufferEnumerator = _constantBuffers.GetEnumerator();
+        while (constantBufferEnumerator.MoveNext())
         {
+            var pair = constantBufferEnumerator.Current;
             if (pair.Key.Stage == stage && pair.Value is { } buffer)
             {
                 entries.Add(new ProGpuDirectXBindingEntry
@@ -1211,8 +1237,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             }
         }
 
-        foreach (var pair in _shaderResourceViews)
+        var shaderResourceViewEnumerator = _shaderResourceViews.GetEnumerator();
+        while (shaderResourceViewEnumerator.MoveNext())
         {
+            var pair = shaderResourceViewEnumerator.Current;
             if (pair.Key.Stage == stage && pair.Value is { } view)
             {
                 entries.Add(new ProGpuDirectXBindingEntry
@@ -1225,8 +1253,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             }
         }
 
-        foreach (var pair in _samplers)
+        var samplerEnumerator = _samplers.GetEnumerator();
+        while (samplerEnumerator.MoveNext())
         {
+            var pair = samplerEnumerator.Current;
             if (pair.Key.Stage == stage && pair.Value is { } sampler)
             {
                 entries.Add(new ProGpuDirectXBindingEntry
@@ -1244,8 +1274,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             return;
         }
 
-        foreach (var pair in _unorderedAccessViews)
+        var unorderedAccessViewEnumerator = _unorderedAccessViews.GetEnumerator();
+        while (unorderedAccessViewEnumerator.MoveNext())
         {
+            var pair = unorderedAccessViewEnumerator.Current;
             if (pair.Value is { } view)
             {
                 entries.Add(new ProGpuDirectXBindingEntry
@@ -2579,8 +2611,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
 
         PipelineBindGroupCacheKey? keyToEvict = null;
-        foreach (var candidate in _pipelineBindGroupCache.Keys)
+        var cacheEnumerator = _pipelineBindGroupCache.GetEnumerator();
+        while (cacheEnumerator.MoveNext())
         {
+            var candidate = cacheEnumerator.Current.Key;
             if (!candidate.Equals(key))
             {
                 keyToEvict = candidate;
@@ -2598,8 +2632,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
     private void ClearCachedPipelineBindGroupsCore()
     {
         var context = _device.Context;
-        foreach (var cached in _pipelineBindGroupCache.Values)
+        var cachedBindGroupEnumerator = _pipelineBindGroupCache.Values.GetEnumerator();
+        while (cachedBindGroupEnumerator.MoveNext())
         {
+            var cached = cachedBindGroupEnumerator.Current;
             cached.QueueDisposal(context);
         }
 
@@ -2730,8 +2766,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         Span<uint> slots)
     {
         var write = 0;
-        foreach (var pair in source)
+        using var sourceEnumerator = source.GetEnumerator();
+        while (sourceEnumerator.MoveNext())
         {
+            var pair = sourceEnumerator.Current;
             slots[write++] = pair.Key;
         }
 
