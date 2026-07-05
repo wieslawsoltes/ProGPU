@@ -867,6 +867,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var unorderedAccessViewEnumerator = _unorderedAccessViews.GetEnumerator();", deviceContext, StringComparison.Ordinal);
         Assert.Contains("var cacheEnumerator = _pipelineBindGroupCache.GetEnumerator();", deviceContext, StringComparison.Ordinal);
         Assert.Contains("var cachedBindGroupEnumerator = _pipelineBindGroupCache.Values.GetEnumerator();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("var wireframeIndexBufferEnumerator = _wireframeIndexBuffers.Values.GetEnumerator();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("wireframeIndexBufferEnumerator.Current.Dispose();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("var dynamicGraphicsPipelineEnumerator = _dynamicGraphicsPipelines.Values.GetEnumerator();", deviceContext, StringComparison.Ordinal);
+        Assert.Contains("dynamicGraphicsPipelineEnumerator.Current.Dispose();", deviceContext, StringComparison.Ordinal);
         Assert.Contains("return entries;\n    }\n\n    private void AddStageBindings", deviceContext, StringComparison.Ordinal);
         Assert.Contains("Span<uint> sortedSlots = slotCount <= VertexBufferSlotStackLimit", deviceContext, StringComparison.Ordinal);
         Assert.Contains("stackalloc uint[slotCount]", deviceContext, StringComparison.Ordinal);
@@ -948,6 +952,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var pair in _unorderedAccessViews)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var candidate in _pipelineBindGroupCache.Keys)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var cached in _pipelineBindGroupCache.Values)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var entry in _wireframeIndexBuffers.Values)", deviceContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var pipeline in _dynamicGraphicsPipelines.Values)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var pair in source)", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("return entries.ToArray();", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain(".OrderBy(entry => entry.NativeBinding)", deviceContext, StringComparison.Ordinal);

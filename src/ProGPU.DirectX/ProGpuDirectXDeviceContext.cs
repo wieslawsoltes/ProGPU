@@ -2850,15 +2850,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         _shaderResourceViews.Clear();
         _samplers.Clear();
         _unorderedAccessViews.Clear();
-        foreach (var entry in _wireframeIndexBuffers.Values)
+        var wireframeIndexBufferEnumerator = _wireframeIndexBuffers.Values.GetEnumerator();
+        while (wireframeIndexBufferEnumerator.MoveNext())
         {
-            entry.Dispose();
+            wireframeIndexBufferEnumerator.Current.Dispose();
         }
 
         _wireframeIndexBuffers.Clear();
-        foreach (var pipeline in _dynamicGraphicsPipelines.Values)
+        var dynamicGraphicsPipelineEnumerator = _dynamicGraphicsPipelines.Values.GetEnumerator();
+        while (dynamicGraphicsPipelineEnumerator.MoveNext())
         {
-            pipeline.Dispose();
+            dynamicGraphicsPipelineEnumerator.Current.Dispose();
         }
 
         _dynamicGraphicsPipelines.Clear();
