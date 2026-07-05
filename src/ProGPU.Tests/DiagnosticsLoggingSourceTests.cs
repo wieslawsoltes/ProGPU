@@ -141,7 +141,13 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var staticDrawCallList = RentDrawCallList(commands.Count)", source, StringComparison.Ordinal);
         Assert.Contains("var staticDrawCallList = RentDrawCallList(context.Commands.Count)", source, StringComparison.Ordinal);
         Assert.Contains("ReturnDrawCallList(staticDrawCalls)", source, StringComparison.Ordinal);
+        Assert.Contains("var drawCallCount = _drawCalls.Count;\n            for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var dc = _drawCalls[drawCallIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("var drawCalls = sb.DrawCalls;\n        for (var drawCallIndex = 0; drawCallIndex < drawCalls.Length; drawCallIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var dc = drawCalls[drawCallIndex];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var staticDrawCalls = new List<CompositorDrawCall>();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var dc in _drawCalls)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var dc in sb.DrawCalls)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_maskDrawCallListPool", source, StringComparison.Ordinal);
         Assert.Contains("private static void AddRemovalItem<T>(ref T[]? buffer, ref int count, int capacity, T item)", source, StringComparison.Ordinal);
         Assert.Contains("private static void ReturnRemovalBuffer<T>(T[]? buffer, int count)", source, StringComparison.Ordinal);

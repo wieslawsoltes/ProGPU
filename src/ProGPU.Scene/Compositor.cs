@@ -871,8 +871,10 @@ public unsafe class Compositor : IDisposable
         get
         {
             int count = 0;
-            foreach (var dc in _drawCalls)
+            var drawCallCount = _drawCalls.Count;
+            for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
             {
+                var dc = _drawCalls[drawCallIndex];
                 if (dc.Type == DrawCallType.Texture) count++;
             }
             return count;
@@ -1926,8 +1928,10 @@ public unsafe class Compositor : IDisposable
         GpuTexture? currentMaskTexture = null;
         var textureEntries = stackalloc BindGroupEntry[2];
 
-        foreach (var dc in _drawCalls)
+        var drawCallCount = _drawCalls.Count;
+        for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
         {
+            var dc = _drawCalls[drawCallIndex];
             if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: true))
             {
                 continue;
@@ -7085,8 +7089,10 @@ public unsafe class Compositor : IDisposable
         GpuTexture? currentMaskTexture = null;
         var textureEntries = stackalloc BindGroupEntry[2];
 
-        foreach (var dc in _drawCalls)
+        var drawCallCount = _drawCalls.Count;
+        for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
         {
+            var dc = _drawCalls[drawCallIndex];
             if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false))
             {
                 continue;
@@ -8332,8 +8338,10 @@ public unsafe class Compositor : IDisposable
         var currentType = DrawCallType.StaticDxf;
         var maskBg = GetMaskBindGroup(maskTexture, isOffscreen);
 
-        foreach (var dc in sb.DrawCalls)
+        var drawCalls = sb.DrawCalls;
+        for (var drawCallIndex = 0; drawCallIndex < drawCalls.Length; drawCallIndex++)
         {
+            var dc = drawCalls[drawCallIndex];
             if (dc.Type == DrawCallType.Vector)
             {
                 if (currentType != DrawCallType.Vector)
