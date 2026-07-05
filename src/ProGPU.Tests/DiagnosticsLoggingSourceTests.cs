@@ -837,7 +837,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("_backendBuffer.ReadBytes(destination, offsetBytes);", resources, StringComparison.Ordinal);
         Assert.Contains("_backendBuffer.ReadBytes(writeShadowSpan, offsetBytes);", resources, StringComparison.Ordinal);
         Assert.Contains("internal void ReadWriteShadowBytes(Span<byte> destination, uint offsetBytes)", resources, StringComparison.Ordinal);
+        Assert.Contains("for (var sliceIndex = 0; sliceIndex < _backendArraySliceTextures.Length; sliceIndex++)", resources, StringComparison.Ordinal);
+        Assert.Contains("_backendArraySliceTextures[sliceIndex].Resize(width, height);", resources, StringComparison.Ordinal);
+        Assert.Contains("_backendArraySliceTextures[sliceIndex].Dispose();", resources, StringComparison.Ordinal);
         Assert.DoesNotContain("var bytes = _backendBuffer.ReadBytes(offsetBytes, sizeInBytes);", resources, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var texture in _backendArraySliceTextures)", resources, StringComparison.Ordinal);
 
         Assert.Contains("using System.Buffers;", deviceContext, StringComparison.Ordinal);
         Assert.Contains("private const int WireframeSourceIndexStackByteLimit = 16 * 1024;", deviceContext, StringComparison.Ordinal);

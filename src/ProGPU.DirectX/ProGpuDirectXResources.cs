@@ -986,9 +986,9 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
         }
         else if (_backendArraySliceTextures is not null)
         {
-            foreach (var texture in _backendArraySliceTextures)
+            for (var sliceIndex = 0; sliceIndex < _backendArraySliceTextures.Length; sliceIndex++)
             {
-                texture.Resize(width, height);
+                _backendArraySliceTextures[sliceIndex].Resize(width, height);
             }
         }
 
@@ -1429,9 +1429,9 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
         _backendTexture = null;
         if (_backendArraySliceTextures is not null)
         {
-            foreach (var texture in _backendArraySliceTextures)
+            for (var sliceIndex = 0; sliceIndex < _backendArraySliceTextures.Length; sliceIndex++)
             {
-                texture.Dispose();
+                _backendArraySliceTextures[sliceIndex].Dispose();
             }
 
             _backendArraySliceTextures = null;
