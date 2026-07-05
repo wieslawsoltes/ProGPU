@@ -460,11 +460,22 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
         var min = new Vector2(minX, minY);
         var max = new Vector2(maxX, maxY);
-        uint startSegment = checked((uint)_pathSegments.Count);
         uint segmentCount = checked((uint)segments.Length);
-        _pathSegments.AddRange(segments);
+        uint startSegment = AppendPathSegments(segments);
         compiledPath = new CompiledHitTestPath(min, max, startSegment, segmentCount);
         return true;
+    }
+
+    private uint AppendPathSegments(ReadOnlySpan<GpuPathSegment> segments)
+    {
+        int startSegment = _pathSegments.Count;
+        _pathSegments.EnsureCapacity(checked(startSegment + segments.Length));
+        for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
+        {
+            _pathSegments.Add(segments[segmentIndex]);
+        }
+
+        return checked((uint)startSegment);
     }
 
     private void AddPathFillPrimitive(

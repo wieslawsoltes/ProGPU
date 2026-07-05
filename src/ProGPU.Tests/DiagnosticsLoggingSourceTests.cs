@@ -490,6 +490,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_primitives)", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_pathSegments)", source, StringComparison.Ordinal);
+        Assert.Contains("uint startSegment = AppendPathSegments(segments);", source, StringComparison.Ordinal);
+        Assert.Contains("private uint AppendPathSegments(ReadOnlySpan<GpuPathSegment> segments)", source, StringComparison.Ordinal);
+        Assert.Contains("_pathSegments.EnsureCapacity(checked(startSegment + segments.Length));", source, StringComparison.Ordinal);
+        Assert.Contains("for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("_pathSegments.Add(segments[segmentIndex]);", source, StringComparison.Ordinal);
         Assert.Contains("private SmallValueStack<ClipState> _clipStack;", source, StringComparison.Ordinal);
         Assert.Contains("private SmallValueStack<float> _opacityStack;", source, StringComparison.Ordinal);
         Assert.Contains("private struct SmallValueStack<T> : IDisposable", source, StringComparison.Ordinal);
@@ -502,6 +507,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("_hitTestCacheBuilder.Dispose();", compositor, StringComparison.Ordinal);
         Assert.DoesNotContain("_primitives.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_pathSegments.ToArray()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_pathSegments.AddRange(segments)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<ClipState> _clipStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private readonly Stack<float> _opacityStack", source, StringComparison.Ordinal);
         Assert.DoesNotContain("new Stack<ClipState>", source, StringComparison.Ordinal);
