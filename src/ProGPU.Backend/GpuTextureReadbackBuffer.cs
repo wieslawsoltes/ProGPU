@@ -8,7 +8,7 @@ namespace ProGPU.Backend;
 
 public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
 {
-    public const int DefaultMapTimeoutMilliseconds = 5000;
+    public const int DefaultMapTimeoutMilliseconds = 30000;
 
     private readonly WgpuContext _context;
     private readonly PfnBufferMapCallback _mapCallback;

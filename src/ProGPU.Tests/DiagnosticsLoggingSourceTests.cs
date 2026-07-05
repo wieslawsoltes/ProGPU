@@ -20,7 +20,7 @@ public class DiagnosticsLoggingSourceTests
         string diagnosticMessage,
         string forbiddenDirectConsoleCall)
     {
-        string source = File.ReadAllText(FindRepoFile(root, project, fileName));
+        string source = ReadSource(root, project, fileName);
 
         Assert.Contains(expectedDiagnosticsCall, source, StringComparison.Ordinal);
         Assert.Contains(diagnosticMessage, source, StringComparison.Ordinal);
@@ -39,7 +39,7 @@ public class DiagnosticsLoggingSourceTests
         string fileName,
         string environmentVariable)
     {
-        string source = File.ReadAllText(FindRepoFile(root, project, fileName));
+        string source = ReadSource(root, project, fileName);
 
         Assert.Contains(environmentVariable, source, StringComparison.Ordinal);
         Assert.Contains("Environment.GetEnvironmentVariable", source, StringComparison.Ordinal);
@@ -49,7 +49,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void ProGpuPackScriptCleansAndAuditsVersionedPackageArtifacts()
     {
-        string source = File.ReadAllText(FindRepoFile("eng", "progpu-pack.sh"));
+        string source = ReadSource("eng", "progpu-pack.sh");
 
         Assert.Contains("\"${package_output}\"/*.${package_version}.nupkg", source, StringComparison.Ordinal);
         Assert.Contains("\"${package_output}\"/*.${package_version}.snupkg", source, StringComparison.Ordinal);
@@ -65,9 +65,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void WpfShimProjectsUseInRepoStrongNameKey()
     {
-        string directoryBuildProps = File.ReadAllText(FindRepoFile("Directory.Build.props"));
-        string windowsBaseProject = File.ReadAllText(FindRepoFile("src", "WindowsBase", "WindowsBase.csproj"));
-        string presentationCoreProject = File.ReadAllText(FindRepoFile("src", "PresentationCore", "PresentationCore.csproj"));
+        string directoryBuildProps = ReadSource("Directory.Build.props");
+        string windowsBaseProject = ReadSource("src", "WindowsBase", "WindowsBase.csproj");
+        string presentationCoreProject = ReadSource("src", "PresentationCore", "PresentationCore.csproj");
 
         Assert.Contains("<ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<SignAssembly Condition=\"'$(SignAssembly)' == ''\">true</SignAssembly>", directoryBuildProps, StringComparison.Ordinal);
@@ -83,7 +83,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void BuildWorkflowUsesExplicitRuntimeNativeWebGpuTestLanes()
     {
-        string workflow = File.ReadAllText(FindRepoFile(".github", "workflows", "build.yml"));
+        string workflow = ReadSource(".github", "workflows", "build.yml");
 
         Assert.Contains("rid: linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("rid: osx-arm64", workflow, StringComparison.Ordinal);
@@ -96,21 +96,28 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("LD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
         Assert.Contains("DYLD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("uses: actions/upload-artifact@v4", workflow, StringComparison.Ordinal);
+        Assert.Contains("name: progpu-packages-${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifacts/packages/Release/*.snupkg", workflow, StringComparison.Ordinal);
+        Assert.Contains("if-no-files-found: error", workflow, StringComparison.Ordinal);
     }
 
     [Fact]
     public void GpuHitTestingShaderChecksResultCapacityBeforeResultListRead()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs")).Replace("\r\n", "\n");
+        string source = ReadSource("src", "ProGPU.Vector", "GpuHitTesting.cs");
 
         Assert.Contains("if (count >= capacity) {\n            break;\n        }\n\n        if (results[count + 1u].hit == 0u) {", source, StringComparison.Ordinal);
+        Assert.Contains("Buffer = deviceIndex.ResultListBuffer.BufferPtr, Offset = 0, Size = deviceIndex.ResultListBuffer.Size", source, StringComparison.Ordinal);
         Assert.DoesNotContain("if (count >= capacity || results[count + 1u].hit == 0u)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Buffer = deviceIndex.ResultListBuffer.BufferPtr, Offset = 0, Size = checked((uint)(initialResults.Length * resultSize))", source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void TextLayoutUsesSingleGlyphBufferForWrappingAndAlignment()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Text", "TextLayout.cs"));
+        string source = ReadSource("src", "ProGPU.Text", "TextLayout.cs");
 
         Assert.Contains("private readonly struct LineRange", source, StringComparison.Ordinal);
         Assert.Contains("public int Start { get; }", source, StringComparison.Ordinal);
@@ -166,7 +173,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GlyphAtlasUsesIndexedBatchAndOutlineTraversal()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Text", "GlyphAtlas.cs"));
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
 
         Assert.Contains("int batchBufferCount = _batchBuffers.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)", source, StringComparison.Ordinal);
@@ -193,7 +200,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void WgpuContextPendingResourceCleanupUsesPooledSnapshots()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "WgpuContext.cs"));
+        string source = ReadSource("src", "ProGPU.Backend", "WgpuContext.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("private readonly HashSet<IntPtr> _pendingSnapshotSeen = new();", source, StringComparison.Ordinal);
@@ -234,13 +241,13 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void WgpuContextFirstActiveLookupAvoidsSnapshotArrays()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "WgpuContext.cs"));
-        string gpuHitTesting = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs"));
-        string pathOps = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathOpGeometrySolver.cs"));
-        string presentationCoreGpuProvider = File.ReadAllText(FindRepoFile("src", "PresentationCore", "GpuProvider.cs"));
-        string systemDrawingGpuProvider = File.ReadAllText(FindRepoFile("src", "System.Drawing.Common", "GpuProvider.cs"));
-        string skiaSharp = File.ReadAllText(FindRepoFile("src", "SkiaSharp", "SkiaSharp.cs"));
-        string avaloniaHost = File.ReadAllText(FindRepoFile("src", "ProGPU.Avalonia", "ProGpuHostControl.cs"));
+        string source = ReadSource("src", "ProGPU.Backend", "WgpuContext.cs");
+        string gpuHitTesting = ReadSource("src", "ProGPU.Vector", "GpuHitTesting.cs");
+        string pathOps = ReadSource("src", "ProGPU.Vector", "PathOpGeometrySolver.cs");
+        string presentationCoreGpuProvider = ReadSource("src", "PresentationCore", "GpuProvider.cs");
+        string systemDrawingGpuProvider = ReadSource("src", "System.Drawing.Common", "GpuProvider.cs");
+        string skiaSharp = ReadSource("src", "SkiaSharp", "SkiaSharp.cs");
+        string avaloniaHost = ReadSource("src", "ProGPU.Avalonia", "ProGpuHostControl.cs");
 
         Assert.Contains("using System.Diagnostics.CodeAnalysis;", source, StringComparison.Ordinal);
         Assert.Contains("public static bool TryGetFirstActiveContext([NotNullWhen(true)] out WgpuContext? context)", source, StringComparison.Ordinal);
@@ -266,7 +273,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GpuTextureMipGeneratorCacheDisposesPipelinesWithoutForeach()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuTexture.cs"));
+        string source = ReadSource("src", "ProGPU.Backend", "GpuTexture.cs");
 
         Assert.Contains("private void QueuePipelinesForDisposal()", source, StringComparison.Ordinal);
         Assert.Contains("var pipelineEnumerator = _pipelines.Values.GetEnumerator();", source, StringComparison.Ordinal);
@@ -279,7 +286,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void ComputeAcceleratorTracksTransientBindGroupsWithoutListSnapshots()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Compute", "ComputeAccelerator.cs"));
+        string source = ReadSource("src", "ProGPU.Compute", "ComputeAccelerator.cs");
 
         Assert.Contains("Span<nint> bindGroupsToRelease = stackalloc nint[iterations * 2];", source, StringComparison.Ordinal);
         Assert.Contains("var bindGroupToReleaseCount = 0;", source, StringComparison.Ordinal);
@@ -301,7 +308,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void RenderCommandRecordingSnapshotsUseExplicitCopies()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "RenderCommand.cs"));
+        string source = ReadSource("src", "ProGPU.Scene", "RenderCommand.cs");
 
         Assert.Contains("CopyList(_recordingContext.Commands)", source, StringComparison.Ordinal);
         Assert.Contains("CopyList(_recordingContext.PointBuffer)", source, StringComparison.Ordinal);
@@ -347,13 +354,13 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void CompositorTransientStateSnapshotsUseArrayPool()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Compositor.cs"));
-        string dxfStaticBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "DxfStaticBuffer.cs"));
-        string seriesBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuSeriesBuffer.cs"));
-        string acisPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs"));
-        string hatchPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs"));
-        string lineSeriesPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "GpuLineSeriesExtensionPipeline.cs"));
-        string scatterSeriesPipeline = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "GpuScatterSeriesExtensionPipeline.cs"));
+        string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
+        string dxfStaticBuffer = ReadSource("src", "ProGPU.Scene", "DxfStaticBuffer.cs");
+        string seriesBuffer = ReadSource("src", "ProGPU.Backend", "GpuSeriesBuffer.cs");
+        string acisPipeline = ReadSource("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs");
+        string hatchPipeline = ReadSource("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs");
+        string lineSeriesPipeline = ReadSource("src", "ProGPU.Scene", "Extensions", "GpuLineSeriesExtensionPipeline.cs");
+        string scatterSeriesPipeline = ReadSource("src", "ProGPU.Scene", "Extensions", "GpuScatterSeriesExtensionPipeline.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("private static T[] RentListSnapshot<T>(List<T> list, out int count)", source, StringComparison.Ordinal);
@@ -571,7 +578,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void VisualOwnerNotificationsUsePooledSnapshots()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Visual.cs"));
+        string source = ReadSource("src", "ProGPU.Scene", "Visual.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("Visual[]? owners = null;", source, StringComparison.Ordinal);
@@ -599,8 +606,8 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void HitTestCacheBuildUsesListSpansWithoutTemporaryArrays()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "GpuRenderCommandHitTestCache.cs"));
-        string compositor = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Compositor.cs"));
+        string source = ReadSource("src", "ProGPU.Scene", "GpuRenderCommandHitTestCache.cs");
+        string compositor = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("using System.Runtime.InteropServices;", source, StringComparison.Ordinal);
@@ -636,9 +643,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void VectorDashHelpersAvoidTemporaryListMaterialization()
     {
-        string dashPattern = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "DashPattern.cs"));
-        string bezierSegments = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "BezierSegmentGeometry.cs"));
-        string arcSegments = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "ArcSegmentGeometry.cs"));
+        string dashPattern = ReadSource("src", "ProGPU.Vector", "DashPattern.cs");
+        string bezierSegments = ReadSource("src", "ProGPU.Vector", "BezierSegmentGeometry.cs");
+        string arcSegments = ReadSource("src", "ProGPU.Vector", "ArcSegmentGeometry.cs");
 
         Assert.Contains("private static int CountLineSegments(", dashPattern, StringComparison.Ordinal);
         Assert.Contains("private static void FillLineSegments(", dashPattern, StringComparison.Ordinal);
@@ -668,7 +675,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GpuHitTestIndexBuilderUsesPooledPrimitiveBuckets()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "GpuHitTesting.cs"));
+        string source = ReadSource("src", "ProGPU.Vector", "GpuHitTesting.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("PrimitiveIndexBucket retained = default;", source, StringComparison.Ordinal);
@@ -709,9 +716,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void EffectExtensionCacheCleanupUsesPooledRemovalBuffers()
     {
-        string helper = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "PooledRemovalBuffer.cs"));
-        string wpfShaderEffect = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "WpfShaderEffectExtensionPipeline.cs"));
-        string imageEffect = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "ImageEffectExtensionPipeline.cs"));
+        string helper = ReadSource("src", "ProGPU.Scene", "Extensions", "PooledRemovalBuffer.cs");
+        string wpfShaderEffect = ReadSource("src", "ProGPU.Scene", "Extensions", "WpfShaderEffectExtensionPipeline.cs");
+        string imageEffect = ReadSource("src", "ProGPU.Scene", "Extensions", "ImageEffectExtensionPipeline.cs");
 
         Assert.Contains("internal static class PooledRemovalBuffer", helper, StringComparison.Ordinal);
         Assert.Contains("ArrayPool<T>.Shared.Rent(Math.Max(1, capacity))", helper, StringComparison.Ordinal);
@@ -760,15 +767,15 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void EffectPipelineLayoutsUseStackBackedDescriptors()
     {
-        string wpfShaderEffect = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "WpfShaderEffectExtensionPipeline.cs"));
-        string imageEffect = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "ImageEffectExtensionPipeline.cs"));
-        string shaderToy = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "ShaderToyExtensionPipeline.cs"));
-        string line3D = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "Line3DExtensionPipeline.cs"));
-        string customGrid = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "CustomGridExtensionPipeline.cs"));
-        string acisSolid = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs"));
-        string hatch = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs"));
-        string mesh3D = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", "Mesh3DExtensionPipeline.cs"));
-        string pipelineCache = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "RenderPipelineCache.cs"));
+        string wpfShaderEffect = ReadSource("src", "ProGPU.Scene", "Extensions", "WpfShaderEffectExtensionPipeline.cs");
+        string imageEffect = ReadSource("src", "ProGPU.Scene", "Extensions", "ImageEffectExtensionPipeline.cs");
+        string shaderToy = ReadSource("src", "ProGPU.Scene", "Extensions", "ShaderToyExtensionPipeline.cs");
+        string line3D = ReadSource("src", "ProGPU.Scene", "Extensions", "Line3DExtensionPipeline.cs");
+        string customGrid = ReadSource("src", "ProGPU.Scene", "Extensions", "CustomGridExtensionPipeline.cs");
+        string acisSolid = ReadSource("src", "ProGPU.Scene", "Extensions", "AcisSolidExtensionPipeline.cs");
+        string hatch = ReadSource("src", "ProGPU.Scene", "Extensions", "HatchExtensionPipeline.cs");
+        string mesh3D = ReadSource("src", "ProGPU.Scene", "Extensions", "Mesh3DExtensionPipeline.cs");
+        string pipelineCache = ReadSource("src", "ProGPU.Backend", "RenderPipelineCache.cs");
 
         AssertStackBackedLayout(wpfShaderEffect, 3, "VectorVertex");
         Assert.Contains("Registers = CopyActiveRegisters(activeRegisters),", wpfShaderEffect, StringComparison.Ordinal);
@@ -808,7 +815,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void PathGeometryHitTestingUsesIndexedTraversal()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathGeometryHitTesting.cs"));
+        string source = ReadSource("src", "ProGPU.Vector", "PathGeometryHitTesting.cs");
 
         Assert.Contains("var figures = geometry.Figures;", source, StringComparison.Ordinal);
         Assert.Contains("var polygons = new List<Vector2[]>(Math.Max(1, figures.Count));", source, StringComparison.Ordinal);
@@ -836,10 +843,10 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void PathAtlasCleanupUsesPooledRemovalBuffers()
     {
-        string helper = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PooledRemovalBuffer.cs"));
-        string pathGeometry = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathGeometry.cs"));
-        string pathAtlas = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathAtlas.cs"));
-        string pathOps = File.ReadAllText(FindRepoFile("src", "ProGPU.Vector", "PathOpGeometrySolver.cs"));
+        string helper = ReadSource("src", "ProGPU.Vector", "PooledRemovalBuffer.cs");
+        string pathGeometry = ReadSource("src", "ProGPU.Vector", "PathGeometry.cs");
+        string pathAtlas = ReadSource("src", "ProGPU.Vector", "PathAtlas.cs");
+        string pathOps = ReadSource("src", "ProGPU.Vector", "PathOpGeometrySolver.cs");
 
         Assert.Contains("internal static class PooledRemovalBuffer", helper, StringComparison.Ordinal);
         Assert.Contains("ArrayPool<T>.Shared.Rent(Math.Max(1, capacity))", helper, StringComparison.Ordinal);
@@ -909,13 +916,13 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void DirectXBufferReadbackUsesCallerOwnedBuffers()
     {
-        string gpuBuffer = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuBuffer.cs"));
-        string resources = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs"));
-        string deviceContext = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXDeviceContext.cs"));
-        string pipelines = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXPipelines.cs"));
-        string shaderBytecode = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXShaderBytecode.cs"));
-        string hlslTranslator = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXHlslTranslator.cs"));
-        string frontFacingEmulation = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXFrontFacingEmulation.cs"));
+        string gpuBuffer = ReadSource("src", "ProGPU.Backend", "GpuBuffer.cs");
+        string resources = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs");
+        string deviceContext = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXDeviceContext.cs");
+        string pipelines = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXPipelines.cs");
+        string shaderBytecode = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXShaderBytecode.cs");
+        string hlslTranslator = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXHlslTranslator.cs");
+        string frontFacingEmulation = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXFrontFacingEmulation.cs");
 
         Assert.Contains("public void ReadBytes(Span<byte> destination, uint offsetBytes = 0)", gpuBuffer, StringComparison.Ordinal);
         Assert.Contains("ReadBytes(bytes, offsetBytes);", gpuBuffer, StringComparison.Ordinal);
@@ -1105,7 +1112,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void SciChartPrimitiveUploadsUseCallerSpansBeforeDurableHistoryCopies()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+        string source = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs");
 
         Assert.Contains("var pointSpan = points[..count];", source, StringComparison.Ordinal);
         Assert.Contains("var vertexBuffer = CreatePolygonFillVertexBuffer(pointSpan, brush, out var submittedVertexCount);", source, StringComparison.Ordinal);
@@ -1130,7 +1137,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void SciChart3DUploadsUseCallerSpansBeforeDurableHistoryCopies()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+        string source = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs");
 
         Assert.Contains("var vertexSpan = vertices;", source, StringComparison.Ordinal);
         Assert.Contains("var indexSpan = indices;", source, StringComparison.Ordinal);
@@ -1169,7 +1176,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void SciChart2DBatchUploadsUseCallerSpansBeforeDurableHistoryCopies()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+        string source = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs");
 
         Assert.Contains("var vertexSpan = vertices[..count];", source, StringComparison.Ordinal);
         Assert.Contains("var vertexSpan = vertices.Slice(startIndex, count);", source, StringComparison.Ordinal);
@@ -1213,7 +1220,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void SciChartRenderContextsDisposeCachesWithoutForeach()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+        string source = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs");
 
         Assert.Contains("for (var resourceIndex = 0; resourceIndex < _transientResources.Count; resourceIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("_transientResources[resourceIndex].Dispose();", source, StringComparison.Ordinal);
@@ -1243,7 +1250,7 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void SciChartVerticalPixelUploadsUseCallerSpansAndPooledScratch()
     {
-        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs"));
+        string source = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXSciChart.cs");
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("ReadOnlySpan<int> yCoordinates,\n        ReadOnlySpan<int> pixelColorsArgb", source, StringComparison.Ordinal);
@@ -1265,9 +1272,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void DirectXTextureReadbackUsesCallerOwnedBuffers()
     {
-        string texture = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuTexture.cs"));
-        string readback = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "GpuTextureReadbackBuffer.cs"));
-        string resources = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs"));
+        string texture = ReadSource("src", "ProGPU.Backend", "GpuTexture.cs");
+        string readback = ReadSource("src", "ProGPU.Backend", "GpuTextureReadbackBuffer.cs");
+        string resources = ReadSource("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs");
 
         Assert.Contains("public void ReadPixels(\n        Span<byte> destination", texture, StringComparison.Ordinal);
         Assert.Contains("ReadPixels(unpaddedPixels, mipLevel);", texture, StringComparison.Ordinal);
@@ -1299,5 +1306,10 @@ public class DiagnosticsLoggingSourceTests
         }
 
         throw new FileNotFoundException($"Could not locate {Path.Combine(pathParts)}.");
+    }
+
+    private static string ReadSource(params string[] pathParts)
+    {
+        return File.ReadAllText(FindRepoFile(pathParts)).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
 }

@@ -81,3 +81,12 @@ jobs:
       - name: Pack shipping packages
         shell: bash
         run: PROGPU_PACKAGE_VERSION=11.0.0-ci.${{ github.run_number }} ./eng/progpu-pack.sh
+
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: progpu-packages-${{ matrix.rid }}
+          path: |
+            artifacts/packages/Release/*.nupkg
+            artifacts/packages/Release/*.snupkg
+          if-no-files-found: error

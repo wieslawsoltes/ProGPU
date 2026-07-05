@@ -1302,7 +1302,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 {
                     if (readbackBuffer.LastMapTimedOut)
                     {
-                        throw new TimeoutException("WebGPU BufferMapAsync timed out after 5 seconds during texture readback.");
+                        throw new TimeoutException($"WebGPU BufferMapAsync timed out after {GpuTextureReadbackBuffer.DefaultMapTimeoutMilliseconds / 1000} seconds during texture readback.");
                     }
 
                     if (readbackBuffer.LastMapStatus != BufferMapAsyncStatus.Success)

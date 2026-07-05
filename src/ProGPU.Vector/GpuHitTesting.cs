@@ -1473,7 +1473,7 @@ public static unsafe class GpuHitTestEngine
                 entries[1] = new BindGroupEntry { Binding = 1, Buffer = deviceIndex.NodeBuffer.BufferPtr, Offset = 0, Size = deviceIndex.NodeBuffer.Size };
                 entries[2] = new BindGroupEntry { Binding = 2, Buffer = deviceIndex.PrimitiveIndexBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PrimitiveIndexBuffer.Size };
                 entries[3] = new BindGroupEntry { Binding = 3, Buffer = deviceIndex.PrimitiveBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PrimitiveBuffer.Size };
-                entries[4] = new BindGroupEntry { Binding = 4, Buffer = deviceIndex.ResultListBuffer.BufferPtr, Offset = 0, Size = checked((uint)(initialResults.Length * resultSize)) };
+                entries[4] = new BindGroupEntry { Binding = 4, Buffer = deviceIndex.ResultListBuffer.BufferPtr, Offset = 0, Size = deviceIndex.ResultListBuffer.Size };
                 entries[5] = new BindGroupEntry { Binding = 5, Buffer = deviceIndex.PathSegmentBuffer.BufferPtr, Offset = 0, Size = deviceIndex.PathSegmentBuffer.Size };
 
                 var bgDesc = new BindGroupDescriptor

@@ -8,6 +8,8 @@ namespace ProGPU.Backend;
 
 public unsafe class GpuBuffer : IDisposable
 {
+    public const int DefaultMapTimeoutMilliseconds = 30000;
+
     private readonly WgpuContext _context;
     private byte[]? _partialWriteShadow;
     private bool _hasUnmirroredWrites;
@@ -260,10 +262,10 @@ public unsafe class GpuBuffer : IDisposable
         {
             _context.PollDevice(wait: false);
             System.Threading.Thread.Sleep(1);
-            if (stopwatch.ElapsedMilliseconds > 5000)
+            if (stopwatch.ElapsedMilliseconds > DefaultMapTimeoutMilliseconds)
             {
                 CleanupMappedReadBuffer(buffer, destroyAfterRead);
-                throw new TimeoutException("WebGPU BufferMapAsync timed out after 5 seconds during buffer readback.");
+                throw new TimeoutException($"WebGPU BufferMapAsync timed out after {DefaultMapTimeoutMilliseconds / 1000} seconds during buffer readback.");
             }
         }
 
