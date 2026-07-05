@@ -100,20 +100,30 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
 
     public IReadOnlyList<DxReflectedShaderResourceBinding> ResourceBindings { get; init; } = Array.Empty<DxReflectedShaderResourceBinding>();
 
-    public bool HasDxilProgram => Chunks.Any(static chunk => string.Equals(chunk.FourCC, "DXIL", StringComparison.Ordinal));
+    public bool HasDxilProgram => ContainsChunk("DXIL");
 
-    public bool HasTokenizedProgram => Chunks.Any(static chunk => string.Equals(chunk.FourCC, "SHDR", StringComparison.Ordinal) || string.Equals(chunk.FourCC, "SHEX", StringComparison.Ordinal));
+    public bool HasTokenizedProgram => ContainsChunk("SHDR", "SHEX");
 
-    public bool HasResourceDefinition => Chunks.Any(static chunk => string.Equals(chunk.FourCC, "RDEF", StringComparison.Ordinal));
+    public bool HasResourceDefinition => ContainsChunk("RDEF");
 
-    public bool HasInputSignature => InputSignature.Count > 0 || Chunks.Any(static chunk => string.Equals(chunk.FourCC, "ISGN", StringComparison.Ordinal) || string.Equals(chunk.FourCC, "ISG1", StringComparison.Ordinal));
+    public bool HasInputSignature => InputSignature.Count > 0 || ContainsChunk("ISGN", "ISG1");
 
-    public bool HasOutputSignature => OutputSignature.Count > 0 || Chunks.Any(static chunk => string.Equals(chunk.FourCC, "OSGN", StringComparison.Ordinal) || string.Equals(chunk.FourCC, "OSG5", StringComparison.Ordinal));
+    public bool HasOutputSignature => OutputSignature.Count > 0 || ContainsChunk("OSGN", "OSG5");
 
     public DxShaderBytecodeChunk? GetChunk(string fourCC)
     {
         ArgumentNullException.ThrowIfNull(fourCC);
-        return Chunks.FirstOrDefault(chunk => string.Equals(chunk.FourCC, fourCC, StringComparison.Ordinal));
+        var chunkCount = Chunks.Count;
+        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var chunk = Chunks[chunkIndex];
+            if (string.Equals(chunk.FourCC, fourCC, StringComparison.Ordinal))
+            {
+                return chunk;
+            }
+        }
+
+        return null;
     }
 
     public bool TryCreateBindingRequirements(
@@ -121,8 +131,10 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
         out IReadOnlyList<DxReflectedShaderBindingRequirement> requirements)
     {
         var entries = new List<DxReflectedShaderBindingRequirement>();
-        foreach (var resource in ResourceBindings)
+        var resourceCount = ResourceBindings.Count;
+        for (var resourceIndex = 0; resourceIndex < resourceCount; resourceIndex++)
         {
+            var resource = ResourceBindings[resourceIndex];
             if (!TryMapBindingKind(resource.Type, out var kind))
             {
                 requirements = Array.Empty<DxReflectedShaderBindingRequirement>();
@@ -155,8 +167,10 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
     {
         var elements = new List<DxInputElementDescriptor>();
         var alignedByteOffset = 0u;
-        foreach (var parameter in InputSignature)
+        var inputSignatureCount = InputSignature.Count;
+        for (var parameterIndex = 0; parameterIndex < inputSignatureCount; parameterIndex++)
         {
+            var parameter = InputSignature[parameterIndex];
             if (IsSystemGeneratedInput(parameter))
             {
                 continue;
@@ -194,6 +208,36 @@ public sealed record ProGpuDirectXShaderBytecodeInfo
             Label = label
         };
         return true;
+    }
+
+    private bool ContainsChunk(string fourCC)
+    {
+        var chunkCount = Chunks.Count;
+        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+        {
+            if (string.Equals(Chunks[chunkIndex].FourCC, fourCC, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool ContainsChunk(string firstFourCC, string secondFourCC)
+    {
+        var chunkCount = Chunks.Count;
+        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var fourCC = Chunks[chunkIndex].FourCC;
+            if (string.Equals(fourCC, firstFourCC, StringComparison.Ordinal) ||
+                string.Equals(fourCC, secondFourCC, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsSystemGeneratedInput(DxShaderSignatureParameter parameter)

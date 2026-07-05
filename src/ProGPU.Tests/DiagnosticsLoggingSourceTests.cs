@@ -481,6 +481,7 @@ public class DiagnosticsLoggingSourceTests
         string resources = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXResources.cs"));
         string deviceContext = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXDeviceContext.cs"));
         string pipelines = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXPipelines.cs"));
+        string shaderBytecode = File.ReadAllText(FindRepoFile("src", "ProGPU.DirectX", "ProGpuDirectXShaderBytecode.cs"));
 
         Assert.Contains("public void ReadBytes(Span<byte> destination, uint offsetBytes = 0)", gpuBuffer, StringComparison.Ordinal);
         Assert.Contains("ReadBytes(bytes, offsetBytes);", gpuBuffer, StringComparison.Ordinal);
@@ -555,6 +556,16 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("Array.Sort(requirements, CompareReflectedBindingRequirements);", pipelines, StringComparison.Ordinal);
         Assert.Contains("private static int CompareReflectedBindingRequirements(", pipelines, StringComparison.Ordinal);
         Assert.Contains("return vertexShader.ReflectedBindingRequirementsSupported &&", pipelines, StringComparison.Ordinal);
+        Assert.Contains("public bool HasDxilProgram => ContainsChunk(\"DXIL\");", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("public bool HasTokenizedProgram => ContainsChunk(\"SHDR\", \"SHEX\");", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("public bool HasInputSignature => InputSignature.Count > 0 || ContainsChunk(\"ISGN\", \"ISG1\");", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("private bool ContainsChunk(string fourCC)", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("private bool ContainsChunk(string firstFourCC, string secondFourCC)", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("var resourceCount = ResourceBindings.Count;\n        for (var resourceIndex = 0; resourceIndex < resourceCount; resourceIndex++)", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("var resource = ResourceBindings[resourceIndex];", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("var inputSignatureCount = InputSignature.Count;\n        for (var parameterIndex = 0; parameterIndex < inputSignatureCount; parameterIndex++)", shaderBytecode, StringComparison.Ordinal);
+        Assert.Contains("var parameter = InputSignature[parameterIndex];", shaderBytecode, StringComparison.Ordinal);
         Assert.DoesNotContain("private static uint[] ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("var sourceIndices = ReadSourceIndices(", deviceContext, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceIndexBuffer.ReadWriteShadowBytes(MemoryMarshal.AsBytes(result.AsSpan()), offsetBytes);", deviceContext, StringComparison.Ordinal);
@@ -589,6 +600,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain(".ThenBy(requirement => requirement.Slot)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain("shaders.All(shader => shader is null || shader.ReflectedBindingRequirementsSupported)", pipelines, StringComparison.Ordinal);
         Assert.DoesNotContain(".Where(shader => shader is { ReflectedBindingRequirementsSupported: false })", pipelines, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chunks.Any", shaderBytecode, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chunks.FirstOrDefault", shaderBytecode, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var resource in ResourceBindings)", shaderBytecode, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var parameter in InputSignature)", shaderBytecode, StringComparison.Ordinal);
         Assert.DoesNotContain("return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();", deviceContext, StringComparison.Ordinal);
     }
 
