@@ -3603,8 +3603,10 @@ public unsafe class Compositor : IDisposable
 
             int maxVertices = 0;
             int maxIndices = 0;
-            foreach (var figure in cmd.Path.Figures)
+            var pathFigures = cmd.Path.Figures;
+            for (int figureIndex = 0; figureIndex < pathFigures.Count; figureIndex++)
             {
+                var figure = pathFigures[figureIndex];
                 int maxJoinTriangles = CountStrokeSegmentJoinTriangleBudget(figure);
                 maxVertices += maxJoinTriangles * 3;
                 maxIndices += maxJoinTriangles * 3;
@@ -3614,8 +3616,10 @@ public unsafe class Compositor : IDisposable
                 maxIndices += maxCapTriangles * 3;
 
                 var currentPoint = figure.StartPoint;
-                foreach (var segment in figure.Segments)
+                var figureSegments = figure.Segments;
+                for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
                 {
+                    var segment = figureSegments[segmentIndex];
                     var segmentStart = currentPoint;
                     if (!segment.IsStroked)
                     {
@@ -3683,8 +3687,9 @@ public unsafe class Compositor : IDisposable
             int currentVertexCount = vertexStart;
             int currentIndexCount = indexStart;
 
-            foreach (var figure in cmd.Path.Figures)
+            for (int figureIndex = 0; figureIndex < pathFigures.Count; figureIndex++)
             {
+                var figure = pathFigures[figureIndex];
                 var currentPoint = figure.StartPoint;
                 var firstSegmentStartDirection = default(Vector2);
                 var previousSegmentEndDirection = default(Vector2);
@@ -3696,8 +3701,10 @@ public unsafe class Compositor : IDisposable
                 var lastCapDirection = default(Vector2);
                 var isFirstSegment = true;
 
-                foreach (var segment in figure.Segments)
+                var figureSegments = figure.Segments;
+                for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
                 {
+                    var segment = figureSegments[segmentIndex];
                     var segmentStart = currentPoint;
                     if (!segment.IsStroked)
                     {
@@ -4055,14 +4062,18 @@ public unsafe class Compositor : IDisposable
             return false;
         }
 
-        foreach (var figure in source.Figures)
+        var sourceFigures = source.Figures;
+        for (int figureIndex = 0; figureIndex < sourceFigures.Count; figureIndex++)
         {
+            var figure = sourceFigures[figureIndex];
             var patternIndex = pattern.InitialIndex;
             var distanceInPattern = pattern.InitialDistance;
             var currentPoint = figure.StartPoint;
+            var figureSegments = figure.Segments;
 
-            foreach (var segment in figure.Segments)
+            for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
             {
+                var segment = figureSegments[segmentIndex];
                 var segmentStart = currentPoint;
                 if (!segment.IsStroked)
                 {
@@ -4100,8 +4111,9 @@ public unsafe class Compositor : IDisposable
                                 out patternIndex,
                                 out distanceInPattern))
                         {
-                            foreach (var dashSegment in quadraticSegments)
+                            for (int dashIndex = 0; dashIndex < quadraticSegments.Length; dashIndex++)
                             {
+                                var dashSegment = quadraticSegments[dashIndex];
                                 AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Segment);
                             }
                         }
@@ -4120,8 +4132,9 @@ public unsafe class Compositor : IDisposable
                                 out patternIndex,
                                 out distanceInPattern))
                         {
-                            foreach (var dashSegment in cubicSegments)
+                            for (int dashIndex = 0; dashIndex < cubicSegments.Length; dashIndex++)
                             {
+                                var dashSegment = cubicSegments[dashIndex];
                                 AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Segment);
                             }
                         }
@@ -4140,8 +4153,9 @@ public unsafe class Compositor : IDisposable
                                 out patternIndex,
                                 out distanceInPattern))
                         {
-                            foreach (var dashSegment in arcSegments)
+                            for (int dashIndex = 0; dashIndex < arcSegments.Length; dashIndex++)
                             {
+                                var dashSegment = arcSegments[dashIndex];
                                 AddDashedSegmentFigure(dashedPath, dashSegment.Start, dashSegment.Arc);
                             }
                         }
@@ -4260,8 +4274,10 @@ public unsafe class Compositor : IDisposable
         var hasPreviousSegmentEndDirection = false;
         var isFirstSegment = true;
 
-        foreach (var segment in figure.Segments)
+        var figureSegments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
         {
+            var segment = figureSegments[segmentIndex];
             var segmentStart = currentPoint;
             if (!segment.IsStroked)
             {
@@ -4341,8 +4357,10 @@ public unsafe class Compositor : IDisposable
         var pendingEndCap = false;
         var capCount = 0;
 
-        foreach (var segment in figure.Segments)
+        var figureSegments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
         {
+            var segment = figureSegments[segmentIndex];
             if (!segment.IsStroked)
             {
                 if (pendingEndCap && endLineCap != PenLineCap.Flat)

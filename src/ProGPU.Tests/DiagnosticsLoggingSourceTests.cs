@@ -161,6 +161,14 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var textRecords = staticBuffer.TextRecords;\n            for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var extensionCount = _registeredExtensions.Count;", source, StringComparison.Ordinal);
         Assert.Contains("var ext = _registeredExtensions[extensionIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("var pathFigures = cmd.Path.Figures;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int figureIndex = 0; figureIndex < pathFigures.Count; figureIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var sourceFigures = source.Figures;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int figureIndex = 0; figureIndex < sourceFigures.Count; figureIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("for (int dashIndex = 0; dashIndex < quadraticSegments.Length; dashIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("for (int dashIndex = 0; dashIndex < cubicSegments.Length; dashIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("for (int dashIndex = 0; dashIndex < arcSegments.Length; dashIndex++)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var staticDrawCalls = new List<CompositorDrawCall>();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var dc in _drawCalls)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var dc in sb.DrawCalls)", source, StringComparison.Ordinal);
@@ -183,6 +191,12 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var bg in _maskBindGroups.Values)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _maskBindGroupsOffscreen.Values)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var ext in _registeredExtensions)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var figure in cmd.Path.Figures)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var figure in source.Figures)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var segment in figure.Segments)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var dashSegment in quadraticSegments)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var dashSegment in cubicSegments)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var dashSegment in arcSegments)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_maskDrawCallListPool", source, StringComparison.Ordinal);
         Assert.Contains("private static void AddRemovalItem<T>(ref T[]? buffer, ref int count, int capacity, T item)", source, StringComparison.Ordinal);
         Assert.Contains("private static void ReturnRemovalBuffer<T>(T[]? buffer, int count)", source, StringComparison.Ordinal);
