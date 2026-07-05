@@ -6613,8 +6613,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
 
         var minimum = double.PositiveInfinity;
         var maximum = double.NegativeInfinity;
-        foreach (var point in points)
+        for (var i = 0; i < points.Length; i++)
         {
+            var point = points[i];
             ValidateXyzPoint(point);
             var value = axis switch
             {
@@ -6656,8 +6657,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
 
         var minimum = double.PositiveInfinity;
         var maximum = double.NegativeInfinity;
-        foreach (var height in heights)
+        for (var i = 0; i < heights.Length; i++)
         {
+            var height = heights[i];
             minimum = Math.Min(minimum, height);
             maximum = Math.Max(maximum, height);
         }
@@ -6725,8 +6727,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
             throw new ArgumentOutOfRangeException(nameof(vertices), $"SciChart 3D draws require at least {minCount} vertex/vertices.");
         }
 
-        foreach (var vertex in vertices)
+        for (var i = 0; i < vertices.Length; i++)
         {
+            var vertex = vertices[i];
             if (!float.IsFinite(vertex.X) ||
                 !float.IsFinite(vertex.Y) ||
                 !float.IsFinite(vertex.Z) ||
@@ -6746,8 +6749,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
             throw new ArgumentOutOfRangeException(nameof(indices), "SciChart 3D mesh indices must contain complete triangles.");
         }
 
-        foreach (var index in indices)
+        for (var i = 0; i < indices.Length; i++)
         {
+            var index = indices[i];
             if (index >= vertexCount)
             {
                 throw new ArgumentOutOfRangeException(nameof(indices), "SciChart 3D mesh indices must reference supplied vertices.");
@@ -6778,8 +6782,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
             throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D surface mesh heights must exactly match columns times rows.");
         }
 
-        foreach (var height in heights)
+        for (var i = 0; i < heights.Length; i++)
         {
+            var height = heights[i];
             if (!float.IsFinite(height))
             {
                 throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D surface mesh heights must be finite.");
@@ -6827,8 +6832,9 @@ public sealed class ProGpuDirectXSciChartRenderContext3D : IDisposable
             throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D waterfall heights must exactly match columns times rows.");
         }
 
-        foreach (var height in heights)
+        for (var i = 0; i < heights.Length; i++)
         {
+            var height = heights[i];
             if (!float.IsFinite(height))
             {
                 throw new ArgumentOutOfRangeException(nameof(heights), "SciChart 3D waterfall heights must be finite.");

@@ -569,6 +569,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("vertices.CopyTo(copiedVertices);", source, StringComparison.Ordinal);
         Assert.Contains("indices.CopyTo(copiedIndices);", source, StringComparison.Ordinal);
         Assert.Contains("heights.CopyTo(copiedHeights);", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < points.Length; i++)\n        {\n            var point = points[i];", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < heights.Length; i++)\n        {\n            var height = heights[i];", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < vertices.Length; i++)\n        {\n            var vertex = vertices[i];", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < indices.Length; i++)\n        {\n            var index = indices[i];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var copiedVertices = vertices.ToArray();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var copiedIndices = indices.ToArray();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var copiedHeights = heights.ToArray();", source, StringComparison.Ordinal);
@@ -576,6 +580,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("CreateIndexBuffer(copiedIndices", source, StringComparison.Ordinal);
         Assert.DoesNotContain("CreateSurfaceMeshVertices(copiedHeights", source, StringComparison.Ordinal);
         Assert.DoesNotContain("CreateWaterfallVertices(copiedHeights", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var point in points)\n        {\n            ValidateXyzPoint(point);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var height in heights)\n        {\n            minimum = Math.Min(minimum, height);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var height in heights)\n        {\n            if (!float.IsFinite(height))", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var vertex in vertices)\n        {\n            if (!float.IsFinite(vertex.X)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var index in indices)\n        {\n            if (index >= vertexCount)", source, StringComparison.Ordinal);
     }
 
     [Fact]
