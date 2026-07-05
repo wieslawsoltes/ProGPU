@@ -75,14 +75,18 @@ public unsafe class GlyphAtlas : IDisposable
         _context.Wgpu.CommandEncoderRelease(_batchEncoder);
         _batchEncoder = null;
 
-        foreach (var buffer in _batchBuffers)
+        int batchBufferCount = _batchBuffers.Count;
+        for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)
         {
+            var buffer = _batchBuffers[bufferIndex];
             buffer.Dispose();
         }
         _batchBuffers.Clear();
 
-        foreach (var bg in _batchBindGroups)
+        int batchBindGroupCount = _batchBindGroups.Count;
+        for (int bindGroupIndex = 0; bindGroupIndex < batchBindGroupCount; bindGroupIndex++)
         {
+            var bg = _batchBindGroups[bindGroupIndex];
             _context.Wgpu.BindGroupRelease((BindGroup*)bg);
         }
         _batchBindGroups.Clear();
@@ -202,12 +206,16 @@ public unsafe class GlyphAtlas : IDisposable
                     }
 
                     bool hasPoints = false;
-                    foreach (var figure in outline.Figures)
+                    var outlineFigures = outline.Figures;
+                    for (int figureIndex = 0; figureIndex < outlineFigures.Count; figureIndex++)
                     {
+                        var figure = outlineFigures[figureIndex];
                         ProcessPt(figure.StartPoint);
                         hasPoints = true;
-                        foreach (var segment in figure.Segments)
+                        var figureSegments = figure.Segments;
+                        for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
                         {
+                            var segment = figureSegments[segmentIndex];
                             if (segment is LineSegment line)
                             {
                                 ProcessPt(line.Point);
@@ -490,8 +498,10 @@ public unsafe class GlyphAtlas : IDisposable
 
         _uniformRingBuffer.Dispose();
 
-        foreach (var data in _fontGpuData.Values)
+        var fontGpuDataEnumerator = _fontGpuData.Values.GetEnumerator();
+        while (fontGpuDataEnumerator.MoveNext())
         {
+            var data = fontGpuDataEnumerator.Current;
             data.RecordsBuffer.Dispose();
             data.SegmentsBuffer.Dispose();
         }

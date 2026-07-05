@@ -103,6 +103,33 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void GlyphAtlasUsesIndexedBatchAndOutlineTraversal()
+    {
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Text", "GlyphAtlas.cs"));
+
+        Assert.Contains("int batchBufferCount = _batchBuffers.Count;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var buffer = _batchBuffers[bufferIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("int batchBindGroupCount = _batchBindGroups.Count;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int bindGroupIndex = 0; bindGroupIndex < batchBindGroupCount; bindGroupIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var bg = _batchBindGroups[bindGroupIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("var outlineFigures = outline.Figures;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int figureIndex = 0; figureIndex < outlineFigures.Count; figureIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var figure = outlineFigures[figureIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("var figureSegments = figure.Segments;", source, StringComparison.Ordinal);
+        Assert.Contains("for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var segment = figureSegments[segmentIndex];", source, StringComparison.Ordinal);
+        Assert.Contains("var fontGpuDataEnumerator = _fontGpuData.Values.GetEnumerator();", source, StringComparison.Ordinal);
+        Assert.Contains("while (fontGpuDataEnumerator.MoveNext())", source, StringComparison.Ordinal);
+        Assert.Contains("var data = fontGpuDataEnumerator.Current;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var buffer in _batchBuffers)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var bg in _batchBindGroups)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var figure in outline.Figures)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var segment in figure.Segments)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var data in _fontGpuData.Values)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WgpuContextPendingResourceCleanupUsesPooledSnapshots()
     {
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend", "WgpuContext.cs"));
