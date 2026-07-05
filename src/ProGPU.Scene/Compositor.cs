@@ -2135,12 +2135,7 @@ public unsafe class Compositor : IDisposable
         _context.Wgpu.CommandBufferRelease(cmdBuffer);
         _context.Wgpu.CommandEncoderRelease(encoder);
 
-        foreach (var tex in _masksToReturnToPool)
-        {
-            _maskTexturePool.Add(tex);
-        }
-        _masksToReturnToPool.Clear();
-        ReturnMaskRenderPassDrawCallLists();
+        ReturnPendingMaskTexturesToPool();
 
         _frameNumber++;
         _totalTime += 1f / 60f;
@@ -2173,8 +2168,10 @@ public unsafe class Compositor : IDisposable
             int keysToRemoveCount = 0;
             try
             {
-                foreach (var kvp in _persistentTextureBindGroups)
+                var bindGroupEnumerator = _persistentTextureBindGroups.GetEnumerator();
+                while (bindGroupEnumerator.MoveNext())
                 {
+                    var kvp = bindGroupEnumerator.Current;
                     if (_frameNumber - kvp.Value.LastUsedFrame > 60)
                     {
                         QueueBindGroupRelease(kvp.Value.BindGroupPtr);
@@ -2218,8 +2215,10 @@ public unsafe class Compositor : IDisposable
             int keysToRemoveCount = 0;
             try
             {
-                foreach (var key in _persistentTextureBindGroups.Keys)
+                var bindGroupEnumerator = _persistentTextureBindGroups.GetEnumerator();
+                while (bindGroupEnumerator.MoveNext())
                 {
+                    var key = bindGroupEnumerator.Current.Key;
                     if (key.TextureId == textureId)
                     {
                         AddRemovalItem(ref keysToRemove, ref keysToRemoveCount, _persistentTextureBindGroups.Count, key);
@@ -2283,8 +2282,10 @@ public unsafe class Compositor : IDisposable
             int keysToRemoveCount = 0;
             try
             {
-                foreach (var key in cache.Keys)
+                var maskBindGroupEnumerator = cache.GetEnumerator();
+                while (maskBindGroupEnumerator.MoveNext())
                 {
+                    var key = maskBindGroupEnumerator.Current.Key;
                     if (key.Id == textureId)
                     {
                         AddRemovalItem(ref keysToRemove, ref keysToRemoveCount, cache.Count, key);
@@ -2343,8 +2344,10 @@ public unsafe class Compositor : IDisposable
             int detachedCount = 0;
             try
             {
-                foreach (var fe in _effectTextures.Keys)
+                var effectTextureEnumerator = _effectTextures.GetEnumerator();
+                while (effectTextureEnumerator.MoveNext())
                 {
+                    var fe = effectTextureEnumerator.Current.Key;
                     if (!IsAttachedToAnyActiveRoot(fe, mainRoot, externalLayers, activeToolTip))
                     {
                         AddRemovalItem(ref detached, ref detachedCount, _effectTextures.Count, fe);
@@ -2382,8 +2385,10 @@ public unsafe class Compositor : IDisposable
         int staleCount = 0;
         try
         {
-            foreach (var entry in _allocatedLayerTextures)
+            var layerTextureEnumerator = _allocatedLayerTextures.GetEnumerator();
+            while (layerTextureEnumerator.MoveNext())
             {
+                var entry = layerTextureEnumerator.Current;
                 var owner = entry.Key;
                 var texture = entry.Value;
                 if (texture.IsDisposed
@@ -2805,6 +2810,18 @@ public unsafe class Compositor : IDisposable
         }
 
         _maskRenderPasses.Clear();
+    }
+
+    private void ReturnPendingMaskTexturesToPool()
+    {
+        var maskTextureCount = _masksToReturnToPool.Count;
+        for (var maskTextureIndex = 0; maskTextureIndex < maskTextureCount; maskTextureIndex++)
+        {
+            _maskTexturePool.Add(_masksToReturnToPool[maskTextureIndex]);
+        }
+
+        _masksToReturnToPool.Clear();
+        ReturnMaskRenderPassDrawCallLists();
     }
 
     private void PushOpacityValue(float opacity)
@@ -6150,16 +6167,20 @@ public unsafe class Compositor : IDisposable
             }
             _pipelineCache.Dispose();
             _compute.Dispose();
-            foreach (var tuple in _effectTextures.Values)
+            var effectTextureEnumerator = _effectTextures.Values.GetEnumerator();
+            while (effectTextureEnumerator.MoveNext())
             {
+                var tuple = effectTextureEnumerator.Current;
                 tuple.Source.Dispose();
                 tuple.Temp.Dispose();
                 tuple.Destination.Dispose();
             }
             _effectTextures.Clear();
 
-            foreach (var entry in _allocatedLayerTextures)
+            var allocatedLayerTextureEnumerator = _allocatedLayerTextures.GetEnumerator();
+            while (allocatedLayerTextureEnumerator.MoveNext())
             {
+                var entry = allocatedLayerTextureEnumerator.Current;
                 if (ReferenceEquals(entry.Key.LayerTexture, entry.Value))
                 {
                     entry.Key.LayerTexture = null;
@@ -6218,8 +6239,10 @@ public unsafe class Compositor : IDisposable
             {
                 if (!_context.IsDisposed)
                 {
-                    foreach (var cachedBg in _persistentTextureBindGroups.Values)
+                    var cachedBindGroupEnumerator = _persistentTextureBindGroups.Values.GetEnumerator();
+                    while (cachedBindGroupEnumerator.MoveNext())
                     {
+                        var cachedBg = cachedBindGroupEnumerator.Current;
                         if (cachedBg.BindGroupPtr != 0) _context.QueueBindGroupDisposal((IntPtr)cachedBg.BindGroupPtr);
                     }
                 }
@@ -6236,12 +6259,17 @@ public unsafe class Compositor : IDisposable
                 if (_maskBindGroupLayout != null) _context.QueueBindGroupLayoutDisposal((IntPtr)_maskBindGroupLayout);
                 if (_maskBindGroupLayoutOffscreen != null) _context.QueueBindGroupLayoutDisposal((IntPtr)_maskBindGroupLayoutOffscreen);
 
-                foreach (var bg in _maskBindGroups.Values)
+                var maskBindGroupEnumerator = _maskBindGroups.Values.GetEnumerator();
+                while (maskBindGroupEnumerator.MoveNext())
                 {
+                    var bg = maskBindGroupEnumerator.Current;
                     _context.QueueBindGroupDisposal((IntPtr)bg);
                 }
-                foreach (var bg in _maskBindGroupsOffscreen.Values)
+
+                var offscreenMaskBindGroupEnumerator = _maskBindGroupsOffscreen.Values.GetEnumerator();
+                while (offscreenMaskBindGroupEnumerator.MoveNext())
                 {
+                    var bg = offscreenMaskBindGroupEnumerator.Current;
                     _context.QueueBindGroupDisposal((IntPtr)bg);
                 }
             }
@@ -7301,12 +7329,7 @@ public unsafe class Compositor : IDisposable
         targetTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
         targetTexture.MarkContentsDirty();
 
-        foreach (var tex in _masksToReturnToPool)
-        {
-            _maskTexturePool.Add(tex);
-        }
-        _masksToReturnToPool.Clear();
-        ReturnMaskRenderPassDrawCallLists();
+        ReturnPendingMaskTexturesToPool();
 
         EvictUnusedBindGroups();
         }
