@@ -232,8 +232,9 @@ public sealed class WpfShaderEffectParams
         const ulong fnvPrime = 1099511628211UL;
 
         var hash = fnvOffsetBasis;
-        foreach (var c in value)
+        for (var i = 0; i < value.Length; i++)
         {
+            var c = value[i];
             hash ^= c;
             hash *= fnvPrime;
         }

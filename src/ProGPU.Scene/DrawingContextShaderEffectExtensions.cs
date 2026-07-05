@@ -31,7 +31,7 @@ public static class DrawingContextShaderEffectExtensions
             return;
         }
 
-        var constantArray = constants.IsEmpty ? Array.Empty<float>() : constants.ToArray();
+        var constantArray = CopyConstants(constants);
         context.DrawWpfShaderEffect(new WpfShaderEffectParams
         {
             Texture = texture,
@@ -41,5 +41,21 @@ public static class DrawingContextShaderEffectExtensions
             Constants = constantArray,
             SamplingMode = samplingMode
         });
+    }
+
+    private static float[] CopyConstants(ReadOnlySpan<float> constants)
+    {
+        if (constants.IsEmpty)
+        {
+            return Array.Empty<float>();
+        }
+
+        var copiedConstants = new float[constants.Length];
+        for (var i = 0; i < constants.Length; i++)
+        {
+            copiedConstants[i] = constants[i];
+        }
+
+        return copiedConstants;
     }
 }

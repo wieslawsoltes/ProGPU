@@ -193,7 +193,25 @@ public class WpfShaderEffectParamsTests
 
         Assert.Contains("var samplers = Samplers;\n        for (var i = 0; i < samplers.Length; i++)", source, StringComparison.Ordinal);
         Assert.Contains("var sampler = samplers[i];", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < value.Length; i++)", source, StringComparison.Ordinal);
+        Assert.Contains("var c = value[i];", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var sampler in Samplers)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var c in value)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShaderEffectDrawingHelperCopiesConstantsExplicitly()
+    {
+        var source = File.ReadAllText(FindRepoFile(
+            "src",
+            "ProGPU.Scene",
+            "DrawingContextShaderEffectExtensions.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains("var constantArray = CopyConstants(constants);", source, StringComparison.Ordinal);
+        Assert.Contains("private static float[] CopyConstants(ReadOnlySpan<float> constants)", source, StringComparison.Ordinal);
+        Assert.Contains("for (var i = 0; i < constants.Length; i++)", source, StringComparison.Ordinal);
+        Assert.Contains("copiedConstants[i] = constants[i];", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("constants.ToArray()", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -216,7 +234,8 @@ public class WpfShaderEffectParamsTests
         Assert.Contains("for (var i = 0; i < activeRegisters.Length; i++)", source, StringComparison.Ordinal);
         Assert.Contains("var sourceRegisters = sourceLayout.Registers;", source, StringComparison.Ordinal);
         Assert.Contains("for (var i = 0; i < sourceRegisters.Length; i++)", source, StringComparison.Ordinal);
-        Assert.Contains("Registers = activeRegisters.ToArray()", source, StringComparison.Ordinal);
+        Assert.Contains("Registers = CopyActiveRegisters(activeRegisters),", source, StringComparison.Ordinal);
+        Assert.Contains("private static int[] CopyActiveRegisters(ReadOnlySpan<int> activeRegisters)", source, StringComparison.Ordinal);
         Assert.Contains("Span<VertexAttribute> attrs = stackalloc VertexAttribute[3];", source, StringComparison.Ordinal);
         Assert.Contains("Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[1];", source, StringComparison.Ordinal);
         Assert.Contains("ArrayStride = (uint)Unsafe.SizeOf<VectorVertex>()", source, StringComparison.Ordinal);
@@ -226,6 +245,7 @@ public class WpfShaderEffectParamsTests
         Assert.Contains("fixed (VertexBufferLayout* pLayouts = vertexBufferLayouts)", pipelineCache, StringComparison.Ordinal);
         Assert.DoesNotContain("private static int[] CollectActiveSamplerRegisters", source, StringComparison.Ordinal);
         Assert.DoesNotContain("return registers[..count].ToArray();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Registers = activeRegisters.ToArray()", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var register in activeSamplerRegisters)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var register in activeRegisters)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var register in sourceLayout.Registers)", source, StringComparison.Ordinal);
