@@ -133,6 +133,12 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("export LD_LIBRARY_PATH=\"${native_root}:${native_rid_root}:${LD_LIBRARY_PATH:-}\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet nuget push artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
+        Assert.Contains("Create GitHub Release", workflow, StringComparison.Ordinal);
+        Assert.Contains("GH_TOKEN: ${{ github.token }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("gh release create \"${GITHUB_REF_NAME}\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("--title \"ProGPU ${{ env.PROGPU_PACKAGE_VERSION }}\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("--generate-notes", workflow, StringComparison.Ordinal);
+        Assert.Contains("--verify-tag", workflow, StringComparison.Ordinal);
     }
 
     [Fact]

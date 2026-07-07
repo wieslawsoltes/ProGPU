@@ -35,7 +35,7 @@ Set `PROGPU_PACKAGE_OUTPUT` to use a different folder.
 
 - `Build` restores, builds, and runs the main ProGPU test project on Linux, macOS, and Windows, then packs the explicit shipping package set.
 - `Docs` verifies that README/package documentation stays in sync with the release package list.
-- `Release` runs docs validation, restore, build, tests, package creation, and artifact upload.
+- `Release` runs docs validation, restore, build, tests, package creation, artifact upload, NuGet publish, and tag-driven GitHub Release creation with generated release notes.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
 for example `v0.1.0-preview.1`.
@@ -49,3 +49,4 @@ Publishing to NuGet.org is intentionally gated:
 - The workflow requires the repository secret `NUGET_API_KEY`.
 
 The publish step uses `dotnet nuget push --skip-duplicate` against `https://api.nuget.org/v3/index.json`.
+Tag runs create the matching GitHub Release with `gh release create --generate-notes` and attach the built `.nupkg` and `.snupkg` assets.
