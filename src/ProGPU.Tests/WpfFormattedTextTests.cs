@@ -51,4 +51,38 @@ public sealed class WpfFormattedTextTests
         Assert.Equal(System.Windows.FontStyles.Italic, System.Windows.FontStyle.Italic);
         Assert.Equal("Italic", System.Windows.FontStyles.Italic.ToString());
     }
+
+    [Theory]
+    [InlineData("Calibri")]
+    [InlineData("Segoe UI")]
+    [InlineData("Segoe UI, Arial")]
+    [InlineData("Consolas")]
+    public void FontFamilyResolvesCommonWpfFontsThroughPortableFallbacks(string familyName)
+    {
+        var family = new WpfFontFamily(familyName);
+
+        Assert.NotNull(family.NativeFont);
+    }
+
+    [Fact]
+    public void DrawTextUsesPortableFallbackForWindowsOnlyFontFamily()
+    {
+        var nativeContext = new DrawingContext();
+        using var context = new WpfDrawingContext(nativeContext);
+        var formattedText = new WpfFormattedText(
+            "Family.Show",
+            CultureInfo.InvariantCulture,
+            System.Windows.FlowDirection.LeftToRight,
+            new WpfTypeface(new WpfFontFamily("Calibri")),
+            16,
+            WpfBrushes.Black);
+
+        Assert.NotNull(formattedText.Font);
+
+        context.DrawText(formattedText, new WpfPoint(4, 8));
+
+        var command = Assert.Single(nativeContext.Commands);
+        Assert.Equal(RenderCommandType.DrawText, command.Type);
+        Assert.Same(formattedText.Font, command.Font);
+    }
 }
