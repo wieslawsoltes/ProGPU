@@ -47,4 +47,6 @@ public interface IPortablePresentationSourceHost : IDisposable
     void SetClientSize(double width, double height);
 
     bool TryUpdateRootVisualClientSize(out double width, out double height);
+
+    bool DispatchHwndSourceHook(int message, IntPtr wParam, IntPtr lParam, out IntPtr result, out bool handled);
 }
