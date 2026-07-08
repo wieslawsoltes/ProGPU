@@ -6,6 +6,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>System.Drawing.Common</AssemblyName>
     <RootNamespace>System.Drawing</RootNamespace>
+    <PackageId>ProGPU.System.Drawing.Common</PackageId>
+    <Description>ProGPU-backed portable System.Drawing.Common compatibility shim.</Description>
+    <PackageTags>progpu;system.drawing;drawing;compatibility;cross-platform</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

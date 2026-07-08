@@ -6,6 +6,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>SkiaSharp</AssemblyName>
     <RootNamespace>SkiaSharp</RootNamespace>
+    <PackageId>ProGPU.SkiaSharp</PackageId>
+    <Description>ProGPU-backed portable SkiaSharp compatibility shim.</Description>
+    <PackageTags>progpu;skiasharp;compatibility;cross-platform</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="StbImageSharp" />

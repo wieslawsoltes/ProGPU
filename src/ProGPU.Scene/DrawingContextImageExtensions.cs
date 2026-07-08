@@ -17,7 +17,11 @@ namespace ProGPU.Scene
             float sepia = 0f,
             float invert = 0f,
             float blurSigma = 0f,
-            GpuTexture? maskTexture = null)
+            GpuTexture? maskTexture = null,
+            Rect? sourceRect = null,
+            TextureSamplingMode samplingMode = TextureSamplingMode.Linear,
+            ImageEffectColorMatrix? colorMatrix = null,
+            Matrix4x4 transform = default)
         {
             if (texture == null) return;
 
@@ -25,6 +29,8 @@ namespace ProGPU.Scene
             {
                 Texture = texture,
                 Rect = rect,
+                SourceRect = sourceRect ?? Rect.Empty,
+                SamplingMode = samplingMode,
                 Brightness = brightness,
                 Contrast = contrast,
                 Saturation = saturation,
@@ -32,12 +38,14 @@ namespace ProGPU.Scene
                 Sepia = sepia,
                 Invert = invert,
                 BlurSigma = blurSigma,
-                MaskTexture = maskTexture
+                MaskTexture = maskTexture,
+                ColorMatrix = colorMatrix
             };
 
             context.DrawExtension(
                 CompositorBuiltInExtensions.ImageEffect,
-                dataParam: p
+                dataParam: p,
+                transform: transform
             );
         }
     }

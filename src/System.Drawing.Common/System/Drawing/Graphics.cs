@@ -3,6 +3,7 @@ using ProGPU.Scene;
 using ProGPU.Vector;
 using System;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Numerics;
 using Silk.NET.WebGPU;
@@ -443,12 +444,22 @@ public class Graphics : IDisposable
         return new SizeF(layout.MeasuredSize.X, layout.MeasuredSize.Y);
     }
 
+    public SizeF MeasureString(string text, Font font, SizeF layoutArea)
+    {
+        return MeasureString(text, font);
+    }
+
+    public SizeF MeasureString(string text, Font font, int width)
+    {
+        return MeasureString(text, font, new SizeF(width, float.MaxValue));
+    }
+
     private float GetFontPixelSize(Font font)
     {
         return ConvertFontSizeToPixels(font.Size, font.Unit, DpiY);
     }
 
-    private static float ConvertFontSizeToPixels(float size, GraphicsUnit unit, float dpi)
+    internal static float ConvertFontSizeToPixels(float size, GraphicsUnit unit, float dpi)
     {
         return unit switch
         {
@@ -456,6 +467,18 @@ public class Graphics : IDisposable
             GraphicsUnit.Inch => size * dpi,
             GraphicsUnit.Document => size * dpi / 300f,
             GraphicsUnit.Millimeter => size * dpi / 25.4f,
+            _ => size
+        };
+    }
+
+    internal static float ConvertFontSizeToPoints(float size, GraphicsUnit unit, float dpi)
+    {
+        return unit switch
+        {
+            GraphicsUnit.Pixel or GraphicsUnit.Display or GraphicsUnit.World => size * 72f / dpi,
+            GraphicsUnit.Inch => size * 72f,
+            GraphicsUnit.Document => size * 72f / 300f,
+            GraphicsUnit.Millimeter => size * 72f / 25.4f,
             _ => size
         };
     }
@@ -469,27 +492,169 @@ public class Graphics : IDisposable
         }
     }
 
+    public void DrawImage(Image image, int x, int y, int width, int height)
+    {
+        DrawImage(image, new Rectangle(x, y, width, height));
+    }
+
+    public void DrawImage(Image image, float x, float y, float width, float height)
+    {
+        DrawImage(image, new RectangleF(x, y, width, height));
+    }
+
     public void DrawImage(Image image, RectangleF rect)
     {
         if (image is Bitmap bmp)
         {
-            DrawBitmap(bmp, rect);
+            DrawBitmap(bmp, rect, default, null);
         }
     }
 
     public void DrawImage(Image image, Rectangle rect) => DrawImage(image, (RectangleF)rect);
 
+    public void DrawImage(Image image, Rectangle destRect, Rectangle srcRect, GraphicsUnit srcUnit)
+    {
+        DrawImage(image, (RectangleF)destRect, (RectangleF)srcRect, srcUnit);
+    }
+
+    public void DrawImage(Image image, RectangleF destRect, RectangleF srcRect, GraphicsUnit srcUnit)
+    {
+        if (image is Bitmap bmp)
+        {
+            DrawBitmap(bmp, destRect, ConvertSourceRect(srcRect, srcUnit), null);
+        }
+    }
+
+    public void DrawIcon(Icon icon, Rectangle targetRect)
+    {
+        ArgumentNullException.ThrowIfNull(icon);
+        using var bitmap = icon.ToBitmap();
+        DrawImage(bitmap, targetRect);
+    }
+
+    public void DrawImageUnscaled(Image image, int x, int y)
+    {
+        DrawImage(image, x, y);
+    }
+
+    public void DrawImageUnscaled(Image image, Point point)
+    {
+        DrawImageUnscaled(image, point.X, point.Y);
+    }
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        int srcX,
+        int srcY,
+        int srcWidth,
+        int srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr)
+    {
+        if (image is Bitmap bmp)
+        {
+            var srcRect = ConvertSourceRect(
+                new RectangleF(srcX, srcY, srcWidth, srcHeight),
+                srcUnit);
+            DrawBitmap(bmp, destRect, srcRect, imageAttr);
+        }
+    }
+
     private void DrawBitmap(Bitmap bitmap, RectangleF rect)
     {
+        DrawBitmap(bitmap, rect, default, null);
+    }
+
+    private void DrawBitmap(Bitmap bitmap, RectangleF rect, RectangleF sourceRect, ImageAttributes? imageAttributes)
+    {
         var retainedTexture = RetainBitmapTexture(bitmap);
+        var srcRect = sourceRect.Width > 0f && sourceRect.Height > 0f
+            ? new Rect(sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height)
+            : Rect.Empty;
+
+        var colorMatrix = TryCreateImageEffectColorMatrix(imageAttributes?.ColorMatrix);
+        if (colorMatrix.HasValue)
+        {
+            _context.DrawImageWithEffect(
+                retainedTexture,
+                new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+                sourceRect: srcRect,
+                samplingMode: GetTextureSamplingMode(),
+                colorMatrix: colorMatrix,
+                transform: CurrentTransform4x4());
+            return;
+        }
+
         _context.Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawTexture,
             Texture = retainedTexture,
             Rect = new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+            SrcRect = srcRect,
             Transform = CurrentTransform4x4(),
             TextureSamplingMode = GetTextureSamplingMode()
         });
+    }
+
+    private RectangleF ConvertSourceRect(RectangleF sourceRect, GraphicsUnit unit)
+    {
+        if (unit == GraphicsUnit.Pixel || unit == GraphicsUnit.Display || unit == GraphicsUnit.World)
+        {
+            return sourceRect;
+        }
+
+        var scaleX = UnitToPixelScale(unit, DpiX);
+        var scaleY = UnitToPixelScale(unit, DpiY);
+        return new RectangleF(
+            sourceRect.X * scaleX,
+            sourceRect.Y * scaleY,
+            sourceRect.Width * scaleX,
+            sourceRect.Height * scaleY);
+    }
+
+    private static float UnitToPixelScale(GraphicsUnit unit, float dpi)
+    {
+        return unit switch
+        {
+            GraphicsUnit.Point => dpi / 72f,
+            GraphicsUnit.Inch => dpi,
+            GraphicsUnit.Document => dpi / 300f,
+            GraphicsUnit.Millimeter => dpi / 25.4f,
+            _ => 1f
+        };
+    }
+
+    private static ImageEffectColorMatrix? TryCreateImageEffectColorMatrix(ColorMatrix? colorMatrix)
+    {
+        if (colorMatrix == null)
+        {
+            return null;
+        }
+
+        var matrix = colorMatrix.Matrix;
+        return new ImageEffectColorMatrix(
+            new Vector4(Read(matrix, 0, 0), Read(matrix, 1, 0), Read(matrix, 2, 0), Read(matrix, 3, 0)),
+            new Vector4(Read(matrix, 0, 1), Read(matrix, 1, 1), Read(matrix, 2, 1), Read(matrix, 3, 1)),
+            new Vector4(Read(matrix, 0, 2), Read(matrix, 1, 2), Read(matrix, 2, 2), Read(matrix, 3, 2)),
+            new Vector4(Read(matrix, 0, 3), Read(matrix, 1, 3), Read(matrix, 2, 3), Read(matrix, 3, 3)),
+            new Vector4(Read(matrix, 4, 0), Read(matrix, 4, 1), Read(matrix, 4, 2), Read(matrix, 4, 3)));
+    }
+
+    private static float Read(float[][] matrix, int row, int column)
+    {
+        if ((uint)row >= (uint)matrix.Length)
+        {
+            return 0f;
+        }
+
+        var rowValues = matrix[row];
+        if (rowValues == null || (uint)column >= (uint)rowValues.Length)
+        {
+            return 0f;
+        }
+
+        return rowValues[column];
     }
 
     private TextureSamplingMode GetTextureSamplingMode()

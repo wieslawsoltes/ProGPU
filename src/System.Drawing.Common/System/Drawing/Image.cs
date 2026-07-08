@@ -10,5 +10,15 @@ public abstract class Image : IDisposable
     public virtual PixelFormat PixelFormat => PixelFormat.Format32bppArgb;
     public ImageFormat RawFormat { get; protected set; } = ImageFormat.Png;
 
+    public static Image FromFile(string filename)
+    {
+        return new Bitmap(filename);
+    }
+
+    public static Image FromStream(Stream stream)
+    {
+        return new Bitmap(stream);
+    }
+
     public abstract void Dispose();
 }

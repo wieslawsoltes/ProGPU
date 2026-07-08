@@ -25,18 +25,15 @@ struct VSUniforms {
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
 
 struct EffectUniforms {
-    brightness: f32,
-    contrast: f32,
-    saturation: f32,
-    grayscale: f32,
-    sepia: f32,
-    invert: f32,
-    blurSigma: f32,
-    hasMask: f32,
-    canvasWidth: f32,
-    canvasHeight: f32,
-    sourceIsPremultiplied: f32,
-    outputIsPremultiplied: f32,
+    colorMatrixRed: vec4<f32>,
+    colorMatrixGreen: vec4<f32>,
+    colorMatrixBlue: vec4<f32>,
+    colorMatrixAlpha: vec4<f32>,
+    colorMatrixOffset: vec4<f32>,
+    effects0: vec4<f32>,
+    effects1: vec4<f32>,
+    texture0: vec4<f32>,
+    flags0: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> effect: EffectUniforms;
@@ -72,7 +69,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(0.0);
 
-    let sigma = effect.blurSigma;
+    let sigma = effect.effects1.z;
     if (sigma > 0.01) {
         let texSize = vec2<f32>(textureDimensions(texTexture));
         let texel = vec2<f32>(1.0) / texSize;
@@ -94,7 +91,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var straightColor = color;
-    if (effect.sourceIsPremultiplied > 0.5) {
+    if (effect.texture0.z > 0.5) {
         if (straightColor.a > 0.00001) {
             straightColor = vec4<f32>(straightColor.rgb / straightColor.a, straightColor.a);
         } else {
@@ -103,24 +100,24 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Apply brightness
-    straightColor.r = straightColor.r + effect.brightness;
-    straightColor.g = straightColor.g + effect.brightness;
-    straightColor.b = straightColor.b + effect.brightness;
+    straightColor.r = straightColor.r + effect.effects0.x;
+    straightColor.g = straightColor.g + effect.effects0.x;
+    straightColor.b = straightColor.b + effect.effects0.x;
 
     // Apply contrast
-    straightColor.r = (straightColor.r - 0.5) * effect.contrast + 0.5;
-    straightColor.g = (straightColor.g - 0.5) * effect.contrast + 0.5;
-    straightColor.b = (straightColor.b - 0.5) * effect.contrast + 0.5;
+    straightColor.r = (straightColor.r - 0.5) * effect.effects0.y + 0.5;
+    straightColor.g = (straightColor.g - 0.5) * effect.effects0.y + 0.5;
+    straightColor.b = (straightColor.b - 0.5) * effect.effects0.y + 0.5;
     
     // Apply saturation
     let luminance = dot(straightColor.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    straightColor.r = mix(luminance, straightColor.r, effect.saturation);
-    straightColor.g = mix(luminance, straightColor.g, effect.saturation);
-    straightColor.b = mix(luminance, straightColor.b, effect.saturation);
+    straightColor.r = mix(luminance, straightColor.r, effect.effects0.z);
+    straightColor.g = mix(luminance, straightColor.g, effect.effects0.z);
+    straightColor.b = mix(luminance, straightColor.b, effect.effects0.z);
     
     // Apply grayscale
     let gray = vec3<f32>(luminance);
-    straightColor = vec4<f32>(mix(straightColor.rgb, gray, effect.grayscale), straightColor.a);
+    straightColor = vec4<f32>(mix(straightColor.rgb, gray, effect.effects0.w), straightColor.a);
     
     // Apply sepia
     let sepiaColor = vec3<f32>(
@@ -128,22 +125,32 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         straightColor.r * 0.349 + straightColor.g * 0.686 + straightColor.b * 0.168,
         straightColor.r * 0.272 + straightColor.g * 0.534 + straightColor.b * 0.131
     );
-    straightColor = vec4<f32>(mix(straightColor.rgb, sepiaColor, effect.sepia), straightColor.a);
+    straightColor = vec4<f32>(mix(straightColor.rgb, sepiaColor, effect.effects1.x), straightColor.a);
     
     // Apply invert
     let inverted = vec3<f32>(1.0) - straightColor.rgb;
-    straightColor = vec4<f32>(mix(straightColor.rgb, inverted, effect.invert), straightColor.a);
+    straightColor = vec4<f32>(mix(straightColor.rgb, inverted, effect.effects1.y), straightColor.a);
+
+    if (effect.flags0.z > 0.5) {
+        let matrixSource = straightColor;
+        straightColor = vec4<f32>(
+            dot(matrixSource, effect.colorMatrixRed) + effect.colorMatrixOffset.r,
+            dot(matrixSource, effect.colorMatrixGreen) + effect.colorMatrixOffset.g,
+            dot(matrixSource, effect.colorMatrixBlue) + effect.colorMatrixOffset.b,
+            dot(matrixSource, effect.colorMatrixAlpha) + effect.colorMatrixOffset.a
+        );
+    }
     
     straightColor = clamp(straightColor, vec4<f32>(0.0), vec4<f32>(1.0));
     
     var maskAlpha = 1.0;
-    if (effect.hasMask > 0.5) {
-        let screen_uv = input.position.xy / vec2<f32>(effect.canvasWidth, effect.canvasHeight);
+    if (effect.effects1.w > 0.5) {
+        let screen_uv = input.position.xy / vec2<f32>(effect.texture0.x, effect.texture0.y);
         maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
     }
 
     let coverage = input.color.a * maskAlpha;
-    if (effect.outputIsPremultiplied > 0.5) {
+    if (effect.texture0.w > 0.5) {
         return vec4<f32>(straightColor.rgb * straightColor.a * input.color.rgb * coverage, straightColor.a * coverage);
     }
 
@@ -154,18 +161,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         private struct EffectUniforms
         {
-            public float Brightness;
-            public float Contrast;
-            public float Saturation;
-            public float Grayscale;
-            public float Sepia;
-            public float Invert;
-            public float BlurSigma;
-            public float HasMask;
-            public float CanvasWidth;
-            public float CanvasHeight;
-            public float SourceIsPremultiplied;
-            public float OutputIsPremultiplied;
+            public Vector4 ColorMatrixRed;
+            public Vector4 ColorMatrixGreen;
+            public Vector4 ColorMatrixBlue;
+            public Vector4 ColorMatrixAlpha;
+            public Vector4 ColorMatrixOffset;
+            public Vector4 Effects0;
+            public Vector4 Effects1;
+            public Vector4 Texture0;
+            public Vector4 Flags0;
         }
 
         private struct EffectGpuResources
@@ -302,10 +306,28 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             var v2 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y + r.Height), transform);
             var v3 = Vector2.Transform(new Vector2(r.X, r.Y + r.Height), transform);
 
-            var uv0 = new Vector2(0f, 0f);
-            var uv1 = new Vector2(1f, 0f);
-            var uv2 = new Vector2(1f, 1f);
-            var uv3 = new Vector2(0f, 1f);
+            Vector2 uv0, uv1, uv2, uv3;
+            if (p.SourceRect.Width > 0f && p.SourceRect.Height > 0f)
+            {
+                float texW = p.Texture.Width;
+                float texH = p.Texture.Height;
+                float l = p.SourceRect.X / texW;
+                float t = p.SourceRect.Y / texH;
+                float right = (p.SourceRect.X + p.SourceRect.Width) / texW;
+                float b = (p.SourceRect.Y + p.SourceRect.Height) / texH;
+
+                uv0 = new Vector2(l, t);
+                uv1 = new Vector2(right, t);
+                uv2 = new Vector2(right, b);
+                uv3 = new Vector2(l, b);
+            }
+            else
+            {
+                uv0 = new Vector2(0f, 0f);
+                uv1 = new Vector2(1f, 0f);
+                uv2 = new Vector2(1f, 1f);
+                uv3 = new Vector2(0f, 1f);
+            }
 
             if (compositor.ActiveClipRect.HasValue &&
                 !QuadClipper.TryClipAxisAlignedQuad(
@@ -467,7 +489,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             // 1. Uniform parameters buffer management
             if (_usedCount >= _pool.Count)
             {
-                var buf = new GpuBuffer(compositor.Context, 48, BufferUsage.Uniform | BufferUsage.CopyDst, $"ImageEffect Uniforms {_pool.Count}");
+                var uniformSize = (uint)Unsafe.SizeOf<EffectUniforms>();
+                var buf = new GpuBuffer(compositor.Context, uniformSize, BufferUsage.Uniform | BufferUsage.CopyDst, $"ImageEffect Uniforms {_pool.Count}");
 
                 var bgEntries = stackalloc BindGroupEntry[1];
                 bgEntries[0] = new BindGroupEntry
@@ -475,7 +498,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                     Binding = 0,
                     Buffer = buf.BufferPtr,
                     Offset = 0,
-                    Size = 48
+                    Size = uniformSize
                 };
 
                 var bgDesc = new BindGroupDescriptor
@@ -496,20 +519,26 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             var effectiveMaskTexture = p.MaskTexture ?? dc.MaskTexture;
             var maskCanvasWidth = effectiveMaskTexture?.Width ?? compositor.CurrentCanvasPixelWidth;
             var maskCanvasHeight = effectiveMaskTexture?.Height ?? compositor.CurrentCanvasPixelHeight;
+            var colorMatrix = p.ColorMatrix;
             gpuRes.UniformBuffer.WriteSingle(new EffectUniforms
             {
-                Brightness = p.Brightness,
-                Contrast = p.Contrast,
-                Saturation = p.Saturation,
-                Grayscale = p.Grayscale,
-                Sepia = p.Sepia,
-                Invert = p.Invert,
-                BlurSigma = p.BlurSigma,
-                HasMask = effectiveMaskTexture != null ? 1f : 0f,
-                CanvasWidth = MathF.Max(1f, maskCanvasWidth),
-                CanvasHeight = MathF.Max(1f, maskCanvasHeight),
-                SourceIsPremultiplied = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
-                OutputIsPremultiplied = pipelineSourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f
+                ColorMatrixRed = colorMatrix?.Red ?? default,
+                ColorMatrixGreen = colorMatrix?.Green ?? default,
+                ColorMatrixBlue = colorMatrix?.Blue ?? default,
+                ColorMatrixAlpha = colorMatrix?.Alpha ?? default,
+                ColorMatrixOffset = colorMatrix?.Offset ?? default,
+                Effects0 = new Vector4(p.Brightness, p.Contrast, p.Saturation, p.Grayscale),
+                Effects1 = new Vector4(
+                    p.Sepia,
+                    p.Invert,
+                    p.BlurSigma,
+                    effectiveMaskTexture != null ? 1f : 0f),
+                Texture0 = new Vector4(
+                    MathF.Max(1f, maskCanvasWidth),
+                    MathF.Max(1f, maskCanvasHeight),
+                    sourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
+                    pipelineSourceAlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f),
+                Flags0 = new Vector4(0f, 0f, colorMatrix.HasValue ? 1f : 0f, 0f)
             });
 
             // 2. Texture & Sampler BindGroup (Group 2)
@@ -517,14 +546,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 p.Texture.Id,
                 p.Texture.Generation,
                 isOffscreen,
-                TextureSamplingMode.Linear);
+                p.SamplingMode);
             Compositor.CachedBindGroup? cachedBg;
             lock (_textureBindGroups)
             {
                 if (!_textureBindGroups.TryGetValue(textureCacheKey, out cachedBg))
                 {
                     var textureEntries = stackalloc BindGroupEntry[2];
-                    textureEntries[0] = new BindGroupEntry { Binding = 0, Sampler = compositor.GetTextureSampler(TextureSamplingMode.Linear) };
+                    textureEntries[0] = new BindGroupEntry { Binding = 0, Sampler = compositor.GetTextureSampler(p.SamplingMode) };
                     textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = p.Texture.ViewPtr };
 
                     var bgDesc = new BindGroupDescriptor

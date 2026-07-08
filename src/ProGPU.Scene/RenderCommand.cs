@@ -1210,7 +1210,8 @@ public class DrawingContext : IRenderDataProvider
         int pointOffset = 0,
         int pointCount = 0,
         int floatOffset = 0,
-        int floatCount = 0)
+        int floatCount = 0,
+        Matrix4x4 transform = default)
     {
         Commands.Add(new RenderCommand
         {
@@ -1222,7 +1223,8 @@ public class DrawingContext : IRenderDataProvider
             PointBufferOffset = pointOffset,
             PointBufferCount = pointCount,
             FloatBufferOffset = floatOffset,
-            FloatBufferCount = floatCount
+            FloatBufferCount = floatCount,
+            Transform = transform
         });
     }
 
@@ -1509,6 +1511,8 @@ public class DrawingContext : IRenderDataProvider
             {
                 Texture = imageEffect.Texture,
                 Rect = TranslateRect(imageEffect.Rect, translation),
+                SourceRect = imageEffect.SourceRect,
+                SamplingMode = imageEffect.SamplingMode,
                 Brightness = imageEffect.Brightness,
                 Contrast = imageEffect.Contrast,
                 Saturation = imageEffect.Saturation,
@@ -1516,6 +1520,7 @@ public class DrawingContext : IRenderDataProvider
                 Sepia = imageEffect.Sepia,
                 Invert = imageEffect.Invert,
                 BlurSigma = imageEffect.BlurSigma,
+                ColorMatrix = imageEffect.ColorMatrix,
                 MaskTexture = imageEffect.MaskTexture,
                 LastError = imageEffect.LastError
             },

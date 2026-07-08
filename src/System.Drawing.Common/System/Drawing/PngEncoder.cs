@@ -26,8 +26,15 @@ internal static class PngEncoder
     public static void SavePng(string filePath, byte[] rgbaPixels, uint width, uint height)
     {
         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-        
-        fs.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
+        SavePng(fs, rgbaPixels, width, height);
+    }
+
+    public static void SavePng(Stream stream, byte[] rgbaPixels, uint width, uint height)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(rgbaPixels);
+
+        stream.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
 
         byte[] ihdr = new byte[13];
         ihdr[0] = (byte)((width >> 24) & 0xFF);
@@ -46,7 +53,7 @@ internal static class PngEncoder
         ihdr[11] = 0;
         ihdr[12] = 0;
         
-        WriteChunk(fs, "IHDR", ihdr);
+        WriteChunk(stream, "IHDR", ihdr);
 
         byte[] scanlines = new byte[height * (1 + width * 4)];
         int srcIndex = 0;
@@ -74,9 +81,9 @@ internal static class PngEncoder
         ms.WriteByte((byte)((adler >> 8) & 0xFF));
         ms.WriteByte((byte)(adler & 0xFF));
 
-        WriteChunk(fs, "IDAT", ms.ToArray());
+        WriteChunk(stream, "IDAT", ms.ToArray());
 
-        WriteChunk(fs, "IEND", Array.Empty<byte>());
+        WriteChunk(stream, "IEND", Array.Empty<byte>());
     }
 
     private static void WriteChunk(Stream stream, string type, byte[] data)

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using ProGPU.Text;
 
 namespace System.Drawing;
@@ -40,10 +41,13 @@ public class FontFamily : IDisposable
             {
                 s_fallbackFont = new FontCacheEntry(systemFonts[0].FilePath, systemFonts[0].FaceIndex);
             }
+
+            s_fallbackFont ??= ProbeFallbackFontFile();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[FontFamily] Error initializing system font cache: {ex.Message}");
+            s_fallbackFont ??= ProbeFallbackFontFile();
         }
     }
 
@@ -62,9 +66,33 @@ public class FontFamily : IDisposable
         }
         else
         {
-            FilePath = s_fallbackFont?.FilePath ?? "";
-            FaceIndex = s_fallbackFont?.FaceIndex ?? 0;
+            FontCacheEntry? fallback = s_fallbackFont ??= ProbeFallbackFontFile();
+            FilePath = fallback?.FilePath ?? "";
+            FaceIndex = fallback?.FaceIndex ?? 0;
         }
+    }
+
+    private static FontCacheEntry? ProbeFallbackFontFile()
+    {
+        foreach (string path in new[]
+        {
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/System/Library/Fonts/SFCompact.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf"
+        })
+        {
+            if (File.Exists(path))
+            {
+                return new FontCacheEntry(path, 0);
+            }
+        }
+
+        return null;
     }
 
     public static FontFamily GenericSansSerif { get; } = new FontFamily("Arial");

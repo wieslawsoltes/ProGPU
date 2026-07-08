@@ -278,6 +278,44 @@ public sealed class ImageEffectRenderTests
         }
     }
 
+    [Fact]
+    public void DrawImageWithEffectAppliesColorMatrixToSelectedSourceRect()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        using var source = new GpuTexture(
+            window.Context,
+            2,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Image Effect Color Matrix Source");
+        source.WritePixels<byte>(new byte[]
+        {
+            255, 0, 0, 255,
+            0, 255, 0, 255
+        });
+
+        window.Content = new ColorMatrixSourceRectImageEffectVisual(source);
+
+        try
+        {
+            window.Render();
+
+            var pixel = ReadPixel(window.ReadPixels(), window.Width, x: 16, y: 16);
+
+            Assert.InRange(pixel.R, 0, 8);
+            Assert.InRange(pixel.G, 0, 8);
+            Assert.InRange(pixel.B, 220, 255);
+            Assert.Equal(255, pixel.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -443,6 +481,38 @@ public sealed class ImageEffectRenderTests
                 null,
                 new Rect(0f, 0f, 32f, 32f));
             context.DrawImageWithEffect(_source, new Rect(0f, 0f, 32f, 32f), invert: 1f);
+        }
+    }
+
+    private sealed class ColorMatrixSourceRectImageEffectVisual : FrameworkElement
+    {
+        private static readonly ImageEffectColorMatrix s_greenToBlue = new(
+            red: new System.Numerics.Vector4(0f, 0f, 0f, 0f),
+            green: new System.Numerics.Vector4(0f, 0f, 0f, 0f),
+            blue: new System.Numerics.Vector4(0f, 1f, 0f, 0f),
+            alpha: new System.Numerics.Vector4(0f, 0f, 0f, 1f),
+            offset: System.Numerics.Vector4.Zero);
+
+        private readonly GpuTexture _source;
+
+        public ColorMatrixSourceRectImageEffectVisual(GpuTexture source)
+        {
+            _source = source;
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new System.Numerics.Vector4(0f, 0f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 32f, 32f));
+            context.DrawImageWithEffect(
+                _source,
+                new Rect(0f, 0f, 32f, 32f),
+                sourceRect: new Rect(1f, 0f, 1f, 1f),
+                colorMatrix: s_greenToBlue);
         }
     }
 }

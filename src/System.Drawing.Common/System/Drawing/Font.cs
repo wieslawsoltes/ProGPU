@@ -30,9 +30,19 @@ public class Font : IDisposable
     private static readonly ConcurrentDictionary<string, TtfFont> s_ttfCache = new(StringComparer.OrdinalIgnoreCase);
 
     public FontFamily FontFamily { get; }
+    public string Name => FontFamily.Name;
     public float Size { get; }
+    public float SizeInPoints => Unit == GraphicsUnit.Point ? Size : Graphics.ConvertFontSizeToPoints(Size, Unit, 96f);
     public FontStyle Style { get; }
     public GraphicsUnit Unit { get; }
+    public GraphicsUnit OriginalUnit => Unit;
+    public byte GdiCharSet { get; }
+    public bool GdiVerticalFont { get; }
+    public bool Bold => (Style & FontStyle.Bold) != 0;
+    public bool Italic => (Style & FontStyle.Italic) != 0;
+    public bool Underline => (Style & FontStyle.Underline) != 0;
+    public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
+    public int Height => (int)MathF.Ceiling(Graphics.ConvertFontSizeToPixels(Size, Unit, 96f) * 1.2f);
 
     internal TtfFont TtfFont { get; }
 
@@ -41,12 +51,39 @@ public class Font : IDisposable
     {
     }
 
+    public Font(string familyName, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet)
+        : this(new FontFamily(familyName), emSize, style, unit, gdiCharSet)
+    {
+    }
+
+    public Font(string familyName, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet, bool gdiVerticalFont)
+        : this(new FontFamily(familyName), emSize, style, unit, gdiCharSet, gdiVerticalFont)
+    {
+    }
+
+    public Font(Font prototype, FontStyle newStyle)
+        : this(prototype.FontFamily, prototype.Size, newStyle, prototype.Unit, prototype.GdiCharSet, prototype.GdiVerticalFont)
+    {
+    }
+
     public Font(FontFamily family, float emSize, FontStyle style = FontStyle.Regular, GraphicsUnit unit = GraphicsUnit.Point)
+        : this(family, emSize, style, unit, 1)
+    {
+    }
+
+    public Font(FontFamily family, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet)
+        : this(family, emSize, style, unit, gdiCharSet, false)
+    {
+    }
+
+    public Font(FontFamily family, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet, bool gdiVerticalFont)
     {
         FontFamily = family;
         Size = emSize;
         Style = style;
         Unit = unit;
+        GdiCharSet = gdiCharSet;
+        GdiVerticalFont = gdiVerticalFont;
 
         string path = family.FilePath;
         if (string.IsNullOrEmpty(path))
@@ -55,6 +92,11 @@ public class Font : IDisposable
         }
 
         TtfFont = s_ttfCache.GetOrAdd(family.CacheKey, _ => new TtfFont(path, family.FaceIndex));
+    }
+
+    public override string ToString()
+    {
+        return $"[Font: Name={Name}, Size={Size}, Units={Unit}, GdiCharSet={GdiCharSet}, GdiVerticalFont={GdiVerticalFont}]";
     }
 
     public void Dispose() {}

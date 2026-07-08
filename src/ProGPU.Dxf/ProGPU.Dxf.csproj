@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <PackageReference Include="netDxf.netstandard" />
+    <PackageReference Include="System.Drawing.Common" ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
 </Project>

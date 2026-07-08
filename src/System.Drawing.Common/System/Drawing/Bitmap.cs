@@ -24,7 +24,7 @@ internal class GraphicsVisual : Visual
 
 public class Bitmap : Image
 {
-    private readonly GpuTexture _texture;
+    private GpuTexture _texture = null!;
     private readonly DrawingContext _recordedContext = new();
     private bool _isDisposed;
     private bool _hasDefinedPixels;
@@ -51,10 +51,69 @@ public class Bitmap : Image
         );
     }
 
+    public Bitmap(int width, int height, PixelFormat format)
+        : this(width, height)
+    {
+    }
+
+    public Bitmap(Image original, int width, int height)
+        : this(width, height)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+
+        if (original is Bitmap bitmap)
+        {
+            bitmap.Flush();
+            int copyWidth = Math.Min(width, bitmap.Width);
+            int copyHeight = Math.Min(height, bitmap.Height);
+            if (copyWidth > 0 && copyHeight > 0)
+            {
+                byte[] pixels = bitmap._texture.ReadPixels();
+                _texture.WritePixelsSubRect(pixels.AsSpan(), 0, 0, (uint)copyWidth, (uint)copyHeight);
+                _hasDefinedPixels = true;
+            }
+        }
+    }
+
+    public Bitmap(Image original)
+        : this(original, GetImageWidth(original), GetImageHeight(original))
+    {
+    }
+
     public Bitmap(string filename)
     {
         using var fs = System.IO.File.OpenRead(filename);
-        using var skData = SkiaSharp.SKData.Create(fs);
+        InitializeFromStream(fs, "GDI Bitmap Backing Texture from file");
+    }
+
+    public Bitmap(System.IO.Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        InitializeFromStream(stream, "GDI Bitmap Backing Texture from stream");
+    }
+
+    public Bitmap(Bitmap original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        original.Flush();
+
+        _texture = new GpuTexture(
+            GpuProvider.Context,
+            (uint)original.Width,
+            (uint)original.Height,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
+            "GDI Bitmap Backing Texture copy",
+            alphaMode: original._texture.AlphaMode
+        );
+
+        _texture.WritePixels(original._texture.ReadPixels());
+        _hasDefinedPixels = true;
+    }
+
+    private void InitializeFromStream(System.IO.Stream stream, string label)
+    {
+        using var skData = SkiaSharp.SKData.Create(stream);
         using var tempBitmap = SkiaSharp.SKBitmap.Decode(skData);
 
         _texture = new GpuTexture(
@@ -63,7 +122,7 @@ public class Bitmap : Image
             (uint)tempBitmap.Height,
             TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
-            "GDI Bitmap Backing Texture from file",
+            label,
             alphaMode: GpuTextureAlphaMode.Straight
         );
 
@@ -74,6 +133,18 @@ public class Bitmap : Image
         }
 
         _hasDefinedPixels = true;
+    }
+
+    private static int GetImageWidth(Image original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        return original.Width;
+    }
+
+    private static int GetImageHeight(Image original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        return original.Height;
     }
 
     public void Flush()
@@ -151,6 +222,39 @@ public class Bitmap : Image
 
     public void Save(string filename)
     {
+        ArgumentNullException.ThrowIfNull(filename);
+        using var stream = System.IO.File.Create(filename);
+        SavePng(stream);
+    }
+
+    public IntPtr GetHicon()
+    {
+        return Icon.RegisterBitmapHandle(this);
+    }
+
+    public void MakeTransparent()
+    {
+    }
+
+    public void MakeTransparent(Color transparentColor)
+    {
+    }
+
+    public void Save(System.IO.Stream stream, ImageFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(format);
+
+        if (format.Guid != ImageFormat.Png.Guid)
+        {
+            throw new NotSupportedException($"Image format '{format.Guid}' is not supported by the ProGPU System.Drawing bitmap shim.");
+        }
+
+        SavePng(stream);
+    }
+
+    private void SavePng(System.IO.Stream stream)
+    {
         Flush();
         byte[] pixels = _texture.ReadPixels();
         if (_texture.AlphaMode == GpuTextureAlphaMode.Premultiplied)
@@ -158,7 +262,7 @@ public class Bitmap : Image
             pixels = UnpremultiplyPixels(pixels);
         }
 
-        PngEncoder.SavePng(filename, pixels, (uint)Width, (uint)Height);
+        PngEncoder.SavePng(stream, pixels, (uint)Width, (uint)Height);
     }
 
     private static byte[] UnpremultiplyPixels(byte[] pixels)
