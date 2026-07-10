@@ -63,6 +63,20 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void ProGpuPublishScriptRequiresEnvironmentKeyAndPushesExplicitArtifacts()
+    {
+        string source = ReadSource("eng", "progpu-publish.sh");
+
+        Assert.Contains("if [[ -z \"${NUGET_API_KEY:-}\" ]]", source, StringComparison.Ordinal);
+        Assert.Contains("source \"${repo_root}/eng/progpu-package-list.sh\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"${repo_root}/eng/progpu-pack.sh\"", source, StringComparison.Ordinal);
+        Assert.Contains("for package_id in \"${progpu_package_ids[@]}\"", source, StringComparison.Ordinal);
+        Assert.Contains("--api-key \"${NUGET_API_KEY}\"", source, StringComparison.Ordinal);
+        Assert.Contains("--skip-duplicate", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("NUGET_API_KEY=", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WpfShimProjectsUseInRepoStrongNameKey()
     {
         string directoryBuildProps = ReadSource("Directory.Build.props");
@@ -71,7 +85,7 @@ public class DiagnosticsLoggingSourceTests
 
         Assert.Contains("<ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<VersionPrefix Condition=\"'$(VersionPrefix)' == ''\">0.1.0</VersionPrefix>", directoryBuildProps, StringComparison.Ordinal);
-        Assert.Contains("<VersionSuffix Condition=\"'$(VersionSuffix)' == ''\">preview.1</VersionSuffix>", directoryBuildProps, StringComparison.Ordinal);
+        Assert.Contains("<VersionSuffix Condition=\"'$(VersionSuffix)' == ''\">preview.2</VersionSuffix>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<Version Condition=\"'$(Version)' == ''\">$(VersionPrefix)-$(VersionSuffix)</Version>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<PackageVersion Condition=\"'$(PackageVersion)' == ''\">$(Version)</PackageVersion>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<AssemblyVersion Condition=\"'$(AssemblyVersion)' == ''\">0.1.0.0</AssemblyVersion>", directoryBuildProps, StringComparison.Ordinal);
