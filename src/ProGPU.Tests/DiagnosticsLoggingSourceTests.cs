@@ -358,8 +358,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var bindGroupToReleaseCount = 0;", source, StringComparison.Ordinal);
         Assert.Contains("RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, hInput, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
         Assert.Contains("RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
-        Assert.Contains("RunShadowHPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
-        Assert.Contains("RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, destination, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("Span<nint> bindGroupsToRelease = stackalloc nint[2];", source, StringComparison.Ordinal);
+        Assert.Contains("RunShadowPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
+        Assert.Contains("RunShadowPass(encoder, _shadowBlurVertPipeline, shadowVLayout, temp, destination, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);", source, StringComparison.Ordinal);
         Assert.Contains("ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);", source, StringComparison.Ordinal);
         Assert.Contains("private static void TrackBindGroupForRelease(Span<nint> bindGroupsToRelease, ref int count, BindGroup* bindGroup)", source, StringComparison.Ordinal);
         Assert.Contains("bindGroupsToRelease[count++] = (nint)bindGroup;", source, StringComparison.Ordinal);

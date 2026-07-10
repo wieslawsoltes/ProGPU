@@ -16,6 +16,7 @@ public unsafe class ComputeAccelerator : IDisposable
     private ComputePipeline* _blurVertPipeline;
     private ComputePipeline* _shadowPipeline;
     private ComputePipeline* _shadowBlurHorizPipeline;
+    private ComputePipeline* _shadowBlurVertPipeline;
 
 
     private bool _isDisposed;
@@ -73,7 +74,8 @@ public unsafe class ComputeAccelerator : IDisposable
         var shShadowBlurH = _cache.GetOrCreateShader("ShadowBlurH", ComputeShaders.ShadowBlurHorizontal, "ShadowBlurHShader");
         _shadowBlurHorizPipeline = _cache.GetOrCreateComputePipeline("ShadowBlurH", shShadowBlurH);
 
-
+        var shShadowBlurV = _cache.GetOrCreateShader("ShadowBlurV", ComputeShaders.ShadowBlurVertical, "ShadowBlurVShader");
+        _shadowBlurVertPipeline = _cache.GetOrCreateComputePipeline("ShadowBlurV", shShadowBlurV);
     }
 
     private static void TrackBindGroupForRelease(Span<nint> bindGroupsToRelease, ref int count, BindGroup* bindGroup)
@@ -176,7 +178,7 @@ public unsafe class ComputeAccelerator : IDisposable
         _context.Wgpu.BindGroupLayoutRelease(blurVLayout);
     }
 
-    private void RunShadowHPass(
+    private void RunShadowPass(
         CommandEncoder* encoder,
         ComputePipeline* pipeline,
         BindGroupLayout* layout,
@@ -288,8 +290,6 @@ public unsafe class ComputeAccelerator : IDisposable
             return;
         }
 
-        int iterations = Math.Clamp((int)Math.Round(snappedBlurRadius / 2.5f), 1, 8);
-
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Encoder") };
         var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
@@ -303,25 +303,13 @@ public unsafe class ComputeAccelerator : IDisposable
         paramsBuffer.WriteSingle(new ShadowParams(offset, shadowColor, snappedBlurRadius));
 
         var shadowHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_shadowBlurHorizPipeline, 0);
-        var blurHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurHorizPipeline, 0);
-        var blurVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurVertPipeline, 0);
+        var shadowVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_shadowBlurVertPipeline, 0);
 
-        Span<nint> bindGroupsToRelease = stackalloc nint[iterations * 2];
+        Span<nint> bindGroupsToRelease = stackalloc nint[2];
         var bindGroupToReleaseCount = 0;
 
-        for (int i = 0; i < iterations; i++)
-        {
-            if (i == 0)
-            {
-                RunShadowHPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
-            }
-            else
-            {
-                RunBlurPass(encoder, _blurHorizPipeline, blurHLayout, destination, temp, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
-            }
-
-            RunBlurPass(encoder, _blurVertPipeline, blurVLayout, temp, destination, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
-        }
+        RunShadowPass(encoder, _shadowBlurHorizPipeline, shadowHLayout, source, temp, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
+        RunShadowPass(encoder, _shadowBlurVertPipeline, shadowVLayout, temp, destination, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
         var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
@@ -335,8 +323,7 @@ public unsafe class ComputeAccelerator : IDisposable
         ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
 
         _context.Wgpu.BindGroupLayoutRelease(shadowHLayout);
-        _context.Wgpu.BindGroupLayoutRelease(blurHLayout);
-        _context.Wgpu.BindGroupLayoutRelease(blurVLayout);
+        _context.Wgpu.BindGroupLayoutRelease(shadowVLayout);
         paramsBuffer.Dispose();
     }
 
