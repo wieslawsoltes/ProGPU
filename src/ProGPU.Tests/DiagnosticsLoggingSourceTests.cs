@@ -125,7 +125,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
-        Assert.Contains("uses: actions/upload-artifact@v4", workflow, StringComparison.Ordinal);
+        Assert.Contains("uses: actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
         Assert.Contains("name: progpu-packages-${{ matrix.rid }}", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/packages/Release/*.snupkg", workflow, StringComparison.Ordinal);

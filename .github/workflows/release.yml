@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Linux WebGPU dependencies
         run: |
@@ -46,7 +46,7 @@ jobs:
             libxkbcommon0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
@@ -83,7 +83,7 @@ jobs:
         run: ./eng/progpu-pack.sh
 
       - name: Upload NuGet packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: progpu-nuget-${{ env.PROGPU_PACKAGE_VERSION }}
           path: |
