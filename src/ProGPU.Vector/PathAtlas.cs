@@ -118,6 +118,7 @@ public interface IPathHitTestCompilationCache
 public unsafe class PathAtlas : IDisposable
     , IPathHitTestCompilationCache
 {
+    private const int MaxCompiledFillPathCount = 4096;
     private const int MaxCompiledHitTestPathCount = 4096;
 
     private readonly WgpuContext _context;
@@ -150,6 +151,7 @@ public unsafe class PathAtlas : IDisposable
     }
 
     private readonly Dictionary<PathCacheKey, PathInfo> _paths = new();
+    private readonly Dictionary<int, CompiledPathData> _compiledFillPaths = new();
     private readonly Dictionary<int, CompiledPathData> _compiledHitTestPaths = new();
     private readonly List<GpuBuffer> _tempBuffers = new();
     private readonly List<PathInfo> _pendingPaths = new();
@@ -262,7 +264,45 @@ public unsafe class PathAtlas : IDisposable
         return hash.ToHashCode();
     }
 
-    public static (GpuPathRecord[] Records, GpuPathSegment[] Segments) CompilePath(PathGeometry path, out float localMinX, out float localMinY, out float localMaxX, out float localMaxY)
+    public static (GpuPathRecord[] Records, GpuPathSegment[] Segments) CompilePath(
+        PathGeometry path,
+        out float localMinX,
+        out float localMinY,
+        out float localMaxX,
+        out float localMaxY)
+    {
+        return CompilePathCore(
+            path,
+            fillOnly: false,
+            out localMinX,
+            out localMinY,
+            out localMaxX,
+            out localMaxY);
+    }
+
+    public static (GpuPathRecord[] Records, GpuPathSegment[] Segments) CompileFillPath(
+        PathGeometry path,
+        out float localMinX,
+        out float localMinY,
+        out float localMaxX,
+        out float localMaxY)
+    {
+        return CompilePathCore(
+            path,
+            fillOnly: true,
+            out localMinX,
+            out localMinY,
+            out localMaxX,
+            out localMaxY);
+    }
+
+    private static (GpuPathRecord[] Records, GpuPathSegment[] Segments) CompilePathCore(
+        PathGeometry path,
+        bool fillOnly,
+        out float localMinX,
+        out float localMinY,
+        out float localMaxX,
+        out float localMaxY)
     {
         if (path.IsCombined)
         {
@@ -273,11 +313,17 @@ public unsafe class PathAtlas : IDisposable
             }
 
             var combined = PathOpGeometrySolver.Combine(path.PathA, path.PathB, path.Op);
-            return CompilePath(combined, out localMinX, out localMinY, out localMaxX, out localMaxY);
+            return CompilePathCore(
+                combined,
+                fillOnly,
+                out localMinX,
+                out localMinY,
+                out localMaxX,
+                out localMaxY);
         }
 
         var figures = path.Figures;
-        var segments = new List<GpuPathSegment>(EstimateSegmentCapacity(figures));
+        var segments = new List<GpuPathSegment>(EstimateSegmentCapacity(figures, fillOnly));
         float minX = float.MaxValue;
         float minY = float.MaxValue;
         float maxX = float.MinValue;
@@ -295,7 +341,7 @@ public unsafe class PathAtlas : IDisposable
         {
             var figure = figures[figureIndex];
             var figureSegments = figure.Segments;
-            if (figureSegments.Count == 0)
+            if ((fillOnly && !figure.IsFilled) || figureSegments.Count == 0)
             {
                 continue;
             }
@@ -394,7 +440,7 @@ public unsafe class PathAtlas : IDisposable
                 }
             }
 
-            if (figure.IsClosed && currentPoint != figure.StartPoint)
+            if ((fillOnly || figure.IsClosed) && currentPoint != figure.StartPoint)
             {
                 segments.Add(new GpuPathSegment
                 {
@@ -432,20 +478,20 @@ public unsafe class PathAtlas : IDisposable
         return (records, CopySegments(segments));
     }
 
-    private static int EstimateSegmentCapacity(List<PathFigure> figures)
+    private static int EstimateSegmentCapacity(List<PathFigure> figures, bool fillOnly)
     {
         int capacity = 0;
         for (int i = 0; i < figures.Count; i++)
         {
             var figure = figures[i];
             int segmentCount = figure.Segments.Count;
-            if (segmentCount == 0)
+            if ((fillOnly && !figure.IsFilled) || segmentCount == 0)
             {
                 continue;
             }
 
             capacity += segmentCount;
-            if (figure.IsClosed)
+            if (fillOnly || figure.IsClosed)
             {
                 capacity++;
             }
@@ -514,6 +560,64 @@ public unsafe class PathAtlas : IDisposable
         }
 
         _compiledHitTestPaths[contentHash] = new CompiledPathData(
+            records,
+            segments,
+            localMinX,
+            localMinY,
+            localMaxX,
+            localMaxY);
+        return segments.Length != 0;
+    }
+
+    private bool TryGetCompiledFillPath(
+        PathGeometry path,
+        out GpuPathRecord[] records,
+        out GpuPathSegment[] segments,
+        out float localMinX,
+        out float localMinY,
+        out float localMaxX,
+        out float localMaxY)
+    {
+        if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
+        ArgumentNullException.ThrowIfNull(path);
+
+        int contentHash = ComputeHash(path);
+        if (_compiledFillPaths.TryGetValue(contentHash, out var cached))
+        {
+            records = cached.Records;
+            segments = cached.Segments;
+            localMinX = cached.LocalMinX;
+            localMinY = cached.LocalMinY;
+            localMaxX = cached.LocalMaxX;
+            localMaxY = cached.LocalMaxY;
+            return segments.Length != 0;
+        }
+
+        try
+        {
+            (records, segments) = CompileFillPath(
+                path,
+                out localMinX,
+                out localMinY,
+                out localMaxX,
+                out localMaxY);
+        }
+        catch (InvalidOperationException)
+        {
+            records = Array.Empty<GpuPathRecord>();
+            segments = Array.Empty<GpuPathSegment>();
+            localMinX = 0f;
+            localMinY = 0f;
+            localMaxX = 0f;
+            localMaxY = 0f;
+        }
+
+        if (_compiledFillPaths.Count >= MaxCompiledFillPathCount)
+        {
+            _compiledFillPaths.Clear();
+        }
+
+        _compiledFillPaths[contentHash] = new CompiledPathData(
             records,
             segments,
             localMinX,
@@ -644,7 +748,7 @@ public unsafe class PathAtlas : IDisposable
         float unscaledMinX, unscaledMinY, unscaledMaxX, unscaledMaxY;
         int xStart, yStart, width, height;
 
-        if (!TryGetCompiledHitTestPath(
+        if (!TryGetCompiledFillPath(
                 path,
                 out _,
                 out var segments,
@@ -821,7 +925,7 @@ public unsafe class PathAtlas : IDisposable
             var info = _pendingPaths[i];
             if (info.Width == 0 || info.Height == 0) continue;
 
-            if (!TryGetCompiledHitTestPath(
+            if (!TryGetCompiledFillPath(
                     info.Geometry,
                     out var records,
                     out var segments,
@@ -954,6 +1058,7 @@ public unsafe class PathAtlas : IDisposable
         _pipelineCache.Dispose();
         _atlasTexture.Dispose();
         _paths.Clear();
+        _compiledFillPaths.Clear();
         _compiledHitTestPaths.Clear();
         _pendingPaths.Clear();
 
