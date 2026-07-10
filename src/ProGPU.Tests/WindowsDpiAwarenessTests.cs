@@ -40,7 +40,7 @@ public sealed class WindowsDpiAwarenessTests
         string devTools = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "Windows", "DevToolsWindowController.cs"));
 
         Assert.Contains(".FramebufferResize += OnFramebufferResize", window, StringComparison.Ordinal);
-        Assert.Contains("_wgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y)", window, StringComparison.Ordinal);
+        Assert.Contains("wgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y)", window, StringComparison.Ordinal);
         Assert.Contains("DisplayScaleResolver.ResolveWindowDisplayScale(_silkWindow, monitorScale)", window, StringComparison.Ordinal);
         Assert.Contains("(uint)framebufferSize.X", window, StringComparison.Ordinal);
         Assert.Contains("dpiScale,", window, StringComparison.Ordinal);
@@ -95,7 +95,7 @@ public sealed class WindowsDpiAwarenessTests
 
         Assert.Contains("PointerPositionTransform", inputSystem, StringComparison.Ordinal);
         Assert.Contains("OnMouseMove(NormalizeInputPosition(state, new Vector2(pos.X, pos.Y)))", inputSystem, StringComparison.Ordinal);
-        Assert.Contains("InputSystem.Initialize(inputContext, _content, NormalizePointerPosition)", window, StringComparison.Ordinal);
+        Assert.Contains("InputSystem.Initialize(inputContext, _renderRoot, NormalizePointerPosition)", window, StringComparison.Ordinal);
         Assert.Contains("OperatingSystem.IsWindows()", window, StringComparison.Ordinal);
         Assert.Contains("InputSystem.NormalizePointerPositionForDpi", window, StringComparison.Ordinal);
 
