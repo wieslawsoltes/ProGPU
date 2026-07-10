@@ -51,7 +51,8 @@ public enum TextureSamplingMode
 {
     Linear,
     Nearest,
-    Cubic
+    Cubic,
+    LinearMipmap
 }
 
 public enum TextRenderingMode
@@ -357,6 +358,7 @@ public struct RenderCommand
 
     // Vector render options
     public bool IsEdgeAliased;
+    public bool IsPenThicknessLocal;
 
     // Advanced geometries
     public Vector2 Position2;
@@ -550,6 +552,38 @@ public class GpuPicture : IRenderDataProvider, IDisposable
 
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         new ReadOnlySpan<float>(FloatBuffer, offset, count);
+
+    public GpuPicture Clone()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        return new GpuPicture(
+            Commands,
+            PointBuffer,
+            DoubleBuffer,
+            Line3DBuffer,
+            FloatBuffer,
+            CloneRetainedResources());
+    }
+
+    internal RetainedResourceLease[] CloneRetainedResources()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        var leases = new RetainedResourceLease[_retainedResources.Length];
+        for (int i = 0; i < leases.Length; i++)
+        {
+            leases[i] = _retainedResources[i].AddRef();
+        }
+
+        return leases;
+    }
 
     public void Dispose()
     {
@@ -1319,6 +1353,7 @@ public class DrawingContext : IRenderDataProvider
 
     public void DrawPicture(GpuPicture picture)
     {
+        RetainPictureResources(picture);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawPicture,
@@ -1328,6 +1363,7 @@ public class DrawingContext : IRenderDataProvider
 
     public void DrawPicture(GpuPicture picture, Matrix4x4 cameraView)
     {
+        RetainPictureResources(picture);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawPicture,
@@ -1335,6 +1371,28 @@ public class DrawingContext : IRenderDataProvider
             UseGpuTransforms = true,
             CameraView = cameraView
         });
+    }
+
+    public void DrawPictureTransformed(GpuPicture picture, Matrix4x4 transform)
+    {
+        RetainPictureResources(picture);
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPicture,
+            Picture = picture,
+            Transform = transform
+        });
+    }
+
+    private void RetainPictureResources(GpuPicture picture)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+        var resources = picture.CloneRetainedResources();
+        _retainedResources.EnsureCapacity(checked(_retainedResources.Count + resources.Length));
+        for (int i = 0; i < resources.Length; i++)
+        {
+            _retainedResources.Add(resources[i]);
+        }
     }
 
     public void DrawExtension(

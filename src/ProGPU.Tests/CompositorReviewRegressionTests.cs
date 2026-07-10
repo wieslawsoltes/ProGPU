@@ -81,6 +81,47 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void PathAtlasCachesAndSamplesSubpixelTranslationPhase()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        var path = PrimitivePathGeometry.CreateRectangle(0f, 0f, 8f, 8f);
+
+        var first = atlas.GetOrCreatePath(path, scale: 1f, subpixelX: 0.2f, subpixelY: -0.6f);
+        var samePhase = atlas.GetOrCreatePath(path, scale: 1f, subpixelX: 0.202f, subpixelY: 0.402f);
+        var differentPhase = atlas.GetOrCreatePath(path, scale: 1f, subpixelX: 0.22f, subpixelY: 0.4f);
+
+        Assert.Equal(13f / 64f, first.Key.SubpixelX);
+        Assert.Equal(26f / 64f, first.Key.SubpixelY);
+        Assert.Equal(first.X, samePhase.X);
+        Assert.Equal(first.Y, samePhase.Y);
+        Assert.NotEqual(first.X, differentPhase.X);
+        Assert.Equal(2, atlas.CachedPathCount);
+        Assert.Equal(first.Key.SubpixelX, first.TexCoordMin.X * 256f - first.X, precision: 5);
+        Assert.Equal(first.Key.SubpixelY, first.TexCoordMin.Y * 256f - first.Y, precision: 5);
+        Assert.Equal(first.Key.SubpixelX, first.TexCoordMax.X * 256f - first.X - first.Width, precision: 5);
+        Assert.Equal(first.Key.SubpixelY, first.TexCoordMax.Y * 256f - first.Y - first.Height, precision: 5);
+    }
+
+    [Fact]
+    public void PathAtlasReservesCapacityBeforeAFrameCanRelocateCompiledPaths()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+
+        for (int i = 0; i < 4; i++)
+        {
+            atlas.GetOrCreatePath(
+                PrimitivePathGeometry.CreateRectangle(i * 80f, 0f, 70f, 70f),
+                scale: 1f);
+        }
+
+        Assert.Equal(4, atlas.CachedPathCount);
+
+        atlas.CleanupFrame(anticipatedWidth: 100, anticipatedHeight: 100);
+
+        Assert.Equal(0, atlas.CachedPathCount);
+    }
+
+    [Fact]
     public void AcisSolidPipelineUsesAlreadyComposedTransformOnce()
     {
         var compositor = CreateUninitializedCompositorForExtensionCompile();
@@ -1572,6 +1613,34 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RenderOffscreenAdvancesPathAtlasFrameBetweenTopLevelPasses()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "RenderOffscreen PathAtlas Frame Lifecycle Test");
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(32f, 32f)
+        };
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            PrimitivePathGeometry.CreateRoundedRectangle(4f, 4f, 20f, 16f, 4f, 4f));
+
+        uint initialFrame = GetPathAtlasFrameNumber(window.Compositor);
+
+        window.Compositor.RenderOffscreen(visual, 32, 32, target, 0f, 1f);
+        window.Compositor.RenderOffscreen(visual, 32, 32, target, 0f, 1f);
+
+        Assert.Equal(initialFrame + 2, GetPathAtlasFrameNumber(window.Compositor));
+    }
+
+    [Fact]
     public void RenderOffscreenRunsExtensionFrameScopeForTopLevelPass()
     {
         using var window = new HeadlessWindow(32, 32);
@@ -1839,6 +1908,80 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         Assert.Equal(mip0Pixels, destination.ReadPixels());
         Assert.Equal(mip1Pixels, destination.ReadPixels(mipLevel: 1));
+    }
+
+    [Fact]
+    public void GpuTextureCopyBaseLevelFromPreservesDestinationMipLevels()
+    {
+        using var window = new HeadlessWindow(4, 4);
+        using var source = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.CopySrc | TextureUsage.CopyDst,
+            "Base-Level Copy Source");
+        using var destination = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.CopySrc | TextureUsage.CopyDst,
+            "Base-Level Copy Destination",
+            mipLevelCount: 2);
+        var sourcePixels = Enumerable.Range(0, 4 * 4)
+            .SelectMany(index => new byte[] { (byte)index, 20, 30, 255 })
+            .ToArray();
+        byte[] preservedMip =
+        [
+            100, 0, 0, 255, 0, 100, 0, 255,
+            0, 0, 100, 255, 100, 100, 100, 255
+        ];
+
+        source.WritePixels(sourcePixels);
+        destination.WritePixels(preservedMip, mipLevel: 1);
+        destination.CopyBaseLevelFrom(source);
+
+        Assert.Equal(sourcePixels, destination.ReadPixels());
+        Assert.Equal(preservedMip, destination.ReadPixels(mipLevel: 1));
+    }
+
+    [Fact]
+    public void GpuTextureGenerateMipmaps2DLinearDownsamplesEachLevel()
+    {
+        using var window = new HeadlessWindow(4, 4);
+        using var texture = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc | TextureUsage.CopyDst,
+            "Linear Mipmap Texture",
+            mipLevelCount: 3);
+        byte[] basePixels =
+        [
+            255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255,
+            255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255,
+            0, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            0, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
+        ];
+
+        texture.WritePixels(basePixels);
+        texture.GenerateMipmaps2DLinear();
+
+        Assert.Equal(
+            new byte[]
+            {
+                255, 0, 0, 255, 0, 255, 0, 255,
+                0, 0, 255, 255, 255, 255, 255, 255
+            },
+            texture.ReadPixels(mipLevel: 1));
+        var finalMip = texture.ReadPixels(mipLevel: 2);
+        Assert.InRange(finalMip[0], (byte)127, (byte)128);
+        Assert.InRange(finalMip[1], (byte)127, (byte)128);
+        Assert.InRange(finalMip[2], (byte)127, (byte)128);
+        Assert.Equal(255, finalMip[3]);
     }
 
     [Fact]
@@ -2824,6 +2967,18 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var tempBuffersField = pathAtlas.GetType().GetField("_tempBuffers", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(tempBuffersField);
         return Assert.IsAssignableFrom<IList>(tempBuffersField.GetValue(pathAtlas));
+    }
+
+    private static uint GetPathAtlasFrameNumber(Compositor compositor)
+    {
+        var pathAtlasField = typeof(Compositor).GetField("_pathAtlas", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(pathAtlasField);
+        var pathAtlas = pathAtlasField.GetValue(compositor);
+        Assert.NotNull(pathAtlas);
+
+        var frameNumberField = pathAtlas.GetType().GetField("_frameNumber", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(frameNumberField);
+        return Assert.IsType<uint>(frameNumberField.GetValue(pathAtlas));
     }
 
     private static Dictionary<Compositor.TextureCacheKey, Compositor.CachedBindGroup> GetPersistentTextureBindGroups(Compositor compositor)

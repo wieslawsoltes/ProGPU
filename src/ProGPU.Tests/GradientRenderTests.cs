@@ -11,6 +11,14 @@ namespace ProGPU.Tests;
 public sealed class GradientRenderTests
 {
     [Fact]
+    public void TwoPointConicalShaderUsesSkiaCompatibleFocalRootSelection()
+    {
+        Assert.Contains("let root0Valid = root0Radius >= -0.00001;", Shaders.VectorShader);
+        Assert.Contains("let root1Valid = root1Radius >= -0.00001;", Shaders.VectorShader);
+        Assert.Contains("return vec2<f32>(max(root0, root1), 1.0);", Shaders.VectorShader);
+    }
+
+    [Fact]
     public void TwoPointConicalGradientRendersThroughNativeVectorShader()
     {
         var window = HeadlessWindow.Shared;

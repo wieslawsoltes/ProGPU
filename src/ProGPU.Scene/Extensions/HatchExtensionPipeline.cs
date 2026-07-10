@@ -197,7 +197,7 @@ fn transform_brush_coordinate(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
         dot(p, brush.coordinateTransform1.xyz));
 }
 
-fn solve_two_point_conical_gradient_t(brush: Brush, coord: vec2<f32>) -> f32 {
+fn solve_two_point_conical_gradient(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
     let centerDelta = brush.gradientCenter - brush.gradientStart;
     let radiusDelta = brush.gradientRadiusY - brush.gradientRadius;
     let point = coord - brush.gradientStart;
@@ -207,37 +207,43 @@ fn solve_two_point_conical_gradient_t(brush: Brush, coord: vec2<f32>) -> f32 {
 
     if (abs(a) < 0.00001) {
         if (abs(b) > 0.00001) {
-            return -c / b;
+            let root = -c / b;
+            let radius = brush.gradientRadius + root * radiusDelta;
+            if (radius >= -0.00001) {
+                return vec2<f32>(root, 1.0);
+            }
         }
 
-        return 0.0;
+        return vec2<f32>(0.0, 0.0);
     }
 
     let discriminant = (b * b) - (4.0 * a * c);
     if (discriminant < 0.0) {
-        return 0.0;
+        return vec2<f32>(0.0, 0.0);
     }
 
     let sqrtDiscriminant = sqrt(discriminant);
     let denominator = 2.0 * a;
     let root0 = (-b - sqrtDiscriminant) / denominator;
     let root1 = (-b + sqrtDiscriminant) / denominator;
-    let root0Valid = root0 >= -0.00001;
-    let root1Valid = root1 >= -0.00001;
+    let root0Radius = brush.gradientRadius + root0 * radiusDelta;
+    let root1Radius = brush.gradientRadius + root1 * radiusDelta;
+    let root0Valid = root0Radius >= -0.00001;
+    let root1Valid = root1Radius >= -0.00001;
 
     if (root0Valid && root1Valid) {
-        return min(root0, root1);
+        return vec2<f32>(max(root0, root1), 1.0);
     }
 
     if (root0Valid) {
-        return root0;
+        return vec2<f32>(root0, 1.0);
     }
 
     if (root1Valid) {
-        return root1;
+        return vec2<f32>(root1, 1.0);
     }
 
-    return max(root0, root1);
+    return vec2<f32>(0.0, 0.0);
 }
 
 @vertex
@@ -486,6 +492,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         let brushCoord = transform_brush_coordinate(brush, evalCoord);
         var t: f32 = 0.0;
+        var gradientCoverage: f32 = 1.0;
         if (brush.brushType == 1u) {
             let gradVec = brush.gradientEnd - brush.gradientStart;
             let lenSq = dot(gradVec, gradVec);
@@ -494,7 +501,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             }
         } else if (brush.brushType == 2u) {
             let rx = brush.gradientRadius;
-            let ry = max(brush.gradientRadiusY, brush.gradientRadius);
+            let ry = brush.gradientRadiusY;
             if (rx > 0.0001 || ry > 0.0001) {
                 let radii = vec2<f32>(max(rx, 0.0001), max(ry, 0.0001));
                 let point = (brushCoord - brush.gradientCenter) / radii;
@@ -512,12 +519,27 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 }
             }
         } else if (brush.brushType == 5u) {
-            t = solve_two_point_conical_gradient_t(brush, brushCoord);
+            let solution = solve_two_point_conical_gradient(brush, brushCoord);
+            t = solution.x;
+            gradientCoverage = solution.y;
+        } else if (brush.brushType == 6u) {
+            let direction = brushCoord - brush.gradientCenter;
+            t = atan2(direction.y, direction.x) / (2.0 * 3.141592653589793);
+            if (t < 0.0) {
+                t = t + 1.0;
+            }
         }
-        t = apply_gradient_spread(t, brush.spreadMethod);
-
-        let gradColor = sample_gradient_color(brush, t);
-        finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
+        if (gradientCoverage <= 0.0) {
+            if ((brush.spreadMethod & 0x80000000u) != 0u) {
+                finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
+            } else {
+                finalColor = vec4<f32>(0.0);
+            }
+        } else {
+            t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
+            let gradColor = sample_gradient_color(brush, t);
+            finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
+        }
     }
 
     return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha);

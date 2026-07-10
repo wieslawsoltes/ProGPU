@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -18,7 +19,7 @@ namespace ProGPU.Scene;
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct GpuBrush
 {
-    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical
+    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep
     [FieldOffset(4)] public float Opacity;
     [FieldOffset(8)] public Vector2 StartPoint;
     [FieldOffset(16)] public Vector2 EndPoint;
@@ -573,6 +574,10 @@ public unsafe class Compositor : IDisposable
     private TextureView* _msaaTextureView;
     private uint _msaaWidth;
     private uint _msaaHeight;
+    private GpuTexture? _advancedBlendScratchTexture;
+    private GpuTexture? _advancedBlendSourceTexture;
+    private BindGroupLayout* _advancedBlendBindGroupLayout;
+    private PipelineLayout* _advancedBlendPipelineLayout;
 
     // Uniform buffer (Projection Matrix)
     private readonly GpuBuffer _uniformBuffer;
@@ -601,6 +606,7 @@ public unsafe class Compositor : IDisposable
     // Sampler & Texture Bind Group for Typography
     private Sampler* _atlasSampler;
     private Sampler* _nearestTextureSampler;
+    private Sampler* _mipmapTextureSampler;
     private BindGroup* _atlasBindGroup;
     private BindGroupLayout* _atlasBindGroupLayout;
     private BindGroup* _atlasBindGroupOffscreen;
@@ -762,6 +768,7 @@ public unsafe class Compositor : IDisposable
     private readonly GpuBuffer _brushesStorageBuffer;
     private readonly GpuBuffer _gradientStopsStorageBuffer;
     private ulong _frameNumber = 0;
+    private int _offscreenRenderDepth;
     private float _totalTime = 0f;
     private readonly Dictionary<(string Text, TtfFont Font, float Size, TextAlignment Align), TextLayout> _layoutCache = new();
     private enum BatchType
@@ -987,6 +994,10 @@ public unsafe class Compositor : IDisposable
         nearestSamplerDesc.MinFilter = FilterMode.Nearest;
         nearestSamplerDesc.MipmapFilter = MipmapFilterMode.Nearest;
         _nearestTextureSampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &nearestSamplerDesc);
+
+        var mipmapSamplerDesc = samplerDesc;
+        mipmapSamplerDesc.LodMaxClamp = 32f;
+        _mipmapTextureSampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &mipmapSamplerDesc);
 
         // 5. Compile WGSL shaders
         var vecShaderModule = _pipelineCache.GetOrCreateShader("Vector", Shaders.VectorShader, "VectorShader");
@@ -1393,7 +1404,7 @@ public unsafe class Compositor : IDisposable
             TextureView = _pathAtlas.AtlasTexture.ViewPtr
         };
         var pathAtlasEntries = stackalloc BindGroupEntry[2];
-        pathAtlasEntries[0] = samplerEntry;
+        pathAtlasEntries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
         pathAtlasEntries[1] = pathViewEntry;
 
         var pathAtlasDesc = new BindGroupDescriptor
@@ -1543,7 +1554,9 @@ public unsafe class Compositor : IDisposable
 
         var totalSw = System.Diagnostics.Stopwatch.StartNew();
         var compileSw = System.Diagnostics.Stopwatch.StartNew();
-        _pathAtlas.CleanupFrame();
+        _pathAtlas.CleanupFrame(
+            _explicitRenderTargetWidth ?? width,
+            _explicitRenderTargetHeight ?? height);
         _activeLayerTextureOwners.Clear();
 
         if (_atlas.IsAlmostFull)
@@ -1898,6 +1911,10 @@ public unsafe class Compositor : IDisposable
         if (_msaaTexture == null || _msaaWidth != renderWidth || _msaaHeight != renderHeight)
         {
             ReleaseMsaaResources();
+            _advancedBlendScratchTexture?.Dispose();
+            _advancedBlendScratchTexture = null;
+            _advancedBlendSourceTexture?.Dispose();
+            _advancedBlendSourceTexture = null;
             CreateMsaaResources(renderWidth, renderHeight);
         }
 
@@ -3189,6 +3206,7 @@ public unsafe class Compositor : IDisposable
     private void CompilePicture(GpuPicture? picture, Matrix4x4 globalTransform)
     {
         if (picture == null) return;
+        var pictureStrokeScale = TransformMetrics.GetStrokeScale(globalTransform);
         var commands = picture.Commands;
         for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)
         {
@@ -3200,6 +3218,11 @@ public unsafe class Compositor : IDisposable
             {
                 activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
             }
+
+            var brushTransform = cmd.Type == RenderCommandType.DrawPath && cmd.Transform != default
+                ? cmd.Transform * activeTransform
+                : activeTransform;
+            TransformCommandBrushes(ref cmd, brushTransform, pictureStrokeScale);
 
             bool savedUseGpuTransformsActive = _useGpuTransformsActive;
             Matrix4x4 savedCameraViewMatrix = _cameraViewMatrix;
@@ -3387,6 +3410,81 @@ public unsafe class Compositor : IDisposable
         }
     }
 
+    private static void TransformCommandBrushes(
+        ref RenderCommand command,
+        Matrix4x4 commandTransform,
+        float strokeScale)
+    {
+        if (!Matrix4x4.Invert(commandTransform, out var inverseCommandTransform))
+        {
+            return;
+        }
+
+        command.Brush = TransformCommandBrush(command.Brush, inverseCommandTransform);
+        if (command.Pen != null)
+        {
+            var penThickness = command.IsPenThicknessLocal
+                ? command.Pen.Thickness
+                : command.Pen.Thickness * strokeScale;
+            command.Pen = new Pen(
+                TransformCommandBrush(command.Pen.Brush, inverseCommandTransform)!,
+                penThickness,
+                command.Pen.LineJoin,
+                command.Pen.MiterLimit,
+                command.Pen.StartLineCap,
+                command.Pen.EndLineCap,
+                command.Pen.DashCap,
+                command.Pen.DashArray,
+                command.Pen.DashOffset);
+        }
+    }
+
+    private static Brush? TransformCommandBrush(Brush? brush, Matrix4x4 inverseCommandTransform)
+    {
+        return brush switch
+        {
+            LinearGradientBrush linear => new LinearGradientBrush(linear.StartPoint, linear.EndPoint, linear.Stops)
+            {
+                Opacity = linear.Opacity,
+                SpreadMethod = linear.SpreadMethod,
+                ColorInterpolationMode = linear.ColorInterpolationMode,
+                CoordinateTransform = inverseCommandTransform * linear.CoordinateTransform
+            },
+            RadialGradientBrush radial => new RadialGradientBrush(
+                radial.Center,
+                radial.GradientOrigin,
+                radial.RadiusX,
+                radial.RadiusY,
+                radial.Stops)
+            {
+                Opacity = radial.Opacity,
+                SpreadMethod = radial.SpreadMethod,
+                ColorInterpolationMode = radial.ColorInterpolationMode,
+                CoordinateTransform = inverseCommandTransform * radial.CoordinateTransform
+            },
+            TwoPointConicalGradientBrush conical => new TwoPointConicalGradientBrush(
+                conical.StartCenter,
+                conical.StartRadius,
+                conical.EndCenter,
+                conical.EndRadius,
+                conical.Stops)
+            {
+                Opacity = conical.Opacity,
+                SpreadMethod = conical.SpreadMethod,
+                ColorInterpolationMode = conical.ColorInterpolationMode,
+                CoordinateTransform = inverseCommandTransform * conical.CoordinateTransform
+            },
+            SweepGradientBrush sweep => new SweepGradientBrush(sweep.Center, sweep.Stops)
+            {
+                Opacity = sweep.Opacity,
+                SpreadMethod = sweep.SpreadMethod,
+                ColorInterpolationMode = sweep.ColorInterpolationMode,
+                CoordinateTransform = inverseCommandTransform * sweep.CoordinateTransform
+            },
+            _ => brush
+        };
+    }
+
     private void CompileRectCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
@@ -3478,6 +3576,11 @@ public unsafe class Compositor : IDisposable
     }
 
 
+    private static float GetSubpixelPhase(float value)
+    {
+        return float.IsFinite(value) ? value - MathF.Floor(value) : 0f;
+    }
+
     private void CompilePathCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
@@ -3497,16 +3600,25 @@ public unsafe class Compositor : IDisposable
             // Extract scale factor from transform
             var scaleX = new Vector2(transform.M11, transform.M12).Length();
             var scaleY = new Vector2(transform.M21, transform.M22).Length();
-            float scale = Math.Max(scaleX, scaleY);
-            if (scale < 0.0001f) scale = 1f;
+            if (scaleX < 0.0001f) scaleX = 1f;
+            if (scaleY < 0.0001f) scaleY = 1f;
+            if (!IsAxisAlignedClipTransform(transform))
+            {
+                scaleX = scaleY = Math.Max(scaleX, scaleY);
+            }
 
-            var info = _pathAtlas.GetOrCreatePath(cmd.Path, scale);
+            var info = _pathAtlas.GetOrCreatePath(
+                cmd.Path,
+                scaleX,
+                scaleY,
+                GetSubpixelPhase(transform.M41),
+                GetSubpixelPhase(transform.M42));
             if (info.Width > 0 && info.Height > 0)
             {
-                float unscaledMinX = info.MinX / scale;
-                float unscaledMinY = info.MinY / scale;
-                float unscaledWidth = info.Width / scale;
-                float unscaledHeight = info.Height / scale;
+                float unscaledMinX = info.MinX / scaleX;
+                float unscaledMinY = info.MinY / scaleY;
+                float unscaledWidth = info.Width / scaleX;
+                float unscaledHeight = info.Height / scaleY;
 
                 var v0 = Vector2.Transform(new Vector2(unscaledMinX, unscaledMinY), transform);
                 var v1 = Vector2.Transform(new Vector2(unscaledMinX + unscaledWidth, unscaledMinY), transform);
@@ -3643,13 +3755,13 @@ public unsafe class Compositor : IDisposable
                     }
                     else if (segment is QuadraticBezierSegment)
                     {
-                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+                        const int N = 24;
                         maxVertices += 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
                     else if (segment is CubicBezierSegment)
                     {
-                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+                        const int N = 24;
                         maxVertices += 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
@@ -3821,7 +3933,7 @@ public unsafe class Compositor : IDisposable
                         var p1_trans = Vector2.Transform(quad.ControlPoint, transform);
                         var p2_trans = Vector2.Transform(quad.Point, transform);
 
-                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+                        const int N = 24;
                         uint idxStart = (uint)currentVertexCount;
 
                         var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 5f));
@@ -3859,7 +3971,7 @@ public unsafe class Compositor : IDisposable
                         var p2_trans = Vector2.Transform(cubic.ControlPoint2, transform);
                         var p3_trans = Vector2.Transform(cubic.Point, transform);
 
-                        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+                        const int N = 24;
                         uint idxStart = (uint)currentVertexCount;
 
                         var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 6f));
@@ -4900,7 +5012,7 @@ public unsafe class Compositor : IDisposable
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
         var p2_trans = Vector2.Transform(cmd.Position3, transform);
 
-        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+        const int N = 24;
         uint idxStart = (uint)startIndex;
 
         var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 5f));
@@ -4958,7 +5070,7 @@ public unsafe class Compositor : IDisposable
         var p2_trans = Vector2.Transform(cmd.Position3, transform);
         var p3_trans = Vector2.Transform(cmd.Position4, transform);
 
-        int N = Math.Clamp((int)(thickness * 1.5f) + 8, 8, 24);
+        const int N = 24;
         uint idxStart = (uint)startIndex;
 
         var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 6f));
@@ -5431,6 +5543,20 @@ public unsafe class Compositor : IDisposable
             gpuBrush.SpreadMethod = (uint)conical.SpreadMethod;
             gpuBrush.ColorInterpolationMode = (uint)conical.ColorInterpolationMode;
             ApplyGradientStops(ref gpuBrush, conical.Stops);
+            if (conical.OutsideColor is { } outsideColor)
+            {
+                gpuBrush.SpreadMethod |= 0x80000000u;
+                gpuBrush.Color0 = outsideColor;
+            }
+        }
+        else if (brush is SweepGradientBrush sweep)
+        {
+            gpuBrush.Type = 6;
+            gpuBrush.Center = sweep.Center;
+            SetBrushCoordinateTransform(ref gpuBrush, sweep.CoordinateTransform);
+            gpuBrush.SpreadMethod = (uint)sweep.SpreadMethod;
+            gpuBrush.ColorInterpolationMode = (uint)sweep.ColorInterpolationMode;
+            ApplyGradientStops(ref gpuBrush, sweep.Stops);
         }
         else if (brush is HatchPatternBrush hatch)
         {
@@ -5524,7 +5650,7 @@ public unsafe class Compositor : IDisposable
 
     private static bool IsGradientBrushType(uint brushType)
     {
-        return brushType == 1 || brushType == 2 || brushType == 5;
+        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6;
     }
 
     private static void SetBrushCoordinateTransform(ref GpuBrush gpuBrush, Matrix4x4 transform)
@@ -6077,9 +6203,14 @@ public unsafe class Compositor : IDisposable
 
     internal Sampler* GetTextureSampler(TextureSamplingMode samplingMode)
     {
-        return samplingMode == TextureSamplingMode.Nearest && _nearestTextureSampler != null
-            ? _nearestTextureSampler
-            : _atlasSampler;
+        return samplingMode switch
+        {
+            TextureSamplingMode.Nearest when _nearestTextureSampler != null =>
+                _nearestTextureSampler,
+            TextureSamplingMode.LinearMipmap when _mipmapTextureSampler != null =>
+                _mipmapTextureSampler,
+            _ => _atlasSampler
+        };
     }
 
     private void CommitPendingVectorDrawCall()
@@ -6237,6 +6368,7 @@ public unsafe class Compositor : IDisposable
             {
                 if (_atlasSampler != null) _context.QueueSamplerDisposal((IntPtr)_atlasSampler);
                 if (_nearestTextureSampler != null) _context.QueueSamplerDisposal((IntPtr)_nearestTextureSampler);
+                if (_mipmapTextureSampler != null) _context.QueueSamplerDisposal((IntPtr)_mipmapTextureSampler);
 
                 if (_vectorUniformBindGroup != null) _context.QueueBindGroupDisposal((IntPtr)_vectorUniformBindGroup);
                 if (_vectorUniformBindGroupOffscreen != null) _context.QueueBindGroupDisposal((IntPtr)_vectorUniformBindGroupOffscreen);
@@ -6258,6 +6390,8 @@ public unsafe class Compositor : IDisposable
                 if (_vectorPipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_vectorPipelineLayoutOffscreen);
                 if (_textPipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_textPipelineLayoutOffscreen);
                 if (_texturePipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_texturePipelineLayoutOffscreen);
+                if (_advancedBlendPipelineLayout != null) _context.QueuePipelineLayoutDisposal((IntPtr)_advancedBlendPipelineLayout);
+                if (_advancedBlendBindGroupLayout != null) _context.QueueBindGroupLayoutDisposal((IntPtr)_advancedBlendBindGroupLayout);
 
                 if (_atlasBindGroup != null) _context.QueueBindGroupDisposal((IntPtr)_atlasBindGroup);
                 if (_atlasBindGroupOffscreen != null) _context.QueueBindGroupDisposal((IntPtr)_atlasBindGroupOffscreen);
@@ -6401,6 +6535,327 @@ public unsafe class Compositor : IDisposable
                 _context.Wgpu.TextureRelease(_msaaTexture);
                 _msaaTexture = null;
             }
+        }
+    }
+
+    private static bool RequiresDestinationSampling(GpuBlendMode blendMode)
+    {
+        return blendMode is
+            GpuBlendMode.Multiply or
+            GpuBlendMode.Screen or
+            GpuBlendMode.Darken or
+            GpuBlendMode.Lighten or
+            GpuBlendMode.Exclusion or
+            GpuBlendMode.Overlay or
+            GpuBlendMode.ColorDodge or
+            GpuBlendMode.ColorBurn or
+            GpuBlendMode.HardLight or
+            GpuBlendMode.SoftLight or
+            GpuBlendMode.Difference or
+            GpuBlendMode.Hue or
+            GpuBlendMode.Saturation or
+            GpuBlendMode.Color or
+            GpuBlendMode.Luminosity;
+    }
+
+    private bool CanEncodeAdvancedBlend(in CompositorDrawCall drawCall, GpuTexture targetTexture)
+    {
+        return drawCall.Type == DrawCallType.Texture &&
+            IsTextureBindable(drawCall.Texture) &&
+            RequiresDestinationSampling(drawCall.BlendMode) &&
+            targetTexture.Usage.HasFlag(TextureUsage.TextureBinding);
+    }
+
+    private void EnsureAdvancedBlendResources(uint width, uint height, TextureFormat format)
+    {
+        if (_advancedBlendScratchTexture != null &&
+            _advancedBlendSourceTexture != null &&
+            _advancedBlendScratchTexture.Width == width &&
+            _advancedBlendScratchTexture.Height == height &&
+            _advancedBlendScratchTexture.Format == format)
+        {
+            return;
+        }
+
+        _advancedBlendScratchTexture?.Dispose();
+        _advancedBlendSourceTexture?.Dispose();
+        const TextureUsage usage = TextureUsage.RenderAttachment | TextureUsage.TextureBinding;
+        _advancedBlendScratchTexture = new GpuTexture(
+            _context,
+            width,
+            height,
+            format,
+            usage,
+            "Advanced blend scratch",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        _advancedBlendSourceTexture = new GpuTexture(
+            _context,
+            width,
+            height,
+            format,
+            usage,
+            "Advanced blend source",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+    }
+
+    private void EnsureAdvancedBlendLayout()
+    {
+        if (_advancedBlendBindGroupLayout != null)
+        {
+            return;
+        }
+
+        var entries = stackalloc BindGroupLayoutEntry[2];
+        for (var index = 0; index < 2; index++)
+        {
+            entries[index] = new BindGroupLayoutEntry
+            {
+                Binding = (uint)index,
+                Visibility = ShaderStage.Fragment,
+                Texture = new TextureBindingLayout
+                {
+                    SampleType = TextureSampleType.Float,
+                    ViewDimension = TextureViewDimension.Dimension2D,
+                    Multisampled = false
+                }
+            };
+        }
+
+        var bindGroupLayoutDescriptor = new BindGroupLayoutDescriptor
+        {
+            EntryCount = 2,
+            Entries = entries
+        };
+        _advancedBlendBindGroupLayout = _context.Wgpu.DeviceCreateBindGroupLayout(
+            _context.Device,
+            &bindGroupLayoutDescriptor);
+        if (_advancedBlendBindGroupLayout == null)
+        {
+            throw new InvalidOperationException("Failed to create the advanced blend bind group layout.");
+        }
+
+        var layouts = stackalloc BindGroupLayout*[1];
+        layouts[0] = _advancedBlendBindGroupLayout;
+        var pipelineLayoutDescriptor = new PipelineLayoutDescriptor
+        {
+            BindGroupLayoutCount = 1,
+            BindGroupLayouts = layouts
+        };
+        _advancedBlendPipelineLayout = _context.Wgpu.DeviceCreatePipelineLayout(
+            _context.Device,
+            &pipelineLayoutDescriptor);
+        if (_advancedBlendPipelineLayout == null)
+        {
+            throw new InvalidOperationException("Failed to create the advanced blend pipeline layout.");
+        }
+    }
+
+    private RenderPipeline* GetAdvancedBlendPipeline(GpuBlendMode blendMode)
+    {
+        EnsureAdvancedBlendLayout();
+        var shaderKey = $"AdvancedBlend_{blendMode}";
+        var shaderCode = Shaders.AdvancedBlendShader.Replace(
+            "__BLEND_MODE__",
+            ((int)blendMode).ToString(CultureInfo.InvariantCulture),
+            StringComparison.Ordinal);
+        var shader = _pipelineCache.GetOrCreateShader(
+            shaderKey,
+            shaderCode,
+            $"Advanced blend {blendMode} shader");
+        return _pipelineCache.GetOrCreateRenderPipeline(
+            $"AdvancedBlendPipeline_{blendMode}_{RenderFormat}",
+            shader,
+            ReadOnlySpan<VertexBufferLayout>.Empty,
+            targetFormat: RenderFormat,
+            enableBlend: false,
+            sampleCount: 1,
+            pipelineLayout: _advancedBlendPipelineLayout);
+    }
+
+    private RenderPassEncoder* BeginOffscreenTexturePass(
+        CommandEncoder* encoder,
+        GpuTexture target,
+        LoadOp loadOperation,
+        Color clearColor)
+    {
+        var colorAttachment = new RenderPassColorAttachment
+        {
+            View = target.ViewPtr,
+            ResolveTarget = null,
+            LoadOp = loadOperation,
+            StoreOp = StoreOp.Store,
+            ClearValue = clearColor
+        };
+        var passDescriptor = new RenderPassDescriptor
+        {
+            ColorAttachmentCount = 1,
+            ColorAttachments = &colorAttachment,
+            DepthStencilAttachment = null
+        };
+        var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDescriptor);
+        if (pass == null)
+        {
+            throw new InvalidOperationException("Failed to begin an offscreen texture pass.");
+        }
+
+        ApplyRenderPassViewport(pass, target.Width, target.Height, useRenderTargetViewport: false);
+        return pass;
+    }
+
+    private void EncodeAdvancedBlendSource(
+        CommandEncoder* encoder,
+        GpuTexture sourceTarget,
+        in CompositorDrawCall drawCall)
+    {
+        var pass = BeginOffscreenTexturePass(
+            encoder,
+            sourceTarget,
+            LoadOp.Clear,
+            new Color());
+        try
+        {
+            if (!ApplyDrawCallScissor(pass, drawCall, useRenderTargetViewport: false))
+            {
+                return;
+            }
+
+            var texture = drawCall.Texture!;
+            var pipeline = GetPipeline(
+                DrawCallType.Texture,
+                GpuBlendMode.SrcOver,
+                isOffscreen: true,
+                textureAlphaMode: drawCall.TextureAlphaMode);
+            var maskBindGroup = GetMaskBindGroup(drawCall.MaskTexture, isOffscreen: true);
+            _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
+            _context.Wgpu.RenderPassEncoderSetBindGroup(
+                pass,
+                0,
+                _textureUniformBindGroupOffscreen,
+                0,
+                null);
+            _context.Wgpu.RenderPassEncoderSetVertexBuffer(
+                pass,
+                0,
+                _textureVertexBuffer.BufferPtr,
+                0,
+                _textureVertexBuffer.Size);
+            _context.Wgpu.RenderPassEncoderSetIndexBuffer(
+                pass,
+                _textureIndexBuffer.BufferPtr,
+                IndexFormat.Uint32,
+                0,
+                _textureIndexBuffer.Size);
+            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+
+            var cacheKey = new TextureCacheKey(
+                texture.Id,
+                texture.Generation,
+                isOffscreen: true,
+                drawCall.TextureSamplingMode);
+            CachedBindGroup? cachedBindGroup;
+            lock (_persistentTextureBindGroups)
+            {
+                if (!_persistentTextureBindGroups.TryGetValue(cacheKey, out cachedBindGroup))
+                {
+                    var entries = stackalloc BindGroupEntry[2];
+                    entries[0] = new BindGroupEntry
+                    {
+                        Binding = 0,
+                        Sampler = GetTextureSampler(drawCall.TextureSamplingMode)
+                    };
+                    entries[1] = new BindGroupEntry
+                    {
+                        Binding = 1,
+                        TextureView = texture.ViewPtr
+                    };
+                    var descriptor = new BindGroupDescriptor
+                    {
+                        Layout = _textureBindGroupLayoutOffscreen,
+                        EntryCount = 2,
+                        Entries = entries
+                    };
+                    var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &descriptor);
+                    cachedBindGroup = new CachedBindGroup((nint)bindGroup, _frameNumber);
+                    _persistentTextureBindGroups[cacheKey] = cachedBindGroup;
+                }
+                else
+                {
+                    cachedBindGroup.LastUsedFrame = _frameNumber;
+                }
+            }
+
+            _context.Wgpu.RenderPassEncoderSetBindGroup(
+                pass,
+                1,
+                (BindGroup*)cachedBindGroup.BindGroupPtr,
+                0,
+                null);
+            _context.Wgpu.RenderPassEncoderDrawIndexed(
+                pass,
+                drawCall.IndexCount,
+                1,
+                drawCall.IndexStart,
+                0,
+                0);
+        }
+        finally
+        {
+            _context.Wgpu.RenderPassEncoderEnd(pass);
+            _context.Wgpu.RenderPassEncoderRelease(pass);
+        }
+    }
+
+    private void EncodeAdvancedBlendFullscreen(
+        CommandEncoder* encoder,
+        GpuTexture destination,
+        GpuTexture source,
+        GpuTexture output,
+        GpuBlendMode blendMode)
+    {
+        EnsureAdvancedBlendLayout();
+        var entries = stackalloc BindGroupEntry[2];
+        entries[0] = new BindGroupEntry
+        {
+            Binding = 0,
+            TextureView = destination.ViewPtr
+        };
+        entries[1] = new BindGroupEntry
+        {
+            Binding = 1,
+            TextureView = source.ViewPtr
+        };
+        var bindGroupDescriptor = new BindGroupDescriptor
+        {
+            Layout = _advancedBlendBindGroupLayout,
+            EntryCount = 2,
+            Entries = entries
+        };
+        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(
+            _context.Device,
+            &bindGroupDescriptor);
+        if (bindGroup == null)
+        {
+            throw new InvalidOperationException("Failed to bind advanced blend textures.");
+        }
+
+        var pass = BeginOffscreenTexturePass(
+            encoder,
+            output,
+            LoadOp.Clear,
+            new Color());
+        try
+        {
+            _context.Wgpu.RenderPassEncoderSetPipeline(
+                pass,
+                GetAdvancedBlendPipeline(blendMode));
+            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+            _context.Wgpu.RenderPassEncoderDraw(pass, 3, 1, 0, 0);
+        }
+        finally
+        {
+            _context.Wgpu.RenderPassEncoderEnd(pass);
+            _context.Wgpu.RenderPassEncoderRelease(pass);
+            _context.Wgpu.BindGroupRelease(bindGroup);
         }
     }
 
@@ -7001,6 +7456,50 @@ public unsafe class Compositor : IDisposable
         bool includeRootTransform = true,
         bool includeRootVisualState = true)
     {
+        var ownsOffscreenFrame = _offscreenRenderDepth++ == 0;
+        try
+        {
+            if (ownsOffscreenFrame)
+            {
+                _context.CleanupPendingResources();
+                _pathAtlas.CleanupFrame(targetTexture.Width, targetTexture.Height);
+            }
+
+            RenderOffscreenCore(
+                node,
+                width,
+                height,
+                targetTexture,
+                padding,
+                dpiScale,
+                clearColor,
+                loadExistingContents,
+                includeRootTransform,
+                includeRootVisualState);
+        }
+        finally
+        {
+            _offscreenRenderDepth--;
+            if (ownsOffscreenFrame)
+            {
+                _frameNumber++;
+                EvictUnusedBindGroups();
+            }
+        }
+    }
+
+    private void RenderOffscreenCore(
+        Visual node,
+        uint width,
+        uint height,
+        GpuTexture targetTexture,
+        float padding,
+        float dpiScale,
+        Vector4? clearColor,
+        bool loadExistingContents,
+        bool includeRootTransform,
+        bool includeRootVisualState)
+    {
         using var currentContextScope = WgpuContext.PushCurrent(_context);
 
         var savedWidth = _currentWidth;
@@ -7187,6 +7686,7 @@ public unsafe class Compositor : IDisposable
 
         var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
         ApplyRenderPassViewport(pass, targetTexture.Width, targetTexture.Height, useRenderTargetViewport: false);
+        var currentRenderTarget = targetTexture;
 
         DrawCallType? currentType = null;
         GpuBlendMode? currentBlendMode = null;
@@ -7197,6 +7697,41 @@ public unsafe class Compositor : IDisposable
         for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
         {
             var dc = _drawCalls[drawCallIndex];
+            if (CanEncodeAdvancedBlend(in dc, targetTexture))
+            {
+                _context.Wgpu.RenderPassEncoderEnd(pass);
+                _context.Wgpu.RenderPassEncoderRelease(pass);
+
+                EnsureAdvancedBlendResources(
+                    targetTexture.Width,
+                    targetTexture.Height,
+                    targetTexture.Format);
+                var output = ReferenceEquals(currentRenderTarget, targetTexture)
+                    ? _advancedBlendScratchTexture!
+                    : targetTexture;
+                EncodeAdvancedBlendSource(
+                    encoder,
+                    _advancedBlendSourceTexture!,
+                    in dc);
+                EncodeAdvancedBlendFullscreen(
+                    encoder,
+                    currentRenderTarget,
+                    _advancedBlendSourceTexture!,
+                    output,
+                    dc.BlendMode);
+                currentRenderTarget = output;
+
+                pass = BeginOffscreenTexturePass(
+                    encoder,
+                    currentRenderTarget,
+                    LoadOp.Load,
+                    new Color());
+                currentType = null;
+                currentBlendMode = null;
+                currentMaskTexture = null;
+                continue;
+            }
+
             if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false))
             {
                 continue;
@@ -7381,6 +7916,15 @@ public unsafe class Compositor : IDisposable
 
         _context.Wgpu.RenderPassEncoderEnd(pass);
         _context.Wgpu.RenderPassEncoderRelease(pass);
+        if (!ReferenceEquals(currentRenderTarget, targetTexture))
+        {
+            EncodeAdvancedBlendFullscreen(
+                encoder,
+                currentRenderTarget,
+                currentRenderTarget,
+                targetTexture,
+                GpuBlendMode.Src);
+        }
         EndExtensionFrame(extensionFrame);
         extensionFrameEnded = true;
 
@@ -9079,7 +9623,18 @@ public unsafe class Compositor : IDisposable
 
     private static bool BlendModeRequiresPremultipliedSource(GpuBlendMode blendMode)
     {
-        return blendMode is GpuBlendMode.DstOver or GpuBlendMode.Multiply or GpuBlendMode.Screen;
+        return blendMode is
+            GpuBlendMode.SrcIn or
+            GpuBlendMode.SrcOut or
+            GpuBlendMode.SrcAtop or
+            GpuBlendMode.DstAtop or
+            GpuBlendMode.Xor or
+            GpuBlendMode.DstOver or
+            GpuBlendMode.Multiply or
+            GpuBlendMode.Screen or
+            GpuBlendMode.Darken or
+            GpuBlendMode.Lighten or
+            GpuBlendMode.Exclusion;
     }
 
     private static string GetFragmentEntryPoint(

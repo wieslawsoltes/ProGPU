@@ -119,6 +119,7 @@ public class TwoPointConicalGradientBrush : Brush
     public GradientSpreadMethod SpreadMethod { get; set; } = GradientSpreadMethod.Pad;
     public GradientColorInterpolationMode ColorInterpolationMode { get; set; } = GradientColorInterpolationMode.SRgbLinearInterpolation;
     public GradientStop[] Stops { get; set; }
+    public Vector4? OutsideColor { get; set; }
 
     public TwoPointConicalGradientBrush(Vector2 startCenter, float startRadius, Vector2 endCenter, float endRadius, GradientStop[] stops)
     {
@@ -126,6 +127,21 @@ public class TwoPointConicalGradientBrush : Brush
         StartRadius = startRadius;
         EndCenter = endCenter;
         EndRadius = endRadius;
+        Stops = stops;
+    }
+}
+
+public class SweepGradientBrush : Brush
+{
+    public Vector2 Center { get; set; }
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+    public GradientSpreadMethod SpreadMethod { get; set; } = GradientSpreadMethod.Repeat;
+    public GradientColorInterpolationMode ColorInterpolationMode { get; set; } = GradientColorInterpolationMode.SRgbLinearInterpolation;
+    public GradientStop[] Stops { get; set; }
+
+    public SweepGradientBrush(Vector2 center, GradientStop[] stops)
+    {
+        Center = center;
         Stops = stops;
     }
 }

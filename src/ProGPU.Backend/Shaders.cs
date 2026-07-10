@@ -247,7 +247,7 @@ fn transform_brush_coordinate(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
         dot(p, brush.coordinateTransform1.xyz));
 }
 
-fn solve_two_point_conical_gradient_t(brush: Brush, coord: vec2<f32>) -> f32 {
+fn solve_two_point_conical_gradient(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
     let centerDelta = brush.gradientCenter - brush.gradientStart;
     let radiusDelta = brush.gradientRadiusY - brush.gradientRadius;
     let point = coord - brush.gradientStart;
@@ -257,37 +257,43 @@ fn solve_two_point_conical_gradient_t(brush: Brush, coord: vec2<f32>) -> f32 {
 
     if (abs(a) < 0.00001) {
         if (abs(b) > 0.00001) {
-            return -c / b;
+            let root = -c / b;
+            let radius = brush.gradientRadius + root * radiusDelta;
+            if (radius >= -0.00001) {
+                return vec2<f32>(root, 1.0);
+            }
         }
 
-        return 0.0;
+        return vec2<f32>(0.0, 0.0);
     }
 
     let discriminant = (b * b) - (4.0 * a * c);
     if (discriminant < 0.0) {
-        return 0.0;
+        return vec2<f32>(0.0, 0.0);
     }
 
     let sqrtDiscriminant = sqrt(discriminant);
     let denominator = 2.0 * a;
     let root0 = (-b - sqrtDiscriminant) / denominator;
     let root1 = (-b + sqrtDiscriminant) / denominator;
-    let root0Valid = root0 >= -0.00001;
-    let root1Valid = root1 >= -0.00001;
+    let root0Radius = brush.gradientRadius + root0 * radiusDelta;
+    let root1Radius = brush.gradientRadius + root1 * radiusDelta;
+    let root0Valid = root0Radius >= -0.00001;
+    let root1Valid = root1Radius >= -0.00001;
 
     if (root0Valid && root1Valid) {
-        return min(root0, root1);
+        return vec2<f32>(max(root0, root1), 1.0);
     }
 
     if (root0Valid) {
-        return root0;
+        return vec2<f32>(root0, 1.0);
     }
 
     if (root1Valid) {
-        return root1;
+        return vec2<f32>(root1, 1.0);
     }
 
-    return max(root0, root1);
+    return vec2<f32>(0.0, 0.0);
 }
 
 const PROGPU_TWO_PI: f32 = 6.28318530718;
@@ -463,6 +469,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let signVal = select(-1.0, 1.0, input.cornerRadius > 0.0);
         let offset = miterN * expandedDistance * signVal;
         worldPos = worldPos + offset;
+        texCoord = worldPos;
         gridIndex = signVal * expandedDistance;
     } else if (sType == 5u) {
         // GPU Quadratic Bezier Curve Evaluation
@@ -472,13 +479,16 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         
         let idxStart = u32(round(input.cornerRadius));
         let localIndex = vertexIndex - idxStart;
-        let N = clamp(u32(round(input.strokeThickness * 1.5 + 8.0)), 8u, 24u);
+        let N = 24u;
         let t = f32(localIndex / 2u) / f32(N);
         let signVal = select(-1.0, 1.0, (localIndex % 2u) == 0u);
         
         let oneMinusT = 1.0 - t;
         let pos = oneMinusT * oneMinusT * p0 + 2.0 * oneMinusT * t * p1 + t * t * p2;
-        let tangent = 2.0 * oneMinusT * (p1 - p0) + 2.0 * t * (p2 - p1);
+        var tangent = 2.0 * oneMinusT * (p1 - p0) + 2.0 * t * (p2 - p1);
+        if (length(tangent) <= 0.0001) {
+            tangent = p2 - p0;
+        }
         let len = length(tangent);
         var normal = vec2<f32>(0.0, 0.0);
         if (len > 0.0001) {
@@ -499,7 +509,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         
         let idxStart = u32(round(input.cornerRadius));
         let localIndex = vertexIndex - idxStart;
-        let N = clamp(u32(round(input.strokeThickness * 1.5 + 8.0)), 8u, 24u);
+        let N = 24u;
         let t = f32(localIndex / 2u) / f32(N);
         let signVal = select(-1.0, 1.0, (localIndex % 2u) == 0u);
         
@@ -510,9 +520,15 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
                 + 3.0 * oneMinusT * t * t * p2 
                 + t * t * t * p3;
                 
-        let tangent = 3.0 * oneMinusT * oneMinusT * (p1 - p0) 
+        var tangent = 3.0 * oneMinusT * oneMinusT * (p1 - p0)
                     + 6.0 * oneMinusT * t * (p2 - p1) 
                     + 3.0 * t * t * (p3 - p2);
+        if (length(tangent) <= 0.0001) {
+            tangent = select(p3 - p1, p2 - p0, t <= 0.5);
+            if (length(tangent) <= 0.0001) {
+                tangent = p3 - p0;
+            }
+        }
                     
         let len = length(tangent);
         var normal = vec2<f32>(0.0, 0.0);
@@ -592,9 +608,16 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         let rx = input.shapeSize.x * 0.5;
         let ry = input.shapeSize.y * 0.5;
         if (rx > 0.0001 && ry > 0.0001) {
-            let v = (input.texCoord.x * input.texCoord.x) / (rx * rx) + (input.texCoord.y * input.texCoord.y) / (ry * ry);
-            let grad = vec2<f32>((2.0 * input.texCoord.x) / (rx * rx), (2.0 * input.texCoord.y) / (ry * ry));
-            d = (v - 1.0) / max(length(grad), 0.0001);
+            if (abs(rx - ry) <= 0.0001) {
+                d = length(input.texCoord) - rx;
+            } else {
+                let v = (input.texCoord.x * input.texCoord.x) / (rx * rx) +
+                    (input.texCoord.y * input.texCoord.y) / (ry * ry);
+                let grad = vec2<f32>(
+                    (2.0 * input.texCoord.x) / (rx * rx),
+                    (2.0 * input.texCoord.y) / (ry * ry));
+                d = (v - 1.0) / max(length(grad), 0.0001);
+            }
         }
     } else if (sType == 2u) {
         // Rounded Rectangle SDF
@@ -607,7 +630,16 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
     if (sType < 3u) {
         var d_shape: f32 = 0.0;
         if (input.strokeThickness > 0.0) {
-            d_shape = abs(d) - input.strokeThickness * 0.5;
+            var strokeDistance = d;
+            if (aliasedEdge && sType == 1u) {
+                strokeDistance = strokeDistance + 0.08;
+            }
+            let thinStrokeInset = select(
+                0.0,
+                0.0625,
+                !aliasedEdge && input.strokeThickness <= 1.0001);
+            d_shape = abs(strokeDistance) -
+                max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
         } else {
             d_shape = d;
         }
@@ -627,7 +659,25 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         let point = input.texCoord;
         let theta = nearest_ellipse_theta(point, center, axisX, axisY);
         let nearest = arc_eval(center, axisX, axisY, theta);
-        var d_shape = length(point - nearest) - input.strokeThickness * 0.5;
+        let thinStrokeInset = select(
+            0.0,
+            0.0625,
+            !aliasedEdge && input.strokeThickness <= 1.0001);
+        let effectiveHalfWidth = max(
+            input.strokeThickness * 0.5 - thinStrokeInset,
+            0.0);
+        var d_shape = length(point - nearest) - effectiveHalfWidth;
+        let radiusX = length(axisX);
+        let radiusY = length(axisY);
+        if (abs(radiusX - radiusY) <= 0.0001) {
+            let signedDistance = length(point - center) - radiusX;
+            if (aliasedEdge) {
+                d_shape = abs(signedDistance + 0.08) -
+                    input.strokeThickness * 0.5;
+            } else {
+                d_shape = abs(signedDistance) - effectiveHalfWidth;
+            }
+        }
 
         if (abs(deltaTheta) < PROGPU_TWO_PI - 0.001) {
             let startPoint = arc_eval(center, axisX, axisY, theta1);
@@ -648,8 +698,20 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
     } else if (sType == 3u || sType == 5u || sType == 6u) {
         // Line, Quadratic, and Cubic Bezier stroke anti-aliasing via signed pixel distance
         let d_pixels = abs(input.gridIndex);
-        let d_shape = d_pixels - input.strokeThickness * 0.5;
-        let antialiasedAlpha = 1.0 - smoothstep(-0.5, 0.5, d_shape);
+        let thinStrokeInset = select(
+            0.0,
+            0.0625,
+            !aliasedEdge && input.strokeThickness <= 1.0001);
+        let d_shape = d_pixels -
+            max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
+        let antialiasHalfWidth = select(
+            0.5,
+            0.625,
+            input.strokeThickness > 1.0001);
+        let antialiasedAlpha = 1.0 - smoothstep(
+            -antialiasHalfWidth,
+            antialiasHalfWidth,
+            d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 4u) {
@@ -680,6 +742,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
     } else {
         let brushCoord = transform_brush_coordinate(brush, evalCoord);
         var t: f32 = 0.0;
+        var gradientCoverage: f32 = 1.0;
         if (brush.brushType == 1u) {
             // Linear Gradient
             let gradVec = brush.gradientEnd - brush.gradientStart;
@@ -690,7 +753,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         } else if (brush.brushType == 2u) {
             // Radial Gradient
             let rx = brush.gradientRadius;
-            let ry = max(brush.gradientRadiusY, brush.gradientRadius);
+            let ry = brush.gradientRadiusY;
             if (rx > 0.0001 || ry > 0.0001) {
                 let radii = vec2<f32>(max(rx, 0.0001), max(ry, 0.0001));
                 let point = (brushCoord - brush.gradientCenter) / radii;
@@ -709,12 +772,28 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             }
         } else if (brush.brushType == 5u) {
             // Two-point conical gradient: interpolate between two moving circle boundaries.
-            t = solve_two_point_conical_gradient_t(brush, brushCoord);
+            let solution = solve_two_point_conical_gradient(brush, brushCoord);
+            t = solution.x;
+            gradientCoverage = solution.y;
+        } else if (brush.brushType == 6u) {
+            // Sweep gradient, starting at the positive X axis and increasing clockwise.
+            let direction = brushCoord - brush.gradientCenter;
+            t = atan2(direction.y, direction.x) / (2.0 * 3.141592653589793);
+            if (t < 0.0) {
+                t = t + 1.0;
+            }
         }
-        t = apply_gradient_spread(t, brush.spreadMethod);
-
+        if (gradientCoverage <= 0.0) {
+            if ((brush.spreadMethod & 0x80000000u) != 0u) {
+                finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
+            } else {
+                finalColor = vec4<f32>(0.0);
+        }
+        } else {
+            t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
         let gradColor = sample_gradient_color(brush, t);
         finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
+    }
     }
 
     let screen_uv = input.position.xy / uniforms.canvasSize;
@@ -1194,12 +1273,16 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 struct PathUniforms {
     xStart: f32,
     yStart: f32,
-    scale: f32,
+    scaleX: f32,
+    scaleY: f32,
     pathIndex: u32,
     atlasX: u32,
     atlasY: u32,
     width: u32,
     height: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 };
 
 struct PathRecord {
@@ -1457,33 +1540,18 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let py = uniforms.yStart + f32(y);
     
     var coverage: f32 = 0.0;
-    
-    // Sample 0: +0.25, +0.25
-    let sp0 = vec2<f32>(px + 0.25, py + 0.25);
-    let fp0 = vec2<f32>(sp0.x / uniforms.scale, sp0.y / uniforms.scale);
-    if (is_point_inside(fp0, record)) {
-        coverage = coverage + 0.25;
+    let sampleGrid = 4u;
+    let sampleWeight = 1.0 / 16.0;
+    for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
+        for (var sampleX = 0u; sampleX < sampleGrid; sampleX = sampleX + 1u) {
+            let offset = (vec2<f32>(f32(sampleX), f32(sampleY)) + 0.5) /
+                f32(sampleGrid);
+            let samplePosition = vec2<f32>(px, py) + offset;
+            let fillPoint = samplePosition / vec2<f32>(uniforms.scaleX, uniforms.scaleY);
+            if (is_point_inside(fillPoint, record)) {
+                coverage = coverage + sampleWeight;
     }
-    
-    // Sample 1: +0.75, +0.25
-    let sp1 = vec2<f32>(px + 0.75, py + 0.25);
-    let fp1 = vec2<f32>(sp1.x / uniforms.scale, sp1.y / uniforms.scale);
-    if (is_point_inside(fp1, record)) {
-        coverage = coverage + 0.25;
     }
-    
-    // Sample 2: +0.25, +0.75
-    let sp2 = vec2<f32>(px + 0.25, py + 0.75);
-    let fp2 = vec2<f32>(sp2.x / uniforms.scale, sp2.y / uniforms.scale);
-    if (is_point_inside(fp2, record)) {
-        coverage = coverage + 0.25;
-    }
-    
-    // Sample 3: +0.75, +0.75
-    let sp3 = vec2<f32>(px + 0.75, py + 0.75);
-    let fp3 = vec2<f32>(sp3.x / uniforms.scale, sp3.y / uniforms.scale);
-    if (is_point_inside(fp3, record)) {
-        coverage = coverage + 0.25;
     }
     
     let writeCoord = vec2<u32>(uniforms.atlasX + x, uniforms.atlasY + y);
@@ -2383,5 +2451,230 @@ fn cs_main() {
     }
 }
 ";
+
+    public const string AdvancedBlendShader = """
+@group(0) @binding(0) var destinationTexture: texture_2d<f32>;
+@group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+
+const blendMode = __BLEND_MODE__u;
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0));
+    return vec4<f32>(positions[vertexIndex], 0.0, 1.0);
+}
+
+fn screen(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return backdrop + source - backdrop * source;
+}
+
+fn hard_light_component(backdrop: f32, source: f32) -> f32 {
+    if (source <= 0.5) {
+        return backdrop * (2.0 * source);
+    }
+    return backdrop + (2.0 * source - 1.0) -
+        backdrop * (2.0 * source - 1.0);
+}
+
+fn hard_light(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        hard_light_component(backdrop.r, source.r),
+        hard_light_component(backdrop.g, source.g),
+        hard_light_component(backdrop.b, source.b));
+}
+
+fn color_dodge_component(backdrop: f32, source: f32) -> f32 {
+    if (backdrop <= 0.0) {
+        return 0.0;
+    }
+    if (source >= 1.0) {
+        return 1.0;
+    }
+    return min(1.0, backdrop / (1.0 - source));
+}
+
+fn color_dodge(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        color_dodge_component(backdrop.r, source.r),
+        color_dodge_component(backdrop.g, source.g),
+        color_dodge_component(backdrop.b, source.b));
+}
+
+fn color_burn_component(backdrop: f32, source: f32) -> f32 {
+    if (backdrop >= 1.0) {
+        return 1.0;
+    }
+    if (source <= 0.0) {
+        return 0.0;
+    }
+    return 1.0 - min(1.0, (1.0 - backdrop) / source);
+}
+
+fn color_burn(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        color_burn_component(backdrop.r, source.r),
+        color_burn_component(backdrop.g, source.g),
+        color_burn_component(backdrop.b, source.b));
+}
+
+fn soft_light_component(backdrop: f32, source: f32) -> f32 {
+    if (source <= 0.5) {
+        return backdrop -
+            (1.0 - 2.0 * source) * backdrop * (1.0 - backdrop);
+    }
+
+    var curve = sqrt(backdrop);
+    if (backdrop <= 0.25) {
+        curve = ((16.0 * backdrop - 12.0) * backdrop + 4.0) * backdrop;
+    }
+    return backdrop + (2.0 * source - 1.0) * (curve - backdrop);
+}
+
+fn soft_light(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        soft_light_component(backdrop.r, source.r),
+        soft_light_component(backdrop.g, source.g),
+        soft_light_component(backdrop.b, source.b));
+}
+
+fn luminosity(color: vec3<f32>) -> f32 {
+    return dot(color, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn saturation(color: vec3<f32>) -> f32 {
+    return max(max(color.r, color.g), color.b) -
+        min(min(color.r, color.g), color.b);
+}
+
+fn clip_color(input: vec3<f32>) -> vec3<f32> {
+    var color = input;
+    let lightness = luminosity(color);
+    let minimum = min(min(color.r, color.g), color.b);
+    let maximum = max(max(color.r, color.g), color.b);
+    if (minimum < 0.0 && lightness > minimum) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * lightness / (lightness - minimum);
+    }
+    if (maximum > 1.0 && maximum > lightness) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * (1.0 - lightness) /
+                (maximum - lightness);
+    }
+    return color;
+}
+
+fn set_luminosity(color: vec3<f32>, lightness: f32) -> vec3<f32> {
+    return clip_color(color + vec3<f32>(lightness - luminosity(color)));
+}
+
+fn set_saturation(color: vec3<f32>, targetSaturation: f32) -> vec3<f32> {
+    let minimum = min(min(color.r, color.g), color.b);
+    let maximum = max(max(color.r, color.g), color.b);
+    if (maximum <= minimum) {
+        return vec3<f32>(0.0);
+    }
+    return (color - vec3<f32>(minimum)) * targetSaturation / (maximum - minimum);
+}
+
+fn blend(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    switch blendMode {
+        case 11u: {
+            return backdrop * source;
+        }
+        case 12u: {
+            return screen(backdrop, source);
+        }
+        case 13u: {
+            return min(backdrop, source);
+        }
+        case 14u: {
+            return max(backdrop, source);
+        }
+        case 15u: {
+            return backdrop + source - 2.0 * backdrop * source;
+        }
+        case 18u: {
+            return hard_light(source, backdrop);
+        }
+        case 19u: {
+            return color_dodge(backdrop, source);
+        }
+        case 20u: {
+            return color_burn(backdrop, source);
+        }
+        case 21u: {
+            return hard_light(backdrop, source);
+        }
+        case 22u: {
+            return soft_light(backdrop, source);
+        }
+        case 23u: {
+            return abs(backdrop - source);
+        }
+        case 24u: {
+            return set_luminosity(
+                set_saturation(source, saturation(backdrop)),
+                luminosity(backdrop));
+        }
+        case 25u: {
+            return set_luminosity(
+                set_saturation(backdrop, saturation(source)),
+                luminosity(backdrop));
+        }
+        case 26u: {
+            return set_luminosity(source, luminosity(backdrop));
+        }
+        case 27u: {
+            return set_luminosity(backdrop, luminosity(source));
+        }
+        default: {
+            return source;
+        }
+    }
+}
+
+fn unpremultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
+    if (alpha <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+
+    return color / alpha;
+}
+
+@fragment
+fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let destination = clamp(
+        textureLoad(destinationTexture, pixel, 0),
+        vec4<f32>(0.0),
+        vec4<f32>(1.0));
+    let source = clamp(
+        textureLoad(sourceTexture, pixel, 0),
+        vec4<f32>(0.0),
+        vec4<f32>(1.0));
+
+    if (blendMode == 1u) {
+        return source;
+    }
+
+    let sourceAlpha = source.a;
+    let destinationAlpha = destination.a;
+    let straightSource = unpremultiply(source.rgb, sourceAlpha);
+    let straightDestination = unpremultiply(destination.rgb, destinationAlpha);
+    let mixed = clamp(
+        blend(straightDestination, straightSource),
+        vec3<f32>(0.0),
+        vec3<f32>(1.0));
+    let result = vec4<f32>(
+        source.rgb * (1.0 - destinationAlpha) +
+            destination.rgb * (1.0 - sourceAlpha) +
+            mixed * sourceAlpha * destinationAlpha,
+        sourceAlpha + destinationAlpha - sourceAlpha * destinationAlpha);
+    return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+""";
 
 }

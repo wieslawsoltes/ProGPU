@@ -10,11 +10,31 @@ public enum GpuBlendMode
     SrcOver = 0,
     Src,
     Dst,
+    SrcIn,
+    DstIn,
+    SrcOut,
+    DstOut,
+    SrcAtop,
+    DstAtop,
+    Xor,
     DstOver,
     Multiply,
     Screen,
+    Darken,
+    Lighten,
+    Exclusion,
     Plus,
-    Clear
+    Clear,
+    Overlay,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity
 }
 
 public unsafe class RenderPipelineCache : IDisposable
@@ -313,6 +333,34 @@ public unsafe class RenderPipelineCache : IDisposable
                 blendState.Color = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
                 blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
                 break;
+            case GpuBlendMode.SrcIn:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.DstAlpha, DstFactor = BlendFactor.Zero, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.DstAlpha, DstFactor = BlendFactor.Zero, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.DstIn:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.SrcAlpha, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.SrcAlpha, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.SrcOut:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.Zero, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.Zero, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.DstOut:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.Zero, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.SrcAtop:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.DstAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.DstAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.DstAtop:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.SrcAlpha, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.SrcAlpha, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.Xor:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
+                break;
             case GpuBlendMode.DstOver:
                 blendState.Color = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
                 blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.OneMinusDstAlpha, DstFactor = BlendFactor.One, Operation = BlendOperation.Add };
@@ -324,6 +372,18 @@ public unsafe class RenderPipelineCache : IDisposable
             case GpuBlendMode.Screen:
                 blendState.Color = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrc, Operation = BlendOperation.Add };
                 blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrc, Operation = BlendOperation.Add };
+                break;
+            case GpuBlendMode.Darken:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Min };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Max };
+                break;
+            case GpuBlendMode.Lighten:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Max };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.One, Operation = BlendOperation.Max };
+                break;
+            case GpuBlendMode.Exclusion:
+                blendState.Color = new BlendComponent { SrcFactor = BlendFactor.OneMinusDst, DstFactor = BlendFactor.OneMinusSrc, Operation = BlendOperation.Add };
+                blendState.Alpha = new BlendComponent { SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha, Operation = BlendOperation.Add };
                 break;
             case GpuBlendMode.Plus:
                 var plusSourceColorFactor = sourceAlphaMode == GpuTextureAlphaMode.Premultiplied
