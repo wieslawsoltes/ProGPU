@@ -2,7 +2,7 @@
   <PropertyGroup>
     <ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.1.0</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.2</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.3</VersionSuffix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)-$(VersionSuffix)</Version>
     <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     <Description Condition="'$(Description)' == ''">ProGPU runtime package for GPU-accelerated .NET composition, rendering, vector graphics, text, and WebGPU platform integration.</Description>
