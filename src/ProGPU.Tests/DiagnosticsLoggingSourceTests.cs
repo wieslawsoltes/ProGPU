@@ -115,7 +115,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("libvulkan1", workflow, StringComparison.Ordinal);
         Assert.Contains("mesa-vulkan-drivers", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }}", workflow, StringComparison.Ordinal);
         Assert.Contains("LD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
         Assert.Contains("DYLD_LIBRARY_PATH", workflow, StringComparison.Ordinal);
         Assert.Contains("$testArgs = @(", workflow, StringComparison.Ordinal);
@@ -126,6 +128,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
+        Assert.Contains("src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("uses: actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
         Assert.Contains("name: progpu-packages-${{ matrix.rid }}", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
@@ -142,11 +145,15 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("libvulkan1", workflow, StringComparison.Ordinal);
         Assert.Contains("mesa-vulkan-drivers", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime linux-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet restore src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --runtime linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("native_root=\"${GITHUB_WORKSPACE}/src/ProGPU.Tests/bin/Release/net10.0/linux-x64\"", workflow, StringComparison.Ordinal);
         Assert.Contains("native_rid_root=\"${native_root}/runtimes/linux-x64/native\"", workflow, StringComparison.Ordinal);
-        Assert.Contains("export LD_LIBRARY_PATH=\"${native_root}:${native_rid_root}:${LD_LIBRARY_PATH:-}\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("headless_native_root=\"${GITHUB_WORKSPACE}/src/ProGPU.Tests.Headless/bin/Release/net10.0/linux-x64\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("export LD_LIBRARY_PATH=\"${native_root}:${native_rid_root}:${headless_native_root}:${headless_native_rid_root}:${LD_LIBRARY_PATH:-}\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet nuget push artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet nuget push artifacts/packages/Release/*.snupkg", workflow, StringComparison.Ordinal);
         Assert.Contains("Create GitHub Release", workflow, StringComparison.Ordinal);

@@ -58,22 +58,28 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}
+        run: |
+          dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}
+          dotnet restore src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --runtime ${{ matrix.rid }}
 
       - name: Build tests
-        run: dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
+        run: |
+          dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
+          dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
 
       - name: Test
         shell: pwsh
         run: |
           $nativeRoot = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.native_output }}"
           $nativeRidRoot = Join-Path $nativeRoot "runtimes/${{ matrix.rid }}/native"
+          $headlessNativeRoot = Join-Path $env:GITHUB_WORKSPACE "src/ProGPU.Tests.Headless/bin/Release/net10.0/${{ matrix.rid }}"
+          $headlessNativeRidRoot = Join-Path $headlessNativeRoot "runtimes/${{ matrix.rid }}/native"
           if ($IsWindows) {
-            $env:PATH = "$nativeRoot;$nativeRidRoot;$env:PATH"
+            $env:PATH = "$nativeRoot;$nativeRidRoot;$headlessNativeRoot;$headlessNativeRidRoot;$env:PATH"
           } elseif ($IsMacOS) {
-            $env:DYLD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$env:DYLD_LIBRARY_PATH"
+            $env:DYLD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$headlessNativeRoot`:$headlessNativeRidRoot`:$env:DYLD_LIBRARY_PATH"
           } else {
-            $env:LD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$env:LD_LIBRARY_PATH"
+            $env:LD_LIBRARY_PATH = "$nativeRoot`:$nativeRidRoot`:$headlessNativeRoot`:$headlessNativeRidRoot`:$env:LD_LIBRARY_PATH"
           }
 
           $testArgs = @(
@@ -96,6 +102,13 @@ jobs:
           }
 
           dotnet @testArgs
+
+          dotnet test `
+            src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj `
+            --configuration Release `
+            --runtime "${{ matrix.rid }}" `
+            --no-build `
+            --verbosity normal
 
       - name: Pack shipping packages
         shell: bash

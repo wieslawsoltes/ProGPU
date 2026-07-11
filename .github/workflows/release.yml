@@ -66,18 +66,25 @@ jobs:
         run: ./eng/progpu-verify-docs.sh
 
       - name: Restore
-        run: dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime linux-x64
+        run: |
+          dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime linux-x64
+          dotnet restore src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --runtime linux-x64
 
       - name: Build tests
-        run: dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ env.PROGPU_PACKAGE_VERSION }} -p:PackageVersion=${{ env.PROGPU_PACKAGE_VERSION }}
+        run: |
+          dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ env.PROGPU_PACKAGE_VERSION }} -p:PackageVersion=${{ env.PROGPU_PACKAGE_VERSION }}
+          dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime linux-x64 --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ env.PROGPU_PACKAGE_VERSION }} -p:PackageVersion=${{ env.PROGPU_PACKAGE_VERSION }}
 
       - name: Test
         shell: bash
         run: |
           native_root="${GITHUB_WORKSPACE}/src/ProGPU.Tests/bin/Release/net10.0/linux-x64"
           native_rid_root="${native_root}/runtimes/linux-x64/native"
-          export LD_LIBRARY_PATH="${native_root}:${native_rid_root}:${LD_LIBRARY_PATH:-}"
+          headless_native_root="${GITHUB_WORKSPACE}/src/ProGPU.Tests.Headless/bin/Release/net10.0/linux-x64"
+          headless_native_rid_root="${headless_native_root}/runtimes/linux-x64/native"
+          export LD_LIBRARY_PATH="${native_root}:${native_rid_root}:${headless_native_root}:${headless_native_rid_root}:${LD_LIBRARY_PATH:-}"
           dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal
+          dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal
 
       - name: Pack
         run: ./eng/progpu-pack.sh
