@@ -1,11 +1,12 @@
 using ProGPU.Scene;
+using ProGPU.Wpf.Interop;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
 
 namespace System.Windows.Media;
 
-public class DrawingContext : IDisposable
+public class DrawingContext : IDisposable, IPortableNativeDrawingContextSource, IPortableNativeDrawingContextStateSource
 {
     private readonly ProGPU.Scene.DrawingContext _nativeContext;
     private readonly Stack<Matrix4x4> _transformStack = new();
@@ -21,6 +22,19 @@ public class DrawingContext : IDisposable
     private readonly Stack<PushType> _pushStack = new();
 
     public ProGPU.Scene.DrawingContext NativeContext => _nativeContext;
+
+    bool IPortableNativeDrawingContextSource.TryGetPortableNativeDrawingContext(out object? nativeDrawingContext)
+    {
+        nativeDrawingContext = _nativeContext;
+        return true;
+    }
+
+    bool IPortableNativeDrawingContextStateSource.TryGetPortableNativeDrawingContextState(
+        out PortableNativeDrawingContextState state)
+    {
+        state = new PortableNativeDrawingContextState(_nativeContext, CurrentTransform);
+        return true;
+    }
 
     public DrawingContext(ProGPU.Scene.DrawingContext nativeContext)
     {
