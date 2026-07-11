@@ -103,6 +103,45 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void PathAtlasCachesRequestedCoveragePrecision()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        var path = PrimitivePathGeometry.CreateRectangle(0f, 0f, 10.33f, 16f);
+
+        var standard = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.StandardCoverageSampleGrid);
+        var precise = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+        atlas.RasterizePendingPaths();
+
+        Assert.Equal(PathAtlas.StandardCoverageSampleGrid, standard.Key.SampleGrid);
+        Assert.Equal(PathAtlas.HighPrecisionCoverageSampleGrid, precise.Key.SampleGrid);
+        Assert.NotEqual(standard.X, precise.X);
+        Assert.Equal(2, atlas.CachedPathCount);
+
+        var pixels = atlas.AtlasTexture.ReadPixels();
+        var standardOffset = GetPathAtlasPixelOffset(standard, 10, 8, 256);
+        var preciseOffset = GetPathAtlasPixelOffset(precise, 10, 8, 256);
+        Assert.InRange(pixels[standardOffset], (byte)60, (byte)68);
+        Assert.InRange(pixels[preciseOffset], (byte)90, (byte)102);
+    }
+
+    private static int GetPathAtlasPixelOffset(
+        PathAtlas.PathInfo info,
+        int worldX,
+        int worldY,
+        uint atlasWidth)
+    {
+        var localX = checked((uint)(worldX - (int)info.MinX));
+        var localY = checked((uint)(worldY - (int)info.MinY));
+        return checked((int)(((info.Y + localY) * atlasWidth + info.X + localX) * 4));
+    }
+
+    [Fact]
     public void PathAtlasReservesCapacityBeforeAFrameCanRelocateCompiledPaths()
     {
         using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);

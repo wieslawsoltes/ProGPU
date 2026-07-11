@@ -1610,7 +1610,7 @@ struct PathUniforms {
     atlasY: u32,
     width: u32,
     height: u32,
-    _pad0: u32,
+    sampleGrid: u32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -1870,8 +1870,8 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let py = uniforms.yStart + f32(y);
     
     var coverage: f32 = 0.0;
-    let sampleGrid = 4u;
-    let sampleWeight = 1.0 / 16.0;
+    let sampleGrid = max(uniforms.sampleGrid, 1u);
+    let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
     for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
         for (var sampleX = 0u; sampleX < sampleGrid; sampleX = sampleX + 1u) {
             let offset = (vec2<f32>(f32(sampleX), f32(sampleY)) + 0.5) /

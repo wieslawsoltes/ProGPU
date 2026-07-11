@@ -3938,7 +3938,8 @@ public unsafe class Compositor : IDisposable
                 scaleX,
                 scaleY,
                 GetSubpixelPhase(transform.M41),
-                GetSubpixelPhase(transform.M42));
+                GetSubpixelPhase(transform.M42),
+                cmd.PathSampleGrid);
             if (info.Width > 0 && info.Height > 0)
             {
                 float unscaledMinX = info.MinX / scaleX;
@@ -6695,7 +6696,10 @@ public unsafe class Compositor : IDisposable
                         Type = RenderCommandType.DrawPath,
                         Path = transformedOutline,
                         Brush = CreatePositionedColorLayerBrush(layer, layerScale, layerPosition),
-                        IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                        IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
+                        PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                            ? PathAtlas.StandardCoverageSampleGrid
+                            : PathAtlas.HighPrecisionCoverageSampleGrid
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
@@ -6737,7 +6741,10 @@ public unsafe class Compositor : IDisposable
                             Type = RenderCommandType.DrawPath,
                             Path = transformedOutline,
                             Brush = cmd.Brush,
-                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
+                            PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                                ? PathAtlas.StandardCoverageSampleGrid
+                                : PathAtlas.HighPrecisionCoverageSampleGrid
                         }, activeTransform);
                     }
                 }
@@ -6886,7 +6893,10 @@ public unsafe class Compositor : IDisposable
                         Type = RenderCommandType.DrawPath,
                         Path = transformedOutline,
                         Brush = CreatePositionedColorLayerBrush(layer, layerScale, layerPosition),
-                        IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                        IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
+                        PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                            ? PathAtlas.StandardCoverageSampleGrid
+                            : PathAtlas.HighPrecisionCoverageSampleGrid
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
@@ -6917,7 +6927,10 @@ public unsafe class Compositor : IDisposable
                             Type = RenderCommandType.DrawPath,
                             Path = transformedOutline,
                             Brush = cmd.Brush,
-                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
+                            PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
+                                ? PathAtlas.StandardCoverageSampleGrid
+                                : PathAtlas.HighPrecisionCoverageSampleGrid
                         }, activeTransform);
                     }
                 }

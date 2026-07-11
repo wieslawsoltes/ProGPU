@@ -360,6 +360,7 @@ public struct RenderCommand
     // Vector render options
     public bool IsEdgeAliased;
     public bool IsPenThicknessLocal;
+    public uint PathSampleGrid;
 
     // Advanced geometries
     public Vector2 Position2;

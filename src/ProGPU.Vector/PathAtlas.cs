@@ -20,7 +20,7 @@ public struct PathUniforms
     public uint AtlasY;
     public uint Width;
     public uint Height;
-    public uint Pad0;
+    public uint SampleGrid;
     public uint Pad1;
     public uint Pad2;
 }
@@ -84,9 +84,15 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
     public float Scale => Math.Max(ScaleX, ScaleY);
     public float SubpixelX { get; }
     public float SubpixelY { get; }
+    public uint SampleGrid { get; }
 
-    public PathCacheKey(int contentHash, float scale, float subpixelX = 0f, float subpixelY = 0f)
-        : this(contentHash, scale, scale, subpixelX, subpixelY)
+    public PathCacheKey(
+        int contentHash,
+        float scale,
+        float subpixelX = 0f,
+        float subpixelY = 0f,
+        uint sampleGrid = PathAtlas.StandardCoverageSampleGrid)
+        : this(contentHash, scale, scale, subpixelX, subpixelY, sampleGrid)
     {
     }
 
@@ -95,13 +101,15 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
         float scaleX,
         float scaleY,
         float subpixelX,
-        float subpixelY)
+        float subpixelY,
+        uint sampleGrid = PathAtlas.StandardCoverageSampleGrid)
     {
         ContentHash = contentHash;
         ScaleX = scaleX;
         ScaleY = scaleY;
         SubpixelX = QuantizeSubpixel(subpixelX);
         SubpixelY = QuantizeSubpixel(subpixelY);
+        SampleGrid = NormalizeSampleGrid(sampleGrid);
     }
 
     public bool Equals(PathCacheKey other)
@@ -110,7 +118,8 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
                ScaleX.Equals(other.ScaleX) &&
                ScaleY.Equals(other.ScaleY) &&
                SubpixelX.Equals(other.SubpixelX) &&
-               SubpixelY.Equals(other.SubpixelY);
+               SubpixelY.Equals(other.SubpixelY) &&
+               SampleGrid == other.SampleGrid;
     }
 
     public override bool Equals(object? obj)
@@ -120,7 +129,7 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(ContentHash, ScaleX, ScaleY, SubpixelX, SubpixelY);
+        return HashCode.Combine(ContentHash, ScaleX, ScaleY, SubpixelX, SubpixelY, SampleGrid);
     }
 
     public static bool operator ==(PathCacheKey left, PathCacheKey right) => left.Equals(right);
@@ -137,6 +146,11 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
         var quantized = MathF.Round(value * 64f) / 64f;
         return quantized >= 1f ? 0f : quantized;
     }
+
+    private static uint NormalizeSampleGrid(uint value) =>
+        value >= PathAtlas.HighPrecisionCoverageSampleGrid
+            ? PathAtlas.HighPrecisionCoverageSampleGrid
+            : PathAtlas.StandardCoverageSampleGrid;
 }
 
 public interface IPathHitTestCompilationCache
@@ -154,6 +168,9 @@ public interface IPathHitTestCompilationCache
 public unsafe class PathAtlas : IDisposable
     , IPathHitTestCompilationCache
 {
+    public const uint StandardCoverageSampleGrid = 4;
+    public const uint HighPrecisionCoverageSampleGrid = 8;
+
     private const int MaxCompiledFillPathCount = 4096;
     private const int MaxCompiledHitTestPathCount = 4096;
 
@@ -213,7 +230,8 @@ public unsafe class PathAtlas : IDisposable
             _atlasSize,
             _atlasSize,
             TextureFormat.Rgba8Unorm,
-            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.StorageBinding | TextureUsage.RenderAttachment,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc |
+            TextureUsage.StorageBinding | TextureUsage.RenderAttachment,
             "Dynamic Path Atlas"
         );
 
@@ -815,9 +833,10 @@ public unsafe class PathAtlas : IDisposable
         PathGeometry path,
         float scale,
         float subpixelX = 0f,
-        float subpixelY = 0f)
+        float subpixelY = 0f,
+        uint sampleGrid = StandardCoverageSampleGrid)
     {
-        return GetOrCreatePath(path, scale, scale, subpixelX, subpixelY);
+        return GetOrCreatePath(path, scale, scale, subpixelX, subpixelY, sampleGrid);
     }
 
     public PathInfo GetOrCreatePath(
@@ -825,12 +844,13 @@ public unsafe class PathAtlas : IDisposable
         float scaleX,
         float scaleY,
         float subpixelX,
-        float subpixelY)
+        float subpixelY,
+        uint sampleGrid = StandardCoverageSampleGrid)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
 
         int contentHash = ComputeHash(path);
-        var key = new PathCacheKey(contentHash, scaleX, scaleY, subpixelX, subpixelY);
+        var key = new PathCacheKey(contentHash, scaleX, scaleY, subpixelX, subpixelY, sampleGrid);
 
         if (_paths.TryGetValue(key, out var info))
         {
@@ -1077,7 +1097,8 @@ public unsafe class PathAtlas : IDisposable
                 AtlasX = info.X,
                 AtlasY = info.Y,
                 Width = info.Width,
-                Height = info.Height
+                Height = info.Height,
+                SampleGrid = info.Key.SampleGrid
             };
 
             uint alignedSize = (uint)((Marshal.SizeOf<PathUniforms>() + 255) & ~255);
