@@ -361,6 +361,7 @@ public struct RenderCommand
     public bool IsEdgeAliased;
     public bool IsPenThicknessLocal;
     public uint PathSampleGrid;
+    public float PathCoverageGamma;
 
     // Advanced geometries
     public Vector2 Position2;

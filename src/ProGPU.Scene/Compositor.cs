@@ -178,6 +178,10 @@ public unsafe class Compositor : IDisposable
     private const float ArcSdfShapeType = 12f;
     private const float TriangleSdfShapeType = 13f;
     private const float QuadrilateralSdfShapeType = 14f;
+    private const float QuadrilateralStripSdfShapeType = 15f;
+    private const float QuadrilateralStripStartSdfShapeType = 16f;
+    private const float QuadrilateralStripEndSdfShapeType = 17f;
+    private const float TextPathCoverageGamma = 0.65f;
 
     public struct StaticTextRecord
     {
@@ -3987,10 +3991,10 @@ public unsafe class Compositor : IDisposable
                 var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
                 var pathShapeType = EncodeShapeType(cmd, 4f);
 
-                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, shapeType: pathShapeType);
-                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, shapeType: pathShapeType);
-                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, shapeType: pathShapeType);
-                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, shapeType: pathShapeType);
+                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
 
                 int originalIndexCount = _vectorIndicesList.Count;
                 CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -4087,13 +4091,13 @@ public unsafe class Compositor : IDisposable
                     else if (segment is QuadraticBezierSegment)
                     {
                         const int N = 24;
-                        maxVertices += 2 * (N + 1);
+                        maxVertices += useAffineStrokeGeometry ? 4 * N : 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
                     else if (segment is CubicBezierSegment)
                     {
                         const int N = 24;
-                        maxVertices += 2 * (N + 1);
+                        maxVertices += useAffineStrokeGeometry ? 4 * N : 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
                     else if (segment is ArcSegment arc)
@@ -4160,7 +4164,7 @@ public unsafe class Compositor : IDisposable
                     {
                         if (!figure.IsClosed && hasLastCapCandidate)
                         {
-                            AppendStrokeSegmentCapTriangles(
+                            AppendPathStrokeSegmentCapTriangles(
                                 verticesSpan,
                                 indicesSpan,
                                 ref currentVertexCount,
@@ -4168,8 +4172,11 @@ public unsafe class Compositor : IDisposable
                                 cmd.Pen,
                                 penSolidColor,
                                 penBrushIdx,
-                                Vector2.Transform(lastCapCenter, transform),
-                                TransformDirection(lastCapDirection, transform),
+                                localAffineThickness,
+                                lastCapCenter,
+                                lastCapDirection,
+                                transform,
+                                useAffineStrokeGeometry,
                                 cmd.IsEdgeAliased,
                                 isStart: false);
                         }
@@ -4237,7 +4244,7 @@ public unsafe class Compositor : IDisposable
                         isFirstSegment &&
                         hasSegmentStartDirection)
                     {
-                        AppendStrokeSegmentCapTriangles(
+                        AppendPathStrokeSegmentCapTriangles(
                             verticesSpan,
                             indicesSpan,
                             ref currentVertexCount,
@@ -4245,8 +4252,11 @@ public unsafe class Compositor : IDisposable
                             cmd.Pen,
                             penSolidColor,
                             penBrushIdx,
-                            Vector2.Transform(segmentStart, transform),
-                            TransformDirection(segmentStartDirection, transform),
+                            localAffineThickness,
+                            segmentStart,
+                            segmentStartDirection,
+                            transform,
+                            useAffineStrokeGeometry,
                             cmd.IsEdgeAliased,
                             isStart: true);
                     }
@@ -4255,7 +4265,7 @@ public unsafe class Compositor : IDisposable
                         hasPreviousSegmentEndDirection &&
                         hasSegmentStartDirection)
                     {
-                        AppendStrokeSegmentJoinTriangles(
+                        AppendPathStrokeSegmentJoinTriangles(
                             verticesSpan,
                             indicesSpan,
                             ref currentVertexCount,
@@ -4263,9 +4273,12 @@ public unsafe class Compositor : IDisposable
                             cmd.Pen,
                             penSolidColor,
                             penBrushIdx,
-                            Vector2.Transform(segmentStart, transform),
-                            TransformDirection(previousSegmentEndDirection, transform),
-                            TransformDirection(segmentStartDirection, transform),
+                            localAffineThickness,
+                            segmentStart,
+                            previousSegmentEndDirection,
+                            segmentStartDirection,
+                            transform,
+                            useAffineStrokeGeometry,
                             cmd.IsEdgeAliased,
                             segment.IsSmoothJoin);
                     }
@@ -4315,32 +4328,49 @@ public unsafe class Compositor : IDisposable
                     }
                     else if (segment is QuadraticBezierSegment quad)
                     {
-                        var p0_trans = Vector2.Transform(segmentStart, transform);
-                        var p1_trans = Vector2.Transform(quad.ControlPoint, transform);
-                        var p2_trans = Vector2.Transform(quad.Point, transform);
-
-                        const int N = 24;
-                        uint idxStart = (uint)currentVertexCount;
-
-                        var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 5f));
-                        int vertexToAdd = 2 * (N + 1);
-                        verticesSpan.Slice(currentVertexCount, vertexToAdd).Fill(baseVertex);
-                        currentVertexCount += vertexToAdd;
-
-                        for (int i = 0; i < N; i++)
+                        if (useAffineStrokeGeometry)
                         {
-                            uint currentLeft = (uint)(idxStart + 2 * i);
-                            uint currentRight = (uint)(idxStart + 2 * i + 1);
-                            uint nextLeft = (uint)(idxStart + 2 * i + 2);
-                            uint nextRight = (uint)(idxStart + 2 * i + 3);
+                            AppendAffineStrokeQuadraticVertices(
+                                verticesSpan,
+                                indicesSpan,
+                                ref currentVertexCount,
+                                ref currentIndexCount,
+                                penBrushIdx,
+                                localAffineThickness,
+                                segmentStart,
+                                quad,
+                                transform,
+                                cmd.IsEdgeAliased);
+                        }
+                        else
+                        {
+                            var p0_trans = Vector2.Transform(segmentStart, transform);
+                            var p1_trans = Vector2.Transform(quad.ControlPoint, transform);
+                            var p2_trans = Vector2.Transform(quad.Point, transform);
 
-                            indicesSpan[currentIndexCount++] = currentLeft;
-                            indicesSpan[currentIndexCount++] = currentRight;
-                            indicesSpan[currentIndexCount++] = nextLeft;
+                            const int N = 24;
+                            uint idxStart = (uint)currentVertexCount;
 
-                            indicesSpan[currentIndexCount++] = currentRight;
-                            indicesSpan[currentIndexCount++] = nextRight;
-                            indicesSpan[currentIndexCount++] = nextLeft;
+                            var baseVertex = new VectorVertex(p0_trans, Vector4.Zero, p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 5f));
+                            int vertexToAdd = 2 * (N + 1);
+                            verticesSpan.Slice(currentVertexCount, vertexToAdd).Fill(baseVertex);
+                            currentVertexCount += vertexToAdd;
+
+                            for (int i = 0; i < N; i++)
+                            {
+                                uint currentLeft = (uint)(idxStart + 2 * i);
+                                uint currentRight = (uint)(idxStart + 2 * i + 1);
+                                uint nextLeft = (uint)(idxStart + 2 * i + 2);
+                                uint nextRight = (uint)(idxStart + 2 * i + 3);
+
+                                indicesSpan[currentIndexCount++] = currentLeft;
+                                indicesSpan[currentIndexCount++] = currentRight;
+                                indicesSpan[currentIndexCount++] = nextLeft;
+
+                                indicesSpan[currentIndexCount++] = currentRight;
+                                indicesSpan[currentIndexCount++] = nextRight;
+                                indicesSpan[currentIndexCount++] = nextLeft;
+                            }
                         }
 
                         currentPoint = quad.Point;
@@ -4353,33 +4383,50 @@ public unsafe class Compositor : IDisposable
                     }
                     else if (segment is CubicBezierSegment cubic)
                     {
-                        var p0_trans = Vector2.Transform(segmentStart, transform);
-                        var p1_trans = Vector2.Transform(cubic.ControlPoint1, transform);
-                        var p2_trans = Vector2.Transform(cubic.ControlPoint2, transform);
-                        var p3_trans = Vector2.Transform(cubic.Point, transform);
-
-                        const int N = 24;
-                        uint idxStart = (uint)currentVertexCount;
-
-                        var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 6f));
-                        int vertexToAdd = 2 * (N + 1);
-                        verticesSpan.Slice(currentVertexCount, vertexToAdd).Fill(baseVertex);
-                        currentVertexCount += vertexToAdd;
-
-                        for (int i = 0; i < N; i++)
+                        if (useAffineStrokeGeometry)
                         {
-                            uint currentLeft = (uint)(idxStart + 2 * i);
-                            uint currentRight = (uint)(idxStart + 2 * i + 1);
-                            uint nextLeft = (uint)(idxStart + 2 * i + 2);
-                            uint nextRight = (uint)(idxStart + 2 * i + 3);
+                            AppendAffineStrokeCubicVertices(
+                                verticesSpan,
+                                indicesSpan,
+                                ref currentVertexCount,
+                                ref currentIndexCount,
+                                penBrushIdx,
+                                localAffineThickness,
+                                segmentStart,
+                                cubic,
+                                transform,
+                                cmd.IsEdgeAliased);
+                        }
+                        else
+                        {
+                            var p0_trans = Vector2.Transform(segmentStart, transform);
+                            var p1_trans = Vector2.Transform(cubic.ControlPoint1, transform);
+                            var p2_trans = Vector2.Transform(cubic.ControlPoint2, transform);
+                            var p3_trans = Vector2.Transform(cubic.Point, transform);
 
-                            indicesSpan[currentIndexCount++] = currentLeft;
-                            indicesSpan[currentIndexCount++] = currentRight;
-                            indicesSpan[currentIndexCount++] = nextLeft;
+                            const int N = 24;
+                            uint idxStart = (uint)currentVertexCount;
 
-                            indicesSpan[currentIndexCount++] = currentRight;
-                            indicesSpan[currentIndexCount++] = nextRight;
-                            indicesSpan[currentIndexCount++] = nextLeft;
+                            var baseVertex = new VectorVertex(p0_trans, new Vector4(p3_trans.X, p3_trans.Y, 0f, 0f), p1_trans, penBrushIdx, p2_trans, idxStart, thickness, EncodeShapeType(cmd, 6f));
+                            int vertexToAdd = 2 * (N + 1);
+                            verticesSpan.Slice(currentVertexCount, vertexToAdd).Fill(baseVertex);
+                            currentVertexCount += vertexToAdd;
+
+                            for (int i = 0; i < N; i++)
+                            {
+                                uint currentLeft = (uint)(idxStart + 2 * i);
+                                uint currentRight = (uint)(idxStart + 2 * i + 1);
+                                uint nextLeft = (uint)(idxStart + 2 * i + 2);
+                                uint nextRight = (uint)(idxStart + 2 * i + 3);
+
+                                indicesSpan[currentIndexCount++] = currentLeft;
+                                indicesSpan[currentIndexCount++] = currentRight;
+                                indicesSpan[currentIndexCount++] = nextLeft;
+
+                                indicesSpan[currentIndexCount++] = currentRight;
+                                indicesSpan[currentIndexCount++] = nextRight;
+                                indicesSpan[currentIndexCount++] = nextLeft;
+                            }
                         }
 
                         currentPoint = cubic.Point;
@@ -4447,7 +4494,7 @@ public unsafe class Compositor : IDisposable
 
                 if (!figure.IsClosed && hasLastCapCandidate)
                 {
-                    AppendStrokeSegmentCapTriangles(
+                    AppendPathStrokeSegmentCapTriangles(
                         verticesSpan,
                         indicesSpan,
                         ref currentVertexCount,
@@ -4455,8 +4502,11 @@ public unsafe class Compositor : IDisposable
                         cmd.Pen,
                         penSolidColor,
                         penBrushIdx,
-                        Vector2.Transform(lastCapCenter, transform),
-                        TransformDirection(lastCapDirection, transform),
+                        localAffineThickness,
+                        lastCapCenter,
+                        lastCapDirection,
+                        transform,
+                        useAffineStrokeGeometry,
                         cmd.IsEdgeAliased,
                         isStart: false);
                 }
@@ -4483,7 +4533,7 @@ public unsafe class Compositor : IDisposable
 
                     if (hasPreviousSegmentEndDirection)
                     {
-                        AppendStrokeSegmentJoinTriangles(
+                        AppendPathStrokeSegmentJoinTriangles(
                             verticesSpan,
                             indicesSpan,
                             ref currentVertexCount,
@@ -4491,9 +4541,12 @@ public unsafe class Compositor : IDisposable
                             cmd.Pen,
                             penSolidColor,
                             penBrushIdx,
-                            Vector2.Transform(closeLineStart, transform),
-                            TransformDirection(previousSegmentEndDirection, transform),
-                            TransformDirection(closeLineDirection, transform),
+                            localAffineThickness,
+                            closeLineStart,
+                            previousSegmentEndDirection,
+                            closeLineDirection,
+                            transform,
+                            useAffineStrokeGeometry,
                             cmd.IsEdgeAliased,
                             isSmoothJoin: false);
                     }
@@ -4530,7 +4583,7 @@ public unsafe class Compositor : IDisposable
 
                     if (hasFirstSegmentStartDirection)
                     {
-                        AppendStrokeSegmentJoinTriangles(
+                        AppendPathStrokeSegmentJoinTriangles(
                             verticesSpan,
                             indicesSpan,
                             ref currentVertexCount,
@@ -4538,9 +4591,12 @@ public unsafe class Compositor : IDisposable
                             cmd.Pen,
                             penSolidColor,
                             penBrushIdx,
-                            Vector2.Transform(closeLineEnd, transform),
-                            TransformDirection(closeLineDirection, transform),
-                            TransformDirection(firstSegmentStartDirection, transform),
+                            localAffineThickness,
+                            closeLineEnd,
+                            closeLineDirection,
+                            firstSegmentStartDirection,
+                            transform,
+                            useAffineStrokeGeometry,
                             cmd.IsEdgeAliased,
                             firstSegmentSmoothJoin);
                     }
@@ -4550,7 +4606,7 @@ public unsafe class Compositor : IDisposable
                          hasFirstSegmentStartDirection &&
                          currentPoint == figure.StartPoint)
                 {
-                    AppendStrokeSegmentJoinTriangles(
+                    AppendPathStrokeSegmentJoinTriangles(
                         verticesSpan,
                         indicesSpan,
                         ref currentVertexCount,
@@ -4558,9 +4614,12 @@ public unsafe class Compositor : IDisposable
                         cmd.Pen,
                         penSolidColor,
                         penBrushIdx,
-                        Vector2.Transform(figure.StartPoint, transform),
-                        TransformDirection(previousSegmentEndDirection, transform),
-                        TransformDirection(firstSegmentStartDirection, transform),
+                        localAffineThickness,
+                        figure.StartPoint,
+                        previousSegmentEndDirection,
+                        firstSegmentStartDirection,
+                        transform,
+                        useAffineStrokeGeometry,
                         cmd.IsEdgeAliased,
                         firstSegmentSmoothJoin);
                 }
@@ -5105,6 +5164,176 @@ public unsafe class Compositor : IDisposable
             isEdgeAliased);
     }
 
+    private static void AppendAffineStrokeQuadraticVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 start,
+        QuadraticBezierSegment segment,
+        Matrix4x4 transform,
+        bool isEdgeAliased)
+    {
+        const int segmentCount = 24;
+        var previousPoint = start;
+        var previousTangent = GetQuadraticTangent(start, segment.ControlPoint, segment.Point, 0f);
+
+        for (var i = 1; i <= segmentCount; i++)
+        {
+            var t = (float)i / segmentCount;
+            var point = BezierSegmentGeometry.EvaluateQuadratic(start, segment.ControlPoint, segment.Point, t);
+            var tangent = GetQuadraticTangent(start, segment.ControlPoint, segment.Point, t);
+            AppendAffineStrokeCurveSection(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                localThickness,
+                previousPoint,
+                point,
+                previousTangent,
+                tangent,
+                transform,
+                isEdgeAliased,
+                isFirstSection: i == 1,
+                isLastSection: i == segmentCount);
+            previousPoint = point;
+            previousTangent = tangent;
+        }
+    }
+
+    private static void AppendAffineStrokeCubicVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 start,
+        CubicBezierSegment segment,
+        Matrix4x4 transform,
+        bool isEdgeAliased)
+    {
+        const int segmentCount = 24;
+        var previousPoint = start;
+        var previousTangent = GetCubicTangent(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, 0f);
+
+        for (var i = 1; i <= segmentCount; i++)
+        {
+            var t = (float)i / segmentCount;
+            var point = BezierSegmentGeometry.EvaluateCubic(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, t);
+            var tangent = GetCubicTangent(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, t);
+            AppendAffineStrokeCurveSection(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                localThickness,
+                previousPoint,
+                point,
+                previousTangent,
+                tangent,
+                transform,
+                isEdgeAliased,
+                isFirstSection: i == 1,
+                isLastSection: i == segmentCount);
+            previousPoint = point;
+            previousTangent = tangent;
+        }
+    }
+
+    private static void AppendAffineStrokeCurveSection(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localStart,
+        Vector2 localEnd,
+        Vector2 startTangent,
+        Vector2 endTangent,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isFirstSection,
+        bool isLastSection)
+    {
+        var chord = localEnd - localStart;
+        if (!TryNormalizeStrokeDirection(startTangent, chord, out var startDirection) ||
+            !TryNormalizeStrokeDirection(endTangent, chord, out var endDirection))
+        {
+            return;
+        }
+
+        var radius = localThickness * 0.5f;
+        var startNormal = new Vector2(-startDirection.Y, startDirection.X) * radius;
+        var endNormal = new Vector2(-endDirection.Y, endDirection.X) * radius;
+        var p0 = Vector2.Transform(localStart + startNormal, transform);
+        var p1 = Vector2.Transform(localEnd + endNormal, transform);
+        var p2 = Vector2.Transform(localEnd - endNormal, transform);
+        var p3 = Vector2.Transform(localStart - startNormal, transform);
+        var shapeType = isFirstSection
+            ? isLastSection
+                ? QuadrilateralSdfShapeType
+                : QuadrilateralStripStartSdfShapeType
+            : isLastSection
+                ? QuadrilateralStripEndSdfShapeType
+                : QuadrilateralStripSdfShapeType;
+
+        AppendStrokeQuadrilateralVertices(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            penBrushIdx,
+            p0,
+            p1,
+            p2,
+            p3,
+            isEdgeAliased,
+            shapeType);
+    }
+
+    private static bool TryNormalizeStrokeDirection(
+        Vector2 direction,
+        Vector2 fallback,
+        out Vector2 normalized)
+    {
+        var length = direction.Length();
+        if (!float.IsFinite(length) || length <= StrokeEpsilon)
+        {
+            direction = fallback;
+            length = direction.Length();
+        }
+
+        if (!float.IsFinite(length) || length <= StrokeEpsilon)
+        {
+            normalized = default;
+            return false;
+        }
+
+        normalized = direction / length;
+        return true;
+    }
+
+    private static Vector2 GetQuadraticTangent(Vector2 p0, Vector2 p1, Vector2 p2, float t)
+    {
+        return 2f * ((1f - t) * (p1 - p0) + t * (p2 - p1));
+    }
+
+    private static Vector2 GetCubicTangent(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+    {
+        var inverse = 1f - t;
+        return 3f * (
+            inverse * inverse * (p1 - p0) +
+            2f * inverse * t * (p2 - p1) +
+            t * t * (p3 - p2));
+    }
+
     private static void AppendStrokeQuadrilateralVertices(
         Span<VectorVertex> verticesSpan,
         Span<uint> indicesSpan,
@@ -5115,7 +5344,8 @@ public unsafe class Compositor : IDisposable
         Vector2 p1,
         Vector2 p2,
         Vector2 p3,
-        bool isEdgeAliased)
+        bool isEdgeAliased,
+        float shapeType = QuadrilateralSdfShapeType)
     {
         var edge0 = p1 - p0;
         var edge1 = p2 - p0;
@@ -5134,7 +5364,7 @@ public unsafe class Compositor : IDisposable
         }
 
         var firstPoints = new Vector4(p0.X, p0.Y, p1.X, p1.Y);
-        var shapeType = EncodeShapeType(isEdgeAliased, QuadrilateralSdfShapeType);
+        shapeType = EncodeShapeType(isEdgeAliased, shapeType);
         var index = (uint)currentVertexCount;
 
         verticesSpan[currentVertexCount++] = new VectorVertex(
@@ -5326,6 +5556,203 @@ public unsafe class Compositor : IDisposable
         min -= pad;
         max += pad;
         return true;
+    }
+
+    private static void AppendPathStrokeSegmentJoinTriangles(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Pen pen,
+        Vector4 penSolidColor,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localJoinPoint,
+        Vector2 localIncomingDirection,
+        Vector2 localOutgoingDirection,
+        Matrix4x4 transform,
+        bool useAffineStrokeGeometry,
+        bool isEdgeAliased,
+        bool isSmoothJoin)
+    {
+        if (useAffineStrokeGeometry)
+        {
+            AppendAffineStrokeSegmentJoinTriangles(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                pen,
+                penBrushIdx,
+                localThickness,
+                localJoinPoint,
+                localIncomingDirection,
+                localOutgoingDirection,
+                transform,
+                isEdgeAliased,
+                isSmoothJoin);
+            return;
+        }
+
+        AppendStrokeSegmentJoinTriangles(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            pen,
+            penSolidColor,
+            penBrushIdx,
+            Vector2.Transform(localJoinPoint, transform),
+            TransformDirection(localIncomingDirection, transform),
+            TransformDirection(localOutgoingDirection, transform),
+            isEdgeAliased,
+            isSmoothJoin);
+    }
+
+    private static void AppendAffineStrokeSegmentJoinTriangles(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Pen pen,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localJoinPoint,
+        Vector2 localIncomingDirection,
+        Vector2 localOutgoingDirection,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isSmoothJoin)
+    {
+        var localTriangles = StrokeJoinGeometry.CreateDirectionalJoin(
+            pen.LineJoin,
+            localThickness,
+            pen.MiterLimit,
+            localJoinPoint,
+            localIncomingDirection,
+            localOutgoingDirection,
+            isSmoothJoin);
+
+        for (var triangleIndex = 0; triangleIndex < localTriangles.Length; triangleIndex++)
+        {
+            var localTriangle = localTriangles[triangleIndex];
+            var transformedTriangle = new StrokeJoinTriangle(
+                Vector2.Transform(localTriangle.P0, transform),
+                Vector2.Transform(localTriangle.P1, transform),
+                Vector2.Transform(localTriangle.P2, transform));
+            var edgeMasks = GetStrokeTriangleEdgeMasks(localTriangles, triangleIndex);
+            AppendStrokeTriangleVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                transformedTriangle,
+                edgeMasks.Exterior,
+                edgeMasks.OwnedInternal,
+                isEdgeAliased);
+        }
+    }
+
+    private static void AppendPathStrokeSegmentCapTriangles(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Pen pen,
+        Vector4 penSolidColor,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localCenter,
+        Vector2 localDirectionAlongPath,
+        Matrix4x4 transform,
+        bool useAffineStrokeGeometry,
+        bool isEdgeAliased,
+        bool isStart)
+    {
+        if (useAffineStrokeGeometry)
+        {
+            AppendAffineStrokeSegmentCapTriangles(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                pen,
+                penBrushIdx,
+                localThickness,
+                localCenter,
+                localDirectionAlongPath,
+                transform,
+                isEdgeAliased,
+                isStart);
+            return;
+        }
+
+        AppendStrokeSegmentCapTriangles(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            pen,
+            penSolidColor,
+            penBrushIdx,
+            Vector2.Transform(localCenter, transform),
+            TransformDirection(localDirectionAlongPath, transform),
+            isEdgeAliased,
+            isStart);
+    }
+
+    private static void AppendAffineStrokeSegmentCapTriangles(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Pen pen,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localCenter,
+        Vector2 localDirectionAlongPath,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isStart)
+    {
+        var directionLength = localDirectionAlongPath.Length();
+        if (!float.IsFinite(directionLength) || directionLength <= StrokeEpsilon)
+        {
+            return;
+        }
+
+        var localTriangles = StrokeCapGeometry.CreateDirectionalCap(
+            isStart ? pen.StartLineCap : pen.EndLineCap,
+            localThickness,
+            localCenter,
+            localDirectionAlongPath,
+            isStart);
+        var normalizedLocalDirection = localDirectionAlongPath / directionLength;
+
+        for (var triangleIndex = 0; triangleIndex < localTriangles.Length; triangleIndex++)
+        {
+            var localTriangle = localTriangles[triangleIndex];
+            var transformedTriangle = new StrokeJoinTriangle(
+                Vector2.Transform(localTriangle.P0, transform),
+                Vector2.Transform(localTriangle.P1, transform),
+                Vector2.Transform(localTriangle.P2, transform));
+            var edgeMasks = GetStrokeCapTriangleEdgeMasks(
+                localTriangles,
+                triangleIndex,
+                localCenter,
+                normalizedLocalDirection);
+            AppendStrokeTriangleVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                transformedTriangle,
+                edgeMasks.Exterior,
+                edgeMasks.OwnedInternal,
+                isEdgeAliased);
+        }
     }
 
     private static void AppendStrokeSegmentJoinTriangles(
@@ -6858,7 +7285,8 @@ public unsafe class Compositor : IDisposable
                         IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
                         PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
                             ? PathAtlas.StandardCoverageSampleGrid
-                            : PathAtlas.HighPrecisionCoverageSampleGrid
+                            : PathAtlas.HighPrecisionCoverageSampleGrid,
+                        PathCoverageGamma = TextPathCoverageGamma
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
@@ -6903,7 +7331,8 @@ public unsafe class Compositor : IDisposable
                             IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
                             PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
                                 ? PathAtlas.StandardCoverageSampleGrid
-                                : PathAtlas.HighPrecisionCoverageSampleGrid
+                                : PathAtlas.HighPrecisionCoverageSampleGrid,
+                            PathCoverageGamma = TextPathCoverageGamma
                         }, activeTransform);
                     }
                 }
@@ -7055,7 +7484,8 @@ public unsafe class Compositor : IDisposable
                         IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
                         PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
                             ? PathAtlas.StandardCoverageSampleGrid
-                            : PathAtlas.HighPrecisionCoverageSampleGrid
+                            : PathAtlas.HighPrecisionCoverageSampleGrid,
+                        PathCoverageGamma = TextPathCoverageGamma
                     };
                     CompilePathCommand(pathCmd, activeTransform);
                 }
@@ -7089,7 +7519,8 @@ public unsafe class Compositor : IDisposable
                             IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
                             PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
                                 ? PathAtlas.StandardCoverageSampleGrid
-                                : PathAtlas.HighPrecisionCoverageSampleGrid
+                                : PathAtlas.HighPrecisionCoverageSampleGrid,
+                            PathCoverageGamma = TextPathCoverageGamma
                         }, activeTransform);
                     }
                 }

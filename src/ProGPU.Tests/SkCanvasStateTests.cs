@@ -1084,6 +1084,37 @@ public sealed class SkCanvasStateTests
         Assert.Equal((byte)0, pixels[(40 * 200 + 180) * 4 + 3]);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NonUniformlyScaledCubicStrokeTransformsItsLocalOutline(bool useDash)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(64, 128, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var dash = useDash ? SKPathEffect.CreateDash(new[] { 100f, 10f }, 0f) : null;
+        using var paint = new SKPaint
+        {
+            Color = SKColors.Blue,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 10f,
+            StrokeCap = SKStrokeCap.Butt,
+            PathEffect = dash,
+            IsAntialias = false
+        };
+        using var path = new SKPath();
+        path.MoveTo(20f, 10f);
+        path.CubicTo(20f, 20f, 20f, 40f, 20f, 50f);
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.SetMatrix(SKMatrix.CreateScale(1f, 2f));
+        surface.Canvas.DrawPath(path, paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        Assert.Equal((byte)255, pixels[(60 * 64 + 24) * 4 + 3]);
+        Assert.Equal((byte)0, pixels[(60 * 64 + 27) * 4 + 3]);
+    }
+
     [Fact]
     public void DrawTextWithStrokePaintRendersGlyphOutlines()
     {

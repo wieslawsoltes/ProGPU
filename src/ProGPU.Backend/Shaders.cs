@@ -948,9 +948,11 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             internalInside);
         let aliasedAlpha = select(0.0, 1.0, allDistance <= 0.0 && internalInside);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
-    } else if (sType == 14u) {
+    } else if (sType >= 14u && sType <= 17u) {
         // Antialiased affine stroke segment. color.xy/color.zw/shapeSize and
         // cornerRadius/strokeThickness carry its four screen-space corners.
+        // Types 15-17 keep shared curve cross-sections hard-owned so adjacent
+        // sections do not introduce antialiased seams.
         let p0 = input.color.xy;
         let p1 = input.color.zw;
         let p2 = input.shapeSize;
@@ -974,10 +976,33 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         let distance3 = -orientation *
             (edge3.x * (point.y - p3.y) - edge3.y * (point.x - p3.x)) /
             max(length(edge3), 0.0001);
-        let d_shape = max(max(distance0, distance1), max(distance2, distance3));
-        let fw = max(fwidth(d_shape), 0.0001);
-        let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
-        let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
+        let allDistance = max(max(distance0, distance1), max(distance2, distance3));
+        var exteriorEdgeMask = 15u;
+        if (sType == 15u) {
+            exteriorEdgeMask = 5u;
+        } else if (sType == 16u) {
+            exteriorEdgeMask = 13u;
+        } else if (sType == 17u) {
+            exteriorEdgeMask = 7u;
+        }
+        let internalInside =
+            ((exteriorEdgeMask & 1u) != 0u || distance0 <= 0.0) &&
+            ((exteriorEdgeMask & 2u) != 0u || distance1 <= 0.0) &&
+            ((exteriorEdgeMask & 4u) != 0u || distance2 <= 0.0) &&
+            ((exteriorEdgeMask & 8u) != 0u || distance3 <= 0.0);
+        let exteriorDistance = max(
+            max(
+                select(-1000000.0, distance0, (exteriorEdgeMask & 1u) != 0u),
+                select(-1000000.0, distance1, (exteriorEdgeMask & 2u) != 0u)),
+            max(
+                select(-1000000.0, distance2, (exteriorEdgeMask & 4u) != 0u),
+                select(-1000000.0, distance3, (exteriorEdgeMask & 8u) != 0u)));
+        let fw = max(fwidth(exteriorDistance), 0.0001);
+        let antialiasedAlpha = select(
+            0.0,
+            1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
+            internalInside);
+        let aliasedAlpha = select(0.0, 1.0, allDistance <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 3u || sType == 5u || sType == 6u) {
         // Line, Quadratic, and Cubic Bezier stroke anti-aliasing via signed pixel distance
@@ -989,16 +1014,19 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         let d_shape = d_pixels -
             max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
         let antialiasHalfWidth = 0.5;
-        let antialiasedAlpha = 1.0 - smoothstep(
+        let linearAntialiasedAlpha = 1.0 - smoothstep(
             -antialiasHalfWidth,
             antialiasHalfWidth,
             d_shape);
+        let antialiasedAlpha = pow(linearAntialiasedAlpha, 0.7);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 4u) {
         // Path rendering: sample coverage directly from PathAtlas
         let coverage = textureSample(pathAtlasTexture, pathAtlasSampler, input.texCoord).r;
-        shapeAlpha = select(coverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);
+        let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
+        let correctedCoverage = pow(coverage, coverageGamma);
+        shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);
     } else if (sType == 7u) {
         // Direct solid fill
         shapeAlpha = 1.0;
@@ -1014,7 +1042,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
 
     var finalColor = input.color;
     if (brush.brushType == 0u) {
-        if (sType == 5u || sType == 6u || sType == 12u || sType == 13u || sType == 14u) {
+        if (sType == 5u || sType == 6u || (sType >= 12u && sType <= 17u)) {
             finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
         } else {
             finalColor = vec4<f32>(input.color.rgb, input.color.a * brush.opacity);
