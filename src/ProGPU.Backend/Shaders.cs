@@ -341,6 +341,31 @@ fn perlin_table_gradient(brush: Brush, channel: u32, index: i32) -> vec2<f32> {
     return select(second.zw, second.xy, channel == 2u);
 }
 
+fn perlin_table_noise_channel(
+    brush: Brush,
+    channel: u32,
+    index00: i32,
+    index10: i32,
+    index01: i32,
+    index11: i32,
+    fraction: vec2<f32>,
+    smoothValue: vec2<f32>) -> f32 {
+    let value00 = dot(perlin_table_gradient(brush, channel, index00), fraction);
+    let value10 = dot(
+        perlin_table_gradient(brush, channel, index10),
+        fraction - vec2<f32>(1.0, 0.0));
+    let value01 = dot(
+        perlin_table_gradient(brush, channel, index01),
+        fraction - vec2<f32>(0.0, 1.0));
+    let value11 = dot(
+        perlin_table_gradient(brush, channel, index11),
+        fraction - vec2<f32>(1.0, 1.0));
+    return mix(
+        mix(value00, value10, smoothValue.x),
+        mix(value01, value11, smoothValue.x),
+        smoothValue.y);
+}
+
 fn perlin_table_noise(
     brush: Brush,
     noiseVector: vec2<f32>,
@@ -364,24 +389,15 @@ fn perlin_table_noise(
     let index01 = latticeX0 + i32(round(ceilValue.y));
     let index11 = latticeX1 + i32(round(ceilValue.y));
     let smoothValue = perlin_fade(fraction);
-    var result = vec4<f32>(0.0);
-    for (var channel = 0u; channel < 4u; channel = channel + 1u) {
-        let value00 = dot(perlin_table_gradient(brush, channel, index00), fraction);
-        let value10 = dot(
-            perlin_table_gradient(brush, channel, index10),
-            fraction - vec2<f32>(1.0, 0.0));
-        let value01 = dot(
-            perlin_table_gradient(brush, channel, index01),
-            fraction - vec2<f32>(0.0, 1.0));
-        let value11 = dot(
-            perlin_table_gradient(brush, channel, index11),
-            fraction - vec2<f32>(1.0, 1.0));
-        result[channel] = mix(
-            mix(value00, value10, smoothValue.x),
-            mix(value01, value11, smoothValue.x),
-            smoothValue.y);
-    }
-    return result;
+    return vec4<f32>(
+        perlin_table_noise_channel(
+            brush, 0u, index00, index10, index01, index11, fraction, smoothValue),
+        perlin_table_noise_channel(
+            brush, 1u, index00, index10, index01, index11, fraction, smoothValue),
+        perlin_table_noise_channel(
+            brush, 2u, index00, index10, index01, index11, fraction, smoothValue),
+        perlin_table_noise_channel(
+            brush, 3u, index00, index10, index01, index11, fraction, smoothValue));
 }
 
 fn exact_perlin_noise(brush: Brush, coordinate: vec2<f32>) -> vec4<f32> {

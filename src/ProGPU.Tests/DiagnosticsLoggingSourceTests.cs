@@ -189,6 +189,18 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void VectorPerlinShaderAvoidsRuntimeIndexedVectorWritesForD3D()
+    {
+        string shaders = ReadSource("src", "ProGPU.Backend", "Shaders.cs");
+
+        Assert.Contains("fn perlin_table_noise_channel(", shaders, StringComparison.Ordinal);
+        Assert.Contains("brush, 0u, index00, index10, index01, index11, fraction, smoothValue", shaders, StringComparison.Ordinal);
+        Assert.Contains("brush, 3u, index00, index10, index01, index11, fraction, smoothValue", shaders, StringComparison.Ordinal);
+        Assert.DoesNotContain("result[channel] =", shaders, StringComparison.Ordinal);
+        Assert.DoesNotContain("for (var channel = 0u; channel < 4u; channel = channel + 1u)", shaders, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NestedSubmodulesUsePublicGitHubUrlsForCiCheckout()
     {
         string gitmodules = ReadSource(".gitmodules");
