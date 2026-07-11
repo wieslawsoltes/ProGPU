@@ -4142,6 +4142,8 @@ public unsafe class Compositor : IDisposable
                 var hasFirstSegmentStartDirection = false;
                 var hasPreviousSegmentEndDirection = false;
                 var hasLastCapCandidate = false;
+                var hasDegenerateStrokeCandidate = false;
+                var degenerateStrokeCenter = default(Vector2);
                 var lastCapCenter = default(Vector2);
                 var lastCapDirection = default(Vector2);
                 var isFirstSegment = true;
@@ -4168,6 +4170,21 @@ public unsafe class Compositor : IDisposable
                                 cmd.IsEdgeAliased,
                                 isStart: false);
                         }
+                        else if (!figure.IsClosed && hasDegenerateStrokeCandidate)
+                        {
+                            AppendDegenerateStrokeCapVertices(
+                                verticesSpan,
+                                indicesSpan,
+                                ref currentVertexCount,
+                                ref currentIndexCount,
+                                cmd.Pen,
+                                penSolidColor,
+                                penBrushIdx,
+                                thickness,
+                                degenerateStrokeCenter,
+                                transform,
+                                cmd.IsEdgeAliased);
+                        }
 
                         if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
                         {
@@ -4180,6 +4197,8 @@ public unsafe class Compositor : IDisposable
                         hasFirstSegmentStartDirection = false;
                         hasPreviousSegmentEndDirection = false;
                         hasLastCapCandidate = false;
+                        hasDegenerateStrokeCandidate = false;
+                        degenerateStrokeCenter = default;
                         lastCapCenter = default;
                         lastCapDirection = default;
                         isFirstSegment = true;
@@ -4187,6 +4206,23 @@ public unsafe class Compositor : IDisposable
                     }
 
                     var hasSegmentStartDirection = TryGetPathSegmentStartDirection(segment, segmentStart, out var segmentStartDirection);
+                    var hasSegmentEndDirection = TryGetPathSegmentEndDirection(segment, segmentStart, out var segmentEndDirection);
+                    if (!hasSegmentStartDirection &&
+                        !hasSegmentEndDirection &&
+                        TryGetPathSegmentEndPoint(segment, out var degenerateEndPoint) &&
+                        Vector2.DistanceSquared(segmentStart, degenerateEndPoint) <= StrokeEpsilon * StrokeEpsilon)
+                    {
+                        if (isFirstSegment)
+                        {
+                            hasDegenerateStrokeCandidate = true;
+                            degenerateStrokeCenter = segmentStart;
+                        }
+
+                        currentPoint = degenerateEndPoint;
+                        continue;
+                    }
+
+                    hasDegenerateStrokeCandidate = false;
                     if (isFirstSegment && hasSegmentStartDirection)
                     {
                         firstSegmentStartDirection = segmentStartDirection;
@@ -4267,7 +4303,8 @@ public unsafe class Compositor : IDisposable
                         }
 
                         currentPoint = lineEnd;
-                        hasLastCapCandidate = TryGetPathSegmentEndDirection(segment, segmentStart, out lastCapDirection);
+                        hasLastCapCandidate = hasSegmentEndDirection;
+                        lastCapDirection = segmentEndDirection;
                         hasPreviousSegmentEndDirection = hasLastCapCandidate;
                         previousSegmentEndDirection = lastCapDirection;
                         lastCapCenter = lineEnd;
@@ -4304,7 +4341,8 @@ public unsafe class Compositor : IDisposable
                         }
 
                         currentPoint = quad.Point;
-                        hasLastCapCandidate = TryGetPathSegmentEndDirection(segment, segmentStart, out lastCapDirection);
+                        hasLastCapCandidate = hasSegmentEndDirection;
+                        lastCapDirection = segmentEndDirection;
                         hasPreviousSegmentEndDirection = hasLastCapCandidate;
                         previousSegmentEndDirection = lastCapDirection;
                         lastCapCenter = quad.Point;
@@ -4342,7 +4380,8 @@ public unsafe class Compositor : IDisposable
                         }
 
                         currentPoint = cubic.Point;
-                        hasLastCapCandidate = TryGetPathSegmentEndDirection(segment, segmentStart, out lastCapDirection);
+                        hasLastCapCandidate = hasSegmentEndDirection;
+                        lastCapDirection = segmentEndDirection;
                         hasPreviousSegmentEndDirection = hasLastCapCandidate;
                         previousSegmentEndDirection = lastCapDirection;
                         lastCapCenter = cubic.Point;
@@ -4387,7 +4426,8 @@ public unsafe class Compositor : IDisposable
                         }
 
                         currentPoint = arc.Point;
-                        hasLastCapCandidate = TryGetPathSegmentEndDirection(segment, segmentStart, out lastCapDirection);
+                        hasLastCapCandidate = hasSegmentEndDirection;
+                        lastCapDirection = segmentEndDirection;
                         hasPreviousSegmentEndDirection = hasLastCapCandidate;
                         previousSegmentEndDirection = lastCapDirection;
                         lastCapCenter = arc.Point;
@@ -4416,6 +4456,21 @@ public unsafe class Compositor : IDisposable
                         TransformDirection(lastCapDirection, transform),
                         cmd.IsEdgeAliased,
                         isStart: false);
+                }
+                else if (!figure.IsClosed && hasDegenerateStrokeCandidate)
+                {
+                    AppendDegenerateStrokeCapVertices(
+                        verticesSpan,
+                        indicesSpan,
+                        ref currentVertexCount,
+                        ref currentIndexCount,
+                        cmd.Pen,
+                        penSolidColor,
+                        penBrushIdx,
+                        thickness,
+                        degenerateStrokeCenter,
+                        transform,
+                        cmd.IsEdgeAliased);
                 }
                 else if (figure.IsClosed && currentPoint != figure.StartPoint)
                 {
@@ -4756,6 +4811,16 @@ public unsafe class Compositor : IDisposable
             }
 
             var hasSegmentStartDirection = TryGetPathSegmentStartDirection(segment, segmentStart, out var segmentStartDirection);
+            var hasSegmentEndDirection = TryGetPathSegmentEndDirection(segment, segmentStart, out _);
+            if (!hasSegmentStartDirection &&
+                !hasSegmentEndDirection &&
+                TryGetPathSegmentEndPoint(segment, out var degenerateEndPoint) &&
+                Vector2.DistanceSquared(segmentStart, degenerateEndPoint) <= StrokeEpsilon * StrokeEpsilon)
+            {
+                currentPoint = degenerateEndPoint;
+                continue;
+            }
+
             if (isFirstSegment && hasSegmentStartDirection)
             {
                 hasFirstSegmentStartDirection = true;
@@ -4768,7 +4833,7 @@ public unsafe class Compositor : IDisposable
                 joinCount++;
             }
 
-            if (TryGetPathSegmentEndDirection(segment, segmentStart, out _))
+            if (hasSegmentEndDirection)
             {
                 hasPreviousSegmentEndDirection = true;
             }
@@ -4818,6 +4883,7 @@ public unsafe class Compositor : IDisposable
         var currentPoint = figure.StartPoint;
         var isFirstSegmentInSubpath = true;
         var pendingEndCap = false;
+        var hasDegenerateStrokeCandidate = false;
         var capCount = 0;
 
         var figureSegments = figure.Segments;
@@ -4830,8 +4896,21 @@ public unsafe class Compositor : IDisposable
                 {
                     capCount++;
                 }
+                else if (hasDegenerateStrokeCandidate)
+                {
+                    if (startLineCap != PenLineCap.Flat)
+                    {
+                        capCount++;
+                    }
+
+                    if (endLineCap != PenLineCap.Flat)
+                    {
+                        capCount++;
+                    }
+                }
 
                 pendingEndCap = false;
+                hasDegenerateStrokeCandidate = false;
                 isFirstSegmentInSubpath = true;
                 if (TryGetPathSegmentEndPoint(segment, out var skippedSegmentEndPoint))
                 {
@@ -4841,14 +4920,31 @@ public unsafe class Compositor : IDisposable
                 continue;
             }
 
+            var hasSegmentStartDirection = TryGetPathSegmentStartDirection(segment, currentPoint, out _);
+            var hasSegmentEndDirection = TryGetPathSegmentEndDirection(segment, currentPoint, out _);
+            if (!hasSegmentStartDirection &&
+                !hasSegmentEndDirection &&
+                TryGetPathSegmentEndPoint(segment, out var degenerateEndPoint) &&
+                Vector2.DistanceSquared(currentPoint, degenerateEndPoint) <= StrokeEpsilon * StrokeEpsilon)
+            {
+                if (isFirstSegmentInSubpath)
+                {
+                    hasDegenerateStrokeCandidate = true;
+                }
+
+                currentPoint = degenerateEndPoint;
+                continue;
+            }
+
+            hasDegenerateStrokeCandidate = false;
             if (isFirstSegmentInSubpath &&
                 startLineCap != PenLineCap.Flat &&
-                TryGetPathSegmentStartDirection(segment, currentPoint, out _))
+                hasSegmentStartDirection)
             {
                 capCount++;
             }
 
-            pendingEndCap = TryGetPathSegmentEndDirection(segment, currentPoint, out _);
+            pendingEndCap = hasSegmentEndDirection;
             if (TryGetPathSegmentEndPoint(segment, out var segmentEndPoint))
             {
                 currentPoint = segmentEndPoint;
@@ -4860,6 +4956,18 @@ public unsafe class Compositor : IDisposable
         if (pendingEndCap && endLineCap != PenLineCap.Flat)
         {
             capCount++;
+        }
+        else if (hasDegenerateStrokeCandidate)
+        {
+            if (startLineCap != PenLineCap.Flat)
+            {
+                capCount++;
+            }
+
+            if (endLineCap != PenLineCap.Flat)
+            {
+                capCount++;
+            }
         }
 
         return capCount * StrokeCapGeometry.MaxTrianglesPerCap;
@@ -5182,6 +5290,104 @@ public unsafe class Compositor : IDisposable
             indicesSpan[currentIndexCount++] = idxStart + 1;
             indicesSpan[currentIndexCount++] = idxStart + 2;
         }
+    }
+
+    private static void AppendDegenerateStrokeCapVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Pen pen,
+        Vector4 penSolidColor,
+        float penBrushIdx,
+        float thickness,
+        Vector2 localCenter,
+        Matrix4x4 transform,
+        bool isEdgeAliased)
+    {
+        if (pen.StartLineCap == PenLineCap.Flat && pen.EndLineCap == PenLineCap.Flat)
+        {
+            return;
+        }
+
+        if (pen.StartLineCap == pen.EndLineCap && pen.StartLineCap is PenLineCap.Round or PenLineCap.Square)
+        {
+            var strokeScale = TransformMetrics.GetStrokeScale(transform);
+            var localThickness = float.IsFinite(strokeScale) && strokeScale > StrokeEpsilon
+                ? thickness / strokeScale
+                : thickness;
+            var radius = localThickness * 0.5f;
+            var padding = pen.StartLineCap == PenLineCap.Round && strokeScale > StrokeEpsilon
+                ? 1.5f / strokeScale
+                : 0f;
+            var extent = radius + padding;
+            var local0 = localCenter + new Vector2(-extent, -extent);
+            var local1 = localCenter + new Vector2(extent, -extent);
+            var local2 = localCenter + new Vector2(extent, extent);
+            var local3 = localCenter + new Vector2(-extent, extent);
+            var p0 = Vector2.Transform(local0, transform);
+            var p1 = Vector2.Transform(local1, transform);
+            var p2 = Vector2.Transform(local2, transform);
+            var p3 = Vector2.Transform(local3, transform);
+
+            var shapeType = EncodeShapeType(
+                isEdgeAliased,
+                pen.StartLineCap == PenLineCap.Round ? 1f : 7f);
+            var shapeSize = new Vector2(radius * 2f, radius * 2f);
+            var shapeColor = pen.Brush is SolidColorBrush
+                ? penSolidColor
+                : new Vector4(localCenter.X, localCenter.Y, 0f, 0f);
+            var texCoord0 = pen.StartLineCap == PenLineCap.Round ? new Vector2(-extent, -extent) : local0;
+            var texCoord1 = pen.StartLineCap == PenLineCap.Round ? new Vector2(extent, -extent) : local1;
+            var texCoord2 = pen.StartLineCap == PenLineCap.Round ? new Vector2(extent, extent) : local2;
+            var texCoord3 = pen.StartLineCap == PenLineCap.Round ? new Vector2(-extent, extent) : local3;
+            var index = (uint)currentVertexCount;
+
+            verticesSpan[currentVertexCount++] = new VectorVertex(p0, shapeColor, texCoord0, penBrushIdx, shapeSize: shapeSize, shapeType: shapeType);
+            verticesSpan[currentVertexCount++] = new VectorVertex(p1, shapeColor, texCoord1, penBrushIdx, shapeSize: shapeSize, shapeType: shapeType);
+            verticesSpan[currentVertexCount++] = new VectorVertex(p2, shapeColor, texCoord2, penBrushIdx, shapeSize: shapeSize, shapeType: shapeType);
+            verticesSpan[currentVertexCount++] = new VectorVertex(p3, shapeColor, texCoord3, penBrushIdx, shapeSize: shapeSize, shapeType: shapeType);
+
+            indicesSpan[currentIndexCount++] = index;
+            indicesSpan[currentIndexCount++] = index + 1;
+            indicesSpan[currentIndexCount++] = index + 2;
+            indicesSpan[currentIndexCount++] = index;
+            indicesSpan[currentIndexCount++] = index + 2;
+            indicesSpan[currentIndexCount++] = index + 3;
+            return;
+        }
+
+        var centerPoint = Vector2.Transform(localCenter, transform);
+        var direction = TransformDirection(Vector2.UnitX, transform);
+        if (direction.LengthSquared() <= StrokeEpsilon * StrokeEpsilon)
+        {
+            direction = Vector2.UnitX;
+        }
+
+        AppendStrokeSegmentCapTriangles(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            pen,
+            penSolidColor,
+            penBrushIdx,
+            centerPoint,
+            direction,
+            isEdgeAliased,
+            isStart: true);
+        AppendStrokeSegmentCapTriangles(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            pen,
+            penSolidColor,
+            penBrushIdx,
+            centerPoint,
+            direction,
+            isEdgeAliased,
+            isStart: false);
     }
 
     private static Vector2 TransformDirection(Vector2 direction, Matrix4x4 transform)

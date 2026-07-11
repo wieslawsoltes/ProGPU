@@ -242,6 +242,24 @@ public class SKPaint : IDisposable
             }
 
             var points = FlattenFigure(figure);
+            if (!figure.IsClosed && figure.Segments.Count > 0 && IsDegenerateFigure(points))
+            {
+                if (StrokeCap == SKStrokeCap.Round)
+                {
+                    destination.AddCircle(figure.StartPoint.X, figure.StartPoint.Y, halfWidth);
+                }
+                else if (StrokeCap == SKStrokeCap.Square)
+                {
+                    destination.AddRect(new SKRect(
+                        figure.StartPoint.X - halfWidth,
+                        figure.StartPoint.Y - halfWidth,
+                        figure.StartPoint.X + halfWidth,
+                        figure.StartPoint.Y + halfWidth));
+                }
+
+                continue;
+            }
+
             if (PathEffect is { Intervals.Length: > 0 } pathEffect)
             {
                 AddDashedStrokeSegments(destination, points, figure.IsClosed, halfWidth, pathEffect);
@@ -268,6 +286,20 @@ public class SKPaint : IDisposable
         }
 
         return !destination.IsEmpty;
+    }
+
+    private static bool IsDegenerateFigure(IReadOnlyList<Vector2> points)
+    {
+        var start = points[0];
+        for (var i = 1; i < points.Count; i++)
+        {
+            if (Vector2.DistanceSquared(start, points[i]) > 0.0000001f)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool TryAddOvalStroke(SKPath destination, PathFigure figure, float halfWidth)
