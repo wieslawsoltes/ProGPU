@@ -6364,19 +6364,23 @@ public unsafe class Compositor : IDisposable
                 for (int layerIndex = 0; layerIndex < colorLayers.Count; layerIndex++)
                 {
                     var layer = colorLayers[layerIndex];
-                    var layerOutline = glyphFont.GetGlyphOutline(layer.GlyphId);
+                    var layerOutline = layer.Geometry ?? glyphFont.GetGlyphOutline(layer.GlyphId);
                     if (layerOutline == null) continue;
+
+                    var layerPosition = runGlyph.Position + cmd.Position;
+                    var layerScale = cmd.FontSize / glyphFont.UnitsPerEm;
 
                     var transformedOutline = CreatePositionedGlyphOutline(
                         layerOutline,
-                        cmd.FontSize / glyphFont.UnitsPerEm,
-                        runGlyph.Position + cmd.Position);
+                        layerScale,
+                        layerPosition,
+                        usesSvgCoordinates: layer.UsesSvgCoordinates);
 
                     var pathCmd = new RenderCommand
                     {
                         Type = RenderCommandType.DrawPath,
                         Path = transformedOutline,
-                        Brush = new SolidColorBrush(layer.Color),
+                        Brush = CreatePositionedColorLayerBrush(layer, layerScale, layerPosition),
                         IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
                     };
                     CompilePathCommand(pathCmd, activeTransform);
@@ -6551,19 +6555,23 @@ public unsafe class Compositor : IDisposable
                 for (int layerIndex = 0; layerIndex < colorLayers.Count; layerIndex++)
                 {
                     var layer = colorLayers[layerIndex];
-                    var layerOutline = font.GetGlyphOutline(layer.GlyphId);
+                    var layerOutline = layer.Geometry ?? font.GetGlyphOutline(layer.GlyphId);
                     if (layerOutline == null) continue;
+
+                    var layerPosition = position + cmd.Position;
+                    var layerScale = cmd.FontSize / font.UnitsPerEm;
 
                     var transformedOutline = CreatePositionedGlyphOutline(
                         layerOutline,
-                        cmd.FontSize / font.UnitsPerEm,
-                        position + cmd.Position);
+                        layerScale,
+                        layerPosition,
+                        usesSvgCoordinates: layer.UsesSvgCoordinates);
 
                     var pathCmd = new RenderCommand
                     {
                         Type = RenderCommandType.DrawPath,
                         Path = transformedOutline,
-                        Brush = new SolidColorBrush(layer.Color),
+                        Brush = CreatePositionedColorLayerBrush(layer, layerScale, layerPosition),
                         IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased
                     };
                     CompilePathCommand(pathCmd, activeTransform);
@@ -6678,11 +6686,12 @@ public unsafe class Compositor : IDisposable
         float emScale,
         Vector2 position,
         float italicSkew = 0f,
-        float xOffset = 0f)
+        float xOffset = 0f,
+        bool usesSvgCoordinates = false)
     {
         Vector2 TransformPoint(Vector2 point) => new(
             position.X + (point.X + point.Y * italicSkew) * emScale + xOffset,
-            position.Y - point.Y * emScale);
+            position.Y + point.Y * emScale * (usesSvgCoordinates ? 1f : -1f));
 
         var transformedOutline = new PathGeometry { FillRule = outline.FillRule };
         var figures = outline.Figures;
@@ -6736,6 +6745,56 @@ public unsafe class Compositor : IDisposable
         }
 
         return transformedOutline;
+    }
+
+    private static Brush CreatePositionedColorLayerBrush(
+        FontColorLayer layer,
+        float emScale,
+        Vector2 position)
+    {
+        if (layer.Brush is null)
+        {
+            return new SolidColorBrush(layer.Color);
+        }
+
+        if (!layer.UsesSvgCoordinates)
+        {
+            return layer.Brush;
+        }
+
+        Vector2 PositionPoint(Vector2 point) => position + point * emScale;
+        switch (layer.Brush)
+        {
+            case SolidColorBrush solid:
+                return new SolidColorBrush(solid.Color) { Opacity = solid.Opacity };
+
+            case LinearGradientBrush linear:
+                return new LinearGradientBrush(
+                    PositionPoint(linear.StartPoint),
+                    PositionPoint(linear.EndPoint),
+                    linear.Stops)
+                {
+                    Opacity = linear.Opacity,
+                    SpreadMethod = linear.SpreadMethod,
+                    ColorInterpolationMode = linear.ColorInterpolationMode
+                };
+
+            case RadialGradientBrush radial:
+                return new RadialGradientBrush(
+                    PositionPoint(radial.Center),
+                    PositionPoint(radial.GradientOrigin),
+                    radial.RadiusX * emScale,
+                    radial.RadiusY * emScale,
+                    radial.Stops)
+                {
+                    Opacity = radial.Opacity,
+                    SpreadMethod = radial.SpreadMethod,
+                    ColorInterpolationMode = radial.ColorInterpolationMode
+                };
+
+            default:
+                return layer.Brush;
+        }
     }
 
     private void EnsureTextVertexCapacity(int additionalCapacity)

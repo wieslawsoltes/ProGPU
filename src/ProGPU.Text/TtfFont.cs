@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Xml;
 using OpenFontSharp;
 using OpenFontSharp.Tables.CFF;
 using ProGPU.Vector;
@@ -111,6 +114,9 @@ public readonly struct BitmapGlyphData
 
 public class TtfFont
 {
+    private const int MaxSvgDocumentBytes = 16 * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
     public const uint JpegBitmapGraphicType = 0x6A706720;
     public const uint PngBitmapGraphicType = 0x706E6720;
     public const uint TiffBitmapGraphicType = 0x74696666;
@@ -119,6 +125,7 @@ public class TtfFont
     private readonly SfntFontFace _face;
     private readonly Typeface? _cffTypeface;
     private readonly Dictionary<string, (uint offset, uint length)> _tables = new();
+    private readonly Dictionary<ushort, List<FontColorLayer>?> _svgColorLayerCache = new();
 
     public int FaceIndex { get; }
     public string FamilyName { get; }
@@ -1795,33 +1802,40 @@ public class TtfFont
 
     public bool HasColorLayers(ushort glyphId)
     {
-        if (_numBaseGlyphRecords == 0) return false;
-        
-        int low = 0;
-        int high = _numBaseGlyphRecords - 1;
-        while (low <= high)
+        if (_numBaseGlyphRecords != 0)
         {
-            int mid = (low + high) / 2;
-            uint recordOffset = _baseGlyphRecordsOffset + (uint)(mid * 6);
-            ushort gid = ReadUShort(recordOffset);
+            int low = 0;
+            int high = _numBaseGlyphRecords - 1;
+            while (low <= high)
+            {
+                int mid = (low + high) / 2;
+                uint recordOffset = _baseGlyphRecordsOffset + (uint)(mid * 6);
+                ushort gid = ReadUShort(recordOffset);
 
-            if (gid == glyphId)
-            {
-                return true;
-            }
-            else if (gid < glyphId)
-            {
-                low = mid + 1;
-            }
-            else
-            {
-                high = mid - 1;
+                if (gid == glyphId)
+                {
+                    return true;
+                }
+                else if (gid < glyphId)
+                {
+                    low = mid + 1;
+                }
+                else
+                {
+                    high = mid - 1;
+                }
             }
         }
-        return false;
+
+        return GetSvgColorLayers(glyphId) is { Count: > 0 };
     }
 
     public List<FontColorLayer>? GetColorLayers(ushort glyphId)
+    {
+        return GetColrVersion0Layers(glyphId) ?? GetSvgColorLayers(glyphId);
+    }
+
+    private List<FontColorLayer>? GetColrVersion0Layers(ushort glyphId)
     {
         if (_numBaseGlyphRecords == 0) return null;
 
@@ -1865,6 +1879,156 @@ public class TtfFont
             }
         }
         return null;
+    }
+
+    private List<FontColorLayer>? GetSvgColorLayers(ushort glyphId)
+    {
+        if (!_tables.ContainsKey("SVG "))
+        {
+            return null;
+        }
+
+        lock (_svgColorLayerCache)
+        {
+            if (_svgColorLayerCache.TryGetValue(glyphId, out var cached))
+            {
+                return cached;
+            }
+
+            List<FontColorLayer>? layers = null;
+            if (TryReadSvgGlyphDocument(glyphId, out var xml))
+            {
+                try
+                {
+                    layers = OpenTypeSvgGlyphParser.Parse(xml, glyphId, UnitsPerEm);
+                }
+                catch (Exception ex) when (ex is XmlException or FormatException or
+                                           NotSupportedException or InvalidDataException or
+                                           ArgumentException or OverflowException)
+                {
+                    layers = null;
+                }
+            }
+
+            _svgColorLayerCache[glyphId] = layers;
+            return layers;
+        }
+    }
+
+    private bool TryReadSvgGlyphDocument(ushort glyphId, out string xml)
+    {
+        xml = string.Empty;
+        if (!TryGetTable("SVG ", out var svgMemory))
+        {
+            return false;
+        }
+
+        var svg = svgMemory.Span;
+        if (svg.Length < 12 || ReadUShort(svg, 0) != 0)
+        {
+            return false;
+        }
+
+        var listOffsetValue = ReadUInt(svg, 2);
+        if (listOffsetValue > int.MaxValue)
+        {
+            return false;
+        }
+
+        var listOffset = (int)listOffsetValue;
+        if (listOffset < 10 || listOffset + 2 > svg.Length)
+        {
+            return false;
+        }
+
+        var recordCount = ReadUShort(svg, listOffset);
+        if (recordCount == 0 || listOffset + 2L + recordCount * 12L > svg.Length)
+        {
+            return false;
+        }
+
+        for (var recordIndex = 0; recordIndex < recordCount; recordIndex++)
+        {
+            var recordOffset = listOffset + 2 + recordIndex * 12;
+            var firstGlyph = ReadUShort(svg, recordOffset);
+            var lastGlyph = ReadUShort(svg, recordOffset + 2);
+            if (glyphId < firstGlyph || glyphId > lastGlyph)
+            {
+                continue;
+            }
+
+            var documentOffset = ReadUInt(svg, recordOffset + 4);
+            var documentLength = ReadUInt(svg, recordOffset + 8);
+            var documentStart = (long)listOffset + documentOffset;
+            if (documentOffset == 0 || documentLength == 0 ||
+                documentLength > MaxSvgDocumentBytes ||
+                documentStart < listOffset ||
+                documentStart + documentLength > svg.Length)
+            {
+                return false;
+            }
+
+            var encoded = svgMemory.Slice((int)documentStart, (int)documentLength);
+            byte[] decoded;
+            if (encoded.Length >= 3 &&
+                encoded.Span[0] == 0x1f &&
+                encoded.Span[1] == 0x8b &&
+                encoded.Span[2] == 0x08)
+            {
+                if (!TryDecompressSvgDocument(encoded, out decoded))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                decoded = encoded.ToArray();
+            }
+
+            try
+            {
+                xml = StrictUtf8.GetString(decoded);
+                return true;
+            }
+            catch (DecoderFallbackException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryDecompressSvgDocument(ReadOnlyMemory<byte> encoded, out byte[] decoded)
+    {
+        decoded = Array.Empty<byte>();
+        try
+        {
+            using var input = new MemoryStream(encoded.ToArray(), writable: false);
+            using var gzip = new GZipStream(input, CompressionMode.Decompress, leaveOpen: false);
+            using var output = new MemoryStream();
+            var buffer = new byte[8192];
+            while (true)
+            {
+                var count = gzip.Read(buffer, 0, buffer.Length);
+                if (count == 0)
+                {
+                    break;
+                }
+                if (output.Length + count > MaxSvgDocumentBytes)
+                {
+                    return false;
+                }
+                output.Write(buffer, 0, count);
+            }
+
+            decoded = output.ToArray();
+            return decoded.Length != 0;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            return false;
+        }
     }
 
     public (GpuGlyphRecord[] Records, GpuSegment[] Segments) CompileGpuOutlineData()
@@ -2028,4 +2192,7 @@ public struct FontColorLayer
 {
     public ushort GlyphId;
     public Vector4 Color;
+    public PathGeometry? Geometry;
+    public Brush? Brush;
+    public bool UsesSvgCoordinates;
 }

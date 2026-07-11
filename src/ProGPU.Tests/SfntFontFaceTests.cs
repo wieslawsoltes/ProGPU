@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Numerics;
 using System.Text;
 using ProGPU.Tests.Headless;
@@ -282,6 +283,47 @@ public class SfntFontFaceTests
         Assert.Equal(3f, info.BearX);
         Assert.Equal(-4f, info.BearY);
         Assert.Equal(2f, info.RasterScale);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TtfFontReadsPlainAndGzipOpenTypeSvgGlyphs(bool compress)
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" id="glyph1">
+              <defs>
+                <linearGradient id="gradient" x1="0" y1="0" x2="10" y2="0">
+                  <stop offset="0" stop-color="#ff0000" />
+                  <stop offset="1" stop-color="#0000ff" />
+                </linearGradient>
+                <path id="shape" d="M0 0 L10 0 L10 10 L0 10 Z" />
+              </defs>
+              <g transform="translate(10 20)">
+                <use href="#shape" fill="url(#gradient)" />
+              </g>
+            </svg>
+            """;
+        byte[] fontData = BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("maxp", BuildMaxpTable(3)),
+            ("cmap", BuildCmapFormat4Table()),
+            ("SVG ", BuildSingleSvgTable(svg, compress)));
+        var font = new TtfFont(fontData);
+
+        List<FontColorLayer>? layers = font.GetColorLayers(1);
+
+        FontColorLayer layer = Assert.Single(Assert.IsType<List<FontColorLayer>>(layers));
+        Assert.True(font.HasColorLayers(1));
+        Assert.True(layer.UsesSvgCoordinates);
+        Assert.IsType<LinearGradientBrush>(layer.Brush);
+        Assert.NotNull(layer.Geometry);
+        Assert.True(layer.Geometry!.TryGetBounds(out var minimum, out var maximum));
+        Assert.Equal(new Vector2(10, 20), minimum);
+        Assert.Equal(new Vector2(20, 30), maximum);
+        var gradient = Assert.IsType<LinearGradientBrush>(layer.Brush);
+        Assert.Equal(new Vector2(10, 20), gradient.StartPoint);
+        Assert.Equal(new Vector2(20, 20), gradient.EndPoint);
     }
 
     [Fact]
@@ -761,6 +803,33 @@ public class SfntFontFaceTests
         writer.Write((byte)0); // vertical bearing X
         writer.Write((byte)0); // vertical bearing Y
         writer.Write((byte)5); // vertical advance
+    }
+
+    private static byte[] BuildSingleSvgTable(string xml, bool compress)
+    {
+        byte[] document = Encoding.UTF8.GetBytes(xml);
+        if (compress)
+        {
+            using var compressedStream = new MemoryStream();
+            using (var gzip = new GZipStream(compressedStream, CompressionLevel.SmallestSize, leaveOpen: true))
+            {
+                gzip.Write(document);
+            }
+            document = compressedStream.ToArray();
+        }
+
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        WriteUShort(writer, 0);
+        WriteUInt(writer, 10);
+        WriteUInt(writer, 0);
+        WriteUShort(writer, 1);
+        WriteUShort(writer, 1);
+        WriteUShort(writer, 1);
+        WriteUInt(writer, 14);
+        WriteUInt(writer, (uint)document.Length);
+        writer.Write(document);
+        return stream.ToArray();
     }
 
     private static byte[] BuildSbixStrike(
