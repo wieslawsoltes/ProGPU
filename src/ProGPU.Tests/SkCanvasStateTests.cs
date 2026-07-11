@@ -263,6 +263,48 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void SaveLayerTransformsBlurSigmaIntoCanvasCoordinates()
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(48, 48, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var layerPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(1f, 1f) };
+        using var fill = new SKPaint { Color = SKColors.White, IsAntialias = false };
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.Scale(2f, 3f);
+        var restoreCount = surface.Canvas.SaveLayer(layerPaint);
+        surface.Canvas.DrawRect(new SKRect(1f, 1f, 3f, 3f), fill);
+        surface.Canvas.RestoreToCount(restoreCount);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+
+        Assert.True(pixels[(6 * 48 + 10) * 4 + 3] > 0);
+        Assert.True(pixels[(16 * 48 + 4) * 4 + 3] > 0);
+    }
+
+    [Fact]
+    public void SaveLayerTransformsImageFilterOffsetIntoCanvasCoordinates()
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(48, 48, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var layerPaint = new SKPaint { ImageFilter = SKImageFilter.CreateOffset(4f, 6f) };
+        using var fill = new SKPaint { Color = SKColors.White, IsAntialias = false };
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.Scale(2f, 3f);
+        var restoreCount = surface.Canvas.SaveLayer(layerPaint);
+        surface.Canvas.DrawRect(new SKRect(1f, 1f, 3f, 3f), fill);
+        surface.Canvas.RestoreToCount(restoreCount);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+
+        Assert.Equal((byte)0, pixels[(3 * 48 + 2) * 4 + 3]);
+        Assert.Equal((byte)255, pixels[(21 * 48 + 10) * 4 + 3]);
+    }
+
+    [Fact]
     public void FilledIntegerAlignedRectangleKeepsInteriorCornerOpaque()
     {
         using var surface = SKSurface.Create(new SKImageInfo(32, 24, SKColorType.Rgba8888, SKAlphaType.Premul));

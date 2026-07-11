@@ -556,7 +556,10 @@ public class SKCanvas : IDisposable
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
                 var blur = (SKImageFilter.BlurData)filter.Parameters!;
-                result = RenderBlur(input, blur.SigmaX, blur.SigmaY);
+                result = RenderBlur(
+                    input,
+                    blur.SigmaX * GetAxisScale(filterTransform, Vector2.UnitX),
+                    blur.SigmaY * GetAxisScale(filterTransform, Vector2.UnitY));
                 break;
             }
             case SKImageFilter.FilterKind.DropShadow:
@@ -575,13 +578,16 @@ public class SKCanvas : IDisposable
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
                 var offset = (SKImageFilter.OffsetData)filter.Parameters!;
+                var transformedOffset = TransformFilterVector(
+                    new Vector2(offset.Dx, offset.Dy),
+                    filterTransform);
                 result = RenderFilterPass(
                     "SKImageFilter Offset",
                     input.Width,
                     input.Height,
                     context => context.DrawTexture(
                         input,
-                        new Rect(offset.Dx, offset.Dy, input.Width, input.Height)));
+                        new Rect(transformedOffset.X, transformedOffset.Y, input.Width, input.Height)));
                 break;
             }
             case SKImageFilter.FilterKind.Dilate:
@@ -2518,6 +2524,19 @@ public class SKCanvas : IDisposable
         var transformed = Vector2.TransformNormal(axis, transform);
         var scale = transformed.Length();
         return float.IsFinite(scale) && scale > 0f ? scale : 1f;
+    }
+
+    private static Vector2 TransformFilterVector(Vector2 vector, Matrix4x4 transform)
+    {
+        if (transform == default)
+        {
+            return vector;
+        }
+
+        var transformed = Vector2.TransformNormal(vector, transform);
+        return float.IsFinite(transformed.X) && float.IsFinite(transformed.Y)
+            ? transformed
+            : vector;
     }
 
     private void DrawTiledImage(
