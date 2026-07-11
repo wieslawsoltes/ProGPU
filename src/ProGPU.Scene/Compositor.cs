@@ -183,6 +183,14 @@ public unsafe class Compositor : IDisposable
     private const float QuadrilateralStripEndSdfShapeType = 17f;
     private const float AffineStrokeArcMaxAngleRadians = MathF.PI / 24f;
     private const float TextPathCoverageGamma = 0.65f;
+    private const int MaxCachedVectorGlyphPaths = 4096;
+
+    private readonly record struct VectorGlyphPathCacheKey(
+        PathGeometry Outline,
+        float EmScale,
+        Vector2 FractionalPosition,
+        float ItalicSkew,
+        bool UsesSvgCoordinates);
 
     public struct StaticTextRecord
     {
@@ -821,6 +829,7 @@ public unsafe class Compositor : IDisposable
     private int _offscreenRenderDepth;
     private float _totalTime = 0f;
     private readonly Dictionary<(string Text, TtfFont Font, float Size, float MaxWidth, TextAlignment Align), TextLayout> _layoutCache = new();
+    private readonly Dictionary<VectorGlyphPathCacheKey, PathGeometry> _vectorGlyphPathCache = new();
     private enum BatchType
     {
         None,
@@ -7309,7 +7318,6 @@ public unsafe class Compositor : IDisposable
 
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
-        SwitchBatch(BatchType.Text);
         if (ActiveCompilationContext != null && !ActiveCompilationContext.IsRecompiling)
         {
             _compiledTextRecords.Add(new StaticTextRecord { Command = cmd, Transform = transform });
@@ -7394,7 +7402,6 @@ public unsafe class Compositor : IDisposable
                     CompilePathCommand(pathCmd, activeTransform);
                 }
 
-                SwitchBatch(BatchType.Text);
                 continue;
             }
 
@@ -7420,30 +7427,21 @@ public unsafe class Compositor : IDisposable
                     var vectorBoldOffset = cmd.FontSize * 0.035f;
                     for (var pass = 0; pass < vectorPassCount; pass++)
                     {
-                        var transformedOutline = CreatePositionedGlyphOutline(
+                        CompileVectorGlyphPath(
                             outline,
+                            cmd,
                             cmd.FontSize / glyphFont.UnitsPerEm,
                             runGlyph.Position + cmd.Position,
                             cmd.IsItalic ? 0.22f : 0f,
-                            pass * vectorBoldOffset);
-                        CompilePathCommand(new RenderCommand
-                        {
-                            Type = RenderCommandType.DrawPath,
-                            Path = transformedOutline,
-                            Brush = cmd.Brush,
-                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
-                            PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
-                                ? PathAtlas.StandardCoverageSampleGrid
-                                : PathAtlas.HighPrecisionCoverageSampleGrid,
-                            PathCoverageGamma = TextPathCoverageGamma
-                        }, activeTransform);
+                            pass * vectorBoldOffset,
+                            activeTransform);
                     }
                 }
 
-                SwitchBatch(BatchType.Text);
                 continue;
             }
 
+            SwitchBatch(BatchType.Text);
             bool isRotated = MathF.Abs(activeTransform.M12) > 0.0001f ||
                              MathF.Abs(activeTransform.M21) > 0.0001f ||
                              activeTransform.M11 < 0.0f ||
@@ -7517,7 +7515,6 @@ public unsafe class Compositor : IDisposable
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
     {
-        SwitchBatch(BatchType.Text);
         if (ActiveCompilationContext != null && !ActiveCompilationContext.IsRecompiling)
         {
             _compiledTextRecords.Add(new StaticTextRecord { Command = cmd, Transform = transform });
@@ -7593,7 +7590,6 @@ public unsafe class Compositor : IDisposable
                     CompilePathCommand(pathCmd, activeTransform);
                 }
 
-                SwitchBatch(BatchType.Text);
                 continue;
             }
 
@@ -7608,30 +7604,21 @@ public unsafe class Compositor : IDisposable
                     var vectorBoldOffset = cmd.FontSize * 0.035f;
                     for (var pass = 0; pass < vectorPassCount; pass++)
                     {
-                        var transformedOutline = CreatePositionedGlyphOutline(
+                        CompileVectorGlyphPath(
                             outline,
+                            cmd,
                             cmd.FontSize / font.UnitsPerEm,
                             position + cmd.Position,
                             cmd.IsItalic ? 0.22f : 0f,
-                            pass * vectorBoldOffset);
-                        CompilePathCommand(new RenderCommand
-                        {
-                            Type = RenderCommandType.DrawPath,
-                            Path = transformedOutline,
-                            Brush = cmd.Brush,
-                            IsEdgeAliased = cmd.TextRenderingMode == TextRenderingMode.Aliased,
-                            PathSampleGrid = cmd.TextRenderingMode == TextRenderingMode.Aliased
-                                ? PathAtlas.StandardCoverageSampleGrid
-                                : PathAtlas.HighPrecisionCoverageSampleGrid,
-                            PathCoverageGamma = TextPathCoverageGamma
-                        }, activeTransform);
+                            pass * vectorBoldOffset,
+                            activeTransform);
                     }
                 }
 
-                SwitchBatch(BatchType.Text);
                 continue;
             }
 
+            SwitchBatch(BatchType.Text);
             float baseCursorX = position.X;
             float baseCursorY = position.Y;
 
@@ -7699,6 +7686,73 @@ public unsafe class Compositor : IDisposable
                 });
             }
         }
+    }
+
+    private void CompileVectorGlyphPath(
+        PathGeometry outline,
+        RenderCommand textCommand,
+        float emScale,
+        Vector2 position,
+        float italicSkew,
+        float xOffset,
+        Matrix4x4 activeTransform)
+    {
+        var positioned = position + new Vector2(xOffset, 0f);
+        PathGeometry positionedOutline;
+        Matrix4x4 placementTransform;
+
+        if (IsFinite(positioned))
+        {
+            var integralPosition = new Vector2(MathF.Floor(positioned.X), MathF.Floor(positioned.Y));
+            var fractionalPosition = positioned - integralPosition;
+            var key = new VectorGlyphPathCacheKey(
+                outline,
+                emScale,
+                fractionalPosition,
+                italicSkew,
+                UsesSvgCoordinates: false);
+
+            if (!_vectorGlyphPathCache.TryGetValue(key, out positionedOutline!))
+            {
+                if (_vectorGlyphPathCache.Count >= MaxCachedVectorGlyphPaths)
+                {
+                    _vectorGlyphPathCache.Clear();
+                }
+
+                positionedOutline = CreatePositionedGlyphOutline(
+                    outline,
+                    emScale,
+                    fractionalPosition,
+                    italicSkew);
+                _vectorGlyphPathCache[key] = positionedOutline;
+            }
+
+            placementTransform = Matrix4x4.CreateTranslation(
+                integralPosition.X,
+                integralPosition.Y,
+                0f) * activeTransform;
+        }
+        else
+        {
+            positionedOutline = CreatePositionedGlyphOutline(
+                outline,
+                emScale,
+                positioned,
+                italicSkew);
+            placementTransform = activeTransform;
+        }
+
+        CompilePathCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = positionedOutline,
+            Brush = textCommand.Brush,
+            IsEdgeAliased = textCommand.TextRenderingMode == TextRenderingMode.Aliased,
+            PathSampleGrid = textCommand.TextRenderingMode == TextRenderingMode.Aliased
+                ? PathAtlas.StandardCoverageSampleGrid
+                : PathAtlas.HighPrecisionCoverageSampleGrid,
+            PathCoverageGamma = TextPathCoverageGamma
+        }, placementTransform);
     }
 
     private static PathGeometry CreatePositionedGlyphOutline(

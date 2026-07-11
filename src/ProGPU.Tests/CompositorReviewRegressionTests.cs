@@ -130,6 +130,32 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.InRange(pixels[preciseOffset], (byte)90, (byte)102);
     }
 
+    [Fact]
+    public void RepeatedVectorGlyphsReuseSinglePathAtlasEntry()
+    {
+        const int glyphCount = 96;
+        var font = new TtfFont(BuildMissingGlyphOutlineFont());
+        using var window = new HeadlessWindow(1024, 64);
+        window.Content = new RepeatedVectorGlyphVisual(font, glyphCount);
+
+        window.Render();
+
+        var cachedPathCount = window.Compositor.PathAtlas.CachedPathCount;
+        Assert.True(
+            cachedPathCount <= 1,
+            $"Expected one reusable vector-glyph path, found {cachedPathCount}.");
+        Assert.Single(
+            GetDrawCalls(window.Compositor),
+            drawCall => drawCall.Type == Compositor.DrawCallType.Vector && drawCall.IndexCount > 0);
+
+        var pixels = window.ReadPixels();
+        for (var glyphIndex = 0; glyphIndex < glyphCount; glyphIndex += 16)
+        {
+            var alphaOffset = (33 * 1024 + glyphIndex * 10 + 6) * 4 + 3;
+            Assert.True(pixels[alphaOffset] > 200, $"Glyph {glyphIndex} was not rendered at its expected position.");
+        }
+    }
+
     private static int GetPathAtlasPixelOffset(
         PathAtlas.PathInfo info,
         int worldX,
@@ -4094,6 +4120,36 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 24f,
                 new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
                 Vector2.Zero);
+        }
+    }
+
+    private sealed class RepeatedVectorGlyphVisual : FrameworkElement
+    {
+        private readonly TtfFont _font;
+        private readonly int _glyphCount;
+
+        public RepeatedVectorGlyphVisual(TtfFont font, int glyphCount)
+        {
+            _font = font;
+            _glyphCount = glyphCount;
+            Width = 1024f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var glyphIndex = _font.GetGlyphIndex('A');
+            for (var index = 0; index < _glyphCount; index++)
+            {
+                context.DrawGlyphRun(
+                    new[] { glyphIndex },
+                    new[] { new Vector2(index * 10f, 40f) },
+                    _font,
+                    24f,
+                    new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+                    Vector2.Zero,
+                    useVectorGlyphRendering: true);
+            }
         }
     }
 
