@@ -374,6 +374,11 @@ namespace ProGPU.Vector
 
         private static FillRule GetOutputFillRule(PathGeometry pathA, PathGeometry pathB, int op)
         {
+            if (pathA.FillRule == FillRule.EvenOdd || pathB.FillRule == FillRule.EvenOdd)
+            {
+                return FillRule.EvenOdd;
+            }
+
             return op == 4 ? pathB.FillRule : pathA.FillRule;
         }
 
@@ -529,6 +534,15 @@ namespace ProGPU.Vector
                             foundNext = true;
                             break;
                         }
+
+                        if (Vector2.DistanceSquared(GetSegmentEndPoint(nextSeg), currentPt) < 0.25f)
+                        {
+                            nextSeg = ReverseSegment(nextSeg);
+                            AddSegmentToFigure(figure, nextSeg, ref currentPt);
+                            unused.RemoveAt(i);
+                            foundNext = true;
+                            break;
+                        }
                     }
 
                     if (Vector2.DistanceSquared(currentPt, figure.StartPoint) < 0.25f)
@@ -542,6 +556,49 @@ namespace ProGPU.Vector
             }
 
             return figures;
+        }
+
+        private static Vector2 GetSegmentEndPoint(GpuPathSegment segment)
+        {
+            return segment.SegmentType switch
+            {
+                1 => segment.P2,
+                2 => segment.P3,
+                _ => segment.P1
+            };
+        }
+
+        private static GpuPathSegment ReverseSegment(GpuPathSegment segment)
+        {
+            var result = segment;
+            if (segment.SegmentType == 0)
+            {
+                result.P0 = segment.P1;
+                result.P1 = segment.P0;
+            }
+            else if (segment.SegmentType == 1)
+            {
+                result.P0 = segment.P2;
+                result.P2 = segment.P0;
+            }
+            else if (segment.SegmentType == 2)
+            {
+                result.P0 = segment.P3;
+                result.P1 = segment.P2;
+                result.P2 = segment.P1;
+                result.P3 = segment.P0;
+            }
+            else if (segment.SegmentType == 3)
+            {
+                var theta1 = BitConverter.UInt32BitsToSingle(segment.Pad0);
+                var deltaTheta = BitConverter.UInt32BitsToSingle(segment.Pad1);
+                result.P0 = segment.P1;
+                result.P1 = segment.P0;
+                result.Pad0 = BitConverter.SingleToUInt32Bits(theta1 + deltaTheta);
+                result.Pad1 = BitConverter.SingleToUInt32Bits(-deltaTheta);
+            }
+
+            return result;
         }
 
         private static void AddSegmentToFigure(PathFigure figure, GpuPathSegment seg, ref Vector2 currentPt)
