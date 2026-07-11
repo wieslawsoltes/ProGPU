@@ -400,6 +400,59 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void SaveLayerDisplacementMapPreservesLinearPictureSamples()
+    {
+        using var linearColorSpace = SKColorSpace.CreateSrgbLinear();
+        using var bitmap = new SKBitmap(new SKImageInfo(
+            1,
+            1,
+            SKColorType.Rgba8888,
+            SKAlphaType.Unpremul,
+            linearColorSpace));
+        bitmap.SetPixel(0, 0, new SKColor(64, 128, 0, 255));
+        using var image = SKImage.FromBitmap(bitmap);
+        using var recorder = new SKPictureRecorder();
+        var recordingCanvas = recorder.BeginRecording(new SKRect(0f, 0f, 4f, 4f));
+        using var imagePaint = new SKPaint { IsAntialias = false };
+        recordingCanvas.DrawImage(
+            image,
+            new SKRect(0f, 0f, 1f, 1f),
+            new SKRect(0f, 0f, 4f, 4f),
+            imagePaint);
+        using var picture = recorder.EndRecording();
+        using var displacementInput = SKImageFilter.CreatePicture(
+            picture,
+            new SKRect(0f, 0f, 4f, 4f));
+        using var displacement = SKImageFilter.CreateDisplacementMapEffect(
+            SKColorChannel.R,
+            SKColorChannel.G,
+            scale: 4f,
+            displacementInput);
+        using var layerPaint = new SKPaint { ImageFilter = displacement };
+        using var red = new SKPaint { Color = SKColors.Red };
+        using var blue = new SKPaint { Color = SKColors.Blue };
+        using var surface = SKSurface.Create(new SKImageInfo(
+            4,
+            4,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        var restoreCount = surface.Canvas.SaveLayer(layerPaint);
+        surface.Canvas.DrawRect(new SKRect(0f, 0f, 2f, 4f), red);
+        surface.Canvas.DrawRect(new SKRect(2f, 0f, 4f, 4f), blue);
+        surface.Canvas.RestoreToCount(restoreCount);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        var displacedPixel = (1 * 4 + 2) * 4;
+        Assert.InRange(pixels[displacedPixel], (byte)253, (byte)255);
+        Assert.InRange(pixels[displacedPixel + 2], (byte)0, (byte)2);
+        Assert.Equal((byte)255, pixels[displacedPixel + 3]);
+    }
+
+    [Fact]
     public void SaveLayerMatrixConvolutionUsesKernelOriginOnGpu()
     {
         using var surface = SKSurface.Create(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
@@ -796,6 +849,75 @@ public sealed class SkCanvasStateTests
 
         surface.Canvas.Clear(SKColors.Transparent);
         surface.Canvas.DrawRect(new SKRect(0f, 0f, 4f, 4f), paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        Assert.InRange(pixels[0], (byte)136, (byte)138);
+        Assert.Equal((byte)0, pixels[1]);
+        Assert.Equal((byte)0, pixels[2]);
+        Assert.Equal((byte)255, pixels[3]);
+    }
+
+    [Fact]
+    public void PictureRecordingPreservesLinearImageSamples()
+    {
+        using var linearColorSpace = SKColorSpace.CreateSrgbLinear();
+        using var bitmap = new SKBitmap(new SKImageInfo(
+            1,
+            1,
+            SKColorType.Rgba8888,
+            SKAlphaType.Unpremul,
+            linearColorSpace));
+        bitmap.SetPixel(0, 0, new SKColor(64, 0, 0, 255));
+        using var image = SKImage.FromBitmap(bitmap);
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 4f, 4f));
+        using var paint = new SKPaint { IsAntialias = false };
+        canvas.DrawImage(
+            image,
+            new SKRect(0f, 0f, 1f, 1f),
+            new SKRect(0f, 0f, 4f, 4f),
+            paint);
+        using var picture = recorder.EndRecording();
+
+        var command = Assert.Single(
+            picture.Picture.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture);
+        Assert.Equal((byte)64, command.Texture!.ReadPixels()[0]);
+    }
+
+    [Fact]
+    public void PicturePlaybackConvertsLinearImagesToSrgb()
+    {
+        using var linearColorSpace = SKColorSpace.CreateSrgbLinear();
+        using var bitmap = new SKBitmap(new SKImageInfo(
+            1,
+            1,
+            SKColorType.Rgba8888,
+            SKAlphaType.Unpremul,
+            linearColorSpace));
+        bitmap.SetPixel(0, 0, new SKColor(64, 0, 0, 255));
+        using var image = SKImage.FromBitmap(bitmap);
+        using var recorder = new SKPictureRecorder();
+        var recordingCanvas = recorder.BeginRecording(new SKRect(0f, 0f, 4f, 4f));
+        using var paint = new SKPaint { IsAntialias = false };
+        recordingCanvas.DrawImage(
+            image,
+            new SKRect(0f, 0f, 1f, 1f),
+            new SKRect(0f, 0f, 4f, 4f),
+            paint);
+        using var picture = recorder.EndRecording();
+        using var srgbColorSpace = SKColorSpace.CreateSrgb();
+        using var surface = SKSurface.Create(new SKImageInfo(
+            4,
+            4,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul,
+            srgbColorSpace));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
         surface.Flush();
 
         using var snapshot = surface.Snapshot();

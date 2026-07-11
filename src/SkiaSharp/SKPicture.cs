@@ -64,7 +64,7 @@ public sealed class SKPictureRecorder : IDisposable
         _cullRect = cullRect;
         _recorder = new GpuPictureRecorder();
         var context = _recorder.BeginRecording(new Rect(cullRect.Left, cullRect.Top, cullRect.Width, cullRect.Height));
-        _canvas = new SKCanvas(context, cullRect.Width, cullRect.Height);
+        _canvas = new SKCanvas(context, cullRect.Width, cullRect.Height, isPictureRecording: true);
         return _canvas;
     }
 
