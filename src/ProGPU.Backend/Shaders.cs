@@ -908,10 +908,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             !aliasedEdge && input.strokeThickness <= 1.0001);
         let d_shape = d_pixels -
             max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
-        let antialiasHalfWidth = select(
-            0.5,
-            0.625,
-            input.strokeThickness > 1.0001);
+        let antialiasHalfWidth = 0.5;
         let antialiasedAlpha = 1.0 - smoothstep(
             -antialiasHalfWidth,
             antialiasHalfWidth,
