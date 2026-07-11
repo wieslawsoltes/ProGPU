@@ -877,7 +877,7 @@ public class SKCanvas : IDisposable
             foreground,
             destination,
             MapBlendMode(blendMode),
-            linearRgb: true);
+            linearRgb: false);
         return destination;
     }
 

@@ -334,7 +334,7 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void SaveLayerBlendImageFilterCompositesInLinearRgbOnGpu()
+    public void SaveLayerBlendImageFilterCompositesInInputColorSpaceOnGpu()
     {
         using var surface = SKSurface.Create(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
         using var floodShader = SKShader.CreateColor(new SKColor(0, 255, 0, 128));
@@ -353,8 +353,8 @@ public sealed class SkCanvasStateTests
         var pixels = snapshot.Texture.ReadPixels();
 
         Assert.InRange(pixels[0], (byte)0, (byte)1);
-        Assert.InRange(pixels[1], (byte)115, (byte)119);
-        Assert.InRange(pixels[2], (byte)115, (byte)119);
+        Assert.InRange(pixels[1], (byte)63, (byte)65);
+        Assert.InRange(pixels[2], (byte)63, (byte)65);
         Assert.InRange(pixels[3], (byte)190, (byte)193);
     }
 
