@@ -899,6 +899,63 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+    } else if (sType == 13u) {
+        // Antialiased stroke join/cap triangle. color.xy/color.zw/shapeSize
+        // carry its three screen-space points and texCoord carries the pixel.
+        let p0 = input.color.xy;
+        let p1 = input.color.zw;
+        let p2 = input.shapeSize;
+        let point = input.texCoord;
+        let edge0 = p1 - p0;
+        let edge1 = p2 - p1;
+        let edge2 = p0 - p2;
+        let area = edge0.x * (p2.y - p0.y) - edge0.y * (p2.x - p0.x);
+        let orientation = select(-1.0, 1.0, area >= 0.0);
+        let distance0 = -orientation *
+            (edge0.x * (point.y - p0.y) - edge0.y * (point.x - p0.x)) /
+            max(length(edge0), 0.0001);
+        let distance1 = -orientation *
+            (edge1.x * (point.y - p1.y) - edge1.y * (point.x - p1.x)) /
+            max(length(edge1), 0.0001);
+        let distance2 = -orientation *
+            (edge2.x * (point.y - p2.y) - edge2.y * (point.x - p2.x)) /
+            max(length(edge2), 0.0001);
+        let d_shape = max(distance0, max(distance1, distance2));
+        let fw = max(fwidth(d_shape), 0.0001);
+        let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
+        let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
+        shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+    } else if (sType == 14u) {
+        // Antialiased affine stroke segment. color.xy/color.zw/shapeSize and
+        // cornerRadius/strokeThickness carry its four screen-space corners.
+        let p0 = input.color.xy;
+        let p1 = input.color.zw;
+        let p2 = input.shapeSize;
+        let p3 = vec2<f32>(input.cornerRadius, input.strokeThickness);
+        let point = input.texCoord;
+        let edge0 = p1 - p0;
+        let edge1 = p2 - p1;
+        let edge2 = p3 - p2;
+        let edge3 = p0 - p3;
+        let area = edge0.x * (p2.y - p0.y) - edge0.y * (p2.x - p0.x);
+        let orientation = select(-1.0, 1.0, area >= 0.0);
+        let distance0 = -orientation *
+            (edge0.x * (point.y - p0.y) - edge0.y * (point.x - p0.x)) /
+            max(length(edge0), 0.0001);
+        let distance1 = -orientation *
+            (edge1.x * (point.y - p1.y) - edge1.y * (point.x - p1.x)) /
+            max(length(edge1), 0.0001);
+        let distance2 = -orientation *
+            (edge2.x * (point.y - p2.y) - edge2.y * (point.x - p2.x)) /
+            max(length(edge2), 0.0001);
+        let distance3 = -orientation *
+            (edge3.x * (point.y - p3.y) - edge3.y * (point.x - p3.x)) /
+            max(length(edge3), 0.0001);
+        let d_shape = max(max(distance0, distance1), max(distance2, distance3));
+        let fw = max(fwidth(d_shape), 0.0001);
+        let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
+        let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
+        shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 3u || sType == 5u || sType == 6u) {
         // Line, Quadratic, and Cubic Bezier stroke anti-aliasing via signed pixel distance
         let d_pixels = abs(input.gridIndex);
@@ -934,7 +991,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
 
     var finalColor = input.color;
     if (brush.brushType == 0u) {
-        if (sType == 5u || sType == 6u || sType == 12u) {
+        if (sType == 5u || sType == 6u || sType == 12u || sType == 13u || sType == 14u) {
             finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
         } else {
             finalColor = vec4<f32>(input.color.rgb, input.color.a * brush.opacity);

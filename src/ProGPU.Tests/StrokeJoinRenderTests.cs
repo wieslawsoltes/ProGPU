@@ -23,13 +23,13 @@ public sealed class StrokeJoinRenderTests
         {
             window.Render();
 
-            Assert.Equal(24, window.Compositor.VectorVertices.Count(
-                vertex => DecodeShapeType(vertex.ShapeType) == 7));
+            Assert.Equal(32, window.Compositor.VectorVertices.Count(
+                vertex => DecodeShapeType(vertex.ShapeType) == 13));
             var pixels = window.ReadPixels();
-            AssertRed(pixels, window.Width, 52, 9);
-            AssertRed(pixels, window.Width, 53, 7);
-            AssertRed(pixels, window.Width, 52, 51);
-            AssertRed(pixels, window.Width, 53, 53);
+            AssertRedCoverage(pixels, window.Width, 52, 9);
+            AssertRedCoverage(pixels, window.Width, 53, 7);
+            AssertRedCoverage(pixels, window.Width, 52, 51);
+            AssertRedCoverage(pixels, window.Width, 53, 53);
         }
         finally
         {
@@ -80,10 +80,64 @@ public sealed class StrokeJoinRenderTests
 
         using var snapshot = surface.Snapshot();
         var pixels = snapshot.Texture.ReadPixels();
-        AssertRed(pixels, 64, 52, 9);
-        AssertRed(pixels, 64, 53, 7);
-        AssertRed(pixels, 64, 52, 51);
-        AssertRed(pixels, 64, 53, 53);
+        AssertRedCoverage(pixels, 64, 52, 9);
+        AssertRedCoverage(pixels, 64, 53, 7);
+        AssertRedCoverage(pixels, 64, 52, 51);
+        AssertRedCoverage(pixels, 64, 53, 53);
+    }
+
+    [Fact]
+    public void ConcaveClosedGradientStrokeLeavesGlyphInteriorTransparent()
+    {
+        using var recorder = new SKPictureRecorder();
+        var recordingCanvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 96f));
+        using var path = new SKPath();
+        path.MoveTo(4f, 70f);
+        path.LineTo(4f, 0f);
+        path.LineTo(51f, 0f);
+        path.LineTo(51f, 38.3f);
+        path.LineTo(29.5f, 38.3f);
+        path.LineTo(29.5f, 25.3f);
+        path.LineTo(36f, 25.3f);
+        path.LineTo(36f, 15f);
+        path.LineTo(19f, 15f);
+        path.LineTo(19f, 55f);
+        path.LineTo(51f, 55f);
+        path.LineTo(51f, 70f);
+        path.Close();
+        using var shader = SKShader.CreateLinearGradient(
+            new SKPoint(0f, 0f),
+            new SKPoint(64f, 0f),
+            new[] { SKColors.Blue, SKColors.Lime },
+            new[] { 0f, 1f },
+            SKShaderTileMode.Clamp);
+        using var paint = new SKPaint
+        {
+            Shader = shader,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 3f,
+            StrokeJoin = SKStrokeJoin.Miter,
+            StrokeMiter = 4f
+        };
+
+        recordingCanvas.Scale(1f, 1.25f);
+        recordingCanvas.DrawPath(path, paint);
+        using var picture = recorder.EndRecording();
+        using var surface = SKSurface.Create(
+            new SKImageInfo(64, 96, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertTransparent(pixels, 64, 10, 40);
+        AssertTransparent(pixels, 64, 45, 25);
+        var partialAlphaCount = Enumerable.Range(0, pixels.Length / 4)
+            .Count(index => pixels[index * 4 + 3] is > 0 and < 255);
+        Assert.True(
+            partialAlphaCount >= 300,
+            $"Expected broad antialiased gradient-stroke coverage, but found {partialAlphaCount} partial pixels.");
     }
 
     [Fact]
@@ -220,6 +274,21 @@ public sealed class StrokeJoinRenderTests
         Assert.InRange(pixels[offset + 1], 0, 20);
         Assert.InRange(pixels[offset + 2], 0, 20);
         Assert.InRange(pixels[offset + 3], 200, 255);
+    }
+
+    private static void AssertRedCoverage(byte[] pixels, uint width, int x, int y)
+    {
+        var offset = (y * (int)width + x) * 4;
+        Assert.InRange(pixels[offset], 100, 255);
+        Assert.InRange(pixels[offset + 1], 0, 20);
+        Assert.InRange(pixels[offset + 2], 0, 20);
+        Assert.InRange(pixels[offset + 3], 100, 255);
+    }
+
+    private static void AssertTransparent(byte[] pixels, int width, int x, int y)
+    {
+        var offset = (y * width + x) * 4;
+        Assert.InRange(pixels[offset + 3], 0, 2);
     }
 
     private static int DecodeShapeType(float shapeType)

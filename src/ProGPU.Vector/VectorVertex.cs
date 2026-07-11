@@ -15,7 +15,7 @@ public struct VectorVertex
     public Vector2 ShapeSize;
     public float CornerRadius;
     public float StrokeThickness;
-    public float ShapeType; // 0 = Rect, 1 = Ellipse, 2 = RoundedRect, 3 = Line, 4 = Complex Path, 5 = Bezier, 6 = Cubic Bezier, 7 = FillTriangle, 12 = ArcSdf
+    public float ShapeType; // 0 = Rect, 1 = Ellipse, 2 = RoundedRect, 3 = Line, 4 = Complex Path, 5 = Bezier, 6 = Cubic Bezier, 7 = FillTriangle, 12 = ArcSdf, 13 = TriangleSdf, 14 = QuadrilateralSdf
 
     public VectorVertex(
         Vector2 position, 

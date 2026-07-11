@@ -176,6 +176,8 @@ public unsafe class Compositor : IDisposable
     private const float StrokeEpsilon = 0.0001f;
     private const float AliasedShapeTypeOffset = 1000f;
     private const float ArcSdfShapeType = 12f;
+    private const float TriangleSdfShapeType = 13f;
+    private const float QuadrilateralSdfShapeType = 14f;
 
     public struct StaticTextRecord
     {
@@ -4053,12 +4055,12 @@ public unsafe class Compositor : IDisposable
             {
                 var figure = pathFigures[figureIndex];
                 int maxJoinTriangles = CountStrokeSegmentJoinTriangleBudget(figure);
-                maxVertices += maxJoinTriangles * 3;
-                maxIndices += maxJoinTriangles * 3;
+                maxVertices += maxJoinTriangles * 4;
+                maxIndices += maxJoinTriangles * 6;
 
                 int maxCapTriangles = CountStrokeSegmentCapTriangleBudget(figure, cmd.Pen.StartLineCap, cmd.Pen.EndLineCap);
-                maxVertices += maxCapTriangles * 3;
-                maxIndices += maxCapTriangles * 3;
+                maxVertices += maxCapTriangles * 4;
+                maxIndices += maxCapTriangles * 6;
 
                 var currentPoint = figure.StartPoint;
                 var figureSegments = figure.Segments;
@@ -4495,17 +4497,35 @@ public unsafe class Compositor : IDisposable
                             isSmoothJoin: false);
                     }
 
-                    AppendStrokeLineVertices(
-                        verticesSpan,
-                        indicesSpan,
-                        ref currentVertexCount,
-                        ref currentIndexCount,
-                        penSolidColor,
-                        penBrushIdx,
-                        thickness,
-                        Vector2.Transform(closeLineStart, transform),
-                        Vector2.Transform(closeLineEnd, transform),
-                        cmd.IsEdgeAliased);
+                    if (useAffineStrokeGeometry)
+                    {
+                        AppendAffineStrokeLineVertices(
+                            verticesSpan,
+                            indicesSpan,
+                            ref currentVertexCount,
+                            ref currentIndexCount,
+                            penSolidColor,
+                            penBrushIdx,
+                            localAffineThickness,
+                            closeLineStart,
+                            closeLineEnd,
+                            transform,
+                            cmd.IsEdgeAliased);
+                    }
+                    else
+                    {
+                        AppendStrokeLineVertices(
+                            verticesSpan,
+                            indicesSpan,
+                            ref currentVertexCount,
+                            ref currentIndexCount,
+                            penSolidColor,
+                            penBrushIdx,
+                            thickness,
+                            Vector2.Transform(closeLineStart, transform),
+                            Vector2.Transform(closeLineEnd, transform),
+                            cmd.IsEdgeAliased);
+                    }
 
                     if (hasFirstSegmentStartDirection)
                     {
@@ -5022,27 +5042,73 @@ public unsafe class Compositor : IDisposable
             return;
         }
 
-        var halfThickness = localThickness * 0.5f;
         var direction = delta / length;
-        var normal = new Vector2(-direction.Y, direction.X) * halfThickness;
+        var normal = new Vector2(-direction.Y, direction.X) * (localThickness * 0.5f);
         var p0 = Vector2.Transform(localStart + normal, transform);
-        var p1 = Vector2.Transform(localStart - normal, transform);
-        var p2 = Vector2.Transform(localEnd + normal, transform);
-        var p3 = Vector2.Transform(localEnd - normal, transform);
-        var shapeType = EncodeShapeType(isEdgeAliased, 7f);
+        var p1 = Vector2.Transform(localEnd + normal, transform);
+        var p2 = Vector2.Transform(localEnd - normal, transform);
+        var p3 = Vector2.Transform(localStart - normal, transform);
+
+        AppendStrokeQuadrilateralVertices(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            penBrushIdx,
+            p0,
+            p1,
+            p2,
+            p3,
+            isEdgeAliased);
+    }
+
+    private static void AppendStrokeQuadrilateralVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        Vector2 p0,
+        Vector2 p1,
+        Vector2 p2,
+        Vector2 p3,
+        bool isEdgeAliased)
+    {
+        var edge0 = p1 - p0;
+        var edge1 = p2 - p0;
+        var area = edge0.X * edge1.Y - edge0.Y * edge1.X;
+        if (!float.IsFinite(area) || MathF.Abs(area) <= StrokeEpsilon)
+        {
+            return;
+        }
+
+        const float padding = 1.5f;
+        var min = Vector2.Min(Vector2.Min(p0, p1), Vector2.Min(p2, p3)) - new Vector2(padding);
+        var max = Vector2.Max(Vector2.Max(p0, p1), Vector2.Max(p2, p3)) + new Vector2(padding);
+        if (!IsFinite(min) || !IsFinite(max))
+        {
+            return;
+        }
+
+        var firstPoints = new Vector4(p0.X, p0.Y, p1.X, p1.Y);
+        var shapeType = EncodeShapeType(isEdgeAliased, QuadrilateralSdfShapeType);
         var index = (uint)currentVertexCount;
 
-        verticesSpan[currentVertexCount++] = new VectorVertex(p0, penSolidColor, p0, penBrushIdx, shapeType: shapeType);
-        verticesSpan[currentVertexCount++] = new VectorVertex(p1, penSolidColor, p1, penBrushIdx, shapeType: shapeType);
-        verticesSpan[currentVertexCount++] = new VectorVertex(p2, penSolidColor, p2, penBrushIdx, shapeType: shapeType);
-        verticesSpan[currentVertexCount++] = new VectorVertex(p3, penSolidColor, p3, penBrushIdx, shapeType: shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(min.X, min.Y), firstPoints, new Vector2(min.X, min.Y), penBrushIdx, p2, p3.X, p3.Y, shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(max.X, min.Y), firstPoints, new Vector2(max.X, min.Y), penBrushIdx, p2, p3.X, p3.Y, shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(max.X, max.Y), firstPoints, new Vector2(max.X, max.Y), penBrushIdx, p2, p3.X, p3.Y, shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(min.X, max.Y), firstPoints, new Vector2(min.X, max.Y), penBrushIdx, p2, p3.X, p3.Y, shapeType);
 
         indicesSpan[currentIndexCount++] = index;
         indicesSpan[currentIndexCount++] = index + 1;
         indicesSpan[currentIndexCount++] = index + 2;
-        indicesSpan[currentIndexCount++] = index + 1;
-        indicesSpan[currentIndexCount++] = index + 3;
+        indicesSpan[currentIndexCount++] = index;
         indicesSpan[currentIndexCount++] = index + 2;
+        indicesSpan[currentIndexCount++] = index + 3;
     }
 
     private static bool RequiresAffineStrokeGeometry(Matrix4x4 transform)
@@ -5244,16 +5310,14 @@ public unsafe class Compositor : IDisposable
 
         foreach (var triangle in triangles)
         {
-            uint idxStart = (uint)currentVertexCount;
-            var fillShapeType = EncodeShapeType(isEdgeAliased, 7f);
-
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P0, penSolidColor, triangle.P0, penBrushIdx, default, 0f, 0f, fillShapeType);
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P1, penSolidColor, triangle.P1, penBrushIdx, default, 0f, 0f, fillShapeType);
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P2, penSolidColor, triangle.P2, penBrushIdx, default, 0f, 0f, fillShapeType);
-
-            indicesSpan[currentIndexCount++] = idxStart;
-            indicesSpan[currentIndexCount++] = idxStart + 1;
-            indicesSpan[currentIndexCount++] = idxStart + 2;
+            AppendStrokeTriangleVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                triangle,
+                isEdgeAliased);
         }
     }
 
@@ -5279,17 +5343,61 @@ public unsafe class Compositor : IDisposable
 
         foreach (var triangle in triangles)
         {
-            uint idxStart = (uint)currentVertexCount;
-            var fillShapeType = EncodeShapeType(isEdgeAliased, 7f);
-
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P0, penSolidColor, triangle.P0, penBrushIdx, default, 0f, 0f, fillShapeType);
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P1, penSolidColor, triangle.P1, penBrushIdx, default, 0f, 0f, fillShapeType);
-            verticesSpan[currentVertexCount++] = new VectorVertex(triangle.P2, penSolidColor, triangle.P2, penBrushIdx, default, 0f, 0f, fillShapeType);
-
-            indicesSpan[currentIndexCount++] = idxStart;
-            indicesSpan[currentIndexCount++] = idxStart + 1;
-            indicesSpan[currentIndexCount++] = idxStart + 2;
+            AppendStrokeTriangleVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                triangle,
+                isEdgeAliased);
         }
+    }
+
+    private static void AppendStrokeTriangleVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        StrokeJoinTriangle triangle,
+        bool isEdgeAliased)
+    {
+        var edge0 = triangle.P1 - triangle.P0;
+        var edge1 = triangle.P2 - triangle.P0;
+        var area = edge0.X * edge1.Y - edge0.Y * edge1.X;
+        if (!float.IsFinite(area) || MathF.Abs(area) <= StrokeEpsilon)
+        {
+            return;
+        }
+
+        const float padding = 1.5f;
+        var min = Vector2.Min(triangle.P0, Vector2.Min(triangle.P1, triangle.P2)) - new Vector2(padding);
+        var max = Vector2.Max(triangle.P0, Vector2.Max(triangle.P1, triangle.P2)) + new Vector2(padding);
+        if (!IsFinite(min) || !IsFinite(max))
+        {
+            return;
+        }
+
+        var trianglePoints = new Vector4(triangle.P0.X, triangle.P0.Y, triangle.P1.X, triangle.P1.Y);
+        var shapeType = EncodeShapeType(isEdgeAliased, TriangleSdfShapeType);
+        var index = (uint)currentVertexCount;
+
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(min.X, min.Y), trianglePoints, new Vector2(min.X, min.Y), penBrushIdx, triangle.P2, shapeType: shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(max.X, min.Y), trianglePoints, new Vector2(max.X, min.Y), penBrushIdx, triangle.P2, shapeType: shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(max.X, max.Y), trianglePoints, new Vector2(max.X, max.Y), penBrushIdx, triangle.P2, shapeType: shapeType);
+        verticesSpan[currentVertexCount++] = new VectorVertex(
+            new Vector2(min.X, max.Y), trianglePoints, new Vector2(min.X, max.Y), penBrushIdx, triangle.P2, shapeType: shapeType);
+
+        indicesSpan[currentIndexCount++] = index;
+        indicesSpan[currentIndexCount++] = index + 1;
+        indicesSpan[currentIndexCount++] = index + 2;
+        indicesSpan[currentIndexCount++] = index;
+        indicesSpan[currentIndexCount++] = index + 2;
+        indicesSpan[currentIndexCount++] = index + 3;
     }
 
     private static void AppendDegenerateStrokeCapVertices(
