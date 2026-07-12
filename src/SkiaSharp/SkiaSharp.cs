@@ -503,72 +503,49 @@ public struct SKSizeI
     public static readonly SKSizeI Empty = new(0, 0);
 }
 
-public struct SKRect
+public partial struct SKRect : IEquatable<SKRect>
 {
-    public float Left;
-    public float Top;
-    public float Right;
-    public float Bottom;
+    private float _left;
+    private float _top;
+    private float _right;
+    private float _bottom;
 
-    public float Width => Right - Left;
-    public float Height => Bottom - Top;
-    public float MidX => Left + Width / 2f;
-    public float MidY => Top + Height / 2f;
-    public bool IsEmpty => Left >= Right || Top >= Bottom;
+    public float Left
+    {
+        readonly get => _left;
+        set => _left = value;
+    }
+
+    public float Top
+    {
+        readonly get => _top;
+        set => _top = value;
+    }
+
+    public float Right
+    {
+        readonly get => _right;
+        set => _right = value;
+    }
+
+    public float Bottom
+    {
+        readonly get => _bottom;
+        set => _bottom = value;
+    }
+
+    public readonly float Width => _right - _left;
+    public readonly float Height => _bottom - _top;
 
     public SKRect(float left, float top, float right, float bottom)
     {
-        Left = left;
-        Top = top;
-        Right = right;
-        Bottom = bottom;
+        _left = left;
+        _top = top;
+        _right = right;
+        _bottom = bottom;
     }
 
     public static readonly SKRect Empty = new(0, 0, 0, 0);
-
-    public static SKRect Create(float width, float height) => new(0f, 0f, width, height);
-    public static SKRect Create(float x, float y, float width, float height) =>
-        new(x, y, x + width, y + height);
-
-    public void Union(SKRect rect)
-    {
-        if (rect.IsEmpty)
-        {
-            return;
-        }
-
-        if (IsEmpty)
-        {
-            this = rect;
-            return;
-        }
-
-        Left = Math.Min(Left, rect.Left);
-        Top = Math.Min(Top, rect.Top);
-        Right = Math.Max(Right, rect.Right);
-        Bottom = Math.Max(Bottom, rect.Bottom);
-    }
-
-    public void Inflate(float amount)
-    {
-        Inflate(amount, amount);
-    }
-
-    public void Inflate(float x, float y)
-    {
-        Left -= x;
-        Top -= y;
-        Right += x;
-        Bottom += y;
-    }
-
-    public void Offset(float x, float y)
-    {
-        Left += x;
-        Top += y;
-        Right += x;
-        Bottom += y;
-    }
 }
 
 public partial struct SKRectI : IEquatable<SKRectI>

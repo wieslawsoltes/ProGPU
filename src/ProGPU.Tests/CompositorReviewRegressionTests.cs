@@ -37,21 +37,21 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 """;
 
     [Fact]
-    public void SkRectUnionReplacesEmptyBoundsWithFirstNonEmptyRect()
+    public void SkRectUnionIncludesEmptyOriginInCoordinateEnvelope()
     {
         var bounds = SKRect.Empty;
 
         bounds.Union(new SKRect(50f, 60f, 70f, 90f));
 
-        Assert.Equal(50f, bounds.Left);
-        Assert.Equal(60f, bounds.Top);
+        Assert.Equal(0f, bounds.Left);
+        Assert.Equal(0f, bounds.Top);
         Assert.Equal(70f, bounds.Right);
         Assert.Equal(90f, bounds.Bottom);
 
         bounds.Union(SKRect.Empty);
 
-        Assert.Equal(50f, bounds.Left);
-        Assert.Equal(60f, bounds.Top);
+        Assert.Equal(0f, bounds.Left);
+        Assert.Equal(0f, bounds.Top);
         Assert.Equal(70f, bounds.Right);
         Assert.Equal(90f, bounds.Bottom);
     }
