@@ -1000,12 +1000,32 @@ public struct SKRotationScaleMatrix : IEquatable<SKRotationScaleMatrix>
             ty - sin * anchorX - cos * anchorY);
     }
 
+    public static SKRotationScaleMatrix CreateIdentity() => new(1f, 0f, 0f, 0f);
+
+    public static SKRotationScaleMatrix CreateTranslation(float x, float y) => new(1f, 0f, x, y);
+
+    public static SKRotationScaleMatrix CreateScale(float scale) => new(scale, 0f, 0f, 0f);
+
+    public static SKRotationScaleMatrix CreateRotation(float radians, float anchorX, float anchorY) =>
+        Create(1f, radians, 0f, 0f, anchorX, anchorY);
+
+    public static SKRotationScaleMatrix CreateRotationDegrees(float degrees, float anchorX, float anchorY) =>
+        CreateDegrees(1f, degrees, 0f, 0f, anchorX, anchorY);
+
     public readonly bool Equals(SKRotationScaleMatrix other) =>
         SCos == other.SCos && SSin == other.SSin && TX == other.TX && TY == other.TY;
     public override readonly bool Equals(object? obj) => obj is SKRotationScaleMatrix other && Equals(other);
     public static bool operator ==(SKRotationScaleMatrix left, SKRotationScaleMatrix right) => left.Equals(right);
     public static bool operator !=(SKRotationScaleMatrix left, SKRotationScaleMatrix right) => !left.Equals(right);
-    public override readonly int GetHashCode() => HashCode.Combine(SCos, SSin, TX, TY);
+    public override readonly int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(SCos);
+        hash.Add(SSin);
+        hash.Add(TX);
+        hash.Add(TY);
+        return hash.ToHashCode();
+    }
 }
 
 public readonly struct SKCubicResampler : IEquatable<SKCubicResampler>
