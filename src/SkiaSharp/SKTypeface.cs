@@ -62,12 +62,13 @@ public class SKFontStyle : IDisposable
     public void Dispose() { }
 }
 
-public class SKTypeface : IDisposable
+public partial class SKTypeface : IDisposable
 {
     private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<TtfFont>> s_systemFonts = new();
     private readonly int? _requestedWeight;
     private readonly int? _requestedWidth;
     private readonly SKFontStyleSlant? _requestedSlant;
+    private readonly bool _isEmpty;
 
     public IntPtr Handle { get; } = SKObjectHandle.Create();
     public TtfFont Font { get; }
@@ -80,7 +81,12 @@ public class SKTypeface : IDisposable
         (Font.WidthClass == 0 ? (int)SKFontStyleWidth.Normal : Font.WidthClass);
     public SKFontStyleSlant FontSlant => _requestedSlant ??
         (Font.IsItalic || IsItalic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright);
-    public int UnitsPerEm => Font.UnitsPerEm;
+    public int UnitsPerEm => _isEmpty ? 0 : Font.UnitsPerEm;
+    public int GlyphCount => _isEmpty ? 0 : Font.NumGlyphs;
+    public bool IsEmpty => _isEmpty;
+    public bool IsFixedPitch => !_isEmpty && Font.IsFixedPitch;
+    public string PostScriptName => _isEmpty ? string.Empty : Font.PostScriptName;
+    public int TableCount => _isEmpty ? 0 : Font.TableTags.Count;
     public SKFontStyle FontStyle => new(
         FontWeight,
         Math.Clamp(FontWidth, (int)SKFontStyleWidth.UltraCondensed, (int)SKFontStyleWidth.UltraExpanded),
@@ -93,7 +99,8 @@ public class SKTypeface : IDisposable
         bool isItalic = false,
         int? requestedWeight = null,
         int? requestedWidth = null,
-        SKFontStyleSlant? requestedSlant = null)
+        SKFontStyleSlant? requestedSlant = null,
+        bool isEmpty = false)
     {
         Font = font;
         FamilyName = familyName;
@@ -102,7 +109,14 @@ public class SKTypeface : IDisposable
         _requestedWeight = requestedWeight;
         _requestedWidth = requestedWidth;
         _requestedSlant = requestedSlant;
+        _isEmpty = isEmpty;
     }
+
+    private static SKTypeface? _empty;
+    public static SKTypeface Empty => _empty ??= new SKTypeface(
+        Default.Font,
+        string.Empty,
+        isEmpty: true);
 
     private static SKTypeface? _default;
     public static SKTypeface Default
@@ -174,7 +188,7 @@ public class SKTypeface : IDisposable
     private static bool IsInvalidFontException(Exception exception) =>
         exception is FormatException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
-    public static SKTypeface FromFamilyName(string familyName, SKFontStyle style)
+    public static SKTypeface FromFamilyName(string? familyName, SKFontStyle style)
     {
         var matchedTypeface = MatchFamilyName(familyName, style);
         if (matchedTypeface != null)
@@ -430,6 +444,12 @@ public class SKTypeface : IDisposable
 
     public bool TryGetTableData(uint tag, out byte[] data)
     {
+        if (_isEmpty)
+        {
+            data = Array.Empty<byte>();
+            return false;
+        }
+
         Span<char> characters = stackalloc char[4]
         {
             (char)((tag >> 24) & 0xff),
@@ -448,14 +468,14 @@ public class SKTypeface : IDisposable
         return false;
     }
 
-    public SKStreamAsset OpenStream()
+    public SKStreamAsset? OpenStream()
     {
-        return new SKStreamAsset(Font.FontData.ToArray());
+        return _isEmpty ? null : new SKStreamAsset(Font.FontData.ToArray());
     }
 
-    public SKStreamAsset OpenStream(out int ttcIndex)
+    public SKStreamAsset? OpenStream(out int ttcIndex)
     {
-        ttcIndex = Font.FaceIndex;
+        ttcIndex = _isEmpty ? 0 : Font.FaceIndex;
         return OpenStream();
     }
 

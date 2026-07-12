@@ -134,6 +134,7 @@ public class TtfFont
     public string FamilyName { get; }
     public string SubfamilyName { get; }
     public string FullName { get; }
+    public string PostScriptName { get; }
     public ushort WeightClass { get; private set; } = 400;
     public ushort WidthClass { get; private set; } = 5;
     public bool IsItalic { get; private set; }
@@ -142,6 +143,8 @@ public class TtfFont
     public bool HasBitmapGlyphs { get; }
     public bool HasColorGlyphs { get; }
     public bool UsesSymbolCharacterMap => _face.UsesSymbolCharacterMap;
+    public bool IsFixedPitch { get; private set; }
+    public IReadOnlyCollection<string> TableTags => _tables.Keys;
 
     // Font parameters
     public ushort UnitsPerEm { get; private set; }
@@ -202,6 +205,7 @@ public class TtfFont
         FamilyName = GetName(SfntNameIds.PreferredFamilyName, SfntNameIds.FamilyName) ?? string.Empty;
         SubfamilyName = GetName(SfntNameIds.PreferredSubfamilyName, SfntNameIds.SubfamilyName) ?? string.Empty;
         FullName = GetName(SfntNameIds.FullName) ?? FamilyName;
+        PostScriptName = GetName(SfntNameIds.PostScriptName) ?? string.Empty;
         ParseTableDirectory();
         HasBitmapGlyphs =
             _tables.ContainsKey("sbix") ||
@@ -354,6 +358,10 @@ public class TtfFont
 
         UnderlinePosition = ReadShort(post.Span, 8);
         UnderlineThickness = ReadShort(post.Span, 10);
+        if (post.Length >= 16)
+        {
+            IsFixedPitch = ReadUInt(post.Span, 12) != 0;
+        }
     }
 
     private void ParseHeadTable()

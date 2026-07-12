@@ -42,6 +42,11 @@ public partial class SKFont : IDisposable
 
     public SKPath? GetGlyphPath(ushort glyphId)
     {
+        if (Typeface.IsEmpty)
+        {
+            return null;
+        }
+
         var outline = Typeface.Font.GetFlippedGlyphOutline(glyphId);
         if (outline == null) return null;
 
@@ -126,6 +131,11 @@ public partial class SKFont : IDisposable
     {
         get
         {
+            if (Typeface.IsEmpty)
+            {
+                return default;
+            }
+
             var unitsPerEm = Math.Max(1, (int)Typeface.Font.UnitsPerEm);
             var scale = Size / unitsPerEm;
             var ascent = -Typeface.Font.Ascender * scale;
@@ -173,7 +183,7 @@ public partial class SKFont : IDisposable
         value is { } metric ? metric * scale : null;
 
     public ushort GetGlyph(int codepoint) =>
-        codepoint >= 0 && codepoint <= 0x10ffff
+        !Typeface.IsEmpty && codepoint >= 0 && codepoint <= 0x10ffff
             ? Typeface.Font.GetGlyphIndex((uint)codepoint)
             : (ushort)0;
 
@@ -199,6 +209,12 @@ public partial class SKFont : IDisposable
 
     private bool TryGetScaledGlyphBounds(ushort glyph, out SKRect bounds)
     {
+        if (Typeface.IsEmpty)
+        {
+            bounds = SKRect.Empty;
+            return false;
+        }
+
         if (!Typeface.Font.TryGetGlyphBounds(
                 glyph,
                 out var xMin,

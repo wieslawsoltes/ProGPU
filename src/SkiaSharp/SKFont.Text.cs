@@ -1315,10 +1315,12 @@ public partial class SKFont
     }
 
     private ushort ResolveGlyph(uint value, bool isGlyph) =>
-        isGlyph ? (ushort)value : Typeface.Font.GetGlyphIndex(value);
+        Typeface.IsEmpty
+            ? (ushort)0
+            : isGlyph ? (ushort)value : Typeface.Font.GetGlyphIndex(value);
 
     private float GetGlyphAdvance(ushort glyph) =>
-        Typeface.Font.GetAdvanceWidth(glyph, Size) * ScaleX;
+        Typeface.IsEmpty ? 0f : Typeface.Font.GetAdvanceWidth(glyph, Size) * ScaleX;
 
     private static void ValidateEncoding(SKTextEncoding encoding)
     {
