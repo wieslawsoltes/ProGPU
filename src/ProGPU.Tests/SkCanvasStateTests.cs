@@ -2630,15 +2630,18 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void SkShaderRejectsUnsupportedDecalTileMode()
+    public void SkShaderMapsDecalTileModeToTransparentGradientSpread()
     {
-        Assert.Throws<NotSupportedException>(() =>
-            SKShader.CreateLinearGradient(
-                new SKPoint(0f, 0f),
-                new SKPoint(10f, 0f),
-                new[] { SKColors.Red, SKColors.Blue },
-                null,
-                SKShaderTileMode.Decal));
+        using var shader = SKShader.CreateLinearGradient(
+            new SKPoint(0f, 0f),
+            new SKPoint(10f, 0f),
+            new[] { SKColors.Red, SKColors.Blue },
+            null,
+            SKShaderTileMode.Decal);
+
+        var brush = Assert.IsType<LinearGradientBrush>(shader.ToBrush());
+
+        Assert.Equal(GradientSpreadMethod.Decal, brush.SpreadMethod);
     }
 
     private static void AssertMatrixNear(Matrix4x4 expected, Matrix4x4 actual)

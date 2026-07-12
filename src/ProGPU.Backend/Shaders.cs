@@ -1102,12 +1102,14 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
                 finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
             } else {
                 finalColor = vec4<f32>(0.0);
-        }
+            }
+        } else if ((brush.spreadMethod & 0x7fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
+            finalColor = vec4<f32>(0.0);
         } else {
             t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
-        let gradColor = sample_gradient_color(brush, t);
-        finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
-    }
+            let gradColor = sample_gradient_color(brush, t);
+            finalColor = vec4<f32>(gradColor.rgb, gradColor.a * brush.opacity);
+        }
     }
 
     let screen_uv = input.position.xy / uniforms.canvasSize;

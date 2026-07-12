@@ -49,6 +49,39 @@ public sealed class GradientRenderTests
         }
     }
 
+    [Fact]
+    public void DecalLinearGradientRendersTransparentOutsideDomain()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 16);
+        window.Content = new DecalLinearGradientVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var before = ReadPixel(pixels, window.Width, x: 2, y: 8);
+            var middle = ReadPixel(pixels, window.Width, x: 16, y: 8);
+            var after = ReadPixel(pixels, window.Width, x: 29, y: 8);
+
+            Assert.InRange(before.R, 0, 8);
+            Assert.InRange(before.G, 247, 255);
+            Assert.InRange(before.B, 0, 8);
+            Assert.InRange(middle.R, 96, 160);
+            Assert.InRange(middle.G, 0, 8);
+            Assert.InRange(middle.B, 96, 160);
+            Assert.Equal(255, middle.A);
+            Assert.InRange(after.R, 0, 8);
+            Assert.InRange(after.G, 247, 255);
+            Assert.InRange(after.B, 0, 8);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -83,6 +116,37 @@ public sealed class GradientRenderTests
                 });
 
             context.DrawRectangle(brush, null, new Rect(0f, 0f, 32f, 32f));
+        }
+    }
+
+    private sealed class DecalLinearGradientVisual : FrameworkElement
+    {
+        public DecalLinearGradientVisual()
+        {
+            Width = 32f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 1f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 32f, 16f));
+
+            var brush = new LinearGradientBrush(
+                new Vector2(8f, 8f),
+                new Vector2(24f, 8f),
+                new[]
+                {
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 0f),
+                    new GradientStop(new Vector4(0f, 0f, 1f, 1f), 1f)
+                })
+            {
+                SpreadMethod = GradientSpreadMethod.Decal
+            };
+
+            context.DrawRectangle(brush, null, new Rect(0f, 0f, 32f, 16f));
         }
     }
 }

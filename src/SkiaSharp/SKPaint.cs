@@ -1291,8 +1291,7 @@ public class SKShader : IDisposable
             SKShaderTileMode.Clamp => GradientSpreadMethod.Pad,
             SKShaderTileMode.Repeat => GradientSpreadMethod.Repeat,
             SKShaderTileMode.Mirror => GradientSpreadMethod.Reflect,
-            SKShaderTileMode.Decal => throw new NotSupportedException(
-                "Decal gradient tiling cannot be represented by the ProGPU gradient brush."),
+            SKShaderTileMode.Decal => GradientSpreadMethod.Decal,
             _ => GradientSpreadMethod.Pad
         };
     }

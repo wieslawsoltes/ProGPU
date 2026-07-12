@@ -535,6 +535,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             } else {
                 finalColor = vec4<f32>(0.0);
             }
+        } else if ((brush.spreadMethod & 0x7fffffffu) == 3u && (t < 0.0 || t > 1.0)) {
+            finalColor = vec4<f32>(0.0);
         } else {
             t = apply_gradient_spread(t, brush.spreadMethod & 0x7fffffffu);
             let gradColor = sample_gradient_color(brush, t);

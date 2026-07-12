@@ -23,7 +23,8 @@ public enum GradientSpreadMethod
 {
     Pad = 0,
     Reflect = 1,
-    Repeat = 2
+    Repeat = 2,
+    Decal = 3
 }
 
 public enum GradientColorInterpolationMode
