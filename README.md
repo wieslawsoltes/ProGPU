@@ -118,15 +118,16 @@ graph TD
     end
 
     subgraph L4 ["Layer 4: Scene Graph & Effects Layer"]
-        CV["ContainerVisual / DrawingVisual / Visual"]
-        ILN["ILayoutNode Interface - Decoupled Invalidation"]
+        CV["ContainerVisual / DrawingVisual / Visual with ChangeVersion"]
+        ILN["ILayoutNode Interface - Layout and Scene Invalidation"]
         FX["GPGPU Multi-Pass Effects Pipeline - Blur & DropShadow"]
     end
 
     subgraph L3 ["Layer 3: Compositor, Text & GPGPU Rasterizer"]
-        Comp["Compositor - Span-Based Vertex/Index Mesh Compiler"]
-        Text["TTF Line Layout & Paragraph Wrapping Engine"]
-        Rast["Compute-Bound 4x SSAA Analytical Path Rasterizer"]
+        Cache["Compiled Scene Cache - Versions, Targets, Atlases, Layers"]
+        Comp["Compositor - Z-Ordered Draw Lists and GPU Buffer Compiler"]
+        Text["TTF Layout, Rich Text Command Cache, Glyph Atlas"]
+        Rast["Compute-Bound 4x SSAA Glyph and Path Rasterizers"]
     end
 
     subgraph L2 ["Layer 2: Graphics Infrastructure"]
@@ -143,7 +144,8 @@ graph TD
     LN --> CV
     CV --> ILN
     CV --> FX
-    ILN --> Comp
+    ILN --> Cache
+    Cache --> Comp
     FX --> Rast
     Comp --> Rast
     Rast --> Wgpu
@@ -154,16 +156,74 @@ graph TD
 
 1. **System & Windowing (Layer 1)**: Interacts with the operating system event queue and monitors display boundaries via Silk.NET and GLFW. It handles window load, resize, rendering loops, and low-level mouse and keyboard input events.
 2. **Graphics Infrastructure (Layer 2)**: Manages physical GPU adapter querying, logical device creation, graphics command queues, and swapchain surface configuration.
-3. **Compositor, Text & GPGPU Rasterizer (Layer 3)**: Compiles high-level drawing primitives into optimized GPU-bound vertex and index buffers. Performs TrueType Font (TTF) line layout, glyph metrics extraction, and text line wrapping. Hosts the compute-bound vector path rasterization engine which performs analytical winding-number raycasting inside custom WGSL shaders at 4x SSAA, completely avoiding CPU segment flattening.
-4. **Scene Graph & Effects Layer (Layer 4)**: Establishes a hierarchical tree of composition visuals (`ContainerVisual`, `DrawingVisual`). Features the decoupled `ILayoutNode` interface to allow visual tree operations to invoke layout renegotiations without introducing circular project dependencies. Drives a multi-pass offscreen composition effects pipeline that schedules horizontal/vertical Gaussian blur compute shaders to render real-time drop shadows, Gaussian blurs, and neon glows directly on layout elements.
-5. **WinUI Framework Layer (Layer 5)**: Implements the sizing negotiation lifecycle (`Measure` and `Arrange`) compatible with standard XAML layouts. Handles layout constraints, paddings, margins, alignment calculations, and provides standard UI controls.
-6. **Application Layer (Layer 6)**: The end-user presentation layer, hosting control gallery panels, real-time performance diagnostics overlays, and benchmark test suites.
+3. **Compositor, Text & GPGPU Rasterizer (Layer 3)**: Validates and reuses compiled scenes when their visual versions, target configuration, atlas generations, overlays, and cached layers are unchanged. Cache misses compile high-level commands into ordered draw lists and reusable GPU buffers. The text path retains shaped glyph indices, caches font feature availability, and rasterizes glyph and vector outlines analytically in WGSL at physical-pixel resolution.
+4. **Scene Graph & Effects Layer (Layer 4)**: Establishes the retained `ContainerVisual`, `DrawingVisual`, and `Visual` hierarchy. Mutations propagate `ChangeVersion` and dirty state so layout, compiled-scene, and `CacheAsLayer` reuse remain correct. Mask and effect passes use offscreen textures and intentionally stay on the dynamic compilation path.
+5. **WinUI Framework Layer (Layer 5)**: Implements cached `Measure` and `Arrange`, controls, input, and CPU visual-tree hit testing. The WinUI host disables the compositor's duplicate GPU hit-test index while direct compositor consumers retain it by default.
+6. **Application Layer (Layer 6)**: Hosts gallery pages, diagnostics, and opt-in performance workloads. Sample animation and status updates invalidate only the visuals that actually changed.
+
+---
+
+## Current Frame Architecture and Performance Baseline
+
+`Microsoft.UI.Xaml.Window.RenderFrameCore` records each host phase independently: dispatcher work, rendering callbacks, framebuffer/DPI setup, animation, layout, surface acquisition, compositor work, and presentation. `Compositor.RenderScene` then chooses between a retained fast path and a dynamic compile path:
+
+```mermaid
+flowchart TD
+    Frame["Window frame"] --> Dispatch["Drain bounded UI work"]
+    Dispatch --> Update["Rendering callbacks, animation, cached layout"]
+    Update --> Acquire["Acquire physical-pixel surface"]
+    Acquire --> Validate{"Compiled scene still valid?"}
+    Validate -- Yes --> Reuse["Reuse draw lists, GPU buffers, brushes, hit index, and atlas entries"]
+    Validate -- No --> Compile["Compile visual tree and external layers"]
+    Compile --> Upload["Upload changed geometry, brushes, and uniforms"]
+    Upload --> Raster["Batch pending glyph and path rasterization"]
+    Raster --> Capture{"Scene safe to retain?"}
+    Capture -- Yes --> Remember["Capture versions, target, atlas generations, and layer textures"]
+    Capture -- No --> Dynamic["Keep dynamic path for effects, masks, diagnostics, or DrawingVisual"]
+    Remember --> Render["Execute ordered WebGPU render pass"]
+    Dynamic --> Render
+    Reuse --> Render
+    Render --> Present["Present"]
+```
+
+The compiled scene cache is enabled by default with `CompositorOptions.EnableCompiledSceneCache`. A hit requires the same root identity and `ChangeVersion`, logical and physical target, viewport, DPI scale, glyph/path atlas generations, tooltip, external layer versions, and valid `CacheAsLayer` textures. Dynamic diagnostics force a miss. Mutable `DrawingVisual` content, masks, and effects are deliberately not retained because their output can change without a stable immutable command contract.
+
+`CacheAsLayer` and compiled-scene reuse solve different costs. `CacheAsLayer` turns a stable subtree into one texture draw while the rest of a scene may still compile. Whole-scene reuse preserves the already compiled draw lists and GPU buffers for a stable frame. Atlas `Generation` values make both paths safe when a glyph/path atlas is cleared or repacked.
+
+The WinUI host sets `EnableGpuHitTesting = false` because `InputSystem` already performs CPU visual-tree hit testing. Direct scene consumers keep the compositor GPU hit-test index enabled by default. This avoids building two indexes for every WinUI frame without changing input behavior.
+
+### Reference Performance
+
+The opt-in sample harness reports wall-clock FPS, per-phase timings, allocation rate, scene-cache decisions, draw counts, and workload throughput. A macOS 120 Hz reference run of the current architecture produced the following results; hardware, window size, and page state affect absolute values.
+
+| Workload | VSync | Wall FPS | Workload throughput | Scene cache |
+| --- | ---: | ---: | ---: | ---: |
+| LOL/s Benchmark | On | 120.21 | 11,996 LOL/s | Dynamic, 0/480 hits |
+| LOL/s Benchmark | Off | 212.67 | 42,463 LOL/s | Dynamic, 0/600 hits |
+| Markdown Playground | Off | about 515 | Static after warmup | 299/300 hits |
+| DXF CAD Viewer | Off | about 499 | Static after warmup | 299/300 hits |
+
+Run the same deterministic workload from the repository root:
+
+```bash
+dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+
+PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
+PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
+PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
+PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
+dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+```
+
+Set `PROGPU_SAMPLE_BENCHMARK_VSYNC=false` for uncapped throughput, or change the page to `Markdown Playground` or `DXF CAD Viewer` to verify static-scene reuse. The first measured static frame may populate the cache; subsequent frames should report hits unless the page intentionally animates or invalidates.
+
+Rendering quality remains part of the performance contract. The optimized text path retains the glyph index chosen during layout, hoists transform/raster invariants out of glyph loops, and skips color/bitmap table probes only when the parsed font has no such tables. It does not change glyph geometry, subpixel placement, physical DPI rasterization, winding rules, or blend behavior.
 
 ---
 
 ## Technical Specifications: Performance Optimizations
 
-Our work introduces eleven core rendering and performance optimization pillars that collectively transform frame times, CPU allocation metrics, visual fidelity, and event dispatcher throughput.
+The sections below describe the cooperating layout, scene, text, atlas, batching, effects, and platform optimizations. They share one invariant: cached work is reused only while every input that can affect pixels remains valid.
 
 ### 1. WinUI-Compatible High-Performance Layout Caching & Invalidation
 
@@ -491,6 +551,15 @@ Traditional GPU engines suffer from low-resolution stretch blurriness on macOS h
   * **Downward Crossing (`deriv_y < 0.0`)**: Valid range is `(0.0, 1.0]` (exclusive of start, inclusive of end).
   This eliminates boundary vertex double-counting and zero-counting across all transition types (line-to-curve, curve-to-line, curve-to-curve) in both `GlyphRasterizer` and `PathRasterizer` shaders, completely preventing horizontal seam and drop-out artifacts at curve joins (such as on letters like `G`/`g`).
 
+#### Text Compilation Fast Path and Rich Text Command Reuse
+
+Text-heavy pages avoid repeated work without changing raster quality:
+
+* `TextLayout` stores the resolved `GlyphIndex` beside each positioned glyph. The compositor uses that index directly instead of repeating character-map lookup during every compile.
+* `TtfFont` resolves `HasColorGlyphs` and `HasBitmapGlyphs` once after parsing the table directory. Normal outline fonts therefore avoid per-glyph COLR/CPAL/SVG/bitmap probes, while fonts that contain those tables still use the full color or bitmap path.
+* DPI/raster size, transform scale, rotation state, basis vectors, and synthetic-bold parameters are computed once per text command or glyph run rather than once per glyph.
+* `RichTextBlock` retains its generated drawing commands until layout, theme, selection, or hyperlink-hover state changes. Markdown and document pages can replay stable text/table commands instead of reconstructing them on every render.
+
 ---
 
 ### 12. Layered High-DPI Visual Caching (CacheAsLayer)
@@ -727,6 +796,8 @@ To eliminate the continuous CPU memory allocation overhead of creating small, te
   _context.Wgpu.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<GlyphUniforms>());
   ```
 * **Binding Slice Offsets**: Dynamic bind groups are configured pointing to the exact slice within the ring buffer using `Offset = _ringOffset` and `Size = Marshal.SizeOf<Uniforms>()`. On each batch completion, `_ringOffset` is incremented by `alignedSize`, and it resets to `0` at the start of a new batch loop. This achieves **zero CPU allocations** inside dynamic rasterization loops.
+* **Generation-Tracked Reuse**: `GlyphAtlas.Generation` changes on clear, and `PathAtlas.Generation` changes on clear or repack. The compiled-scene cache records both values so it never reuses UVs after atlas contents move.
+* **Capacity-Safe Path Reservation**: Frame reservation first proves that the requested entries can fit in an empty atlas. An impossible high-DPI reservation is ignored instead of resetting the atlas every frame, preserving static path reuse and avoiding repeated compute rasterization.
 
 ---
 
@@ -774,12 +845,12 @@ The ProGPU solution is partitioned into modular, highly specialized C# projects.
 | **`ProGPU.Backend`** | `ProGPU.Backend.dll` | Low-level hardware infrastructure and WebGPU swapchain orchestration. | `WgpuContext`, `Window`, `Shaders`, `RenderPipelineCache` |
 | **`ProGPU.Compute`** | `ProGPU.Compute.dll` | Orchestration of WebGPU GPGPU compute pipelines and parallel filter dispatches. | `ComputeAccelerator`, `ComputeShaders` |
 | **`ProGPU.Vector`** | `ProGPU.Vector.dll` | Mathematical primitives, Bezier models, path segment parsing, and atlas mapping. | `PathGeometry`, `PathFigure`, `GpuPathSegment`, `PathAtlas` |
-| **`ProGPU.Text`** | `ProGPU.Text.dll` | TrueType Font (TTF) parsing, glyph extraction, word-wrapping, and line layout engines. | `TtfFont`, `GlyphAtlas`, `TextLayout` |
-| **`ProGPU.Scene`** | `ProGPU.Scene.dll` | Retained scene-graph visual tree, decoupled layout boundaries, and compositor compiler. | `Compositor`, `ContainerVisual`, `DrawingVisual`, `ILayoutNode` |
+| **`ProGPU.Text`** | `ProGPU.Text.dll` | TrueType parsing, retained glyph identity, word wrapping, line layout, and generation-tracked glyph atlas storage. | `TtfFont`, `GlyphAtlas`, `TextLayout`, `TextRunGlyph` |
+| **`ProGPU.Scene`** | `ProGPU.Scene.dll` | Retained visual tree, compiled-scene validation, ordered draw-list/GPU-buffer compilation, optional GPU hit testing, and effects. | `Compositor`, `CompositorOptions`, `CompositorMetrics`, `ContainerVisual`, `DrawingVisual` |
 | **`ProGPU.Layout`** | `ProGPU.Layout.dll` | XAML-compatible sizing negotiation lifecycle (`Measure` / `Arrange`) and layout panels. | `LayoutNode`, `StackPanel`, `GridPanel`, `CanvasPanel` |
-| **`ProGPU.WinUI`** | `ProGPU.WinUI.dll` | High-level interactive UI control suite layered on top of layout nodes. | `Border`, `Grid`, `Pivot`, `RichTextBlock`, `ScrollViewer`, `SplitView` |
+| **`ProGPU.WinUI`** | `ProGPU.WinUI.dll` | Interactive controls, CPU input/hit testing, frame-phase instrumentation, and command-cached rich documents. | `Window`, `WindowFrameMetrics`, `RichTextBlock`, `ScrollViewer`, `SplitView` |
 | **`ProGPU.Virtualization`** | `ProGPU.Virtualization.dll` | Dynamic scrolling viewport orchestration and UI virtualization controllers. | `VirtualizingPanel`, `ViewportInfo` |
-| **`ProGPU.Samples`** | `ProGPU.Samples.dll` | Showcase bootstrap, keyframe and physics animation drivers, diagnostics, and stress-test suites. | `Program`, `AppState`, `MainWindowController`, `MotionMarkShowcaseVisual` |
+| **`ProGPU.Samples`** | `ProGPU.Samples.dll` | Showcase bootstrap, bounded UI scheduling, animation drivers, diagnostics, and repeatable stress/performance workloads. | `MainWindowController`, `SamplePerformanceBenchmark`, `LolsPage`, `UIThread` |
 
 ---
 
@@ -852,7 +923,7 @@ ProGPU routes all graphics and compute tasks directly to the GPU using specializ
 
 ## Development & Diagnostic Tools
 
-To support high-quality rendering diagnostics and verify vector structures, ProGPU includes two dedicated diagnostic utilities:
+ProGPU includes rendering diagnostics and a repeatable in-process frame benchmark:
 
 ### 1. TrueType Font Outline Diagnostic Tool (`TtfDiag`)
 Located in `tools/TtfDiag/`, this is a generic console tool designed to inspect outline structures, endpoint coordinates, and control points of TrueType fonts. It is especially useful for diagnosing text rendering quality, drop-out artifacts, or glyph parsing inconsistencies.
@@ -879,6 +950,12 @@ Located in `tools/DxfDiag/`, this is a standalone command-line utility to inspec
   dotnet run --project tools/DxfDiag -- <path-to-dxf-file> --layout A0
   ```
 * **Output**: Generates a detailed audit of entity counts, viewport settings, block trees, and coordinates, saving the report to `outliers.txt` and logging a summary to the console.
+
+### 3. Sample Frame Benchmark
+
+`SamplePerformanceBenchmark` is disabled during normal sample use and activates only when `PROGPU_SAMPLE_BENCHMARK_PAGE` is set. It selects the requested page, applies the requested VSync mode, warms the renderer, measures a fixed frame count, prints one `[SampleBenchmark] RESULT` line, and closes the app.
+
+The result separates host layout/animation/surface phases from compositor compile/upload/render phases and includes allocated bytes per frame, cache hits and miss reason, draw/vertex counts, and LOL/s workload counters. Use it for before/after comparisons on the same machine, configuration, window state, and page. Do not compare a VSync-limited result with an uncapped run.
 
 ---
 

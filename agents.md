@@ -32,7 +32,85 @@ When creating or refactoring UI controls:
 
 ---
 
-## 2. Text Outline Diagnostic Tool (`TtfDiag`)
+## 2. Rendering Performance Regression Contract
+
+Rendering performance and pixel quality are one contract. A change is not acceptable when it improves FPS by bypassing required invalidation, lowering raster quality, changing DPI/subpixel behavior, or silently dropping dynamic content.
+
+### A. Preserve Compiled-Scene Correctness
+
+When editing `Compositor`, `Visual`, atlases, effects, layers, or host frame code:
+
+* Every mutation that can affect pixels must invalidate the owning visual and propagate `ChangeVersion` to the compiled-scene root. Never mutate retained command data behind the cache without invalidation.
+* Keep cache validation sensitive to logical/physical target dimensions, viewport, DPI, glyph/path atlas generations, tooltips, external layers, and `CacheAsLayer` texture identity/dirty state.
+* Increment atlas `Generation` whenever cached UV contents are cleared, moved, or repacked. Do not increment it for a no-op capacity probe.
+* Do not make mutable `DrawingVisual`, masks, effects, or dynamic diagnostics cacheable until they have an explicit immutable version contract and regression tests.
+* Keep `EnableCompiledSceneCache` and `EnableGpuHitTesting` independently configurable. WinUI uses CPU visual-tree hit testing and must not rebuild the duplicate GPU index by default.
+* A compiled-scene hit may skip CPU compilation and uploads, but it must still execute the render pass and current clear/presentation behavior.
+
+Required focused tests live in `LayerRenderTests` and `CompositorReviewRegressionTests`. Cover at least unchanged reuse, visual invalidation, resize/DPI/target invalidation, mutable drawing visuals, atlas reset/repack, and hit-testing option behavior when changing these contracts.
+
+### B. Protect Hot Paths
+
+* Never unconditionally invalidate the sample root each frame. Invalidate only the visual whose content changed.
+* Do not update animations twice. `Window.RenderFrameCore` owns the core `UpdateAnimations` call; sample callbacks should update only sample-specific state.
+* Keep status/diagnostic text updates rate-limited. Rebuilding `RichTextBlock` inlines every frame defeats both its command cache and whole-scene reuse.
+* Preserve `TextRunGlyph.GlyphIndex`; do not repeat character-map lookup during compositor compilation. Cache font table capability flags and hoist transform, raster-size, basis, and bold invariants out of glyph loops.
+* Preserve the allocation-free double-queue dispatcher. Do not copy the pending queue into a new `List<Action>` per frame, execute newly posted work recursively in the same drain, or enqueue one delegate per benchmark element.
+* Keep producer backpressure bounded. The LOL/s workload batches element mutations and limits pending work separately for VSync and uncapped runs so background production cannot starve rendering.
+* Before reserving atlas capacity, prove that the requested entries fit in an empty atlas. An impossible reservation must not reset a useful atlas every frame.
+
+### C. Required Performance and Quality Gates
+
+Run the full renderer gates from the ProGPU repository root:
+
+```bash
+dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
+dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
+```
+
+The current baseline is 1,145 renderer tests and 149 headless tests. Update these counts only when tests are intentionally added or removed.
+
+Build once, then measure the exact final binaries:
+
+```bash
+dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+
+PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
+PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
+PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
+PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
+dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+
+PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
+PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=300 \
+PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=600 \
+PROGPU_SAMPLE_BENCHMARK_VSYNC=false \
+dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+```
+
+On the current 120 Hz reference machine, the protected targets are about 120 FPS and 12,000 LOL/s with VSync, and at least 36,000 LOL/s uncapped. The current measured values are 11,996 and 42,463 LOL/s. Compare on the same machine and window state; investigate a repeatable drop greater than 10% before merging.
+
+Also run `Markdown Playground` and `DXF CAD Viewer` uncapped. Stable pages should miss once and then report nearly all `sceneCacheHits`; animated pages and LOL/s should report a useful miss reason rather than a false hit.
+
+Validate Svg.Skia from its repository with `UseProGpuSkiaSharpShim=true`:
+
+```bash
+dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -f net10.0 -c Release \
+  -p:UseProGpuSkiaSharpShim=true -p:ProGpuSourceRoot=/absolute/path/to/ProGPU \
+  --filter 'FullyQualifiedName~resvgTests'
+
+dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -f net10.0 -c Release --no-restore \
+  -p:UseProGpuSkiaSharpShim=true -p:ProGpuSourceRoot=/absolute/path/to/ProGPU \
+  --filter 'FullyQualifiedName!~W3CTestSuiteTests&FullyQualifiedName!~resvgTests'
+```
+
+The current shim baseline is 927 resvg passes with 37 explicit inventory skips and 1,147 remaining passes. The W3C image lane has 59 established threshold differences, 464 passes, and 3 skips versus native SkiaSharp's 523 passes and 3 skips. Performance-only work must not add a fixture, increase an image error, or change a previously matching result. Compare the exact fixture/error list against the parent commit; intentional parity improvements should reduce the difference set and include their own image-focused review.
+
+Record benchmark result lines and test totals in the commit or task summary. Do not claim a performance fix from subjective interaction alone.
+
+---
+
+## 3. Text Outline Diagnostic Tool (`TtfDiag`)
 
 To debug text rendering quality, glyph geometry errors, or parsing inconsistencies, we maintain a generic command-line outline extractor tool under `tools/TtfDiag/`.
 
