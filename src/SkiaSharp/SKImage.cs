@@ -525,7 +525,7 @@ public class SKImage : IDisposable
     }
 }
 
-public class SKPixmap : IDisposable
+public class SKPixmap : SKObject
 {
     private SKImageInfo _info;
     private IntPtr _pixels;
@@ -549,6 +549,7 @@ public class SKPixmap : IDisposable
     internal object? PixelSource => _pixelSource;
 
     public SKPixmap()
+        : base(SKObjectHandle.Create(), owns: true)
     {
     }
 
@@ -558,6 +559,7 @@ public class SKPixmap : IDisposable
     }
 
     public SKPixmap(SKImageInfo info, IntPtr pixels, int rowBytes)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Reset(info, pixels, rowBytes);
     }
@@ -638,10 +640,576 @@ public class SKPixmap : IDisposable
         return new Span<T>(_pixels.ToPointer(), length).Slice(offset);
     }
 
-    public void Dispose()
+    public SKColor GetPixelColor(int x, int y)
     {
-        Reset();
-        GC.SuppressFinalize(this);
+        ValidateCoordinates(x, y);
+        return TryReadColor(GetPixels(x, y), _info, out var color) ? color : SKColor.Empty;
+    }
+
+    public SKColorF GetPixelColorF(int x, int y)
+    {
+        var color = GetPixelColor(x, y);
+        const float scale = 1f / 255f;
+        return new SKColorF(color.R * scale, color.G * scale, color.B * scale, color.A * scale);
+    }
+
+    public float GetPixelAlpha(int x, int y) => GetPixelColor(x, y).A / 255f;
+
+    public bool ScalePixels(SKPixmap destination) =>
+        ScalePixels(destination, SKSamplingOptions.Default);
+
+#pragma warning disable CS0619
+    [Obsolete("Use ScalePixels(SKPixmap destination, SKSamplingOptions sampling) instead.", true)]
+    public bool ScalePixels(SKPixmap destination, SKFilterQuality quality) =>
+        ScalePixels(destination, (int)quality switch
+        {
+            0 => SKSamplingOptions.Default,
+            1 => new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None),
+            2 => new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+            3 => new SKSamplingOptions(SKCubicResampler.Mitchell),
+            _ => SKSamplingOptions.Default,
+        });
+#pragma warning restore CS0619
+
+    public bool ScalePixels(SKPixmap destination, SKSamplingOptions sampling)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (_pixels == IntPtr.Zero || destination._pixels == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        using var source = new SKBitmap();
+        if (!source.InstallPixels(_info, _pixels, _rowBytes))
+        {
+            return false;
+        }
+
+        using var resized = source.Resize(destination.Info, sampling);
+        if (resized is null)
+        {
+            return false;
+        }
+
+        using var resizedPixels = resized.PeekPixels();
+        return resizedPixels.ReadPixels(destination);
+    }
+
+    public bool ReadPixels(SKImageInfo dstInfo, IntPtr dstPixels, int dstRowBytes) =>
+        ReadPixels(dstInfo, dstPixels, dstRowBytes, 0, 0);
+
+    public unsafe bool ReadPixels(
+        SKImageInfo dstInfo,
+        IntPtr dstPixels,
+        int dstRowBytes,
+        int srcX,
+        int srcY)
+    {
+        if (_pixels == IntPtr.Zero || dstPixels == IntPtr.Zero || dstInfo.IsEmpty)
+        {
+            return false;
+        }
+
+        if (dstInfo.BytesPerPixel <= 0 || dstRowBytes < dstInfo.RowBytes)
+        {
+            return false;
+        }
+
+        var sourceLeft = Math.Max(0, srcX);
+        var sourceTop = Math.Max(0, srcY);
+        var sourceRight = Math.Min(Width, srcX + dstInfo.Width);
+        var sourceBottom = Math.Min(Height, srcY + dstInfo.Height);
+        if (sourceLeft >= sourceRight || sourceTop >= sourceBottom)
+        {
+            return false;
+        }
+
+        var destinationOffsetX = sourceLeft - srcX;
+        var destinationOffsetY = sourceTop - srcY;
+        var destinationBase = (byte*)dstPixels;
+        for (var y = sourceTop; y < sourceBottom; y++)
+        {
+            var destinationRow = destinationBase + (destinationOffsetY + y - sourceTop) * dstRowBytes;
+            for (var x = sourceLeft; x < sourceRight; x++)
+            {
+                if (!TryReadColor(GetPixels(x, y), _info, out var color))
+                {
+                    return false;
+                }
+
+                var destination = (IntPtr)(destinationRow +
+                    (destinationOffsetX + x - sourceLeft) * dstInfo.BytesPerPixel);
+                if (!TryWriteColor(destination, dstInfo, color))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public bool ReadPixels(SKPixmap pixmap) => ReadPixels(pixmap, 0, 0);
+
+    public bool ReadPixels(SKPixmap pixmap, int srcX, int srcY)
+    {
+        ArgumentNullException.ThrowIfNull(pixmap);
+        return ReadPixels(pixmap.Info, pixmap.GetPixels(), pixmap.RowBytes, srcX, srcY);
+    }
+
+    public SKData? Encode(SKEncodedImageFormat encoder, int quality)
+    {
+        using var stream = new SKDynamicMemoryWStream();
+        return Encode(stream, encoder, quality) ? stream.DetachAsData() : null;
+    }
+
+    public bool Encode(Stream dst, SKEncodedImageFormat encoder, int quality)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        using var stream = new SKManagedWStream(dst);
+        return Encode(stream, encoder, quality);
+    }
+
+    public bool Encode(SKWStream dst, SKEncodedImageFormat encoder, int quality)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        return encoder switch
+        {
+            SKEncodedImageFormat.Jpeg => Encode(dst, new SKJpegEncoderOptions(quality)),
+            SKEncodedImageFormat.Png => Encode(dst, SKPngEncoderOptions.Default),
+            SKEncodedImageFormat.Webp => Encode(
+                dst,
+                quality == 100
+                    ? new SKWebpEncoderOptions(SKWebpEncoderCompression.Lossless, 75f)
+                    : new SKWebpEncoderOptions(SKWebpEncoderCompression.Lossy, quality)),
+            _ => false,
+        };
+    }
+
+    public SKData? Encode(SKJpegEncoderOptions options) => EncodeToData(options);
+    public SKData? Encode(SKPngEncoderOptions options) => EncodeToData(options);
+    public SKData? Encode(SKWebpEncoderOptions options) => null;
+
+    public bool Encode(Stream dst, SKJpegEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        using var stream = new SKManagedWStream(dst);
+        return Encode(stream, options);
+    }
+
+    public bool Encode(Stream dst, SKPngEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        using var stream = new SKManagedWStream(dst);
+        return Encode(stream, options);
+    }
+
+    public bool Encode(Stream dst, SKWebpEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        return false;
+    }
+
+    public bool Encode(SKWStream dst, SKJpegEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        var encoded = EncodeJpeg(options);
+        return encoded is not null && dst.Write(encoded, encoded.Length);
+    }
+
+    public bool Encode(SKWStream dst, SKPngEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        var encoded = EncodePng(options);
+        return encoded is not null && dst.Write(encoded, encoded.Length);
+    }
+
+    public bool Encode(SKWStream dst, SKWebpEncoderOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        return false;
+    }
+
+    public SKPixmap? ExtractSubset(SKRectI subset)
+    {
+        var result = new SKPixmap();
+        if (ExtractSubset(result, subset))
+        {
+            return result;
+        }
+
+        result.Dispose();
+        return null;
+    }
+
+    public bool ExtractSubset(SKPixmap result, SKRectI subset)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var left = Math.Clamp(subset.Left, 0, Width);
+        var top = Math.Clamp(subset.Top, 0, Height);
+        var right = Math.Clamp(subset.Right, 0, Width);
+        var bottom = Math.Clamp(subset.Bottom, 0, Height);
+        if (left >= right || top >= bottom || _pixels == IntPtr.Zero)
+        {
+            result.Reset();
+            return false;
+        }
+
+        var info = new SKImageInfo(
+            right - left,
+            bottom - top,
+            ColorType,
+            AlphaType,
+            ColorSpace);
+        result.Reset(info, GetPixels(left, top), RowBytes);
+        result.SetPixelSource(_pixelSource ?? this);
+        return true;
+    }
+
+    public bool Erase(SKColor color) => Erase(color, Rect);
+
+    public bool Erase(SKColor color, SKRectI subset)
+    {
+        var left = Math.Clamp(subset.Left, 0, Width);
+        var top = Math.Clamp(subset.Top, 0, Height);
+        var right = Math.Clamp(subset.Right, 0, Width);
+        var bottom = Math.Clamp(subset.Bottom, 0, Height);
+        if (left >= right || top >= bottom || _pixels == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        for (var y = top; y < bottom; y++)
+        {
+            for (var x = left; x < right; x++)
+            {
+                if (!TryWriteColor(GetPixels(x, y), _info, color))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public bool Erase(SKColorF color) => Erase(color, Rect);
+
+    public bool Erase(SKColorF color, SKRectI subset) =>
+        Erase(
+            new SKColor(
+                FloatToByte(color.R),
+                FloatToByte(color.G),
+                FloatToByte(color.B),
+                FloatToByte(color.A)),
+            subset);
+
+    public bool ComputeIsOpaque()
+    {
+        if (_pixels == IntPtr.Zero || Info.IsEmpty)
+        {
+            return false;
+        }
+
+        if (AlphaType == SKAlphaType.Opaque || ColorType is SKColorType.Rgb565 or SKColorType.Rgb888x)
+        {
+            return true;
+        }
+
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                if (GetPixelColor(x, y).A != byte.MaxValue)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public SKPixmap WithColorType(SKColorType newColorType) =>
+        CreateView(Info.WithColorType(newColorType));
+
+    public SKPixmap WithColorSpace(SKColorSpace newColorSpace) =>
+        CreateView(Info.WithColorSpace(newColorSpace));
+
+    public SKPixmap WithAlphaType(SKAlphaType newAlphaType) =>
+        CreateView(Info.WithAlphaType(newAlphaType));
+
+    private SKPixmap CreateView(SKImageInfo info)
+    {
+        var result = new SKPixmap(info, _pixels, _rowBytes);
+        result.SetPixelSource(_pixelSource ?? this);
+        return result;
+    }
+
+    private SKData? EncodeToData(SKJpegEncoderOptions options)
+    {
+        var encoded = EncodeJpeg(options);
+        return encoded is null ? null : new SKData(encoded);
+    }
+
+    private SKData? EncodeToData(SKPngEncoderOptions options)
+    {
+        var encoded = EncodePng(options);
+        return encoded is null ? null : new SKData(encoded);
+    }
+
+    private byte[]? EncodeJpeg(SKJpegEncoderOptions options)
+    {
+        var pixels = CopyStraightRgbaPixels(options.AlphaOption == SKJpegEncoderAlphaOption.BlendOnBlack);
+        if (pixels is null)
+        {
+            return null;
+        }
+
+        using var output = new MemoryStream();
+        var writer = new StbImageWriteSharp.ImageWriter();
+        writer.WriteJpg(
+            pixels,
+            Width,
+            Height,
+            StbImageWriteSharp.ColorComponents.RedGreenBlueAlpha,
+            output,
+            Math.Clamp(options.Quality, 1, 100));
+        return output.ToArray();
+    }
+
+    private byte[]? EncodePng(SKPngEncoderOptions options)
+    {
+        var pixels = CopyStraightRgbaPixels(blendOnBlack: false);
+        if (pixels is null)
+        {
+            return null;
+        }
+
+        using var output = new MemoryStream();
+        var writer = new StbImageWriteSharp.ImageWriter();
+        writer.WritePng(
+            pixels,
+            Width,
+            Height,
+            StbImageWriteSharp.ColorComponents.RedGreenBlueAlpha,
+            output);
+        return output.ToArray();
+    }
+
+    private byte[]? CopyStraightRgbaPixels(bool blendOnBlack)
+    {
+        if (_pixels == IntPtr.Zero || Width <= 0 || Height <= 0)
+        {
+            return null;
+        }
+
+        var result = GC.AllocateUninitializedArray<byte>(checked(Width * Height * 4));
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                if (!TryReadColor(GetPixels(x, y), _info, out var color))
+                {
+                    return null;
+                }
+
+                var offset = (y * Width + x) * 4;
+                if (blendOnBlack)
+                {
+                    result[offset] = Premultiply(color.R, color.A);
+                    result[offset + 1] = Premultiply(color.G, color.A);
+                    result[offset + 2] = Premultiply(color.B, color.A);
+                    result[offset + 3] = byte.MaxValue;
+                }
+                else
+                {
+                    result[offset] = color.R;
+                    result[offset + 1] = color.G;
+                    result[offset + 2] = color.B;
+                    result[offset + 3] = color.A;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static unsafe bool TryReadColor(IntPtr address, SKImageInfo info, out SKColor color)
+    {
+        color = SKColor.Empty;
+        if (address == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var pixel = (byte*)address;
+        byte red;
+        byte green;
+        byte blue;
+        byte alpha;
+        switch (info.ColorType)
+        {
+            case SKColorType.Rgba8888:
+            case SKColorType.Srgba8888:
+                red = pixel[0];
+                green = pixel[1];
+                blue = pixel[2];
+                alpha = pixel[3];
+                break;
+            case SKColorType.Bgra8888:
+                red = pixel[2];
+                green = pixel[1];
+                blue = pixel[0];
+                alpha = pixel[3];
+                break;
+            case SKColorType.Rgb888x:
+                red = pixel[0];
+                green = pixel[1];
+                blue = pixel[2];
+                alpha = byte.MaxValue;
+                break;
+            case SKColorType.Rgb565:
+                var packed565 = (ushort)(pixel[0] | (pixel[1] << 8));
+                red = (byte)(((packed565 >> 11) & 0x1f) * 255 / 31);
+                green = (byte)(((packed565 >> 5) & 0x3f) * 255 / 63);
+                blue = (byte)((packed565 & 0x1f) * 255 / 31);
+                alpha = byte.MaxValue;
+                break;
+            case SKColorType.Argb4444:
+                var packed4444 = (ushort)(pixel[0] | (pixel[1] << 8));
+                alpha = ExpandNibble((byte)(packed4444 >> 12));
+                red = ExpandNibble((byte)(packed4444 >> 8));
+                green = ExpandNibble((byte)(packed4444 >> 4));
+                blue = ExpandNibble((byte)packed4444);
+                break;
+            case SKColorType.Alpha8:
+                red = green = blue = 0;
+                alpha = pixel[0];
+                break;
+            case SKColorType.Gray8:
+                red = green = blue = pixel[0];
+                alpha = byte.MaxValue;
+                break;
+            case SKColorType.R8Unorm:
+                red = pixel[0];
+                green = blue = 0;
+                alpha = byte.MaxValue;
+                break;
+            case SKColorType.Rg88:
+                red = pixel[0];
+                green = pixel[1];
+                blue = 0;
+                alpha = byte.MaxValue;
+                break;
+            default:
+                return false;
+        }
+
+        if (info.AlphaType == SKAlphaType.Opaque)
+        {
+            alpha = byte.MaxValue;
+        }
+        else if (info.AlphaType == SKAlphaType.Premul && alpha is > 0 and < byte.MaxValue)
+        {
+            red = Unpremultiply(red, alpha);
+            green = Unpremultiply(green, alpha);
+            blue = Unpremultiply(blue, alpha);
+        }
+
+        color = new SKColor(red, green, blue, alpha);
+        return true;
+    }
+
+    private static unsafe bool TryWriteColor(IntPtr address, SKImageInfo info, SKColor color)
+    {
+        if (address == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var alpha = info.AlphaType == SKAlphaType.Opaque ? byte.MaxValue : color.A;
+        var red = info.AlphaType == SKAlphaType.Premul ? Premultiply(color.R, alpha) : color.R;
+        var green = info.AlphaType == SKAlphaType.Premul ? Premultiply(color.G, alpha) : color.G;
+        var blue = info.AlphaType == SKAlphaType.Premul ? Premultiply(color.B, alpha) : color.B;
+        var pixel = (byte*)address;
+        switch (info.ColorType)
+        {
+            case SKColorType.Rgba8888:
+            case SKColorType.Srgba8888:
+                pixel[0] = red;
+                pixel[1] = green;
+                pixel[2] = blue;
+                pixel[3] = alpha;
+                return true;
+            case SKColorType.Bgra8888:
+                pixel[0] = blue;
+                pixel[1] = green;
+                pixel[2] = red;
+                pixel[3] = alpha;
+                return true;
+            case SKColorType.Rgb888x:
+                pixel[0] = color.R;
+                pixel[1] = color.G;
+                pixel[2] = color.B;
+                pixel[3] = byte.MaxValue;
+                return true;
+            case SKColorType.Rgb565:
+                var packed565 = PackRgb565(color.R, color.G, color.B);
+                pixel[0] = (byte)packed565;
+                pixel[1] = (byte)(packed565 >> 8);
+                return true;
+            case SKColorType.Argb4444:
+                var packed4444 = (ushort)(
+                    ((alpha >> 4) << 12) |
+                    ((red >> 4) << 8) |
+                    ((green >> 4) << 4) |
+                    (blue >> 4));
+                pixel[0] = (byte)packed4444;
+                pixel[1] = (byte)(packed4444 >> 8);
+                return true;
+            case SKColorType.Alpha8:
+                pixel[0] = alpha;
+                return true;
+            case SKColorType.Gray8:
+                pixel[0] = (byte)((color.R * 54 + color.G * 183 + color.B * 19 + 128) >> 8);
+                return true;
+            case SKColorType.R8Unorm:
+                pixel[0] = color.R;
+                return true;
+            case SKColorType.Rg88:
+                pixel[0] = color.R;
+                pixel[1] = color.G;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static byte ExpandNibble(byte value) => (byte)((value & 0x0f) * 17);
+    private static byte FloatToByte(float value) =>
+        (byte)Math.Clamp(MathF.Round(Math.Clamp(value, 0f, 1f) * 255f), 0f, 255f);
+
+    private static ushort PackRgb565(byte red, byte green, byte blue) =>
+        (ushort)(
+            ((red * 31 + 127) / 255 << 11) |
+            ((green * 63 + 127) / 255 << 5) |
+            ((blue * 31 + 127) / 255));
+
+    private static byte Premultiply(byte color, byte alpha) =>
+        (byte)((color * alpha + 127) / 255);
+
+    private static byte Unpremultiply(byte color, byte alpha) =>
+        alpha == 0 ? (byte)0 : (byte)Math.Min(255, (color * 255 + alpha / 2) / alpha);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Reset();
+        }
+
+        base.Dispose(disposing);
     }
 
     private void ValidateCoordinates(int x, int y)
@@ -1629,8 +2197,22 @@ public class SKBitmap : IDisposable
 
     public SKData Encode(SKEncodedImageFormat format, int quality)
     {
-        using var image = SKImage.FromBitmap(this);
-        return image.Encode(format, quality);
+        using var pixmap = PeekPixels();
+        return pixmap?.Encode(format, quality)!;
+    }
+
+    public bool Encode(Stream dst, SKEncodedImageFormat format, int quality)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        using var pixmap = PeekPixels();
+        return pixmap is not null && pixmap.Encode(dst, format, quality);
+    }
+
+    public bool Encode(SKWStream dst, SKEncodedImageFormat format, int quality)
+    {
+        ArgumentNullException.ThrowIfNull(dst);
+        using var pixmap = PeekPixels();
+        return pixmap is not null && pixmap.Encode(dst, format, quality);
     }
 
     internal byte[] CopyRgba8888Rows()
