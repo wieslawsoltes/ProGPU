@@ -612,70 +612,777 @@ public partial class SKPath : SKObject
     }
 }
 
+public enum SKRoundRectCorner
+{
+    UpperLeft = 0,
+    UpperRight = 1,
+    LowerRight = 2,
+    LowerLeft = 3,
+}
+
+public enum SKRoundRectType
+{
+    Empty = 0,
+    Rect = 1,
+    Oval = 2,
+    Simple = 3,
+    NinePatch = 4,
+    Complex = 5,
+}
+
 public class SKRoundRect : IDisposable
 {
-    public SKRect Rect { get; private set; }
-    public SKPoint[] CornerRadii { get; } = new SKPoint[4];
-    public SKPoint[] Radii => CornerRadii;
+    private const float NearlyZero = 1f / (1 << 12);
+    private readonly SKPoint[] _radii = new SKPoint[4];
+    private SKRect _rect;
+    private SKRoundRectType _type;
+
+    public SKRect Rect => _rect;
+
+    public SKPoint[] Radii => (SKPoint[])_radii.Clone();
+
+    public SKRoundRectType Type => _type;
+
+    public float Width => _rect.Width;
+
+    public float Height => _rect.Height;
+
+    public bool IsValid => ValidateState();
+
+    public bool AllCornersCircular => CheckAllCornersCircular(NearlyZero);
+
+    internal SKPoint[] CornerRadii => _radii;
 
     public SKRoundRect()
     {
-        Rect = SKRect.Empty;
+        SetEmpty();
     }
 
     public SKRoundRect(SKRect rect)
     {
-        Rect = rect;
+        SetRect(rect);
     }
 
-    public SKRoundRect(SKRect rect, float rx, float ry)
+    public SKRoundRect(SKRect rect, float radius)
+        : this(rect, radius, radius)
     {
-        Rect = rect;
-        for (int i = 0; i < 4; i++)
+    }
+
+    public SKRoundRect(SKRect rect, float xRadius, float yRadius)
+    {
+        SetRect(rect, xRadius, yRadius);
+    }
+
+    public SKRoundRect(SKRoundRect rrect)
+    {
+        ArgumentNullException.ThrowIfNull(rrect);
+        _rect = rrect._rect;
+        _type = rrect._type;
+        Array.Copy(rrect._radii, _radii, _radii.Length);
+    }
+
+    public bool CheckAllCornersCircular(float tolerance)
+    {
+        for (var index = 0; index < _radii.Length; index++)
         {
-            CornerRadii[i] = new SKPoint(rx, ry);
+            if (!(MathF.Abs(_radii[index].X - _radii[index].Y) <= tolerance))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public void SetEmpty()
+    {
+        _rect = SKRect.Empty;
+        Array.Clear(_radii);
+        _type = SKRoundRectType.Empty;
+    }
+
+    public void SetRect(SKRect rect)
+    {
+        if (!InitializeRect(rect))
+        {
+            return;
+        }
+
+        Array.Clear(_radii);
+        _type = SKRoundRectType.Rect;
+    }
+
+    public void SetRect(SKRect rect, float xRadius, float yRadius)
+    {
+        if (!InitializeRect(rect))
+        {
+            return;
+        }
+
+        if (!float.IsFinite(xRadius) || !float.IsFinite(yRadius))
+        {
+            xRadius = 0f;
+            yRadius = 0f;
+        }
+
+        if (_rect.Width < xRadius + xRadius || _rect.Height < yRadius + yRadius)
+        {
+            var scale = MathF.Min(_rect.Width / (xRadius + xRadius), _rect.Height / (yRadius + yRadius));
+            xRadius *= scale;
+            yRadius *= scale;
+        }
+
+        if (xRadius <= 0f || yRadius <= 0f)
+        {
+            SetRect(rect);
+            return;
+        }
+
+        var type = SKRoundRectType.Simple;
+        if (xRadius >= _rect.Width * 0.5f && yRadius >= _rect.Height * 0.5f)
+        {
+            type = SKRoundRectType.Oval;
+            xRadius = _rect.Width * 0.5f;
+            yRadius = _rect.Height * 0.5f;
+        }
+
+        Array.Fill(_radii, new SKPoint(xRadius, yRadius));
+        _type = type;
+    }
+
+    public void SetOval(SKRect rect)
+    {
+        if (!InitializeRect(rect))
+        {
+            return;
+        }
+
+        var xRadius = _rect.Width * 0.5f;
+        var yRadius = _rect.Height * 0.5f;
+        if (xRadius == 0f || yRadius == 0f)
+        {
+            Array.Clear(_radii);
+            _type = SKRoundRectType.Rect;
+            return;
+        }
+
+        Array.Fill(_radii, new SKPoint(xRadius, yRadius));
+        _type = SKRoundRectType.Oval;
+    }
+
+    public void SetNinePatch(
+        SKRect rect,
+        float leftRadius,
+        float topRadius,
+        float rightRadius,
+        float bottomRadius)
+    {
+        if (!InitializeRect(rect))
+        {
+            return;
+        }
+
+        if (!float.IsFinite(leftRadius) || !float.IsFinite(topRadius) ||
+            !float.IsFinite(rightRadius) || !float.IsFinite(bottomRadius))
+        {
+            SetRect(rect);
+            return;
+        }
+
+        leftRadius = MathF.Max(leftRadius, 0f);
+        topRadius = MathF.Max(topRadius, 0f);
+        rightRadius = MathF.Max(rightRadius, 0f);
+        bottomRadius = MathF.Max(bottomRadius, 0f);
+
+        var scale = 1f;
+        if (leftRadius + rightRadius > _rect.Width)
+        {
+            scale = _rect.Width / (leftRadius + rightRadius);
+        }
+
+        if (topRadius + bottomRadius > _rect.Height)
+        {
+            scale = MathF.Min(scale, _rect.Height / (topRadius + bottomRadius));
+        }
+
+        if (scale < 1f)
+        {
+            leftRadius *= scale;
+            topRadius *= scale;
+            rightRadius *= scale;
+            bottomRadius *= scale;
+        }
+
+        if (leftRadius == rightRadius && topRadius == bottomRadius)
+        {
+            if (leftRadius >= _rect.Width * 0.5f && topRadius >= _rect.Height * 0.5f)
+            {
+                _type = SKRoundRectType.Oval;
+                leftRadius = rightRadius = _rect.Width * 0.5f;
+                topRadius = bottomRadius = _rect.Height * 0.5f;
+            }
+            else if (leftRadius == 0f || topRadius == 0f)
+            {
+                _type = SKRoundRectType.Rect;
+                leftRadius = topRadius = rightRadius = bottomRadius = 0f;
+            }
+            else
+            {
+                _type = SKRoundRectType.Simple;
+            }
+        }
+        else
+        {
+            _type = SKRoundRectType.NinePatch;
+        }
+
+        _radii[0] = new SKPoint(leftRadius, topRadius);
+        _radii[1] = new SKPoint(rightRadius, topRadius);
+        _radii[2] = new SKPoint(rightRadius, bottomRadius);
+        _radii[3] = new SKPoint(leftRadius, bottomRadius);
+        if (ClampToZero())
+        {
+            SetRect(rect);
+        }
+        else if (_type == SKRoundRectType.NinePatch && !RadiiAreNinePatch())
+        {
+            _type = SKRoundRectType.Complex;
         }
     }
 
     public void SetRectRadii(SKRect rect, SKPoint[] radii)
     {
-        Rect = rect;
-        Array.Copy(radii, CornerRadii, 4);
+        ArgumentNullException.ThrowIfNull(radii);
+        SetRectRadii(rect, radii.AsSpan());
     }
 
-    public void SetRect(SKRect rect)
+    public void SetRectRadii(SKRect rect, ReadOnlySpan<SKPoint> radii)
     {
-        Rect = rect;
-        for (int i = 0; i < CornerRadii.Length; i++)
+        if (radii.Length != 4)
         {
-            CornerRadii[i] = default;
+            throw new ArgumentException("Radii must have a length of 4.", nameof(radii));
+        }
+
+        if (!InitializeRect(rect))
+        {
+            return;
+        }
+
+        for (var index = 0; index < radii.Length; index++)
+        {
+            if (!float.IsFinite(radii[index].X) || !float.IsFinite(radii[index].Y))
+            {
+                SetRect(rect);
+                return;
+            }
+
+            _radii[index] = radii[index];
+        }
+
+        if (ClampToZero())
+        {
+            SetRect(rect);
+            return;
+        }
+
+        ScaleRadii();
+    }
+
+    public bool Contains(SKRect rect)
+    {
+        if (IsEmptyRect(rect) || IsEmptyRect(_rect) ||
+            _rect.Left > rect.Left || _rect.Top > rect.Top ||
+            _rect.Right < rect.Right || _rect.Bottom < rect.Bottom)
+        {
+            return false;
+        }
+
+        if (_type == SKRoundRectType.Rect)
+        {
+            return true;
+        }
+
+        return CheckCornerContainment(rect.Left, rect.Top) &&
+               CheckCornerContainment(rect.Right, rect.Top) &&
+               CheckCornerContainment(rect.Right, rect.Bottom) &&
+               CheckCornerContainment(rect.Left, rect.Bottom);
+    }
+
+    public SKPoint GetRadii(SKRoundRectCorner corner) => _radii[(int)corner];
+
+    public void Deflate(SKSize size) => Deflate(size.Width, size.Height);
+
+    public void Deflate(float dx, float dy) => Inset(dx, dy);
+
+    public void Inflate(SKSize size) => Inflate(size.Width, size.Height);
+
+    public void Inflate(float dx, float dy) => Inset(-dx, -dy);
+
+    public void Offset(SKPoint pos) => Offset(pos.X, pos.Y);
+
+    public void Offset(float dx, float dy)
+    {
+        _rect.Offset(dx, dy);
+    }
+
+    public bool TryTransform(SKMatrix matrix, out SKRoundRect? transformed)
+    {
+        if (matrix.IsIdentity)
+        {
+            transformed = new SKRoundRect(this);
+            return true;
+        }
+
+        var diagonal = matrix.SkewX == 0f && matrix.SkewY == 0f;
+        var antiDiagonal = matrix.ScaleX == 0f && matrix.ScaleY == 0f;
+        if ((!diagonal && !antiDiagonal) ||
+            matrix.Persp0 != 0f || matrix.Persp1 != 0f || matrix.Persp2 != 1f)
+        {
+            transformed = null;
+            return false;
+        }
+
+        var newRect = MapBounds(_rect, matrix);
+        if (!IsFinite(newRect))
+        {
+            transformed = null;
+            return false;
+        }
+
+        if (_type == SKRoundRectType.Empty)
+        {
+            transformed = new SKRoundRect();
+            return true;
+        }
+
+        if (_type == SKRoundRectType.Rect)
+        {
+            transformed = new SKRoundRect(newRect);
+            return true;
+        }
+
+        if (_type == SKRoundRectType.Oval)
+        {
+            transformed = new SKRoundRect();
+            transformed.SetOval(newRect);
+            return true;
+        }
+
+        Span<SKPoint> mappedRadii = stackalloc SKPoint[4];
+        for (var corner = 0; corner < 4; corner++)
+        {
+            GetCornerContour(corner, out var previous, out var control, out var next);
+            previous = MapPoint(previous, matrix);
+            control = MapPoint(control, matrix);
+            next = MapPoint(next, matrix);
+
+            var first = control - previous;
+            var second = next - control;
+            SKPoint radius;
+            if (first.X != 0f)
+            {
+                radius = new SKPoint(MathF.Abs(first.X), MathF.Abs(second.Y));
+            }
+            else if (first.Y == 0f)
+            {
+                radius = new SKPoint(MathF.Abs(second.X), MathF.Abs(second.Y));
+            }
+            else
+            {
+                radius = new SKPoint(MathF.Abs(second.X), MathF.Abs(first.Y));
+            }
+
+            var targetCorner = control.X == newRect.Left
+                ? control.Y == newRect.Top ? 0 : 3
+                : control.Y == newRect.Top ? 1 : 2;
+            mappedRadii[targetCorner] = radius;
+        }
+
+        transformed = new SKRoundRect();
+        transformed.SetRectRadii(newRect, mappedRadii);
+        return true;
+    }
+
+    public SKRoundRect? Transform(SKMatrix matrix) =>
+        TryTransform(matrix, out var transformed) ? transformed : null;
+
+    void IDisposable.Dispose()
+    {
+    }
+
+    private bool InitializeRect(SKRect rect)
+    {
+        if (!IsFinite(rect))
+        {
+            SetEmpty();
+            return false;
+        }
+
+        _rect = rect.Standardized;
+        if (IsEmptyRect(_rect))
+        {
+            Array.Clear(_radii);
+            _type = SKRoundRectType.Empty;
+            return false;
+        }
+
+        return true;
+    }
+
+    private void Inset(float dx, float dy)
+    {
+        var rect = new SKRect(
+            _rect.Left + dx,
+            _rect.Top + dy,
+            _rect.Right - dx,
+            _rect.Bottom - dy);
+        var degenerate = false;
+        if (rect.Right <= rect.Left)
+        {
+            degenerate = true;
+            rect.Left = rect.Right = Midpoint(rect.Left, rect.Right);
+        }
+
+        if (rect.Bottom <= rect.Top)
+        {
+            degenerate = true;
+            rect.Top = rect.Bottom = Midpoint(rect.Top, rect.Bottom);
+        }
+
+        if (degenerate)
+        {
+            _rect = rect;
+            Array.Clear(_radii);
+            _type = SKRoundRectType.Empty;
+            return;
+        }
+
+        if (!IsFinite(rect))
+        {
+            SetEmpty();
+            return;
+        }
+
+        Span<SKPoint> radii = stackalloc SKPoint[4];
+        for (var index = 0; index < radii.Length; index++)
+        {
+            radii[index] = new SKPoint(
+                _radii[index].X == 0f ? 0f : _radii[index].X - dx,
+                _radii[index].Y == 0f ? 0f : _radii[index].Y - dy);
+        }
+
+        SetRectRadii(rect, radii);
+    }
+
+    private void ScaleRadii()
+    {
+        var width = (double)_rect.Right - _rect.Left;
+        var height = (double)_rect.Bottom - _rect.Top;
+        var scale = 1d;
+        scale = ComputeMinimumScale(_radii[0].X, _radii[1].X, width, scale);
+        scale = ComputeMinimumScale(_radii[1].Y, _radii[2].Y, height, scale);
+        scale = ComputeMinimumScale(_radii[2].X, _radii[3].X, width, scale);
+        scale = ComputeMinimumScale(_radii[3].Y, _radii[0].Y, height, scale);
+
+        FlushToZero(0, 1, xAxis: true);
+        FlushToZero(1, 2, xAxis: false);
+        FlushToZero(2, 3, xAxis: true);
+        FlushToZero(3, 0, xAxis: false);
+
+        if (scale < 1d)
+        {
+            AdjustRadii(0, 1, xAxis: true, width, scale);
+            AdjustRadii(1, 2, xAxis: false, height, scale);
+            AdjustRadii(2, 3, xAxis: true, width, scale);
+            AdjustRadii(3, 0, xAxis: false, height, scale);
+        }
+
+        ClampToZero();
+        ComputeType();
+    }
+
+    private void ComputeType()
+    {
+        if (IsEmptyRect(_rect))
+        {
+            Array.Clear(_radii);
+            _type = SKRoundRectType.Empty;
+            return;
+        }
+
+        var allRadiiEqual = true;
+        var allCornersSquare = _radii[0].X == 0f || _radii[0].Y == 0f;
+        for (var index = 1; index < _radii.Length; index++)
+        {
+            if (_radii[index].X != 0f && _radii[index].Y != 0f)
+            {
+                allCornersSquare = false;
+            }
+
+            if (_radii[index] != _radii[index - 1])
+            {
+                allRadiiEqual = false;
+            }
+        }
+
+        if (allCornersSquare)
+        {
+            _type = SKRoundRectType.Rect;
+        }
+        else if (allRadiiEqual)
+        {
+            if (_radii[0].X >= _rect.Width * 0.5f && _radii[0].Y >= _rect.Height * 0.5f)
+            {
+                Array.Fill(_radii, new SKPoint(_rect.Width * 0.5f, _rect.Height * 0.5f));
+                _type = SKRoundRectType.Oval;
+            }
+            else
+            {
+                _type = SKRoundRectType.Simple;
+            }
+        }
+        else
+        {
+            _type = RadiiAreNinePatch() ? SKRoundRectType.NinePatch : SKRoundRectType.Complex;
         }
     }
 
-    public void Inflate(float x, float y)
+    private bool ClampToZero()
     {
-        var rect = Rect;
-        rect.Inflate(x, y);
-        Rect = rect;
-        for (var i = 0; i < CornerRadii.Length; i++)
+        var allCornersSquare = true;
+        for (var index = 0; index < _radii.Length; index++)
         {
-            CornerRadii[i] = new SKPoint(
-                MathF.Max(0f, CornerRadii[i].X + x),
-                MathF.Max(0f, CornerRadii[i].Y + y));
+            if (_radii[index].X <= 0f || _radii[index].Y <= 0f)
+            {
+                _radii[index] = default;
+            }
+            else
+            {
+                allCornersSquare = false;
+            }
+        }
+
+        return allCornersSquare;
+    }
+
+    private bool RadiiAreNinePatch() =>
+        _radii[0].X == _radii[3].X &&
+        _radii[0].Y == _radii[1].Y &&
+        _radii[1].X == _radii[2].X &&
+        _radii[3].Y == _radii[2].Y;
+
+    private bool CheckCornerContainment(float x, float y)
+    {
+        SKPoint canonicalPoint;
+        var index = 0;
+        if (_type == SKRoundRectType.Oval)
+        {
+            canonicalPoint = new SKPoint(x - _rect.MidX, y - _rect.MidY);
+        }
+        else if (x < _rect.Left + _radii[0].X && y < _rect.Top + _radii[0].Y)
+        {
+            canonicalPoint = new SKPoint(x - (_rect.Left + _radii[0].X), y - (_rect.Top + _radii[0].Y));
+        }
+        else if (x < _rect.Left + _radii[3].X && y > _rect.Bottom - _radii[3].Y)
+        {
+            index = 3;
+            canonicalPoint = new SKPoint(x - (_rect.Left + _radii[3].X), y - (_rect.Bottom - _radii[3].Y));
+        }
+        else if (x > _rect.Right - _radii[1].X && y < _rect.Top + _radii[1].Y)
+        {
+            index = 1;
+            canonicalPoint = new SKPoint(x - (_rect.Right - _radii[1].X), y - (_rect.Top + _radii[1].Y));
+        }
+        else if (x > _rect.Right - _radii[2].X && y > _rect.Bottom - _radii[2].Y)
+        {
+            index = 2;
+            canonicalPoint = new SKPoint(x - (_rect.Right - _radii[2].X), y - (_rect.Bottom - _radii[2].Y));
+        }
+        else
+        {
+            return true;
+        }
+
+        var radius = _radii[index];
+        var distance = canonicalPoint.X * canonicalPoint.X * radius.Y * radius.Y +
+                       canonicalPoint.Y * canonicalPoint.Y * radius.X * radius.X;
+        var product = radius.X * radius.Y;
+        return distance <= product * product;
+    }
+
+    private void GetCornerContour(int corner, out SKPoint previous, out SKPoint control, out SKPoint next)
+    {
+        var radius = _radii[corner];
+        switch (corner)
+        {
+            case 0:
+                previous = new SKPoint(_rect.Left, _rect.Top + radius.Y);
+                control = new SKPoint(_rect.Left, _rect.Top);
+                next = new SKPoint(_rect.Left + radius.X, _rect.Top);
+                break;
+            case 1:
+                previous = new SKPoint(_rect.Right - radius.X, _rect.Top);
+                control = new SKPoint(_rect.Right, _rect.Top);
+                next = new SKPoint(_rect.Right, _rect.Top + radius.Y);
+                break;
+            case 2:
+                previous = new SKPoint(_rect.Right, _rect.Bottom - radius.Y);
+                control = new SKPoint(_rect.Right, _rect.Bottom);
+                next = new SKPoint(_rect.Right - radius.X, _rect.Bottom);
+                break;
+            default:
+                previous = new SKPoint(_rect.Left + radius.X, _rect.Bottom);
+                control = new SKPoint(_rect.Left, _rect.Bottom);
+                next = new SKPoint(_rect.Left, _rect.Bottom - radius.Y);
+                break;
         }
     }
 
-    public void Deflate(float x, float y)
+    private bool ValidateState()
     {
-        Inflate(-x, -y);
+        if (!IsFinite(_rect) || _rect.Left > _rect.Right || _rect.Top > _rect.Bottom)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < _radii.Length; index++)
+        {
+            var radius = _radii[index];
+            if (!float.IsFinite(radius.X) || !float.IsFinite(radius.Y) ||
+                !IsValidRadius(radius.X, _rect.Left, _rect.Right) ||
+                !IsValidRadius(radius.Y, _rect.Top, _rect.Bottom) ||
+                (radius.X == 0f) != (radius.Y == 0f))
+            {
+                return false;
+            }
+        }
+
+        return GetComputedType() == _type;
     }
 
-    public void SetEmpty()
+    private SKRoundRectType GetComputedType()
     {
-        SetRect(SKRect.Empty);
+        if (IsEmptyRect(_rect))
+        {
+            for (var index = 0; index < _radii.Length; index++)
+            {
+                if (_radii[index] != default)
+                {
+                    return (SKRoundRectType)(-1);
+                }
+            }
+
+            return SKRoundRectType.Empty;
+        }
+
+        var allRadiiEqual = true;
+        var allCornersSquare = _radii[0].X == 0f || _radii[0].Y == 0f;
+        for (var index = 1; index < _radii.Length; index++)
+        {
+            allCornersSquare &= _radii[index].X == 0f || _radii[index].Y == 0f;
+            allRadiiEqual &= _radii[index] == _radii[index - 1];
+        }
+
+        if (allCornersSquare)
+        {
+            return SKRoundRectType.Rect;
+        }
+
+        if (allRadiiEqual)
+        {
+            return _radii[0].X >= _rect.Width * 0.5f && _radii[0].Y >= _rect.Height * 0.5f
+                ? SKRoundRectType.Oval
+                : SKRoundRectType.Simple;
+        }
+
+        return RadiiAreNinePatch() ? SKRoundRectType.NinePatch : SKRoundRectType.Complex;
     }
 
-    public void Dispose() { }
+    private void FlushToZero(int firstIndex, int secondIndex, bool xAxis)
+    {
+        var first = xAxis ? _radii[firstIndex].X : _radii[firstIndex].Y;
+        var second = xAxis ? _radii[secondIndex].X : _radii[secondIndex].Y;
+        if (first + second == first)
+        {
+            second = 0f;
+        }
+        else if (first + second == second)
+        {
+            first = 0f;
+        }
+
+        SetRadiusAxis(firstIndex, xAxis, first);
+        SetRadiusAxis(secondIndex, xAxis, second);
+    }
+
+    private void AdjustRadii(int firstIndex, int secondIndex, bool xAxis, double limit, double scale)
+    {
+        var first = (float)(GetRadiusAxis(firstIndex, xAxis) * scale);
+        var second = (float)(GetRadiusAxis(secondIndex, xAxis) * scale);
+        if (first + second > limit)
+        {
+            var firstIsMinimum = first <= second;
+            var minimum = firstIsMinimum ? first : second;
+            var maximum = (float)(limit - minimum);
+            while (maximum + minimum > limit)
+            {
+                maximum = MathF.BitDecrement(maximum);
+            }
+
+            if (firstIsMinimum)
+            {
+                second = maximum;
+            }
+            else
+            {
+                first = maximum;
+            }
+        }
+
+        SetRadiusAxis(firstIndex, xAxis, first);
+        SetRadiusAxis(secondIndex, xAxis, second);
+    }
+
+    private float GetRadiusAxis(int index, bool xAxis) => xAxis ? _radii[index].X : _radii[index].Y;
+
+    private void SetRadiusAxis(int index, bool xAxis, float value)
+    {
+        _radii[index] = xAxis
+            ? new SKPoint(value, _radii[index].Y)
+            : new SKPoint(_radii[index].X, value);
+    }
+
+    private static double ComputeMinimumScale(double first, double second, double limit, double current) =>
+        first + second > limit ? Math.Min(current, limit / (first + second)) : current;
+
+    private static bool IsValidRadius(float radius, float minimum, float maximum) =>
+        minimum <= maximum && radius <= maximum - minimum &&
+        minimum + radius <= maximum && maximum - radius >= minimum && radius >= 0f;
+
+    private static SKRect MapBounds(SKRect rect, SKMatrix matrix)
+    {
+        var upperLeft = MapPoint(new SKPoint(rect.Left, rect.Top), matrix);
+        var upperRight = MapPoint(new SKPoint(rect.Right, rect.Top), matrix);
+        var lowerRight = MapPoint(new SKPoint(rect.Right, rect.Bottom), matrix);
+        var lowerLeft = MapPoint(new SKPoint(rect.Left, rect.Bottom), matrix);
+        return new SKRect(
+            MathF.Min(MathF.Min(upperLeft.X, upperRight.X), MathF.Min(lowerRight.X, lowerLeft.X)),
+            MathF.Min(MathF.Min(upperLeft.Y, upperRight.Y), MathF.Min(lowerRight.Y, lowerLeft.Y)),
+            MathF.Max(MathF.Max(upperLeft.X, upperRight.X), MathF.Max(lowerRight.X, lowerLeft.X)),
+            MathF.Max(MathF.Max(upperLeft.Y, upperRight.Y), MathF.Max(lowerRight.Y, lowerLeft.Y)));
+    }
+
+    private static SKPoint MapPoint(SKPoint point, SKMatrix matrix) => new(
+        matrix.ScaleX * point.X + matrix.SkewX * point.Y + matrix.TransX,
+        matrix.SkewY * point.X + matrix.ScaleY * point.Y + matrix.TransY);
+
+    private static float Midpoint(float first, float second) => first * 0.5f + second * 0.5f;
+
+    private static bool IsEmptyRect(SKRect rect) => rect.Left >= rect.Right || rect.Top >= rect.Bottom;
+
+    private static bool IsFinite(SKRect rect) =>
+        float.IsFinite(rect.Left) && float.IsFinite(rect.Top) &&
+        float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
 }
 
 public class SKRegion : IDisposable
