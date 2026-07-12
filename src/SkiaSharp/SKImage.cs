@@ -1226,7 +1226,7 @@ public class SKPixmap : SKObject
     }
 }
 
-public class SKBitmap : IDisposable
+public class SKBitmap : SKObject
 {
     private readonly object _canvasSync = new();
     private WeakReference<SKCanvas>? _attachedCanvas;
@@ -1251,6 +1251,41 @@ public class SKBitmap : IDisposable
     public int RowBytes => _rowBytes;
     public int ByteCount => ComputeByteCount(_info, _rowBytes);
     public byte[] Bytes => GetPixelSpan().ToArray();
+    public SKColor[] Pixels
+    {
+        get
+        {
+            var pixels = new SKColor[checked(_width * _height)];
+            for (var y = 0; y < _height; y++)
+            {
+                for (var x = 0; x < _width; x++)
+                {
+                    pixels[y * _width + x] = GetPixel(x, y);
+                }
+            }
+
+            return pixels;
+        }
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            var expected = (long)_width * _height;
+            if (value.LongLength != expected)
+            {
+                throw new ArgumentException(
+                    $"The number of pixels must equal Width x Height, or {expected}.",
+                    nameof(value));
+            }
+
+            for (var y = 0; y < _height; y++)
+            {
+                for (var x = 0; x < _width; x++)
+                {
+                    SetPixel(x, y, value[y * _width + x]);
+                }
+            }
+        }
+    }
     public bool ReadyToDraw => !IsEmpty && !IsNull;
     public bool IsEmpty => _info.IsEmpty;
     public bool IsNull => _pixels == IntPtr.Zero;
@@ -1258,6 +1293,7 @@ public class SKBitmap : IDisposable
     public bool IsImmutable => _isImmutable;
 
     public SKBitmap()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _pixels = IntPtr.Zero;
         _ownsPixels = false;
@@ -1308,18 +1344,6 @@ public class SKBitmap : IDisposable
         if (!TryAllocPixels(info, flags))
         {
             throw new Exception("Unable to allocate pixels for the bitmap.");
-        }
-    }
-
-    ~SKBitmap()
-    {
-        try
-        {
-            ReleasePixels();
-        }
-        catch
-        {
-            // Release callbacks must not terminate the process from the finalizer thread.
         }
     }
 
@@ -1635,19 +1659,148 @@ public class SKBitmap : IDisposable
         }
     }
 
+    public void Erase(SKColor color, SKRectI rect)
+    {
+        using var pixmap = PeekPixels();
+        pixmap?.Erase(color, rect);
+    }
+
     public void NotifyPixelsChanged() { }
 
-    public SKBitmap Copy()
+    public SKBitmap Copy() => Copy(ColorType);
+
+    public SKBitmap Copy(SKColorType colorType)
     {
-        var copy = new SKBitmap(_info);
-        CopyRows(_pixels, RowBytes, copy.GetPixels(), copy.RowBytes, _info.RowBytes, _height);
-        return copy;
+        var copy = new SKBitmap();
+        if (CopyTo(copy, colorType))
+        {
+            return copy;
+        }
+
+        copy.Dispose();
+        return null!;
+    }
+
+    public bool CopyTo(SKBitmap destination) => CopyTo(destination, ColorType);
+
+    public bool CopyTo(SKBitmap destination, SKColorType colorType)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (!CanCopyTo(colorType))
+        {
+            return false;
+        }
+
+        using var source = PeekPixels();
+        if (source is null)
+        {
+            return false;
+        }
+
+        using var converted = new SKBitmap();
+        var info = Info.WithColorType(colorType);
+        if (!converted.TryAllocPixels(info))
+        {
+            return false;
+        }
+
+        using var convertedPixels = converted.PeekPixels();
+        if (!source.ReadPixels(convertedPixels))
+        {
+            return false;
+        }
+
+        destination.SwapStorage(converted);
+        return true;
     }
 
     public void SetImmutable() => _isImmutable = true;
 
-    public bool CanCopyTo(SKColorType type) =>
-        type is SKColorType.Rgba8888 or SKColorType.Bgra8888 or SKColorType.Rgb565;
+    public bool CanCopyTo(SKColorType type) => type is
+        SKColorType.Alpha8 or
+        SKColorType.Rgb565 or
+        SKColorType.Argb4444 or
+        SKColorType.Rgba8888 or
+        SKColorType.Rgb888x or
+        SKColorType.Bgra8888 or
+        SKColorType.Gray8 or
+        SKColorType.Rg88 or
+        SKColorType.Srgba8888 or
+        SKColorType.R8Unorm;
+
+    public bool ExtractSubset(SKBitmap destination, SKRectI subset)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        using var source = PeekPixels();
+        if (source is null)
+        {
+            return false;
+        }
+
+        using var view = source.ExtractSubset(subset);
+        if (view is null)
+        {
+            return false;
+        }
+
+        using var extracted = new SKBitmap();
+        if (!extracted.InstallPixels(view.Info, view.GetPixels(), view.RowBytes))
+        {
+            return false;
+        }
+
+        extracted._pixelOwner = view.PixelSource ?? this;
+        destination.SwapStorage(extracted);
+        return true;
+    }
+
+    public bool ExtractAlpha(SKBitmap destination)
+    {
+        return ExtractAlpha(destination, null!, out _);
+    }
+
+    public bool ExtractAlpha(SKBitmap destination, out SKPointI offset)
+    {
+        return ExtractAlpha(destination, null!, out offset);
+    }
+
+    public bool ExtractAlpha(SKBitmap destination, SKPaint paint)
+    {
+        return ExtractAlpha(destination, paint, out _);
+    }
+
+    public bool ExtractAlpha(SKBitmap destination, SKPaint paint, out SKPointI offset)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        offset = new SKPointI(0, 0);
+        using var source = PeekPixels();
+        if (source is null)
+        {
+            return false;
+        }
+
+        var alphaInfo = new SKImageInfo(
+            Width,
+            Height,
+            SKColorType.Alpha8,
+            SKAlphaType.Unpremul);
+        using var alpha = new SKBitmap(alphaInfo, checked((alphaInfo.RowBytes + 3) & ~3));
+        var destinationPixels = alpha.GetPixelSpan();
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                destinationPixels[y * alpha.RowBytes + x] =
+                    (byte)Math.Clamp(
+                        MathF.Round(source.GetPixelAlpha(x, y) * 255f),
+                        0f,
+                        255f);
+            }
+        }
+
+        destination.SwapStorage(alpha);
+        return true;
+    }
 
     public static SKBitmap Decode(SKData data)
     {
@@ -1895,6 +2048,16 @@ public class SKBitmap : IDisposable
         return true;
     }
 
+#pragma warning disable CS0619
+    [Obsolete("Use Resize(SKImageInfo info, SKSamplingOptions sampling) instead.", true)]
+    public SKBitmap Resize(SKImageInfo info, SKFilterQuality quality) =>
+        Resize(info, SamplingFromQuality((int)quality));
+
+    [Obsolete("Use Resize(SKSizeI size, SKSamplingOptions sampling) instead.", true)]
+    public SKBitmap Resize(SKSizeI size, SKFilterQuality quality) =>
+        Resize(size, SamplingFromQuality((int)quality));
+#pragma warning restore CS0619
+
     public SKBitmap Resize(SKImageInfo info, SKSamplingOptions sampling)
     {
         FlushAttachedCanvas();
@@ -1950,6 +2113,42 @@ public class SKBitmap : IDisposable
 
         return resized;
     }
+
+    public SKBitmap Resize(SKSizeI size, SKSamplingOptions sampling) =>
+        Resize(Info.WithSize(size), sampling);
+
+#pragma warning disable CS0619
+    [Obsolete("Use ScalePixels(SKBitmap destination, SKSamplingOptions sampling) instead.", true)]
+    public bool ScalePixels(SKBitmap destination, SKFilterQuality quality) =>
+        ScalePixels(destination, SamplingFromQuality((int)quality));
+
+    [Obsolete("Use ScalePixels(SKPixmap destination, SKSamplingOptions sampling) instead.", true)]
+    public bool ScalePixels(SKPixmap destination, SKFilterQuality quality) =>
+        ScalePixels(destination, SamplingFromQuality((int)quality));
+#pragma warning restore CS0619
+
+    public bool ScalePixels(SKBitmap destination, SKSamplingOptions sampling)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        using var pixmap = destination.PeekPixels();
+        return pixmap is not null && ScalePixels(pixmap, sampling);
+    }
+
+    public bool ScalePixels(SKPixmap destination, SKSamplingOptions sampling)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        using var source = PeekPixels();
+        return source is not null && source.ScalePixels(destination, sampling);
+    }
+
+    private static SKSamplingOptions SamplingFromQuality(int quality) => quality switch
+    {
+        0 => SKSamplingOptions.Default,
+        1 => new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None),
+        2 => new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+        3 => new SKSamplingOptions(SKCubicResampler.Mitchell),
+        _ => SKSamplingOptions.Default,
+    };
 
     private static bool SupportsResizeColorType(SKColorType colorType) =>
         colorType is SKColorType.Rgb565
@@ -2354,15 +2553,35 @@ public class SKBitmap : IDisposable
         _rowBytes = rowBytes;
     }
 
-    public void Dispose()
+    private void SwapStorage(SKBitmap other)
+    {
+        FlushAttachedCanvas();
+        other.FlushAttachedCanvas();
+        (_pixels, other._pixels) = (other._pixels, _pixels);
+        (_ownsPixels, other._ownsPixels) = (other._ownsPixels, _ownsPixels);
+        (_width, other._width) = (other._width, _width);
+        (_height, other._height) = (other._height, _height);
+        (_rowBytes, other._rowBytes) = (other._rowBytes, _rowBytes);
+        (_info, other._info) = (other._info, _info);
+        (_releaseDelegate, other._releaseDelegate) = (other._releaseDelegate, _releaseDelegate);
+        (_releaseContext, other._releaseContext) = (other._releaseContext, _releaseContext);
+        (_pixelOwner, other._pixelOwner) = (other._pixelOwner, _pixelOwner);
+        (_isImmutable, other._isImmutable) = (other._isImmutable, _isImmutable);
+    }
+
+    protected override void Dispose(bool disposing)
     {
         try
         {
             ReleasePixels();
         }
+        catch when (!disposing)
+        {
+            // Release callbacks cannot be allowed to terminate the finalizer thread.
+        }
         finally
         {
-            GC.SuppressFinalize(this);
+            base.Dispose(disposing);
         }
     }
 
