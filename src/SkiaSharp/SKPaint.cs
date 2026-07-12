@@ -13,9 +13,8 @@ public enum SKPaintStyle
     StrokeAndFill = 2,
 }
 
-public class SKPaint : IDisposable
+public partial class SKPaint : SKObject
 {
-    public IntPtr Handle { get; } = SKObjectHandle.Create();
     private const float HairlineStrokeWidth = 1f;
     private SKShader? _shader;
 
@@ -32,7 +31,7 @@ public class SKPaint : IDisposable
     }
     public bool IsStroke
     {
-        get => Style == SKPaintStyle.Stroke;
+        get => Style != SKPaintStyle.Fill;
         set => Style = value ? SKPaintStyle.Stroke : SKPaintStyle.Fill;
     }
     public float StrokeWidth { get; set; }
@@ -58,13 +57,31 @@ public class SKPaint : IDisposable
     public SKImageFilter? ImageFilter { get; set; }
     public SKPathEffect? PathEffect { get; set; }
     public SKBlendMode BlendMode { get; set; } = SKBlendMode.SrcOver;
-    public bool IsAntialias { get; set; }
-    public SKTypeface? Typeface { get; set; }
-    public float TextSize { get; set; } = 12f;
+    public bool IsAntialias
+    {
+        get => _isAntialias;
+        set
+        {
+            _isAntialias = value;
+            UpdateLegacyFontEdging();
+        }
+    }
+    [Obsolete("Use SKFont.Typeface instead.", true)]
+    public SKTypeface Typeface
+    {
+        get => _legacyFont.Typeface;
+        set => _legacyFont.Typeface = value;
+    }
+    [Obsolete("Use SKFont.Size instead.", true)]
+    public float TextSize
+    {
+        get => _legacyFont.Size;
+        set => _legacyFont.Size = value;
+    }
 
     public SKPaint Clone()
     {
-        return new SKPaint
+        var clone = new SKPaint
         {
             Style = Style,
             Color = Color,
@@ -78,9 +95,11 @@ public class SKPaint : IDisposable
             PathEffect = PathEffect,
             BlendMode = BlendMode,
             IsAntialias = IsAntialias,
-            Typeface = Typeface,
-            TextSize = TextSize
+            IsDither = IsDither,
+            MaskFilter = MaskFilter,
         };
+        clone.CopyLegacyTextStateFrom(this);
+        return clone;
     }
 
     public Brush? ToBrush()
@@ -207,14 +226,15 @@ public class SKPaint : IDisposable
         ImageFilter = null;
         PathEffect = null;
         BlendMode = SKBlendMode.SrcOver;
-        IsAntialias = false;
-        Typeface = null;
-        TextSize = 12f;
+        MaskFilter = null;
+        ResetLegacyTextState();
     }
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
         Shader = null;
+        _legacyFont.Dispose();
+        base.Dispose(disposing);
     }
 
     public bool GetFillPath(SKPath source, SKPath destination)
