@@ -33,38 +33,43 @@ public class SKFont : IDisposable
         if (outline == null) return null;
 
         var path = new SKPath();
-        float scale = Size / Typeface.Font.UnitsPerEm;
+        var scaleY = Size / Typeface.Font.UnitsPerEm;
+        var scaleX = scaleY * ScaleX;
+
+        Vector2 TransformPoint(Vector2 point) => new(point.X * scaleX, point.Y * scaleY);
 
         foreach (var figure in outline.Figures)
         {
-            var start = figure.StartPoint * scale;
+            var start = TransformPoint(figure.StartPoint);
             path.MoveTo(start.X, start.Y);
 
             foreach (var segment in figure.Segments)
             {
                 if (segment is LineSegment line)
                 {
-                    var pt = line.Point * scale;
+                    var pt = TransformPoint(line.Point);
                     path.LineTo(pt.X, pt.Y);
                 }
                 else if (segment is QuadraticBezierSegment quad)
                 {
-                    var ctrl = quad.ControlPoint * scale;
-                    var pt = quad.Point * scale;
+                    var ctrl = TransformPoint(quad.ControlPoint);
+                    var pt = TransformPoint(quad.Point);
                     path.QuadTo(ctrl.X, ctrl.Y, pt.X, pt.Y);
                 }
                 else if (segment is CubicBezierSegment cubic)
                 {
-                    var ctrl1 = cubic.ControlPoint1 * scale;
-                    var ctrl2 = cubic.ControlPoint2 * scale;
-                    var pt = cubic.Point * scale;
+                    var ctrl1 = TransformPoint(cubic.ControlPoint1);
+                    var ctrl2 = TransformPoint(cubic.ControlPoint2);
+                    var pt = TransformPoint(cubic.Point);
                     path.CubicTo(ctrl1.X, ctrl1.Y, ctrl2.X, ctrl2.Y, pt.X, pt.Y);
                 }
                 else if (segment is ArcSegment arc)
                 {
-                    var pt = arc.Point * scale;
-                    var arcSize = arc.Size * scale;
-                    path.ArcTo(arcSize.X, arcSize.Y, arc.RotationAngle, 
+                    var pt = TransformPoint(arc.Point);
+                    var arcSize = new Vector2(
+                        MathF.Abs(arc.Size.X * scaleX),
+                        MathF.Abs(arc.Size.Y * scaleY));
+                    path.ArcTo(arcSize.X, arcSize.Y, arc.RotationAngle,
                         arc.IsLargeArc ? SKPathArcSize.Large : SKPathArcSize.Small,
                         arc.SweepDirection == SweepDirection.Clockwise ? SKPathDirection.Clockwise : SKPathDirection.CounterClockwise,
                         pt.X, pt.Y);
@@ -186,11 +191,26 @@ public class SKFont : IDisposable
         }
 
         var scale = Size / Math.Max(1, (int)Typeface.Font.UnitsPerEm);
+        var left = xMin * scale;
+        var top = -yMax * scale;
+        var right = xMax * scale;
+        var bottom = -yMin * scale;
+
+        var topLeftX = left * ScaleX + top * SkewX;
+        var topRightX = right * ScaleX + top * SkewX;
+        var bottomLeftX = left * ScaleX + bottom * SkewX;
+        var bottomRightX = right * ScaleX + bottom * SkewX;
+        var transformedLeft = MathF.Min(
+            MathF.Min(topLeftX, topRightX),
+            MathF.Min(bottomLeftX, bottomRightX));
+        var transformedRight = MathF.Max(
+            MathF.Max(topLeftX, topRightX),
+            MathF.Max(bottomLeftX, bottomRightX));
         bounds = new SKRect(
-            xMin * scale,
-            -yMax * scale,
-            xMax * scale,
-            -yMin * scale);
+            MathF.Floor(transformedLeft) - 1f,
+            MathF.Floor(top) - 1f,
+            MathF.Ceiling(transformedRight) + 1f,
+            MathF.Ceiling(bottom) + 1f);
         return !bounds.IsEmpty;
     }
 
@@ -288,7 +308,7 @@ public class SKFont : IDisposable
         {
             ushort glyphId = glyphs[i];
             
-            float advance = Typeface.Font.GetAdvanceWidth(glyphId, Size);
+            float advance = Typeface.Font.GetAdvanceWidth(glyphId, Size) * ScaleX;
             if (!widths.IsEmpty)
             {
                 widths[i] = advance;

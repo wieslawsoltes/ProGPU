@@ -87,6 +87,8 @@ Encoded images are decoded on the CPU before their pixels enter the GPU texture 
 
 CPU bitmap resizing follows Skia's pixel-center mapping and alpha representation. Nearest and linear modes use fixed one- and four-sample footprints; cubic mode evaluates the requested Mitchell-Netravali B/C kernel over a fixed 4x4 footprint, preserving the distinction between Mitchell and Catmull-Rom. Source rows are read with their actual stride and color order, and output is converted to RGBA8888, BGRA8888, RGB888x, or RGB565 without forcing a WebGPU upload. Nearest sampling is a direct `O(destination pixels)` pass with no source-sized temporary allocation, and same-format texels stay as raw copies. Linear and cubic sampling normalize source pixels once, then run in `O(source pixels + destination pixels)` and `O(source pixels + 16 * destination pixels)` time with `O(source pixels)` temporary storage.
 
+Font outline APIs preserve Skia's separation between glyph geometry and placement metrics. `ScaleX` stretches glyph paths and advances horizontally, while `SkewX` expands measured bounds without mutating `GetGlyphPath`/`GetTextPath` geometry. This keeps explicit glyph positions stable and lets callers apply skew during drawing without double-transforming cached outlines.
+
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.SkiaSharp` | ProGPU-backed SkiaSharp API compatibility layer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
