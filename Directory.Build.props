@@ -2,12 +2,12 @@
   <PropertyGroup>
     <ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.1.0</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.9</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.10</VersionSuffix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)-$(VersionSuffix)</Version>
     <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     <Description Condition="'$(Description)' == ''">ProGPU runtime package for GPU-accelerated .NET composition, rendering, vector graphics, text, and WebGPU platform integration.</Description>
     <PackageDescription Condition="'$(PackageDescription)' == ''">$(Description)</PackageDescription>
-    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Restores high-throughput rendering with compiled-scene reuse, stable glyph and path atlases, faster text and rich-document rendering, and bounded sample scheduling while preserving Svg.Skia and SkiaSharp image parity; also expands transformed-filter, path-operation, gradient-tiling, and named-color compatibility.</PackageReleaseNotes>
+    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Fixes Avalonia retained-text invalidation and missing glyphs with stable atlas coordinates, vector overflow fallback, and bounded glyph batching; completes additional SkiaSharp font, bitmap, data, stream, and image compatibility plus straight/premultiplied GDI alpha handling while preserving Svg.Skia parity and high-throughput rendering.</PackageReleaseNotes>
     <Authors Condition="'$(Authors)' == ''">Wieslaw Soltes</Authors>
     <Company Condition="'$(Company)' == ''">ProGPU</Company>
     <PackageProjectUrl Condition="'$(PackageProjectUrl)' == ''">https://github.com/wieslawsoltes/ProGPU</PackageProjectUrl>

@@ -6,7 +6,7 @@ on:
       version:
         description: NuGet package version to build.
         required: true
-        default: 0.1.0-preview.9
+        default: 0.1.0-preview.10
       publish:
         description: Push packages to NuGet.org after validation.
         required: true
