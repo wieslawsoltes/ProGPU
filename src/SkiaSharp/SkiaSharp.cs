@@ -635,133 +635,36 @@ public partial struct SKRectI : IEquatable<SKRectI>
         new(x, y, x + width, y + height);
 }
 
-public struct SKColor
+public readonly partial struct SKColor : IEquatable<SKColor>
 {
-    public byte R { get; }
-    public byte G { get; }
-    public byte B { get; }
-    public byte A { get; }
-    public byte Red => R;
-    public byte Green => G;
-    public byte Blue => B;
-    public byte Alpha => A;
+    private readonly uint _color;
 
-    public SKColor(byte r, byte g, byte b, byte a)
+    public byte Alpha => (byte)((_color >> 24) & 0xff);
+    public byte Red => (byte)((_color >> 16) & 0xff);
+    public byte Green => (byte)((_color >> 8) & 0xff);
+    public byte Blue => (byte)(_color & 0xff);
+
+    internal byte A => Alpha;
+    internal byte R => Red;
+    internal byte G => Green;
+    internal byte B => Blue;
+
+    public SKColor(byte red, byte green, byte blue, byte alpha)
     {
-        R = r;
-        G = g;
-        B = b;
-        A = a;
+        _color = (uint)((alpha << 24) | (red << 16) | (green << 8) | blue);
     }
 
-    public SKColor(byte r, byte g, byte b)
+    public SKColor(byte red, byte green, byte blue)
     {
-        R = r;
-        G = g;
-        B = b;
-        A = 255;
+        _color = 0xff000000u | (uint)(red << 16) | (uint)(green << 8) | blue;
     }
 
     public SKColor(uint value)
     {
-        A = (byte)((value >> 24) & 0xFF);
-        R = (byte)((value >> 16) & 0xFF);
-        G = (byte)((value >> 8) & 0xFF);
-        B = (byte)(value & 0xFF);
+        _color = value;
     }
 
     public static readonly SKColor Empty = new(0, 0, 0, 0);
-
-    public readonly SKColor WithRed(byte red) => new(red, G, B, A);
-    public readonly SKColor WithGreen(byte green) => new(R, green, B, A);
-    public readonly SKColor WithBlue(byte blue) => new(R, G, blue, A);
-    public readonly SKColor WithAlpha(byte alpha) => new(R, G, B, alpha);
-
-    public override readonly string ToString() => $"#{A:x2}{R:x2}{G:x2}{B:x2}";
-
-    public static SKColor Parse(string hexString)
-    {
-        if (!TryParse(hexString, out var color))
-        {
-            throw new ArgumentException("Invalid hexadecimal color string.", nameof(hexString));
-        }
-
-        return color;
-    }
-
-    public static bool TryParse(string? hexString, out SKColor color)
-    {
-        if (string.IsNullOrWhiteSpace(hexString))
-        {
-            color = Empty;
-            return false;
-        }
-
-        var value = hexString.AsSpan().Trim().TrimStart('#');
-        var length = value.Length;
-        if (length is 3 or 4)
-        {
-            byte alpha;
-            if (length == 4)
-            {
-                if (!byte.TryParse(value[..1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out alpha))
-                {
-                    color = Empty;
-                    return false;
-                }
-
-                alpha = (byte)((alpha << 4) | alpha);
-            }
-            else
-            {
-                alpha = byte.MaxValue;
-            }
-
-            if (!byte.TryParse(value.Slice(length - 3, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var red)
-                || !byte.TryParse(value.Slice(length - 2, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var green)
-                || !byte.TryParse(value.Slice(length - 1, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var blue))
-            {
-                color = Empty;
-                return false;
-            }
-
-            color = new SKColor(
-                (byte)((red << 4) | red),
-                (byte)((green << 4) | green),
-                (byte)((blue << 4) | blue),
-                alpha);
-            return true;
-        }
-
-        if (length is 6 or 8
-            && uint.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var packed))
-        {
-            color = new SKColor(packed);
-            if (length == 6)
-            {
-                color = color.WithAlpha(byte.MaxValue);
-            }
-
-            return true;
-        }
-
-        color = Empty;
-        return false;
-    }
-
-    public static implicit operator SKColor(uint val)
-    {
-        byte a = (byte)((val >> 24) & 0xFF);
-        byte r = (byte)((val >> 16) & 0xFF);
-        byte g = (byte)((val >> 8) & 0xFF);
-        byte b = (byte)(val & 0xFF);
-        return new SKColor(r, g, b, a);
-    }
-
-    public static implicit operator uint(SKColor color)
-    {
-        return ((uint)color.A << 24) | ((uint)color.R << 16) | ((uint)color.G << 8) | color.B;
-    }
 }
 
 public static class SKColors
@@ -910,20 +813,40 @@ public static class SKColors
     public static readonly SKColor YellowGreen = new(154, 205, 50, 255);
 }
 
-public struct SKColorF
+public readonly partial struct SKColorF : IEquatable<SKColorF>
 {
-    public float R;
-    public float G;
-    public float B;
-    public float A;
+    private readonly float _red;
+    private readonly float _green;
+    private readonly float _blue;
+    private readonly float _alpha;
 
-    public SKColorF(float r, float g, float b, float a)
+    public float Red => _red;
+    public float Green => _green;
+    public float Blue => _blue;
+    public float Alpha => _alpha;
+
+    internal float R => _red;
+    internal float G => _green;
+    internal float B => _blue;
+    internal float A => _alpha;
+
+    public SKColorF(float red, float green, float blue)
     {
-        R = r;
-        G = g;
-        B = b;
-        A = a;
+        _red = red;
+        _green = green;
+        _blue = blue;
+        _alpha = 1f;
     }
+
+    public SKColorF(float red, float green, float blue, float alpha)
+    {
+        _red = red;
+        _green = green;
+        _blue = blue;
+        _alpha = alpha;
+    }
+
+    public static readonly SKColorF Empty;
 }
 
 public struct SKColorSpaceTransferFn : IEquatable<SKColorSpaceTransferFn>

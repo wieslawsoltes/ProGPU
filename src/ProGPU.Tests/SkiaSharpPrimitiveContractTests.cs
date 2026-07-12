@@ -65,7 +65,7 @@ public sealed class SkiaSharpPrimitiveContractTests
     [InlineData("#GGG")]
     public void ColorParsingRejectsInvalidHexStrings(string? text)
     {
-        Assert.False(SKColor.TryParse(text, out var color));
+        Assert.False(SKColor.TryParse(text!, out var color));
         Assert.Equal((uint)SKColor.Empty, (uint)color);
     }
 
