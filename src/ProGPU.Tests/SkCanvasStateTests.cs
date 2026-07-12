@@ -2585,7 +2585,7 @@ public sealed class SkCanvasStateTests
         var brush = Assert.IsType<SolidColorBrush>(pen.Brush);
 
         AssertNear(0f, brush.Color.X);
-        AssertNear(1f, brush.Color.Y);
+        AssertNear(128f / 255f, brush.Color.Y);
         AssertNear(0f, brush.Color.Z);
         AssertNear(1f, brush.Color.W);
     }

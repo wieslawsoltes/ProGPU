@@ -1,4 +1,7 @@
 using System.Numerics;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using SkiaSharp;
 using Xunit;
 
@@ -70,6 +73,26 @@ public sealed class SkiaSharpPrimitiveContractTests
     public void CyanMatchesAqua()
     {
         Assert.Equal((uint)SKColors.Aqua, (uint)SKColors.Cyan);
+    }
+
+    [Fact]
+    public void NamedColorPaletteMatchesNativeSkiaSharp()
+    {
+        var rows = typeof(SKColors)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(SKColor))
+            .Select(field =>
+            {
+                var color = (SKColor)field.GetValue(null)!;
+                return $"{field.Name}\t{color.Red},{color.Green},{color.Blue},{color.Alpha}";
+            })
+            .OrderBy(row => row, StringComparer.Ordinal)
+            .ToArray();
+        var fingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', rows))));
+
+        Assert.Equal(142, rows.Length);
+        Assert.Equal("8637BF92DE0388C4FC891C45A150CB1CE91F73CAA4F9BC5455643DC395EB1BF0", fingerprint);
     }
 
     [Fact]

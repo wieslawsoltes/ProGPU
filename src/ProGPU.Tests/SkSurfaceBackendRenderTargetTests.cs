@@ -36,7 +36,7 @@ public sealed class SkSurfaceBackendRenderTargetTests
         }
 
         Assert.False(texture.IsDisposed);
-        AssertPixel(texture.ReadPixels(), 4, 0, 0, 0, 255, 0, 255);
+        AssertPixel(texture.ReadPixels(), 4, 0, 0, 0, 128, 0, 255);
     }
 
     [Fact]
