@@ -1647,6 +1647,22 @@ public class SKCanvas : IDisposable
         _currentMatrix.TransY += dx * _currentMatrix.SkewY + dy * _currentMatrix.ScaleY;
     }
 
+    public void Translate(SKPoint point)
+    {
+        if (!point.IsEmpty)
+        {
+            Translate(point.X, point.Y);
+        }
+    }
+
+    public void Scale(float scale)
+    {
+        if (scale != 1f)
+        {
+            Scale(scale, scale);
+        }
+    }
+
     public void Scale(float sx, float sy)
     {
         _currentMatrix.ScaleX *= sx;
@@ -1655,12 +1671,93 @@ public class SKCanvas : IDisposable
         _currentMatrix.ScaleY *= sy;
     }
 
+    public void Scale(SKPoint size)
+    {
+        if (!size.IsEmpty)
+        {
+            Scale(size.X, size.Y);
+        }
+    }
+
+    public void Scale(float sx, float sy, float px, float py)
+    {
+        if (sx == 1f && sy == 1f)
+        {
+            return;
+        }
+
+        Translate(px, py);
+        Scale(sx, sy);
+        Translate(-px, -py);
+    }
+
+    public void RotateDegrees(float degrees)
+    {
+        if ((double)degrees % 360d != 0d)
+        {
+            Concat(SKMatrix.CreateRotationDegrees(degrees));
+        }
+    }
+
+    public void RotateDegrees(float degrees, float px, float py)
+    {
+        if ((double)degrees % 360d == 0d)
+        {
+            return;
+        }
+
+        Translate(px, py);
+        RotateDegrees(degrees);
+        Translate(-px, -py);
+    }
+
+    public void RotateRadians(float radians)
+    {
+        if ((double)radians % (Math.PI * 2d) != 0d)
+        {
+            Concat(SKMatrix.CreateRotation(radians));
+        }
+    }
+
+    public void RotateRadians(float radians, float px, float py)
+    {
+        if ((double)radians % (Math.PI * 2d) == 0d)
+        {
+            return;
+        }
+
+        Translate(px, py);
+        RotateRadians(radians);
+        Translate(-px, -py);
+    }
+
+    public void Skew(float sx, float sy)
+    {
+        if (sx != 0f || sy != 0f)
+        {
+            Concat(SKMatrix.CreateSkew(sx, sy));
+        }
+    }
+
+    public void Skew(SKPoint skew)
+    {
+        if (!skew.IsEmpty)
+        {
+            Skew(skew.X, skew.Y);
+        }
+    }
+
     public void SetMatrix(SKMatrix matrix)
     {
         _currentMatrix = matrix;
     }
 
-    public void SetMatrix(SKMatrix44 matrix)
+    public void SetMatrix(in SKMatrix matrix)
+    {
+        _currentMatrix = matrix;
+    }
+
+    public void SetMatrix(in SKMatrix44 matrix)
     {
         _currentMatrix = SKMatrix.FromMatrix4x4(matrix.ToMatrix4x4());
     }
@@ -1673,6 +1770,12 @@ public class SKCanvas : IDisposable
     public void Concat(in SKMatrix matrix)
     {
         _currentMatrix = SKMatrix.Concat(_currentMatrix, matrix);
+    }
+
+    public void Concat(in SKMatrix44 matrix)
+    {
+        var matrix2D = SKMatrix.FromMatrix4x4(matrix.ToMatrix4x4());
+        _currentMatrix = SKMatrix.Concat(_currentMatrix, matrix2D);
     }
 
     public bool QuickReject(SKRect rect)
