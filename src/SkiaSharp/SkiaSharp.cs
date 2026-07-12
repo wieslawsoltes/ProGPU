@@ -1008,19 +1008,39 @@ public struct SKRotationScaleMatrix : IEquatable<SKRotationScaleMatrix>
     public override readonly int GetHashCode() => HashCode.Combine(SCos, SSin, TX, TY);
 }
 
-public struct SKCubicResampler
+public readonly struct SKCubicResampler : IEquatable<SKCubicResampler>
 {
-    public float B;
-    public float C;
+    private readonly float _b;
+    private readonly float _c;
 
     public SKCubicResampler(float b, float c)
     {
-        B = b;
-        C = c;
+        _b = b;
+        _c = c;
     }
 
     public static readonly SKCubicResampler Mitchell = new(1f / 3f, 1f / 3f);
     public static readonly SKCubicResampler CatmullRom = new(0f, 0.5f);
+
+    public float B => _b;
+
+    public float C => _c;
+
+    public bool Equals(SKCubicResampler other) => _b == other._b && _c == other._c;
+
+    public override bool Equals(object? obj) => obj is SKCubicResampler other && Equals(other);
+
+    public static bool operator ==(SKCubicResampler left, SKCubicResampler right) => left.Equals(right);
+
+    public static bool operator !=(SKCubicResampler left, SKCubicResampler right) => !left.Equals(right);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(_b);
+        hash.Add(_c);
+        return hash.ToHashCode();
+    }
 }
 
 public struct SKSamplingOptions
