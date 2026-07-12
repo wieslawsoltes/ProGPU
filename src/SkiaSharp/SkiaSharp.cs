@@ -1255,26 +1255,70 @@ public class SKColorSpace : IDisposable
     public void Dispose() { }
 }
 
-public struct SKImageInfo
+public struct SKImageInfo : IEquatable<SKImageInfo>
 {
-    public int Width;
-    public int Height;
-    public SKColorType ColorType;
-    public SKAlphaType AlphaType;
-    public SKColorSpace? ColorSpace;
+    public static readonly SKImageInfo Empty;
+    public static readonly SKColorType PlatformColorType = SKColorType.Rgba8888;
+    public static readonly int PlatformColorAlphaShift = 24;
+    public static readonly int PlatformColorRedShift = 0;
+    public static readonly int PlatformColorGreenShift = 8;
+    public static readonly int PlatformColorBlueShift = 16;
 
-    public int BytesPerPixel => ColorType switch
+    public int Width { readonly get; set; }
+    public int Height { readonly get; set; }
+    public SKColorType ColorType { readonly get; set; }
+    public SKAlphaType AlphaType { readonly get; set; }
+    public SKColorSpace? ColorSpace { readonly get; set; }
+
+    public readonly int BytesPerPixel => ColorType switch
     {
+        SKColorType.Unknown => 0,
         SKColorType.Alpha8 => 1,
         SKColorType.Rgb565 or SKColorType.Argb4444 => 2,
         SKColorType.RgbaF16 => 8,
         SKColorType.RgbaF32 => 16,
         _ => 4
     };
-    public int RowBytes => checked(Width * BytesPerPixel);
-    public int BytesSize => RowBytes * Height;
+    public readonly int BitShiftPerPixel => BytesPerPixel switch
+    {
+        1 => 0,
+        2 => 1,
+        4 => 2,
+        8 => 3,
+        16 => 4,
+        _ => 0,
+    };
+    public readonly int BitsPerPixel => BytesPerPixel * 8;
+    public readonly int BytesSize => checked(Width * Height * BytesPerPixel);
+    public readonly long BytesSize64 => (long)Width * Height * BytesPerPixel;
+    public readonly int RowBytes => checked(Width * BytesPerPixel);
+    public readonly long RowBytes64 => (long)Width * BytesPerPixel;
+    public readonly bool IsEmpty => Width <= 0 || Height <= 0;
+    public readonly bool IsOpaque => AlphaType == SKAlphaType.Opaque;
+    public readonly SKSizeI Size => new(Width, Height);
+    public readonly SKRectI Rect => SKRectI.Create(Width, Height);
 
-    public SKImageInfo(int width, int height, SKColorType colorType = SKColorType.Rgba8888, SKAlphaType alphaType = SKAlphaType.Premul, SKColorSpace? colorSpace = null)
+    public SKImageInfo(int width, int height)
+        : this(width, height, PlatformColorType, SKAlphaType.Premul, null)
+    {
+    }
+
+    public SKImageInfo(int width, int height, SKColorType colorType)
+        : this(width, height, colorType, SKAlphaType.Premul, null)
+    {
+    }
+
+    public SKImageInfo(int width, int height, SKColorType colorType, SKAlphaType alphaType)
+        : this(width, height, colorType, alphaType, null)
+    {
+    }
+
+    public SKImageInfo(
+        int width,
+        int height,
+        SKColorType colorType,
+        SKAlphaType alphaType,
+        SKColorSpace? colorSpace)
     {
         Width = width;
         Height = height;
@@ -1283,7 +1327,51 @@ public struct SKImageInfo
         ColorSpace = colorSpace;
     }
 
-    public static readonly SKColorType PlatformColorType = SKColorType.Rgba8888;
+    public readonly SKImageInfo WithSize(SKSizeI size) => WithSize(size.Width, size.Height);
+
+    public readonly SKImageInfo WithSize(int width, int height)
+    {
+        var result = this;
+        result.Width = width;
+        result.Height = height;
+        return result;
+    }
+
+    public readonly SKImageInfo WithColorType(SKColorType colorType)
+    {
+        var result = this;
+        result.ColorType = colorType;
+        return result;
+    }
+
+    public readonly SKImageInfo WithColorSpace(SKColorSpace? colorSpace)
+    {
+        var result = this;
+        result.ColorSpace = colorSpace;
+        return result;
+    }
+
+    public readonly SKImageInfo WithAlphaType(SKAlphaType alphaType)
+    {
+        var result = this;
+        result.AlphaType = alphaType;
+        return result;
+    }
+
+    public readonly bool Equals(SKImageInfo other) =>
+        ReferenceEquals(ColorSpace, other.ColorSpace) &&
+        Width == other.Width &&
+        Height == other.Height &&
+        ColorType == other.ColorType &&
+        AlphaType == other.AlphaType;
+
+    public override readonly bool Equals(object? obj) => obj is SKImageInfo other && Equals(other);
+
+    public override readonly int GetHashCode() =>
+        HashCode.Combine(ColorSpace, Width, Height, ColorType, AlphaType);
+
+    public static bool operator ==(SKImageInfo left, SKImageInfo right) => left.Equals(right);
+    public static bool operator !=(SKImageInfo left, SKImageInfo right) => !left.Equals(right);
 }
 
 public abstract class SKStream : IDisposable
