@@ -1140,49 +1140,93 @@ public struct SKRectI : IEquatable<SKRectI>
     public static bool operator !=(SKRectI left, SKRectI right) => !left.Equals(right);
 }
 
-public struct SKColor
+public readonly struct SKColor : IEquatable<SKColor>
 {
-    public byte R { get; }
-    public byte G { get; }
-    public byte B { get; }
-    public byte A { get; }
-    public byte Red => R;
-    public byte Green => G;
-    public byte Blue => B;
-    public byte Alpha => A;
+    private readonly uint _color;
+
+    public static readonly SKColor Empty;
+
+    public byte Alpha => (byte)((_color >> 24) & 0xff);
+
+    public byte Red => (byte)((_color >> 16) & 0xff);
+
+    public byte Green => (byte)((_color >> 8) & 0xff);
+
+    public byte Blue => (byte)(_color & 0xff);
+
+    internal byte A => Alpha;
+
+    internal byte R => Red;
+
+    internal byte G => Green;
+
+    internal byte B => Blue;
+
+    public float Hue
+    {
+        get
+        {
+            ToHsv(out var hue, out _, out _);
+            return hue;
+        }
+    }
 
     public SKColor(byte r, byte g, byte b, byte a)
     {
-        R = r;
-        G = g;
-        B = b;
-        A = a;
+        _color = (uint)((a << 24) | (r << 16) | (g << 8) | b);
     }
 
     public SKColor(byte r, byte g, byte b)
     {
-        R = r;
-        G = g;
-        B = b;
-        A = 255;
+        _color = 0xff000000u | (uint)(r << 16) | (uint)(g << 8) | b;
     }
 
     public SKColor(uint value)
     {
-        A = (byte)((value >> 24) & 0xFF);
-        R = (byte)((value >> 16) & 0xFF);
-        G = (byte)((value >> 8) & 0xFF);
-        B = (byte)(value & 0xFF);
+        _color = value;
     }
 
-    public static readonly SKColor Empty = new(0, 0, 0, 0);
+    public SKColor WithRed(byte red) => new(red, Green, Blue, Alpha);
 
-    public readonly SKColor WithRed(byte red) => new(red, G, B, A);
-    public readonly SKColor WithGreen(byte green) => new(R, green, B, A);
-    public readonly SKColor WithBlue(byte blue) => new(R, G, blue, A);
-    public readonly SKColor WithAlpha(byte alpha) => new(R, G, B, alpha);
+    public SKColor WithGreen(byte green) => new(Red, green, Blue, Alpha);
 
-    public override readonly string ToString() => $"#{A:x2}{R:x2}{G:x2}{B:x2}";
+    public SKColor WithBlue(byte blue) => new(Red, Green, blue, Alpha);
+
+    public SKColor WithAlpha(byte alpha) => new(Red, Green, Blue, alpha);
+
+    public static SKColor FromHsl(float h, float s, float l, byte a = byte.MaxValue)
+    {
+        var color = SKColorF.FromHsl(h, s, l);
+        return new SKColor(
+            (byte)(color.Red * 255f),
+            (byte)(color.Green * 255f),
+            (byte)(color.Blue * 255f),
+            a);
+    }
+
+    public static SKColor FromHsv(float h, float s, float v, byte a = byte.MaxValue)
+    {
+        var color = SKColorF.FromHsv(h, s, v);
+        return new SKColor(
+            (byte)(color.Red * 255f),
+            (byte)(color.Green * 255f),
+            (byte)(color.Blue * 255f),
+            a);
+    }
+
+    public void ToHsl(out float h, out float s, out float l) =>
+        new SKColorF(Red / 255f, Green / 255f, Blue / 255f).ToHsl(out h, out s, out l);
+
+    public void ToHsv(out float h, out float s, out float v) =>
+        new SKColorF(Red / 255f, Green / 255f, Blue / 255f).ToHsv(out h, out s, out v);
+
+    public bool Equals(SKColor other) => _color == other._color;
+
+    public override bool Equals(object? obj) => obj is SKColor other && Equals(other);
+
+    public override int GetHashCode() => _color.GetHashCode();
+
+    public override string ToString() => $"#{Alpha:x2}{Red:x2}{Green:x2}{Blue:x2}";
 
     public static SKColor Parse(string hexString)
     {
@@ -1254,19 +1298,13 @@ public struct SKColor
         return false;
     }
 
-    public static implicit operator SKColor(uint val)
-    {
-        byte a = (byte)((val >> 24) & 0xFF);
-        byte r = (byte)((val >> 16) & 0xFF);
-        byte g = (byte)((val >> 8) & 0xFF);
-        byte b = (byte)(val & 0xFF);
-        return new SKColor(r, g, b, a);
-    }
+    public static bool operator ==(SKColor left, SKColor right) => left.Equals(right);
 
-    public static implicit operator uint(SKColor color)
-    {
-        return ((uint)color.A << 24) | ((uint)color.R << 16) | ((uint)color.G << 8) | color.B;
-    }
+    public static bool operator !=(SKColor left, SKColor right) => !left.Equals(right);
+
+    public static implicit operator SKColor(uint color) => new(color);
+
+    public static explicit operator uint(SKColor color) => color._color;
 }
 
 public static class SKColors
@@ -1313,7 +1351,7 @@ public static class SKColors
     public static readonly SKColor DeepSkyBlue = new(0, 191, 255, 255);
     public static readonly SKColor DimGray = new(105, 105, 105, 255);
     public static readonly SKColor DodgerBlue = new(30, 144, 255, 255);
-    public static readonly SKColor Empty = new(0, 0, 0, 0);
+    public static SKColor Empty => SKColor.Empty;
     public static readonly SKColor Firebrick = new(178, 34, 34, 255);
     public static readonly SKColor FloralWhite = new(255, 250, 240, 255);
     public static readonly SKColor ForestGreen = new(34, 139, 34, 255);
@@ -1415,20 +1453,291 @@ public static class SKColors
     public static readonly SKColor YellowGreen = new(154, 205, 50, 255);
 }
 
-public struct SKColorF
+public readonly struct SKColorF : IEquatable<SKColorF>
 {
-    public float R;
-    public float G;
-    public float B;
-    public float A;
+    private const float Epsilon = 0.001f;
 
-    public SKColorF(float r, float g, float b, float a)
+    private readonly float _red;
+    private readonly float _green;
+    private readonly float _blue;
+    private readonly float _alpha;
+
+    public static readonly SKColorF Empty;
+
+    public float Red => _red;
+
+    public float Green => _green;
+
+    public float Blue => _blue;
+
+    public float Alpha => _alpha;
+
+    internal float R => _red;
+
+    internal float G => _green;
+
+    internal float B => _blue;
+
+    internal float A => _alpha;
+
+    public float Hue
     {
-        R = r;
-        G = g;
-        B = b;
-        A = a;
+        get
+        {
+            ToHsv(out var hue, out _, out _);
+            return hue;
+        }
     }
+
+    public SKColorF(float red, float green, float blue)
+    {
+        _red = red;
+        _green = green;
+        _blue = blue;
+        _alpha = 1f;
+    }
+
+    public SKColorF(float red, float green, float blue, float alpha)
+    {
+        _red = red;
+        _green = green;
+        _blue = blue;
+        _alpha = alpha;
+    }
+
+    public SKColorF WithRed(float red) => new(red, _green, _blue, _alpha);
+
+    public SKColorF WithGreen(float green) => new(_red, green, _blue, _alpha);
+
+    public SKColorF WithBlue(float blue) => new(_red, _green, blue, _alpha);
+
+    public SKColorF WithAlpha(float alpha) => new(_red, _green, _blue, alpha);
+
+    public SKColorF Clamp() => new(
+        Math.Clamp(_red, 0f, 1f),
+        Math.Clamp(_green, 0f, 1f),
+        Math.Clamp(_blue, 0f, 1f),
+        Math.Clamp(_alpha, 0f, 1f));
+
+    public static SKColorF FromHsl(float h, float s, float l, float a = 1f)
+    {
+        h /= 360f;
+        s /= 100f;
+        l /= 100f;
+
+        var red = l;
+        var green = l;
+        var blue = l;
+        if (Math.Abs(s) > Epsilon)
+        {
+            var value2 = l < 0.5f ? l * (1f + s) : l + s - s * l;
+            var value1 = 2f * l - value2;
+            red = HueToRgb(value1, value2, h + 1f / 3f);
+            green = HueToRgb(value1, value2, h);
+            blue = HueToRgb(value1, value2, h - 1f / 3f);
+        }
+
+        return new SKColorF(red, green, blue, a);
+    }
+
+    private static float HueToRgb(float value1, float value2, float hue)
+    {
+        if (hue < 0f)
+        {
+            hue += 1f;
+        }
+
+        if (hue > 1f)
+        {
+            hue -= 1f;
+        }
+
+        if (6f * hue < 1f)
+        {
+            return value1 + (value2 - value1) * 6f * hue;
+        }
+
+        if (2f * hue < 1f)
+        {
+            return value2;
+        }
+
+        if (3f * hue < 2f)
+        {
+            return value1 + (value2 - value1) * (2f / 3f - hue) * 6f;
+        }
+
+        return value1;
+    }
+
+    public static SKColorF FromHsv(float h, float s, float v, float a = 1f)
+    {
+        h /= 360f;
+        s /= 100f;
+        v /= 100f;
+
+        var red = v;
+        var green = v;
+        var blue = v;
+        if (Math.Abs(s) > Epsilon)
+        {
+            h *= 6f;
+            if (Math.Abs(h - 6f) < Epsilon)
+            {
+                h = 0f;
+            }
+
+            var sector = (int)h;
+            var value1 = v * (1f - s);
+            var value2 = v * (1f - s * (h - sector));
+            var value3 = v * (1f - s * (1f - (h - sector)));
+            if (sector == 0)
+            {
+                red = v;
+                green = value3;
+                blue = value1;
+            }
+            else if (sector == 1)
+            {
+                red = value2;
+                green = v;
+                blue = value1;
+            }
+            else if (sector == 2)
+            {
+                red = value1;
+                green = v;
+                blue = value3;
+            }
+            else if (sector == 3)
+            {
+                red = value1;
+                green = value2;
+                blue = v;
+            }
+            else if (sector == 4)
+            {
+                red = value3;
+                green = value1;
+                blue = v;
+            }
+            else
+            {
+                red = v;
+                green = value1;
+                blue = value2;
+            }
+        }
+
+        return new SKColorF(red, green, blue, a);
+    }
+
+    public void ToHsl(out float h, out float s, out float l)
+    {
+        var minimum = Math.Min(Math.Min(_red, _green), _blue);
+        var maximum = Math.Max(Math.Max(_red, _green), _blue);
+        var delta = maximum - minimum;
+
+        h = 0f;
+        s = 0f;
+        l = (maximum + minimum) / 2f;
+        if (Math.Abs(delta) > Epsilon)
+        {
+            s = l < 0.5f
+                ? delta / (maximum + minimum)
+                : delta / (2f - maximum - minimum);
+            ResolveHue(_red, _green, _blue, maximum, delta, out h);
+        }
+
+        h *= 360f;
+        s *= 100f;
+        l *= 100f;
+    }
+
+    public void ToHsv(out float h, out float s, out float v)
+    {
+        var minimum = Math.Min(Math.Min(_red, _green), _blue);
+        var maximum = Math.Max(Math.Max(_red, _green), _blue);
+        var delta = maximum - minimum;
+
+        h = 0f;
+        s = 0f;
+        v = maximum;
+        if (Math.Abs(delta) > Epsilon)
+        {
+            s = delta / maximum;
+            ResolveHue(_red, _green, _blue, maximum, delta, out h);
+        }
+
+        h *= 360f;
+        s *= 100f;
+        v *= 100f;
+    }
+
+    private static void ResolveHue(float red, float green, float blue, float maximum, float delta, out float hue)
+    {
+        var deltaRed = (((maximum - red) / 6f) + delta / 2f) / delta;
+        var deltaGreen = (((maximum - green) / 6f) + delta / 2f) / delta;
+        var deltaBlue = (((maximum - blue) / 6f) + delta / 2f) / delta;
+        if (Math.Abs(red - maximum) < Epsilon)
+        {
+            hue = deltaBlue - deltaGreen;
+        }
+        else if (Math.Abs(green - maximum) < Epsilon)
+        {
+            hue = 1f / 3f + deltaRed - deltaBlue;
+        }
+        else
+        {
+            hue = 2f / 3f + deltaGreen - deltaRed;
+        }
+
+        if (hue < 0f)
+        {
+            hue += 1f;
+        }
+
+        if (hue > 1f)
+        {
+            hue -= 1f;
+        }
+    }
+
+    public bool Equals(SKColorF other) =>
+        _red == other._red && _green == other._green &&
+        _blue == other._blue && _alpha == other._alpha;
+
+    public override bool Equals(object? obj) => obj is SKColorF other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(_red, _green, _blue, _alpha);
+
+    public override string ToString() => ((SKColor)this).ToString();
+
+    public static bool operator ==(SKColorF left, SKColorF right) => left.Equals(right);
+
+    public static bool operator !=(SKColorF left, SKColorF right) => !left.Equals(right);
+
+    public static implicit operator SKColorF(SKColor color)
+    {
+        const float scale = 1f / 255f;
+        return new SKColorF(
+            color.Red * scale,
+            color.Green * scale,
+            color.Blue * scale,
+            color.Alpha * scale);
+    }
+
+    public static explicit operator SKColor(SKColorF color)
+    {
+        var clamped = color.Clamp();
+        return new SKColor(
+            ToByte(clamped.Red),
+            ToByte(clamped.Green),
+            ToByte(clamped.Blue),
+            ToByte(clamped.Alpha));
+    }
+
+    private static byte ToByte(float value) => (byte)MathF.Round(value * 255f);
 }
 
 public struct SKColorSpaceTransferFn : IEquatable<SKColorSpaceTransferFn>
