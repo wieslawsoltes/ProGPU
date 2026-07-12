@@ -641,7 +641,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var header = typeof(ShaderToyExtensionPipeline).GetField(
                 "VertexAndHeaderShader",
                 BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetRawConstantValue() as string
+            ?.GetValue(null) as string
             ?? throw new System.InvalidOperationException("Expected ShaderToy WGSL header.");
 
         Assert.Contains("iFrame: i32", header, System.StringComparison.Ordinal);

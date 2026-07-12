@@ -18,49 +18,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
     private const string CrossContextTextureErrorPrefix =
         "WPF shader effect sampler texture belongs to a different WebGPU context";
 
-    private const string VertexAndHeaderShaderPrefix = @"
-struct VSUniforms {
-    projection: mat4x4<f32>,
-    mvp: mat4x4<f32>,
-    view: mat4x4<f32>,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: VSUniforms;
-
-struct WpfEffectUniforms {
-    constants: array<vec4<f32>, 32>,
-    bounds: vec4<f32>,
-    textureSize: vec4<f32>,
-    metadata: vec4<f32>,
-};
-
-@group(1) @binding(0) var<uniform> effect: WpfEffectUniforms;
-
-struct VertexInput {
-    @location(0) position: vec2<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) texCoord: vec2<f32>,
-};
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) texCoord: vec2<f32>,
-};
-
-@vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-    var output: VertexOutput;
-    output.position = uniforms.projection * vec4<f32>(input.position, 0.0, 1.0);
-    output.color = input.color;
-    output.texCoord = input.texCoord;
-    return output;
-}
-
-fn wpf_constant(index: u32) -> vec4<f32> {
-    return effect.constants[index];
-}
-";
+    private static readonly string VertexAndHeaderShaderPrefix = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectHeader.wgsl");
 
     private static string CreateVertexAndHeaderShader(ReadOnlySpan<int> activeSamplerRegisters, bool includeMask)
     {
@@ -146,53 +104,11 @@ fn wpf_constant(index: u32) -> vec4<f32> {
             : StraightToPremultipliedFragmentWrapperShader;
     }
 
-    private const string PremultipliedFragmentWrapperShader = @"
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let inputColor = wpf_sample_source(input.texCoord);
-    let shaded = wpf_effect_main(input.texCoord, inputColor);
-    let shadedColor = clamp(shaded, vec4<f32>(0.0), vec4<f32>(1.0));
-    var maskAlpha = 1.0;
-    if (wpf_has_active_mask()) {
-        maskAlpha = wpf_active_mask_alpha(input.position);
-    }
+    private static readonly string PremultipliedFragmentWrapperShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectPremultipliedWrapper.wgsl");
 
-    let coverage = input.color.a * maskAlpha;
-    return vec4<f32>(shadedColor.rgb * input.color.rgb * coverage, shadedColor.a * coverage);
-}
-";
+    private static readonly string StraightFragmentWrapperShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectStraightWrapper.wgsl");
 
-    private const string StraightFragmentWrapperShader = @"
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let inputColor = wpf_sample_source(input.texCoord);
-    let shaded = wpf_effect_main(input.texCoord, inputColor);
-    let shadedColor = clamp(shaded, vec4<f32>(0.0), vec4<f32>(1.0));
-    var maskAlpha = 1.0;
-    if (wpf_has_active_mask()) {
-        maskAlpha = wpf_active_mask_alpha(input.position);
-    }
-
-    let coverage = input.color.a * maskAlpha;
-    return vec4<f32>(shadedColor.rgb * input.color.rgb, shadedColor.a * coverage);
-}
-";
-
-    private const string StraightToPremultipliedFragmentWrapperShader = @"
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let inputColor = wpf_sample_source(input.texCoord);
-    let shaded = wpf_effect_main(input.texCoord, inputColor);
-    let shadedColor = clamp(shaded, vec4<f32>(0.0), vec4<f32>(1.0));
-    var maskAlpha = 1.0;
-    if (wpf_has_active_mask()) {
-        maskAlpha = wpf_active_mask_alpha(input.position);
-    }
-
-    let coverage = input.color.a * maskAlpha;
-    return vec4<f32>(shadedColor.rgb * shadedColor.a * input.color.rgb * coverage, shadedColor.a * coverage);
-}
-";
+    private static readonly string StraightToPremultipliedFragmentWrapperShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectStraightToPremultipliedWrapper.wgsl");
 
     private struct EffectGpuResources
     {

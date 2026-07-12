@@ -43,77 +43,11 @@ namespace ProGPU.Scene.Extensions
 
     public unsafe class ShaderToyExtensionPipeline : ICompositorExtension, IDisposable
     {
-        private const string VertexAndHeaderShader = @"
-struct VSUniforms {
-    projection: mat4x4<f32>,
-    mvp: mat4x4<f32>,
-    view: mat4x4<f32>,
-};
+        private static readonly string VertexAndHeaderShader = ShaderResource.Load(typeof(ShaderToyExtensionPipeline), "ShaderToyHeader.wgsl");
 
-@group(0) @binding(0) var<uniform> uniforms: VSUniforms;
+        private static readonly string StraightFragmentWrapperShader = ShaderResource.Load(typeof(ShaderToyExtensionPipeline), "ShaderToyStraightWrapper.wgsl");
 
-struct ShaderToyUniforms {
-    iResolution: vec3<f32>,
-    iTime: f32,
-    iTimeDelta: f32,
-    iFrame: i32,
-    iFrameRate: f32,
-    _pad0: f32,
-    iMouse: vec4<f32>,
-    iDate: vec4<f32>,
-};
-
-@group(1) @binding(0) var<uniform> inputs: ShaderToyUniforms;
-
-@group(2) @binding(0) var activeMaskSampler: sampler;
-@group(2) @binding(1) var activeMaskTexture: texture_2d<f32>;
-
-struct VertexInput {
-    @location(0) position: vec2<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) texCoord: vec2<f32>,
-};
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) texCoord: vec2<f32>,
-};
-
-@vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-    var output: VertexOutput;
-    output.position = uniforms.projection * vec4<f32>(input.position, 0.0, 1.0);
-    output.color = input.color;
-    output.texCoord = input.texCoord;
-    return output;
-}
-";
-
-        private const string StraightFragmentWrapperShader = @"
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let fragCoord = vec2<f32>(input.texCoord.x * inputs.iResolution.x, (1.0 - input.texCoord.y) * inputs.iResolution.y);
-    let maskSize = max(vec2<f32>(textureDimensions(activeMaskTexture)), vec2<f32>(1.0));
-    let screenUv = input.position.xy / maskSize;
-    let maskAlpha = textureSample(activeMaskTexture, activeMaskSampler, screenUv).r;
-    let shaderColor = mainImage(fragCoord);
-    return vec4<f32>(shaderColor.rgb * input.color.rgb, shaderColor.a * input.color.a * maskAlpha);
-}
-";
-
-        private const string PremultipliedFragmentWrapperShader = @"
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let fragCoord = vec2<f32>(input.texCoord.x * inputs.iResolution.x, (1.0 - input.texCoord.y) * inputs.iResolution.y);
-    let maskSize = max(vec2<f32>(textureDimensions(activeMaskTexture)), vec2<f32>(1.0));
-    let screenUv = input.position.xy / maskSize;
-    let maskAlpha = textureSample(activeMaskTexture, activeMaskSampler, screenUv).r;
-    let shaderColor = mainImage(fragCoord);
-    let coverage = input.color.a * maskAlpha;
-    return vec4<f32>(shaderColor.rgb * shaderColor.a * input.color.rgb * coverage, shaderColor.a * coverage);
-}
-";
+        private static readonly string PremultipliedFragmentWrapperShader = ShaderResource.Load(typeof(ShaderToyExtensionPipeline), "ShaderToyPremultipliedWrapper.wgsl");
 
         private struct ToyGpuResources
         {

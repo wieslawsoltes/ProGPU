@@ -277,9 +277,5 @@ public sealed class WpfShaderEffectSampler
 
 public static class WpfShaderEffectShaders
 {
-    public const string PassThrough = @"
-fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
-    return inputColor;
-}
-";
+    public static readonly string PassThrough = ShaderResource.Load(typeof(WpfShaderEffectShaders), "WpfEffectPassThrough.wgsl");
 }
