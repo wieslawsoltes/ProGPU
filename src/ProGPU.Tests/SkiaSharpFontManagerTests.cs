@@ -96,6 +96,7 @@ public class SkiaSharpFontManagerTests
             HanCodepoint);
 
         Assert.Equal("PingFang SC", families[0]);
+        Assert.True(IndexOf(families, "Hiragino Sans GB") < IndexOf(families, "Heiti SC"));
         Assert.Contains("Noto Sans CJK SC", families);
     }
 

@@ -686,8 +686,8 @@ public class SKFontManager : IDisposable
                 {
                     Add(
                         "PingFang SC",
-                        "Heiti SC",
                         "Hiragino Sans GB",
+                        "Heiti SC",
                         "Noto Sans CJK SC",
                         "Noto Sans SC",
                         "Microsoft YaHei",
