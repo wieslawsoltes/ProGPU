@@ -1478,6 +1478,31 @@ public class SKColorFilter : IDisposable
             SKBlendMode.Modulate => source * dest,
             SKBlendMode.Multiply => BlendSeparable(source, dest, static (s, d) => s * d),
             SKBlendMode.Screen => BlendSeparable(source, dest, static (s, d) => s + d - (s * d)),
+            SKBlendMode.Overlay => BlendSeparable(source, dest, Overlay),
+            SKBlendMode.Darken => BlendSeparable(source, dest, static (s, d) => MathF.Min(s, d)),
+            SKBlendMode.Lighten => BlendSeparable(source, dest, static (s, d) => MathF.Max(s, d)),
+            SKBlendMode.ColorDodge => BlendSeparable(source, dest, ColorDodge),
+            SKBlendMode.ColorBurn => BlendSeparable(source, dest, ColorBurn),
+            SKBlendMode.HardLight => BlendSeparable(source, dest, HardLight),
+            SKBlendMode.SoftLight => BlendSeparable(source, dest, SoftLight),
+            SKBlendMode.Difference => BlendSeparable(source, dest, static (s, d) => MathF.Abs(d - s)),
+            SKBlendMode.Exclusion => BlendSeparable(source, dest, static (s, d) => s + d - (2f * s * d)),
+            SKBlendMode.Hue => BlendNonSeparable(
+                source,
+                dest,
+                static (s, d) => SetLuminosity(SetSaturation(s, Saturation(d)), Luminosity(d))),
+            SKBlendMode.Saturation => BlendNonSeparable(
+                source,
+                dest,
+                static (s, d) => SetLuminosity(SetSaturation(d, Saturation(s)), Luminosity(d))),
+            SKBlendMode.Color => BlendNonSeparable(
+                source,
+                dest,
+                static (s, d) => SetLuminosity(s, Luminosity(d))),
+            SKBlendMode.Luminosity => BlendNonSeparable(
+                source,
+                dest,
+                static (s, d) => SetLuminosity(d, Luminosity(s))),
             _ => throw new NotSupportedException($"SKColorFilter blend mode '{Mode}' is not supported.")
         };
 
@@ -1535,6 +1560,118 @@ public class SKColorFilter : IDisposable
         return (source * (1f - destAlpha))
             + (dest * (1f - sourceAlpha))
             + (sourceAlpha * destAlpha * blend(straightSource, straightDest));
+    }
+
+    private static Vector4 BlendNonSeparable(
+        Vector4 source,
+        Vector4 dest,
+        Func<Vector3, Vector3, Vector3> blend)
+    {
+        var sourceAlpha = source.W;
+        var destAlpha = dest.W;
+        var alpha = sourceAlpha + destAlpha - (sourceAlpha * destAlpha);
+        var straightSource = sourceAlpha > 0f
+            ? new Vector3(source.X, source.Y, source.Z) / sourceAlpha
+            : Vector3.Zero;
+        var straightDest = destAlpha > 0f
+            ? new Vector3(dest.X, dest.Y, dest.Z) / destAlpha
+            : Vector3.Zero;
+        var rgb = (new Vector3(source.X, source.Y, source.Z) * (1f - destAlpha))
+            + (new Vector3(dest.X, dest.Y, dest.Z) * (1f - sourceAlpha))
+            + (sourceAlpha * destAlpha * blend(straightSource, straightDest));
+        return new Vector4(rgb, alpha);
+    }
+
+    private static float Overlay(float source, float dest) =>
+        dest <= 0.5f
+            ? 2f * source * dest
+            : 1f - (2f * (1f - source) * (1f - dest));
+
+    private static float ColorDodge(float source, float dest)
+    {
+        if (dest <= 0f)
+        {
+            return 0f;
+        }
+
+        return source >= 1f
+            ? 1f
+            : MathF.Min(1f, dest / (1f - source));
+    }
+
+    private static float ColorBurn(float source, float dest)
+    {
+        if (dest >= 1f)
+        {
+            return 1f;
+        }
+
+        return source <= 0f
+            ? 0f
+            : 1f - MathF.Min(1f, (1f - dest) / source);
+    }
+
+    private static float HardLight(float source, float dest) =>
+        source <= 0.5f
+            ? 2f * source * dest
+            : 1f - (2f * (1f - source) * (1f - dest));
+
+    private static float SoftLight(float source, float dest)
+    {
+        if (source <= 0.5f)
+        {
+            return dest - ((1f - (2f * source)) * dest * (1f - dest));
+        }
+
+        var softenedDest = dest <= 0.25f
+            ? (((16f * dest) - 12f) * dest + 4f) * dest
+            : MathF.Sqrt(dest);
+        return dest + (((2f * source) - 1f) * (softenedDest - dest));
+    }
+
+    private static float Luminosity(Vector3 color) =>
+        (0.3f * color.X) + (0.59f * color.Y) + (0.11f * color.Z);
+
+    private static float Saturation(Vector3 color) =>
+        MathF.Max(color.X, MathF.Max(color.Y, color.Z)) -
+        MathF.Min(color.X, MathF.Min(color.Y, color.Z));
+
+    private static Vector3 SetSaturation(Vector3 color, float saturation)
+    {
+        var minimum = MathF.Min(color.X, MathF.Min(color.Y, color.Z));
+        var maximum = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
+        if (maximum <= minimum)
+        {
+            return Vector3.Zero;
+        }
+
+        return (color - new Vector3(minimum)) * (saturation / (maximum - minimum));
+    }
+
+    private static Vector3 SetLuminosity(Vector3 color, float luminosity)
+    {
+        var delta = luminosity - Luminosity(color);
+        return ClipColor(color + new Vector3(delta));
+    }
+
+    private static Vector3 ClipColor(Vector3 color)
+    {
+        var luminosity = Luminosity(color);
+        var minimum = MathF.Min(color.X, MathF.Min(color.Y, color.Z));
+        if (minimum < 0f)
+        {
+            color = new Vector3(luminosity) +
+                ((color - new Vector3(luminosity)) * (luminosity / (luminosity - minimum)));
+        }
+
+        var maximum = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
+        if (maximum > 1f)
+        {
+            color = new Vector3(luminosity) +
+                ((color - new Vector3(luminosity)) * ((1f - luminosity) / (maximum - luminosity)));
+        }
+
+        return Vector3.Clamp(color, Vector3.Zero, Vector3.One);
     }
 
     private static byte ToByte(float value)
