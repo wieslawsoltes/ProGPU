@@ -8,6 +8,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Numerics;
+using System.Text;
 
 namespace System.Drawing;
 
@@ -611,6 +612,9 @@ public class Graphics : IDisposable
     }
 
     public void DrawString(string s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
+    public void DrawString(string s, Font font, Brush brush, PointF point, StringFormat? format) =>
+        DrawString(s, font, brush, point.X, point.Y, format);
+
     public void DrawString(string s, Font font, Brush brush, float x, float y)
     {
         var isBold = (font.Style & FontStyle.Bold) != 0;
@@ -624,6 +628,23 @@ public class Graphics : IDisposable
             CurrentTransform4x4(),
             isBold,
             isItalic);
+    }
+
+    public void DrawString(string s, Font font, Brush brush, float x, float y, StringFormat? format)
+    {
+        if (format == null)
+        {
+            DrawString(s, font, brush, x, y);
+            return;
+        }
+
+        DrawFormattedString(
+            s,
+            font,
+            brush,
+            new RectangleF(x, y, float.PositiveInfinity, float.PositiveInfinity),
+            format,
+            pointAnchor: true);
     }
 
     public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle)
@@ -660,6 +681,29 @@ public class Graphics : IDisposable
         _context.PopClip();
     }
 
+    public void DrawString(string s, Font font, Brush brush, Rectangle layoutRectangle, StringFormat? format) =>
+        DrawString(s, font, brush, (RectangleF)layoutRectangle, format);
+
+    public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle, StringFormat? format)
+    {
+        if (format == null)
+        {
+            DrawString(s, font, brush, layoutRectangle);
+            return;
+        }
+
+        if (layoutRectangle.Width <= 0f
+            || layoutRectangle.Height <= 0f
+            || !float.IsFinite(layoutRectangle.Width)
+            || !float.IsFinite(layoutRectangle.Height))
+        {
+            DrawString(s, font, brush, layoutRectangle.X, layoutRectangle.Y, format);
+            return;
+        }
+
+        DrawFormattedString(s, font, brush, layoutRectangle, format, pointAnchor: false);
+    }
+
     public SizeF MeasureString(string text, Font font)
     {
         var layout = new ProGPU.Text.TextLayout(text, font.TtfFont, GetFontPixelSize(font));
@@ -692,9 +736,471 @@ public class Graphics : IDisposable
         return new SizeF(measuredWidth, measuredHeight);
     }
 
+    public SizeF MeasureString(string text, Font font, SizeF layoutArea, StringFormat? stringFormat)
+    {
+        return MeasureString(text, font, layoutArea, stringFormat, out _, out _);
+    }
+
+    public SizeF MeasureString(
+        string text,
+        Font font,
+        SizeF layoutArea,
+        StringFormat? stringFormat,
+        out int charactersFitted,
+        out int linesFilled)
+    {
+        if (stringFormat == null)
+        {
+            SizeF measured = MeasureString(text, font, layoutArea);
+            charactersFitted = text?.Length ?? 0;
+            linesFilled = CountLines(text);
+            return measured;
+        }
+
+        FormattedTextLayout formatted = CreateFormattedTextLayout(text, font, layoutArea, stringFormat);
+        charactersFitted = formatted.CharactersFitted;
+        linesFilled = formatted.LinesFilled;
+
+        float measuredWidth = formatted.Layout.ContentSize.X;
+        float measuredHeight = formatted.Layout.ContentSize.Y;
+        if (layoutArea.Width > 0f && float.IsFinite(layoutArea.Width))
+        {
+            measuredWidth = MathF.Min(measuredWidth, layoutArea.Width);
+        }
+
+        if (layoutArea.Height > 0f && float.IsFinite(layoutArea.Height))
+        {
+            measuredHeight = MathF.Min(measuredHeight, layoutArea.Height);
+        }
+
+        return new SizeF(measuredWidth, measuredHeight);
+    }
+
     public SizeF MeasureString(string text, Font font, int width)
     {
         return MeasureString(text, font, new SizeF(width, float.MaxValue));
+    }
+
+    public SizeF MeasureString(string text, Font font, int width, StringFormat? format)
+    {
+        return MeasureString(text, font, new SizeF(width, float.MaxValue), format);
+    }
+
+    private void DrawFormattedString(
+        string text,
+        Font font,
+        Brush brush,
+        RectangleF layoutRectangle,
+        StringFormat format,
+        bool pointAnchor)
+    {
+        var layoutArea = new SizeF(layoutRectangle.Width, layoutRectangle.Height);
+        FormattedTextLayout formatted = CreateFormattedTextLayout(text, font, layoutArea, format);
+        if (formatted.Layout.Glyphs.Count == 0)
+        {
+            return;
+        }
+
+        StringFormatFlags flags = format.FormatFlags;
+        bool rightToLeft = (flags & StringFormatFlags.DirectionRightToLeft) != 0;
+        float offsetX = pointAnchor
+            ? GetPointAlignmentOffset(formatted.Layout.ContentSize.X, format.Alignment, rightToLeft)
+            : GetNoWrapAlignmentOffset(formatted.Layout.ContentSize.X, layoutRectangle.Width, format.Alignment, flags);
+        float offsetY = pointAnchor
+            ? GetPointAlignmentOffset(formatted.Layout.ContentSize.Y, format.LineAlignment, rightToLeft: false)
+            : GetRectangleAlignmentOffset(formatted.Layout.ContentSize.Y, layoutRectangle.Height, format.LineAlignment);
+        var origin = new Vector2(layoutRectangle.X + offsetX, layoutRectangle.Y + offsetY);
+        var transform = CurrentTransform4x4();
+        bool useClip = !pointAnchor && (flags & StringFormatFlags.NoClip) == 0;
+        if (useClip)
+        {
+            _context.PushClip(
+                new Rect(layoutRectangle.X, layoutRectangle.Y, layoutRectangle.Width, layoutRectangle.Height),
+                transform);
+        }
+
+        DrawFormattedGlyphRuns(formatted.Layout, font, brush, origin, transform);
+
+        if (useClip)
+        {
+            _context.PopClip();
+        }
+    }
+
+    private void DrawFormattedGlyphRuns(
+        ProGPU.Text.TextLayout layout,
+        Font font,
+        Brush brush,
+        Vector2 origin,
+        Matrix4x4 transform)
+    {
+        var isBold = (font.Style & FontStyle.Bold) != 0;
+        var isItalic = (font.Style & FontStyle.Italic) != 0;
+        var nativeBrush = brush.ToProGpuBrush();
+        GlyphRunBuilder? run = null;
+
+        for (int i = 0; i < layout.Glyphs.Count; i++)
+        {
+            ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[i];
+            if (run == null || !ReferenceEquals(run.Font, glyph.Font))
+            {
+                if (run != null)
+                {
+                    RecordGlyphRun(run);
+                }
+
+                run = new GlyphRunBuilder(glyph.Font);
+            }
+
+            run.GlyphIndices.Add(glyph.GlyphIndex);
+            run.GlyphPositions.Add(glyph.Position);
+        }
+
+        if (run != null)
+        {
+            RecordGlyphRun(run);
+        }
+
+        void RecordGlyphRun(GlyphRunBuilder glyphRun)
+        {
+            _context.DrawGlyphRun(
+                glyphRun.GlyphIndices.ToArray(),
+                glyphRun.GlyphPositions.ToArray(),
+                glyphRun.Font,
+                GetFontPixelSize(font),
+                nativeBrush,
+                origin,
+                transform,
+                isBold,
+                isItalic);
+        }
+    }
+
+    private FormattedTextLayout CreateFormattedTextLayout(
+        string text,
+        Font font,
+        SizeF layoutArea,
+        StringFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(format);
+        format.EnsureNotDisposed();
+
+        StringFormatFlags flags = format.FormatFlags;
+        string displayText = ApplyHotkeyPrefix(text, format.HotkeyPrefix);
+        float maxWidth = layoutArea.Width > 0f && float.IsFinite(layoutArea.Width)
+            ? layoutArea.Width
+            : float.PositiveInfinity;
+        float maxHeight = layoutArea.Height > 0f && float.IsFinite(layoutArea.Height)
+            ? layoutArea.Height
+            : float.PositiveInfinity;
+        bool noWrap = (flags & StringFormatFlags.NoWrap) != 0;
+        ProGPU.Text.TextAlignment alignment = noWrap
+            ? ProGPU.Text.TextAlignment.Left
+            : GetTextAlignment(format.Alignment, flags);
+        float textLayoutWidth = noWrap ? float.PositiveInfinity : maxWidth;
+        float fontSize = GetFontPixelSize(font);
+        var layout = new ProGPU.Text.TextLayout(displayText, font.TtfFont, fontSize, textLayoutWidth, alignment);
+
+        bool exceedsWidth = float.IsFinite(maxWidth) && layout.ContentSize.X > maxWidth + 0.001f;
+        bool exceedsHeight = float.IsFinite(maxHeight) && layout.ContentSize.Y > maxHeight + 0.001f;
+        bool lineLimit = (flags & StringFormatFlags.LineLimit) != 0;
+        int charactersFitted = text.Length;
+
+        if ((exceedsWidth || exceedsHeight)
+            && (format.Trimming != StringTrimming.None || lineLimit))
+        {
+            StringTrimming trimming = format.Trimming == StringTrimming.None
+                ? StringTrimming.Character
+                : format.Trimming;
+            displayText = TrimTextToLayout(
+                displayText,
+                font,
+                fontSize,
+                maxWidth,
+                maxHeight,
+                noWrap,
+                alignment,
+                trimming,
+                out charactersFitted);
+            layout = new ProGPU.Text.TextLayout(displayText, font.TtfFont, fontSize, textLayoutWidth, alignment);
+        }
+
+        int linesFilled = GetLineCount(layout, font, fontSize);
+        return new FormattedTextLayout(layout, Math.Min(charactersFitted, text.Length), linesFilled);
+    }
+
+    private static string TrimTextToLayout(
+        string text,
+        Font font,
+        float fontSize,
+        float maxWidth,
+        float maxHeight,
+        bool noWrap,
+        ProGPU.Text.TextAlignment alignment,
+        StringTrimming trimming,
+        out int charactersFitted)
+    {
+        string suffix = trimming is StringTrimming.EllipsisCharacter
+            or StringTrimming.EllipsisWord
+            or StringTrimming.EllipsisPath
+                ? "\u2026"
+                : string.Empty;
+        if (!Fits(text, suffix: string.Empty))
+        {
+            var prefixLengths = new List<int>(text.Length + 1) { 0 };
+            for (int textIndex = 0; textIndex < text.Length; textIndex++)
+            {
+                if (char.IsHighSurrogate(text[textIndex])
+                    && textIndex + 1 < text.Length
+                    && char.IsLowSurrogate(text[textIndex + 1]))
+                {
+                    textIndex++;
+                }
+
+                prefixLengths.Add(textIndex + 1);
+            }
+
+            int low = 0;
+            int high = prefixLengths.Count - 1;
+            int best = 0;
+            while (low <= high)
+            {
+                int middle = low + ((high - low) / 2);
+                int prefixLength = prefixLengths[middle];
+                if (Fits(text[..prefixLength], suffix))
+                {
+                    best = prefixLength;
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle - 1;
+                }
+            }
+
+            if (trimming is StringTrimming.Word or StringTrimming.EllipsisWord)
+            {
+                best = FindWordBoundary(text, best);
+            }
+
+            string prefix = text[..best].TrimEnd();
+            while (prefix.Length > 0 && !Fits(prefix, suffix))
+            {
+                int nextLength = NormalizePrefixLength(prefix, prefix.Length - 1);
+                prefix = prefix[..nextLength].TrimEnd();
+            }
+
+            charactersFitted = prefix.Length;
+            return Fits(prefix, suffix) ? prefix + suffix : string.Empty;
+        }
+
+        charactersFitted = text.Length;
+        return text;
+
+        bool Fits(string prefix, string suffix)
+        {
+            string candidate = prefix + suffix;
+            var candidateLayout = new ProGPU.Text.TextLayout(
+                candidate,
+                font.TtfFont,
+                fontSize,
+                noWrap ? float.PositiveInfinity : maxWidth,
+                alignment);
+            bool widthFits = !float.IsFinite(maxWidth) || candidateLayout.ContentSize.X <= maxWidth + 0.001f;
+            bool heightFits = !float.IsFinite(maxHeight) || candidateLayout.ContentSize.Y <= maxHeight + 0.001f;
+            return widthFits && heightFits;
+        }
+    }
+
+    private static int NormalizePrefixLength(string text, int length)
+    {
+        length = Math.Clamp(length, 0, text.Length);
+        if (length > 0
+            && length < text.Length
+            && char.IsHighSurrogate(text[length - 1])
+            && char.IsLowSurrogate(text[length]))
+        {
+            length--;
+        }
+
+        return length;
+    }
+
+    private static int FindWordBoundary(string text, int length)
+    {
+        length = NormalizePrefixLength(text, length);
+        while (length > 0 && char.IsWhiteSpace(text[length - 1]))
+        {
+            length--;
+        }
+
+        if (length == text.Length || (length < text.Length && char.IsWhiteSpace(text[length])))
+        {
+            return length;
+        }
+
+        int boundary = length;
+        while (boundary > 0 && !char.IsWhiteSpace(text[boundary - 1]))
+        {
+            boundary--;
+        }
+
+        return boundary == 0 ? length : boundary;
+    }
+
+    private static string ApplyHotkeyPrefix(string text, HotkeyPrefix hotkeyPrefix)
+    {
+        if (hotkeyPrefix == HotkeyPrefix.None || text.IndexOf('&') < 0)
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '&')
+            {
+                builder.Append(text[i]);
+                continue;
+            }
+
+            if (i + 1 < text.Length && text[i + 1] == '&')
+            {
+                builder.Append('&');
+                i++;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static ProGPU.Text.TextAlignment GetTextAlignment(
+        StringAlignment alignment,
+        StringFormatFlags flags)
+    {
+        if ((flags & StringFormatFlags.DirectionRightToLeft) != 0)
+        {
+            alignment = alignment switch
+            {
+                StringAlignment.Near => StringAlignment.Far,
+                StringAlignment.Far => StringAlignment.Near,
+                _ => alignment
+            };
+        }
+
+        return alignment switch
+        {
+            StringAlignment.Center => ProGPU.Text.TextAlignment.Center,
+            StringAlignment.Far => ProGPU.Text.TextAlignment.Right,
+            _ => ProGPU.Text.TextAlignment.Left
+        };
+    }
+
+    private static float GetNoWrapAlignmentOffset(
+        float contentSize,
+        float availableSize,
+        StringAlignment alignment,
+        StringFormatFlags flags)
+    {
+        if ((flags & StringFormatFlags.NoWrap) == 0)
+        {
+            return 0f;
+        }
+
+        bool rightToLeft = (flags & StringFormatFlags.DirectionRightToLeft) != 0;
+        return GetRectangleAlignmentOffset(contentSize, availableSize, SwapNearAndFar(alignment, rightToLeft));
+    }
+
+    private static float GetPointAlignmentOffset(float contentSize, StringAlignment alignment, bool rightToLeft)
+    {
+        alignment = SwapNearAndFar(alignment, rightToLeft);
+        return alignment switch
+        {
+            StringAlignment.Center => -contentSize / 2f,
+            StringAlignment.Far => -contentSize,
+            _ => 0f
+        };
+    }
+
+    private static float GetRectangleAlignmentOffset(
+        float contentSize,
+        float availableSize,
+        StringAlignment alignment)
+    {
+        float remaining = MathF.Max(0f, availableSize - contentSize);
+        return alignment switch
+        {
+            StringAlignment.Center => remaining / 2f,
+            StringAlignment.Far => remaining,
+            _ => 0f
+        };
+    }
+
+    private static StringAlignment SwapNearAndFar(StringAlignment alignment, bool swap)
+    {
+        if (!swap)
+        {
+            return alignment;
+        }
+
+        return alignment switch
+        {
+            StringAlignment.Near => StringAlignment.Far,
+            StringAlignment.Far => StringAlignment.Near,
+            _ => alignment
+        };
+    }
+
+    private static int GetLineCount(ProGPU.Text.TextLayout layout, Font font, float fontSize)
+    {
+        if (layout.Text.Length == 0)
+        {
+            return 0;
+        }
+
+        var singleLine = new ProGPU.Text.TextLayout("M", font.TtfFont, fontSize);
+        float lineHeight = singleLine.ContentSize.Y;
+        return lineHeight > 0f
+            ? Math.Max(1, (int)MathF.Round(layout.ContentSize.Y / lineHeight))
+            : CountLines(layout.Text);
+    }
+
+    private static int CountLines(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        int lines = 1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\n')
+            {
+                lines++;
+            }
+        }
+
+        return lines;
+    }
+
+    private readonly record struct FormattedTextLayout(
+        ProGPU.Text.TextLayout Layout,
+        int CharactersFitted,
+        int LinesFilled);
+
+    private sealed class GlyphRunBuilder
+    {
+        public GlyphRunBuilder(ProGPU.Text.TtfFont font)
+        {
+            Font = font;
+        }
+
+        public ProGPU.Text.TtfFont Font { get; }
+        public List<ushort> GlyphIndices { get; } = [];
+        public List<Vector2> GlyphPositions { get; } = [];
     }
 
     private float GetFontPixelSize(Font font)

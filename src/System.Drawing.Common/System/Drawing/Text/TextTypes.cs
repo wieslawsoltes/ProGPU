@@ -9,3 +9,10 @@ public enum TextRenderingHint
     AntiAlias = 4,
     ClearTypeGridFit = 5
 }
+
+public enum HotkeyPrefix
+{
+    None = 0,
+    Show = 1,
+    Hide = 2
+}
