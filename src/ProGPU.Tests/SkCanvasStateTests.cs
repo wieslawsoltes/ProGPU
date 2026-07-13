@@ -2779,12 +2779,19 @@ public sealed class SkCanvasStateTests
         var contextField = typeof(SKSurface).GetField(
             "_context",
             BindingFlags.Instance | BindingFlags.NonPublic);
+        var textureField = typeof(SKSurface).GetField(
+            "_gpuTexture",
+            BindingFlags.Instance | BindingFlags.NonPublic);
         var method = typeof(SKCanvas).GetMethod(
             "GetCompositorForContext",
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(WgpuContext), typeof(TextureFormat)],
+            modifiers: null);
 
         var context = (WgpuContext)contextField!.GetValue(surface)!;
-        return (Compositor)method!.Invoke(null, new object[] { context })!;
+        var texture = (GpuTexture)textureField!.GetValue(surface)!;
+        return (Compositor)method!.Invoke(null, new object[] { context, texture.Format })!;
     }
 
     private static void ResetSurfaceCompositor(SKSurface surface)

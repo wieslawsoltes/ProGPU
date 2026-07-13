@@ -3130,7 +3130,14 @@ public class SKCanvas : IDisposable
         SKPaint paint)
     {
         ArgumentNullException.ThrowIfNull(paint);
-        if (oval.IsEmpty || sweepAngle == 0f)
+        if (oval.IsEmpty ||
+            !float.IsFinite(oval.Left) ||
+            !float.IsFinite(oval.Top) ||
+            !float.IsFinite(oval.Right) ||
+            !float.IsFinite(oval.Bottom) ||
+            !float.IsFinite(startAngle) ||
+            !float.IsFinite(sweepAngle) ||
+            sweepAngle == 0f)
         {
             return;
         }
@@ -3145,7 +3152,7 @@ public class SKCanvas : IDisposable
             center.Y + MathF.Sin(startRadians) * radiusY);
 
         using var path = new SKPath();
-        if (MathF.Abs(clampedSweep) >= 360f)
+        if (MathF.Abs(clampedSweep) >= 360f && !useCenter)
         {
             path.AddOval(
                 oval,
@@ -3163,15 +3170,42 @@ public class SKCanvas : IDisposable
                 path.MoveTo(start);
             }
 
-            var endRadians = (startAngle + clampedSweep) * (MathF.PI / 180f);
-            path.ArcTo(
-                radiusX,
-                radiusY,
-                0f,
-                MathF.Abs(clampedSweep) > 180f ? SKPathArcSize.Large : SKPathArcSize.Small,
-                clampedSweep >= 0f ? SKPathDirection.Clockwise : SKPathDirection.CounterClockwise,
-                center.X + MathF.Cos(endRadians) * radiusX,
-                center.Y + MathF.Sin(endRadians) * radiusY);
+            var direction = clampedSweep >= 0f
+                ? SKPathDirection.Clockwise
+                : SKPathDirection.CounterClockwise;
+            if (MathF.Abs(clampedSweep) >= 360f)
+            {
+                var oppositeRadians = (startAngle + (clampedSweep * 0.5f)) * (MathF.PI / 180f);
+                path.ArcTo(
+                    radiusX,
+                    radiusY,
+                    0f,
+                    SKPathArcSize.Small,
+                    direction,
+                    center.X + MathF.Cos(oppositeRadians) * radiusX,
+                    center.Y + MathF.Sin(oppositeRadians) * radiusY);
+                path.ArcTo(
+                    radiusX,
+                    radiusY,
+                    0f,
+                    SKPathArcSize.Small,
+                    direction,
+                    start.X,
+                    start.Y);
+            }
+            else
+            {
+                var endRadians = (startAngle + clampedSweep) * (MathF.PI / 180f);
+                path.ArcTo(
+                    radiusX,
+                    radiusY,
+                    0f,
+                    MathF.Abs(clampedSweep) > 180f ? SKPathArcSize.Large : SKPathArcSize.Small,
+                    direction,
+                    center.X + MathF.Cos(endRadians) * radiusX,
+                    center.Y + MathF.Sin(endRadians) * radiusY);
+            }
+
             if (useCenter)
             {
                 path.Close();
