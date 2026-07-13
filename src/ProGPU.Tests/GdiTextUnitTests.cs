@@ -3,6 +3,9 @@ using System.Reflection;
 using Xunit;
 using DrawingGraphics = System.Drawing.Graphics;
 using DrawingGraphicsUnit = System.Drawing.GraphicsUnit;
+using DrawingFont = System.Drawing.Font;
+using DrawingFontFamily = System.Drawing.FontFamily;
+using DrawingFontStyle = System.Drawing.FontStyle;
 
 namespace ProGPU.Tests;
 
@@ -23,6 +26,22 @@ public sealed class GdiTextUnitTests
         float expectedPixels)
     {
         AssertNear(expectedPixels, ConvertFontSizeToPixels(size, unit, dpi));
+    }
+
+    [Fact]
+    public void FontsAndFamiliesUseSystemDrawingValueEquality()
+    {
+        using var first = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
+        using var equivalent = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
+        using var bold = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Bold, DrawingGraphicsUnit.Point);
+        using var firstFamily = new DrawingFontFamily("Microsoft Sans Serif");
+        using var equivalentFamily = new DrawingFontFamily("Microsoft Sans Serif");
+
+        Assert.Equal(firstFamily, equivalentFamily);
+        Assert.Equal(firstFamily.GetHashCode(), equivalentFamily.GetHashCode());
+        Assert.Equal(first, equivalent);
+        Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.NotEqual(first, bold);
     }
 
     private static float ConvertFontSizeToPixels(float size, DrawingGraphicsUnit unit, float dpi)

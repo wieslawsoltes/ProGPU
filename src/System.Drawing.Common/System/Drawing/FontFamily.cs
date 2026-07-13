@@ -99,5 +99,14 @@ public class FontFamily : IDisposable
     public static FontFamily GenericSerif { get; } = new FontFamily("Georgia");
     public static FontFamily GenericMonospace { get; } = new FontFamily("Courier New");
 
+    public override bool Equals(object? obj) =>
+        ReferenceEquals(this, obj)
+        || obj is FontFamily family
+            && string.Equals(Name, family.Name, StringComparison.OrdinalIgnoreCase);
+
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Name);
+
+    public override string ToString() => $"[FontFamily: Name={Name}]";
+
     public void Dispose() {}
 }

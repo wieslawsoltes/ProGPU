@@ -99,6 +99,20 @@ public class Font : IDisposable
         return $"[Font: Name={Name}, Size={Size}, Units={Unit}, GdiCharSet={GdiCharSet}, GdiVerticalFont={GdiVerticalFont}]";
     }
 
+    public override bool Equals(object? obj)
+    {
+        return ReferenceEquals(this, obj)
+            || obj is Font font
+                && font.FontFamily.Equals(FontFamily)
+                && font.GdiVerticalFont == GdiVerticalFont
+                && font.GdiCharSet == GdiCharSet
+                && font.Style == Style
+                && font.Size == Size
+                && font.Unit == Unit;
+    }
+
+    public override int GetHashCode() => HashCode.Combine(Name, Style, Size, Unit);
+
     public float GetHeight()
     {
         return GetHeight(96f);
