@@ -50,8 +50,8 @@ public unsafe class GpuTexture : IDisposable
     public uint SampleCount { get; private set; } = 1;
     public GpuTextureAlphaMode AlphaMode { get; set; }
 
-    private bool _isDisposed;
-    public bool IsDisposed => _isDisposed;
+    private int _disposeState;
+    public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
 
     private readonly unsafe struct MipGeneratorResources
     {
@@ -264,7 +264,7 @@ public unsafe class GpuTexture : IDisposable
 
     public void Resize(uint width, uint height)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (Width == width && Height == height) return;
 
         // Release old texture and view
@@ -278,7 +278,7 @@ public unsafe class GpuTexture : IDisposable
 
     public void ClearRenderTarget(Color clearColor = default)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (!Usage.HasFlag(TextureUsage.RenderAttachment))
         {
             throw new InvalidOperationException("GPU texture clear requires RenderAttachment usage.");
@@ -358,7 +358,7 @@ public unsafe class GpuTexture : IDisposable
 
     public void WritePixels<T>(ReadOnlySpan<T> pixels, uint mipLevel = 0) where T : unmanaged
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ValidateMipLevel(mipLevel);
 
         uint bytesPerPixel = GetBytesPerPixel(Format);
@@ -418,7 +418,7 @@ public unsafe class GpuTexture : IDisposable
 
     public void WritePbgra32SubRect(Pbgra32PixelBuffer pixels, uint x, uint y)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (!pixels.IsValid)
         {
             throw new ArgumentException("PBgra32 pixel buffer is not valid.", nameof(pixels));
@@ -450,7 +450,7 @@ public unsafe class GpuTexture : IDisposable
         uint mipLevel = 0)
         where T : unmanaged
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ValidateMipLevel(mipLevel);
         if (subWidth == 0)
         {
@@ -527,7 +527,7 @@ public unsafe class GpuTexture : IDisposable
         uint mipLevel = 0)
         where T : unmanaged
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ValidateMipLevel(mipLevel);
         if (Dimension != GpuTextureDimension.Dimension3D)
         {
@@ -602,7 +602,7 @@ public unsafe class GpuTexture : IDisposable
 
     public void MarkContentsDirty()
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
 
         Generation++;
     }
@@ -613,7 +613,7 @@ public unsafe class GpuTexture : IDisposable
         uint baseArrayLayer = 0,
         uint? arrayLayerCount = null)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ValidateMipGenerationRange(baseMipLevel, mipLevelCount, baseArrayLayer, arrayLayerCount);
 
         var levels = mipLevelCount ?? (MipLevelCount - baseMipLevel);
@@ -1046,9 +1046,9 @@ public unsafe class GpuTexture : IDisposable
 
     public void CopyFrom(GpuTexture source)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
-        if (source._isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (source.Context != _context)
         {
             throw new ArgumentException("Source texture must belong to the same WebGPU context.", nameof(source));
@@ -1122,9 +1122,9 @@ public unsafe class GpuTexture : IDisposable
 
     public void CopyBaseLevelFrom(GpuTexture source)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
-        if (source._isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (!ReferenceEquals(source.Context, _context))
         {
             throw new ArgumentException(
@@ -1400,7 +1400,7 @@ public unsafe class GpuTexture : IDisposable
         uint depthOrArrayLayers = 0)
     {
         ArgumentNullException.ThrowIfNull(readbackBuffer);
-        if (_isDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         if (!Usage.HasFlag(TextureUsage.CopySrc))
         {
             throw new InvalidOperationException("Texture was not created with CopySrc usage.");
@@ -1536,33 +1536,64 @@ public unsafe class GpuTexture : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed) return;
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            return;
+        }
 
         if (TexturePtr != null || ViewPtr != null)
         {
             ReleaseResources(Environment.HasShutdownStarted || _context.IsDisposed);
         }
 
-        _isDisposed = true;
         GC.SuppressFinalize(this);
     }
 
     ~GpuTexture()
     {
-        if (TexturePtr != null || ViewPtr != null)
+        FinalizeResources();
+    }
+
+    private void FinalizeResources()
+    {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
         {
-            try
+            return;
+        }
+
+        var view = (IntPtr)ViewPtr;
+        var texture = (IntPtr)TexturePtr;
+        ViewPtr = null;
+        TexturePtr = null;
+
+        try
+        {
+            OnDisposedWithId?.Invoke(Id);
+        }
+        catch
+        {
+        }
+
+        var context = _context;
+        if (context is null || context.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            if (view != IntPtr.Zero)
             {
-                if (ViewPtr != null)
-                {
-                    _context.QueueTextureViewDisposal((IntPtr)ViewPtr);
-                }
-                if (TexturePtr != null)
-                {
-                    _context.QueueTextureDisposal((IntPtr)TexturePtr);
-                }
+                context.QueueTextureViewDisposal(view);
             }
-            catch {}
+
+            if (texture != IntPtr.Zero)
+            {
+                context.QueueTextureDisposal(texture);
+            }
+        }
+        catch
+        {
         }
     }
 }

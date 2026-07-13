@@ -88,6 +88,56 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void GpuTextureFinalizerDoesNotQueueResourcesAgainWhenOwnerDisposesLater()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        var texture = new GpuTexture(
+            context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Finalizer idempotence test");
+        var finalizeResources = typeof(GpuTexture).GetMethod(
+            "FinalizeResources",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(finalizeResources);
+
+        finalizeResources.Invoke(texture, null);
+
+        Assert.True(texture.IsDisposed);
+        Assert.True(texture.TexturePtr == null);
+        Assert.True(texture.ViewPtr == null);
+        Assert.Single(context.PendingTextures);
+        Assert.Single(context.PendingTextureViews);
+
+        texture.Dispose();
+
+        Assert.Single(context.PendingTextures);
+        Assert.Single(context.PendingTextureViews);
+        context.CleanupPendingResources();
+        GC.SuppressFinalize(texture);
+    }
+
+    [Fact]
+    public void GpuTextureFinalizerToleratesPartiallyConstructedInstance()
+    {
+        var texture = (GpuTexture)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+            typeof(GpuTexture));
+        var finalizeResources = typeof(GpuTexture).GetMethod(
+            "FinalizeResources",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(finalizeResources);
+
+        finalizeResources.Invoke(texture, null);
+
+        Assert.True(texture.IsDisposed);
+        GC.SuppressFinalize(texture);
+    }
+
+    [Fact]
     public unsafe void VerifyShaderModuleFailsClosedWhenNativeCompilationInfoIsUnavailable()
     {
         using var context = new WgpuContext();
