@@ -2,6 +2,8 @@ using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
@@ -16,6 +18,11 @@ public class Graphics : IDisposable
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
     private Matrix _transform = new();
+    private readonly List<SavedGraphicsState> _savedStates = new();
+    private int _nextStateId;
+    private float _pageScale = 1f;
+    private GraphicsUnit _pageUnit = GraphicsUnit.Display;
+    private CompositingQuality _compositingQuality = CompositingQuality.Default;
 
     public DrawingContext DrawingContext => _context;
 
@@ -35,6 +42,53 @@ public class Graphics : IDisposable
     public InterpolationMode InterpolationMode { get; set; } = InterpolationMode.Bilinear;
     public TextRenderingHint TextRenderingHint { get; set; } = TextRenderingHint.ClearTypeGridFit;
     public PixelOffsetMode PixelOffsetMode { get; set; } = PixelOffsetMode.Default;
+
+    public float PageScale
+    {
+        get => _pageScale;
+        set
+        {
+            if (value <= 0f || value > 1_000_000_032f || float.IsInfinity(value))
+            {
+                throw new ArgumentException("Page scale is outside the supported GDI+ range.", nameof(value));
+            }
+
+            _pageScale = value;
+        }
+    }
+
+    public GraphicsUnit PageUnit
+    {
+        get => _pageUnit;
+        set
+        {
+            if (value < GraphicsUnit.World || value > GraphicsUnit.Millimeter)
+            {
+                throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(GraphicsUnit));
+            }
+
+            if (value == GraphicsUnit.World)
+            {
+                throw new ArgumentException("GraphicsUnit.World is not a valid page unit.", nameof(value));
+            }
+
+            _pageUnit = value;
+        }
+    }
+
+    public CompositingQuality CompositingQuality
+    {
+        get => _compositingQuality;
+        set
+        {
+            if (value < CompositingQuality.Invalid || value > CompositingQuality.AssumeLinear)
+            {
+                throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(CompositingQuality));
+            }
+
+            _compositingQuality = value;
+        }
+    }
 
     public float DpiX => 96f;
     public float DpiY => 96f;
@@ -141,7 +195,74 @@ public class Graphics : IDisposable
         _transform.Reset();
     }
 
-    private Matrix3x2 CombinedTransform => _transform.Value * _baseTransform;
+    private Matrix3x2 CombinedTransform => _transform.Value * GetPageTransform() * _baseTransform;
+
+    private Matrix3x2 GetPageTransform()
+    {
+        float unitScaleX = UnitToPixelScale(PageUnit, DpiX);
+        float unitScaleY = UnitToPixelScale(PageUnit, DpiY);
+        return Matrix3x2.CreateScale(unitScaleX * PageScale, unitScaleY * PageScale);
+    }
+
+    public GraphicsState Save()
+    {
+        var state = new GraphicsState(++_nextStateId);
+        _savedStates.Add(new SavedGraphicsState(
+            state,
+            _transform.Value,
+            SmoothingMode,
+            InterpolationMode,
+            TextRenderingHint,
+            PixelOffsetMode,
+            PageScale,
+            PageUnit,
+            CompositingQuality));
+        return state;
+    }
+
+    public void Restore(GraphicsState gstate)
+    {
+        ArgumentNullException.ThrowIfNull(gstate);
+
+        int stateIndex = -1;
+        for (int i = _savedStates.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(_savedStates[i].State, gstate))
+            {
+                stateIndex = i;
+                break;
+            }
+        }
+
+        if (stateIndex < 0)
+        {
+            throw new ArgumentException("The graphics state does not belong to this Graphics instance or has already been restored.", nameof(gstate));
+        }
+
+        SavedGraphicsState saved = _savedStates[stateIndex];
+        _transform.Dispose();
+        _transform = new Matrix(saved.Transform);
+        SmoothingMode = saved.SmoothingMode;
+        InterpolationMode = saved.InterpolationMode;
+        TextRenderingHint = saved.TextRenderingHint;
+        PixelOffsetMode = saved.PixelOffsetMode;
+        _pageScale = saved.PageScale;
+        _pageUnit = saved.PageUnit;
+        _compositingQuality = saved.CompositingQuality;
+
+        _savedStates.RemoveRange(stateIndex, _savedStates.Count - stateIndex);
+    }
+
+    private readonly record struct SavedGraphicsState(
+        GraphicsState State,
+        Matrix3x2 Transform,
+        SmoothingMode SmoothingMode,
+        InterpolationMode InterpolationMode,
+        TextRenderingHint TextRenderingHint,
+        PixelOffsetMode PixelOffsetMode,
+        float PageScale,
+        GraphicsUnit PageUnit,
+        CompositingQuality CompositingQuality);
 
     private Vector2 Tx(float x, float y)
     {
@@ -808,6 +929,7 @@ public class Graphics : IDisposable
 
     public void Dispose()
     {
+        _savedStates.Clear();
         _transform.Dispose();
         _bitmap?.Flush();
     }

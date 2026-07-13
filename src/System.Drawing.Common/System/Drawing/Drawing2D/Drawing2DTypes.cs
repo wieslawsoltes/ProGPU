@@ -33,6 +33,16 @@ public enum PixelOffsetMode
     Half = 4
 }
 
+public enum CompositingQuality
+{
+    Invalid = -1,
+    Default = 0,
+    HighSpeed = 1,
+    HighQuality = 2,
+    GammaCorrected = 3,
+    AssumeLinear = 4
+}
+
 public enum DashStyle
 {
     Solid = 0,
