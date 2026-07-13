@@ -2485,9 +2485,36 @@ public class SKRegion : IDisposable
 
     public bool IsEmpty => _rects.Count == 0;
 
+    public bool IsRect => _rects.Count == 1;
+
+    public bool IsComplex => _rects.Count > 1;
+
     public SKRectI Bounds => _bounds;
 
     public SKRegion() { }
+
+    public SKRegion(SKRectI rect)
+    {
+        SetRect(rect);
+    }
+
+    public SKRegion(SKRegion region)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        SetRegion(region);
+    }
+
+    public SKRegion(SKPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var bounds = path.Bounds;
+        using var clip = new SKRegion(new SKRectI(
+            (int)MathF.Floor(bounds.Left),
+            (int)MathF.Floor(bounds.Top),
+            (int)MathF.Ceiling(bounds.Right),
+            (int)MathF.Ceiling(bounds.Bottom)));
+        SetPath(path, clip);
+    }
 
     internal IReadOnlyList<SKRectI> Rects => _rects;
 
@@ -2504,6 +2531,57 @@ public class SKRegion : IDisposable
         return false;
     }
 
+    public bool Contains(SKPointI point) => Contains(point.X, point.Y);
+
+    public bool Contains(SKRectI rect)
+    {
+        if (!IsValid(rect))
+        {
+            return false;
+        }
+
+        using var remainder = new SKRegion(rect);
+        remainder.Op(this, SKRegionOperation.Difference);
+        return remainder.IsEmpty;
+    }
+
+    public bool Contains(SKRegion region)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        if (region.IsEmpty)
+        {
+            return false;
+        }
+
+        using var remainder = new SKRegion(region);
+        remainder.Op(this, SKRegionOperation.Difference);
+        return remainder.IsEmpty;
+    }
+
+    public bool Contains(SKPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var region = new SKRegion(path);
+        return Contains(region);
+    }
+
+    public bool QuickContains(SKRectI rect) => Contains(rect);
+
+    public bool QuickReject(SKRectI rect) => !Intersects(rect);
+
+    public bool QuickReject(SKRegion region) => !Intersects(region);
+
+    public bool QuickReject(SKPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var bounds = path.Bounds;
+        return QuickReject(new SKRectI(
+            (int)MathF.Floor(bounds.Left),
+            (int)MathF.Floor(bounds.Top),
+            (int)MathF.Ceiling(bounds.Right),
+            (int)MathF.Ceiling(bounds.Bottom)));
+    }
+
     public bool SetPath(SKPath path)
     {
         if (!TryGetSingleAxisAlignedRect(path, out var rect))
@@ -2517,10 +2595,312 @@ public class SKRegion : IDisposable
         return !IsEmpty;
     }
 
+    public bool SetPath(SKPath path, SKRegion clip)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(clip);
+        SetEmpty();
+        if (path.IsEmpty || clip.IsEmpty)
+        {
+            return false;
+        }
+
+        var pathBounds = path.Bounds;
+        var scanBounds = Intersect(
+            clip.Bounds,
+            new SKRectI(
+                (int)MathF.Floor(pathBounds.Left),
+                (int)MathF.Floor(pathBounds.Top),
+                (int)MathF.Ceiling(pathBounds.Right),
+                (int)MathF.Ceiling(pathBounds.Bottom)));
+        if (!IsValid(scanBounds))
+        {
+            return false;
+        }
+
+        var polygons = BuildScanPolygons(path);
+        if (polygons.Count == 0)
+        {
+            return false;
+        }
+
+        var previousRuns = new Dictionary<(int Left, int Right), int>();
+        for (var y = scanBounds.Top; y < scanBounds.Bottom; y++)
+        {
+            var currentRuns = new Dictionary<(int Left, int Right), int>();
+            var x = scanBounds.Left;
+            while (x < scanBounds.Right)
+            {
+                while (x < scanBounds.Right &&
+                       (!clip.Contains(x, y) ||
+                        !ContainsScanPolygons(
+                            polygons,
+                            path.FillType,
+                            new Vector2(x + 0.5f, y + 0.5f))))
+                {
+                    x++;
+                }
+                if (x >= scanBounds.Right)
+                {
+                    break;
+                }
+
+                var left = x++;
+                while (x < scanBounds.Right &&
+                       clip.Contains(x, y) &&
+                       ContainsScanPolygons(
+                           polygons,
+                           path.FillType,
+                           new Vector2(x + 0.5f, y + 0.5f)))
+                {
+                    x++;
+                }
+
+                var run = (Left: left, Right: x);
+                if (previousRuns.TryGetValue(run, out var rectIndex) &&
+                    _rects[rectIndex].Bottom == y)
+                {
+                    var previous = _rects[rectIndex];
+                    _rects[rectIndex] = new SKRectI(
+                        previous.Left,
+                        previous.Top,
+                        previous.Right,
+                        y + 1);
+                }
+                else
+                {
+                    rectIndex = _rects.Count;
+                    _rects.Add(new SKRectI(left, y, x, y + 1));
+                }
+
+                currentRuns[run] = rectIndex;
+            }
+
+            previousRuns = currentRuns;
+        }
+
+        NormalizeRects();
+        UpdateBounds();
+        return !IsEmpty;
+    }
+
+    private static List<Vector2[]> BuildScanPolygons(SKPath path)
+    {
+        const int quadraticSteps = 16;
+        const int cubicSteps = 24;
+        var polygons = new List<Vector2[]>();
+        List<Vector2>? current = null;
+        using var iterator = path.CreateRawIterator();
+        var points = new SKPoint[4];
+        while (true)
+        {
+            var verb = iterator.Next(points);
+            switch (verb)
+            {
+                case SKPathVerb.Move:
+                    FlushCurrent();
+                    current = new List<Vector2>
+                    {
+                        new(points[0].X, points[0].Y),
+                    };
+                    break;
+
+                case SKPathVerb.Line:
+                    AddPoint(new Vector2(points[1].X, points[1].Y));
+                    break;
+
+                case SKPathVerb.Quad:
+                    AppendQuadratic(
+                        new Vector2(points[0].X, points[0].Y),
+                        new Vector2(points[1].X, points[1].Y),
+                        new Vector2(points[2].X, points[2].Y));
+                    break;
+
+                case SKPathVerb.Conic:
+                    AppendConic(
+                        new Vector2(points[0].X, points[0].Y),
+                        new Vector2(points[1].X, points[1].Y),
+                        new Vector2(points[2].X, points[2].Y),
+                        iterator.ConicWeight());
+                    break;
+
+                case SKPathVerb.Cubic:
+                    AppendCubic(
+                        new Vector2(points[0].X, points[0].Y),
+                        new Vector2(points[1].X, points[1].Y),
+                        new Vector2(points[2].X, points[2].Y),
+                        new Vector2(points[3].X, points[3].Y));
+                    break;
+
+                case SKPathVerb.Close:
+                    FlushCurrent();
+                    break;
+
+                case SKPathVerb.Done:
+                    FlushCurrent();
+                    return polygons;
+            }
+        }
+
+        void AppendQuadratic(Vector2 p0, Vector2 p1, Vector2 p2)
+        {
+            for (var step = 1; step <= quadraticSteps; step++)
+            {
+                var t = (float)step / quadraticSteps;
+                var u = 1f - t;
+                AddPoint(u * u * p0 + 2f * u * t * p1 + t * t * p2);
+            }
+        }
+
+        void AppendConic(Vector2 p0, Vector2 p1, Vector2 p2, float weight)
+        {
+            for (var step = 1; step <= quadraticSteps; step++)
+            {
+                var t = (float)step / quadraticSteps;
+                var u = 1f - t;
+                var weightedMiddle = 2f * weight * u * t;
+                var denominator = u * u + weightedMiddle + t * t;
+                AddPoint(
+                    (u * u * p0 + weightedMiddle * p1 + t * t * p2) /
+                    denominator);
+            }
+        }
+
+        void AppendCubic(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3)
+        {
+            for (var step = 1; step <= cubicSteps; step++)
+            {
+                var t = (float)step / cubicSteps;
+                var u = 1f - t;
+                AddPoint(
+                    u * u * u * p0 +
+                    3f * u * u * t * p1 +
+                    3f * u * t * t * p2 +
+                    t * t * t * p3);
+            }
+        }
+
+        void AddPoint(Vector2 point)
+        {
+            if (current == null ||
+                !float.IsFinite(point.X) ||
+                !float.IsFinite(point.Y))
+            {
+                return;
+            }
+
+            if (current.Count == 0 ||
+                Vector2.DistanceSquared(current[^1], point) > 1e-12f)
+            {
+                current.Add(point);
+            }
+        }
+
+        void FlushCurrent()
+        {
+            if (current is { Count: >= 3 })
+            {
+                polygons.Add(current.ToArray());
+            }
+            current = null;
+        }
+    }
+
+    private static bool ContainsScanPolygons(
+        List<Vector2[]> polygons,
+        SKPathFillType fillType,
+        Vector2 point)
+    {
+        var evenOdd = false;
+        var winding = 0;
+        foreach (var polygon in polygons)
+        {
+            var previous = polygon[^1];
+            foreach (var current in polygon)
+            {
+                var upward = previous.Y <= point.Y && current.Y > point.Y;
+                var downward = previous.Y > point.Y && current.Y <= point.Y;
+                if (upward || downward)
+                {
+                    var intersectionX = previous.X +
+                        (point.Y - previous.Y) *
+                        (current.X - previous.X) /
+                        (current.Y - previous.Y);
+                    if (intersectionX > point.X)
+                    {
+                        evenOdd = !evenOdd;
+                        winding += upward ? 1 : -1;
+                    }
+                }
+                previous = current;
+            }
+        }
+
+        var contains = fillType is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
+            ? evenOdd
+            : winding != 0;
+        return fillType is SKPathFillType.InverseEvenOdd or SKPathFillType.InverseWinding
+            ? !contains
+            : contains;
+    }
+
+    public bool SetRects(ReadOnlySpan<SKRectI> rects)
+    {
+        SetEmpty();
+        foreach (var rect in rects)
+        {
+            AddRect(rect);
+        }
+
+        NormalizeRects();
+        UpdateBounds();
+        return !IsEmpty;
+    }
+
+    public bool SetRegion(SKRegion region)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        if (ReferenceEquals(this, region))
+        {
+            return !IsEmpty;
+        }
+
+        _rects.Clear();
+        _rects.AddRange(region._rects);
+        _bounds = region._bounds;
+        return !IsEmpty;
+    }
+
     public bool SetRect(SKRectI rect)
     {
         SetSingleRect(rect);
         return !IsEmpty;
+    }
+
+    public void Translate(int x, int y)
+    {
+        for (var index = 0; index < _rects.Count; index++)
+        {
+            var rect = _rects[index];
+            _rects[index] = new SKRectI(
+                unchecked(rect.Left + x),
+                unchecked(rect.Top + y),
+                unchecked(rect.Right + x),
+                unchecked(rect.Bottom + y));
+        }
+
+        UpdateBounds();
+    }
+
+    public SKPath GetBoundaryPath()
+    {
+        var path = new SKPath();
+        foreach (var rect in _rects)
+        {
+            path.AddRect(rect);
+        }
+
+        return path;
     }
 
     public bool Op(SKRectI rect, SKRegionOperation op)
@@ -2549,6 +2929,80 @@ public class SKRegion : IDisposable
                 return false;
         }
 
+        NormalizeRects();
+        UpdateBounds();
+        return !IsEmpty;
+    }
+
+    public bool Op(SKPath path, SKRegionOperation op)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var region = new SKRegion(path);
+        return Op(region, op);
+    }
+
+    public bool Op(SKRegion region, SKRegionOperation op)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        using var leftSnapshot = new SKRegion(this);
+        using var rightSnapshot = new SKRegion(region);
+        switch (op)
+        {
+            case SKRegionOperation.Replace:
+                return SetRegion(rightSnapshot);
+
+            case SKRegionOperation.Intersect:
+                _rects.Clear();
+                foreach (var left in leftSnapshot._rects)
+                {
+                    foreach (var right in rightSnapshot._rects)
+                    {
+                        AddRect(Intersect(left, right));
+                    }
+                }
+                break;
+
+            case SKRegionOperation.Union:
+                _rects.Clear();
+                _rects.AddRange(leftSnapshot._rects);
+                _rects.AddRange(rightSnapshot._rects);
+                break;
+
+            case SKRegionOperation.Difference:
+                _rects.Clear();
+                _rects.AddRange(leftSnapshot._rects);
+                foreach (var cutter in rightSnapshot._rects)
+                {
+                    DifferenceWith(cutter);
+                }
+                break;
+
+            case SKRegionOperation.ReverseDifference:
+                _rects.Clear();
+                _rects.AddRange(rightSnapshot._rects);
+                foreach (var cutter in leftSnapshot._rects)
+                {
+                    DifferenceWith(cutter);
+                }
+                break;
+
+            case SKRegionOperation.XOR:
+                using (var leftOnly = new SKRegion(leftSnapshot))
+                using (var rightOnly = new SKRegion(rightSnapshot))
+                {
+                    leftOnly.Op(rightSnapshot, SKRegionOperation.Difference);
+                    rightOnly.Op(leftSnapshot, SKRegionOperation.Difference);
+                    _rects.Clear();
+                    _rects.AddRange(leftOnly._rects);
+                    _rects.AddRange(rightOnly._rects);
+                }
+                break;
+
+            default:
+                return false;
+        }
+
+        NormalizeRects();
         UpdateBounds();
         return !IsEmpty;
     }
@@ -2577,10 +3031,33 @@ public class SKRegion : IDisposable
         return false;
     }
 
-    public SKRegionRectIterator CreateRectIterator()
+    public bool Intersects(SKRegion region)
     {
-        return new SKRegionRectIterator(_rects);
+        ArgumentNullException.ThrowIfNull(region);
+        foreach (var rect in region._rects)
+        {
+            if (Intersects(rect))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
+
+    public bool Intersects(SKPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var region = new SKRegion(path);
+        return Intersects(region);
+    }
+
+    public RectIterator CreateRectIterator() => new(_rects);
+
+    public ClipIterator CreateClipIterator(SKRectI clip) => new(_rects, clip);
+
+    public SpanIterator CreateSpanIterator(int y, int left, int right) =>
+        new(_rects, y, left, right);
 
     private void SetSingleRect(SKRectI rect)
     {
@@ -2707,6 +3184,107 @@ public class SKRegion : IDisposable
         {
             result.Add(rect);
         }
+    }
+
+    private void NormalizeRects()
+    {
+        if (_rects.Count <= 1)
+        {
+            return;
+        }
+
+        var yCoordinates = new SortedSet<int>();
+        foreach (var rect in _rects)
+        {
+            if (IsValid(rect))
+            {
+                yCoordinates.Add(rect.Top);
+                yCoordinates.Add(rect.Bottom);
+            }
+        }
+        if (yCoordinates.Count < 2)
+        {
+            _rects.Clear();
+            return;
+        }
+
+        var ys = new int[yCoordinates.Count];
+        yCoordinates.CopyTo(ys);
+        var normalized = new List<SKRectI>();
+        var previousBand = new Dictionary<(int Left, int Right), int>();
+        for (var yIndex = 0; yIndex + 1 < ys.Length; yIndex++)
+        {
+            var top = ys[yIndex];
+            var bottom = ys[yIndex + 1];
+            if (bottom <= top)
+            {
+                continue;
+            }
+
+            var intervals = new List<(int Left, int Right)>();
+            foreach (var rect in _rects)
+            {
+                if (IsValid(rect) && rect.Top <= top && rect.Bottom >= bottom)
+                {
+                    intervals.Add((rect.Left, rect.Right));
+                }
+            }
+            if (intervals.Count == 0)
+            {
+                previousBand.Clear();
+                continue;
+            }
+
+            intervals.Sort(static (left, right) =>
+            {
+                var comparison = left.Left.CompareTo(right.Left);
+                return comparison != 0 ? comparison : left.Right.CompareTo(right.Right);
+            });
+
+            var merged = new List<(int Left, int Right)>();
+            var current = intervals[0];
+            for (var intervalIndex = 1; intervalIndex < intervals.Count; intervalIndex++)
+            {
+                var next = intervals[intervalIndex];
+                if (next.Left <= current.Right)
+                {
+                    current.Right = Math.Max(current.Right, next.Right);
+                }
+                else
+                {
+                    merged.Add(current);
+                    current = next;
+                }
+            }
+            merged.Add(current);
+
+            var currentBand = new Dictionary<(int Left, int Right), int>();
+            foreach (var interval in merged)
+            {
+                if (previousBand.TryGetValue(interval, out var rectIndex) &&
+                    normalized[rectIndex].Bottom == top)
+                {
+                    var previous = normalized[rectIndex];
+                    normalized[rectIndex] = new SKRectI(
+                        previous.Left,
+                        previous.Top,
+                        previous.Right,
+                        bottom);
+                }
+                else
+                {
+                    rectIndex = normalized.Count;
+                    normalized.Add(new SKRectI(interval.Left, top, interval.Right, bottom));
+                }
+
+                currentBand[interval] = rectIndex;
+            }
+
+            previousBand = currentBand;
+        }
+
+        _rects.Clear();
+        _rects.AddRange(normalized);
     }
 
     private void UpdateBounds()
@@ -2844,6 +3422,157 @@ public class SKRegion : IDisposable
         return MathF.Abs(left - right) <= 0.0001f;
     }
 
+    public sealed class RectIterator : SKObject
+    {
+        private SKRectI[] _rects;
+        private int _index;
+
+        internal RectIterator(IReadOnlyList<SKRectI> rects)
+            : base(SKObjectHandle.Create(), owns: true)
+        {
+            _rects = CopyRects(rects);
+        }
+
+        public bool Next(out SKRectI rect)
+        {
+            if (_index >= _rects.Length)
+            {
+                rect = default;
+                return false;
+            }
+
+            rect = _rects[_index++];
+            return true;
+        }
+
+        protected override void DisposeManaged()
+        {
+            _rects = Array.Empty<SKRectI>();
+        }
+    }
+
+    public sealed class ClipIterator : SKObject
+    {
+        private SKRectI[] _rects;
+        private int _index;
+
+        internal ClipIterator(IReadOnlyList<SKRectI> rects, SKRectI clip)
+            : base(SKObjectHandle.Create(), owns: true)
+        {
+            var clipped = new List<SKRectI>(rects.Count);
+            foreach (var rect in rects)
+            {
+                if (IsValid(Intersect(rect, clip)))
+                {
+                    clipped.Add(rect);
+                }
+            }
+            _rects = clipped.ToArray();
+        }
+
+        public bool Next(out SKRectI rect)
+        {
+            if (_index >= _rects.Length)
+            {
+                rect = default;
+                return false;
+            }
+
+            rect = _rects[_index++];
+            return true;
+        }
+
+        protected override void DisposeManaged()
+        {
+            _rects = Array.Empty<SKRectI>();
+        }
+    }
+
+    public sealed class SpanIterator : SKObject
+    {
+        private (int Left, int Right)[] _spans;
+        private int _index;
+
+        internal SpanIterator(
+            IReadOnlyList<SKRectI> rects,
+            int y,
+            int left,
+            int right)
+            : base(SKObjectHandle.Create(), owns: true)
+        {
+            var spans = new List<(int Left, int Right)>();
+            if (right > left)
+            {
+                foreach (var rect in rects)
+                {
+                    if (y >= rect.Top && y < rect.Bottom)
+                    {
+                        var spanLeft = Math.Max(left, rect.Left);
+                        var spanRight = Math.Min(right, rect.Right);
+                        if (spanRight > spanLeft)
+                        {
+                            spans.Add((spanLeft, spanRight));
+                        }
+                    }
+                }
+            }
+
+            spans.Sort(static (first, second) => first.Left.CompareTo(second.Left));
+            if (spans.Count > 1)
+            {
+                var write = 0;
+                for (var read = 1; read < spans.Count; read++)
+                {
+                    if (spans[read].Left <= spans[write].Right)
+                    {
+                        spans[write] = (
+                            spans[write].Left,
+                            Math.Max(spans[write].Right, spans[read].Right));
+                    }
+                    else
+                    {
+                        spans[++write] = spans[read];
+                    }
+                }
+                if (write + 1 < spans.Count)
+                {
+                    spans.RemoveRange(write + 1, spans.Count - write - 1);
+                }
+            }
+
+            _spans = spans.ToArray();
+        }
+
+        public bool Next(out int left, out int right)
+        {
+            if (_index >= _spans.Length)
+            {
+                left = 0;
+                right = 0;
+                return false;
+            }
+
+            (left, right) = _spans[_index++];
+            return true;
+        }
+
+        protected override void DisposeManaged()
+        {
+            _spans = Array.Empty<(int Left, int Right)>();
+        }
+    }
+
+    private static SKRectI[] CopyRects(IReadOnlyList<SKRectI> rects)
+    {
+        var copy = new SKRectI[rects.Count];
+        for (var index = 0; index < rects.Count; index++)
+        {
+            copy[index] = rects[index];
+        }
+
+        return copy;
+    }
+
     public void Dispose() { }
 }
 
@@ -2856,35 +3585,4 @@ public enum SKPathVerb
     Cubic = 4,
     Close = 5,
     Done = 6
-}
-
-public sealed class SKRegionRectIterator : IDisposable
-{
-    private readonly SKRectI[] _rects;
-    private int _index;
-
-    internal SKRegionRectIterator(IReadOnlyList<SKRectI> rects)
-    {
-        _rects = new SKRectI[rects.Count];
-        for (var i = 0; i < rects.Count; i++)
-        {
-            _rects[i] = rects[i];
-        }
-    }
-
-    public bool Next(out SKRectI rect)
-    {
-        if (_index >= _rects.Length)
-        {
-            rect = default;
-            return false;
-        }
-
-        rect = _rects[_index++];
-        return true;
-    }
-
-    public void Dispose()
-    {
-    }
 }
