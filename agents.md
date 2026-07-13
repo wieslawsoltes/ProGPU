@@ -18,7 +18,9 @@ ProGPU achieves high-performance vector graphics and text rendering matching mac
 * **4-Way Subpixel Snapping**: Snapped positions must be calculated in physical coordinates snapped to 1/4th of a physical pixel, then snap-backed (divided by `DpiScale`) for logical projection matrix orthographic drawing.
 
 ### B. Precise Winding Intersection Rules (Anti-Artifacting)
-When modifying GPGPU compute rasterizers (`Shaders.cs`):
+When modifying the GPGPU compute rasterizers
+(`src/ProGPU.Backend/Shaders/GlyphRasterizer.wgsl` and
+`src/ProGPU.Backend/Shaders/PathRasterizer.wgsl`):
 * **Scanline Boundary Crossings**: To prevent horizontal line artifacts and drop-out seams at transition vertices (e.g. line-to-curve, curve-to-line, or curve-to-curve), the ray-casting algorithm must use **Precise Direction-Aware Half-Open Winding Intervals** based on the vertical derivative sign (`deriv_y`) at the intersection point:
   * **Upward Crossing (`deriv_y > 0.0`)**: Use the half-open interval `[0.0, 1.0)` (inclusive of start, exclusive of end).
   * **Downward Crossing (`deriv_y < 0.0`)**: Use the half-open interval `(0.0, 1.0]` (exclusive of start, inclusive of end).
@@ -175,7 +177,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 1,730 renderer tests and 172 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 1,732 renderer tests and 172 headless tests. Update these counts only when tests are intentionally added or removed.
 
 Build once, then measure the exact final binaries:
 
