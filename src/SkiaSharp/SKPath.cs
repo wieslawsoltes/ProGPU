@@ -153,6 +153,747 @@ public class SKPath : IDisposable
 
     public bool IsEmpty => Geometry.Figures.Count == 0;
 
+    public SKPathConvexity Convexity => IsConvex
+        ? SKPathConvexity.Convex
+        : SKPathConvexity.Concave;
+
+    public bool IsConvex => ComputeIsConvex();
+
+    public bool IsConcave => !IsConvex;
+
+    public bool IsLine => TryGetLine(out _, out _);
+
+    public bool IsOval => TryGetOvalBounds(out _);
+
+    public bool IsRect => TryGetRect(out _, out _, out _);
+
+    public bool IsRoundRect
+    {
+        get
+        {
+            if (!TryGetRoundRect(out var roundRect))
+            {
+                return false;
+            }
+
+            roundRect.Dispose();
+            return true;
+        }
+    }
+
+    public SKPathSegmentMask SegmentMasks => GetSegmentMasks();
+
+    public int VerbCount
+    {
+        get
+        {
+            var count = 0;
+            foreach (var figure in Geometry.Figures)
+            {
+                count = checked(count + 1 + (figure.IsClosed ? 1 : 0));
+                var current = figure.StartPoint;
+                foreach (var segment in figure.Segments)
+                {
+                    count = checked(count + (segment is ArcSegment arc
+                        ? GetArcVerbCount(current, arc)
+                        : 1));
+                    current = GetSegmentEndPoint(segment, current);
+                }
+            }
+
+            return count;
+        }
+    }
+
+    public int PointCount => CountPoints();
+
+    public SKPoint this[int index] => GetPoint(index);
+
+    public SKPoint[] Points => GetPoints(PointCount);
+
+    public SKPoint LastPoint
+    {
+        get
+        {
+            if (Geometry.Figures.Count == 0)
+            {
+                return SKPoint.Empty;
+            }
+
+            var figure = Geometry.Figures[^1];
+            var point = GetFigureEndPoint(figure);
+            return new SKPoint(point.X, point.Y);
+        }
+    }
+
+    public SKPoint[]? GetLine() => TryGetLine(out var start, out var end)
+        ? [start, end]
+        : null;
+
+    public SKRect GetOvalBounds() => TryGetOvalBounds(out var bounds)
+        ? bounds
+        : SKRect.Empty;
+
+    public SKRoundRect? GetRoundRect() => TryGetRoundRect(out var roundRect)
+        ? roundRect
+        : null;
+
+    public SKRect GetRect() => GetRect(out _, out _);
+
+    public SKRect GetRect(out bool isClosed, out SKPathDirection direction) =>
+        TryGetRect(out var rect, out isClosed, out direction)
+            ? rect
+            : SKRect.Empty;
+
+    public SKPoint GetPoint(int index)
+    {
+        if ((uint)index >= (uint)PointCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        var current = 0;
+        foreach (var figure in Geometry.Figures)
+        {
+            if (current++ == index)
+            {
+                return ToPoint(figure.StartPoint);
+            }
+
+            var segmentStart = figure.StartPoint;
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        if (current++ == index)
+                        {
+                            return ToPoint(line.Point);
+                        }
+                        break;
+
+                    case QuadraticBezierSegment quadratic:
+                        if (current++ == index)
+                        {
+                            return ToPoint(quadratic.ControlPoint);
+                        }
+                        if (current++ == index)
+                        {
+                            return ToPoint(quadratic.Point);
+                        }
+                        break;
+
+                    case CubicBezierSegment cubic:
+                        if (current++ == index)
+                        {
+                            return ToPoint(cubic.ControlPoint1);
+                        }
+                        if (current++ == index)
+                        {
+                            return ToPoint(cubic.ControlPoint2);
+                        }
+                        if (current++ == index)
+                        {
+                            return ToPoint(cubic.Point);
+                        }
+                        break;
+
+                    case ArcSegment arc:
+                        Span<Vector2> arcPoints = stackalloc Vector2[8];
+                        var arcPointCount = GetArcConicPoints(
+                            segmentStart,
+                            arc,
+                            arcPoints);
+                        for (var pointIndex = 0; pointIndex < arcPointCount; pointIndex++)
+                        {
+                            if (current++ == index)
+                            {
+                                return ToPoint(arcPoints[pointIndex]);
+                            }
+                        }
+                        break;
+                }
+
+                segmentStart = GetSegmentEndPoint(segment, segmentStart);
+            }
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(index));
+    }
+
+    public SKPoint[] GetPoints(int max)
+    {
+        if (max < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(max));
+        }
+
+        var points = new SKPoint[max];
+        GetPoints(points, max);
+        return points;
+    }
+
+    public int GetPoints(SKPoint[] points, int max)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (max < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(max));
+        }
+
+        var limit = Math.Min(points.Length, max);
+        var written = 0;
+        foreach (var figure in Geometry.Figures)
+        {
+            var segmentStart = figure.StartPoint;
+            WritePoint(ToPoint(figure.StartPoint));
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        WritePoint(ToPoint(line.Point));
+                        break;
+                    case QuadraticBezierSegment quadratic:
+                        WritePoint(ToPoint(quadratic.ControlPoint));
+                        WritePoint(ToPoint(quadratic.Point));
+                        break;
+                    case CubicBezierSegment cubic:
+                        WritePoint(ToPoint(cubic.ControlPoint1));
+                        WritePoint(ToPoint(cubic.ControlPoint2));
+                        WritePoint(ToPoint(cubic.Point));
+                        break;
+                    case ArcSegment arc:
+                        Span<Vector2> arcPoints = stackalloc Vector2[8];
+                        var arcPointCount = GetArcConicPoints(segmentStart, arc, arcPoints);
+                        for (var pointIndex = 0; pointIndex < arcPointCount; pointIndex++)
+                        {
+                            WritePoint(ToPoint(arcPoints[pointIndex]));
+                        }
+                        break;
+                }
+
+                segmentStart = GetSegmentEndPoint(segment, segmentStart);
+            }
+        }
+
+        return written;
+
+        void WritePoint(SKPoint point)
+        {
+            if (written < limit)
+            {
+                points[written] = point;
+                written++;
+            }
+        }
+    }
+
+    public bool GetBounds(out SKRect rect)
+    {
+        if (IsEmpty)
+        {
+            rect = SKRect.Empty;
+            return false;
+        }
+
+        rect = Bounds;
+        return true;
+    }
+
+    public SKRect ComputeTightBounds() => TightBounds;
+
+    public bool GetTightBounds(out SKRect result)
+    {
+        if (IsEmpty)
+        {
+            result = SKRect.Empty;
+            return false;
+        }
+
+        result = TightBounds;
+        return true;
+    }
+
+    private int CountPoints()
+    {
+        var count = 0;
+        foreach (var figure in Geometry.Figures)
+        {
+            count = checked(count + 1);
+            var current = figure.StartPoint;
+            foreach (var segment in figure.Segments)
+            {
+                count = checked(count + (segment switch
+                {
+                    QuadraticBezierSegment => 2,
+                    CubicBezierSegment => 3,
+                    ArcSegment arc => GetArcVerbCount(current, arc) * 2,
+                    _ => 1,
+                }));
+                current = GetSegmentEndPoint(segment, current);
+            }
+        }
+
+        return count;
+    }
+
+    private SKPathSegmentMask GetSegmentMasks()
+    {
+        var masks = (SKPathSegmentMask)0;
+        foreach (var figure in Geometry.Figures)
+        {
+            foreach (var segment in figure.Segments)
+            {
+                masks |= segment switch
+                {
+                    LineSegment => SKPathSegmentMask.Line,
+                    QuadraticBezierSegment => SKPathSegmentMask.Quad,
+                    CubicBezierSegment => SKPathSegmentMask.Cubic,
+                    ArcSegment => SKPathSegmentMask.Conic,
+                    _ => 0,
+                };
+            }
+        }
+
+        return masks;
+    }
+
+    private bool ComputeIsConvex()
+    {
+        if (Geometry.Figures.Count == 0)
+        {
+            return true;
+        }
+
+        if (Geometry.Figures.Count != 1)
+        {
+            return false;
+        }
+
+        if (TryGetOvalBounds(out _))
+        {
+            return true;
+        }
+
+        if (TryGetRoundRect(out var roundRect))
+        {
+            roundRect.Dispose();
+            return true;
+        }
+
+        var figure = Geometry.Figures[0];
+        if (figure.Segments.Count < 2)
+        {
+            return true;
+        }
+
+        foreach (var segment in figure.Segments)
+        {
+            if (segment is not LineSegment)
+            {
+                return false;
+            }
+        }
+
+        var first = figure.StartPoint;
+        var previous = first;
+        var firstEdge = default(Vector2);
+        var previousEdge = default(Vector2);
+        var turnSign = 0f;
+        var hasEdge = false;
+        foreach (var segment in figure.Segments)
+        {
+            var point = ((LineSegment)segment).Point;
+            var edge = point - previous;
+            if (edge.LengthSquared() > 1e-12f)
+            {
+                if (!hasEdge)
+                {
+                    firstEdge = edge;
+                    hasEdge = true;
+                }
+                else if (!UpdateTurn(previousEdge, edge, ref turnSign))
+                {
+                    return false;
+                }
+
+                previousEdge = edge;
+            }
+
+            previous = point;
+        }
+
+        if (hasEdge && figure.IsClosed)
+        {
+            var closingEdge = first - previous;
+            if (closingEdge.LengthSquared() > 1e-12f &&
+                (!UpdateTurn(previousEdge, closingEdge, ref turnSign) ||
+                 !UpdateTurn(closingEdge, firstEdge, ref turnSign)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool UpdateTurn(Vector2 first, Vector2 second, ref float sign)
+    {
+        var cross = first.X * second.Y - first.Y * second.X;
+        if (MathF.Abs(cross) <= 1e-6f)
+        {
+            return true;
+        }
+
+        var nextSign = MathF.CopySign(1f, cross);
+        if (sign != 0f && sign != nextSign)
+        {
+            return false;
+        }
+
+        sign = nextSign;
+        return true;
+    }
+
+    private bool TryGetLine(out SKPoint start, out SKPoint end)
+    {
+        if (Geometry.Figures.Count == 1 &&
+            !Geometry.Figures[0].IsClosed &&
+            Geometry.Figures[0].Segments.Count == 1 &&
+            Geometry.Figures[0].Segments[0] is LineSegment line)
+        {
+            start = ToPoint(Geometry.Figures[0].StartPoint);
+            end = ToPoint(line.Point);
+            return true;
+        }
+
+        start = default;
+        end = default;
+        return false;
+    }
+
+    private bool TryGetRect(
+        out SKRect rect,
+        out bool isClosed,
+        out SKPathDirection direction)
+    {
+        rect = SKRect.Empty;
+        isClosed = false;
+        direction = SKPathDirection.Clockwise;
+        if (Geometry.Figures.Count != 1)
+        {
+            return false;
+        }
+
+        var figure = Geometry.Figures[0];
+        if (figure.Segments.Count is < 3 or > 4)
+        {
+            return false;
+        }
+
+        Span<Vector2> points = stackalloc Vector2[5];
+        points[0] = figure.StartPoint;
+        var count = 1;
+        foreach (var segment in figure.Segments)
+        {
+            if (segment is not LineSegment line)
+            {
+                return false;
+            }
+
+            points[count++] = line.Point;
+        }
+
+        if (count == 5)
+        {
+            if (!NearlyEqual(points[4], points[0]))
+            {
+                return false;
+            }
+
+            count--;
+        }
+
+        if (count != 4 || (!figure.IsClosed && figure.Segments.Count != 4))
+        {
+            return false;
+        }
+
+        var min = points[0];
+        var max = points[0];
+        for (var index = 1; index < count; index++)
+        {
+            min = Vector2.Min(min, points[index]);
+            max = Vector2.Max(max, points[index]);
+        }
+
+        if (max.X <= min.X || max.Y <= min.Y)
+        {
+            return false;
+        }
+
+        var corners = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var point = points[index];
+            var corner = (NearlyEqual(point.X, max.X) ? 1 : 0) |
+                (NearlyEqual(point.Y, max.Y) ? 2 : 0);
+            if ((!NearlyEqual(point.X, min.X) && !NearlyEqual(point.X, max.X)) ||
+                (!NearlyEqual(point.Y, min.Y) && !NearlyEqual(point.Y, max.Y)) ||
+                (corners & (1 << corner)) != 0)
+            {
+                return false;
+            }
+
+            corners |= 1 << corner;
+            var next = points[(index + 1) % count];
+            if (NearlyEqual(point.X, next.X) == NearlyEqual(point.Y, next.Y))
+            {
+                return false;
+            }
+        }
+
+        var signedArea = 0f;
+        for (var index = 0; index < count; index++)
+        {
+            var point = points[index];
+            var next = points[(index + 1) % count];
+            signedArea += point.X * next.Y - point.Y * next.X;
+        }
+
+        rect = new SKRect(min.X, min.Y, max.X, max.Y);
+        isClosed = figure.IsClosed;
+        direction = signedArea >= 0f
+            ? SKPathDirection.Clockwise
+            : SKPathDirection.CounterClockwise;
+        return true;
+    }
+
+    private bool TryGetOvalBounds(out SKRect bounds)
+    {
+        bounds = SKRect.Empty;
+        if (Geometry.Figures.Count != 1)
+        {
+            return false;
+        }
+
+        var figure = Geometry.Figures[0];
+        if (!figure.IsClosed ||
+            figure.Segments.Count != 2 ||
+            figure.Segments[0] is not ArcSegment first ||
+            figure.Segments[1] is not ArcSegment second ||
+            first.SweepDirection != second.SweepDirection ||
+            !first.IsLargeArc ||
+            !second.IsLargeArc ||
+            !NearlyEqual(second.Point, figure.StartPoint))
+        {
+            return false;
+        }
+
+        bounds = TightBounds;
+        var radiusX = bounds.Width * 0.5f;
+        var radiusY = bounds.Height * 0.5f;
+        if (!NearlyEqual(first.Size.X, radiusX) ||
+            !NearlyEqual(first.Size.Y, radiusY) ||
+            !NearlyEqual(second.Size.X, radiusX) ||
+            !NearlyEqual(second.Size.Y, radiusY) ||
+            !NearlyEqual(figure.StartPoint + first.Point, new Vector2(bounds.MidX * 2f, bounds.MidY * 2f)))
+        {
+            bounds = SKRect.Empty;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryGetRoundRect(out SKRoundRect roundRect)
+    {
+        roundRect = null!;
+        if (Geometry.Figures.Count != 1)
+        {
+            return false;
+        }
+
+        var figure = Geometry.Figures[0];
+        if (!figure.IsClosed || figure.Segments.Count != 8)
+        {
+            return false;
+        }
+
+        var bounds = TightBounds;
+        Span<SKPoint> radii = stackalloc SKPoint[4];
+        Span<bool> assigned = stackalloc bool[4];
+        var current = figure.StartPoint;
+        var arcCount = 0;
+        var lineCount = 0;
+        foreach (var segment in figure.Segments)
+        {
+            switch (segment)
+            {
+                case LineSegment line:
+                    current = line.Point;
+                    lineCount++;
+                    break;
+
+                case ArcSegment arc:
+                    var corner = ClassifyRoundRectCorner(current, arc.Point, bounds);
+                    if (corner < 0 || assigned[corner])
+                    {
+                        return false;
+                    }
+
+                    radii[corner] = new SKPoint(MathF.Abs(arc.Size.X), MathF.Abs(arc.Size.Y));
+                    assigned[corner] = true;
+                    current = arc.Point;
+                    arcCount++;
+                    break;
+
+                default:
+                    return false;
+            }
+        }
+
+        if (arcCount != 4 || lineCount != 4)
+        {
+            return false;
+        }
+
+        var result = new SKRoundRect();
+        result.SetRectRadii(bounds, radii);
+        if (!result.IsValid)
+        {
+            result.Dispose();
+            return false;
+        }
+
+        roundRect = result;
+        return true;
+    }
+
+    private static int ClassifyRoundRectCorner(Vector2 start, Vector2 end, SKRect bounds)
+    {
+        var startTop = NearlyEqual(start.Y, bounds.Top);
+        var startRight = NearlyEqual(start.X, bounds.Right);
+        var startBottom = NearlyEqual(start.Y, bounds.Bottom);
+        var startLeft = NearlyEqual(start.X, bounds.Left);
+        var endTop = NearlyEqual(end.Y, bounds.Top);
+        var endRight = NearlyEqual(end.X, bounds.Right);
+        var endBottom = NearlyEqual(end.Y, bounds.Bottom);
+        var endLeft = NearlyEqual(end.X, bounds.Left);
+        if ((startTop && endRight) || (startRight && endTop))
+        {
+            return 1;
+        }
+        if ((startRight && endBottom) || (startBottom && endRight))
+        {
+            return 2;
+        }
+        if ((startBottom && endLeft) || (startLeft && endBottom))
+        {
+            return 3;
+        }
+        if ((startLeft && endTop) || (startTop && endLeft))
+        {
+            return 0;
+        }
+
+        return -1;
+    }
+
+    private static Vector2 GetFigureEndPoint(PathFigure figure)
+    {
+        if (figure.Segments.Count == 0)
+        {
+            return figure.StartPoint;
+        }
+
+        return figure.Segments[^1] switch
+        {
+            LineSegment line => line.Point,
+            QuadraticBezierSegment quadratic => quadratic.Point,
+            CubicBezierSegment cubic => cubic.Point,
+            ArcSegment arc => arc.Point,
+            _ => figure.StartPoint,
+        };
+    }
+
+    private static Vector2 GetSegmentEndPoint(PathSegment segment, Vector2 fallback) =>
+        segment switch
+        {
+            LineSegment line => line.Point,
+            QuadraticBezierSegment quadratic => quadratic.Point,
+            CubicBezierSegment cubic => cubic.Point,
+            ArcSegment arc => arc.Point,
+            _ => fallback,
+        };
+
+    private static int GetArcVerbCount(Vector2 start, ArcSegment arc)
+    {
+        Span<Vector2> points = stackalloc Vector2[8];
+        var pointCount = GetArcConicPoints(start, arc, points);
+        return pointCount == 1 ? 1 : pointCount / 2;
+    }
+
+    private static int GetArcConicPoints(
+        Vector2 start,
+        ArcSegment arc,
+        Span<Vector2> points)
+    {
+        if (!ArcSegmentGeometry.TryGetArcCenter(
+                start,
+                arc.Point,
+                arc.Size,
+                arc.RotationAngle,
+                arc.IsLargeArc,
+                arc.SweepDirection,
+                out var center,
+                out var startAngle,
+                out var sweepAngle,
+                out var radiusX,
+                out var radiusY))
+        {
+            points[0] = arc.Point;
+            return 1;
+        }
+
+        const float angleEpsilon = 1e-5f;
+        var conicCount = Math.Clamp(
+            (int)MathF.Ceiling(
+                MathF.Max(0f, MathF.Abs(sweepAngle) - angleEpsilon) /
+                (MathF.PI * 0.5f)),
+            1,
+            4);
+        var step = sweepAngle / conicCount;
+        var rotation = arc.RotationAngle * (MathF.PI / 180f);
+        var cosRotation = MathF.Cos(rotation);
+        var sinRotation = MathF.Sin(rotation);
+        var axisX = new Vector2(cosRotation * radiusX, sinRotation * radiusX);
+        var axisY = new Vector2(-sinRotation * radiusY, cosRotation * radiusY);
+        for (var index = 0; index < conicCount; index++)
+        {
+            var segmentStart = startAngle + step * index;
+            var segmentEnd = segmentStart + step;
+            var middle = (segmentStart + segmentEnd) * 0.5f;
+            var weight = MathF.Cos(step * 0.5f);
+            points[index * 2] = center +
+                (axisX * MathF.Cos(middle) + axisY * MathF.Sin(middle)) / weight;
+            points[index * 2 + 1] = index == conicCount - 1
+                ? arc.Point
+                : center + axisX * MathF.Cos(segmentEnd) + axisY * MathF.Sin(segmentEnd);
+        }
+
+        return conicCount * 2;
+    }
+
+    private static bool NearlyEqual(Vector2 left, Vector2 right) =>
+        NearlyEqual(left.X, right.X) && NearlyEqual(left.Y, right.Y);
+
+    private static bool NearlyEqual(float left, float right) =>
+        MathF.Abs(left - right) <= 0.0001f;
+
+    private static SKPoint ToPoint(Vector2 point) => new(point.X, point.Y);
+
     private static void IncludeQuadraticExtrema(
         Vector2 p0,
         Vector2 p1,
