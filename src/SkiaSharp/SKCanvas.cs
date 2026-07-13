@@ -3456,6 +3456,22 @@ public class SKCanvas : IDisposable
 
     public void DrawPath(SKPath path, SKPaint paint)
     {
+        if (paint.PathEffect is { IsDash: false } pathEffect)
+        {
+            var applied = pathEffect.TryApply(path, GetCurrentStrokeScale(), out var effectedPath);
+            if (applied)
+            {
+                using (effectedPath)
+                using (var effectedPaint = paint.Clone())
+                {
+                    effectedPaint.PathEffect = null;
+                    DrawPath(effectedPath, effectedPaint);
+                }
+                return;
+            }
+            effectedPath.Dispose();
+        }
+
         if (TryDrawSpecialShader(path.Geometry, path.Bounds, paint))
         {
             return;

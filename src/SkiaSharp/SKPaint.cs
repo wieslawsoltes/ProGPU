@@ -379,6 +379,22 @@ public partial class SKPaint : SKObject
     private bool TryCreateFillPath(SKPath source, float resScale, out SKPath destination)
     {
         destination = new SKPath();
+        if (PathEffect is { IsDash: false } materializedEffect)
+        {
+            var applied = materializedEffect.TryApply(source, resScale, out var effectedPath);
+            if (applied)
+            {
+                destination.Dispose();
+                using (effectedPath)
+                using (var paint = Clone())
+                {
+                    paint.PathEffect = null;
+                    return paint.TryCreateFillPath(effectedPath, resScale, out destination);
+                }
+            }
+            effectedPath.Dispose();
+        }
+
         if (Style == SKPaintStyle.Fill)
         {
             destination.FillType = source.FillType;
@@ -436,9 +452,9 @@ public partial class SKPaint : SKObject
                 continue;
             }
 
-            if (PathEffect is { Intervals.Length: > 0 } pathEffect)
+            if (PathEffect is { IsDash: true, Intervals.Length: > 0 } dashEffect)
             {
-                AddDashedStrokeSegments(destination, points, figure.IsClosed, halfWidth, pathEffect);
+                AddDashedStrokeSegments(destination, points, figure.IsClosed, halfWidth, dashEffect);
                 continue;
             }
 
@@ -1010,7 +1026,7 @@ public partial class SKPaint : SKObject
 
     private static (double[]? DashArray, double DashOffset) MapDashEffect(SKPathEffect? pathEffect, float strokeWidth)
     {
-        if (pathEffect == null)
+        if (pathEffect == null || !pathEffect.IsDash)
         {
             return (null, 0.0);
         }

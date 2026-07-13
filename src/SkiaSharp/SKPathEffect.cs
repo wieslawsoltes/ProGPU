@@ -13,7 +13,7 @@ public enum SKTrimPathEffectMode
     Inverted = 1,
 }
 
-public class SKPathEffect : SKObject
+public partial class SKPathEffect : SKObject
 {
     internal enum EffectKind
     {
