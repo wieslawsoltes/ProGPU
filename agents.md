@@ -172,7 +172,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 1,708 renderer tests and 149 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 1,720 renderer tests and 172 headless tests. Update these counts only when tests are intentionally added or removed.
 
 Build once, then measure the exact final binaries:
 

@@ -7,7 +7,7 @@
     <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     <Description Condition="'$(Description)' == ''">ProGPU runtime package for GPU-accelerated .NET composition, rendering, vector graphics, text, and WebGPU platform integration.</Description>
     <PackageDescription Condition="'$(PackageDescription)' == ''">$(Description)</PackageDescription>
-    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Completes broad SkiaSharp 4.148 compatibility across paths, pictures, shaders, filters, streams, text, canvas, and geometry APIs; adds retained GPU batching for vertices, lattices, atlases, and path effects; preserves transform/DPI-aware vector text quality; and restores measured high-throughput LOL/s, Markdown, and DXF rendering with a stricter Svg.Skia parity gate.</PackageReleaseNotes>
+    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Completes broad SkiaSharp 4.148 compatibility across paths, pictures, images, shaders, filters, streams, text, canvas, and geometry APIs; adds portable System.Drawing graphics state, formatted text, BMP encoding, printing values, and drawing contracts for LibreWinForms consumers; and restores retained high-throughput LOL/s, Markdown, and DXF rendering with strict Svg.Skia parity.</PackageReleaseNotes>
     <Authors Condition="'$(Authors)' == ''">Wieslaw Soltes</Authors>
     <Company Condition="'$(Company)' == ''">ProGPU</Company>
     <PackageProjectUrl Condition="'$(PackageProjectUrl)' == ''">https://github.com/wieslawsoltes/ProGPU</PackageProjectUrl>
