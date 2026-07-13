@@ -143,10 +143,41 @@ public sealed class StrokeJoinRenderTests
 
         using var snapshot = surface.Snapshot();
         var pixels = snapshot.Texture.ReadPixels();
+        AssertColorNear(pixels, 128, 64, 40, 255, 255, 255);
         for (var offset = 0; offset < 7; offset++)
         {
             AssertOpaqueBlue(pixels, 128, 19 - offset, 60 + offset);
         }
+    }
+
+    [Fact]
+    public void PictureReplayKeepsStrokeOnlyPathInteriorUnfilled()
+    {
+        using var recorder = new SKPictureRecorder();
+        var recordingCanvas = recorder.BeginRecording(new SKRect(0f, 0f, 128f, 96f));
+        using var path = new SKPath();
+        path.AddRect(new SKRect(20f, 20f, 108f, 60f));
+        using var paint = new SKPaint
+        {
+            Color = SKColors.Blue,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 20f,
+            StrokeJoin = SKStrokeJoin.Round,
+            IsAntialias = true
+        };
+
+        recordingCanvas.DrawPath(path, paint);
+        using var picture = recorder.EndRecording();
+        using var surface = SKSurface.Create(
+            new SKImageInfo(128, 96, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.White);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertColorNear(pixels, 128, 64, 40, 255, 255, 255);
+        AssertOpaqueBlue(pixels, 128, 64, 20);
     }
 
     [Fact]
