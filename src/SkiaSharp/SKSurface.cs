@@ -469,6 +469,25 @@ public class SKSurface : IDisposable
         canvas.DrawImage(image, x, y, sampling, paint);
     }
 
+    public void Draw(
+        SKCanvas canvas,
+        float x,
+        float y,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(canvas);
+        using var image = Snapshot();
+        canvas.DrawImage(image, x, y, sampling, paint);
+    }
+
+    public void Draw(
+        SKCanvas canvas,
+        SKPoint point,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null) =>
+        Draw(canvas, point.X, point.Y, sampling, paint);
+
     private static unsafe void CopyPixelToRgbaPremultiplied(byte* sourceRow, byte* destinationRow, int x, SKColorType colorType, SKAlphaType alphaType)
     {
         int destinationOffset = x * 4;

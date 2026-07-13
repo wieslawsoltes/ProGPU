@@ -3305,6 +3305,33 @@ public class SKCanvas : IDisposable
         DrawImage(image, source, destination, sampling, paint);
     }
 
+    public void DrawSurface(SKSurface surface, SKPoint point, SKPaint? paint = null) =>
+        DrawSurface(surface, point.X, point.Y, paint);
+
+    public void DrawSurface(SKSurface surface, float x, float y, SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        surface.Draw(this, x, y, paint);
+    }
+
+    public void DrawSurface(
+        SKSurface surface,
+        SKPoint point,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null) =>
+        DrawSurface(surface, point.X, point.Y, sampling, paint);
+
+    public void DrawSurface(
+        SKSurface surface,
+        float x,
+        float y,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        surface.Draw(this, x, y, sampling, paint);
+    }
+
     private GpuTexture RetainImageTexture(SKImage image, bool generateMipmaps = false)
     {
         var source = image.Texture;
