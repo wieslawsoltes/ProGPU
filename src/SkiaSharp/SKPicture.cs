@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using ProGPU.Scene;
 using ProGPU.Vector;
 
@@ -6,8 +8,11 @@ namespace SkiaSharp;
 
 public sealed class SKPicture : IDisposable
 {
+    private static int s_nextUniqueId;
+
     public IntPtr Handle { get; } = SKObjectHandle.Create();
     private GpuPicture? _picture;
+    private readonly uint _uniqueId = unchecked((uint)Interlocked.Increment(ref s_nextUniqueId));
 
     internal SKPicture(GpuPicture picture, SKRect cullRect)
     {
@@ -17,6 +22,25 @@ public sealed class SKPicture : IDisposable
 
     public SKRect CullRect { get; }
 
+    public uint UniqueId => _uniqueId;
+
+    public int ApproximateBytesUsed
+    {
+        get
+        {
+            var picture = Picture;
+            var bytes =
+                (long)picture.Commands.Length * Unsafe.SizeOf<RenderCommand>() +
+                (long)picture.PointBuffer.Length * Unsafe.SizeOf<System.Numerics.Vector2>() +
+                (long)picture.DoubleBuffer.Length * sizeof(double) +
+                (long)picture.Line3DBuffer.Length * Unsafe.SizeOf<Line3D>() +
+                (long)picture.FloatBuffer.Length * sizeof(float);
+            return (int)Math.Min(int.MaxValue, bytes);
+        }
+    }
+
+    public int ApproximateOperationCount => GetApproximateOperationCount(includeNested: false);
+
     internal GpuPicture Picture => _picture ?? throw new ObjectDisposedException(nameof(SKPicture));
 
     public void Playback(SKCanvas canvas)
@@ -25,24 +49,66 @@ public sealed class SKPicture : IDisposable
         canvas.DrawPicture(this);
     }
 
-    public SKShader ToShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
-        SKMatrix localMatrix,
-        SKRect tileRect)
-    {
-        return SKShader.CreatePicture(Picture.Clone(), tileModeX, tileModeY, localMatrix, tileRect);
-    }
+    public int GetApproximateOperationCount(bool includeNested) =>
+        CountOperations(Picture, includeNested);
 
-    public SKShader ToShader(SKShaderTileMode tileModeX, SKShaderTileMode tileModeY)
-    {
-        return ToShader(tileModeX, tileModeY, SKMatrix.Identity, CullRect);
-    }
+    public SKShader ToShader() =>
+        ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, SKFilterMode.Nearest, SKMatrix.Identity, CullRect);
+
+    public SKShader ToShader(SKShaderTileMode tmx, SKShaderTileMode tmy) =>
+        ToShader(tmx, tmy, SKFilterMode.Nearest, SKMatrix.Identity, CullRect);
+
+    public SKShader ToShader(SKShaderTileMode tmx, SKShaderTileMode tmy, SKFilterMode filterMode) =>
+        ToShader(tmx, tmy, filterMode, SKMatrix.Identity, CullRect);
+
+    public SKShader ToShader(SKShaderTileMode tmx, SKShaderTileMode tmy, SKRect tile) =>
+        ToShader(tmx, tmy, SKFilterMode.Nearest, SKMatrix.Identity, tile);
+
+    public SKShader ToShader(
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
+        SKFilterMode filterMode,
+        SKRect tile) =>
+        ToShader(tmx, tmy, filterMode, SKMatrix.Identity, tile);
+
+    public SKShader ToShader(
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
+        SKMatrix localMatrix,
+        SKRect tile) =>
+        ToShader(tmx, tmy, SKFilterMode.Nearest, localMatrix, tile);
+
+    public SKShader ToShader(
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
+        SKFilterMode filterMode,
+        SKMatrix localMatrix,
+        SKRect tile) =>
+        SKShader.CreatePicture(Picture.Clone(), tmx, tmy, filterMode, localMatrix, tile);
 
     public void Dispose()
     {
         _picture?.Dispose();
         _picture = null;
+    }
+
+    private static int CountOperations(GpuPicture picture, bool includeNested)
+    {
+        var count = picture.Commands.Length;
+        if (!includeNested)
+        {
+            return count;
+        }
+
+        foreach (var command in picture.Commands)
+        {
+            if (command.Type == RenderCommandType.DrawPicture && command.Picture is { } nested)
+            {
+                count = checked(count + CountOperations(nested, includeNested: true));
+            }
+        }
+
+        return count;
     }
 }
 

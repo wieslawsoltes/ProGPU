@@ -2792,6 +2792,7 @@ public class SKCanvas : IDisposable
                 picture.TileRect,
                 picture.TileModeX,
                 picture.TileModeY,
+                picture.FilterMode,
                 picture.LocalMatrix,
                 shader.ColorFilter,
                 paint.ColorFilter,
@@ -2883,6 +2884,7 @@ public class SKCanvas : IDisposable
         SKRect tileRect,
         SKShaderTileMode tileModeX,
         SKShaderTileMode tileModeY,
+        SKFilterMode filterMode,
         SKMatrix shaderMatrix,
         SKColorFilter? shaderColorFilter,
         SKColorFilter? paintColorFilter,
@@ -2922,7 +2924,9 @@ public class SKCanvas : IDisposable
                         Rect = new Rect(tileRect.Left, tileRect.Top, tileRect.Width, tileRect.Height),
                         SrcRect = new Rect(0f, 0f, texture.Width, texture.Height),
                         Transform = pictureTransform,
-                        TextureSamplingMode = TextureSamplingMode.Nearest
+                        TextureSamplingMode = filterMode == SKFilterMode.Nearest
+                            ? TextureSamplingMode.Nearest
+                            : TextureSamplingMode.Linear
                     });
                 }
             }
