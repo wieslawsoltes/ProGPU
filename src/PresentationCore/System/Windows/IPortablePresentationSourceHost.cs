@@ -46,6 +46,15 @@ public interface IPortablePresentationSourceHost : IDisposable
 
     void SetClientSize(double width, double height);
 
+    /// <summary>
+    /// Sets this source's origin in the owning portable host's device-pixel coordinate space.
+    /// The main presentation source uses (0, 0); composited popup sources use their retained
+    /// popup position so client/screen conversions remain correct for nested popups.
+    /// </summary>
+    void SetClientOrigin(double x, double y)
+    {
+    }
+
     bool TryUpdateRootVisualClientSize(out double width, out double height);
 
     bool DispatchHwndSourceHook(int message, IntPtr wParam, IntPtr lParam, out IntPtr result, out bool handled);
