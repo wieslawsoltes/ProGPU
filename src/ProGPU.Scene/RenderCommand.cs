@@ -129,6 +129,47 @@ public sealed class VertexMesh2D
         IndexArray = indices.ToArray();
     }
 
+    internal static VertexMesh2D CreateOwned(
+        VertexMeshTopology topology,
+        Vector2[] positions,
+        Vector2[] textureCoordinates,
+        Vector4[] colors,
+        ushort[] indices)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+        ArgumentNullException.ThrowIfNull(textureCoordinates);
+        ArgumentNullException.ThrowIfNull(colors);
+        ArgumentNullException.ThrowIfNull(indices);
+        if (textureCoordinates.Length != 0 && textureCoordinates.Length != positions.Length)
+        {
+            throw new ArgumentException(
+                "The number of texture coordinates must match the number of vertices.",
+                nameof(textureCoordinates));
+        }
+        if (colors.Length != 0 && colors.Length != positions.Length)
+        {
+            throw new ArgumentException(
+                "The number of colors must match the number of vertices.",
+                nameof(colors));
+        }
+
+        return new VertexMesh2D(topology, positions, textureCoordinates, colors, indices);
+    }
+
+    private VertexMesh2D(
+        VertexMeshTopology topology,
+        Vector2[] positions,
+        Vector2[] textureCoordinates,
+        Vector4[] colors,
+        ushort[] indices)
+    {
+        Topology = topology;
+        PositionArray = positions;
+        TextureCoordinateArray = textureCoordinates;
+        ColorArray = colors;
+        IndexArray = indices;
+    }
+
     internal int GetTriangleCount()
     {
         var elementCount = IndexArray.Length > 0 ? IndexArray.Length : PositionArray.Length;

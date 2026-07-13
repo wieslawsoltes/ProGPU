@@ -88,12 +88,13 @@ public class SKVertices : SKObject
             }
         }
 
-        return new SKVertices(new VertexMesh2D(
+        var meshIndices = indices is null ? Array.Empty<ushort>() : (ushort[])indices.Clone();
+        return new SKVertices(VertexMesh2D.CreateOwned(
             (VertexMeshTopology)vmode,
             meshPositions,
             meshTextureCoordinates,
             meshColors,
-            indices));
+            meshIndices));
     }
 
     protected override void Dispose(bool disposing)

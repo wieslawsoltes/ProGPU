@@ -2534,6 +2534,55 @@ public class SKCanvas : IDisposable
         }
     }
 
+    public void DrawPatch(
+        SKPoint[] cubics,
+        SKColor[]? colors,
+        SKPoint[]? texCoords,
+        SKPaint paint) =>
+        DrawPatch(cubics, colors, texCoords, SKBlendMode.Modulate, paint);
+
+    public void DrawPatch(
+        SKPoint[] cubics,
+        SKColor[]? colors,
+        SKPoint[]? texCoords,
+        SKBlendMode mode,
+        SKPaint paint)
+    {
+        ArgumentNullException.ThrowIfNull(cubics);
+        if (cubics.Length != 12)
+        {
+            throw new ArgumentException("Cubics must have a length of 12.", nameof(cubics));
+        }
+        if (colors != null && colors.Length != 4)
+        {
+            throw new ArgumentException("Colors must have a length of 4.", nameof(colors));
+        }
+        if (texCoords != null && texCoords.Length != 4)
+        {
+            throw new ArgumentException(
+                "Texture coordinates must have a length of 4.",
+                nameof(texCoords));
+        }
+        ArgumentNullException.ThrowIfNull(paint);
+
+        var transform = _currentMatrix.ToMatrix4x4();
+        var mesh = SKPatchLayout.CreateMesh(cubics, colors, texCoords, transform);
+        var pushedBlendMode = PushPaintBlendMode(paint);
+        try
+        {
+            _context.DrawVertexMesh(
+                paint.ToFillBrush(),
+                mesh,
+                (VertexColorBlendMode)mode,
+                transform,
+                !paint.IsAntialias);
+        }
+        finally
+        {
+            PopPaintBlendMode(pushedBlendMode);
+        }
+    }
+
     private void AddDrawPathCommand(
         PathGeometry path,
         Brush? brush,

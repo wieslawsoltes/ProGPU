@@ -717,6 +717,8 @@ Skia-compatible lattice and nine-patch image draws use the same ordered texture 
 - Vertex colors travel premultiplied and are combined with the paint brush by the vector shader. The WGSL path implements Skia's Porter-Duff, arithmetic, separable, and non-separable vertex-color blend modes before the ordinary mask and framebuffer blend stages.
 - GPU hit testing traverses the same normalized triangles. For V vertices, I input indices, and T output triangles, retained construction costs `O(V + I)` time and storage, compilation costs `O(V + T)`, and hit-index construction costs `O(T)`.
 
+Coons patches use this same mesh path. The tessellator evaluates clockwise top, right, reversed-bottom, and reversed-left cubic boundaries, combines the two ruled surfaces, and subtracts their bilinear corner surface. Device-space boundary lengths select a grid at roughly one partition per 10 pixels with an 8x8 minimum; extreme patches are proportionally limited to 60,000 indices. Corner colors interpolate in premultiplied space and texture coordinates interpolate bilinearly. An `Lx` by `Ly` patch costs `O(Lx * Ly)` CPU time/storage but still records one command and enters one vector batch.
+
 #### Transformed sprite atlases
 
 `SKCanvas.DrawAtlas` reuses the retained texture-patch batch for sprite-heavy scenes:
