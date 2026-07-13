@@ -94,6 +94,33 @@ public class Graphics : IDisposable
     public float DpiX => 96f;
     public float DpiY => 96f;
 
+    public RectangleF VisibleClipBounds
+    {
+        get
+        {
+            if (_bitmap == null)
+            {
+                return RectangleF.Empty;
+            }
+
+            if (!Matrix3x2.Invert(CombinedTransform, out Matrix3x2 deviceToWorld))
+            {
+                return RectangleF.Empty;
+            }
+
+            Vector2 topLeft = Vector2.Transform(Vector2.Zero, deviceToWorld);
+            Vector2 topRight = Vector2.Transform(new Vector2(_bitmap.Width, 0f), deviceToWorld);
+            Vector2 bottomLeft = Vector2.Transform(new Vector2(0f, _bitmap.Height), deviceToWorld);
+            Vector2 bottomRight = Vector2.Transform(new Vector2(_bitmap.Width, _bitmap.Height), deviceToWorld);
+            float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
+            float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
+            float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
+            float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
+
+            return new RectangleF(left, top, right - left, bottom - top);
+        }
+    }
+
     internal Graphics(DrawingContext context, Bitmap? bitmap = null)
         : this(context, bitmap, Matrix3x2.Identity)
     {
