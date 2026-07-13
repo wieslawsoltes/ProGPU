@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 
 namespace SkiaSharp;
@@ -450,91 +449,6 @@ public partial class SKTextBlob : IDisposable
     }
 
     public void Dispose() { }
-}
-
-public class PositionedRunBuffer
-{
-    public SKFont Font { get; }
-    public ushort[] Glyphs { get; }
-    public SKPoint[] Positions { get; }
-
-    public PositionedRunBuffer(SKFont font, int count)
-    {
-        Font = font;
-        Glyphs = new ushort[count];
-        Positions = new SKPoint[count];
-    }
-
-    public void SetPositions(ReadOnlySpan<SKPoint> positions)
-    {
-        positions.CopyTo(Positions);
-    }
-
-    public void SetPositions(SKPoint[] positions)
-    {
-        Array.Copy(positions, Positions, Positions.Length);
-    }
-
-    public void SetGlyphs(ReadOnlySpan<ushort> glyphs)
-    {
-        glyphs.CopyTo(Glyphs);
-    }
-
-    public void SetGlyphs(ushort[] glyphs)
-    {
-        Array.Copy(glyphs, Glyphs, Glyphs.Length);
-    }
-}
-
-public class SKTextBlobBuilder : IDisposable
-{
-    private readonly System.Collections.Generic.List<PositionedRunBuffer> _runs = new();
-
-    public PositionedRunBuffer AllocatePositionedRun(SKFont font, int count)
-    {
-        var run = new PositionedRunBuffer(font, count);
-        _runs.Add(run);
-        return run;
-    }
-
-    public void AddPositionedRun(
-        ReadOnlySpan<ushort> glyphs,
-        SKFont font,
-        ReadOnlySpan<SKPoint> positions)
-    {
-        if (glyphs.Length != positions.Length)
-        {
-            throw new ArgumentException("Glyph and position counts must match.", nameof(positions));
-        }
-
-        var run = AllocatePositionedRun(font, glyphs.Length);
-        run.SetGlyphs(glyphs);
-        run.SetPositions(positions);
-    }
-
-    public SKTextBlob? Build()
-    {
-        if (_runs.Count == 0) return null;
-        var runs = new SKTextBlobRun[_runs.Count];
-        for (int i = 0; i < _runs.Count; i++)
-        {
-            var run = _runs[i];
-            var glyphs = new ushort[run.Glyphs.Length];
-            var positions = new SKPoint[run.Positions.Length];
-            Array.Copy(run.Glyphs, glyphs, glyphs.Length);
-            Array.Copy(run.Positions, positions, positions.Length);
-            runs[i] = new SKTextBlobRun(run.Font, glyphs, positions);
-        }
-
-        var blob = new SKTextBlob(runs);
-        _runs.Clear();
-        return blob;
-    }
-
-    public void Dispose()
-    {
-        _runs.Clear();
-    }
 }
 
 public class SKTextBlobBuilderCache

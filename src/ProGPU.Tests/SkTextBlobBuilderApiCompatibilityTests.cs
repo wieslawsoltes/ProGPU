@@ -188,6 +188,23 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
         Assert.Equal(SKRotationScaleMatrix.Empty, blob.Runs[2].RotationScaleMatrices![0]);
     }
 
+    [Fact]
+    public void PathPositionedBuilderRejectsMismatchedPathInputs()
+    {
+        using var builder = new SKTextBlobBuilder();
+        using var font = new SKFont(SKTypeface.Default, 16f);
+        using var path = new SKPath();
+        path.MoveTo(0f, 0f);
+        path.LineTo(100f, 0f);
+
+        Assert.Throws<ArgumentException>(() => builder.AddPathPositionedRun(
+            new ushort[] { 1 },
+            font,
+            ReadOnlySpan<float>.Empty,
+            new SKPoint[] { SKPoint.Empty },
+            path));
+    }
+
     private static MethodInfo? GetBuilderMethod(string name, params Type[] parameterTypes) =>
         typeof(SKTextBlobBuilder).GetMethod(name, parameterTypes);
 
