@@ -131,6 +131,84 @@ public partial class SKTextBlob : IDisposable
         return CreateRotationScale(text.AsSpan(), font, positions);
     }
 
+    public static SKTextBlob? CreatePathPositioned(
+        string text,
+        SKFont font,
+        SKPath path,
+        SKTextAlign textAlign = SKTextAlign.Left,
+        SKPoint origin = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return CreatePathPositioned(text.AsSpan(), font, path, textAlign, origin);
+    }
+
+    public static SKTextBlob? CreatePathPositioned(
+        ReadOnlySpan<char> text,
+        SKFont font,
+        SKPath path,
+        SKTextAlign textAlign = SKTextAlign.Left,
+        SKPoint origin = default)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        return CreatePathPositioned(font.GetGlyphs(text), font, path, textAlign, origin);
+    }
+
+    public static SKTextBlob? CreatePathPositioned(
+        ReadOnlySpan<byte> text,
+        SKTextEncoding encoding,
+        SKFont font,
+        SKPath path,
+        SKTextAlign textAlign = SKTextAlign.Left,
+        SKPoint origin = default)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        return CreatePathPositioned(font.GetGlyphs(text, encoding), font, path, textAlign, origin);
+    }
+
+    public static unsafe SKTextBlob? CreatePathPositioned(
+        IntPtr text,
+        int length,
+        SKTextEncoding encoding,
+        SKFont font,
+        SKPath path,
+        SKTextAlign textAlign = SKTextAlign.Left,
+        SKPoint origin = default)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        if (text == IntPtr.Zero || length <= 0)
+        {
+            return null;
+        }
+
+        return CreatePathPositioned(
+            new ReadOnlySpan<byte>((void*)text, length),
+            encoding,
+            font,
+            path,
+            textAlign,
+            origin);
+    }
+
+    private static SKTextBlob? CreatePathPositioned(
+        ushort[] glyphs,
+        SKFont font,
+        SKPath path,
+        SKTextAlign textAlign,
+        SKPoint origin)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (glyphs.Length == 0)
+        {
+            return null;
+        }
+
+        var widths = font.GetGlyphWidths(glyphs);
+        var offsets = font.GetGlyphPositions(glyphs, origin);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPathPositionedRun(glyphs, font, widths, offsets, path, textAlign);
+        return builder.Build();
+    }
+
     public void Dispose() { }
 }
 
@@ -170,12 +248,28 @@ public class PositionedRunBuffer
 
 public class SKTextBlobBuilder : IDisposable
 {
-    private readonly System.Collections.Generic.List<PositionedRunBuffer> _runs = new();
+    private sealed class PendingRun
+    {
+        public PendingRun(PositionedRunBuffer positioned)
+        {
+            Positioned = positioned;
+        }
+
+        public PendingRun(SKTextBlobRun completed)
+        {
+            Completed = completed;
+        }
+
+        public PositionedRunBuffer? Positioned { get; }
+        public SKTextBlobRun? Completed { get; }
+    }
+
+    private readonly List<PendingRun> _runs = new();
 
     public PositionedRunBuffer AllocatePositionedRun(SKFont font, int count)
     {
         var run = new PositionedRunBuffer(font, count);
-        _runs.Add(run);
+        _runs.Add(new PendingRun(run));
         return run;
     }
 
@@ -194,6 +288,108 @@ public class SKTextBlobBuilder : IDisposable
         run.SetPositions(positions);
     }
 
+    public void AddRotationScaleRun(
+        ReadOnlySpan<ushort> glyphs,
+        SKFont font,
+        ReadOnlySpan<SKRotationScaleMatrix> positions)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        if (glyphs.Length != positions.Length)
+        {
+            throw new ArgumentException("Glyph and position counts must match.", nameof(positions));
+        }
+
+        if (glyphs.IsEmpty)
+        {
+            return;
+        }
+
+        var matrices = positions.ToArray();
+        var points = new SKPoint[matrices.Length];
+        for (var index = 0; index < matrices.Length; index++)
+        {
+            points[index] = new SKPoint(matrices[index].TX, matrices[index].TY);
+        }
+
+        _runs.Add(new PendingRun(new SKTextBlobRun(
+            font,
+            glyphs.ToArray(),
+            points,
+            matrices)));
+    }
+
+    public void AddPathPositionedRun(
+        ReadOnlySpan<ushort> glyphs,
+        SKFont font,
+        ReadOnlySpan<float> glyphWidths,
+        ReadOnlySpan<SKPoint> glyphOffsets,
+        SKPath path,
+        SKTextAlign textAlign = SKTextAlign.Left)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(path);
+        if (glyphs.Length != glyphWidths.Length)
+        {
+            throw new ArgumentException("Glyph and width counts must match.", nameof(glyphWidths));
+        }
+
+        if (glyphs.Length != glyphOffsets.Length)
+        {
+            throw new ArgumentException("Glyph and offset counts must match.", nameof(glyphOffsets));
+        }
+
+        if (glyphs.IsEmpty)
+        {
+            return;
+        }
+
+        using var measure = new SKPathMeasure(path);
+        var pathLength = measure.Length;
+        var textWidth = glyphOffsets[^1].X + glyphWidths[^1];
+        var alignedOrigin = glyphOffsets[0].X +
+            (pathLength - textWidth) * ((float)textAlign * 0.5f);
+        var visibleGlyphs = GC.AllocateUninitializedArray<ushort>(glyphs.Length);
+        var matrices = GC.AllocateUninitializedArray<SKRotationScaleMatrix>(glyphs.Length);
+        var visibleCount = 0;
+        for (var index = 0; index < glyphOffsets.Length; index++)
+        {
+            var glyphOffset = glyphOffsets[index];
+            var halfWidth = glyphWidths[index] * 0.5f;
+            var pathDistance = alignedOrigin + glyphOffset.X + halfWidth;
+            if (pathDistance < 0f ||
+                pathDistance >= pathLength ||
+                !measure.GetPositionAndTangent(pathDistance, out var position, out var tangent))
+            {
+                continue;
+            }
+
+            var tx = position.X - tangent.X * halfWidth - glyphOffset.Y * tangent.Y;
+            var ty = position.Y - tangent.Y * halfWidth + glyphOffset.Y * tangent.X;
+            visibleGlyphs[visibleCount] = glyphs[index];
+            matrices[visibleCount] = new SKRotationScaleMatrix(tangent.X, tangent.Y, tx, ty);
+            visibleCount++;
+        }
+
+        if (visibleCount == 0)
+        {
+            return;
+        }
+
+        if (visibleCount != visibleGlyphs.Length)
+        {
+            Array.Resize(ref visibleGlyphs, visibleCount);
+            Array.Resize(ref matrices, visibleCount);
+        }
+
+        var points = GC.AllocateUninitializedArray<SKPoint>(visibleCount);
+        for (var index = 0; index < visibleCount; index++)
+        {
+            points[index] = new SKPoint(matrices[index].TX, matrices[index].TY);
+        }
+
+        _runs.Add(new PendingRun(new SKTextBlobRun(font, visibleGlyphs, points, matrices)));
+    }
+
     public SKTextBlob? Build()
     {
         if (_runs.Count == 0) return null;
@@ -201,11 +397,18 @@ public class SKTextBlobBuilder : IDisposable
         for (int i = 0; i < _runs.Count; i++)
         {
             var run = _runs[i];
-            var glyphs = new ushort[run.Glyphs.Length];
-            var positions = new SKPoint[run.Positions.Length];
-            Array.Copy(run.Glyphs, glyphs, glyphs.Length);
-            Array.Copy(run.Positions, positions, positions.Length);
-            runs[i] = new SKTextBlobRun(run.Font, glyphs, positions);
+            if (run.Completed is { } completed)
+            {
+                runs[i] = completed;
+                continue;
+            }
+
+            var positioned = run.Positioned!;
+            var glyphs = new ushort[positioned.Glyphs.Length];
+            var positions = new SKPoint[positioned.Positions.Length];
+            Array.Copy(positioned.Glyphs, glyphs, glyphs.Length);
+            Array.Copy(positioned.Positions, positions, positions.Length);
+            runs[i] = new SKTextBlobRun(positioned.Font, glyphs, positions);
         }
 
         var blob = new SKTextBlob(runs);
