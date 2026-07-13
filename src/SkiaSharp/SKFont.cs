@@ -370,22 +370,22 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
     public readonly float? StrikeoutThickness => _strikeoutThickness;
     public readonly float? StrikeoutPosition => _strikeoutPosition;
 
-    public readonly bool Equals(SKFontMetrics other) =>
-        _top == other._top &&
-        _ascent == other._ascent &&
-        _descent == other._descent &&
-        _bottom == other._bottom &&
-        _leading == other._leading &&
-        _averageCharacterWidth == other._averageCharacterWidth &&
-        _maxCharacterWidth == other._maxCharacterWidth &&
-        _xMin == other._xMin &&
-        _xMax == other._xMax &&
-        _xHeight == other._xHeight &&
-        _capHeight == other._capHeight &&
-        _underlineThickness == other._underlineThickness &&
-        _underlinePosition == other._underlinePosition &&
-        _strikeoutThickness == other._strikeoutThickness &&
-        _strikeoutPosition == other._strikeoutPosition;
+    public readonly bool Equals(SKFontMetrics obj) =>
+        _top == obj._top &&
+        _ascent == obj._ascent &&
+        _descent == obj._descent &&
+        _bottom == obj._bottom &&
+        _leading == obj._leading &&
+        _averageCharacterWidth == obj._averageCharacterWidth &&
+        _maxCharacterWidth == obj._maxCharacterWidth &&
+        _xMin == obj._xMin &&
+        _xMax == obj._xMax &&
+        _xHeight == obj._xHeight &&
+        _capHeight == obj._capHeight &&
+        _underlineThickness == obj._underlineThickness &&
+        _underlinePosition == obj._underlinePosition &&
+        _strikeoutThickness == obj._strikeoutThickness &&
+        _strikeoutPosition == obj._strikeoutPosition;
 
     public override readonly bool Equals(object? obj) => obj is SKFontMetrics other && Equals(other);
     public static bool operator ==(SKFontMetrics left, SKFontMetrics right) => left.Equals(right);

@@ -1880,10 +1880,10 @@ public struct SKColorSpaceTransferFn : IEquatable<SKColorSpaceTransferFn>
         return inverse.IsSrgbLike() ? inverse : Empty;
     }
 
-    public readonly float Transform(float value)
+    public readonly float Transform(float x)
     {
-        var sign = value < 0f ? -1f : 1f;
-        var magnitude = value * sign;
+        var sign = x < 0f ? -1f : 1f;
+        var magnitude = x * sign;
         if (G == Pq.G)
         {
             const float c1 = 107f / 128f;
@@ -1975,9 +1975,9 @@ public struct SKColorSpaceTransferFn : IEquatable<SKColorSpaceTransferFn>
 
     private static float ExpApprox(float value) => Exp2Approx(1.4426950408889634f * value);
 
-    public readonly bool Equals(SKColorSpaceTransferFn other) =>
-        G == other.G && A == other.A && B == other.B && C == other.C &&
-        D == other.D && E == other.E && F == other.F;
+    public readonly bool Equals(SKColorSpaceTransferFn obj) =>
+        G == obj.G && A == obj.A && B == obj.B && C == obj.C &&
+        D == obj.D && E == obj.E && F == obj.F;
     public override readonly bool Equals(object? obj) => obj is SKColorSpaceTransferFn other && Equals(other);
     public static bool operator ==(SKColorSpaceTransferFn left, SKColorSpaceTransferFn right) => left.Equals(right);
     public static bool operator !=(SKColorSpaceTransferFn left, SKColorSpaceTransferFn right) => !left.Equals(right);
@@ -2170,21 +2170,21 @@ public struct SKColorSpaceXyz : IEquatable<SKColorSpaceXyz>
         float.IsFinite(_m10) && float.IsFinite(_m11) && float.IsFinite(_m12) &&
         float.IsFinite(_m20) && float.IsFinite(_m21) && float.IsFinite(_m22);
 
-    public static SKColorSpaceXyz Concat(SKColorSpaceXyz left, SKColorSpaceXyz right) => new(
-        left._m00 * right._m00 + left._m01 * right._m10 + left._m02 * right._m20,
-        left._m00 * right._m01 + left._m01 * right._m11 + left._m02 * right._m21,
-        left._m00 * right._m02 + left._m01 * right._m12 + left._m02 * right._m22,
-        left._m10 * right._m00 + left._m11 * right._m10 + left._m12 * right._m20,
-        left._m10 * right._m01 + left._m11 * right._m11 + left._m12 * right._m21,
-        left._m10 * right._m02 + left._m11 * right._m12 + left._m12 * right._m22,
-        left._m20 * right._m00 + left._m21 * right._m10 + left._m22 * right._m20,
-        left._m20 * right._m01 + left._m21 * right._m11 + left._m22 * right._m21,
-        left._m20 * right._m02 + left._m21 * right._m12 + left._m22 * right._m22);
+    public static SKColorSpaceXyz Concat(SKColorSpaceXyz a, SKColorSpaceXyz b) => new(
+        a._m00 * b._m00 + a._m01 * b._m10 + a._m02 * b._m20,
+        a._m00 * b._m01 + a._m01 * b._m11 + a._m02 * b._m21,
+        a._m00 * b._m02 + a._m01 * b._m12 + a._m02 * b._m22,
+        a._m10 * b._m00 + a._m11 * b._m10 + a._m12 * b._m20,
+        a._m10 * b._m01 + a._m11 * b._m11 + a._m12 * b._m21,
+        a._m10 * b._m02 + a._m11 * b._m12 + a._m12 * b._m22,
+        a._m20 * b._m00 + a._m21 * b._m10 + a._m22 * b._m20,
+        a._m20 * b._m01 + a._m21 * b._m11 + a._m22 * b._m21,
+        a._m20 * b._m02 + a._m21 * b._m12 + a._m22 * b._m22);
 
-    public readonly bool Equals(SKColorSpaceXyz other) =>
-        _m00 == other._m00 && _m01 == other._m01 && _m02 == other._m02 &&
-        _m10 == other._m10 && _m11 == other._m11 && _m12 == other._m12 &&
-        _m20 == other._m20 && _m21 == other._m21 && _m22 == other._m22;
+    public readonly bool Equals(SKColorSpaceXyz obj) =>
+        _m00 == obj._m00 && _m01 == obj._m01 && _m02 == obj._m02 &&
+        _m10 == obj._m10 && _m11 == obj._m11 && _m12 == obj._m12 &&
+        _m20 == obj._m20 && _m21 == obj._m21 && _m22 == obj._m22;
 
     public override readonly bool Equals(object? obj) => obj is SKColorSpaceXyz other && Equals(other);
 

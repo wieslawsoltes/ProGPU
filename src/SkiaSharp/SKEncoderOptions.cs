@@ -42,10 +42,10 @@ public readonly struct SKJpegEncoderOptions : IEquatable<SKJpegEncoderOptions>
         AlphaOption = alphaOption;
     }
 
-    public bool Equals(SKJpegEncoderOptions other) =>
-        Quality == other.Quality &&
-        Downsample == other.Downsample &&
-        AlphaOption == other.AlphaOption;
+    public bool Equals(SKJpegEncoderOptions obj) =>
+        Quality == obj.Quality &&
+        Downsample == obj.Downsample &&
+        AlphaOption == obj.AlphaOption;
 
     public override bool Equals(object? obj) => obj is SKJpegEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Quality, Downsample, AlphaOption);
@@ -78,8 +78,8 @@ public readonly struct SKPngEncoderOptions : IEquatable<SKPngEncoderOptions>
         ZLibLevel = zLibLevel;
     }
 
-    public bool Equals(SKPngEncoderOptions other) =>
-        FilterFlags == other.FilterFlags && ZLibLevel == other.ZLibLevel;
+    public bool Equals(SKPngEncoderOptions obj) =>
+        FilterFlags == obj.FilterFlags && ZLibLevel == obj.ZLibLevel;
 
     public override bool Equals(object? obj) => obj is SKPngEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(FilterFlags, ZLibLevel);
@@ -106,8 +106,8 @@ public readonly struct SKWebpEncoderOptions : IEquatable<SKWebpEncoderOptions>
         Quality = quality;
     }
 
-    public bool Equals(SKWebpEncoderOptions other) =>
-        Compression == other.Compression && Quality == other.Quality;
+    public bool Equals(SKWebpEncoderOptions obj) =>
+        Compression == obj.Compression && Quality == obj.Quality;
 
     public override bool Equals(object? obj) => obj is SKWebpEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Compression, Quality);

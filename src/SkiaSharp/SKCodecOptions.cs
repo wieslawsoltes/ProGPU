@@ -99,11 +99,11 @@ public struct SKCodecOptions : IEquatable<SKCodecOptions>
         PriorFrame = priorFrame;
     }
 
-    public readonly bool Equals(SKCodecOptions other) =>
-        ZeroInitialized == other.ZeroInitialized &&
-        Nullable.Equals(Subset, other.Subset) &&
-        FrameIndex == other.FrameIndex &&
-        PriorFrame == other.PriorFrame;
+    public readonly bool Equals(SKCodecOptions obj) =>
+        ZeroInitialized == obj.ZeroInitialized &&
+        Nullable.Equals(Subset, obj.Subset) &&
+        FrameIndex == obj.FrameIndex &&
+        PriorFrame == obj.PriorFrame;
 
     public override readonly bool Equals(object? obj) => obj is SKCodecOptions other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(ZeroInitialized, Subset, FrameIndex, PriorFrame);
@@ -122,15 +122,15 @@ public struct SKCodecFrameInfo : IEquatable<SKCodecFrameInfo>
     public SKCodecAnimationBlend Blend { readonly get; set; }
     public SKRectI FrameRect { readonly get; set; }
 
-    public readonly bool Equals(SKCodecFrameInfo other) =>
-        RequiredFrame == other.RequiredFrame &&
-        Duration == other.Duration &&
-        FullyRecieved == other.FullyRecieved &&
-        AlphaType == other.AlphaType &&
-        HasAlphaWithinBounds == other.HasAlphaWithinBounds &&
-        DisposalMethod == other.DisposalMethod &&
-        Blend == other.Blend &&
-        FrameRect.Equals(other.FrameRect);
+    public readonly bool Equals(SKCodecFrameInfo obj) =>
+        RequiredFrame == obj.RequiredFrame &&
+        Duration == obj.Duration &&
+        FullyRecieved == obj.FullyRecieved &&
+        AlphaType == obj.AlphaType &&
+        HasAlphaWithinBounds == obj.HasAlphaWithinBounds &&
+        DisposalMethod == obj.DisposalMethod &&
+        Blend == obj.Blend &&
+        FrameRect.Equals(obj.FrameRect);
 
     public override readonly bool Equals(object? obj) => obj is SKCodecFrameInfo other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(

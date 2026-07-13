@@ -547,18 +547,18 @@ public struct SKDocumentPdfMetadata : IEquatable<SKDocumentPdfMetadata>
         EncodingQuality = encodingQuality;
     }
 
-    public readonly bool Equals(SKDocumentPdfMetadata other) =>
-        Title == other.Title &&
-        Author == other.Author &&
-        Subject == other.Subject &&
-        Keywords == other.Keywords &&
-        Creator == other.Creator &&
-        Producer == other.Producer &&
-        Creation == other.Creation &&
-        Modified == other.Modified &&
-        RasterDpi == other.RasterDpi &&
-        PdfA == other.PdfA &&
-        EncodingQuality == other.EncodingQuality;
+    public readonly bool Equals(SKDocumentPdfMetadata obj) =>
+        Title == obj.Title &&
+        Author == obj.Author &&
+        Subject == obj.Subject &&
+        Keywords == obj.Keywords &&
+        Creator == obj.Creator &&
+        Producer == obj.Producer &&
+        Creation == obj.Creation &&
+        Modified == obj.Modified &&
+        RasterDpi == obj.RasterDpi &&
+        PdfA == obj.PdfA &&
+        EncodingQuality == obj.EncodingQuality;
 
     public override readonly bool Equals(object? obj) =>
         obj is SKDocumentPdfMetadata other && Equals(other);
@@ -592,8 +592,8 @@ public struct SKDocumentXpsOptions : IEquatable<SKDocumentXpsOptions>
     public float Dpi { readonly get; set; }
     public bool AllowNoPngs { readonly get; set; }
 
-    public readonly bool Equals(SKDocumentXpsOptions other) =>
-        Dpi == other.Dpi && AllowNoPngs == other.AllowNoPngs;
+    public readonly bool Equals(SKDocumentXpsOptions obj) =>
+        Dpi == obj.Dpi && AllowNoPngs == obj.AllowNoPngs;
 
     public override readonly bool Equals(object? obj) =>
         obj is SKDocumentXpsOptions other && Equals(other);
