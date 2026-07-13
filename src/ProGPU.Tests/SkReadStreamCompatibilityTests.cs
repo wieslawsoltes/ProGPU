@@ -85,10 +85,13 @@ public sealed class SkReadStreamCompatibilityTests
                 Assert.Equal(1, Marshal.ReadByte(pointer));
                 Assert.Equal(2, Marshal.ReadByte(pointer, 1));
                 Assert.Equal(new byte[] { 1, 2, 3 }, Read(stream, 3));
-                Assert.True(stream.IsAtEnd);
+                Assert.False(stream.IsAtEnd);
                 Assert.True(stream.Rewind());
                 Assert.Equal(new byte[] { 1, 2, 3, 4 }, Read(stream, 4));
                 Assert.Equal(new byte[] { 5, 6 }, Read(stream, 2));
+                Assert.False(stream.IsAtEnd);
+                Assert.Empty(Read(stream, 1));
+                Assert.True(stream.IsAtEnd);
                 Assert.False(stream.Rewind());
             }
             finally

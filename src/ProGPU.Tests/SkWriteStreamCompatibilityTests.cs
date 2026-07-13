@@ -149,6 +149,39 @@ public sealed class SkWriteStreamCompatibilityTests
     }
 
     [Fact]
+    public void ManagedReadStreamUsesDirectReadsAndBoundedSkips()
+    {
+        using var source = new TrackingMemoryStream(new byte[] { 1, 2, 3, 4, 5 });
+        using var managed = new SKManagedStream(source);
+        var pointer = System.Runtime.InteropServices.Marshal.AllocHGlobal(3);
+        try
+        {
+            Assert.Equal(3, managed.Read(pointer, 3));
+            Assert.Equal(1, source.SpanReadCount);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(pointer);
+        }
+
+        var readCount = source.TotalReadCount;
+        Assert.Equal(2, managed.Skip(2));
+        Assert.Equal(readCount, source.TotalReadCount);
+        Assert.Equal(source.Length, source.Position);
+        Assert.False(managed.Seek(-1));
+        Assert.False(managed.Move(1));
+
+        using var nonSeekable = new NonSeekableReadStream(new byte[100_000]);
+        using var nonSeekableManaged = new SKManagedStream(nonSeekable);
+        Assert.False(nonSeekableManaged.IsAtEnd);
+        Assert.Equal(100_000, nonSeekableManaged.Skip(100_000));
+        Assert.InRange(nonSeekable.MaximumReadSize, 1, 81920);
+        Assert.False(nonSeekableManaged.IsAtEnd);
+        Assert.Equal(0, nonSeekableManaged.Skip(1));
+        Assert.True(nonSeekableManaged.IsAtEnd);
+    }
+
+    [Fact]
     public void StreamAndFileAdaptersUseBoundedSafeFailureSemantics()
     {
         using var output = new SKDynamicMemoryWStream();
@@ -186,6 +219,9 @@ public sealed class SkWriteStreamCompatibilityTests
     private sealed class TrackingMemoryStream : MemoryStream
     {
         public int FlushCount { get; private set; }
+        public int SpanReadCount { get; private set; }
+        public int ArrayReadCount { get; private set; }
+        public int TotalReadCount => SpanReadCount + ArrayReadCount;
 
         public TrackingMemoryStream()
         {
@@ -201,5 +237,56 @@ public sealed class SkWriteStreamCompatibilityTests
             FlushCount++;
             base.Flush();
         }
+
+        public override int Read(Span<byte> buffer)
+        {
+            SpanReadCount++;
+            return base.Read(buffer);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ArrayReadCount++;
+            return base.Read(buffer, offset, count);
+        }
+    }
+
+    private sealed class NonSeekableReadStream : Stream
+    {
+        private readonly byte[] _data;
+        private int _position;
+
+        public NonSeekableReadStream(byte[] data)
+        {
+            _data = data;
+        }
+
+        public int MaximumReadSize { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            MaximumReadSize = Math.Max(MaximumReadSize, count);
+            var available = Math.Min(count, _data.Length - _position);
+            _data.AsSpan(_position, available).CopyTo(buffer.AsSpan(offset, available));
+            _position += available;
+            return available;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

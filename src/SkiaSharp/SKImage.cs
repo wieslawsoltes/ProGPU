@@ -2720,6 +2720,7 @@ public class SKBitmap : SKObject
 
 public class SKManagedStream : SKAbstractManagedStream
 {
+    private const int CopyBufferSize = 81920;
     private Stream? _stream;
     private readonly bool _disposeStream;
     private bool _isAtEnd;
@@ -2742,7 +2743,7 @@ public class SKManagedStream : SKAbstractManagedStream
     {
         ArgumentNullException.ThrowIfNull(destination);
         var source = _stream ?? throw new ObjectDisposedException(nameof(SKManagedStream));
-        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        var buffer = ArrayPool<byte>.Shared.Rent(CopyBufferSize);
         try
         {
             var total = 0;
@@ -2779,26 +2780,28 @@ public class SKManagedStream : SKAbstractManagedStream
         }
 
         var source = _stream ?? throw new ObjectDisposedException(nameof(SKManagedStream));
-        var rented = ArrayPool<byte>.Shared.Rent(requested);
-        try
+        int read;
+        if (buffer != IntPtr.Zero)
         {
-            var read = source.Read(rented, 0, requested);
-            if (buffer != IntPtr.Zero)
-            {
-                rented.AsSpan(0, read).CopyTo(new Span<byte>(buffer.ToPointer(), read));
-            }
-
-            if (!source.CanSeek && read <= requested)
-            {
-                _isAtEnd = true;
-            }
-
-            return (IntPtr)read;
+            read = source.Read(new Span<byte>(buffer.ToPointer(), requested));
         }
-        finally
+        else if (source.CanSeek)
         {
-            ArrayPool<byte>.Shared.Return(rented);
+            var available = Math.Max(0L, source.Length - source.Position);
+            read = checked((int)Math.Min(requested, available));
+            source.Position += read;
         }
+        else
+        {
+            read = SkipNonSeekable(source, requested);
+        }
+
+        if (!source.CanSeek && read < requested)
+        {
+            _isAtEnd = true;
+        }
+
+        return (IntPtr)read;
     }
 
     protected internal override IntPtr OnPeek(IntPtr buffer, IntPtr size)
@@ -2854,12 +2857,13 @@ public class SKManagedStream : SKAbstractManagedStream
     protected internal override bool OnSeek(IntPtr position)
     {
         var source = _stream ?? throw new ObjectDisposedException(nameof(SKManagedStream));
-        if (!source.CanSeek)
+        var target = position.ToInt64();
+        if (!source.CanSeek || target < 0 || target > source.Length)
         {
             return false;
         }
 
-        source.Position = position.ToInt64();
+        source.Position = target;
         return true;
     }
 
@@ -2871,7 +2875,22 @@ public class SKManagedStream : SKAbstractManagedStream
             return false;
         }
 
-        source.Position += offset;
+        long target;
+        try
+        {
+            target = checked(source.Position + offset);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+
+        if (target < 0 || target > source.Length)
+        {
+            return false;
+        }
+
+        source.Position = target;
         return true;
     }
 
@@ -2887,5 +2906,30 @@ public class SKManagedStream : SKAbstractManagedStream
         }
 
         base.DisposeManaged();
+    }
+
+    private static int SkipNonSeekable(Stream source, int requested)
+    {
+        var rented = ArrayPool<byte>.Shared.Rent(Math.Min(requested, CopyBufferSize));
+        try
+        {
+            var total = 0;
+            while (total < requested)
+            {
+                var count = source.Read(rented, 0, Math.Min(CopyBufferSize, requested - total));
+                if (count == 0)
+                {
+                    break;
+                }
+
+                total += count;
+            }
+
+            return total;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 }
