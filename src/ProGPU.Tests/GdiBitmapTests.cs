@@ -8,6 +8,9 @@ using DrawingColorMatrix = System.Drawing.Imaging.ColorMatrix;
 using DrawingRectangle = System.Drawing.Rectangle;
 using DrawingRectangleF = System.Drawing.RectangleF;
 using DrawingBitmap = System.Drawing.Bitmap;
+using DrawingColor = System.Drawing.Color;
+using DrawingImage = System.Drawing.Image;
+using DrawingImageFormat = System.Drawing.Imaging.ImageFormat;
 
 namespace ProGPU.Tests;
 
@@ -67,6 +70,35 @@ public sealed class GdiBitmapTests
         Assert.Equal(expected.Y, actual.Y, 4);
         Assert.Equal(expected.Width, actual.Width, 4);
         Assert.Equal(expected.Height, actual.Height, 4);
+    }
+
+    [Fact]
+    public void BaseTypedImageSaveWritesRoundtrippableBmpPixels()
+    {
+        using DrawingImage image = new DrawingBitmap(2, 2);
+        var bitmap = Assert.IsType<DrawingBitmap>(image);
+        bitmap.SetPixel(0, 0, DrawingColor.FromArgb(255, 255, 0, 0));
+        bitmap.SetPixel(1, 0, DrawingColor.FromArgb(128, 64, 128, 192));
+        bitmap.SetPixel(0, 1, DrawingColor.FromArgb(255, 0, 255, 0));
+        bitmap.SetPixel(1, 1, DrawingColor.FromArgb(255, 0, 0, 255));
+        DrawingColor storedSemiTransparentPixel = bitmap.GetPixel(1, 0);
+
+        using var stream = new System.IO.MemoryStream();
+        image.Save(stream, DrawingImageFormat.Bmp);
+
+        byte[] encoded = stream.ToArray();
+        Assert.Equal((byte)'B', encoded[0]);
+        Assert.Equal((byte)'M', encoded[1]);
+        Assert.Equal(2, BitConverter.ToInt32(encoded, 18));
+        Assert.Equal(2, BitConverter.ToInt32(encoded, 22));
+        Assert.Equal(32, BitConverter.ToInt16(encoded, 28));
+
+        stream.Position = 0;
+        using var decoded = new DrawingBitmap(stream);
+        Assert.Equal(DrawingColor.FromArgb(255, 255, 0, 0), decoded.GetPixel(0, 0));
+        Assert.Equal(storedSemiTransparentPixel, decoded.GetPixel(1, 0));
+        Assert.Equal(DrawingColor.FromArgb(255, 0, 255, 0), decoded.GetPixel(0, 1));
+        Assert.Equal(DrawingColor.FromArgb(255, 0, 0, 255), decoded.GetPixel(1, 1));
     }
 
     [Fact]

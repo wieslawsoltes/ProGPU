@@ -20,5 +20,12 @@ public abstract class Image : IDisposable
         return new Bitmap(stream);
     }
 
+    public virtual void Save(Stream stream, ImageFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(format);
+        throw new NotSupportedException($"Image format '{format.Guid}' is not supported for this image type.");
+    }
+
     public abstract void Dispose();
 }

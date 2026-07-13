@@ -665,17 +665,24 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         WritePixelsCore(pixels, alphaMode);
     }
 
-    public void Save(System.IO.Stream stream, ImageFormat format)
+    public override void Save(System.IO.Stream stream, ImageFormat format)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(format);
 
-        if (format.Guid != ImageFormat.Png.Guid)
+        if (format.Guid == ImageFormat.Png.Guid)
         {
-            throw new NotSupportedException($"Image format '{format.Guid}' is not supported by the ProGPU System.Drawing bitmap shim.");
+            SavePng(stream);
+            return;
         }
 
-        SavePng(stream);
+        if (format.Guid == ImageFormat.Bmp.Guid)
+        {
+            SaveBmp(stream);
+            return;
+        }
+
+        throw new NotSupportedException($"Image format '{format.Guid}' is not supported by the ProGPU System.Drawing bitmap shim.");
     }
 
     private void SavePng(System.IO.Stream stream)
@@ -694,6 +701,59 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
 
         PngEncoder.SavePng(stream, pixels, (uint)Width, (uint)Height);
+    }
+
+    private void SaveBmp(System.IO.Stream stream)
+    {
+        byte[] pixels;
+        GpuTextureAlphaMode alphaMode;
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            pixels = ReadPixelsCore(out alphaMode);
+        }
+
+        if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+        {
+            pixels = UnpremultiplyPixels(pixels);
+        }
+
+        int rowSize = checked(Width * 4);
+        int pixelDataSize = checked(rowSize * Height);
+        const int pixelDataOffset = 14 + 40;
+        int fileSize = checked(pixelDataOffset + pixelDataSize);
+        using var writer = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+
+        writer.Write((byte)'B');
+        writer.Write((byte)'M');
+        writer.Write(fileSize);
+        writer.Write(0);
+        writer.Write(pixelDataOffset);
+
+        writer.Write(40);
+        writer.Write(Width);
+        writer.Write(Height);
+        writer.Write((short)1);
+        writer.Write((short)32);
+        writer.Write(0);
+        writer.Write(pixelDataSize);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(0);
+
+        for (int y = Height - 1; y >= 0; y--)
+        {
+            int rowOffset = y * rowSize;
+            for (int x = 0; x < Width; x++)
+            {
+                int pixelOffset = rowOffset + x * 4;
+                writer.Write(pixels[pixelOffset + 2]);
+                writer.Write(pixels[pixelOffset + 1]);
+                writer.Write(pixels[pixelOffset]);
+                writer.Write(pixels[pixelOffset + 3]);
+            }
+        }
     }
 
     private static byte[] UnpremultiplyPixels(byte[] pixels)
