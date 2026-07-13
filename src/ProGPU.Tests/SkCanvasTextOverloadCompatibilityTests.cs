@@ -1,5 +1,6 @@
 using System.Reflection;
 using ProGPU.Scene;
+using ProGPU.Vector;
 using SkiaSharp;
 using Xunit;
 
@@ -21,6 +22,61 @@ public sealed class SkCanvasTextOverloadCompatibilityTests
         Assert.Contains(
             picture.Picture.Commands,
             command => command.Type == RenderCommandType.DrawGlyphRun);
+    }
+
+    [Fact]
+    public void ShaderTextPathRetainsDeviceAwareVectorRasterizationMetadata()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 200f, 80f));
+        using var font = new SKFont { Size = 32f };
+        using var shader = SKShader.CreateColor(SKColors.Black);
+        using var paint = new SKPaint
+        {
+            Shader = shader,
+            IsAntialias = true
+        };
+
+        canvas.DrawText("GPU", 4f, 40f, SKTextAlign.Left, font, paint);
+        using var picture = recorder.EndRecording();
+
+        var command = Assert.Single(
+            picture.Picture.Commands,
+            command => command.Type == RenderCommandType.DrawPath);
+        Assert.True(command.UseVectorGlyphRendering);
+        Assert.Equal(32f, command.FontSize);
+        Assert.Equal(PathAtlas.HighPrecisionCoverageSampleGrid, command.PathSampleGrid);
+        Assert.False(command.HasFontTransform);
+    }
+
+    [Fact]
+    public void WarpedTextPathRetainsTransformedFontCoverageMetadata()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 200f, 80f));
+        using var path = new SKPath();
+        path.MoveTo(0f, 40f);
+        path.LineTo(180f, 40f);
+        using var font = new SKFont(SKTypeface.Default, 18f, -1f, 0.2f);
+        using var paint = new SKPaint { Color = SKColors.Black };
+
+        canvas.DrawTextOnPath(
+            "GPU",
+            path,
+            SKPoint.Empty,
+            warpGlyphs: true,
+            SKTextAlign.Left,
+            font,
+            paint);
+        using var picture = recorder.EndRecording();
+
+        var command = Assert.Single(
+            picture.Picture.Commands,
+            command => command.Type == RenderCommandType.DrawPath);
+        Assert.True(command.UseVectorGlyphRendering);
+        Assert.Equal(18f, command.FontSize);
+        Assert.Equal(new System.Numerics.Vector2(-1f, 0.2f), command.FontTransform);
+        Assert.True(command.HasFontTransform);
     }
 
     [Fact]

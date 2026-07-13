@@ -11,6 +11,11 @@ namespace SkiaSharp;
 
 public class SKCanvas : IDisposable
 {
+    private readonly record struct TextPathRasterizationInfo(
+        float FontSize,
+        Vector2 FontTransform,
+        bool HasFontTransform);
+
     private static readonly object s_compositorCacheScope = new();
     private static readonly ConditionalWeakTable<SKColorSpace, byte[]> s_toSrgbTables = new();
     private static readonly ConditionalWeakTable<GpuTexture, TextureColorSpace> s_textureColorSpaces = new();
@@ -3454,7 +3459,13 @@ public class SKCanvas : IDisposable
         DrawRect(new SKRect(0f, 0f, _width, _height), paint);
     }
 
-    public void DrawPath(SKPath path, SKPaint paint)
+    public void DrawPath(SKPath path, SKPaint paint) =>
+        DrawPathCore(path, paint, null);
+
+    private void DrawPathCore(
+        SKPath path,
+        SKPaint paint,
+        TextPathRasterizationInfo? textRasterization)
     {
         if (paint.PathEffect is { IsDash: false } pathEffect)
         {
@@ -3470,7 +3481,7 @@ public class SKCanvas : IDisposable
                 {
                     effectedPaint.PathEffect = null;
                     paintAdjustment.Apply(effectedPaint);
-                    DrawPath(effectedPath, effectedPaint);
+                    DrawPathCore(effectedPath, effectedPaint, textRasterization);
                 }
                 return;
             }
@@ -3493,18 +3504,36 @@ public class SKCanvas : IDisposable
                 if (brush != null)
                 {
                     var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
-                    AddDrawPathCommand(CreateCanvasDifferenceGeometry(excluded), brush, null, Matrix4x4.Identity, !paint.IsAntialias);
+                    AddDrawPathCommand(
+                        CreateCanvasDifferenceGeometry(excluded),
+                        brush,
+                        null,
+                        Matrix4x4.Identity,
+                        !paint.IsAntialias,
+                        textRasterization);
                 }
 
                 if (pen != null)
                 {
-                    AddDrawPathCommand(path.Geometry, null, pen, _currentMatrix.ToMatrix4x4(), !paint.IsAntialias);
+                    AddDrawPathCommand(
+                        path.Geometry,
+                        null,
+                        pen,
+                        _currentMatrix.ToMatrix4x4(),
+                        !paint.IsAntialias,
+                        textRasterization);
                 }
 
                 return;
             }
 
-            AddDrawPathCommand(path.Geometry, brush, pen, _currentMatrix.ToMatrix4x4(), !paint.IsAntialias);
+            AddDrawPathCommand(
+                path.Geometry,
+                brush,
+                pen,
+                _currentMatrix.ToMatrix4x4(),
+                !paint.IsAntialias,
+                textRasterization);
         }
         finally
         {
@@ -3632,8 +3661,10 @@ public class SKCanvas : IDisposable
         Brush? brush,
         Pen? pen,
         Matrix4x4 transform,
-        bool isEdgeAliased = false)
+        bool isEdgeAliased = false,
+        TextPathRasterizationInfo? textRasterization = null)
     {
+        var textInfo = textRasterization.GetValueOrDefault();
         _context.Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawPath,
@@ -3641,7 +3672,16 @@ public class SKCanvas : IDisposable
             Brush = brush,
             Pen = pen,
             Transform = transform,
-            IsEdgeAliased = isEdgeAliased
+            IsEdgeAliased = isEdgeAliased,
+            UseVectorGlyphRendering = textRasterization.HasValue,
+            FontSize = textInfo.FontSize,
+            FontTransform = textInfo.FontTransform,
+            HasFontTransform = textInfo.HasFontTransform,
+            PathSampleGrid = textRasterization.HasValue
+                ? isEdgeAliased
+                    ? PathAtlas.StandardCoverageSampleGrid
+                    : PathAtlas.HighPrecisionCoverageSampleGrid
+                : 0u
         });
     }
 
@@ -5299,7 +5339,7 @@ public class SKCanvas : IDisposable
             textBlob.HasEmboldenedRuns)
         {
             using var textPath = CreateTextBlobPath(textBlob, x, y);
-            DrawPath(textPath, paint);
+            DrawPathCore(textPath, paint, GetTextPathRasterizationInfo(textBlob));
             return;
         }
 
@@ -5398,6 +5438,36 @@ public class SKCanvas : IDisposable
         }
 
         return result;
+    }
+
+    private static TextPathRasterizationInfo GetTextPathRasterizationInfo(SKTextBlob textBlob)
+    {
+        var fontSize = 0f;
+        var fontTransform = new Vector2(1f, 0f);
+        var hasFontTransform = false;
+        foreach (var run in textBlob.Runs)
+        {
+            fontSize = MathF.Max(fontSize, MathF.Abs(run.Font.Size));
+            var scaleX = GetFiniteFontScaleX(run.Font);
+            var skewX = GetFiniteFontSkewX(run.Font);
+            if (!hasFontTransform && (scaleX < 0f || MathF.Abs(skewX) > 0.0001f))
+            {
+                fontTransform = new Vector2(scaleX, skewX);
+                hasFontTransform = true;
+            }
+        }
+
+        return new TextPathRasterizationInfo(fontSize, fontTransform, hasFontTransform);
+    }
+
+    private static TextPathRasterizationInfo GetTextPathRasterizationInfo(SKFont font)
+    {
+        var scaleX = GetFiniteFontScaleX(font);
+        var skewX = GetFiniteFontSkewX(font);
+        return new TextPathRasterizationInfo(
+            MathF.Abs(font.Size),
+            new Vector2(scaleX, skewX),
+            scaleX < 0f || MathF.Abs(skewX) > 0.0001f);
     }
 
     private static void AddTextBlobGlyphPath(
@@ -5580,7 +5650,7 @@ public class SKCanvas : IDisposable
         if (warpGlyphs)
         {
             using var textPath = font.GetTextPathOnPath(text, path, textAlign, offset);
-            DrawPath(textPath, paint);
+            DrawPathCore(textPath, paint, GetTextPathRasterizationInfo(font));
             return;
         }
 

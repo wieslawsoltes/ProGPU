@@ -202,12 +202,12 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
 
         Assert.Equal(0.72f, GetGamma(18f, Matrix4x4.Identity));
-        Assert.Equal(0.61f, GetGamma(32f, Matrix4x4.Identity));
-        Assert.Equal(0.61f, GetGamma(18f, Matrix4x4.CreateScale(2f, 3f, 1f)));
+        Assert.Equal(0.5f, GetGamma(32f, Matrix4x4.Identity));
+        Assert.Equal(0.5f, GetGamma(18f, Matrix4x4.CreateScale(2f, 3f, 1f)));
         Assert.Equal(0.72f, GetGamma(12f, Matrix4x4.Identity, dpiScale: 1.999f));
-        Assert.Equal(0.61f, GetGamma(12f, Matrix4x4.Identity, dpiScale: 2f));
+        Assert.Equal(0.5f, GetGamma(12f, Matrix4x4.Identity, dpiScale: 2f));
         Assert.Equal(0.72f, GetGamma(12f, Matrix4x4.Identity, staticZoom: 1.999f));
-        Assert.Equal(0.61f, GetGamma(12f, Matrix4x4.Identity, staticZoom: 2f));
+        Assert.Equal(0.5f, GetGamma(12f, Matrix4x4.Identity, staticZoom: 2f));
         Assert.Equal(0.875f, GetGamma(32f, Matrix4x4.CreateRotationZ(MathF.PI / 4f), dpiScale: 2f));
         Assert.Equal(0.875f, GetGamma(32f, Matrix4x4.CreateScale(-1f, 1f, 1f), staticZoom: 2f));
 

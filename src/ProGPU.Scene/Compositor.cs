@@ -189,7 +189,7 @@ public unsafe class Compositor : IDisposable
     private const float AffineStrokeArcMaxAngleRadians = MathF.PI / 24f;
     // Matches Skia grayscale edge weight for axis-aligned vector glyphs rasterized at 8x8 coverage.
     private const float SmallTextPathCoverageGamma = 0.72f;
-    private const float LargeTextPathCoverageGamma = 0.61f;
+    private const float LargeTextPathCoverageGamma = 0.5f;
     private const float LargeTextPathCoveragePixelThreshold = 24f;
     private const float TransformedTextPathCoverageGamma = 0.875f;
     private const int MaxCachedVectorGlyphPaths = 4096;
@@ -4277,6 +4277,29 @@ SceneStateUploadComplete:
         int startIndex = _vectorVerticesList.Count;
 
         transform = (cmd.Transform == default) ? transform : cmd.Transform * transform;
+        var pathCoverageGamma = cmd.PathCoverageGamma;
+        if (cmd.UseVectorGlyphRendering && cmd.FontSize > 0f)
+        {
+            var staticZoom = ActiveCompilationContext?.StaticZoom ?? 1f;
+            var (effectiveDpiScale, _, _) = ResolveTextRasterization(
+                cmd.FontSize,
+                transform,
+                _currentDpiScale,
+                staticZoom);
+            var fontScaleX = cmd.HasFontTransform && float.IsFinite(cmd.FontTransform.X)
+                ? cmd.FontTransform.X
+                : 1f;
+            var fontSkewX = cmd.HasFontTransform && float.IsFinite(cmd.FontTransform.Y)
+                ? cmd.FontTransform.Y
+                : 0f;
+            pathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
+                ? TransformedTextPathCoverageGamma
+                : GetTextPathCoverageGamma(
+                    cmd.FontSize,
+                    transform,
+                    TransformMetrics.GetStrokeScale(transform),
+                    effectiveDpiScale);
+        }
         EnsurePathHitTestCompilation(cmd.Path);
 
         if (cmd.Brush != null)
@@ -4349,10 +4372,10 @@ SceneStateUploadComplete:
                 var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
                 var pathShapeType = EncodeShapeType(cmd, 4f);
 
-                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, cornerRadius: cmd.PathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
 
                 int originalIndexCount = _vectorIndicesList.Count;
                 CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
