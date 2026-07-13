@@ -42,7 +42,7 @@ public class Font : IDisposable
     public bool Italic => (Style & FontStyle.Italic) != 0;
     public bool Underline => (Style & FontStyle.Underline) != 0;
     public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
-    public int Height => (int)MathF.Ceiling(Graphics.ConvertFontSizeToPixels(Size, Unit, 96f) * 1.2f);
+    public int Height => (int)MathF.Ceiling(GetHeight());
 
     internal TtfFont TtfFont { get; }
 
@@ -97,6 +97,30 @@ public class Font : IDisposable
     public override string ToString()
     {
         return $"[Font: Name={Name}, Size={Size}, Units={Unit}, GdiCharSet={GdiCharSet}, GdiVerticalFont={GdiVerticalFont}]";
+    }
+
+    public float GetHeight()
+    {
+        return GetHeight(96f);
+    }
+
+    public float GetHeight(Graphics graphics)
+    {
+        ArgumentNullException.ThrowIfNull(graphics);
+        return GetHeight(graphics.DpiY);
+    }
+
+    public float GetHeight(float dpi)
+    {
+        float emSize = Graphics.ConvertFontSizeToPixels(Size, Unit, dpi);
+        if (TtfFont.UnitsPerEm == 0)
+        {
+            return emSize;
+        }
+
+        return (TtfFont.Ascender - TtfFont.Descender + TtfFont.LineGap)
+            * emSize
+            / TtfFont.UnitsPerEm;
     }
 
     public void Dispose() {}

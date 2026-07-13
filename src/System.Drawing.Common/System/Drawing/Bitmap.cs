@@ -69,6 +69,16 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         _height = height;
     }
 
+    public Bitmap(int width, int height, Graphics g)
+    {
+        ArgumentNullException.ThrowIfNull(g);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+
+        _width = width;
+        _height = height;
+    }
+
     public Bitmap(int width, int height, PixelFormat format)
         : this(width, height)
     {
