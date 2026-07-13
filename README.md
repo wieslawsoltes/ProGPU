@@ -157,6 +157,8 @@ Picture playback overloads normalize scalar and point positions into a local mat
 
 Image draw overloads normalize point, scalar, destination-only, and source/destination inputs into one sampling-aware texture command. Legacy paint filter quality maps once to nearest, linear, linear-mipmap, or Mitchell sampling before the shared path; explicit cubic and anisotropic settings remain intact. Overload setup is allocation-free `O(1)`, recording remains one retained texture command plus required clip/blend/opacity scopes, and no overload performs a readback.
 
+Bitmap draw overloads follow SkiaSharp's adapter model: create one short-lived image view, normalize legacy or explicit sampling, and enter the same image command path. The adapter is `O(1)` metadata work around the bitmap-backed texture, retains no duplicate canvas implementation, and preserves the one texture draw plus required scopes without readback.
+
 `SKTextBlob` intercept queries use the same path-boundary algorithm as Skia for underline and strike-through avoidance. Each positioned glyph independently tests line, quadratic, and cubic crossings at both horizontal band boundaries, expands the interval with path points strictly inside the band, and returns at most one ordered pair without merging overlaps from neighboring glyphs. `ScaleX`, `SkewX`, vertical placement, and synthetic emboldening are included; rotation-scale runs are intentionally ignored like native Skia. Array, span, and count overloads share the CPU-only engine, with short spans receiving the available prefix. For `G` glyphs and `S` path segments, time is `O(G * S)`, root-solving workspace is `O(1)`, and returned storage is at most `O(G)`.
 
 | Package | Purpose | NuGet |

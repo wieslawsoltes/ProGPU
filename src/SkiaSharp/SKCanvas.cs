@@ -3221,6 +3221,90 @@ public class SKCanvas : IDisposable
             paint);
     }
 
+    [Obsolete("Use the overload with SKSamplingOptions instead.")]
+    public void DrawBitmap(SKBitmap bitmap, SKPoint point, SKPaint? paint = null) =>
+        DrawBitmap(bitmap, point.X, point.Y, paint);
+
+    [Obsolete("Use the overload with SKSamplingOptions instead.")]
+    public void DrawBitmap(SKBitmap bitmap, float x, float y, SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(
+            image,
+            x,
+            y,
+            paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default,
+            paint);
+    }
+
+    [Obsolete("Use the overload with SKSamplingOptions instead.")]
+    public void DrawBitmap(SKBitmap bitmap, SKRect destination, SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(
+            image,
+            destination,
+            paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default,
+            paint);
+    }
+
+    [Obsolete("Use the overload with SKSamplingOptions instead.")]
+    public void DrawBitmap(SKBitmap bitmap, SKRect source, SKRect destination, SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(
+            image,
+            source,
+            destination,
+            paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default,
+            paint);
+    }
+
+    public void DrawBitmap(
+        SKBitmap bitmap,
+        SKPoint point,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null) =>
+        DrawBitmap(bitmap, point.X, point.Y, sampling, paint);
+
+    public void DrawBitmap(
+        SKBitmap bitmap,
+        float x,
+        float y,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(image, x, y, sampling, paint);
+    }
+
+    public void DrawBitmap(
+        SKBitmap bitmap,
+        SKRect destination,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(image, destination, sampling, paint);
+    }
+
+    public void DrawBitmap(
+        SKBitmap bitmap,
+        SKRect source,
+        SKRect destination,
+        SKSamplingOptions sampling,
+        SKPaint? paint = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        using var image = SKImage.FromBitmap(bitmap);
+        DrawImage(image, source, destination, sampling, paint);
+    }
+
     private GpuTexture RetainImageTexture(SKImage image, bool generateMipmaps = false)
     {
         var source = image.Texture;
