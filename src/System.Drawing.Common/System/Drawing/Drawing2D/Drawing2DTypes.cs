@@ -52,3 +52,33 @@ public enum DashStyle
     DashDotDot = 4,
     Custom = 5
 }
+
+public enum DashCap
+{
+    Flat = 0,
+    Round = 2,
+    Triangle = 3
+}
+
+public enum LineCap
+{
+    Flat = 0,
+    Square = 1,
+    Round = 2,
+    Triangle = 3,
+    NoAnchor = 0x10,
+    SquareAnchor = 0x11,
+    RoundAnchor = 0x12,
+    DiamondAnchor = 0x13,
+    ArrowAnchor = 0x14,
+    AnchorMask = 0xF0,
+    Custom = 0xFF
+}
+
+public enum LineJoin
+{
+    Miter = 0,
+    Bevel = 1,
+    Round = 2,
+    MiterClipped = 3
+}
