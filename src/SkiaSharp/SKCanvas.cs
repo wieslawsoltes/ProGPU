@@ -1127,6 +1127,93 @@ public class SKCanvas : IDisposable
 
     private GpuTexture RenderColorFilter(GpuTexture input, SKColorFilter colorFilter, SKRect? cropRect)
     {
+        if (colorFilter.TryGetCompose(out var outer, out var inner))
+        {
+            var innerTexture = RenderColorFilter(input, inner, cropRect: null);
+            GpuTexture? result = null;
+            try
+            {
+                result = RenderColorFilter(innerTexture, outer, cropRect);
+                return result;
+            }
+            finally
+            {
+                if (!ReferenceEquals(innerTexture, input) &&
+                    !ReferenceEquals(innerTexture, result))
+                {
+                    ReleaseOwnedLayerTexture(innerTexture);
+                }
+            }
+        }
+
+        if (colorFilter.TryGetLerp(out var weight, out var filter0, out var filter1))
+        {
+            GpuTexture? color0 = null;
+            GpuTexture? color1 = null;
+            GpuTexture? result = null;
+            try
+            {
+                color0 = RenderColorFilter(input, filter0, cropRect: null);
+                color1 = RenderColorFilter(input, filter1, cropRect: null);
+                if (ReferenceEquals(color0, color1))
+                {
+                    result = color0;
+                    return result;
+                }
+
+                result = RenderArithmeticComposite(
+                    color0,
+                    color1,
+                    new SKImageFilter.ArithmeticData(
+                        0f,
+                        weight,
+                        1f - weight,
+                        0f,
+                        EnforcePremultipliedColor: true,
+                        Background: null,
+                        Foreground: null));
+                return result;
+            }
+            finally
+            {
+                if (color0 != null &&
+                    !ReferenceEquals(color0, input) &&
+                    !ReferenceEquals(color0, result))
+                {
+                    ReleaseOwnedLayerTexture(color0);
+                }
+                if (color1 != null &&
+                    !ReferenceEquals(color1, input) &&
+                    !ReferenceEquals(color1, color0) &&
+                    !ReferenceEquals(color1, result))
+                {
+                    ReleaseOwnedLayerTexture(color1);
+                }
+            }
+        }
+
+        if (colorFilter.TryGetHslaColorMatrix(out var hslaMatrix))
+        {
+            return RenderNonlinearColorFilter(
+                input,
+                hslaMatrix.Span,
+                hsla: true,
+                grayscale: false,
+                invertStyle: 0u,
+                contrast: 0f);
+        }
+
+        if (colorFilter.TryGetHighContrast(out var highContrast))
+        {
+            return RenderNonlinearColorFilter(
+                input,
+                ReadOnlySpan<float>.Empty,
+                hsla: false,
+                highContrast.Grayscale,
+                (uint)highContrast.InvertStyle,
+                highContrast.Contrast);
+        }
+
         if (colorFilter.TryGetBlendColor(out var blendColor, out var blendMode))
         {
             if (blendMode == SKBlendMode.Dst)
@@ -1191,6 +1278,32 @@ public class SKCanvas : IDisposable
                 input,
                 new Rect(0f, 0f, input.Width, input.Height),
                 colorMatrix: matrix));
+    }
+
+    private GpuTexture RenderNonlinearColorFilter(
+        GpuTexture input,
+        ReadOnlySpan<float> matrix,
+        bool hsla,
+        bool grayscale,
+        uint invertStyle,
+        float contrast)
+    {
+        var context = GetGpuContext();
+        var destination = CreateOwnedFilterTexture(
+            context,
+            hsla ? "SKColorFilter HSLA Matrix" : "SKColorFilter High Contrast",
+            storage: true,
+            width: input.Width,
+            height: input.Height);
+        GetCompositorForContext(context).ApplyNonlinearColorFilter(
+            input,
+            destination,
+            matrix,
+            hsla,
+            grayscale,
+            invertStyle,
+            contrast);
+        return destination;
     }
 
     private GpuTexture RenderBlur(GpuTexture input, float sigmaX, float sigmaY)

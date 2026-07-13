@@ -4,6 +4,8 @@ namespace ProGPU.Compute;
 
 public static class ComputeShaders
 {
+    public static readonly string NonlinearColorFilter = ShaderResource.Load(typeof(ComputeShaders), "NonlinearColorFilter.wgsl");
+
     public static readonly string ImageLighting = ShaderResource.Load(typeof(ComputeShaders), "ImageLighting.wgsl");
 
     public static readonly string MatrixConvolution = ShaderResource.Load(typeof(ComputeShaders), "MatrixConvolution.wgsl");

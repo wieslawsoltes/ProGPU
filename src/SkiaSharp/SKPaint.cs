@@ -1926,11 +1926,10 @@ public partial class SKShader : SKObject
         float.IsFinite(matrix.M43) && float.IsFinite(matrix.M44);
 }
 
-public class SKColorFilter : IDisposable
+public partial class SKColorFilter : SKObject
 {
-    public IntPtr Handle { get; } = SKObjectHandle.Create();
-    public SKColor Color { get; }
-    public SKBlendMode Mode { get; }
+    internal SKColor Color { get; }
+    internal SKBlendMode Mode { get; }
     private readonly byte[]? _alphaTable;
     private readonly byte[]? _redTable;
     private readonly byte[]? _greenTable;
@@ -1940,38 +1939,46 @@ public class SKColorFilter : IDisposable
     private readonly bool _isBlendColor;
 
     private SKColorFilter(SKColor color, SKBlendMode mode)
+        : base(SKObjectHandle.Create(), owns: true)
     {
+        _kind = ColorFilterKind.Blend;
         Color = color;
         Mode = mode;
         _isBlendColor = true;
     }
 
     private SKColorFilter(byte[] alpha, byte[] red, byte[] green, byte[] blue)
+        : base(SKObjectHandle.Create(), owns: true)
     {
-        _alphaTable = (byte[])alpha.Clone();
-        _redTable = (byte[])red.Clone();
-        _greenTable = (byte[])green.Clone();
-        _blueTable = (byte[])blue.Clone();
+        _kind = ColorFilterKind.Table;
+        _alphaTable = alpha;
+        _redTable = red;
+        _greenTable = green;
+        _blueTable = blue;
     }
 
     private SKColorFilter(float[] colorMatrix)
+        : base(SKObjectHandle.Create(), owns: true)
     {
-        _colorMatrix = (float[])colorMatrix.Clone();
+        _kind = ColorFilterKind.ColorMatrix;
+        _colorMatrix = colorMatrix;
     }
 
     private SKColorFilter(bool lumaColor)
+        : base(SKObjectHandle.Create(), owns: true)
     {
+        _kind = ColorFilterKind.Luma;
         _lumaColor = lumaColor;
     }
 
-    internal float[]? ColorMatrix => _colorMatrix;
-    internal bool IsLumaColor => _lumaColor;
+    internal float[]? ColorMatrix => _kind == ColorFilterKind.ColorMatrix ? _colorMatrix : null;
+    internal bool IsLumaColor => _kind == ColorFilterKind.Luma && _lumaColor;
 
     internal bool TryGetBlendColor(out SKColor color, out SKBlendMode mode)
     {
         color = Color;
         mode = Mode;
-        return _isBlendColor;
+        return _kind == ColorFilterKind.Blend && _isBlendColor;
     }
 
     internal bool TryGetColorTables(
@@ -1980,7 +1987,8 @@ public class SKColorFilter : IDisposable
         out ReadOnlyMemory<byte> green,
         out ReadOnlyMemory<byte> blue)
     {
-        if (_alphaTable != null && _redTable != null && _greenTable != null && _blueTable != null)
+        if (_kind == ColorFilterKind.Table &&
+            _alphaTable != null && _redTable != null && _greenTable != null && _blueTable != null)
         {
             alpha = _alphaTable;
             red = _redTable;
@@ -1998,7 +2006,7 @@ public class SKColorFilter : IDisposable
 
     internal bool TryGetImageEffectColorMatrix(out ImageEffectColorMatrix matrix)
     {
-        if (_colorMatrix != null)
+        if (_kind == ColorFilterKind.ColorMatrix && _colorMatrix != null)
         {
             matrix = new ImageEffectColorMatrix(
                 new Vector4(_colorMatrix[0], _colorMatrix[1], _colorMatrix[2], _colorMatrix[3]),
@@ -2009,55 +2017,67 @@ public class SKColorFilter : IDisposable
             return true;
         }
 
-        if (_lumaColor)
-        {
-            matrix = new ImageEffectColorMatrix(
-                Vector4.Zero,
-                Vector4.Zero,
-                Vector4.Zero,
-                new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
-                new Vector4(1f, 1f, 1f, 0f));
-            return true;
-        }
-
         matrix = default;
         return false;
     }
 
-    public static SKColorFilter CreateBlendMode(SKColor color, SKBlendMode mode)
+    public static SKColorFilter CreateBlendMode(SKColor c, SKBlendMode mode)
     {
-        return new SKColorFilter(color, mode);
-    }
-
-    public static SKColorFilter CreateTable(byte[] alpha, byte[] red, byte[] green, byte[] blue)
-    {
-        ArgumentNullException.ThrowIfNull(alpha);
-        ArgumentNullException.ThrowIfNull(red);
-        ArgumentNullException.ThrowIfNull(green);
-        ArgumentNullException.ThrowIfNull(blue);
-        if (alpha.Length < 256 || red.Length < 256 || green.Length < 256 || blue.Length < 256)
+        if (mode < SKBlendMode.Clear || mode > SKBlendMode.Luminosity)
         {
-            throw new ArgumentException("Color filter tables must contain 256 entries.");
+            return null!;
         }
 
-        return new SKColorFilter(alpha, red, green, blue);
+        if (mode == SKBlendMode.Clear)
+        {
+            c = SKColor.Empty;
+            mode = SKBlendMode.Src;
+        }
+        else if (mode == SKBlendMode.SrcOver)
+        {
+            mode = c.A switch
+            {
+                0 => SKBlendMode.Dst,
+                255 => SKBlendMode.Src,
+                _ => mode,
+            };
+        }
+
+        if (IsNoOpBlendColorFilter(c.A, mode))
+        {
+            return null!;
+        }
+
+        return new SKColorFilter(c, mode);
+    }
+
+    public static SKColorFilter CreateTable(byte[] tableA, byte[] tableR, byte[] tableG, byte[] tableB)
+    {
+        ArgumentNullException.ThrowIfNull(tableA);
+        ArgumentNullException.ThrowIfNull(tableR);
+        ArgumentNullException.ThrowIfNull(tableG);
+        ArgumentNullException.ThrowIfNull(tableB);
+        return CreateTable(tableA.AsSpan(), tableR.AsSpan(), tableG.AsSpan(), tableB.AsSpan());
     }
 
     public static SKColorFilter CreateColorMatrix(float[] matrix)
     {
         ArgumentNullException.ThrowIfNull(matrix);
-        if (matrix.Length != 20)
-        {
-            throw new ArgumentException("Color matrices must contain 20 values.", nameof(matrix));
-        }
-
-        return new SKColorFilter(matrix);
+        return CreateColorMatrix(matrix.AsSpan());
     }
 
     public static SKColorFilter CreateLumaColor() => new(lumaColor: true);
 
-    public SKColor Apply(SKColor destination)
+    internal SKColor Apply(SKColor destination)
     {
+        if (_kind is ColorFilterKind.Compose or
+            ColorFilterKind.Lerp or
+            ColorFilterKind.HslaColorMatrix or
+            ColorFilterKind.HighContrast)
+        {
+            return ApplyRetainedFilter(destination);
+        }
+
         if (_colorMatrix != null)
         {
             var red = destination.R / 255f;
@@ -2074,10 +2094,11 @@ public class SKColorFilter : IDisposable
         if (_lumaColor)
         {
             var luma = ToByte(
-                destination.R / 255f * 0.2126f +
-                destination.G / 255f * 0.7152f +
-                destination.B / 255f * 0.0722f);
-            return new SKColor(255, 255, 255, luma);
+                (destination.R / 255f * 0.2126f +
+                 destination.G / 255f * 0.7152f +
+                 destination.B / 255f * 0.0722f) *
+                (destination.A / 255f));
+            return new SKColor(0, 0, 0, luma);
         }
 
         if (_alphaTable != null && _redTable != null && _greenTable != null && _blueTable != null)
@@ -2134,13 +2155,11 @@ public class SKColorFilter : IDisposable
                 source,
                 dest,
                 static (s, d) => SetLuminosity(d, Luminosity(s))),
-            _ => throw new NotSupportedException($"SKColorFilter blend mode '{Mode}' is not supported.")
+            _ => SourceOver(source, dest)
         };
 
         return FromPremultiplied(result);
     }
-
-    public void Dispose() { }
 
     private static Vector4 ToPremultiplied(SKColor color)
     {

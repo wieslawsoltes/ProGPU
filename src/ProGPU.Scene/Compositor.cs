@@ -1327,6 +1327,28 @@ public unsafe class Compositor : IDisposable
         }
     }
 
+    public void ApplyNonlinearColorFilter(
+        GpuTexture source,
+        GpuTexture destination,
+        ReadOnlySpan<float> matrix,
+        bool hsla,
+        bool grayscale,
+        uint invertStyle,
+        float contrast)
+    {
+        lock (_context.RenderLock)
+        {
+            _compute.ApplyNonlinearColorFilter(
+                source,
+                destination,
+                matrix,
+                hsla,
+                grayscale,
+                invertStyle,
+                contrast);
+        }
+    }
+
     private void InitializePipelinesAndBindGroups()
     {
         // 4. Create WebGPU Sampler for font glyph textures (sharp linear bilinear interpolation)

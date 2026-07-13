@@ -61,6 +61,16 @@ public class ShaderResourceTests
     }
 
     [Fact]
+    public void NonlinearColorFilterShaderPreservesSkiaColorDomains()
+    {
+        Assert.Contains("fn rgb_to_hsl", ComputeShaders.NonlinearColorFilter, StringComparison.Ordinal);
+        Assert.Contains("fn hsl_to_rgb", ComputeShaders.NonlinearColorFilter, StringComparison.Ordinal);
+        Assert.Contains("srgb_to_linear_component", ComputeShaders.NonlinearColorFilter, StringComparison.Ordinal);
+        Assert.Contains("linear_to_srgb_component", ComputeShaders.NonlinearColorFilter, StringComparison.Ordinal);
+        Assert.Contains("filtered.rgb * filtered.a", ComputeShaders.NonlinearColorFilter, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void VectorShaderMapsSkiaSweepAngleRangesBeforeTiling()
     {
         Assert.Contains(

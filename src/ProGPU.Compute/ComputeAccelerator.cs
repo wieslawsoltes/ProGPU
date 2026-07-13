@@ -20,6 +20,7 @@ public unsafe class ComputeAccelerator : IDisposable
     private ComputePipeline* _morphologyPipeline;
     private ComputePipeline* _imageBlendPipeline;
     private ComputePipeline* _colorTablePipeline;
+    private ComputePipeline* _nonlinearColorFilterPipeline;
     private ComputePipeline* _arithmeticCompositePipeline;
     private ComputePipeline* _displacementMapPipeline;
     private ComputePipeline* _magnifierPipeline;
@@ -126,6 +127,50 @@ public unsafe class ComputeAccelerator : IDisposable
             _padding0 = 0u;
             _padding1 = 0u;
             _padding2 = 0u;
+        }
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 96)]
+    public struct NonlinearColorFilterParams
+    {
+        private const float FloatMachineEpsilon = 1.1920929e-7f;
+
+        [FieldOffset(0)] public Vector4 MatrixRed;
+        [FieldOffset(16)] public Vector4 MatrixGreen;
+        [FieldOffset(32)] public Vector4 MatrixBlue;
+        [FieldOffset(48)] public Vector4 MatrixAlpha;
+        [FieldOffset(64)] public Vector4 MatrixOffset;
+        [FieldOffset(80)] public Vector4 Configuration;
+
+        public NonlinearColorFilterParams(
+            ReadOnlySpan<float> matrix,
+            bool hsla,
+            bool grayscale,
+            uint invertStyle,
+            float contrast)
+        {
+            if (hsla && matrix.Length != 20)
+            {
+                throw new ArgumentException("HSLA color matrices must contain 20 values.", nameof(matrix));
+            }
+
+            MatrixRed = hsla ? new Vector4(matrix[0], matrix[1], matrix[2], matrix[3]) : Vector4.Zero;
+            MatrixGreen = hsla ? new Vector4(matrix[5], matrix[6], matrix[7], matrix[8]) : Vector4.Zero;
+            MatrixBlue = hsla ? new Vector4(matrix[10], matrix[11], matrix[12], matrix[13]) : Vector4.Zero;
+            MatrixAlpha = hsla ? new Vector4(matrix[15], matrix[16], matrix[17], matrix[18]) : Vector4.Zero;
+            MatrixOffset = hsla ? new Vector4(matrix[4], matrix[9], matrix[14], matrix[19]) : Vector4.Zero;
+
+            contrast = float.IsFinite(contrast) ? contrast : 0f;
+            contrast = Math.Clamp(
+                contrast,
+                -1f + FloatMachineEpsilon,
+                1f - FloatMachineEpsilon);
+            var contrastScale = (1f + contrast) / (1f - contrast);
+            Configuration = new Vector4(
+                hsla ? 0f : 1f,
+                grayscale ? 1f : 0f,
+                Math.Min(invertStyle, 2u),
+                contrastScale);
         }
     }
 
@@ -1139,6 +1184,102 @@ public unsafe class ComputeAccelerator : IDisposable
         _context.Wgpu.CommandEncoderRelease(encoder);
         _context.Wgpu.BindGroupRelease(bindGroup);
         _context.Wgpu.BindGroupLayoutRelease(layout);
+    }
+
+    public void ApplyNonlinearColorFilter(
+        GpuTexture source,
+        GpuTexture destination,
+        ReadOnlySpan<float> matrix,
+        bool hsla,
+        bool grayscale,
+        uint invertStyle,
+        float contrast)
+    {
+        if (_isDisposed) throw new ObjectDisposedException(nameof(ComputeAccelerator));
+
+        var width = source.Width;
+        var height = source.Height;
+        destination.Resize(width, height);
+        var pipeline = GetOrCreateNonlinearColorFilterPipeline();
+        using var paramsBuffer = new GpuBuffer(
+            _context,
+            (uint)Marshal.SizeOf<NonlinearColorFilterParams>(),
+            BufferUsage.Uniform | BufferUsage.CopyDst,
+            "Nonlinear Color Filter Params");
+        paramsBuffer.WriteSingle(new NonlinearColorFilterParams(
+            matrix,
+            hsla,
+            grayscale,
+            invertStyle,
+            contrast));
+
+        var encoderDescriptor = new CommandEncoderDescriptor
+        {
+            Label = (byte*)SilkMarshal.StringToPtr("Compute Nonlinear Color Filter Encoder")
+        };
+        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        SilkMarshal.Free((nint)encoderDescriptor.Label);
+        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
+
+        var entries = stackalloc BindGroupEntry[3];
+        entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
+        entries[1] = new BindGroupEntry { Binding = 1, TextureView = destination.ViewPtr };
+        entries[2] = new BindGroupEntry
+        {
+            Binding = 2,
+            Buffer = paramsBuffer.BufferPtr,
+            Offset = 0,
+            Size = paramsBuffer.Size
+        };
+        var bindGroupDescriptor = new BindGroupDescriptor
+        {
+            Layout = layout,
+            EntryCount = 3,
+            Entries = entries
+        };
+        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+
+        var passDescriptor = new ComputePassDescriptor();
+        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
+        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+            pass,
+            (width + 15) / 16,
+            (height + 15) / 16,
+            1);
+        _context.Wgpu.ComputePassEncoderEnd(pass);
+        _context.Wgpu.ComputePassEncoderRelease(pass);
+
+        var commandDescriptor = new CommandBufferDescriptor
+        {
+            Label = (byte*)SilkMarshal.StringToPtr("Compute Nonlinear Color Filter Buffer")
+        };
+        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        SilkMarshal.Free((nint)commandDescriptor.Label);
+        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+
+        _context.Wgpu.CommandBufferRelease(commandBuffer);
+        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Wgpu.BindGroupRelease(bindGroup);
+        _context.Wgpu.BindGroupLayoutRelease(layout);
+    }
+
+    private ComputePipeline* GetOrCreateNonlinearColorFilterPipeline()
+    {
+        if (_nonlinearColorFilterPipeline != null)
+        {
+            return _nonlinearColorFilterPipeline;
+        }
+
+        var shader = _cache.GetOrCreateShader(
+            "NonlinearColorFilter",
+            ComputeShaders.NonlinearColorFilter,
+            "NonlinearColorFilterShader");
+        _nonlinearColorFilterPipeline = _cache.GetOrCreateComputePipeline(
+            "NonlinearColorFilter",
+            shader);
+        return _nonlinearColorFilterPipeline;
     }
 
     private void RunShadowPass(
