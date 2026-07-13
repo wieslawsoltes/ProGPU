@@ -245,6 +245,13 @@ public sealed class SamplePerformanceRegressionTests
         text.Inlines.Clear();
         text.Invalidate();
         text.Measure(new Vector2(500f, 300f));
+        Assert.Empty(text.PositionedChars);
+        var measuredContext = new DrawingContext();
+        text.OnRender(measuredContext);
+        Assert.DoesNotContain(
+            measuredContext.Commands,
+            static command => command.Type == RenderCommandType.DrawText);
+
         text.Arrange(new Rect(0f, 0f, 500f, 300f));
         var context = new DrawingContext();
         text.OnRender(context);

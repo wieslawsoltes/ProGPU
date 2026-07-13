@@ -408,12 +408,13 @@ public class RichTextBlock : FrameworkElement
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         var activeFont = ActiveFont;
-        if (activeFont == null || Inlines.Count == 0) return Vector2.Zero;
 
         float maxW = WidthConstraint ?? availableSize.X;
         if (float.IsInfinity(maxW)) maxW = 800f; // reasonable fallback bound
 
         PerformRichLayout(maxW);
+
+        if (activeFont == null || Inlines.Count == 0) return Vector2.Zero;
 
         float measuredH = 0f;
         float measuredW = 0f;
@@ -503,11 +504,17 @@ public class RichTextBlock : FrameworkElement
         _lastLayoutAlignment = TextAlignment;
         _isLayoutDirty = false;
 
+        if (activeFont == null || Inlines.Count == 0)
+        {
+            ClearLayoutOutput();
+            return;
+        }
+
         TextLayoutEngine.LayoutSingleColumn(
             Inlines, 
             maxWidth, 
             Padding, 
-            activeFont!, 
+            activeFont,
             FontSize, 
             Foreground, 
             TextAlignment, 
@@ -518,6 +525,18 @@ public class RichTextBlock : FrameworkElement
             AddChild, 
             RemoveChild);
         _isRenderCommandCacheDirty = true;
+    }
+
+    private void ClearLayoutOutput()
+    {
+        _positionedChars.Clear();
+        _tableDecorations.Clear();
+        while (Children.Count > 0)
+        {
+            RemoveChild(Children[^1]);
+        }
+        _renderCommandCache.Clear();
+        _isRenderCommandCacheDirty = false;
     }
 
     private void SynchronizeInlineSubscriptions()
