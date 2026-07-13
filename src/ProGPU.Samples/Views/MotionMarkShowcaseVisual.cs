@@ -51,6 +51,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
     private readonly List<Element> _elements = new();
     private readonly List<PathGeometry> _groupPaths = new();
     private readonly List<PathFigure> _groupFigures = new();
+    private readonly List<int> _groupEndIndices = new();
     private readonly Random _rand = new();
     private float _gridScale;
     private float _gridOffsetX;
@@ -142,6 +143,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
             element.Split ^= true;
             _elements[index] = element;
         }
+        RebuildGroupedPaths();
         Invalidate();
     }
 
@@ -212,6 +214,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
                 _elements.Add(elem);
             }
         }
+        RebuildGroupedPaths();
         Invalidate();
     }
 
@@ -386,6 +389,34 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
         return result;
     }
 
+    private void RebuildGroupedPaths()
+    {
+        _groupEndIndices.Clear();
+        _groupEndIndices.EnsureCapacity(_elements.Count);
+
+        var groupIndex = 0;
+        var elementIndex = 0;
+        while (elementIndex < _elements.Count)
+        {
+            var groupEnd = elementIndex;
+            while (groupEnd < _elements.Count - 1 && !_elements[groupEnd].Split)
+            {
+                groupEnd++;
+            }
+
+            var figure = GetGroupFigure(groupIndex);
+            figure.StartPoint = _elements[elementIndex].CachedPath.Figures[0].StartPoint;
+            for (var index = elementIndex; index <= groupEnd; index++)
+            {
+                figure.Segments.Add(_elements[index].CachedPath.Figures[0].Segments[0]);
+            }
+
+            _groupEndIndices.Add(groupEnd);
+            groupIndex++;
+            elementIndex = groupEnd + 1;
+        }
+    }
+
     private void EnsureThemeResources()
     {
         if (_cachedTheme == ActualTheme && _cachedThemeFamily == ActualThemeFamily)
@@ -462,24 +493,9 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
         }
         else
         {
-            var groupIndex = 0;
-            var elementIndex = 0;
-            while (elementIndex < _elements.Count)
+            for (var groupIndex = 0; groupIndex < _groupEndIndices.Count; groupIndex++)
             {
-                var groupEnd = elementIndex;
-                while (groupEnd < _elements.Count - 1 && !_elements[groupEnd].Split)
-                {
-                    groupEnd++;
-                }
-
-                var figure = GetGroupFigure(groupIndex);
-                figure.StartPoint = _elements[elementIndex].CachedPath.Figures[0].StartPoint;
-                for (var index = elementIndex; index <= groupEnd; index++)
-                {
-                    figure.Segments.Add(_elements[index].CachedPath.Figures[0].Segments[0]);
-                }
-
-                var style = _elements[groupEnd];
+                var style = _elements[_groupEndIndices[groupIndex]];
                 if (FillShapes)
                 {
                     context.DrawPath(style.CachedBrush, null, _groupPaths[groupIndex]);
@@ -488,9 +504,6 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
                 {
                     context.DrawPath(null, style.CachedPen, _groupPaths[groupIndex]);
                 }
-
-                groupIndex++;
-                elementIndex = groupEnd + 1;
             }
         }
 

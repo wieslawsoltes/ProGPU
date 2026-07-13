@@ -139,6 +139,104 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void MarkdownRelayoutsWhenItsAvailableWidthChanges()
+    {
+        var markdown = new MarkdownTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            Padding = new Thickness(0f),
+            Markdown = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        };
+
+        markdown.Measure(new Vector2(600f, 1_000f));
+        markdown.Arrange(new Rect(0f, 0f, 600f, 1_000f));
+        var wideMaxY = markdown.PositionedChars.Max(static character => character.Position.Y);
+
+        markdown.Measure(new Vector2(160f, 1_000f));
+        markdown.Arrange(new Rect(0f, 0f, 160f, 1_000f));
+        var narrowMaxY = markdown.PositionedChars.Max(static character => character.Position.Y);
+
+        Assert.True(narrowMaxY > wideMaxY);
+    }
+
+    [Fact]
+    public void UnchangedMarkdownReusesItsRecordedTextCommands()
+    {
+        var markdown = new MarkdownTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            Markdown = "# Retained markdown\n\nThe text commands remain stable."
+        };
+        markdown.Measure(new Vector2(500f, 300f));
+        markdown.Arrange(new Rect(0f, 0f, 500f, 300f));
+
+        var first = new DrawingContext();
+        markdown.OnRender(first);
+        var second = new DrawingContext();
+        markdown.OnRender(second);
+        var firstTexts = first.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawText)
+            .Select(static command => command.Text)
+            .ToArray();
+        var secondTexts = second.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawText)
+            .Select(static command => command.Text)
+            .ToArray();
+
+        Assert.NotEmpty(firstTexts);
+        Assert.Equal(firstTexts.Length, secondTexts.Length);
+        for (var index = 0; index < firstTexts.Length; index++)
+        {
+            Assert.Same(firstTexts[index], secondTexts[index]);
+        }
+    }
+
+    [Fact]
+    public void EmptyMarkdownClearsRetainedTextAndCommands()
+    {
+        var markdown = new MarkdownTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            Markdown = "Retained text must be discarded."
+        };
+        markdown.Measure(new Vector2(500f, 300f));
+        markdown.Arrange(new Rect(0f, 0f, 500f, 300f));
+        Assert.NotEmpty(markdown.PositionedChars);
+
+        markdown.Markdown = string.Empty;
+        markdown.Measure(new Vector2(500f, 300f));
+        markdown.Arrange(new Rect(0f, 0f, 500f, 300f));
+        var context = new DrawingContext();
+        markdown.OnRender(context);
+
+        Assert.Empty(markdown.PositionedChars);
+        Assert.DoesNotContain(context.Commands, static command => command.Type == RenderCommandType.DrawText);
+    }
+
+    [Fact]
+    public void EmptyRichTextClearsRetainedLayout()
+    {
+        var text = new RichTextBlock { Font = LoadTestFont(), FontSize = 18f };
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run("Retained text must be discarded."));
+        text.Measure(new Vector2(500f, 300f));
+        text.Arrange(new Rect(0f, 0f, 500f, 300f));
+        Assert.NotEmpty(text.PositionedChars);
+
+        text.Inlines.Clear();
+        text.Invalidate();
+        text.Measure(new Vector2(500f, 300f));
+        text.Arrange(new Rect(0f, 0f, 500f, 300f));
+        var context = new DrawingContext();
+        text.OnRender(context);
+
+        Assert.Empty(text.PositionedChars);
+        Assert.DoesNotContain(context.Commands, static command => command.Type == RenderCommandType.DrawText);
+    }
+
+    [Fact]
     public void MutableRunInvalidatesAndRelayoutsItsOwningTextBlock()
     {
         var font = LoadTestFont();

@@ -654,10 +654,17 @@ namespace Microsoft.UI.Xaml.Controls
             positionedChars.Clear();
             tableDecorations.Clear();
 
-            if (activeFont == null || blocks.Count == 0) return 0f;
+            var currentChildren = new List<Visual>(parent.Children);
+            if (activeFont == null || blocks.Count == 0)
+            {
+                foreach (var child in currentChildren)
+                {
+                    removeChild(child);
+                }
+                return 0f;
+            }
 
             var resolvedFg = defaultFg ?? ThemeManager.GetBrush("TextPrimary", theme);
-            var currentChildren = new List<Visual>(parent.Children);
             var encounteredChildren = new HashSet<Visual>();
 
             // Global invalidation if width constraint or theme changes
@@ -1143,6 +1150,8 @@ namespace Microsoft.UI.Xaml.Controls
             positionedChars.Clear();
             tableDecorations.Clear();
 
+            var currentChildren = new List<Visual>(parent.Children);
+
             var allBlocks = new List<Block>();
             allBlocks.AddRange(blocks);
             foreach (var p in extraParagraphs)
@@ -1150,7 +1159,14 @@ namespace Microsoft.UI.Xaml.Controls
                 if (!allBlocks.Contains(p)) allBlocks.Add(p);
             }
 
-            if (activeFont == null || allBlocks.Count == 0 || width <= 0f || height <= 0f) return;
+            if (activeFont == null || allBlocks.Count == 0 || width <= 0f || height <= 0f)
+            {
+                foreach (var child in currentChildren)
+                {
+                    removeChild(child);
+                }
+                return;
+            }
 
             float scale = baseFontSize / activeFont.UnitsPerEm;
             float lineSpacing = (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * scale;
@@ -1165,7 +1181,6 @@ namespace Microsoft.UI.Xaml.Controls
 
             var resolvedFg = defaultFg ?? ThemeManager.GetBrush("TextPrimary", theme);
 
-            var currentChildren = new List<Visual>(parent.Children);
             var encounteredChildren = new HashSet<Visual>();
 
             foreach (var block in allBlocks)

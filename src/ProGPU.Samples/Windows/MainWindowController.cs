@@ -43,6 +43,7 @@ public static unsafe class MainWindowController
 
         SampleFontLoader.EnsureLoaded();
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
+        MarkdownParser.WarmUp();
 
         AppState._canvasSourceTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
             TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc,
@@ -88,6 +89,7 @@ public static unsafe class MainWindowController
 
         SampleFontLoader.EnsureLoaded("[ProGPU.Samples.Embedded]");
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
+        MarkdownParser.WarmUp();
 
         AppState._canvasSourceTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
             TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc,

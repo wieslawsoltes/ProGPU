@@ -4300,7 +4300,10 @@ SceneStateUploadComplete:
                     TransformMetrics.GetStrokeScale(transform),
                     effectiveDpiScale);
         }
-        EnsurePathHitTestCompilation(cmd.Path);
+        if (Options.EnableGpuHitTesting && !_suspendHitTestCacheWrites)
+        {
+            EnsurePathHitTestCompilation(cmd.Path);
+        }
 
         if (cmd.Brush != null)
         {

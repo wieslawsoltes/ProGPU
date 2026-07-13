@@ -4,6 +4,8 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -23,7 +25,25 @@ namespace Microsoft.UI.Xaml.Controls
 {
     public static class MarkdownParser
     {
+        private static readonly Lazy<MarkdownPipeline> s_pipeline = new(
+            static () => new MarkdownPipelineBuilder()
+                .UseAdvancedExtensions()
+                .Build(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+
+        private static readonly Lazy<Task> s_warmUpTask = new(
+            static () => Task.Run(static () =>
+            {
+                _ = Markdown.Parse("# ProGPU", s_pipeline.Value);
+            }),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+
         public static Func<string, string, FrameworkElement>? CodeBlockFactory { get; set; }
+
+        public static void WarmUp()
+        {
+            _ = s_warmUpTask.Value;
+        }
 
         public static List<Block> Parse(string markdownText, Brush defaultFg, float baseFontSize, TtfFont defaultFont, TtfFont codeFont, ElementTheme theme)
         {
@@ -35,11 +55,7 @@ namespace Microsoft.UI.Xaml.Controls
 
             try
             {
-                var pipeline = new MarkdownPipelineBuilder()
-                    .UseAdvancedExtensions()
-                    .Build();
-
-                var document = Markdown.Parse(markdownText, pipeline);
+                var document = Markdown.Parse(markdownText, s_pipeline.Value);
 
                 foreach (var blockNode in document)
                 {

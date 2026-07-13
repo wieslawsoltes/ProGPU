@@ -26,11 +26,16 @@ namespace Microsoft.UI.Xaml.Controls
         private readonly List<TableVisualDecoration> _tableDecorations = new();
         private readonly List<PositionedRichChar> _measurementChars = new();
         private readonly List<TableVisualDecoration> _measurementDecorations = new();
+        private readonly DrawingContext _renderCommandCache = new();
         
         private Hyperlink? _hoveredHyperlink = null;
         private bool _isLayoutDirty = true;
+        private bool _isRenderCommandCacheDirty = true;
         private string _lastParsedMarkdown = string.Empty;
         private float _lastScrollY = -1f;
+        private float _lastLayoutWidth = -1f;
+        private float _lastLayoutHeight = -1f;
+        private Hyperlink? _cachedHoveredHyperlink;
         private float _measuredHeight = 0f;
 
 
@@ -157,6 +162,7 @@ namespace Microsoft.UI.Xaml.Controls
         public new void Invalidate()
         {
             _isLayoutDirty = true;
+            _isRenderCommandCacheDirty = true;
             base.Invalidate();
             InvalidateMeasure();
         }
@@ -188,6 +194,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (_hoveredHyperlink != foundLink)
             {
                 _hoveredHyperlink = foundLink;
+                _isRenderCommandCacheDirty = true;
                 base.Invalidate();
             }
         }
@@ -283,7 +290,7 @@ namespace Microsoft.UI.Xaml.Controls
 
         private void EnsureParsed()
         {
-            if (_markdown != _lastParsedMarkdown || _blocks.Count == 0)
+            if (_markdown != _lastParsedMarkdown)
             {
                 _blocks.Clear();
                 var activeFont = GetActiveFont();
@@ -318,11 +325,17 @@ namespace Microsoft.UI.Xaml.Controls
             bool scrollChanged = Math.Abs(currentScrollY - _lastScrollY) > 0.1f;
             _lastScrollY = currentScrollY;
 
-            if (!_isLayoutDirty && !scrollChanged) return;
+            bool widthChanged = Math.Abs(width - _lastLayoutWidth) > 0.01f;
+            bool heightChanged = ColumnCount > 1 && Math.Abs(height - _lastLayoutHeight) > 0.01f;
+            if (!_isLayoutDirty && !scrollChanged && !widthChanged && !heightChanged) return;
 
             var activeFont = GetActiveFont();
 
-            if (activeFont == null || _blocks.Count == 0) return;
+            if (activeFont == null)
+            {
+                ClearLayoutOutput();
+                return;
+            }
 
             if (ColumnCount == 1)
             {
@@ -364,22 +377,56 @@ namespace Microsoft.UI.Xaml.Controls
                     RemoveChild);
             }
 
+            _lastLayoutWidth = width;
+            _lastLayoutHeight = height;
             _isLayoutDirty = false;
+            _isRenderCommandCacheDirty = true;
+        }
+
+        private void ClearLayoutOutput()
+        {
+            _positionedChars.Clear();
+            _tableDecorations.Clear();
+            while (Children.Count > 0)
+            {
+                RemoveChild(Children[^1]);
+            }
+            _measuredHeight = 0f;
+            _renderCommandCache.Clear();
+            _isRenderCommandCacheDirty = false;
         }
 
         public override void OnRender(DrawingContext context)
         {
             var activeFont = GetActiveFont();
-            if (activeFont == null || _positionedChars.Count == 0) return;
+            if (activeFont == null || _positionedChars.Count == 0)
+            {
+                _renderCommandCache.Clear();
+                _isRenderCommandCacheDirty = false;
+                return;
+            }
 
-            TextLayoutEngine.Render(
-                context, 
-                _positionedChars, 
-                _tableDecorations, 
-                activeFont, 
-                -1, 
-                0, 
-                _hoveredHyperlink);
+            if (!ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
+            {
+                _isRenderCommandCacheDirty = true;
+            }
+
+            if (_isRenderCommandCacheDirty)
+            {
+                _renderCommandCache.Clear();
+                TextLayoutEngine.Render(
+                    _renderCommandCache,
+                    _positionedChars,
+                    _tableDecorations,
+                    activeFont,
+                    -1,
+                    0,
+                    _hoveredHyperlink);
+                _cachedHoveredHyperlink = _hoveredHyperlink;
+                _isRenderCommandCacheDirty = false;
+            }
+
+            context.Commands.AddRange(_renderCommandCache.Commands);
 
             base.OnRender(context);
         }
