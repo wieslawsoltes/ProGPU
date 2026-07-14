@@ -348,8 +348,8 @@ public sealed class PortablePopupCreateRequest
     /// <summary>
     /// Creates a popup request using the legacy coordinate contract. The popup
     /// coordinates are absolute screen-device coordinates and the owner client
-    /// origin defaults to the screen-device origin so existing consumers keep
-    /// their current positioning behavior.
+    /// origin defaults to the global screen-device coordinate origin (0, 0) so
+    /// existing consumers keep their current positioning behavior.
     /// </summary>
     public PortablePopupCreateRequest(
         object? placementTarget,
