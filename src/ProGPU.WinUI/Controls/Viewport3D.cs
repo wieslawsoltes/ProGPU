@@ -365,6 +365,7 @@ namespace Microsoft.UI.Xaml.Controls
         private GpuTexture? _colorTexture;
         private GpuTexture? _msaaColorTexture;
         private GpuTexture? _depthTexture;
+        private uint _textureSampleCount;
 
         private bool _isOrbiting = false;
         private bool _isPanning = false;
@@ -443,6 +444,7 @@ namespace Microsoft.UI.Xaml.Controls
             _msaaColorTexture = null;
             _depthTexture?.Dispose();
             _depthTexture = null;
+            _textureSampleCount = 0;
         }
 
         protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -493,18 +495,25 @@ namespace Microsoft.UI.Xaml.Controls
 
             uint width = (uint)Math.Max(1, Size.X * dpiScale);
             uint height = (uint)Math.Max(1, Size.Y * dpiScale);
+            uint sampleCount = dpiScale >= 1.5f ? 1u : 4u;
 
             // Recreate offscreen textures if size changed
-            if (_colorTexture == null || _colorTexture.Width != width || _colorTexture.Height != height)
+            if (_colorTexture == null ||
+                _colorTexture.Width != width ||
+                _colorTexture.Height != height ||
+                _textureSampleCount != sampleCount)
             {
                 _colorTexture?.Dispose();
                 _colorTexture = new GpuTexture(wgpuContext, width, height, TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.TextureBinding, "Viewport3D Color Texture", alphaMode: GpuTextureAlphaMode.Premultiplied);
 
                 _msaaColorTexture?.Dispose();
-                _msaaColorTexture = new GpuTexture(wgpuContext, width, height, TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment, "Viewport3D MSAA Color Texture", sampleCount: 4u, alphaMode: GpuTextureAlphaMode.Premultiplied);
+                _msaaColorTexture = sampleCount > 1
+                    ? new GpuTexture(wgpuContext, width, height, TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment, "Viewport3D MSAA Color Texture", sampleCount: sampleCount, alphaMode: GpuTextureAlphaMode.Premultiplied)
+                    : null;
 
                 _depthTexture?.Dispose();
-                _depthTexture = new GpuTexture(wgpuContext, width, height, TextureFormat.Depth24PlusStencil8, TextureUsage.RenderAttachment, "Viewport3D Depth Texture", sampleCount: 4u);
+                _depthTexture = new GpuTexture(wgpuContext, width, height, TextureFormat.Depth24PlusStencil8, TextureUsage.RenderAttachment, "Viewport3D Depth Texture", sampleCount: sampleCount);
+                _textureSampleCount = sampleCount;
             }
 
             float aspectRatio = Size.X / Size.Y;
@@ -524,6 +533,7 @@ namespace Microsoft.UI.Xaml.Controls
                 ColorTexture = _colorTexture,
                 MsaaColorTexture = _msaaColorTexture,
                 DepthTexture = _depthTexture,
+                SampleCount = sampleCount,
                 RenderMode = RenderMode,
                 ShadingMode = ShadingMode
             };

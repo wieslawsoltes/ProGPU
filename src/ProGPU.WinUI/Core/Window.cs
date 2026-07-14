@@ -353,10 +353,17 @@ public class Window
 
         _wgpuContext = new WgpuContext();
         _wgpuContext.Initialize(_silkWindow);
+        var framebufferSize = GetCurrentFramebufferSize();
+        var sampleCount = ResolveWindowDpiScale(framebufferSize) >= 1.5f ? 1u : 4u;
         _compositor = new Compositor(
             _wgpuContext,
             _wgpuContext.SwapChainFormat,
-            CompositorOptions.Default with { EnableGpuHitTesting = false });
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                GlyphAtlasSize = GlyphAtlasSize,
+                PrimarySampleCount = sampleCount
+            });
         ApplySystemBackdrop();
         
         // Decoupled Compositor Rendering Hooks Setup

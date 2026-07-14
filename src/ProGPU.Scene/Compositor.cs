@@ -1532,7 +1532,7 @@ public unsafe class Compositor : IDisposable
                 RenderFormat,
                 PrimitiveTopology.TriangleList,
                 enableBlend: true,
-                sampleCount: 4,
+                sampleCount: Options.PrimarySampleCount,
                 pipelineLayout: _vectorPipelineLayout
             );
 
@@ -1566,7 +1566,7 @@ public unsafe class Compositor : IDisposable
                     RenderFormat,
                     PrimitiveTopology.TriangleList,
                     enableBlend: true,
-                    sampleCount: 4,
+                    sampleCount: Options.PrimarySampleCount,
                     pipelineLayout: _textPipelineLayout
                 );
 
@@ -1593,7 +1593,7 @@ public unsafe class Compositor : IDisposable
                 RenderFormat,
                 PrimitiveTopology.TriangleList,
                 enableBlend: true,
-                sampleCount: 4,
+                sampleCount: Options.PrimarySampleCount,
                 pipelineLayout: _texturePipelineLayout,
                 sourceAlphaMode: GpuTextureAlphaMode.Premultiplied
             );
@@ -1635,7 +1635,7 @@ public unsafe class Compositor : IDisposable
                 PrimitiveTopology.TriangleList,
                 Array.Empty<VertexBufferLayout>(),
                 enableBlend: true,
-                sampleCount: 4
+                sampleCount: Options.PrimarySampleCount
             );
 
             _chartLinePipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
@@ -1672,7 +1672,7 @@ public unsafe class Compositor : IDisposable
                     RenderFormat,
                     PrimitiveTopology.TriangleList,
                     enableBlend: true,
-                    sampleCount: 4
+                    sampleCount: Options.PrimarySampleCount
                 );
 
                 _chartScatterPipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
@@ -2410,8 +2410,11 @@ SceneStateUploadComplete:
         uploadSw.Stop();
         passSw = System.Diagnostics.Stopwatch.StartNew();
 
-        // Recreate MSAA resources if needed (handles initialization and window resizing)
-        if (_msaaTexture == null || _msaaWidth != renderWidth || _msaaHeight != renderHeight)
+        // Recreate MSAA resources if needed (handles initialization and window resizing).
+        // Single-sample compositors render directly into the acquired target and retain no
+        // redundant full-window color texture.
+        if (Options.PrimarySampleCount > 1 &&
+            (_msaaTexture == null || _msaaWidth != renderWidth || _msaaHeight != renderHeight))
         {
             ReleaseMsaaResources();
             _advancedBlendScratchTexture?.Dispose();
@@ -2432,10 +2435,10 @@ SceneStateUploadComplete:
         var bgColor = ClearColor;
         var colorAttachment = new RenderPassColorAttachment
         {
-            View = _msaaTextureView,
-            ResolveTarget = targetView,
+            View = Options.PrimarySampleCount > 1 ? _msaaTextureView : targetView,
+            ResolveTarget = Options.PrimarySampleCount > 1 ? targetView : null,
             LoadOp = LoadOp.Clear,
-            StoreOp = StoreOp.Store,
+            StoreOp = Options.PrimarySampleCount > 1 ? StoreOp.Discard : StoreOp.Store,
             ClearValue = new Color { R = bgColor.X, G = bgColor.Y, B = bgColor.Z, A = bgColor.W }
         };
 
@@ -10038,7 +10041,7 @@ SceneStateUploadComplete:
             Size = new Extent3D { Width = _msaaWidth, Height = _msaaHeight, DepthOrArrayLayers = 1 },
             Format = RenderFormat,
             MipLevelCount = 1,
-            SampleCount = 4,
+            SampleCount = Options.PrimarySampleCount,
             ViewFormatCount = 0,
             ViewFormats = null
         };
@@ -13397,7 +13400,7 @@ SceneStateUploadComplete:
         TextureFormat? overrideFormat = null,
         GpuTextureAlphaMode textureAlphaMode = GpuTextureAlphaMode.Premultiplied)
     {
-        uint sampleCount = isOffscreen ? 1u : 4u;
+        uint sampleCount = isOffscreen ? 1u : Options.PrimarySampleCount;
 
         if (type == DrawCallType.Text)
         {

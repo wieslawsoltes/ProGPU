@@ -88,6 +88,7 @@ namespace ProGPU.Scene.Extensions
             public unsafe BindGroup* SolidBindGroup;
             public unsafe BindGroup* WireframeBindGroup;
             public int RecordGen = -1;
+            public uint SampleCount;
 
             public ViewportResource(WgpuContext context, uint uniformsSize)
             {
@@ -109,9 +110,12 @@ namespace ProGPU.Scene.Extensions
         private int _currentCompileIndex;
         private WgpuContext? _context;
         
-        private unsafe RenderPipeline* _cachedPipeline;
-        private unsafe RenderPipeline* _cachedBackFacePipeline;
-        private unsafe RenderPipeline* _cachedWireframePipeline;
+        private unsafe RenderPipeline* _cachedPipelineSingle;
+        private unsafe RenderPipeline* _cachedBackFacePipelineSingle;
+        private unsafe RenderPipeline* _cachedWireframePipelineSingle;
+        private unsafe RenderPipeline* _cachedPipelineMsaa;
+        private unsafe RenderPipeline* _cachedBackFacePipelineMsaa;
+        private unsafe RenderPipeline* _cachedWireframePipelineMsaa;
 
         private unsafe RenderPipeline* CreateMeshPipeline(
             Compositor compositor,
@@ -119,7 +123,8 @@ namespace ProGPU.Scene.Extensions
             string shaderCode,
             string shaderLabel,
             string pipelineKey,
-            CullMode cullMode)
+            CullMode cullMode,
+            uint sampleCount)
         {
             var shaderModule = compositor.PipelineCache.GetOrCreateShader(shaderKey, shaderCode, shaderLabel);
 
@@ -146,7 +151,7 @@ namespace ProGPU.Scene.Extensions
                     targetFormat: TextureFormat.Rgba8Unorm,
                     enableDepthStencil: true,
                     depthFormat: TextureFormat.Depth24PlusStencil8,
-                    sampleCount: 4u,
+                    sampleCount: sampleCount,
                     depthWriteEnabled: true,
                     depthCompare: CompareFunction.LessEqual,
                     cullMode: cullMode
@@ -199,6 +204,7 @@ namespace ProGPU.Scene.Extensions
             var wgpu = compositor.Context.Wgpu;
             var device = compositor.Context.Device;
             var queue = compositor.Context.Queue;
+            uint sampleCount = payload.SampleCount is 1 or 4 ? payload.SampleCount : 4u;
 
             uint uniformsSize = (uint)Marshal.SizeOf<GpuMesh3DUniforms>();
 
@@ -270,46 +276,62 @@ namespace ProGPU.Scene.Extensions
             };
             res.UniformsBuffer.WriteSingle(cpuUniforms);
 
-            // 4. Create solid pipeline if needed
-            if (_cachedPipeline == null)
+            // 4. Create the physical-resolution or 4x-MSAA pipeline variant on demand.
+            RenderPipeline* cachedPipeline = sampleCount == 1 ? _cachedPipelineSingle : _cachedPipelineMsaa;
+            RenderPipeline* cachedBackFacePipeline = sampleCount == 1 ? _cachedBackFacePipelineSingle : _cachedBackFacePipelineMsaa;
+            RenderPipeline* cachedWireframePipeline = sampleCount == 1 ? _cachedWireframePipelineSingle : _cachedWireframePipelineMsaa;
+            if (cachedPipeline == null)
             {
-                _cachedPipeline = CreateMeshPipeline(
+                cachedPipeline = CreateMeshPipeline(
                     compositor,
-                    "Mesh3DSolidShader_3D_v3",
+                    $"Mesh3DSolidShader_3D_v3_{sampleCount}",
                     Mesh3DSolidShaderCode,
                     "Mesh3D WGSL 3D Solid Shader",
-                    "Mesh3DPipeline_3D_v3",
-                    CullMode.Back);
+                    $"Mesh3DPipeline_3D_v3_{sampleCount}",
+                    CullMode.Back,
+                    sampleCount);
+                if (sampleCount == 1) _cachedPipelineSingle = cachedPipeline;
+                else _cachedPipelineMsaa = cachedPipeline;
             }
 
-            if (_cachedBackFacePipeline == null)
+            if (cachedBackFacePipeline == null)
             {
-                _cachedBackFacePipeline = CreateMeshPipeline(
+                cachedBackFacePipeline = CreateMeshPipeline(
                     compositor,
-                    "Mesh3DSolidShader_3D_v3",
+                    $"Mesh3DSolidShader_3D_v3_{sampleCount}",
                     Mesh3DSolidShaderCode,
                     "Mesh3D WGSL 3D Solid Shader",
-                    "Mesh3DBackFacePipeline_3D_v3",
-                    CullMode.Front);
+                    $"Mesh3DBackFacePipeline_3D_v3_{sampleCount}",
+                    CullMode.Front,
+                    sampleCount);
+                if (sampleCount == 1) _cachedBackFacePipelineSingle = cachedBackFacePipeline;
+                else _cachedBackFacePipelineMsaa = cachedBackFacePipeline;
             }
 
             // Create wireframe pipeline if needed (TriangleList with double sided rendering)
-            if (_cachedWireframePipeline == null)
+            if (cachedWireframePipeline == null)
             {
-                _cachedWireframePipeline = CreateMeshPipeline(
+                cachedWireframePipeline = CreateMeshPipeline(
                     compositor,
-                    "Mesh3DWireframeShader_3D_v3",
+                    $"Mesh3DWireframeShader_3D_v3_{sampleCount}",
                     Mesh3DWireframeShaderCode,
                     "Mesh3D WGSL 3D Wireframe Shader",
-                    "Mesh3DWireframePipeline_3D_v3",
-                    CullMode.None);
+                    $"Mesh3DWireframePipeline_3D_v3_{sampleCount}",
+                    CullMode.None,
+                    sampleCount);
+                if (sampleCount == 1) _cachedWireframePipelineSingle = cachedWireframePipeline;
+                else _cachedWireframePipelineMsaa = cachedWireframePipeline;
             }
 
             // 5. Create or get cached BindGroup
             int currentGen = res.DynamicRecordsBuffer.GetHashCode() ^ res.UniformsBuffer.GetHashCode();
-            if (res.SolidBindGroup == null || res.WireframeBindGroup == null || currentGen != res.RecordGen)
+            if (res.SolidBindGroup == null ||
+                res.WireframeBindGroup == null ||
+                currentGen != res.RecordGen ||
+                res.SampleCount != sampleCount)
             {
                 res.RecordGen = currentGen;
+                res.SampleCount = sampleCount;
 
                 var bgEntries = stackalloc BindGroupEntry[2];
                 bgEntries[0] = new BindGroupEntry
@@ -328,7 +350,7 @@ namespace ProGPU.Scene.Extensions
                 };
 
                 // Bind group for Solid Pipeline
-                var pipelineLayout = wgpu.RenderPipelineGetBindGroupLayout(_cachedPipeline, 0);
+                var pipelineLayout = wgpu.RenderPipelineGetBindGroupLayout(cachedPipeline, 0);
                 var bgDesc = new BindGroupDescriptor
                 {
                     Layout = pipelineLayout,
@@ -342,7 +364,7 @@ namespace ProGPU.Scene.Extensions
                 SilkMarshal.Free((nint)bgDesc.Label);
 
                 // Bind group for Wireframe Pipeline
-                var wireframeLayout = wgpu.RenderPipelineGetBindGroupLayout(_cachedWireframePipeline, 0);
+                var wireframeLayout = wgpu.RenderPipelineGetBindGroupLayout(cachedWireframePipeline, 0);
                 var wireframeBgDesc = new BindGroupDescriptor
                 {
                     Layout = wireframeLayout,
@@ -443,7 +465,7 @@ namespace ProGPU.Scene.Extensions
 
             if (mode == RenderMode3D.Solid)
             {
-                wgpu.RenderPassEncoderSetPipeline(pass, _cachedPipeline);
+                wgpu.RenderPassEncoderSetPipeline(pass, cachedPipeline);
                 wgpu.RenderPassEncoderSetBindGroup(pass, 0, res.SolidBindGroup, 0, null);
                 for (int i = 0; i < payload.Meshes.Count; i++)
                 {
@@ -456,7 +478,7 @@ namespace ProGPU.Scene.Extensions
                     wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, (uint)i);
                 }
 
-                wgpu.RenderPassEncoderSetPipeline(pass, _cachedBackFacePipeline);
+                wgpu.RenderPassEncoderSetPipeline(pass, cachedBackFacePipeline);
                 for (int i = 0; i < payload.Meshes.Count; i++)
                 {
                     var entry = payload.Meshes[i];
@@ -470,7 +492,7 @@ namespace ProGPU.Scene.Extensions
             }
             else if (mode == RenderMode3D.Wireframe || mode == RenderMode3D.SolidWireframe)
             {
-                wgpu.RenderPassEncoderSetPipeline(pass, _cachedWireframePipeline);
+                wgpu.RenderPassEncoderSetPipeline(pass, cachedWireframePipeline);
                 wgpu.RenderPassEncoderSetBindGroup(pass, 0, res.WireframeBindGroup, 0, null);
                 for (int i = 0; i < payload.Meshes.Count; i++)
                 {
@@ -550,6 +572,7 @@ namespace ProGPU.Scene.Extensions
         public GpuTexture? ColorTexture { get; set; }
         public GpuTexture? MsaaColorTexture { get; set; }
         public GpuTexture? DepthTexture { get; set; }
+        public uint SampleCount { get; set; } = 4;
         
         public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
         public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;

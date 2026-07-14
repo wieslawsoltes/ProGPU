@@ -16,6 +16,8 @@ public sealed record CompositorOptions
 
     public bool EnableCompiledSceneCache { get; init; } = true;
 
+    public uint PrimarySampleCount { get; init; } = 4;
+
     internal void Validate()
     {
         if (GlyphAtlasSize == 0)
@@ -33,6 +35,10 @@ public sealed record CompositorOptions
         if (InitialIndexCount == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(InitialIndexCount));
+        }
+        if (PrimarySampleCount is not (1 or 4))
+        {
+            throw new ArgumentOutOfRangeException(nameof(PrimarySampleCount));
         }
     }
 }
