@@ -205,7 +205,7 @@ public sealed class LayerRenderTests
     }
 
     [Fact]
-    public void CachedLayerHitTestCacheUsesLayerOwnerWithoutOffscreenCommands()
+    public void CachedLayerHitTestCachePreservesLayerAndDescendantOwners()
     {
         var window = HeadlessWindow.Shared;
         window.Resize(100, 60);
@@ -223,6 +223,11 @@ public sealed class LayerRenderTests
             Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, primitive.Kind);
             Assert.Equal(new Vector2(10f, 5f), primitive.BoundsMin);
             Assert.Equal(new Vector2(90f, 55f), primitive.BoundsMax);
+
+            var childPrimitive = Assert.Single(index.Primitives, primitive => primitive.Id == 993);
+            Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, childPrimitive.Kind);
+            Assert.Equal(new Vector2(20f, 15f), childPrimitive.BoundsMin);
+            Assert.Equal(new Vector2(50f, 35f), childPrimitive.BoundsMax);
         }
         finally
         {
@@ -466,6 +471,7 @@ public sealed class LayerRenderTests
     private sealed class HitTestCachedLayerVisual : FrameworkElement
     {
         private readonly SolidColorBrush _red = new(new Vector4(1f, 0f, 0f, 1f));
+        private readonly FrameworkElement _child;
 
         public HitTestCachedLayerVisual()
         {
@@ -473,6 +479,25 @@ public sealed class LayerRenderTests
             Height = 50f;
             CacheAsLayer = true;
             HitTestId = 991;
+
+            _child = new FrameworkElement
+            {
+                Width = 30f,
+                Height = 20f,
+                HitTestId = 993
+            };
+            AddChild(_child);
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _child.Measure(new Vector2(30f, 20f));
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            _child.Arrange(new Rect(10f, 10f, 30f, 20f));
         }
 
         public override void OnRender(DrawingContext context)

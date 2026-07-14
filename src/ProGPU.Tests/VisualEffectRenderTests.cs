@@ -77,6 +77,30 @@ public sealed class VisualEffectRenderTests
         Assert.Equal(16u, cached.Value.Destination.Height);
     }
 
+    [Fact]
+    public void VisualEffectHitTestCachePreservesDescendantOwners()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 60);
+        window.Content = new VisualCompositeScopeHost(new HitTestEffectVisual());
+
+        try
+        {
+            window.Render();
+
+            var index = window.Compositor.LastHitTestIndex;
+            Assert.NotNull(index);
+            var childPrimitive = Assert.Single(index!.Primitives, primitive => primitive.Id == 994);
+            Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, childPrimitive.Kind);
+            Assert.Equal(new Vector2(20f, 15f), childPrimitive.BoundsMin);
+            Assert.Equal(new Vector2(50f, 35f), childPrimitive.BoundsMax);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -158,6 +182,38 @@ public sealed class VisualEffectRenderTests
         public override void OnRender(DrawingContext context)
         {
             context.DrawRectangle(_red, null, new Rect(0f, 0f, 80f, 50f));
+        }
+    }
+
+    private sealed class HitTestEffectVisual : FrameworkElement
+    {
+        private readonly FrameworkElement _child;
+
+        public HitTestEffectVisual()
+        {
+            Width = 80f;
+            Height = 50f;
+            Effect = new DropShadowEffect(4f);
+            HitTestId = 993;
+
+            _child = new FrameworkElement
+            {
+                Width = 30f,
+                Height = 20f,
+                HitTestId = 994
+            };
+            AddChild(_child);
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _child.Measure(new Vector2(30f, 20f));
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            _child.Arrange(new Rect(10f, 10f, 30f, 20f));
         }
     }
 }
