@@ -23,9 +23,51 @@ namespace ProGPU.Samples
         private static MarkdownTextBlock? _previewControl;
         private static RichEditBox? _editorControl;
         private static RichTextBlock? _statusText;
+        private static ScrollViewer? _previewScroll;
+        private static float _benchmarkScrollDirection = 1f;
+
+        internal static void AdvanceBenchmarkScroll()
+        {
+            if (_previewScroll == null)
+            {
+                return;
+            }
+
+            float maxOffset = Math.Max(0f, _previewScroll.ContentHeight - _previewScroll.Size.Y);
+            if (maxOffset <= 0f)
+            {
+                return;
+            }
+
+            float nextOffset = _previewScroll.VerticalOffset + _benchmarkScrollDirection * 30f;
+            if (nextOffset >= maxOffset)
+            {
+                nextOffset = maxOffset;
+                _benchmarkScrollDirection = -1f;
+            }
+            else if (nextOffset <= 0f)
+            {
+                nextOffset = 0f;
+                _benchmarkScrollDirection = 1f;
+            }
+
+            _previewScroll.VerticalOffset = nextOffset;
+        }
+
+        internal static bool TryGetBenchmarkRenderState(
+            out int positionedCharacters,
+            out float scrollOffset,
+            out float contentHeight)
+        {
+            positionedCharacters = _previewControl?.PositionedChars.Count ?? 0;
+            scrollOffset = _previewScroll?.VerticalOffset ?? 0f;
+            contentHeight = _previewScroll?.ContentHeight ?? 0f;
+            return positionedCharacters > 0 && contentHeight > 0f;
+        }
 
         public static FrameworkElement Create()
         {
+            _benchmarkScrollDirection = 1f;
             // Register TextMate-based code block factory for preview panel
             MarkdownParser.CodeBlockFactory = (code, language) =>
             {
@@ -239,8 +281,8 @@ namespace ProGPU.Samples
                 VerticalAlignment = VerticalAlignment.Stretch
             };
 
-            var previewScroll = new ScrollViewer { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
-            previewBorder.Child = previewScroll;
+            _previewScroll = new ScrollViewer { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            previewBorder.Child = _previewScroll;
 
             _previewControl = new MarkdownTextBlock
             {
@@ -250,7 +292,7 @@ namespace ProGPU.Samples
                 VerticalAlignment = VerticalAlignment.Stretch
             };
             _previewControl.Markdown = GetDefaultTemplateText();
-            previewScroll.Content = _previewControl;
+            _previewScroll.Content = _previewControl;
 
             workspaceGrid.AddChild(previewBorder);
             Microsoft.UI.Xaml.Controls.Grid.SetColumn(previewBorder, 1);

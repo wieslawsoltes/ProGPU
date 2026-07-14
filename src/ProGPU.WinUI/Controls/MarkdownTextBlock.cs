@@ -12,7 +12,7 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls
 {
-    public class MarkdownTextBlock : FrameworkElement
+    public class MarkdownTextBlock : FrameworkElement, IScrollViewportAware
     {
         private string _markdown = string.Empty;
         private float _fontSize = 14f;
@@ -311,19 +311,27 @@ namespace Microsoft.UI.Xaml.Controls
         private void PerformEngineLayout(float width, float height)
         {
             float currentScrollY = 0f;
+            float viewportHeight = 0f;
             var current = Parent;
             while (current != null)
             {
                 if (current is ScrollViewer sv)
                 {
                     currentScrollY = sv.VerticalOffset;
+                    viewportHeight = sv.Size.Y;
                     break;
                 }
                 current = current.Parent;
             }
 
-            bool scrollChanged = Math.Abs(currentScrollY - _lastScrollY) > 0.1f;
-            _lastScrollY = currentScrollY;
+            // TextLayoutEngine retains two viewports of content around the visible region.
+            // Keep using that retained window while ordinary wheel/trackpad movement stays
+            // within one viewport of the last layout. Rebuilding the visible character list
+            // for every pixel of scrolling defeated both the retained command cache and the
+            // compositor's allocation-free scrolling path.
+            float scrollRefreshDistance = Math.Max(256f, viewportHeight);
+            bool scrollChanged = _lastScrollY < 0f ||
+                Math.Abs(currentScrollY - _lastScrollY) >= scrollRefreshDistance;
 
             bool widthChanged = Math.Abs(width - _lastLayoutWidth) > 0.01f;
             bool heightChanged = ColumnCount > 1 && Math.Abs(height - _lastLayoutHeight) > 0.01f;
@@ -379,8 +387,19 @@ namespace Microsoft.UI.Xaml.Controls
 
             _lastLayoutWidth = width;
             _lastLayoutHeight = height;
+            _lastScrollY = currentScrollY;
             _isLayoutDirty = false;
             _isRenderCommandCacheDirty = true;
+        }
+
+        public void OnScrollViewportChanged()
+        {
+            float previousLayoutScrollY = _lastScrollY;
+            PerformEngineLayout(Size.X, Size.Y);
+            if (_lastScrollY != previousLayoutScrollY)
+            {
+                Invalidate();
+            }
         }
 
         private void ClearLayoutOutput()

@@ -11,6 +11,11 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls;
 
+public interface IScrollViewportAware
+{
+    void OnScrollViewportChanged();
+}
+
 [ContentProperty(Name = "Content")]
 public class ScrollViewer : ContentControl
 {
@@ -25,7 +30,16 @@ public class ScrollViewer : ContentControl
     public new FrameworkElement? Content
     {
         get => base.Content as FrameworkElement;
-        set => base.Content = value;
+        set
+        {
+            if (base.Content is FrameworkElement oldContent && !ReferenceEquals(oldContent, value))
+            {
+                oldContent.LayoutTranslation = Vector2.Zero;
+            }
+
+            base.Content = value;
+            UpdateContentTranslation();
+        }
     }
 
     private bool IsInsidePopup()
@@ -54,8 +68,9 @@ public class ScrollViewer : ContentControl
                 {
                     PopupService.DismissNonDialogPopups();
                 }
+                NotifyVirtualizingContent();
+                UpdateContentTranslation();
                 Invalidate();
-                InvalidateArrange();
                 OnPropertyChanged();
             }
         }
@@ -75,8 +90,9 @@ public class ScrollViewer : ContentControl
                 {
                     PopupService.DismissNonDialogPopups();
                 }
+                NotifyVirtualizingContent();
+                UpdateContentTranslation();
                 Invalidate();
-                InvalidateArrange();
                 OnPropertyChanged();
             }
         }
@@ -235,16 +251,36 @@ public class ScrollViewer : ContentControl
             float viewportW = arrangeRect.Width;
             float viewportH = arrangeRect.Height;
  
-            // Shift the child element offset by negative scroll positions
+            // Keep the child's layout rectangle stable. The post-layout translation moves
+            // retained render/input content without recursively arranging the subtree for
+            // each wheel or trackpad offset.
             Rect childRect = new Rect(
-                arrangeRect.X - _horizontalOffset,
-                arrangeRect.Y - _verticalOffset,
+                arrangeRect.X,
+                arrangeRect.Y,
                 Math.Max(viewportW, contentW),
                 Math.Max(viewportH, contentH)
             );
             Content.Arrange(childRect);
+            NotifyVirtualizingContent();
+            UpdateContentTranslation();
         }
         ClipBounds = new Rect(0f, 0f, Size.X, Size.Y);
+    }
+
+    private void UpdateContentTranslation()
+    {
+        if (Content != null)
+        {
+            Content.LayoutTranslation = new Vector2(-_horizontalOffset, -_verticalOffset);
+        }
+    }
+
+    private void NotifyVirtualizingContent()
+    {
+        if (Content is IScrollViewportAware scrollAwareContent)
+        {
+            scrollAwareContent.OnScrollViewportChanged();
+        }
     }
 
     public override void OnRender(DrawingContext context)

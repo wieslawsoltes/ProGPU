@@ -9,7 +9,7 @@ using Microsoft.UI.Xaml.Input;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class VirtualizingPanel : Panel
+public class VirtualizingPanel : Panel, IScrollViewportAware
 {
     private float _scrollOffset = 0f;
     private readonly ScrollBarOverlay _scrollbar;
@@ -110,6 +110,11 @@ public class VirtualizingPanel : Panel
 
     protected virtual void OnScrollOffsetChanged(float newOffset)
     {
+    }
+
+    public void OnScrollViewportChanged()
+    {
+        OnScrollOffsetChanged(ScrollOffset);
     }
 
     public ItemsControl? ItemsControlOwner

@@ -125,6 +125,26 @@ namespace ProGPU.Layout
         private bool _isArrangeValid;
         private Vector2 _previousAvailableSize = new Vector2(-1f, -1f);
         private Rect _previousFinalRect = new Rect(-1f, -1f, -1f, -1f);
+        private Vector2 _arrangedOffset;
+        private Vector2 _layoutTranslation;
+
+        /// <summary>
+        /// Applies a render/input translation after layout without changing the arranged
+        /// rectangle. Scrolling containers use this to move retained content without
+        /// recursively arranging an otherwise unchanged subtree.
+        /// </summary>
+        public Vector2 LayoutTranslation
+        {
+            get => _layoutTranslation;
+            set
+            {
+                if (_layoutTranslation != value)
+                {
+                    _layoutTranslation = value;
+                    Offset = _arrangedOffset + value;
+                }
+            }
+        }
 
         public virtual Thickness Margin
         {
@@ -372,7 +392,8 @@ namespace ProGPU.Layout
             }
 
             // Apply placement and delegate to arrange override
-            Offset = offset;
+            _arrangedOffset = offset;
+            Offset = _arrangedOffset + _layoutTranslation;
             Size = size;
 
             if (this is ITemplatedControl templated && templated.HasTemplate)
