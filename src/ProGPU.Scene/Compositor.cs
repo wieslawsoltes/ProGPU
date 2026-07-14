@@ -10688,6 +10688,8 @@ SceneStateUploadComplete:
             {
                 DrawWpfShaderEffectOnMain(fe, shaderEffect, textures.Source, paddedRect, compositeTransform);
             }
+
+            AddDescendantVisualHitTestBounds(fe, compositeTransform);
         }
         finally
         {
@@ -10762,6 +10764,7 @@ SceneStateUploadComplete:
         {
             // Draw the cached layer texture onto the main swapchain.
             DrawTextureOnMain(node.LayerTexture!, controlRect, compositeTransform, node.HitTestId);
+            AddDescendantVisualHitTestBounds(node, compositeTransform);
         }
         finally
         {
@@ -10769,6 +10772,92 @@ SceneStateUploadComplete:
         }
 
         node.IsDirty = false;
+    }
+
+    private void AddDescendantVisualHitTestBounds(Visual visual, Matrix4x4 globalTransform)
+    {
+        if (!Options.EnableGpuHitTesting ||
+            _suspendHitTestCacheWrites ||
+            visual is not ContainerVisual container)
+        {
+            return;
+        }
+
+        // Effect and layer subtrees are rendered offscreen with hit-test cache writes
+        // suspended. Rebuild their retained visual-owner bounds in the main scene so
+        // host input routing keeps the same owner topology as direct composition.
+        var children = container.Children;
+        for (int index = 0; index < children.Count; index++)
+        {
+            AddVisualHitTestBoundsSubtree(children[index], globalTransform);
+        }
+    }
+
+    private void AddVisualHitTestBoundsSubtree(Visual visual, Matrix4x4 parentTransform)
+    {
+        if (!visual.IsVisible || visual.Opacity <= 0.0001f)
+        {
+            return;
+        }
+
+        Matrix4x4 globalTransform = visual.GetLocalTransform() * parentTransform;
+        bool hasClip = visual.ClipBounds.HasValue;
+        bool hasOuterClip = visual.OuterClipBounds.HasValue;
+        bool hasGeometryClip = visual.GeometryClip != null;
+
+        if (hasClip)
+        {
+            PushHitTestClip(visual.ClipBounds.Value, globalTransform);
+        }
+
+        if (hasOuterClip)
+        {
+            PushHitTestClip(visual.OuterClipBounds.Value, parentTransform);
+        }
+
+        if (hasGeometryClip)
+        {
+            AddHitTestStateCommand(
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = visual.GeometryClip
+                },
+                globalTransform);
+        }
+
+        try
+        {
+            AddVisualHitTestBounds(visual, globalTransform);
+
+            if (visual is ContainerVisual container)
+            {
+                var children = container.Children;
+                for (int index = 0; index < children.Count; index++)
+                {
+                    AddVisualHitTestBoundsSubtree(children[index], globalTransform);
+                }
+            }
+        }
+        finally
+        {
+            if (hasGeometryClip)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                    Matrix4x4.Identity);
+            }
+
+            if (hasOuterClip)
+            {
+                PopHitTestClip();
+            }
+
+            if (hasClip)
+            {
+                PopHitTestClip();
+            }
+        }
     }
 
     private VisualCompositeScope PushVisualCompositeScope(
