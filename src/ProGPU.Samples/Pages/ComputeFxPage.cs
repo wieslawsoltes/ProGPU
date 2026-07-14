@@ -25,6 +25,8 @@ public static class ComputeFxPage
 {
         public static FrameworkElement Create()
         {
+            MainWindowController.EnsureEffectResources();
+
             var grid = new Microsoft.UI.Xaml.Controls.Grid();
             grid.ColumnDefinitions.Add(new GridLength(280, GridUnitType.Absolute)); // Compute adjust sliders
             grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // WebGPU offscreen effect canvas

@@ -17,6 +17,8 @@ public static class ImageEffectsPage
 {
     public static FrameworkElement Create()
     {
+        MainWindowController.EnsureEffectResources();
+
         var grid = new Microsoft.UI.Xaml.Controls.Grid();
         grid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Adjust sliders
         grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // Live Preview Area

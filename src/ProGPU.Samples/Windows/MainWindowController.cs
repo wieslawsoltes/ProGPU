@@ -38,25 +38,9 @@ public static unsafe class MainWindowController
             AppState._screenCompositor.ClearColor = ThemeManager.GetColor("PageBackground");
         }
 
-        AppState._offscreenCompositor = new Compositor(AppState._wgpuContext!, TextureFormat.Rgba8Unorm);
-        AppState._compute = new ComputeAccelerator(AppState._wgpuContext!);
-
         SampleFontLoader.EnsureLoaded();
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
         MarkdownParser.WarmUp();
-
-        AppState._canvasSourceTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasTempTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasBlurTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasShadowTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
 
         ObjModels.EnsureSamplesExist("models");
 
@@ -84,25 +68,9 @@ public static unsafe class MainWindowController
             AppState._screenCompositor.ClearColor = ThemeManager.GetColor("PageBackground");
         }
 
-        AppState._offscreenCompositor = new Compositor(AppState._wgpuContext!, TextureFormat.Rgba8Unorm);
-        AppState._compute = new ComputeAccelerator(AppState._wgpuContext!);
-
         SampleFontLoader.EnsureLoaded("[ProGPU.Samples.Embedded]");
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
         MarkdownParser.WarmUp();
-
-        AppState._canvasSourceTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasTempTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasBlurTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
-        AppState._canvasShadowTexture = new GpuTexture(AppState._wgpuContext!, 600, 600, TextureFormat.Rgba8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
 
         BuildSceneGraph();
 
@@ -509,10 +477,55 @@ public static unsafe class MainWindowController
         return AppState._activeCategory is "Compute FX" or "Image Effects" or "Image & Buttons";
     }
 
+    internal static void EnsureEffectResources()
+    {
+        if (AppState._wgpuContext is not { } context ||
+            (AppState._offscreenCompositor != null &&
+             AppState._compute != null &&
+             AppState._canvasSourceTexture != null &&
+             AppState._canvasTempTexture != null &&
+             AppState._canvasBlurTexture != null &&
+             AppState._canvasShadowTexture != null))
+        {
+            return;
+        }
+
+        AppState._offscreenCompositor ??= new Compositor(context, TextureFormat.Rgba8Unorm);
+        AppState._compute ??= new ComputeAccelerator(context);
+        AppState._canvasSourceTexture ??= new GpuTexture(
+            context,
+            600,
+            600,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc,
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        AppState._canvasTempTexture ??= new GpuTexture(
+            context,
+            600,
+            600,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        AppState._canvasBlurTexture ??= new GpuTexture(
+            context,
+            600,
+            600,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        AppState._canvasShadowTexture ??= new GpuTexture(
+            context,
+            600,
+            600,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+    }
+
     public static void OnWindowRender(double delta)
     {
         if (AppState._rootGrid == null || AppState._topLevelGrid == null || AppState._wgpuContext == null) return;
-        if (AppState._screenCompositor == null || AppState._offscreenCompositor == null || AppState._compute == null) return;
+        if (AppState._screenCompositor == null) return;
 
         OnWindowUpdate(delta);
 
@@ -534,6 +547,8 @@ public static unsafe class MainWindowController
         // Update animated cogs if currently in Compute FX, Image Effects, or Image & Buttons (ImageRepeatShowcasePage)
         if (IsGearPageActive() && AppState._gearCanvasVisual != null)
         {
+            EnsureEffectResources();
+
             Vector2 logicalWindowSize = AppState._topLevelGrid.Size;
             if ((logicalWindowSize.X <= 0f || logicalWindowSize.Y <= 0f) && AppState._window != null)
             {
@@ -560,17 +575,17 @@ public static unsafe class MainWindowController
                 AppState._canvasBlurTexture.Resize(canvasW, canvasH);
                 AppState._canvasShadowTexture.Resize(canvasW, canvasH);
 
-                AppState._offscreenCompositor.RenderScene(AppState._gearCanvasVisual, canvasW, canvasH, AppState._canvasSourceTexture.ViewPtr);
+                AppState._offscreenCompositor!.RenderScene(AppState._gearCanvasVisual, canvasW, canvasH, AppState._canvasSourceTexture.ViewPtr);
 
                 if (AppState._shadowRadius > 0)
                 {
                     var shadowColor = new Vector4(0f, 0f, 0f, 0.65f);
-                    AppState._compute.ApplyDropShadow(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasShadowTexture, AppState._shadowOffset, shadowColor, AppState._shadowRadius);
+                    AppState._compute!.ApplyDropShadow(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasShadowTexture, AppState._shadowOffset, shadowColor, AppState._shadowRadius);
                 }
 
                 if (AppState._blurRadius > 0)
                 {
-                    AppState._compute.ApplyGaussianBlur(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasBlurTexture, AppState._blurRadius);
+                    AppState._compute!.ApplyGaussianBlur(AppState._canvasSourceTexture, AppState._canvasTempTexture, AppState._canvasBlurTexture, AppState._blurRadius);
                 }
             }
         }

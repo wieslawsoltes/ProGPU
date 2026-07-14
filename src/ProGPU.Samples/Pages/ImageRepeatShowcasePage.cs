@@ -25,6 +25,8 @@ public static class ImageRepeatShowcasePage
 {
         public static FrameworkElement Create()
         {
+            MainWindowController.EnsureEffectResources();
+
             var grid = new Microsoft.UI.Xaml.Controls.Grid { Margin = new Thickness(12) };
             grid.RowDefinitions.Add(new GridLength(50, GridUnitType.Absolute));   // Header description
             grid.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main content Grid
