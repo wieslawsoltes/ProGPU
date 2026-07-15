@@ -31,16 +31,56 @@ public struct GpuBvhNode
     public uint Pad1;
 }
 
+[StructLayout(LayoutKind.Sequential, Pack = 16)]
+public struct GpuBezierCurve
+{
+    public Vector2 P0;
+    public Vector2 P1;
+    public Vector2 P2;
+    public Vector2 P3;
+    public uint CurveType;      // 0 = Line, 1 = Quadratic, 2 = Cubic
+    public uint Subdivisions;   // Populated during BVH construction
+    public uint LineOffset;     // Populated during BVH construction
+    public uint Pad;
+
+    public GpuBezierCurve(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, uint curveType)
+    {
+        P0 = p0;
+        P1 = p1;
+        P2 = p2;
+        P3 = p3;
+        CurveType = curveType;
+        Subdivisions = 0;
+        LineOffset = 0;
+        Pad = 0;
+    }
+}
+
 public static class BvhBuilder
 {
-    private const float FlatnessToleranceSq = 0.25f * 0.25f;
-#if false
-#endif
-
-
-    public static List<GpuLineSegment> FlattenPath(PathGeometry path)
+    public static (Vector2 Min, Vector2 Max) GetCurveBounds(in GpuBezierCurve curve)
     {
-        var lines = new List<GpuLineSegment>();
+        if (curve.CurveType == 0) // Line
+        {
+            return (Vector2.Min(curve.P0, curve.P1), Vector2.Max(curve.P0, curve.P1));
+        }
+        else if (curve.CurveType == 1) // Quadratic Bezier
+        {
+            var min = Vector2.Min(curve.P0, Vector2.Min(curve.P1, curve.P2));
+            var max = Vector2.Max(curve.P0, Vector2.Max(curve.P1, curve.P2));
+            return (min, max);
+        }
+        else // Cubic Bezier
+        {
+            var min = Vector2.Min(curve.P0, Vector2.Min(curve.P1, Vector2.Min(curve.P2, curve.P3)));
+            var max = Vector2.Max(curve.P0, Vector2.Max(curve.P1, Vector2.Max(curve.P2, curve.P3)));
+            return (min, max);
+        }
+    }
+
+    public static List<GpuBezierCurve> GetPathCurves(PathGeometry path)
+    {
+        var curves = new List<GpuBezierCurve>();
 
         foreach (var figure in path.Figures)
         {
@@ -52,35 +92,35 @@ public static class BvhBuilder
             {
                 if (segment is LineSegment line)
                 {
-                    lines.Add(new GpuLineSegment(currentPoint, line.Point));
+                    curves.Add(new GpuBezierCurve(currentPoint, line.Point, Vector2.Zero, Vector2.Zero, 0));
                     currentPoint = line.Point;
                 }
                 else if (segment is QuadraticBezierSegment quad)
                 {
-                    FlattenQuadratic(currentPoint, quad.ControlPoint, quad.Point, lines);
+                    curves.Add(new GpuBezierCurve(currentPoint, quad.ControlPoint, quad.Point, Vector2.Zero, 1));
                     currentPoint = quad.Point;
                 }
                 else if (segment is CubicBezierSegment cubic)
                 {
-                    FlattenCubic(currentPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, lines);
+                    curves.Add(new GpuBezierCurve(currentPoint, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, 2));
                     currentPoint = cubic.Point;
                 }
             }
 
             if (figure.IsClosed && currentPoint != figure.StartPoint)
             {
-                lines.Add(new GpuLineSegment(currentPoint, figure.StartPoint));
+                curves.Add(new GpuBezierCurve(currentPoint, figure.StartPoint, Vector2.Zero, Vector2.Zero, 0));
             }
         }
 
-        return lines;
+        return curves;
     }
 
-    public static List<GpuLineSegment> FlattenGlyph(TtfFont font, ushort glyphId)
+    public static List<GpuBezierCurve> GetGlyphCurves(TtfFont font, ushort glyphId)
     {
-        var lines = new List<GpuLineSegment>();
+        var curves = new List<GpuBezierCurve>();
         var outline = font.GetGlyphOutline(glyphId);
-        if (outline == null) return lines;
+        if (outline == null) return curves;
 
         foreach (var figure in outline.Figures)
         {
@@ -92,106 +132,43 @@ public static class BvhBuilder
             {
                 if (segment is LineSegment line)
                 {
-                    lines.Add(new GpuLineSegment(currentPoint, line.Point));
+                    curves.Add(new GpuBezierCurve(currentPoint, line.Point, Vector2.Zero, Vector2.Zero, 0));
                     currentPoint = line.Point;
                 }
                 else if (segment is QuadraticBezierSegment quad)
                 {
-                    FlattenQuadratic(currentPoint, quad.ControlPoint, quad.Point, lines);
+                    curves.Add(new GpuBezierCurve(currentPoint, quad.ControlPoint, quad.Point, Vector2.Zero, 1));
                     currentPoint = quad.Point;
                 }
             }
 
             if (figure.IsClosed && currentPoint != figure.StartPoint)
             {
-                lines.Add(new GpuLineSegment(currentPoint, figure.StartPoint));
+                curves.Add(new GpuBezierCurve(currentPoint, figure.StartPoint, Vector2.Zero, Vector2.Zero, 0));
             }
         }
 
-        return lines;
+        return curves;
     }
 
-    private static void FlattenQuadratic(Vector2 p0, Vector2 p1, Vector2 p2, List<GpuLineSegment> lines)
-    {
-        Vector2 ab = p2 - p0;
-        float abLenSq = ab.LengthSquared();
-        if (abLenSq < 1e-6f)
-        {
-            lines.Add(new GpuLineSegment(p0, p2));
-            return;
-        }
-
-        Vector2 ap = p1 - p0;
-        float t = Math.Clamp(Vector2.Dot(ap, ab) / abLenSq, 0f, 1f);
-        Vector2 proj = p0 + t * ab;
-        float distSq = (p1 - proj).LengthSquared();
-
-        if (distSq <= FlatnessToleranceSq)
-        {
-            lines.Add(new GpuLineSegment(p0, p2));
-        }
-        else
-        {
-            Vector2 q0 = (p0 + p1) * 0.5f;
-            Vector2 q1 = (p1 + p2) * 0.5f;
-            Vector2 r = (q0 + q1) * 0.5f;
-
-            FlattenQuadratic(p0, q0, r, lines);
-            FlattenQuadratic(r, q1, p2, lines);
-        }
-    }
-
-    private static void FlattenCubic(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, List<GpuLineSegment> lines)
-    {
-        Vector2 ab = p3 - p0;
-        float abLenSq = ab.LengthSquared();
-        if (abLenSq < 1e-6f)
-        {
-            lines.Add(new GpuLineSegment(p0, p3));
-            return;
-        }
-
-        Vector2 ap1 = p1 - p0;
-        float t1 = Math.Clamp(Vector2.Dot(ap1, ab) / abLenSq, 0f, 1f);
-        float dist1Sq = (p1 - (p0 + t1 * ab)).LengthSquared();
-
-        Vector2 ap2 = p2 - p0;
-        float t2 = Math.Clamp(Vector2.Dot(ap2, ab) / abLenSq, 0f, 1f);
-        float dist2Sq = (p2 - (p0 + t2 * ab)).LengthSquared();
-
-        if (dist1Sq <= FlatnessToleranceSq && dist2Sq <= FlatnessToleranceSq)
-        {
-            lines.Add(new GpuLineSegment(p0, p3));
-        }
-        else
-        {
-            Vector2 q0 = (p0 + p1) * 0.5f;
-            Vector2 q1 = (p1 + p2) * 0.5f;
-            Vector2 q2 = (p2 + p3) * 0.5f;
-            Vector2 r0 = (q0 + q1) * 0.5f;
-            Vector2 r1 = (q1 + q2) * 0.5f;
-            Vector2 s = (r0 + r1) * 0.5f;
-
-            FlattenCubic(p0, q0, r0, s, lines);
-            FlattenCubic(s, r1, q2, p3, lines);
-        }
-    }
-
-    public static List<GpuBvhNode> BuildBvh(List<GpuLineSegment> segments, out List<GpuLineSegment> orderedSegments)
+    public static List<GpuBvhNode> BuildBvh(List<GpuBezierCurve> curves, out List<GpuBezierCurve> orderedCurves, out uint totalLines)
     {
         var nodes = new List<GpuBvhNode>();
-        orderedSegments = new List<GpuLineSegment>();
+        orderedCurves = new List<GpuBezierCurve>();
 
-        if (segments.Count == 0)
+        if (curves.Count == 0)
         {
+            totalLines = 0;
             return nodes;
         }
 
-        BuildRecursive(segments, 0, segments.Count, nodes, orderedSegments);
+        int globalLineCount = 0;
+        BuildRecursive(curves, 0, curves.Count, nodes, orderedCurves, ref globalLineCount);
+        totalLines = (uint)globalLineCount;
         return nodes;
     }
 
-    private static int BuildRecursive(List<GpuLineSegment> segments, int start, int end, List<GpuBvhNode> nodes, List<GpuLineSegment> orderedSegments)
+    private static int BuildRecursive(List<GpuBezierCurve> curves, int start, int end, List<GpuBvhNode> nodes, List<GpuBezierCurve> orderedCurves, ref int globalLineCount)
     {
         int nodeIdx = nodes.Count;
         nodes.Add(new GpuBvhNode());
@@ -200,11 +177,11 @@ public static class BvhBuilder
         float maxX = float.MinValue, maxY = float.MinValue;
         for (int i = start; i < end; i++)
         {
-            var s = segments[i];
-            minX = Math.Min(minX, Math.Min(s.Start.X, s.End.X));
-            minY = Math.Min(minY, Math.Min(s.Start.Y, s.End.Y));
-            maxX = Math.Max(maxX, Math.Max(s.Start.X, s.End.X));
-            maxY = Math.Max(maxY, Math.Max(s.Start.Y, s.End.Y));
+            var (cMin, cMax) = GetCurveBounds(curves[i]);
+            minX = Math.Min(minX, cMin.X);
+            minY = Math.Min(minY, cMin.Y);
+            maxX = Math.Max(maxX, cMax.X);
+            maxY = Math.Max(maxY, cMax.Y);
         }
 
         int count = end - start;
@@ -212,10 +189,23 @@ public static class BvhBuilder
 
         if (count <= MaxPrimitivesPerLeaf)
         {
-            uint firstLineIdx = (uint)orderedSegments.Count;
+            uint firstLineIdx = (uint)globalLineCount;
+            uint totalLinesInLeaf = 0;
             for (int i = start; i < end; i++)
             {
-                orderedSegments.Add(segments[i]);
+                var curve = curves[i];
+                uint subs = curve.CurveType switch
+                {
+                    0 => 1u,   // Line
+                    1 => 12u,  // Quadratic
+                    2 => 16u,  // Cubic
+                    _ => 1u
+                };
+                curve.Subdivisions = subs;
+                curve.LineOffset = (uint)globalLineCount;
+                orderedCurves.Add(curve);
+                globalLineCount += (int)subs;
+                totalLinesInLeaf += subs;
             }
 
             nodes[nodeIdx] = new GpuBvhNode
@@ -223,7 +213,7 @@ public static class BvhBuilder
                 MinBounds = new Vector2(minX, minY),
                 MaxBounds = new Vector2(maxX, maxY),
                 LeftChildOrFirstLine = firstLineIdx,
-                PrimitiveCount = (uint)count
+                PrimitiveCount = totalLinesInLeaf
             };
         }
         else
@@ -232,17 +222,19 @@ public static class BvhBuilder
             float sizeY = maxY - minY;
             int axis = (sizeX > sizeY) ? 0 : 1;
 
-            segments.Sort(start, count, Comparer<GpuLineSegment>.Create((s1, s2) =>
+            curves.Sort(start, count, Comparer<GpuBezierCurve>.Create((c1, c2) =>
             {
-                float c1 = (axis == 0) ? (s1.Start.X + s1.End.X) * 0.5f : (s1.Start.Y + s1.End.Y) * 0.5f;
-                float c2 = (axis == 0) ? (s2.Start.X + s2.End.X) * 0.5f : (s2.Start.Y + s2.End.Y) * 0.5f;
-                return c1.CompareTo(c2);
+                var (min1, max1) = GetCurveBounds(c1);
+                var (min2, max2) = GetCurveBounds(c2);
+                float center1 = (axis == 0) ? (min1.X + max1.X) * 0.5f : (min1.Y + max1.Y) * 0.5f;
+                float center2 = (axis == 0) ? (min2.X + max2.X) * 0.5f : (min2.Y + max2.Y) * 0.5f;
+                return center1.CompareTo(center2);
             }));
 
             int mid = start + count / 2;
 
-            int leftChild = BuildRecursive(segments, start, mid, nodes, orderedSegments);
-            int rightChild = BuildRecursive(segments, mid, end, nodes, orderedSegments);
+            int leftChild = BuildRecursive(curves, start, mid, nodes, orderedCurves, ref globalLineCount);
+            int rightChild = BuildRecursive(curves, mid, end, nodes, orderedCurves, ref globalLineCount);
 
             nodes[nodeIdx] = new GpuBvhNode
             {
