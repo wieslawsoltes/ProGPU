@@ -375,6 +375,7 @@ public unsafe class WgpuContext : IDisposable
         Queue != null;
     private uint _lastWidth = 1;
     private uint _lastHeight = 1;
+    private bool _isSurfaceConfigured;
     private bool _vsync = false;
 
     public bool VSync
@@ -706,10 +707,15 @@ public unsafe class WgpuContext : IDisposable
 
     public void ConfigureSwapChain(uint width, uint height)
     {
-        if (Surface == null || Device == null) return;
+        _ = TryConfigureSwapChain(width, height);
+    }
 
-        _lastWidth = width;
-        _lastHeight = height;
+    public bool TryConfigureSwapChain(uint width, uint height)
+    {
+        if (Surface == null || Device == null)
+        {
+            return false;
+        }
 
         // Synchronize GLFW window VSync state with WebGPU context VSync state dynamically
         if (_window != null)
@@ -721,34 +727,38 @@ public unsafe class WgpuContext : IDisposable
         var capabilities = new SurfaceCapabilities();
         Wgpu.SurfaceGetCapabilities(Surface, Adapter, &capabilities);
         
-        SwapChainFormat = TextureFormat.Bgra8Unorm; // Default fallback
-        if (capabilities.FormatCount > 0 && capabilities.Formats != null)
-        {
-            // Prefer Bgra8Unorm or Rgba8Unorm
-            SwapChainFormat = capabilities.Formats[0];
-            for (uint i = 0; i < capabilities.FormatCount; i++)
-            {
-                if (capabilities.Formats[i] == TextureFormat.Bgra8Unorm)
-                {
-                    SwapChainFormat = TextureFormat.Bgra8Unorm;
-                    break;
-                }
-            }
-        }
-
-        ReadOnlySpan<CompositeAlphaMode> alphaModes =
-            capabilities.AlphaModeCount > 0 && capabilities.AlphaModes != null
-                ? new ReadOnlySpan<CompositeAlphaMode>(
-                    capabilities.AlphaModes,
-                    checked((int)capabilities.AlphaModeCount))
-                : ReadOnlySpan<CompositeAlphaMode>.Empty;
-        var alphaMode = ChooseCompositeAlphaMode(
-            _window?.TransparentFramebuffer == true,
-            alphaModes);
-
+        ReadOnlySpan<TextureFormat> formats = capabilities.FormatCount > 0 && capabilities.Formats != null
+            ? new ReadOnlySpan<TextureFormat>(capabilities.Formats, checked((int)capabilities.FormatCount))
+            : ReadOnlySpan<TextureFormat>.Empty;
+        ReadOnlySpan<CompositeAlphaMode> alphaModes = capabilities.AlphaModeCount > 0 && capabilities.AlphaModes != null
+            ? new ReadOnlySpan<CompositeAlphaMode>(capabilities.AlphaModes, checked((int)capabilities.AlphaModeCount))
+            : ReadOnlySpan<CompositeAlphaMode>.Empty;
         ReadOnlySpan<PresentMode> presentModes = capabilities.PresentModeCount > 0 && capabilities.PresentModes != null
             ? new ReadOnlySpan<PresentMode>(capabilities.PresentModes, checked((int)capabilities.PresentModeCount))
             : ReadOnlySpan<PresentMode>.Empty;
+
+        if (!CanConfigureSurface(formats, alphaModes, presentModes))
+        {
+            ProGpuBackendDiagnostics.WriteLine(
+                $"[WebGPU Context] Deferring SwapChain configuration for {width}x{height}: " +
+                $"formats={formats.Length}, alphaModes={alphaModes.Length}, presentModes={presentModes.Length}.");
+            Wgpu.SurfaceCapabilitiesFreeMembers(capabilities);
+            return false;
+        }
+
+        TextureFormat swapChainFormat = formats[0];
+        for (int i = 0; i < formats.Length; i++)
+        {
+            if (formats[i] == TextureFormat.Bgra8Unorm)
+            {
+                swapChainFormat = TextureFormat.Bgra8Unorm;
+                break;
+            }
+        }
+
+        var alphaMode = ChooseCompositeAlphaMode(
+            _window?.TransparentFramebuffer == true,
+            alphaModes);
         PresentMode presentMode = ChoosePresentMode(_vsync, presentModes);
 
         ProGpuBackendDiagnostics.WriteLine($"[WebGPU Context] Configuring SwapChain: {width}x{height}, VSync: {_vsync}, Selected Mode: {presentMode}");
@@ -759,7 +769,7 @@ public unsafe class WgpuContext : IDisposable
         var config = new SurfaceConfiguration
         {
             Device = Device,
-            Format = SwapChainFormat,
+            Format = swapChainFormat,
             Usage = TextureUsage.RenderAttachment,
             AlphaMode = alphaMode,
             PresentMode = presentMode,
@@ -768,6 +778,19 @@ public unsafe class WgpuContext : IDisposable
         };
 
         Wgpu.SurfaceConfigure(Surface, &config);
+        SwapChainFormat = swapChainFormat;
+        _lastWidth = config.Width;
+        _lastHeight = config.Height;
+        _isSurfaceConfigured = true;
+        return true;
+    }
+
+    public static bool CanConfigureSurface(
+        ReadOnlySpan<TextureFormat> formats,
+        ReadOnlySpan<CompositeAlphaMode> alphaModes,
+        ReadOnlySpan<PresentMode> presentModes)
+    {
+        return !formats.IsEmpty && !alphaModes.IsEmpty && !presentModes.IsEmpty;
     }
 
     public static CompositeAlphaMode ChooseCompositeAlphaMode(
@@ -894,10 +917,17 @@ public unsafe class WgpuContext : IDisposable
 
     public void ReconfigureIfNeeded(uint width, uint height)
     {
+        _ = TryReconfigureIfNeeded(width, height);
+    }
+
+    public bool TryReconfigureIfNeeded(uint width, uint height)
+    {
         if (width != _lastWidth || height != _lastHeight)
         {
-            ConfigureSwapChain(width, height);
+            return TryConfigureSwapChain(width, height);
         }
+
+        return _isSurfaceConfigured;
     }
 
     [DllImport("wgpu_native", EntryPoint = "wgpuDevicePoll")]

@@ -296,10 +296,9 @@ public class HeadlessWindowTests : IDisposable
             height,
             renderFormat: TextureFormat.Bgra8Unorm);
 
-        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
-        if (!File.Exists(fontPath)) fontPath = "Arial.ttf";
-        Assert.True(File.Exists(fontPath), "Arial font file must exist for text rendering tests");
-        var font = new ProGPU.Text.TtfFont(fontPath);
+        string? fontPath = TryFindTextRenderingTestFont();
+        Assert.False(string.IsNullOrWhiteSpace(fontPath), "A renderable system font must exist for text rendering tests");
+        var font = new ProGPU.Text.TtfFont(fontPath!);
 
         window.Compositor.VectorEngine = ProGPU.Scene.Compositor.VectorRenderingEngine.Wavefront;
 
@@ -337,6 +336,31 @@ public class HeadlessWindowTests : IDisposable
         {
             window.Content = null;
         }
+    }
+
+    private static string? TryFindTextRenderingTestFont()
+    {
+        string[] candidates =
+        {
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Supplemental/Helvetica.ttf",
+            "/Library/Fonts/Arial.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "Arial.ttf"
+        };
+
+        foreach (string candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return ProGPU.Text.FontApi.GetSystemFonts()
+            .FirstOrDefault(font => File.Exists(font.FilePath))
+            ?.FilePath;
     }
 
     [System.Runtime.InteropServices.DllImport("wgpu_native", EntryPoint = "wgpuDevicePoll")]

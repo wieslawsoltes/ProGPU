@@ -442,7 +442,10 @@ public class Window
 
         phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var framebufferSize = GetCurrentFramebufferSize();
-        wgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y);
+        if (!wgpuContext.TryReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y))
+        {
+            return;
+        }
         float dpiScale = ResolveWindowDpiScale(framebufferSize);
         Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
         double frameSetupTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;

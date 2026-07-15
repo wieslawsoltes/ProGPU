@@ -53,6 +53,27 @@ public sealed class WgpuContextTests
         Assert.Equal(PresentMode.Fifo, selected);
     }
 
+    [Fact]
+    public void SurfaceConfigurationRequiresEveryCapabilityInventory()
+    {
+        Assert.True(WgpuContext.CanConfigureSurface(
+            [TextureFormat.Bgra8Unorm],
+            [CompositeAlphaMode.Opaque],
+            [PresentMode.Fifo]));
+        Assert.False(WgpuContext.CanConfigureSurface(
+            [],
+            [CompositeAlphaMode.Opaque],
+            [PresentMode.Fifo]));
+        Assert.False(WgpuContext.CanConfigureSurface(
+            [TextureFormat.Bgra8Unorm],
+            [],
+            [PresentMode.Fifo]));
+        Assert.False(WgpuContext.CanConfigureSurface(
+            [TextureFormat.Bgra8Unorm],
+            [CompositeAlphaMode.Opaque],
+            []));
+    }
+
     [Theory]
     [InlineData(15, 16u, 16u, 4u, true)]
     [InlineData(16, 16u, 16u, 4u, false)]
