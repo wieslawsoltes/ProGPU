@@ -40,7 +40,8 @@ public sealed class WindowsDpiAwarenessTests
         string devTools = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "Windows", "DevToolsWindowController.cs"));
 
         Assert.Contains(".FramebufferResize += OnFramebufferResize", window, StringComparison.Ordinal);
-        Assert.Contains("wgpuContext.ReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y)", window, StringComparison.Ordinal);
+        Assert.Contains("!wgpuContext.TryReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y)", window, StringComparison.Ordinal);
+        Assert.Contains("return;", window, StringComparison.Ordinal);
         Assert.Contains("DisplayScaleResolver.ResolveWindowDisplayScale(_silkWindow, monitorScale)", window, StringComparison.Ordinal);
         Assert.Contains("(uint)framebufferSize.X", window, StringComparison.Ordinal);
         Assert.Contains("dpiScale,", window, StringComparison.Ordinal);
