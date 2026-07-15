@@ -145,26 +145,26 @@ public class HeadlessWindowTests : IDisposable
     {
         var window = HeadlessWindow.Shared;
         var context = window.Context;
-        
+
         bool hasError = false;
         string errorDetails = "";
-        
-        context.Wgpu.DeviceSetUncapturedErrorCallback(context.Device, PfnErrorCallback.From((type, msg, _) =>
+
+        void OnWebGpuError(ErrorType type, string message)
         {
             hasError = true;
-            errorDetails += (msg != null ? Silk.NET.Core.Native.SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
-            errorDetails += "\n";
-        }), null);
-        
-        using var engine = new ProGPU.Compute.WavefrontVectorEngine(context);
-        
-        // Restore default callback
-        context.Wgpu.DeviceSetUncapturedErrorCallback(context.Device, PfnErrorCallback.From((type, msg, _) =>
+            errorDetails += $"{type}: {message}\n";
+        }
+
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
         {
-            string errorMsg = (msg != null ? Silk.NET.Core.Native.SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
-            Console.WriteLine($"[WebGPU Error] Type: {type}, Message: {errorMsg}");
-        }), null);
-        
+            using var engine = new ProGPU.Compute.WavefrontVectorEngine(context);
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+        }
+
         Assert.False(hasError, $"WebGPU validation errors occurred:\n{errorDetails}");
     }
 
@@ -176,57 +176,57 @@ public class HeadlessWindowTests : IDisposable
         
         bool hasError = false;
         string errorDetails = "";
-        
+
         int errorCount = 0;
-        context.Wgpu.DeviceSetUncapturedErrorCallback(context.Device, PfnErrorCallback.From((type, msg, _) =>
+        void OnWebGpuError(ErrorType type, string message)
         {
             hasError = true;
             if (errorCount++ < 10)
             {
-                errorDetails += (msg != null ? Silk.NET.Core.Native.SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
-                errorDetails += "\n";
+                errorDetails += $"{type}: {message}\n";
             }
-        }), null);
-        
-        using var engine = new ProGPU.Compute.WavefrontVectorEngine(context);
-        using var destination = new GpuTexture(context, 256, 256, TextureFormat.Bgra8Unorm, 
-            TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc | TextureUsage.CopyDst, 
-            "TestDestinationTexture");
-            
-        engine.BeginFrame();
-        
-        var path = new PathGeometry();
-        var figure = new PathFigure(new Vector2(10f, 10f), isClosed: true);
-        figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(100f, 10f)));
-        figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(100f, 100f)));
-        figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(10f, 100f)));
-        path.Figures.Add(figure);
-        
-        var brush = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));
-        engine.DrawPath(path, Matrix4x4.Identity, brush);
-        
-        var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)Silk.NET.Core.Native.SilkMarshal.StringToPtr("TestEncoder") };
-        var encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
-        Silk.NET.Core.Native.SilkMarshal.Free((nint)encoderDesc.Label);
-        
-        engine.EndFrame(encoder, destination, 1.0f);
-        
-        var cmdDesc = new CommandBufferDescriptor { Label = (byte*)Silk.NET.Core.Native.SilkMarshal.StringToPtr("TestCommandBuffer") };
-        var cmdBuffer = context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
-        Silk.NET.Core.Native.SilkMarshal.Free((nint)cmdDesc.Label);
-        
-        context.Wgpu.QueueSubmit(context.Queue, 1, &cmdBuffer);
-        
-        context.Wgpu.CommandBufferRelease(cmdBuffer);
-        context.Wgpu.CommandEncoderRelease(encoder);
-        
-        // Restore default callback
-        context.Wgpu.DeviceSetUncapturedErrorCallback(context.Device, PfnErrorCallback.From((type, msg, _) =>
+        }
+
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
         {
-            string errorMsg = (msg != null ? Silk.NET.Core.Native.SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
-            Console.WriteLine($"[WebGPU Error] Type: {type}, Message: {errorMsg}");
-        }), null);
-        
+            using var engine = new ProGPU.Compute.WavefrontVectorEngine(context);
+            using var destination = new GpuTexture(context, 256, 256, TextureFormat.Bgra8Unorm,
+                TextureUsage.TextureBinding | TextureUsage.StorageBinding | TextureUsage.CopySrc | TextureUsage.CopyDst,
+                "TestDestinationTexture");
+
+            engine.BeginFrame();
+
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(10f, 10f), isClosed: true);
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(100f, 10f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(100f, 100f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(10f, 100f)));
+            path.Figures.Add(figure);
+
+            var brush = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));
+            engine.DrawPath(path, Matrix4x4.Identity, brush);
+
+            var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)Silk.NET.Core.Native.SilkMarshal.StringToPtr("TestEncoder") };
+            var encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            Silk.NET.Core.Native.SilkMarshal.Free((nint)encoderDesc.Label);
+
+            engine.EndFrame(encoder, destination, 1.0f);
+
+            var cmdDesc = new CommandBufferDescriptor { Label = (byte*)Silk.NET.Core.Native.SilkMarshal.StringToPtr("TestCommandBuffer") };
+            var cmdBuffer = context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+            Silk.NET.Core.Native.SilkMarshal.Free((nint)cmdDesc.Label);
+
+            context.Wgpu.QueueSubmit(context.Queue, 1, &cmdBuffer);
+
+            context.Wgpu.CommandBufferRelease(cmdBuffer);
+            context.Wgpu.CommandEncoderRelease(encoder);
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+        }
+
         Assert.False(hasError, $"WebGPU validation errors occurred:\n{errorDetails}");
     }
 
