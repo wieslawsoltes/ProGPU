@@ -141,6 +141,36 @@ public static class SettingsPage
         optCGroup.AddChild(toggleC);
         stack.AddChild(optCGroup);
 
+        // 5. Vector Rendering Engine toggle
+        var engineGroup = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15) };
+        var engineToggle = new ToggleSwitch { IsOn = AppState.VectorEngine == Compositor.VectorRenderingEngine.Wavefront };
+        var engineLabel = new RichTextBlock { Font = AppState._font, FontSize = 12f };
+        engineLabel.Inlines.Add(new Run("Vector Rendering Engine (Wavefront Ray-Casting compute shader)"));
+        engineToggle.Content = engineLabel;
+        var engineStatus = new RichTextBlock { Font = AppState._font, FontSize = 11f, Margin = new Thickness(20, 4, 0, 0) };
+        engineStatus.Inlines.Add(new Run(engineToggle.IsOn ? "State: Wavefront Engine" : "State: Atlas Engine"));
+
+        engineToggle.Toggled += (s, e) =>
+        {
+            var nextEngine = engineToggle.IsOn ? Compositor.VectorRenderingEngine.Wavefront : Compositor.VectorRenderingEngine.Atlas;
+            AppState.VectorEngine = nextEngine;
+            if (AppState._screenCompositor != null)
+            {
+                AppState._screenCompositor.VectorEngine = nextEngine;
+            }
+            if (AppState._offscreenCompositor != null)
+            {
+                AppState._offscreenCompositor.VectorEngine = nextEngine;
+            }
+            engineStatus.Inlines.Clear();
+            engineStatus.Inlines.Add(new Run(engineToggle.IsOn ? "State: Wavefront Engine" : "State: Atlas Engine"));
+            engineStatus.Invalidate();
+        };
+
+        engineGroup.AddChild(engineToggle);
+        engineGroup.AddChild(engineStatus);
+        stack.AddChild(engineGroup);
+
         return stack;
     }
 }

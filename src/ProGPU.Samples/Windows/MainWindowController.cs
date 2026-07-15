@@ -36,6 +36,7 @@ public static unsafe class MainWindowController
         if (AppState._screenCompositor != null)
         {
             AppState._screenCompositor.ClearColor = ThemeManager.GetColor("PageBackground");
+            AppState._screenCompositor.VectorEngine = AppState.VectorEngine;
         }
 
         SampleFontLoader.EnsureLoaded();
@@ -66,6 +67,7 @@ public static unsafe class MainWindowController
         if (AppState._screenCompositor != null)
         {
             AppState._screenCompositor.ClearColor = ThemeManager.GetColor("PageBackground");
+            AppState._screenCompositor.VectorEngine = AppState.VectorEngine;
         }
 
         SampleFontLoader.EnsureLoaded("[ProGPU.Samples.Embedded]");
@@ -490,7 +492,10 @@ public static unsafe class MainWindowController
             return;
         }
 
-        AppState._offscreenCompositor ??= new Compositor(context, TextureFormat.Rgba8Unorm);
+        AppState._offscreenCompositor ??= new Compositor(context, TextureFormat.Rgba8Unorm)
+        {
+            VectorEngine = AppState.VectorEngine
+        };
         AppState._compute ??= new ComputeAccelerator(context);
         AppState._canvasSourceTexture ??= new GpuTexture(
             context,
