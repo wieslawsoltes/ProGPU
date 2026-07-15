@@ -870,6 +870,12 @@ To eliminate one temporary GPU buffer per rasterized item, `GlyphAtlas` uses a f
 * **Generation-Tracked Reuse**: `GlyphAtlas.Generation` changes only on an explicit clear, and `PathAtlas.Generation` changes on clear or repack. The compiled-scene cache records both values so it never reuses UVs after atlas contents move. Glyph capacity exhaustion preserves coordinates and therefore does not increment the generation.
 * **Demand-Driven Path Capacity Recovery**: Advancing a frame never treats render-target dimensions as future path dimensions and never clears valid PathAtlas entries speculatively. A recoverable allocation failure aborts only CPU scene compilation, clears the atlas once, increments `Generation`, and retries the same onscreen or offscreen frame from the retained scene. Existing UVs are never moved underneath submitted draw calls, and one-shot surfaces do not lose paths while waiting for another frame. Normal frame advancement is O(1), stable scenes keep their atlas and compiled-scene hits indefinitely, and rare recovery is O(C + A + P) for C retained commands recompiled, atlas clear area A, and rerasterized covered pixels P. A frame whose live path set cannot fit after the reset fails explicitly instead of looping or silently dropping geometry.
 
+### Optional wavefront vector engine
+
+`Compositor.VectorEngine` can select an experimental GPU wavefront path alongside the default atlas renderer. The wavefront engine flattens line, quadratic, and cubic segments on the GPU, bins instances into 16x16 screen cells, traverses per-shape BVHs, and shades queued pixels into the compositor target. Text uses the normal `TextLayout` glyph positions before submitting glyph outlines, so shaping and fallback decisions remain shared with the atlas path.
+
+The engine is created only after `Wavefront` is selected. Its buffers and one render-target-sized intermediate texture are then reused and resized on demand; the default `Atlas` path retains none of those resources. For C curves with S subdivisions, I instances, P covered pixels, and L primitives per shape, curve expansion is O(C*S), binning is O(I), traversal is O(P*log L), and storage is O(C*S + I + P) plus bounded grid-cell indices. The WGSL source is a documented build-embedded resource, and the final single-sample resolve preserves the compositor's physical viewport and target format.
+
 ---
 
 ### 18. Double-Buffered Geometry Swapchains (DxfStaticBuffer)
