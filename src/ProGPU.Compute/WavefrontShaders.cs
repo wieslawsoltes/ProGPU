@@ -47,7 +47,7 @@ struct Uniforms {
     maxQueueSize: u32,
     currentFrameIndex: u32,
     fontWeightOffset: f32,
-    pad: u32,
+    dpiScale: f32,
 };
 
 struct LineSegment {
@@ -196,7 +196,8 @@ fn wavefront_traverse(
         let instance_idx = cell_shape_indices[cell.shape_start_offset + i];
         let instance = shape_instances[instance_idx];
 
-        let local_pos_3d = instance.inv_transform * vec4<f32>(vec2<f32>(pixel_coord) + vec2<f32>(0.5), 0.0, 1.0);
+        let logical_pos = (vec2<f32>(pixel_coord) + vec2<f32>(0.5)) / uniforms.dpiScale;
+        let local_pos_3d = instance.inv_transform * vec4<f32>(logical_pos, 0.0, 1.0);
         let local_pos = local_pos_3d.xy;
 
         if (point_in_aabb(local_pos, instance.min_bounds, instance.max_bounds)) {
@@ -317,7 +318,8 @@ fn wavefront_intersect(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let end_line = start_line + node.primitive_count;
 
     let pixel_pos = vec2<f32>(ray.pixel_coord) + vec2<f32>(0.5);
-    let local_pos_3d = instance.inv_transform * vec4<f32>(pixel_pos, 0.0, 1.0);
+    let logical_pos = pixel_pos / uniforms.dpiScale;
+    let local_pos_3d = instance.inv_transform * vec4<f32>(logical_pos, 0.0, 1.0);
     let local_pos = local_pos_3d.xy;
 
     var winding = 0;
@@ -344,8 +346,9 @@ fn wavefront_intersect(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let scale_factor = length(instance.transform[0].xy);
     let screen_dist = sd * scale_factor;
+    let physical_dist = screen_dist * uniforms.dpiScale;
 
-    let adjusted_dist = screen_dist - uniforms.fontWeightOffset;
+    let adjusted_dist = physical_dist - uniforms.fontWeightOffset;
     let coverage = 1.0 - smoothstep(-0.5, 0.5, adjusted_dist);
 
     if (coverage > 0.0) {

@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 143751)
-Total output lines: 14115
+Warning: truncated output (original token count: 143857)
+Total output lines: 14122
 
 using System;
 using System.Buffers;
@@ -2486,7 +2486,7 @@ SceneStateUploadComplete:
             var clearPass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &clearPassDescriptor);
             _context.Wgpu.RenderPassEncoderEnd(clearPass);
             _context.Wgpu.RenderPassEncoderRelease(clearPass);
-            _wavefrontEngine.EndFrame(encoder, _wavefrontColorTexture);
+            _wavefrontEngine.EndFrame(encoder, _wavefrontColorTexture, _currentDpiScale);
         }
 
         // Run mask render passes first!
@@ -5165,7 +5165,7 @@ SceneStateUploadComplete:
             return true;
         }
 
-        bool horizontal = MathF.Abs(s…43751 tokens truncated…se LineSegment line:
+        bool horizo…43857 tokens truncated…se LineSegment line:
                         transformedFigure.Segments.Add(new LineSegment(
                             TransformPoint(line.Point),
                             line.IsSmoothJoin,

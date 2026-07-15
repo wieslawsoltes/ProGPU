@@ -209,7 +209,7 @@ public class HeadlessWindowTests : IDisposable
         var encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
         Silk.NET.Core.Native.SilkMarshal.Free((nint)encoderDesc.Label);
         
-        engine.EndFrame(encoder, destination);
+        engine.EndFrame(encoder, destination, 1.0f);
         
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)Silk.NET.Core.Native.SilkMarshal.StringToPtr("TestCommandBuffer") };
         var cmdBuffer = context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
@@ -229,4 +229,114 @@ public class HeadlessWindowTests : IDisposable
         
         Assert.False(hasError, $"WebGPU validation errors occurred:\n{errorDetails}");
     }
+
+    [Fact]
+    public void Test_Wavefront_Render_Path()
+    {
+        uint width = 256;
+        uint height = 256;
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(width, height);
+        
+        var prevEngine = window.Compositor.VectorEngine;
+        window.Compositor.VectorEngine = ProGPU.Scene.Compositor.VectorRenderingEngine.Wavefront;
+
+        try
+        {
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(10f, 10f), isClosed: true);
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(240f, 10f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(240f, 240f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(10f, 240f)));
+            path.Figures.Add(figure);
+
+            var pathIcon = new PathIcon
+            {
+                Data = path,
+                Foreground = new SolidColorBrush(0xFF0000FF), // Red (RGBA: Red=255, Green=0, Blue=0, Alpha=255)
+                Width = width,
+                Height = height
+            };
+
+            window.Content = pathIcon;
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            Assert.NotNull(pixels);
+
+            int centerIdx = (128 * 256 + 128) * 4;
+            byte r = pixels[centerIdx + 0];
+            byte g = pixels[centerIdx + 1];
+            byte b = pixels[centerIdx + 2];
+            byte a = pixels[centerIdx + 3];
+
+            Console.WriteLine($"[Diagnostic] Wavefront path center pixel: R={r}, G={g}, B={b}, A={a}");
+            
+            Assert.Equal(255, r);
+            Assert.Equal(0, g);
+            Assert.Equal(0, b);
+            Assert.Equal(255, a);
+        }
+        finally
+        {
+            window.Compositor.VectorEngine = prevEngine;
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void Test_Wavefront_Render_Text()
+    {
+        uint width = 256;
+        uint height = 256;
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(width, height);
+
+        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
+        if (!File.Exists(fontPath)) fontPath = "Arial.ttf";
+        Assert.True(File.Exists(fontPath), "Arial font file must exist for text rendering tests");
+        var font = new ProGPU.Text.TtfFont(fontPath);
+
+        var prevEngine = window.Compositor.VectorEngine;
+        window.Compositor.VectorEngine = ProGPU.Scene.Compositor.VectorRenderingEngine.Wavefront;
+
+        try
+        {
+            var textBlock = new TextBlock
+            {
+                Text = "Hello",
+                Font = font,
+                FontSize = 64f,
+                Foreground = new SolidColorBrush(0xFF0000FF), // Red
+                Width = width,
+                Height = height
+            };
+
+            window.Content = textBlock;
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            Assert.NotNull(pixels);
+
+            bool foundRed = false;
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i + 0] > 200 && pixels[i + 1] < 50 && pixels[i + 2] < 50 && pixels[i + 3] == 255)
+                {
+                    foundRed = true;
+                    break;
+                }
+            }
+
+            Assert.True(foundRed, "We should find red pixels drawn from the text rendering");
+        }
+        finally
+        {
+            window.Compositor.VectorEngine = prevEngine;
+            window.Content = null;
+        }
+    }
 }
+

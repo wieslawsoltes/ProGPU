@@ -59,7 +59,7 @@ public struct GpuWavefrontUniforms
     public uint MaxQueueSize;
     public uint CurrentFrameIndex;
     public float FontWeightOffset;
-    public uint Pad;
+    public float DpiScale;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -260,43 +260,32 @@ public unsafe class WavefrontVectorEngine : IDisposable
         });
     }
 
-    public void DrawText(string text, TtfFont font, float fontSize, in Matrix4x4 transform, Brush brush)
+    public void DrawGlyph(TtfFont font, ushort glyphId, float fontSize, in Matrix4x4 transform, Brush brush)
     {
-        // Simple CPU shaping for text to build glyph instances
-        var brushColor = (brush is SolidColorBrush solid) ? solid.Color : Vector4.One;
-
-        float currentX = 0f;
+        var geom = GetOrAddGlyphGeometry(font, glyphId);
+        
         float fontScale = fontSize / font.UnitsPerEm;
 
-        for (int i = 0; i < text.Length; i++)
+        var glyphTransform = Matrix4x4.CreateScale(fontScale, -fontScale, 1f) * transform;
+
+        Matrix4x4.Invert(glyphTransform, out var inv);
+
+        var brushColor = (brush is SolidColorBrush solid) ? solid.Color : Vector4.One;
+
+        _frameInstances.Add(new GpuShapeInstance
         {
-            char c = text[i];
-            ushort glyphId = font.GetGlyphIndex(c);
-            var geom = GetOrAddGlyphGeometry(font, glyphId);
-
-            var glyphTransform = Matrix4x4.CreateScale(fontScale) *
-                                 Matrix4x4.CreateTranslation(currentX, 0f, 0f) *
-                                 transform;
-
-            Matrix4x4.Invert(glyphTransform, out var inv);
-
-            _frameInstances.Add(new GpuShapeInstance
-            {
-                Transform = glyphTransform,
-                InvTransform = inv,
-                MinBounds = geom.Min,
-                MaxBounds = geom.Max,
-                BvhRootIdx = geom.BvhOffset,
-                ShapeId = (uint)_frameInstances.Count,
-                Color = brushColor,
-                IsText = 1
-            });
-
-            currentX += font.GetAdvanceWidth(glyphId, fontSize);
-        }
+            Transform = glyphTransform,
+            InvTransform = inv,
+            MinBounds = geom.Min,
+            MaxBounds = geom.Max,
+            BvhRootIdx = geom.BvhOffset,
+            ShapeId = (uint)_frameInstances.Count,
+            Color = brushColor,
+            IsText = 1
+        });
     }
 
-    public void EndFrame(CommandEncoder* encoder, GpuTexture destination, float fontWeightOffset = 0f)
+    public void EndFrame(CommandEncoder* encoder, GpuTexture destination, float dpiScale, float fontWeightOffset = 0f)
     {
         uint width = destination.Width;
         uint height = destination.Height;
@@ -353,7 +342,8 @@ public unsafe class WavefrontVectorEngine : IDisposable
             InstanceCount = (uint)_frameInstances.Count,
             MaxQueueSize = queueSize,
             CurrentFrameIndex = _frameNumber,
-            FontWeightOffset = fontWeightOffset
+            FontWeightOffset = fontWeightOffset,
+            DpiScale = dpiScale
         };
         _uniformsBuffer!.WriteSingle(uniforms);
 
