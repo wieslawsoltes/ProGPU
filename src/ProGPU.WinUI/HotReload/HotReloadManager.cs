@@ -310,6 +310,7 @@ public static class HotReloadManager
         {
             ThemeManager.ClearHotReloadCaches();
         }
+        var refreshThemes = clearCaches && RequiresThemeRefresh(context);
 
         _activeCounters = counters;
         try
@@ -337,7 +338,7 @@ public static class HotReloadManager
             var roots = CollectRoots();
             foreach (var root in roots)
             {
-                if (clearCaches)
+                if (refreshThemes)
                 {
                     root.Element.NotifyThemeChanged();
                 }
@@ -814,6 +815,30 @@ public static class HotReloadManager
                     exception));
             }
         }
+    }
+
+    private static bool RequiresThemeRefresh(HotReloadContext context)
+    {
+        if (context.IsAllTypes)
+        {
+            return true;
+        }
+
+        foreach (var updatedType in context.UpdatedTypes)
+        {
+            for (var type = updatedType; type != null; type = type.DeclaringType)
+            {
+                if (type == typeof(ThemeManager) ||
+                    typeof(Style).IsAssignableFrom(type) ||
+                    typeof(ResourceDictionary).IsAssignableFrom(type) ||
+                    typeof(ThemeResource).IsAssignableFrom(type))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void InvokeSafely<T>(Action<T>? handlers, T value, string description)

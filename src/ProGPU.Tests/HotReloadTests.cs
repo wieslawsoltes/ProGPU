@@ -223,6 +223,48 @@ public sealed class HotReloadTests : IDisposable
     }
 
     [Fact]
+    public void UnrelatedRuntimeCacheClearDoesNotRecursivelyRefreshThemes()
+    {
+        var updatedElement = new InPlaceElement();
+        var unaffectedSibling = new Border();
+        var root = new Grid();
+        root.AddChild(updatedElement);
+        root.AddChild(unaffectedSibling);
+        root.IsThemeDirty = false;
+        updatedElement.IsThemeDirty = false;
+        unaffectedSibling.IsThemeDirty = false;
+        using var rootRegistration = HotReloadManager.RegisterRoot(root);
+
+        HotReloadManager.ClearCache([typeof(InPlaceElement)]);
+        HotReloadManager.UpdateApplication([typeof(InPlaceElement)]);
+        UIThread.RunPending();
+
+        Assert.False(root.IsThemeDirty);
+        Assert.False(unaffectedSibling.IsThemeDirty);
+        Assert.False(updatedElement.IsThemeDirty);
+        Assert.Equal(1, updatedElement.ReloadCount);
+        Assert.Equal(0, HotReloadManager.LastResult.FailedElements);
+    }
+
+    [Fact]
+    public void ThemeInfrastructureUpdateRefreshesTheRegisteredTree()
+    {
+        var child = new Border();
+        var root = new Grid();
+        root.AddChild(child);
+        root.IsThemeDirty = false;
+        child.IsThemeDirty = false;
+        using var rootRegistration = HotReloadManager.RegisterRoot(root);
+
+        HotReloadManager.RequestUpdate(typeof(ThemeManager));
+        UIThread.RunPending();
+
+        Assert.True(root.IsThemeDirty);
+        Assert.True(child.IsThemeDirty);
+        Assert.Equal(0, HotReloadManager.LastResult.FailedElements);
+    }
+
+    [Fact]
     public void NullRuntimeTypeListPerformsConservativeAllTypesRefresh()
     {
         var element = new InPlaceElement();

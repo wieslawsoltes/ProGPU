@@ -120,7 +120,7 @@ flowchart LR
     State --> Done
 ```
 
-Each runtime callback only queues work; reconciliation runs on `UIThread` before rendering. Multiple deltas arriving before the next UI turn become one generation. The manager clears theme/style caches, maps replacement types back to their original live types, invokes application hooks, and walks active `Window` content, popup roots, plus roots registered by embedded hosts.
+Each runtime callback only queues work; reconciliation runs on `UIThread` before rendering. Multiple deltas arriving before the next UI turn become one generation. The manager clears reusable theme/style factory caches, maps replacement types back to their original live types, invokes application hooks, and walks active `Window` content, popup roots, plus roots registered by embedded hosts. Recursive theme-resource reevaluation is reserved for `ThemeManager`, `Style`, `ResourceDictionary`, `ThemeResource`, and conservative all-types updates; unrelated method-body edits leave the retained scene and unaffected controls intact.
 
 For an updated element, the manager uses these strategies in order:
 
