@@ -4,6 +4,7 @@ using System.Numerics;
 using ProGPU.Layout;
 using ProGPU.Vector;
 using ProGPU.Scene;
+using ProGPU.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
@@ -308,6 +309,100 @@ public class SamplePagesTests : IDisposable
     public void Test_TextDocumentsPage_Renders()
     {
         RunPageTest(TextDocumentsPage.Create(), "Text & Documents");
+    }
+
+    [Fact]
+    public async Task Test_MarkdownPage_DesktopNavigation_FirstFramesAreBounded()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var navigation = new NavigationView
+        {
+            Font = AppState._font,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        var initialItem = new NavigationViewItem("3D Mesh Viewer", "", Mesh3DViewerPage.Create);
+        var markdownItem = new NavigationViewItem("Markdown Playground", "", MarkdownPage.Create);
+        navigation.MenuItems.Add(initialItem);
+        navigation.MenuItems.Add(markdownItem);
+
+        var window = HeadlessWindow.Shared;
+        window.Resize(1280, 800);
+        var statusWarmup = new RichTextBlock
+        {
+            Font = AppState._fontCourier ?? AppState._font,
+            FontSize = 10f
+        };
+        statusWarmup.Inlines.Add(new Run("FPS CPU Layout Compile Upload Render Draws Verts Atlas Cursor Focused HR ready"));
+        window.Content = statusWarmup;
+        window.Render();
+        window.Content = navigation;
+        navigation.SelectedItem = initialItem;
+        window.Render();
+        await FontApi.WarmUpSystemFontsAsync();
+        await TextLayout.WarmUpFallbackMetadataAsync();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var frameTimes = new List<TimeSpan>();
+        var frameAllocations = new List<long>();
+        void MeasureFrame()
+        {
+            long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            window.Render();
+            stopwatch.Stop();
+            frameTimes.Add(stopwatch.Elapsed);
+            frameAllocations.Add(GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore);
+        }
+
+        navigation.SelectedItem = markdownItem;
+        ProGPU.Samples.UIThread.RunPending();
+        MeasureFrame();
+        ProGPU.Samples.UIThread.RunPending();
+        MeasureFrame();
+        ProGPU.Samples.UIThread.RunPending();
+        MeasureFrame();
+
+        Console.WriteLine(
+            $"[MARKDOWN_ACTIVATION] frameMs={string.Join(',', frameTimes.Select(static value => value.TotalMilliseconds.ToString("F2")))} " +
+            $"frameAllocatedBytes={string.Join(',', frameAllocations.Select(static value => value.ToString()))}");
+
+        Assert.All(frameTimes, elapsed => Assert.True(
+            elapsed < TimeSpan.FromSeconds(2),
+            $"A staged Markdown activation frame took {elapsed.TotalMilliseconds:F2} ms."));
+        Assert.All(frameAllocations, allocatedBytes => Assert.True(
+            allocatedBytes < 64L * 1024L * 1024L,
+            $"A staged Markdown activation frame allocated {allocatedBytes:N0} bytes."));
+        static MarkdownTextBlock? FindMarkdownTextBlock(Visual visual)
+        {
+            if (visual is MarkdownTextBlock markdown)
+            {
+                return markdown;
+            }
+
+            if (visual is ContainerVisual container)
+            {
+                foreach (var child in container.Children)
+                {
+                    var match = FindMarkdownTextBlock(child);
+                    if (match != null)
+                    {
+                        return match;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        var preview = FindMarkdownTextBlock(navigation);
+        Assert.NotNull(preview);
+        Assert.NotEmpty(preview.PositionedChars);
+
+        window.Content = null;
     }
 
     [Fact]

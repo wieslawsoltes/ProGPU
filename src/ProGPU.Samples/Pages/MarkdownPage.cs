@@ -68,25 +68,28 @@ namespace ProGPU.Samples
         public static FrameworkElement Create()
         {
             _benchmarkScrollDirection = 1f;
-            // Register TextMate-based code block factory for preview panel
-            MarkdownParser.CodeBlockFactory = (code, language) =>
-            {
-                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor
+            // Starting the full TextMate grammar registry from a Markdown layout pass competes
+            // with desktop system-font discovery and stalls first navigation. Keep the existing
+            // virtualized highlighted code block in the browser, while desktop preview code uses
+            // the lightweight retained Markdown text path. Dedicated editor samples continue to
+            // provide TextMate syntax highlighting on both hosts.
+            MarkdownParser.CodeBlockFactory = OperatingSystem.IsBrowser()
+                ? (code, language) =>
                 {
-                    Font = AppState.GetFontCourier() ?? AppState.GetFont(),
-                    Margin = new Thickness(0, 4, 0, 12),
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    VerticalAlignment = VerticalAlignment.Top
-                };
-                editor.SetCode(code);
-                
-                // Calculate dynamic height based on number of lines, clamped between 60f and 260f
-                var lines = code.Split('\n');
-                float height = Math.Clamp(lines.Length * 22f + 10f, 60f, 260f);
-                editor.HeightConstraint = height;
-                
-                return editor;
-            };
+                    var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor
+                    {
+                        Font = AppState.GetFontCourier() ?? AppState.GetFont(),
+                        Margin = new Thickness(0, 4, 0, 12),
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        VerticalAlignment = VerticalAlignment.Top
+                    };
+                    editor.SetCode(code);
+
+                    var lineCount = code.AsSpan().Count('\n') + 1;
+                    editor.HeightConstraint = Math.Clamp(lineCount * 22f + 10f, 60f, 260f);
+                    return editor;
+                }
+                : null;
 
             var rootGrid = new Microsoft.UI.Xaml.Controls.Grid();
             rootGrid.RowDefinitions.Add(new GridLength(48f, GridUnitType.Absolute));  // Row 0: File Operations & Presets
@@ -262,7 +265,9 @@ namespace ProGPU.Samples
                 VerticalAlignment = VerticalAlignment.Stretch
             };
             _editorControl.Inlines.Clear();
-            _editorControl.Inlines.Add(new Run(GetDefaultTemplateText()));
+            _editorControl.Inlines.Add(new Run(OperatingSystem.IsBrowser()
+                ? GetDefaultTemplateText()
+                : string.Empty));
             editorContainerGrid.AddChild(_editorControl);
             Microsoft.UI.Xaml.Controls.Grid.SetRow(_editorControl, 1);
             workspaceGrid.AddChild(editorContainerGrid);
@@ -291,7 +296,9 @@ namespace ProGPU.Samples
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
-            _previewControl.Markdown = GetDefaultTemplateText();
+            _previewControl.Markdown = OperatingSystem.IsBrowser()
+                ? GetDefaultTemplateText()
+                : string.Empty;
             _previewScroll.Content = _previewControl;
 
             workspaceGrid.AddChild(previewBorder);
@@ -475,9 +482,39 @@ namespace ProGPU.Samples
                 }
             };
 
-            // Force dynamic layout pass and invalidation on startup to ensure instant rendering
-            _editorControl?.Invalidate();
-            _previewControl?.Invalidate();
+            if (!OperatingSystem.IsBrowser())
+            {
+                // Let desktop navigation present the lightweight page shell first, then populate
+                // the preview and editor on separate frames. Rendering both text-heavy panes on
+                // the first frame requests more than a thousand glyph/phase entries while the
+                // system-font warmup is active, producing a long rasterization and GC burst.
+                var initialMarkdown = GetDefaultTemplateText();
+                var initialEditor = _editorControl;
+                var initialPreview = _previewControl;
+                var initialStatus = _statusText;
+                UIThread.Post(() => UIThread.Post(() =>
+                {
+                    if (string.IsNullOrEmpty(initialPreview.Markdown))
+                    {
+                        initialPreview.Markdown = initialMarkdown;
+
+                        UIThread.Post(() =>
+                        {
+                            if (initialEditor.Inlines.Count == 1 &&
+                                initialEditor.Inlines[0] is Run { Text.Length: 0 })
+                            {
+                                initialEditor.Inlines.Clear();
+                                initialEditor.Inlines.Add(new Run(initialMarkdown));
+                                initialEditor.Invalidate();
+                            }
+
+                            initialStatus.Inlines.Clear();
+                            initialStatus.Inlines.Add(new Run("Idle. Live preview active."));
+                            initialStatus.Invalidate();
+                        });
+                    }
+                }));
+            }
 
             return rootGrid;
         }
