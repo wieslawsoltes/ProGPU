@@ -110,6 +110,7 @@ public sealed class SampleProjectSplitTests
     {
         var project = Read("src", "ProGPU.Samples.Browser", "ProGPU.Samples.Browser.csproj");
 
+        Assert.Contains("<WasmEnableHotReload Condition=\"'$(WasmEnableHotReload)' == '' And '$(Configuration)' == 'Debug'\">true</WasmEnableHotReload>", project, StringComparison.Ordinal);
         Assert.Contains("<RunAOTCompilation Condition=\"'$(RunAOTCompilation)' == '' And '$(Configuration)' == 'Release'\">true</RunAOTCompilation>", project, StringComparison.Ordinal);
         Assert.Contains("<PublishTrimmed Condition=\"'$(RunAOTCompilation)' == 'true'\">true</PublishTrimmed>", project, StringComparison.Ordinal);
         Assert.Contains("<_AOT_InternalForceInterpretAssemblies Include=\"netDxf.netstandard.dll\" />", project, StringComparison.Ordinal);

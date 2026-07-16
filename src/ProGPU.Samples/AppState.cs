@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.HotReload;
 
 namespace ProGPU.Samples;
 
@@ -47,12 +48,17 @@ public static class AppState
     public static Run? _statsAtlasRun;
     public static Run? _statsCursorRun;
     public static Run? _statsFocusedRun;
+    public static Run? _statsHotReloadRun;
     public static Vector2 _mousePos;
     public static string _activeFocusedName = "None";
 
     // Category pages and sidebar selections
     public static string _activeCategory = "Basic Input";
     public static NavigationView? _navigationView;
+    public static IDisposable? _hotReloadRegistration;
+    public static Action<HotReloadResult>? _hotReloadCompletedHandler;
+    public static Action? _themeChangedHandler;
+    public static EventHandler? _devToolsStateChangedHandler;
 
     // Framework Effects Page Variables
     public static float _fxBlurRadius = 8f;

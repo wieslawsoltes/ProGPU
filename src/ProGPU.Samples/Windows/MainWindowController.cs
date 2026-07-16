@@ -18,6 +18,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.HotReload;
 using ProGPU.WinUI.Designer;
 using Button = Microsoft.UI.Xaml.Controls.Button;
 using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
@@ -46,16 +47,29 @@ public static unsafe class MainWindowController
         ObjModels.EnsureSamplesExist("models");
 
         BuildSceneGraph();
-
-        if (AppState._topLevelGrid != null)
-        {
-            AppState._topLevelGrid.PointerMoved += (sender, args) =>
-            {
-                AppState._mousePos = args.Position;
-            };
-        }
+        AttachPointerTracking();
 
         window.Content = AppState._topLevelGrid;
+        AppState._hotReloadRegistration?.Dispose();
+        AppState._hotReloadRegistration = HotReloadManager.RegisterUpdateHandler(context =>
+        {
+            if (context.IsTypeUpdated(typeof(MainWindowController)))
+            {
+                ReloadSceneGraph(window);
+            }
+        });
+        if (AppState._hotReloadCompletedHandler != null)
+        {
+            HotReloadManager.UpdateCompleted -= AppState._hotReloadCompletedHandler;
+        }
+        AppState._hotReloadCompletedHandler = result =>
+        {
+            if (AppState._statsHotReloadRun != null)
+            {
+                AppState._statsHotReloadRun.Text = $"g{result.Generation} ({result.ReplacedElements + result.RefreshedFactories})";
+            }
+        };
+        HotReloadManager.UpdateCompleted += AppState._hotReloadCompletedHandler;
         window.Rendering += (s, delta) => OnWindowRender(delta);
         window.Closed += (s, e) => Cleanup();
     }
@@ -85,9 +99,11 @@ public static unsafe class MainWindowController
         }
     }
 
-    private static void BuildSceneGraph()
+    private static void BuildSceneGraph(string? selectedCategory = null)
     {
         if (AppState._wgpuContext == null || AppState._font == null) return;
+
+        DetachSceneGraphHandlers();
 
         // 1. Root Grid containing Header + Main Body + Bottom Diagnostics Bar
         AppState._rootGrid = new Microsoft.UI.Xaml.Controls.Grid
@@ -357,6 +373,17 @@ public static unsafe class MainWindowController
 
         // Select default category or an environment-requested performance probe page.
         var initialItem = mesh3DViewerItem;
+        if (!string.IsNullOrEmpty(selectedCategory))
+        {
+            foreach (var menuItem in AppState._navigationView.MenuItems)
+            {
+                if (string.Equals(menuItem.Text, selectedCategory, StringComparison.OrdinalIgnoreCase))
+                {
+                    initialItem = menuItem;
+                    break;
+                }
+            }
+        }
         if (SamplePerformanceBenchmark.RequestedPage is { } requestedPage)
         {
             foreach (var menuItem in AppState._navigationView.MenuItems)
@@ -402,6 +429,7 @@ public static unsafe class MainWindowController
         AppState._statsAtlasRun = new Run(" --");
         AppState._statsCursorRun = new Run("(   -,    -)");
         AppState._statsFocusedRun = new Run("None        ");
+        AppState._statsHotReloadRun = new Run("ready");
         AppState._statsText.Inlines.Add(new Run("FPS: "));
         AppState._statsText.Inlines.Add(new Bold(AppState._statsFpsRun) { Foreground = statusAccent });
         AppState._statsText.Inlines.Add(new Run(" | CPU: "));
@@ -417,12 +445,14 @@ public static unsafe class MainWindowController
         AppState._statsText.Inlines.Add(AppState._statsCursorRun);
         AppState._statsText.Inlines.Add(new Run(" | Focused: "));
         AppState._statsText.Inlines.Add(new Bold(AppState._statsFocusedRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(new Run(" | HR: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsHotReloadRun) { Foreground = statusAccent });
         statusBar.Child = AppState._statsText;
         AppState._rootGrid.AddChild(statusBar);
         Microsoft.UI.Xaml.Controls.Grid.SetRow(statusBar, 2);
 
         // Track global ThemeManager theme change event
-        ThemeManager.ThemeChanged += () =>
+        AppState._themeChangedHandler = () =>
         {
             if (AppState._screenCompositor != null)
             {
@@ -436,6 +466,7 @@ public static unsafe class MainWindowController
                 popup.NotifyThemeChanged();
             }
         };
+        ThemeManager.ThemeChanged += AppState._themeChangedHandler;
 
         // 5. TOP LEVEL CONTAINER GRID (App container)
         AppState._topLevelGrid = new Microsoft.UI.Xaml.Controls.Grid
@@ -455,7 +486,7 @@ public static unsafe class MainWindowController
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        DevToolsService.StateChanged += (s, ev) =>
+        AppState._devToolsStateChangedHandler = (s, ev) =>
         {
             if (DevToolsService.IsDevToolsActive)
             {
@@ -467,6 +498,47 @@ public static unsafe class MainWindowController
                 AppState._needsCloseDevTools = true;
             }
         };
+        DevToolsService.StateChanged += AppState._devToolsStateChangedHandler;
+    }
+
+    private static void ReloadSceneGraph(Window window)
+    {
+        var selectedCategory = AppState._activeCategory;
+        HotReloadManager.ReloadWindowContent(window, () =>
+        {
+            BuildSceneGraph(selectedCategory);
+            AttachPointerTracking();
+            return AppState._topLevelGrid
+                ?? throw new InvalidOperationException("The sample shell builder did not produce a root element.");
+        });
+    }
+
+    private static void AttachPointerTracking()
+    {
+        if (AppState._topLevelGrid == null)
+        {
+            return;
+        }
+
+        AppState._topLevelGrid.PointerMoved += (sender, args) =>
+        {
+            AppState._mousePos = args.Position;
+        };
+    }
+
+    private static void DetachSceneGraphHandlers()
+    {
+        if (AppState._themeChangedHandler != null)
+        {
+            ThemeManager.ThemeChanged -= AppState._themeChangedHandler;
+            AppState._themeChangedHandler = null;
+        }
+
+        if (AppState._devToolsStateChangedHandler != null)
+        {
+            DevToolsService.StateChanged -= AppState._devToolsStateChangedHandler;
+            AppState._devToolsStateChangedHandler = null;
+        }
     }
 
     private static void OnWindowUpdate(double delta)
@@ -655,6 +727,14 @@ public static unsafe class MainWindowController
 
     private static void Cleanup()
     {
+        AppState._hotReloadRegistration?.Dispose();
+        AppState._hotReloadRegistration = null;
+        if (AppState._hotReloadCompletedHandler != null)
+        {
+            HotReloadManager.UpdateCompleted -= AppState._hotReloadCompletedHandler;
+            AppState._hotReloadCompletedHandler = null;
+        }
+        DetachSceneGraphHandlers();
         AppState._canvasSourceTexture?.Dispose();
         AppState._canvasTempTexture?.Dispose();
         AppState._canvasBlurTexture?.Dispose();

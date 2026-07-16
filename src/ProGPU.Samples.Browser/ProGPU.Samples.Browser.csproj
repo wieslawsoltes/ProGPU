@@ -8,6 +8,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InvariantGlobalization>true</InvariantGlobalization>
     <WasmEnableSIMD>true</WasmEnableSIMD>
+    <WasmEnableHotReload Condition="'$(WasmEnableHotReload)' == '' And '$(Configuration)' == 'Debug'">true</WasmEnableHotReload>
     <RunAOTCompilation Condition="'$(RunAOTCompilation)' == '' And '$(Configuration)' == 'Release'">true</RunAOTCompilation>
     <RunAOTCompilation Condition="'$(RunAOTCompilation)' == ''">false</RunAOTCompilation>
     <PublishTrimmed Condition="'$(RunAOTCompilation)' == 'true'">true</PublishTrimmed>
