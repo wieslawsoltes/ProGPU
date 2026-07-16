@@ -1191,7 +1191,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
-    public void GdiBitmapFlushUsesConsumingContextWhenCommandsRemainDeferred()
+    public void GdiBitmapDeferredFlushUsesConsumptionContextWhenAmbientContextChanges()
     {
         var previous = WgpuContext.Current;
         using var bitmapContext = new WgpuContext();
