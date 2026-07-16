@@ -101,6 +101,12 @@ Open `http://localhost:8080/`. All ProGPU and sample assemblies are AOT compiled
 
 To confirm that a publish actually used AOT, inspect the publish log for `AOT'ing` and native WebAssembly linking steps. For a clean comparison between modes, remove the selected output directory before republishing so stale fingerprinted framework assets cannot be served.
 
+### GitHub Pages AOT deployment
+
+The [Browser Pages workflow](.github/workflows/browser-pages.yml) publishes the Release browser host with WebAssembly AOT and deploys `artifacts/browser-aot/wwwroot` whenever `main` changes. It can also be started manually from **Actions → Browser Pages → Run workflow**. The public gallery is available at [https://wieslawsoltes.github.io/ProGPU/](https://wieslawsoltes.github.io/ProGPU/) after the first successful deployment.
+
+The browser page uses relative asset URLs so the .NET runtime, worker module, styles, and fingerprinted framework files resolve beneath the `/ProGPU/` repository path. The published `.nojekyll` marker ensures GitHub Pages serves the `_framework` directory unchanged.
+
 ### Runtime and diagnostics
 
 The browser host runs the shared retained gallery through the complete `IWebGpuApi` dispatcher. It supports main-thread, OffscreenCanvas worker, and cross-origin-isolated worker transports; batches DOM input once per frame; preserves asynchronous mapped-buffer read/write behavior; and sends the same embedded WGSL used by desktop directly to `GPUDevice.createShaderModule`.

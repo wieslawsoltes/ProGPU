@@ -6,6 +6,7 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 ## NuGet Packages
 
 - `ProGPU.Backend`
+- `ProGPU.Browser`
 - `ProGPU.DirectX`
 - `ProGPU.Transpiler`
 - `ProGPU.Compute`
@@ -50,6 +51,7 @@ The target defaults to NuGet.org. Set `NUGET_SOURCE` to publish to another v3-co
 
 - `Build` restores, builds, and runs the main ProGPU test project on Linux, macOS, and Windows, then packs the explicit shipping package set.
 - `Docs` verifies that README/package documentation stays in sync with the release package list.
+- `Browser Pages` publishes the shared browser gallery with WebAssembly AOT and deploys it to GitHub Pages after changes reach `main`.
 - `Release` runs docs validation, restore, build, tests, package creation, artifact upload, NuGet publish, and tag-driven GitHub Release creation with generated release notes.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,

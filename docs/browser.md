@@ -50,6 +50,14 @@ dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj \
   -o artifacts/browser-interpreter
 ```
 
+### GitHub Pages
+
+`.github/workflows/browser-pages.yml` publishes the browser sample in Release AOT mode on every push to `main`, uploads `artifacts/browser-aot/wwwroot` as the Pages artifact, and deploys it through the `github-pages` environment. The workflow also supports manual dispatch from the Actions tab. The repository is configured for GitHub Actions Pages publishing at:
+
+<https://wieslawsoltes.github.io/ProGPU/>
+
+All page and runtime URLs are relative, including the framework module imported by `main.js`, so the application works below the `/ProGPU/` repository prefix. Keep `wwwroot/.nojekyll` in the browser project: it prevents Pages from treating the generated `_framework` directory as Jekyll-private content.
+
 The status overlay reports the selected transport, adapter/profile, managed frame count, command dispatches, and command bytes. It is hidden by default; the browser-only **Show Browser WebGPU Diagnostics** toggle on the shared gallery Settings page controls it and persists the preference in browser storage. Startup and WebGPU errors reveal it automatically. The canvas beneath it is the same shared gallery used by `ProGPU.Samples.Desktop`.
 
 ## Command protocol

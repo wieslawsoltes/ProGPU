@@ -116,6 +116,25 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void GitHubPagesPublishesAotBrowserArtifactBelowRepositoryPath()
+    {
+        var workflow = Read(".github", "workflows", "browser-pages.yml");
+        var html = Read("src", "ProGPU.Samples.Browser", "wwwroot", "index.html");
+        var noJekyll = Read("src", "ProGPU.Samples.Browser", "wwwroot", ".nojekyll");
+
+        Assert.Contains("dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj", workflow, StringComparison.Ordinal);
+        Assert.Contains("--configuration Release", workflow, StringComparison.Ordinal);
+        Assert.Contains("path: artifacts/browser-aot/wwwroot", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/configure-pages@v5", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-pages-artifact@v4", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/deploy-pages@v4", workflow, StringComparison.Ordinal);
+        Assert.Contains("pages: write", workflow, StringComparison.Ordinal);
+        Assert.Contains("id-token: write", workflow, StringComparison.Ordinal);
+        Assert.Contains("<base href=\"./\">", html, StringComparison.Ordinal);
+        Assert.Contains("_framework", noJekyll, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BrowserPathOperationsUseNonBlockingAotSafeReadback()
     {
         var page = Read("src", "ProGPU.Samples", "Pages", "PathOpsPage.cs");
