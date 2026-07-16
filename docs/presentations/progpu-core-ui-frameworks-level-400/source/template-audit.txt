@@ -1,0 +1,21 @@
+SOURCE DECK AUDIT — ProGPU core rendering and UI-framework substrate
+
+Visual reference:
+  docs/presentations/progpu-browser-rendering-level-400/ProGPU-Browser-Rendering-Level-400.pptx
+Reusable starter:
+  docs/presentations/progpu-browser-rendering-level-400/source/template-starter.pptx
+
+Slides inspected: all 23 reference slides, individually at 1280 × 720.
+Canvas: 16:9, 1280 × 720.
+Typography: Helvetica Neue; large black headings, muted gray technical copy, blue accent.
+Palette: white background, #3D8DFF blue, #F2F2F2 neutral panels, #D0EDFA caption band, dark diagram panels.
+
+Reusable frames:
+1. Cover — eyebrow, two-line thesis, single subtitle.
+2. Architecture/evidence — title, left technical narrative, right rounded image, caption band, page.
+3. Three-stage journey — title, three cards, connector, stage labels, page.
+4. Four-point technical grid — title, four flat text regions, page.
+5. Two-column comparison — title, two columns with blue accents, summary, page.
+6. Closing bumper — eyebrow, two-line thesis, implementation map, source rail.
+
+The new deck edits inherited text only. Slides 2, 10, 13, and 21 delete the inherited image and insert one unique Graphviz diagram into the exact inherited image frame. No additional visual language is introduced.

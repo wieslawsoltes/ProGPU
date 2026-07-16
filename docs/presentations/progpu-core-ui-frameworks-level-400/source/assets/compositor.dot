@@ -1,0 +1,19 @@
+digraph Compositor {
+  graph [bgcolor="#101620", rankdir=LR, pad="0.22", nodesep="0.20", ranksep="0.40", splines=ortho];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=18, fontcolor="#F7FAFF", color="#334155", fillcolor="#1B2635", margin="0.18,0.12"];
+  edge [color="#75A7FF", penwidth=2.2, arrowsize=0.8];
+
+  mutate [label="Framework mutation\n+ host frame"];
+  predicate [shape=diamond, label="Compiled scene\npixel-valid?", fillcolor="#17315A"];
+  replay [label="Replay retained\ndraw calls + buffers", fillcolor="#244A84"];
+  compile [label="CompileVisualTree\n+ ordered batches"];
+  pass [label="Encode passes\nsubmit · present", fillcolor="#244A84"];
+  state [label="Versions · target · DPI\natlases · overlays · layers", fillcolor="#151D29"];
+
+  mutate -> predicate;
+  state -> predicate [style=dashed, color="#7C8BA1"];
+  predicate -> replay [label=" yes", fontname="Helvetica Neue", fontcolor="#8DB2FF"];
+  predicate -> compile [label=" no", fontname="Helvetica Neue", fontcolor="#8DB2FF"];
+  compile -> pass;
+  replay -> pass;
+}

@@ -1,0 +1,11 @@
+INTENTIONAL DEVIATIONS
+
+Slides 2, 10, 13, and 21 replace the inherited screenshot image with a Graphviz architecture diagram. The inherited rounded image coordinates, geometry, caption band, typography, and surrounding spacing remain unchanged.
+
+Journey slides use denser API and source-level language appropriate for a Level 400 engineering audience while retaining the inherited three-card geometry.
+
+Slide 20 uses the comparison frame for WinForms semantic/API ownership versus shared ProGPU execution rather than Debug/Release modes.
+
+Slide 23 reuses the closing bumper as an extension playbook and code map.
+
+No new font family, palette, decorative system, or floating overlay is added. The audited starter binary is referenced from the existing browser deck source to avoid binary template duplication.
