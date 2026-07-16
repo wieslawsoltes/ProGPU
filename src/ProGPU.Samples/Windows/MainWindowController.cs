@@ -18,6 +18,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.HotReload;
 using ProGPU.WinUI.Designer;
 using Button = Microsoft.UI.Xaml.Controls.Button;
 using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
@@ -46,16 +47,29 @@ public static unsafe class MainWindowController
         ObjModels.EnsureSamplesExist("models");
 
         BuildSceneGraph();
-
-        if (AppState._topLevelGrid != null)
-        {
-            AppState._topLevelGrid.PointerMoved += (sender, args) =>
-            {
-                AppState._mousePos = args.Position;
-            };
-        }
+        AttachPointerTracking();
 
         window.Content = AppState._topLevelGrid;
+        AppState._hotReloadRegistration?.Dispose();
+        AppState._hotReloadRegistration = HotReloadManager.RegisterUpdateHandler(context =>
+        {
+            if (context.IsTypeUpdated(typeof(MainWindowController)))
+            {
+                ReloadSceneGraph(window);
+            }
+        });
+        if (AppState._hotReloadCompletedHandler != null)
+        {
+            HotReloadManager.UpdateCompleted -= AppState._hotReloadCompletedHandler;
+        }
+        AppState._hotReloadCompletedHandler = result =>
+        {
+            if (AppState._statsHotReloadRun != null)
+            {
+                AppState._statsHotReloadRun.Text = $"g{result.Generation} ({result.ReplacedElements + result.RefreshedFactories})";
+            }
+        };
+        HotReloadManager.UpdateCompleted += AppState._hotReloadCompletedHandler;
         window.Rendering += (s, delta) => OnWindowRender(delta);
         window.Closed += (s, e) => Cleanup();
     }
@@ -85,9 +99,11 @@ public static unsafe class MainWindowController
         }
     }
 
-    private static void BuildSceneGraph()
+    private static void BuildSceneGraph(string? selectedCategory = null)
     {
         if (AppState._wgpuContext == null || AppState._font == null) return;
+
+        DetachSceneGraphHandlers();
 
         // 1. Root Grid containing Header + Main Body + Bottom Diagnostics Bar
         AppState._rootGrid = new Microsoft.UI.Xaml.Controls.Grid
@@ -357,6 +373,17 @@ public static unsafe class MainWindowController
 
         // Select default category or an environment-requested performance probe page.
         var initialItem = mesh3DViewerItem;
+        if (!string.IsNullOrEmpty(selectedCategory))
+        {
+            foreach (var menuItem in AppState._navigationView.MenuItems)
+            {
+                if (string.Equals(menuItem.Text, selectedCategory, StringComparison.OrdinalIgnoreCase))
+                {
+                    initialItem = menuItem;
+                    break;
+                }
+            }
+        }
         if (SamplePerformanceBenchmark.RequestedPage is { } requestedPage)
         {
             foreach (var menuItem in AppState._navigationView.MenuItems)
@@ -393,13 +420,39 @@ public static unsafe class MainWindowController
             Font = AppState._fontCourier ?? AppState._font,
             VerticalAlignment = VerticalAlignment.Center
         };
-        AppState._statsText.Inlines.Add(new Run("FPS:  -- | CPU:   --.-- ms (Layout: --.--ms, Compile: --.--ms, Upload: --.--ms, Render: --.--ms) | Draws:  -- | Verts:     - (Vec),     - (Txt) | Atlas:  -- | Cursor: (   -,    -) | Focused: None        "));
+        var statusAccent = new ThemeResourceBrush("SystemAccentColor");
+        AppState._statsFpsRun = new Run(" --");
+        AppState._statsCpuRun = new Run("  --.-- ms");
+        AppState._statsTimingRun = new Run(" (Layout: --.--ms, Compile: --.--ms, Upload: --.--ms, Render: --.--ms)");
+        AppState._statsDrawsRun = new Run(" --");
+        AppState._statsVerticesRun = new Run("    - (Vec),     - (Txt)");
+        AppState._statsAtlasRun = new Run(" --");
+        AppState._statsCursorRun = new Run("(   -,    -)");
+        AppState._statsFocusedRun = new Run("None        ");
+        AppState._statsHotReloadRun = new Run("ready");
+        AppState._statsText.Inlines.Add(new Run("FPS: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsFpsRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(new Run(" | CPU: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsCpuRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(AppState._statsTimingRun);
+        AppState._statsText.Inlines.Add(new Run(" | Draws: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsDrawsRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(new Run(" | Verts: "));
+        AppState._statsText.Inlines.Add(AppState._statsVerticesRun);
+        AppState._statsText.Inlines.Add(new Run(" | Atlas: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsAtlasRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(new Run(" | Cursor: "));
+        AppState._statsText.Inlines.Add(AppState._statsCursorRun);
+        AppState._statsText.Inlines.Add(new Run(" | Focused: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsFocusedRun) { Foreground = statusAccent });
+        AppState._statsText.Inlines.Add(new Run(" | HR: "));
+        AppState._statsText.Inlines.Add(new Bold(AppState._statsHotReloadRun) { Foreground = statusAccent });
         statusBar.Child = AppState._statsText;
         AppState._rootGrid.AddChild(statusBar);
         Microsoft.UI.Xaml.Controls.Grid.SetRow(statusBar, 2);
 
         // Track global ThemeManager theme change event
-        ThemeManager.ThemeChanged += () =>
+        AppState._themeChangedHandler = () =>
         {
             if (AppState._screenCompositor != null)
             {
@@ -413,6 +466,7 @@ public static unsafe class MainWindowController
                 popup.NotifyThemeChanged();
             }
         };
+        ThemeManager.ThemeChanged += AppState._themeChangedHandler;
 
         // 5. TOP LEVEL CONTAINER GRID (App container)
         AppState._topLevelGrid = new Microsoft.UI.Xaml.Controls.Grid
@@ -432,7 +486,7 @@ public static unsafe class MainWindowController
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        DevToolsService.StateChanged += (s, ev) =>
+        AppState._devToolsStateChangedHandler = (s, ev) =>
         {
             if (DevToolsService.IsDevToolsActive)
             {
@@ -444,6 +498,47 @@ public static unsafe class MainWindowController
                 AppState._needsCloseDevTools = true;
             }
         };
+        DevToolsService.StateChanged += AppState._devToolsStateChangedHandler;
+    }
+
+    private static void ReloadSceneGraph(Window window)
+    {
+        var selectedCategory = AppState._activeCategory;
+        HotReloadManager.ReloadWindowContent(window, () =>
+        {
+            BuildSceneGraph(selectedCategory);
+            AttachPointerTracking();
+            return AppState._topLevelGrid
+                ?? throw new InvalidOperationException("The sample shell builder did not produce a root element.");
+        });
+    }
+
+    private static void AttachPointerTracking()
+    {
+        if (AppState._topLevelGrid == null)
+        {
+            return;
+        }
+
+        AppState._topLevelGrid.PointerMoved += (sender, args) =>
+        {
+            AppState._mousePos = args.Position;
+        };
+    }
+
+    private static void DetachSceneGraphHandlers()
+    {
+        if (AppState._themeChangedHandler != null)
+        {
+            ThemeManager.ThemeChanged -= AppState._themeChangedHandler;
+            AppState._themeChangedHandler = null;
+        }
+
+        if (AppState._devToolsStateChangedHandler != null)
+        {
+            DevToolsService.StateChanged -= AppState._devToolsStateChangedHandler;
+            AppState._devToolsStateChangedHandler = null;
+        }
     }
 
     private static void OnWindowUpdate(double delta)
@@ -487,7 +582,8 @@ public static unsafe class MainWindowController
              AppState._canvasSourceTexture != null &&
              AppState._canvasTempTexture != null &&
              AppState._canvasBlurTexture != null &&
-             AppState._canvasShadowTexture != null))
+             AppState._canvasShadowTexture != null &&
+             AppState._gearCanvasVisual != null))
         {
             return;
         }
@@ -525,6 +621,14 @@ public static unsafe class MainWindowController
             TextureFormat.Rgba8Unorm,
             TextureUsage.TextureBinding | TextureUsage.StorageBinding,
             alphaMode: GpuTextureAlphaMode.Premultiplied);
+        if (AppState._gearCanvasVisual == null && AppState._font != null)
+        {
+            AppState._gearCanvasVisual = new GearCanvasVisual(AppState._font)
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+        }
     }
 
     public static void OnWindowRender(double delta)
@@ -597,50 +701,25 @@ public static unsafe class MainWindowController
 
         // Metrics & stats overlay updates (now measuring full frame time)
         AppState._cpuFrameTimeMs = AppState._frameStopwatch.Elapsed.TotalMilliseconds;
-        
+
         AppState._frameCount++;
         AppState._fpsAccumulator += delta;
-        bool updateStats = false;
         if (AppState._fpsAccumulator >= 0.5)
         {
             AppState._currentFps = AppState._frameCount / AppState._fpsAccumulator;
             AppState._frameCount = 0;
             AppState._fpsAccumulator = 0;
-            updateStats = true;
-        }
-
-        if (updateStats && AppState._statsText != null)
-        {
-            AppState._statsText.Inlines.Clear();
-            
             var metrics = AppState._screenCompositor.Metrics;
             double measureArrangeMs = AppState._cpuFrameTimeMs - metrics.FrameTimeMs;
             if (measureArrangeMs < 0) measureArrangeMs = 0;
-
-            AppState._statsText.Inlines.Add(new Run("FPS: "));
-            AppState._statsText.Inlines.Add(new Bold(new Run($"{AppState._currentFps,3:F0}")) { Foreground = new SolidColorBrush(0x0078D4FF) });
-            
-            AppState._statsText.Inlines.Add(new Run(" | CPU: "));
-            AppState._statsText.Inlines.Add(new Bold(new Run($"{AppState._cpuFrameTimeMs,6:F2} ms")) { Foreground = new SolidColorBrush(0x0078D4FF) });
-            AppState._statsText.Inlines.Add(new Run($" (Layout: {measureArrangeMs,5:F2}ms, Compile: {metrics.VisualTreeCompileTimeMs,5:F2}ms, Upload: {metrics.GpuUploadTimeMs,5:F2}ms, Render: {metrics.RenderPassTimeMs,5:F2}ms)"));
-
-            AppState._statsText.Inlines.Add(new Run(" | Draws: "));
-            AppState._statsText.Inlines.Add(new Bold(new Run($"{metrics.DrawCallsCount,3}")) { Foreground = new SolidColorBrush(0x0078D4FF) });
-
-            AppState._statsText.Inlines.Add(new Run(" | Verts: "));
-            AppState._statsText.Inlines.Add(new Run($"{metrics.VectorVerticesCount,5} (Vec), {metrics.TextVerticesCount,5} (Txt)"));
-
-            AppState._statsText.Inlines.Add(new Run(" | Atlas: "));
-            AppState._statsText.Inlines.Add(new Bold(new Run($"{metrics.PathAtlasCachedCount,3}")) { Foreground = new SolidColorBrush(0x0078D4FF) });
-
-            AppState._statsText.Inlines.Add(new Run(" | Cursor: "));
-            AppState._statsText.Inlines.Add(new Run($"({AppState._mousePos.X,4:F0}, {AppState._mousePos.Y,4:F0})"));
-            
-            AppState._statsText.Inlines.Add(new Run(" | Focused: "));
-            AppState._statsText.Inlines.Add(new Bold(new Run($"{AppState._activeFocusedName,-12}")) { Foreground = new SolidColorBrush(0x0078D4FF) });
-            
-            AppState._statsText.PerformRichLayout(1200f);
-            AppState._statsText.Invalidate();
+            AppState._statsFpsRun!.Text = $"{AppState._currentFps,3:F0}";
+            AppState._statsCpuRun!.Text = $"{AppState._cpuFrameTimeMs,6:F2} ms";
+            AppState._statsTimingRun!.Text = $" (Layout: {measureArrangeMs,5:F2}ms, Compile: {metrics.VisualTreeCompileTimeMs,5:F2}ms, Upload: {metrics.GpuUploadTimeMs,5:F2}ms, Render: {metrics.RenderPassTimeMs,5:F2}ms)";
+            AppState._statsDrawsRun!.Text = $"{metrics.DrawCallsCount,3}";
+            AppState._statsVerticesRun!.Text = $"{metrics.VectorVerticesCount,5} (Vec), {metrics.TextVerticesCount,5} (Txt)";
+            AppState._statsAtlasRun!.Text = $"{metrics.PathAtlasCachedCount,3}";
+            AppState._statsCursorRun!.Text = $"({AppState._mousePos.X,4:F0}, {AppState._mousePos.Y,4:F0})";
+            AppState._statsFocusedRun!.Text = $"{AppState._activeFocusedName,-12}";
         }
 
         SamplePerformanceBenchmark.ObserveFrame(delta);
@@ -648,6 +727,14 @@ public static unsafe class MainWindowController
 
     private static void Cleanup()
     {
+        AppState._hotReloadRegistration?.Dispose();
+        AppState._hotReloadRegistration = null;
+        if (AppState._hotReloadCompletedHandler != null)
+        {
+            HotReloadManager.UpdateCompleted -= AppState._hotReloadCompletedHandler;
+            AppState._hotReloadCompletedHandler = null;
+        }
+        DetachSceneGraphHandlers();
         AppState._canvasSourceTexture?.Dispose();
         AppState._canvasTempTexture?.Dispose();
         AppState._canvasBlurTexture?.Dispose();

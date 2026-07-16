@@ -157,7 +157,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
 
         _contextRef = compositor.Context;
         var context = _contextRef;
-        var wgpu = context.Wgpu;
+        var wgpu = context.Api;
         var device = context.Device;
 
         var effectEntry = new BindGroupLayoutEntry
@@ -201,7 +201,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
             }
 
             var context = compositor.Context;
-            var wgpu = context.Wgpu;
+            var wgpu = context.Api;
             var device = context.Device;
             var entryCount = activeRegisters.Length * 2;
             var sourceEntries = stackalloc BindGroupLayoutEntry[entryCount];
@@ -483,7 +483,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
             }
         }
 
-        var wgpu = compositor.Context.Wgpu;
+        var wgpu = compositor.Context.Api;
         var device = compositor.Context.Device;
         var pass = (RenderPassEncoder*)renderPassEncoder;
 
@@ -692,7 +692,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
                         layouts,
                         topology: PrimitiveTopology.TriangleList,
                         targetFormat: compositor.RenderFormat,
-                        sampleCount: isOffscreen ? 1u : 4u,
+                        sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
                         pipelineLayout: isOffscreen ? sourceLayout.OffscreenPipelineLayout : sourceLayout.OnscreenPipelineLayout,
                         blendMode: blendMode,
                         sourceAlphaMode: pipelineSourceAlphaMode);
@@ -749,7 +749,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
                 return (BindGroup*)cached.BindGroupPtr;
             }
 
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var entryCount = sourceLayout.Registers.Length * 2;
             var textureEntries = stackalloc BindGroupEntry[entryCount];
             for (var slot = 0; slot < sourceLayout.Registers.Length; slot++)

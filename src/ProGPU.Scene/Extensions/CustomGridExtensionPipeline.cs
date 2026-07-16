@@ -53,7 +53,7 @@ namespace ProGPU.Scene.Extensions
             bool isOffscreen,
             in Compositor.CompositorDrawCall dc)
         {
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
             var activePipeline = isOffscreen ? _cachedPipelineOffscreen : _cachedPipeline;
@@ -89,7 +89,7 @@ namespace ProGPU.Scene.Extensions
                         layouts,
                         topology: PrimitiveTopology.TriangleList,
                         targetFormat: compositor.RenderFormat,
-                        sampleCount: isOffscreen ? 1u : 4u
+                        sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount
                     );
 
                     if (isOffscreen)

@@ -625,6 +625,28 @@ EOF";
     }
 
     [Fact]
+    public void DxfDocumentRenderer_StaticCompilationPreservesSubpixelGeometryAtFullQuality()
+    {
+        var doc = new netDxf.DxfDocument();
+        doc.AddEntity(new netDxf.Entities.Circle(new netDxf.Vector3(0, 0, 0), 0.1));
+        doc.AddEntity(new netDxf.Entities.Arc(new netDxf.Vector3(1, 0, 0), 0.1, 0, 180));
+
+        var drawingContext = new DrawingContext();
+        var context = new DxfRenderContext(drawingContext, null!)
+        {
+            IsCompilingStatic = true,
+            EnableLod = true
+        };
+        context.ActiveLayers.Add("0");
+
+        DxfDocumentRenderer.Render(doc, context);
+
+        Assert.NotEmpty(drawingContext.Commands);
+        Assert.Contains(drawingContext.Commands, command => command.Type == RenderCommandType.DrawCircle);
+        Assert.Contains(drawingContext.Commands, command => command.Type == RenderCommandType.DrawLine);
+    }
+
+    [Fact]
     public void DxfDocumentRenderer_Render_LargeDxfFile()
     {
         string path = "/Users/wieslawsoltes/Downloads/dwg/dxf/Schemat IOS Karvina CZ.dxf";
@@ -818,4 +840,3 @@ EOF";
         Assert.NotEmpty(drawingContext.Commands);
     }
 }
-

@@ -7,7 +7,7 @@ public class DiagnosticsLoggingSourceTests
     [Theory]
     [InlineData("src", "ProGPU.Backend", "WgpuContext.cs", "ProGpuBackendDiagnostics.WriteLine(", "Configuring SwapChain", "Console.WriteLine($\"[WebGPU Context] Configuring SwapChain")]
     [InlineData("src", "ProGPU.Scene", "Extensions/ShaderToyExtensionPipeline.cs", "ProGpuSceneDiagnostics.WriteLine(", "ShaderToy Render", "Console.WriteLine(")]
-    [InlineData("src", "ProGPU.Text", "TextLayout.cs", "ProGpuTextDiagnostics.WriteLine(", "Loaded system fallback font", "Console.WriteLine($\"[TextLayout]")]
+    [InlineData("src", "ProGPU.Text", "TextLayout.cs", "ProGpuTextDiagnostics.WriteLine(", "system fallback font face", "Console.WriteLine($\"[TextLayout]")]
     [InlineData("src", "ProGPU.Text", "GlyphAtlas.cs", "ProGpuTextDiagnostics.WriteLine(", "GlyphAtlas", "Console.WriteLine(\"[GlyphAtlas]")]
     [InlineData("src", "ProGPU.Vector", "PathAtlas.cs", "ProGpuVectorDiagnostics.WriteLine(", "PathAtlas", "Console.WriteLine(\"[PathAtlas]")]
     [InlineData("src", "ProGPU.WinUI", "Input/InputSystem.cs", "ProGpuWinUiDiagnostics.WriteLine(", "MouseDown at", "Console.WriteLine($\"[InputSystem]")]
@@ -256,9 +256,13 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("for (int pathIndex = 0; pathIndex < FallbackFontPaths.Length; pathIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var path = FallbackFontPaths[pathIndex];", source, StringComparison.Ordinal);
         Assert.Contains("private static readonly Lazy<IReadOnlyList<FontInfo>> FallbackFontInfos", source, StringComparison.Ordinal);
+        Assert.Contains("private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<TtfFont?>> SharedFallbackFonts", source, StringComparison.Ordinal);
         Assert.Contains("private static readonly ConcurrentDictionary<(string Path, int FaceIndex, ushort GlyphIndex), Lazy<TtfFont?>> FallbackFonts", source, StringComparison.Ordinal);
         Assert.Contains("if (!FontApi.TryGetGlyphIndex(info, codePoint, out ushort metadataGlyphIndex))", source, StringComparison.Ordinal);
-        Assert.Contains("() => LoadFallbackFont(value.Path, value.FaceIndex, value.GlyphIndex)", source, StringComparison.Ordinal);
+        Assert.Contains("if (ShouldShareFallbackFace(path))", source, StringComparison.Ordinal);
+        Assert.Contains("() => LoadSharedFallbackFont(value.Path, value.FaceIndex)", source, StringComparison.Ordinal);
+        Assert.Contains("() => LoadGlyphResidentFallbackFont(value.Path, value.FaceIndex, value.GlyphIndex)", source, StringComparison.Ordinal);
+        Assert.Contains("SharedFallbackFontFileSizeLimit", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_fallbackFonts.Add(new TtfFont(path))", source, StringComparison.Ordinal);
         Assert.DoesNotContain("private static readonly List<TtfFont> _fallbackFonts", source, StringComparison.Ordinal);
         Assert.Contains("lastWordStartIndex = Glyphs.Count;", source, StringComparison.Ordinal);

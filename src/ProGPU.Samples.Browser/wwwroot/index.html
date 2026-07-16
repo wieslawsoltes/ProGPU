@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <base href="./">
+  <link rel="icon" href="data:,">
+  <title>ProGPU Browser Gallery</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="progpu-canvas" aria-label="ProGPU WebGPU rendering surface"></canvas>
+  <aside id="diagnostics" aria-live="polite" hidden>
+    <div class="eyebrow">PROGPU / NAVIGATOR.GPU</div>
+    <h1 id="status-title">Starting browser runtime…</h1>
+    <pre id="status-detail">Loading .NET and negotiating a WebGPU adapter.</pre>
+    <dl>
+      <div><dt>Frames</dt><dd id="counter-frames">0</dd></div>
+      <div><dt>Dispatches</dt><dd id="counter-dispatches">0</dd></div>
+      <div><dt>Command bytes</dt><dd id="counter-bytes">0</dd></div>
+    </dl>
+    <p class="progress">Shared gallery linked from <code>ProGPU.Samples</code>. Browser backend bring-up uses this surface as its progress harness.</p>
+  </aside>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

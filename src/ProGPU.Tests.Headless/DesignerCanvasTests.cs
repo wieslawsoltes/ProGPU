@@ -152,6 +152,97 @@ public class DesignerCanvasTests
     }
 
     [Fact]
+    public void Test_DesignerCanvas_InteractionMode_RestoresDesignedControlHitTesting()
+    {
+        var canvas = new DesignerCanvas();
+        var textBox = new TextBox { Width = 120f, Height = 36f };
+        canvas.AddChild(textBox);
+        canvas.SelectElement(textBox);
+
+        Assert.False(textBox.IsHitTestVisible);
+        Assert.Single(canvas.AdornerSurface.Children);
+
+        canvas.IsInteractionMode = true;
+
+        Assert.True(textBox.IsHitTestVisible);
+        Assert.Null(canvas.SelectedElement);
+        Assert.False(canvas.AdornerSurface.IsVisible);
+        Assert.False(canvas.AdornerSurface.IsHitTestVisible);
+
+        canvas.IsInteractionMode = false;
+
+        Assert.False(textBox.IsHitTestVisible);
+        Assert.True(canvas.AdornerSurface.IsVisible);
+        Assert.True(canvas.AdornerSurface.IsHitTestVisible);
+    }
+
+    [Fact]
+    public void Test_DesignerHost_InteractionMode_RoutesTextAndButtonInput()
+    {
+        var font = PopupService.DefaultFont;
+        var host = new DesignerHost();
+        host.InitializeFonts(font, font);
+        host.AddControlToCanvas("TextBox", 100f, 80f);
+        host.AddControlToCanvas("Button", 300f, 80f);
+        host.AddControlToCanvas("Slider", 500f, 80f);
+
+        var textBox = Assert.IsType<TextBox>(host.WorkspaceCanvas.DesignSurface.Children[0]);
+        var button = Assert.IsType<Button>(host.WorkspaceCanvas.DesignSurface.Children[1]);
+        var slider = Assert.IsType<Slider>(host.WorkspaceCanvas.DesignSurface.Children[2]);
+        int clickCount = 0;
+        button.Click += (_, _) => clickCount++;
+
+        host.Measure(new Vector2(1280f, 768f));
+        host.Arrange(new ProGPU.Scene.Rect(0f, 0f, 1280f, 768f));
+        host.SetInteractionMode(true);
+
+        Assert.True(host.IsInteractionMode);
+        Assert.True(textBox.IsHitTestVisible);
+        Assert.True(button.IsHitTestVisible);
+        Assert.True(slider.IsHitTestVisible);
+
+        InputSystem.Current = InputSystem.CreateExternalState(host);
+        try
+        {
+            Vector3 textOrigin = Vector3.Transform(Vector3.Zero, textBox.GetGlobalTransformMatrix());
+            var textPoint = new Vector2(textOrigin.X + 12f, textOrigin.Y + 12f);
+            InputSystem.InjectMouseMove(textPoint);
+            InputSystem.InjectMouseDown(Silk.NET.Input.MouseButton.Left);
+            InputSystem.InjectMouseUp(Silk.NET.Input.MouseButton.Left);
+
+            Assert.Same(textBox, InputSystem.FocusedElement);
+            InputSystem.InjectKeyChar('A');
+            Assert.Equal("A", textBox.Text);
+
+            Vector3 buttonOrigin = Vector3.Transform(Vector3.Zero, button.GetGlobalTransformMatrix());
+            var buttonPoint = new Vector2(buttonOrigin.X + 20f, buttonOrigin.Y + 18f);
+            InputSystem.InjectMouseMove(buttonPoint);
+            InputSystem.InjectMouseDown(Silk.NET.Input.MouseButton.Left);
+            InputSystem.InjectMouseUp(Silk.NET.Input.MouseButton.Left);
+
+            Assert.Equal(1, clickCount);
+
+            Vector3 sliderOrigin = Vector3.Transform(Vector3.Zero, slider.GetGlobalTransformMatrix());
+            var sliderPoint = new Vector2(sliderOrigin.X + slider.Size.X * 0.75f, sliderOrigin.Y + 18f);
+            InputSystem.InjectMouseMove(sliderPoint);
+            InputSystem.InjectMouseDown(Silk.NET.Input.MouseButton.Left);
+            InputSystem.InjectMouseUp(Silk.NET.Input.MouseButton.Left);
+
+            Assert.InRange(slider.Value, 70f, 80f);
+        }
+        finally
+        {
+            InputSystem.SetFocus(null);
+            InputSystem.Current = InputSystem.CreateExternalState();
+        }
+
+        host.SetInteractionMode(false);
+        Assert.False(textBox.IsHitTestVisible);
+        Assert.False(button.IsHitTestVisible);
+        Assert.False(slider.IsHitTestVisible);
+    }
+
+    [Fact]
     public void Test_DesignerCanvas_SnapCache_Usage()
     {
         var canvas = new DesignerCanvas

@@ -339,7 +339,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
             Height = height,
             DepthOrArrayLayers = 1
         };
-        _context.Wgpu.CommandEncoderCopyTextureToTexture(encoder, &copySrc, &copyDst, &copySize);
+        _context.Api.CommandEncoderCopyTextureToTexture(encoder, &copySrc, &copyDst, &copySize);
 
         _bvhBuffer!.Write(CollectionsMarshal.AsSpan(_bvhNodes));
         _rawCurvesBuffer!.Write(CollectionsMarshal.AsSpan(_rawCurves));
@@ -367,15 +367,15 @@ public unsafe class WavefrontVectorEngine : IDisposable
         flattenEntries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformsBuffer.BufferPtr, Offset = 0, Size = _uniformsBuffer.Size };
         flattenEntries[1] = new BindGroupEntry { Binding = 12, Buffer = _rawCurvesBuffer!.BufferPtr, Offset = 0, Size = _rawCurvesBuffer.Size };
         flattenEntries[2] = new BindGroupEntry { Binding = 9, Buffer = _linesBuffer!.BufferPtr, Offset = 0, Size = _linesBuffer.Size };
-        var flattenLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_flattenPipeline, 0);
+        var flattenLayout = _context.Api.ComputePipelineGetBindGroupLayout(_flattenPipeline, 0);
         var flattenBgDesc = new BindGroupDescriptor
         {
             Layout = flattenLayout,
             EntryCount = 3,
             Entries = flattenEntries
         };
-        var flattenBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &flattenBgDesc);
-        _context.Wgpu.BindGroupLayoutRelease(flattenLayout);
+        var flattenBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &flattenBgDesc);
+        _context.Api.BindGroupLayoutRelease(flattenLayout);
         
         // 3.1 Bind Group for Bin Shapes Pipeline
         var binShapesEntries = stackalloc BindGroupEntry[4];
@@ -383,15 +383,15 @@ public unsafe class WavefrontVectorEngine : IDisposable
         binShapesEntries[1] = new BindGroupEntry { Binding = 4, Buffer = _instancesBuffer!.BufferPtr, Offset = 0, Size = _instancesBuffer.Size };
         binShapesEntries[2] = new BindGroupEntry { Binding = 5, Buffer = _gridCellsBuffer!.BufferPtr, Offset = 0, Size = _gridCellsBuffer.Size };
         binShapesEntries[3] = new BindGroupEntry { Binding = 6, Buffer = _gridIndicesBuffer!.BufferPtr, Offset = 0, Size = _gridIndicesBuffer.Size };
-        var binShapesLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_binShapesPipeline, 0);
+        var binShapesLayout = _context.Api.ComputePipelineGetBindGroupLayout(_binShapesPipeline, 0);
         var binShapesBgDesc = new BindGroupDescriptor
         {
             Layout = binShapesLayout,
             EntryCount = 4,
             Entries = binShapesEntries
         };
-        var binShapesBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &binShapesBgDesc);
-        _context.Wgpu.BindGroupLayoutRelease(binShapesLayout);
+        var binShapesBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &binShapesBgDesc);
+        _context.Api.BindGroupLayoutRelease(binShapesLayout);
 
         // 3.2 Bind Group for Render Pipeline
         var renderEntries = stackalloc BindGroupEntry[8];
@@ -403,47 +403,47 @@ public unsafe class WavefrontVectorEngine : IDisposable
         renderEntries[5] = new BindGroupEntry { Binding = 8, TextureView = _bgCopyTexture.ViewPtr };
         renderEntries[6] = new BindGroupEntry { Binding = 9, Buffer = _linesBuffer.BufferPtr, Offset = 0, Size = _linesBuffer.Size };
         renderEntries[7] = new BindGroupEntry { Binding = 11, TextureView = destination.ViewPtr };
-        var renderLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_renderPipeline, 0);
+        var renderLayout = _context.Api.ComputePipelineGetBindGroupLayout(_renderPipeline, 0);
         var renderBgDesc = new BindGroupDescriptor
         {
             Layout = renderLayout,
             EntryCount = 8,
             Entries = renderEntries
         };
-        var renderBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &renderBgDesc);
-        _context.Wgpu.BindGroupLayoutRelease(renderLayout);
+        var renderBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &renderBgDesc);
+        _context.Api.BindGroupLayoutRelease(renderLayout);
 
         // 4. Dispatch Compute Passes
         var passDesc = new ComputePassDescriptor();
 
         // Pass 0: Flatten curves on the GPU
-        var passFlatten = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-        _context.Wgpu.ComputePassEncoderSetPipeline(passFlatten, _flattenPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(passFlatten, 0, flattenBindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(passFlatten, ((uint)_rawCurves.Count + 63) / 64, 1, 1);
-        _context.Wgpu.ComputePassEncoderEnd(passFlatten);
-        _context.Wgpu.ComputePassEncoderRelease(passFlatten);
+        var passFlatten = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+        _context.Api.ComputePassEncoderSetPipeline(passFlatten, _flattenPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(passFlatten, 0, flattenBindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(passFlatten, ((uint)_rawCurves.Count + 63) / 64, 1, 1);
+        _context.Api.ComputePassEncoderEnd(passFlatten);
+        _context.Api.ComputePassEncoderRelease(passFlatten);
 
         // Pass 1: Bin shapes on the GPU
-        var passBin = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-        _context.Wgpu.ComputePassEncoderSetPipeline(passBin, _binShapesPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(passBin, 0, binShapesBindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(passBin, (gridCols + 15) / 16, (gridRows + 15) / 16, 1);
-        _context.Wgpu.ComputePassEncoderEnd(passBin);
-        _context.Wgpu.ComputePassEncoderRelease(passBin);
+        var passBin = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+        _context.Api.ComputePassEncoderSetPipeline(passBin, _binShapesPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(passBin, 0, binShapesBindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(passBin, (gridCols + 15) / 16, (gridRows + 15) / 16, 1);
+        _context.Api.ComputePassEncoderEnd(passBin);
+        _context.Api.ComputePassEncoderRelease(passBin);
 
         // Pass 2: Render directly to destination
-        var passRender = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-        _context.Wgpu.ComputePassEncoderSetPipeline(passRender, _renderPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(passRender, 0, renderBindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(passRender, (width + 15) / 16, (height + 15) / 16, 1);
-        _context.Wgpu.ComputePassEncoderEnd(passRender);
-        _context.Wgpu.ComputePassEncoderRelease(passRender);
+        var passRender = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+        _context.Api.ComputePassEncoderSetPipeline(passRender, _renderPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(passRender, 0, renderBindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(passRender, (width + 15) / 16, (height + 15) / 16, 1);
+        _context.Api.ComputePassEncoderEnd(passRender);
+        _context.Api.ComputePassEncoderRelease(passRender);
 
         // Cleanup local Bind Groups
-        _context.Wgpu.BindGroupRelease(flattenBindGroup);
-        _context.Wgpu.BindGroupRelease(binShapesBindGroup);
-        _context.Wgpu.BindGroupRelease(renderBindGroup);
+        _context.Api.BindGroupRelease(flattenBindGroup);
+        _context.Api.BindGroupRelease(binShapesBindGroup);
+        _context.Api.BindGroupRelease(renderBindGroup);
     }
 
     private void UpdateGpuBuffers(uint width, uint height, uint gridStride, uint cellCount, uint indexCount, TextureFormat destFormat)

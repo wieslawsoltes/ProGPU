@@ -1375,7 +1375,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
@@ -1403,19 +1403,19 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 ColorAttachments = &colorAttachment
             };
 
-            pass = context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+            pass = context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderEnd(pass);
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderEnd(pass);
+                context.Api.RenderPassEncoderRelease(pass);
                 pass = null;
             }
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedClearCount++;
             }
@@ -1424,17 +1424,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderRelease(pass);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -1455,7 +1455,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
@@ -1467,7 +1467,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 return;
             }
 
-            context.Wgpu.CommandEncoderCopyBufferToBuffer(
+            context.Api.CommandEncoderCopyBufferToBuffer(
                 encoder,
                 source.BufferPtr,
                 0,
@@ -1476,10 +1476,10 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 copySize);
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 SubmittedCopyCount++;
             }
         }
@@ -1487,12 +1487,12 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -1556,7 +1556,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 "ProGPU DirectX Resolve Destination");
 
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
@@ -1577,21 +1577,21 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 ColorAttachments = &colorAttachment
             };
 
-            pass = context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+            pass = context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
             if (pass == null)
             {
                 return;
             }
 
-            context.Wgpu.RenderPassEncoderEnd(pass);
-            context.Wgpu.RenderPassEncoderRelease(pass);
+            context.Api.RenderPassEncoderEnd(pass);
+            context.Api.RenderPassEncoderRelease(pass);
             pass = null;
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 destinationResource.MarkBackendContentsChanged();
                 SubmittedResolveCount++;
             }
@@ -1600,27 +1600,27 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderRelease(pass);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             if (destinationView != null)
             {
-                context.Wgpu.TextureViewRelease(destinationView);
+                context.Api.TextureViewRelease(destinationView);
             }
 
             if (sourceView != null)
             {
-                context.Wgpu.TextureViewRelease(sourceView);
+                context.Api.TextureViewRelease(sourceView);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -1651,7 +1651,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 Aspect = TextureAspect.All
             };
 
-            var view = context.Wgpu.TextureCreateView(texture, &viewDesc);
+            var view = context.Api.TextureCreateView(texture, &viewDesc);
             if (view == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX resolve texture view for subresource {subresource}.");
@@ -1692,7 +1692,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
@@ -1718,19 +1718,19 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 DepthStencilAttachment = &depthAttachment
             };
 
-            pass = context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+            pass = context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderEnd(pass);
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderEnd(pass);
+                context.Api.RenderPassEncoderRelease(pass);
                 pass = null;
             }
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedClearCount++;
             }
@@ -1739,17 +1739,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderRelease(pass);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -1875,7 +1875,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
@@ -1901,7 +1901,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 DepthStencilAttachment = usesDepthStencil && hasDepthAttachment ? &depthAttachment : null
             };
 
-            pass = context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+            pass = context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
             if (pass == null)
             {
                 return;
@@ -1910,7 +1910,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             ApplyRenderState(context, pass, command, pipeline, targetWidth, targetHeight);
             if (pipeline.Descriptor.DepthStencilState.StencilEnable)
             {
-                context.Wgpu.RenderPassEncoderSetStencilReference(
+                context.Api.RenderPassEncoderSetStencilReference(
                     pass,
                     pipeline.Descriptor.DepthStencilState.StencilReference);
             }
@@ -1946,7 +1946,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                             throw new InvalidOperationException("GPU-backed DirectX vertex-buffer binding offset is outside the backend buffer.");
                         }
 
-                        context.Wgpu.RenderPassEncoderSetVertexBuffer(
+                        context.Api.RenderPassEncoderSetVertexBuffer(
                             pass,
                             backendSlot,
                             buffer.BufferPtr,
@@ -1987,7 +1987,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                             throw new InvalidOperationException("GPU-backed DirectX draw requires backend vertex buffers.");
                         }
 
-                        context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, backendSlot, buffer.BufferPtr, 0, buffer.Size);
+                        context.Api.RenderPassEncoderSetVertexBuffer(pass, backendSlot, buffer.BufferPtr, 0, buffer.Size);
                     }
                 }
                 finally
@@ -2031,15 +2031,15 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                     pipeline.BackendPipeline);
             }
 
-            context.Wgpu.RenderPassEncoderEnd(pass);
-            context.Wgpu.RenderPassEncoderRelease(pass);
+            context.Api.RenderPassEncoderEnd(pass);
+            context.Api.RenderPassEncoderRelease(pass);
             pass = null;
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedDrawCount++;
             }
@@ -2048,17 +2048,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (pass != null)
             {
-                context.Wgpu.RenderPassEncoderRelease(pass);
+                context.Api.RenderPassEncoderRelease(pass);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -2072,27 +2072,27 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         ProGpuDirectXGraphicsPipeline pipeline,
         RenderPipeline* renderPipeline)
     {
-        context.Wgpu.RenderPassEncoderSetPipeline(pass, renderPipeline);
+        context.Api.RenderPassEncoderSetPipeline(pass, renderPipeline);
         if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
         {
             var pipelineBindGroup = GetOrCreateRenderPipelineBindGroup(
                 context,
                 renderPipeline,
                 snapshot);
-            context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
+            context.Api.RenderPassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
         }
 
         var isWireframeTriangleDraw = IsWireframeTriangleDraw(command, pipeline);
         if (TryGetWireframeIndexBuffer(context, command, pipeline, out var wireframeIndexBuffer, out var wireframeBaseVertex, out var wireframeInstanceCount, out var wireframeStartInstance))
         {
-            context.Wgpu.RenderPassEncoderSetIndexBuffer(
+            context.Api.RenderPassEncoderSetIndexBuffer(
                 pass,
                 wireframeIndexBuffer.Buffer.BufferPtr,
                 IndexFormat.Uint32,
                 0,
                 wireframeIndexBuffer.Buffer.Size);
 
-            context.Wgpu.RenderPassEncoderDrawIndexed(
+            context.Api.RenderPassEncoderDrawIndexed(
                 pass,
                 wireframeIndexBuffer.IndexCount,
                 wireframeInstanceCount,
@@ -2114,14 +2114,14 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
                 throw new InvalidOperationException("GPU-backed DirectX DrawIndexed requires a backend index buffer.");
             }
 
-            context.Wgpu.RenderPassEncoderSetIndexBuffer(
+            context.Api.RenderPassEncoderSetIndexBuffer(
                 pass,
                 indexBuffer.BufferPtr,
                 ProGpuDirectXFormatConverter.ToIndexFormat(command.DrawIndexed.IndexFormat),
                 0,
                 indexBuffer.Size);
 
-            context.Wgpu.RenderPassEncoderDrawIndexed(
+            context.Api.RenderPassEncoderDrawIndexed(
                 pass,
                 command.DrawIndexed.IndexCount,
                 command.DrawIndexed.InstanceCount,
@@ -2131,7 +2131,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
         else if (command.Draw is { } draw)
         {
-            context.Wgpu.RenderPassEncoderDraw(
+            context.Api.RenderPassEncoderDraw(
                 pass,
                 draw.VertexCount,
                 draw.InstanceCount,
@@ -2156,7 +2156,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             return cached.BindGroupPointer;
         }
 
-        var pipelineBindGroupLayout = context.Wgpu.RenderPipelineGetBindGroupLayout(renderPipeline, 0);
+        var pipelineBindGroupLayout = context.Api.RenderPipelineGetBindGroupLayout(renderPipeline, 0);
         if (pipelineBindGroupLayout == null)
         {
             throw new InvalidOperationException("GPU-backed DirectX draw could not resolve the pipeline bind-group layout.");
@@ -2180,7 +2180,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
         finally
         {
-            context.Wgpu.BindGroupLayoutRelease(pipelineBindGroupLayout);
+            context.Api.BindGroupLayoutRelease(pipelineBindGroupLayout);
         }
     }
 
@@ -2196,7 +2196,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             ? command.Viewport
             : new DxViewport(0, 0, targetWidth, targetHeight);
 
-        context.Wgpu.RenderPassEncoderSetViewport(
+        context.Api.RenderPassEncoderSetViewport(
             pass,
             viewport.X,
             viewport.Y,
@@ -2209,7 +2209,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             command.Rect.Width > 0 &&
             command.Rect.Height > 0)
         {
-            context.Wgpu.RenderPassEncoderSetScissorRect(
+            context.Api.RenderPassEncoderSetScissorRect(
                 pass,
                 checked((uint)Math.Max(0, command.Rect.X)),
                 checked((uint)Math.Max(0, command.Rect.Y)),
@@ -2218,7 +2218,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
         else
         {
-            context.Wgpu.RenderPassEncoderSetScissorRect(pass, 0, 0, targetWidth, targetHeight);
+            context.Api.RenderPassEncoderSetScissorRect(pass, 0, 0, targetWidth, targetHeight);
         }
     }
 
@@ -2494,44 +2494,44 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         try
         {
             var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)labelPtr };
-            encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+            encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
             if (encoder == null)
             {
                 return;
             }
 
             var passDesc = new ComputePassDescriptor();
-            pass = context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
+            pass = context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
             if (pass == null)
             {
                 return;
             }
 
-            context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline.BackendPipeline);
+            context.Api.ComputePassEncoderSetPipeline(pass, pipeline.BackendPipeline);
             if (command.BindingSnapshot is { Entries.Count: > 0 } snapshot)
             {
                 var pipelineBindGroup = GetOrCreateComputePipelineBindGroup(
                     context,
                     pipeline.BackendPipeline,
                     snapshot);
-                context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
+                context.Api.ComputePassEncoderSetBindGroup(pass, 0, pipelineBindGroup, 0, null);
             }
 
-            context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+            context.Api.ComputePassEncoderDispatchWorkgroups(
                 pass,
                 dispatch.ThreadGroupCountX,
                 dispatch.ThreadGroupCountY,
                 dispatch.ThreadGroupCountZ);
 
-            context.Wgpu.ComputePassEncoderEnd(pass);
-            context.Wgpu.ComputePassEncoderRelease(pass);
+            context.Api.ComputePassEncoderEnd(pass);
+            context.Api.ComputePassEncoderRelease(pass);
             pass = null;
 
             var commandBufferDesc = new CommandBufferDescriptor();
-            commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+            commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
                 SubmittedDispatchCount++;
             }
         }
@@ -2539,17 +2539,17 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         {
             if (commandBuffer != null)
             {
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
             }
 
             if (pass != null)
             {
-                context.Wgpu.ComputePassEncoderRelease(pass);
+                context.Api.ComputePassEncoderRelease(pass);
             }
 
             if (encoder != null)
             {
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
             }
 
             SilkMarshal.Free(labelPtr);
@@ -2572,7 +2572,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             return cached.BindGroupPointer;
         }
 
-        var pipelineBindGroupLayout = context.Wgpu.ComputePipelineGetBindGroupLayout(computePipeline, 0);
+        var pipelineBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(computePipeline, 0);
         if (pipelineBindGroupLayout == null)
         {
             throw new InvalidOperationException("GPU-backed DirectX dispatch could not resolve the pipeline bind-group layout.");
@@ -2596,7 +2596,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
         }
         finally
         {
-            context.Wgpu.BindGroupLayoutRelease(pipelineBindGroupLayout);
+            context.Api.BindGroupLayoutRelease(pipelineBindGroupLayout);
         }
     }
 

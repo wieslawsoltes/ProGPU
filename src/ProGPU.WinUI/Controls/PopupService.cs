@@ -65,6 +65,24 @@ public static class PopupService
         return null;
     }
 
+    internal static void ReplaceForHotReload(FrameworkElement oldPopup, FrameworkElement newPopup)
+    {
+        var index = ActivePopups.IndexOf(oldPopup);
+        if (index < 0)
+        {
+            throw new InvalidOperationException("The popup is no longer active.");
+        }
+
+        newPopup.Offset = oldPopup.Offset;
+        ActivePopups[index] = newPopup;
+        if (PopupOwners.Remove(oldPopup, out var owner))
+        {
+            PopupOwners[newPopup] = owner;
+        }
+
+        InputSystem.Root?.Invalidate();
+    }
+
     public static void MeasureAndArrangePopups(Vector2 windowSize)
     {
         for (int i = 0; i < ActivePopups.Count; i++)

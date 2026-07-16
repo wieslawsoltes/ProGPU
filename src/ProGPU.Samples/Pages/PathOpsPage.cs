@@ -20,29 +20,56 @@ public class PathOpsVisual : FrameworkElement
     private string _shapeA = "Circle";
     private string _shapeB = "Rectangle";
     private float _overlapOffset = 50f; // Slider overlap offset
+    private PathGeometry? _pathA;
+    private PathGeometry? _pathB;
+    private PathGeometry? _result;
+    private string? _error;
+    private Vector2 _requestedSize;
+    private int _requestVersion;
+    private bool _isComputing;
 
     public int Operation
     {
         get => _operation;
-        set { _operation = value; Invalidate(); }
+        set
+        {
+            if (_operation == value) return;
+            _operation = value;
+            RequestComputation();
+        }
     }
 
     public string ShapeA
     {
         get => _shapeA;
-        set { _shapeA = value; Invalidate(); }
+        set
+        {
+            if (_shapeA == value) return;
+            _shapeA = value;
+            RequestComputation();
+        }
     }
 
     public string ShapeB
     {
         get => _shapeB;
-        set { _shapeB = value; Invalidate(); }
+        set
+        {
+            if (_shapeB == value) return;
+            _shapeB = value;
+            RequestComputation();
+        }
     }
 
     public float OverlapOffset
     {
         get => _overlapOffset;
-        set { _overlapOffset = value; Invalidate(); }
+        set
+        {
+            if (MathF.Abs(_overlapOffset - value) <= 0.001f) return;
+            _overlapOffset = value;
+            RequestComputation();
+        }
     }
 
     public PathOpsVisual()
@@ -50,6 +77,67 @@ public class PathOpsVisual : FrameworkElement
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
         HeightConstraint = 420f;
+    }
+
+    protected override void ArrangeOverride(Rect arrangeRect)
+    {
+        base.ArrangeOverride(arrangeRect);
+        var arrangedSize = new Vector2(arrangeRect.Width, arrangeRect.Height);
+        if (Vector2.DistanceSquared(_requestedSize, arrangedSize) > 0.01f)
+        {
+            _requestedSize = arrangedSize;
+            RequestComputation();
+        }
+    }
+
+    private void RequestComputation()
+    {
+        _requestVersion++;
+        TryStartComputation();
+    }
+
+    private void TryStartComputation()
+    {
+        if (_isComputing || _requestedSize.X <= 0f || _requestedSize.Y <= 0f) return;
+
+        _isComputing = true;
+        var version = _requestVersion;
+        var center = _requestedSize / 2f;
+        var pathA = CreateShapeA(center - new Vector2(_overlapOffset / 2f, 0f));
+        var pathB = CreateShapeB(center + new Vector2(_overlapOffset / 2f, 0f));
+        _ = CompleteComputationAsync(version, pathA, pathB, _operation);
+    }
+
+    private async Task CompleteComputationAsync(int version, PathGeometry pathA, PathGeometry pathB, int operation)
+    {
+        PathGeometry? result = null;
+        string? error = null;
+        try
+        {
+            result = await PathOpGeometrySolver.CombineAsync(pathA, pathB, operation);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+
+        _isComputing = false;
+        if (version == _requestVersion)
+        {
+            // Publish the operands and result as one visual snapshot. Keeping the
+            // previous completed snapshot visible while a newer request is in flight
+            // prevents slider input from alternating between result and source-only
+            // frames.
+            _pathA = pathA;
+            _pathB = pathB;
+            _result = result;
+            _error = error;
+            Invalidate();
+        }
+        else
+        {
+            TryStartComputation();
+        }
     }
 
     private PathGeometry CreateShapeA(Vector2 center)
@@ -131,12 +219,12 @@ public class PathOpsVisual : FrameworkElement
         // Card background outline
         context.DrawRectangle(ThemeManager.GetBrush("CardBackground"), new Pen(ThemeManager.GetBrush("ControlBorder"), 1f), new Rect(0, 0, Size.X, Size.Y));
 
-        Vector2 center = Size / 2f;
-        Vector2 posA = center - new Vector2(_overlapOffset / 2f, 0f);
-        Vector2 posB = center + new Vector2(_overlapOffset / 2f, 0f);
-
-        var pathA = CreateShapeA(posA);
-        var pathB = CreateShapeB(posB);
+        var pathA = _pathA;
+        var pathB = _pathB;
+        if (pathA == null || pathB == null)
+        {
+            return;
+        }
 
         // Draw original outlines as light guidance lines
         var guidancePenA = new Pen(new SolidColorBrush(new Vector4(0.85f, 0.15f, 0.15f, 0.25f)), 1.5f);
@@ -144,11 +232,8 @@ public class PathOpsVisual : FrameworkElement
         context.DrawPath(null, guidancePenA, pathA);
         context.DrawPath(null, guidancePenB, pathB);
 
-        try
+        if (_result is { } result)
         {
-            // Execute path operation solver
-            var result = PathOpGeometrySolver.Combine(pathA, pathB, _operation);
-
             // Draw resulting filled shape
             var fillBrush = new SolidColorBrush(new Vector4(0f, 0.47f, 0.83f, 0.15f)); // Light blue accent fill
             var strokePen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 3.5f);
@@ -182,10 +267,14 @@ public class PathOpsVisual : FrameworkElement
                 }
             }
         }
-        catch (Exception ex)
+        else if (!string.IsNullOrEmpty(_error))
         {
             // Draw error message on WebGPU context errors
-            context.DrawText($"Error compiling: {ex.Message}", AppState.GetFont()!, 12f, new SolidColorBrush(new Vector4(1f, 0.2f, 0.2f, 1f)), new Vector2(20f, 20f));
+            context.DrawText($"Error compiling: {_error}", AppState.GetFont()!, 12f, new SolidColorBrush(new Vector4(1f, 0.2f, 0.2f, 1f)), new Vector2(20f, 20f));
+        }
+        else
+        {
+            context.DrawText("Computing path operation on WebGPU...", AppState.GetFont()!, 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(20f, 20f));
         }
     }
 }

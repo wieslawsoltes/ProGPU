@@ -9,6 +9,7 @@ ProGPU release packages are built from `eng/progpu-package-list.sh` by the `Rele
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.Backend` | WebGPU device, swapchain, Silk.NET windowing, and platform backend services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.svg)](https://www.nuget.org/packages/ProGPU.Backend/) |
+| `ProGPU.Browser` | Batched .NET WebAssembly dispatcher and `navigator.gpu` browser host services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Browser.svg)](https://www.nuget.org/packages/ProGPU.Browser/) |
 | `ProGPU.DirectX` | DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.DirectX.svg)](https://www.nuget.org/packages/ProGPU.DirectX/) |
 | `ProGPU.Transpiler` | Shader/source transformation helpers used by generated GPU pipelines. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Transpiler.svg)](https://www.nuget.org/packages/ProGPU.Transpiler/) |
 | `ProGPU.Compute` | Compute pipeline helpers for GPU-side effects, acceleration, and future hit-test indexes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Compute.svg)](https://www.nuget.org/packages/ProGPU.Compute/) |
@@ -32,6 +33,216 @@ Local package build:
 ```bash
 PROGPU_PACKAGE_VERSION=0.1.0-preview.18 ./eng/progpu-pack.sh
 ```
+
+## Browser WebGPU sample
+
+The gallery is split into a shared `ProGPU.Samples` library and thin `ProGPU.Samples.Desktop` and `ProGPU.Samples.Browser` hosts. The browser host publishes with the .NET WebAssembly SDK, negotiates WebGPU capabilities, sends aligned binary command packets directly from WASM memory, and passes embedded WGSL unchanged to `GPUDevice.createShaderModule`.
+
+### Prerequisites
+
+- .NET 10 SDK.
+- The `wasm-tools` workload for native relinking and AOT publishing.
+- A browser with WebGPU enabled. Current Chromium-based browsers are the primary development target.
+- An HTTP or HTTPS origin. `http://localhost` and `http://127.0.0.1` are suitable for local development; do not open the published `index.html` through a `file://` URL.
+
+Install or restore the WebAssembly workload once:
+
+```bash
+dotnet workload install wasm-tools
+dotnet workload restore src/ProGPU.slnx
+```
+
+### Use the browser host
+
+`ProGPU.Browser` is the reusable browser backend. It supplies the `navigator.gpu` implementation of `IWebGpuApi`, the batched command protocol, browser input and storage adapters, and the external WinUI-shaped window host. `ProGPU.Samples.Browser` shows the complete startup wiring while reusing every page and shader from the `ProGPU.Samples` library.
+
+To add a browser host to another ProGPU application:
+
+1. Create a `Microsoft.NET.Sdk.WebAssembly` executable targeting `net10.0` with `RuntimeIdentifier` set to `browser-wasm`.
+2. Reference `ProGPU.Browser` and the project containing the shared application and views.
+3. Copy [`src/ProGPU.Browser/BrowserAssets/progpu-browser.js`](src/ProGPU.Browser/BrowserAssets/progpu-browser.js) to the host's `wwwroot` as its JavaScript entry point, and provide an `index.html` containing the canvas selected by `BrowserAppHostOptions.CanvasSelector`.
+4. Call `BrowserGpuRuntime.InitializeAsync`, install its capabilities in a `BrowserWindowHost`, assign that host to `WindowHostServices.Current`, and run the shared application through `AppBuilder<TApplication>`.
+
+The browser sample's [`ProGPU.Samples.Browser.csproj`](src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj), [`Program.cs`](src/ProGPU.Samples.Browser/Program.cs), and [`index.html`](src/ProGPU.Samples.Browser/wwwroot/index.html) are a minimal working template. The shared UI belongs in `ProGPU.Samples`; only startup, canvas/DOM assets, and browser platform wiring belong in the thin browser host. See [`docs/browser.md`](docs/browser.md) for the command protocol, transport modes, and deployment model.
+
+### Browser implementation architecture
+
+The browser backend is an implementation of the same typed `IWebGpuApi` boundary used by desktop. Renderer, compositor, vector, text, compute, control, and sample code do not branch into a browser renderer. Only the host and WebGPU transport change:
+
+```mermaid
+flowchart LR
+    App["Shared C# application and controls"] --> Scene["Retained scene, text, vector, and compute"]
+    Scene --> Api["IWebGpuApi"]
+    Api --> Desktop["SilkWebGpuApi<br/>wgpu-native"]
+    Api --> BrowserApi["BrowserWebGpuApi<br/>browser-wasm"]
+    BrowserApi --> Packet["Reusable aligned binary command arena"]
+    Packet --> Interop["One coarse JS interop dispatch"]
+    Interop --> Decoder["progpu-browser.js packet decoder"]
+    Decoder --> WebGPU["navigator.gpu"]
+    Shader["Embedded WGSL shader resources"] --> Scene
+    Shader -->|"unchanged UTF-8 source"| WebGPU
+```
+
+The browser path is composed of these layers:
+
+- `ProGPU.Samples` contains the application, windows, pages, retained visuals, and every shader-using sample. It is a library shared unchanged by both hosts.
+- `ProGPU.Samples.Desktop` is a thin Silk.NET executable. `ProGPU.Samples.Browser` is a thin `Microsoft.NET.Sdk.WebAssembly` executable with the canvas, DOM shell, and JavaScript module.
+- `BrowserGpuRuntime.InitializeAsync` selects the canvas, requests an adapter/device/profile, chooses a transport, and returns a typed `BrowserGpuCapabilities` result. Unsupported capabilities fail during negotiation rather than rewriting application shaders.
+- `BrowserWindowHost` installs browser input, storage, clipboard, fallback font, and window services. Its `requestAnimationFrame` loop drains one fixed-width input batch, reads physical canvas size and DPI, then calls the ordinary `Window.RenderExternalFrame` path.
+- `BrowserWebGpuApi` implements renderer-facing WebGPU operations. It serializes resource descriptors, pass commands, copies, uploads, submission, mapping, and destruction into a versioned little-endian protocol. Packets have a 16-byte `PGPU` header, eight-byte-aligned commands, and generation-bearing handles that reject stale JavaScript resources.
+- `progpu-browser.js` reads packets directly from the current WebAssembly linear-memory view. It creates the corresponding `GPUDevice`, buffers, textures, bind groups, pipelines, render/compute passes, and queue operations without JSON or one JS call per draw. Upload payloads and mapped-buffer completion use separate coarse asynchronous seams where WebGPU requires them.
+- `MainThread`, `Worker`, and `IsolatedWorker` transports use the same packet format. `Auto` prefers a cross-origin-isolated shared-memory worker, then an `OffscreenCanvas` worker, and finally the main thread. All packets produced by one managed frame are handed to a worker as one ordered batch so the acquired surface texture remains valid for the complete frame.
+- Production WGSL remains in each owning project's `Shaders/` directory and is embedded by `ShaderResource`. The exact source used by desktop is carried through `ShaderModuleWGSLDescriptor` and passed directly to `GPUDevice.createShaderModule`; the browser does not transpile, fork, or maintain copies of those shaders.
+
+The standard browser canvas host currently supports one top-level `Window`. Popups remain ordinary compositor layers, so menus, flyouts, tooltips, and dialogs still share the same frame, input, and hot-reload tree.
+
+### Hot Reload architecture
+
+Desktop and browser Debug hosts use the same framework-level metadata update pipeline. `ProGPU.WinUI` registers `HotReloadManager` with the runtime through `MetadataUpdateHandlerAttribute`; the browser project additionally enables the .NET WebAssembly Hot Reload component in Debug.
+
+```mermaid
+flowchart LR
+    Edit["C# edit from dotnet watch or IDE"] --> Delta[".NET metadata/IL delta"]
+    Delta --> Clear["HotReloadManager.ClearCache"]
+    Delta --> Update["HotReloadManager.UpdateApplication"]
+    Clear --> Queue["Coalesced UIThread generation"]
+    Update --> Queue
+    Queue --> Maps["Original/replacement type mapping"]
+    Maps --> Hooks["Application and registered update hooks"]
+    Hooks --> Roots["Active windows, popups, and registered roots"]
+    Roots --> Choice{"Reload strategy"}
+    Choice --> InPlace["IHotReloadable.Reload"]
+    Choice --> Factory["Typed factory or development activator"]
+    Choice --> Page["Static NavigationView page factory refresh"]
+    Factory --> State["Capture and restore interaction state"]
+    Page --> State
+    InPlace --> Done["Invalidate layout/render and report result"]
+    State --> Done
+```
+
+Each runtime callback only queues work; reconciliation runs on `UIThread` before rendering. Multiple deltas arriving before the next UI turn become one generation. The manager clears reusable theme/style factory caches, maps replacement types back to their original live types, invokes application hooks, and walks active `Window` content, popup roots, plus roots registered by embedded hosts. Recursive theme-resource reevaluation is reserved for `ThemeManager`, `Style`, `ResourceDictionary`, `ThemeResource`, and conservative all-types updates; unrelated method-body edits leave the retained scene and unaffected controls intact.
+
+For an updated element, the manager uses these strategies in order:
+
+1. An `IHotReloadable` element rebuilds itself in place. This is the preferred choice for controls with explicit construction state or an existing `Build` method.
+2. A factory registered with `HotReloadManager.RegisterFactory<TElement>` recreates the element without reflection and is suitable for required constructor arguments.
+3. In an untrimmed modifiable development runtime, a parameterless element can be activated automatically. This reflection fallback is gated off when runtime metadata updates are unavailable, so Release AOT remains trim-safe.
+4. Cached `NavigationViewItem` pages created by static page factories are recreated when their factory owner type changes. Inactive cached pages are cleared and will use the updated factory when selected.
+5. If recreation is unavailable or fails, the old element stays live, is invalidated, and a diagnostic is reported; failure in one subtree does not stop the remaining roots.
+
+Replacement captures state recursively by stable `Name` with structural-path fallback. The built-in state store preserves local `DataContext`, text/password and caret/selection, check/toggle state, selector and pivot selection, navigation selection and pane state, data-grid selection, scroll/virtualization offsets, attached layout properties such as `Grid.Row`, focus, and custom `IHotReloadStateful` values. Loading/unloaded lifecycle events are isolated, immediate state is restored before the next draw, and layout-dependent scrolling/focus is restored on the following UI turn.
+
+Application authors can opt into the pipeline with small typed contracts:
+
+```csharp
+using Microsoft.UI.Xaml.HotReload;
+
+public sealed class LiveChart : Grid, IHotReloadable, IHotReloadStateful
+{
+    public void Reload(HotReloadContext context)
+    {
+        ClearChildren();
+        BuildChart();
+    }
+
+    public object? CaptureHotReloadState() => SelectedSeries;
+    public void RestoreHotReloadState(object? state) => SelectedSeries = state as string;
+}
+
+// Retain this IDisposable for as long as the factory should be active.
+var registration = HotReloadManager.RegisterFactory(
+    () => new ConstructorBoundControl(applicationService));
+```
+
+An `Application` may implement `IHotReloadable` to reapply window- or application-level configuration. Static shell builders can register an update callback and call `HotReloadManager.ReloadWindowContent`; custom containers whose backing collection must change with a visual child can implement `IHotReloadChildReplacer`. Embedded/non-window hosts register stable visual roots with `HotReloadManager.RegisterRoot(root)`. When the registered root itself can be recreated, use `HotReloadManager.RegisterRoot(root, replacement => host.Root = replacement)` so the framework can replace it atomically while preserving state.
+
+`HotReloadManager.UpdateStarted`, `UpdateCompleted`, `LastResult`, and `Diagnostic` expose generation, duration, replacement/reload/invalidation/failure counts, and isolated exceptions. Set `PROGPU_HOT_RELOAD=0` to disable framework reconciliation. Live metadata updates are a Debug development feature: Release AOT artifacts retain the same UI/browser architecture but do not activate metadata-update handlers.
+
+### Quick start
+
+From the repository root, restore and run the normal Debug build:
+
+```bash
+dotnet restore src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
+dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj -c Debug
+```
+
+Open the HTTP URL printed by the command. The sample itself is used like the desktop gallery: select pages from the navigation pane, interact with the controls and GPU samples, and use **Settings → Show Browser WebGPU Diagnostics** when transport or adapter details are needed.
+
+### Normal development mode (without AOT)
+
+Debug configuration uses the managed WebAssembly interpreter and keeps browser Hot Reload enabled. Build it without starting a server with:
+
+```bash
+dotnet build src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj -c Debug
+```
+
+For the normal edit/run loop, start the local server with `dotnet watch`:
+
+```bash
+dotnet watch --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj run -c Debug
+```
+
+Open the printed URL and leave `dotnet watch` running. Supported C# method-body edits are applied to the running browser application; use `Ctrl+R` in the watch terminal when an edit requires a restart and `Ctrl+C` to stop it. `dotnet run` can be used instead when Hot Reload is not needed.
+
+To create a deployable interpreter artifact—useful for fast deployment iterations or comparison with AOT—publish with AOT disabled explicitly:
+
+```bash
+dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj \
+  -c Release \
+  -p:RunAOTCompilation=false \
+  -o artifacts/browser-interpreter
+
+python3 -m http.server 8080 --directory artifacts/browser-interpreter/wwwroot
+```
+
+Then browse to `http://localhost:8080/`.
+
+### AOT mode: publish and run
+
+Release configuration enables managed WebAssembly AOT compilation, trimming, SIMD, and native relinking by default. AOT is a publish-time mode, so use `dotnet publish` rather than `dotnet run`:
+
+```bash
+dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj \
+  -c Release \
+  -o artifacts/browser-aot
+
+python3 -m http.server 8080 --directory artifacts/browser-aot/wwwroot
+```
+
+Open `http://localhost:8080/`. All ProGPU and sample assemblies are AOT compiled. `netDxf.netstandard` is intentionally retained in supported mixed interpreter/AOT mode because the .NET 10 Mono AOT compiler currently asserts while compiling that upstream assembly.
+
+The deployable application is the complete contents of `artifacts/browser-aot/wwwroot`; upload that directory to any static HTTP(S) host. Do not deploy its parent directory and do not open `index.html` with a `file://` URL.
+
+To confirm that a publish actually used AOT, inspect the publish log for `AOT'ing` and native WebAssembly linking steps. Browser Hot Reload is a Debug development feature and is not active in the trimmed Release AOT artifact. For a clean comparison between modes, remove the selected output directory before republishing so stale fingerprinted framework assets cannot be served.
+
+The two local deployment modes can use different ports when comparing them side by side:
+
+```bash
+python3 -m http.server 8080 --directory artifacts/browser-interpreter/wwwroot
+python3 -m http.server 8081 --directory artifacts/browser-aot/wwwroot
+```
+
+### GitHub Pages AOT deployment
+
+The [Browser Pages workflow](.github/workflows/browser-pages.yml) publishes the Release browser host with WebAssembly AOT and deploys `artifacts/browser-aot/wwwroot` whenever `main` changes. It can also be started manually from **Actions → Browser Pages → Run workflow**. The public gallery is available at [https://wieslawsoltes.github.io/ProGPU/](https://wieslawsoltes.github.io/ProGPU/) after the first successful deployment.
+
+The browser page uses relative asset URLs so the .NET runtime, worker module, styles, and fingerprinted framework files resolve beneath the `/ProGPU/` repository path. The published `.nojekyll` marker ensures GitHub Pages serves the `_framework` directory unchanged.
+
+### Runtime and diagnostics
+
+The browser host runs the shared retained gallery through the complete `IWebGpuApi` dispatcher. It supports main-thread, OffscreenCanvas worker, and cross-origin-isolated worker transports; batches DOM input once per frame; preserves asynchronous mapped-buffer read/write behavior; and sends the same embedded WGSL used by desktop directly to `GPUDevice.createShaderModule`.
+
+The status bar at the bottom of the gallery remains visible. The larger browser WebGPU diagnostics overlay reports the active transport, adapter/profile, frame count, dispatch count, and command bytes; it starts hidden and can be enabled from **Settings → Show Browser WebGPU Diagnostics**. Startup and WebGPU errors reveal it automatically.
+
+For cross-origin-isolated worker mode, configure the server to send:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Without these headers, `Auto` uses the ordinary OffscreenCanvas worker when available and falls back to main-thread rendering when canvas transfer is unavailable. See [the browser backend guide](docs/browser.md) for the full protocol, hosting, and capability details.
 
 Local publishing reads the API key from `NUGET_API_KEY` without storing it in the repository:
 
@@ -222,13 +433,13 @@ The opt-in sample harness reports wall-clock FPS, per-phase timings, allocation 
 Run the same deterministic workload from the repository root:
 
 ```bash
-dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release
 
 PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
 PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
 PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
 PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
-dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+dotnet run --project src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release --no-build
 ```
 
 Set `PROGPU_SAMPLE_BENCHMARK_VSYNC=false` for uncapped throughput, or change the page to `Markdown Playground` or `DXF CAD Viewer` to verify static-scene reuse. The first measured static frame may populate the cache; subsequent frames should report hits unless the page intentionally animates or invalidates.
@@ -794,65 +1005,55 @@ To eliminate floating-point coordinate drift and keep layout compilation cycles 
 ---
 
 
-### 16. Hardware-Accelerated Static DXF Rendering & Crisp Static Text Buffers
+### 16. End-to-End Retained GPU DXF Rendering
 
-CAD drawings (like DXF files) contain hundreds of thousands or millions of vector elements (lines, circles, polyline arcs, splines, and complex hatches). Recursively compiling these vector primitives from a dynamic visual tree every frame on camera changes (zoom/pan) is CPU-prohibitive.
+Large CAD drawings cannot be reinterpreted, reshaped, or rerasterized on every wheel event. The DXF sample therefore enables `DxfStaticBuffer` by default and treats it as the single retained boundary for both vector entities and text.
 
-ProGPU introduces **Hardware-Accelerated Static WebGPU Buffers** (Option B) which compiles all vector primitives once into a static, GPU-mapped vertex/index store (`DxfStaticBuffer`). Panning and zooming are executed entirely on the GPU via updates to the viewport uniforms, maintaining a locked 60+ FPS on massive, million-entity CAD models.
-
-#### The Blurry Text Dilemma
-While static geometry scales infinitely on the GPU, TrueType Font (TTF) text is drawn as textured quads pointing to a bitmap-cached `GlyphAtlas`. Zooming in stretches these pre-rendered quads, causing bilinear texture blur because the glyph atlas texture was rasterized at a static zoom scale.
-
-ProGPU resolves this by implementing **Crisp Static Text Buffers via Dynamic Re-compilation**:
+`DxfCanvasControl` records the document once at a neutral camera. `Compositor.CompileStaticDxf` then uploads persistent vector vertex/index buffers, brushes, extension state, unique glyph-outline records, analytic glyph segments, and glyph-instance transforms. A visible frame records one `DrawStaticDxf` command. Pan and zoom update only the 208-byte viewport uniform; they never revisit the DXF entity tree, shape text, allocate glyph geometry, insert an atlas entry, or upload an instance buffer.
 
 ```mermaid
-flowchart TD
-    ZoomChange{"Context.Zoom != _lastZoom?"}
-    ZoomChange -- No --> DrawStatic["Draw Static Dxf Buffer - 100% GPU Bound (Panning Free)"]
-    ZoomChange -- Yes --> Recompile["Trigger RecompileStaticText on CPU"]
-    
-    Recompile --> ScaleDPI["Scale effective dpiScale = _currentDpiScale * Context.Zoom"]
-    ScaleDPI --> RasterGlyph["Rasterize Glyph at physical FontSize * dpiScale * Zoom inside Atlas"]
-    RasterGlyph --> ModelSpace["Divide quad vertex coords by effective dpiScale (cancel out Zoom)"]
-    ModelSpace --> WriteGPU["Dynamic Copy-on-Write vertex/index re-upload to GpuBuffer"]
-    WriteGPU --> DrawStatic
+flowchart LR
+    DXF["DXF document"] --> Record["Record once at neutral camera"]
+    Record --> Vector["Retained vector/index buffers"]
+    Record --> Unique["Deduplicate font + glyph index"]
+    Unique --> Curves["Retained line/quadratic/cubic segments"]
+    Record --> Instances["Retained label transforms + colors"]
+    Camera["Pan / zoom"] --> Uniform["Write camera MVP only"]
+    Vector --> Draw["One static draw boundary"]
+    Curves --> GlyphShader["Analytic retained-glyph shader"]
+    Instances --> GlyphShader
+    Uniform --> Draw
+    Uniform --> GlyphShader
 ```
 
-* **Panning is Completely Free**: Since panning does not affect font size or rasterization dimensions, panning a static drawing remains 100% GPU-bound and runs with zero CPU overhead.
-* **Retina-Sharp Snapping**: On camera zoom changes, the compositor triggers a surgical, sub-millisecond re-compilation of ONLY the text commands using the new zoom factor:
-  $$\text{effectiveDpiScale} = \text{dpiScale} \cdot \text{Zoom}$$
-* **Glyph Sizing**: Glyphs are rasterized into the shared `GlyphAtlas` at their exact, high-resolution physical size (`FontSize * effectiveDpiScale`), ensuring pixel-perfect Retina snapping.
-* **Automatic Scaling Cancelation**: The compiled quad vertex positions ($v_0, v_1, v_2, v_3$) are divided by `effectiveDpiScale` to map them back to base model/world coordinates. When the vertex shader multiplies them by the custom model-to-screen MVP matrix (which scales by `Zoom`), the zoom factor is mathematically canceled out, mapping the quad 1-to-1 to physical screen pixels with zero texture stretching or blur!
+The retained lifetime and invalidation contract are explicit:
 
-#### High-Performance Zoom & Scaling Optimizations
-To support instantaneous zoom transitions on massive CAD models containing thousands of text elements (such as `Schemat IOS Karvina CZ.dxf`), ProGPU integrates three advanced graphics-pipeline optimizations:
+- Loading a different document or unloading the control disposes the old GPU buffers.
+- Disposal publishes the buffer's terminal state before releasing WebGPU handles and invalidates every compiled scene on the same `WgpuContext`. A static draw holds an allocation-free render lease until command encoding finishes; concurrent disposal defers resource release, and recompilation removes any already-disposed external buffer. This prevents a cached frame from passing a released vertex buffer to native WebGPU during document replacement, page unload, or resize.
+- Document identity, active layout, active-layer set, entity-flattening mode, viewport size, and backend-mode changes rebuild the static buffer.
+- Pan and zoom never invalidate retained content. Resize rebuilds because the neutral screen-space recording bounds changed.
+- Static compilation disables entity LOD and size culling. Geometry that is tiny at the initial fit remains present at deep zoom, including lines, circles, arcs, ellipses, polylines, splines, hatches, blocks, dimensions, and extension-backed entities.
+- Command caching is not stacked on the static buffer, so there is no duplicate `GpuPicture`, duplicated command tree, or second resource lifetime.
 
-1. **$O(\text{TextCount})$ Pre-Filtered Text Records Cache**:
-   - *Problem*: Scanning millions of drawing commands recursively on the CPU during zoomed snapping steps to filter out text elements introduced noticeable interface stutters.
-   - *Solution*: During the initial compilation of the static buffer, the compositor captures the exact `DrawText` commands and their parent block transformations into a flat `TextRecords` array in the `DxfStaticBuffer`:
-     ```csharp
-     public struct StaticTextRecord
-     {
-         public RenderCommand Command;
-         public Matrix4x4 Transform;
-     }
-     ```
-     Subsequent snapped zoom changes bypass the drawing hierarchy entirely and recompile only the text records, reducing complexity from $O(\text{TotalElements})$ to a highly efficient $O(\text{TextElements})$ execution.
+#### Retained glyph geometry and maximum-quality zoom
 
-2. **Discrete Font Snapping & Quad Scaling**:
-   - *Problem*: As the camera zoom levels increase, font sizes become extremely large (up to 128f), which rapidly bloats and thrashes the shared `GlyphAtlas` texture ($2048 \times 2048$), triggering frequent cache evictions. Computing 4-way subpixel snap coordinates for huge fonts also increases memory area consumption by $4\times$.
-   - *Solution*:
-     - **Clamping**: Caps the maximum physical font size rasterized into the atlas to `64f` (instead of `128f`). GPU bilinear filtering scales these large high-resolution sources up without visual quality loss, using $4\times$ less atlas area.
-     - **Size Snapping**: Snaps `rasterFontSize` to discrete steps (0.5px steps below 24px, 2px steps above 24px) for perfect cache hit ratios. Quad quad boundaries are scaled proportionally by `scaleRatio = physicalFontSize / rasterFontSize` to ensure mathematical size precision on screen remains 100% exact.
-     - **Subpixel Bypassing**: Disables subpixel snapping for font sizes larger than `24f` (since subpixel shifts are visually imperceptible on large characters), saving an additional $4\times$ in atlas footprint.
+Ordinary UI text still benefits from `GlyphAtlas`, but a fixed bitmap is the wrong representation for an unbounded CAD camera. Static DXF compilation takes the already-shaped glyph indices and stores each distinct `(TtfFont, glyphIndex)` outline once. Repeated characters add only `RetainedGlyphInstance` records containing the em transform, position, color, record index, coverage gamma, and rendering mode. The temporary CPU builder arrays become collectible after upload; the static buffer retains only counts and GPU resources.
 
-3. **WebGPU Queue & Driver Submission Batching**:
-   - *Problem*: Previously, rasterizing each new glyph synchronously created a temporary uniform buffer, constructed a WebGPU bind group, instantiated a command encoder, and immediately executed a sequential queue submission (`QueueSubmit`). For drawings with thousands of characters, this sequential driver loop caused severe CPU/GPU Metal synchronization bottlenecks on macOS.
-   - *Solution*: Implemented nestable batching APIs (`BeginBatch` / `EndBatch`) in `GlyphAtlas.cs` to pool and combine glyph compute dispatches. A normal scene records all new glyphs into one `CommandEncoder` and executes one `QueueSubmit`. The 256 KB uniform ring stores 1,024 256-byte-aligned dispatch records; exceptionally large batches flush before wrap and continue with a fresh encoder, so an unsubmitted dispatch can never observe overwritten uniforms. Submission complexity is $O(\lceil G / 1024 \rceil)$ for $G$ new glyphs, while raster work remains $O(P)$ for $P$ covered glyph pixels.
+The retained glyph shader reads compact placements from a read-only GPU storage buffer by `instance_index`, transforms one bounding quad per instance, and evaluates the original line, quadratic, and cubic contours in glyph-local coordinates. This storage-backed instance path is shared by native WebGPU and `navigator.gpu` and avoids backend-sensitive matrix vertex attributes. Non-zero/even-odd winding stays analytic and uses direction-aware half-open curve intervals. Grayscale coverage derives a one-device-pixel antialiasing ramp from the nearest contour; the fill boundary itself is never flattened or scaled from a texture. Quadratic and cubic chord samples are used only for the bounded edge-distance estimate (8 and 12 subdivisions respectively), while aliased text uses exact center winding. Solid outline text therefore remains sharp at arbitrary camera scales without an atlas-quality window or zoom-time reconstruction. Color/bitmap glyphs and non-solid paint keep their existing correctness fallbacks.
 
-4. **Stable Atlas Coordinates and Capacity Fallback**:
-   - *Problem*: Clearing a full atlas during compilation relocates UVs that earlier text vertices and static buffers still reference. Clearing proactively near capacity can also turn every changing frame into a full glyph re-rasterization cycle.
-   - *Solution*: Atlas allocation is transactional: a failed shelf placement does not mutate packing state, cached coordinates, or `Generation`. Existing glyphs remain reusable and the new glyph is rendered from its outline through the high-quality vector path. This avoids missing letters and cache thrash while preserving the same geometry and coverage policy. Capacity probing is O(1); an uncached fallback is O(S + P), where S is outline segment count and P is covered path pixels.
+For `G` distinct glyphs, `S` total analytic segments, and `I` placed glyphs, retained storage is `O(G + S + I)`. Static compilation is `O(S + I)`. A camera frame performs one uniform write plus retained draw submission; it performs zero work proportional to the DXF entity count on the CPU. The fragment shader costs `O(P*Sg + E*Sg*K)` for `P` glyph-quad fragments, edge-band fragments `E`, segments `Sg` in the referenced glyph, and fixed edge-distance bound `K`. Far interior and exterior fragments avoid curve-distance work.
+
+Run the optional representative-file regression from the repository root:
+
+```bash
+PROGPU_DXF_BENCHMARK_FILE=/absolute/path/to/large.dxf \
+PROGPU_DXF_BENCHMARK_SCREENSHOT=/absolute/path/output.png \
+dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj \
+  -c Release \
+  --filter FullyQualifiedName~Benchmark_DxfCanvasControl_ExternalLargeDrawingRetainsGeometryWhileZooming
+```
+
+The benchmark performs 24 zoom frames and requires exactly one document recording, one static-buffer compilation, zero text recompilations, an average below 8.33 ms, and a p95 below 8.33 ms (at least 120 FPS). On the supplied 1600x1000 `floorplan.dxf`, warmed storage-instance runs measured about 4.0-4.3 ms average, 6.8 ms p95, and no camera-frame resource churn. The optional screenshot preserves the final frame for pixel inspection.
 
 ---
 

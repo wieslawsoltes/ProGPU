@@ -659,6 +659,14 @@ public static class ThemeManager
 
     public static Style? GetDefaultStyle(Type controlType) => GetDefaultStyle(controlType, CurrentThemeFamily);
 
+    internal static void ClearHotReloadCaches()
+    {
+        NativeDefaultStyles.Clear();
+        DarkBrushCache.Clear();
+        LightBrushCache.Clear();
+        PenCache.Clear();
+    }
+
     public static Style? GetDefaultStyle(Type controlType, VisualThemeFamily themeFamily)
     {
         var family = themeFamily == VisualThemeFamily.Default ? CurrentThemeFamily : themeFamily;
@@ -1865,4 +1873,3 @@ public class SliderChrome : FrameworkElement
         }
     }
 }
-

@@ -363,6 +363,7 @@ public static class FontGlyphBrowserPage
             Font = _selectedFont,
             GlyphIndex = _selectedGlyphIndex,
             FontSize = 160f,
+            UseVectorGlyphRendering = true,
             WidthConstraint = 200f,
             HeightConstraint = 200f,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -414,7 +415,7 @@ public static class FontGlyphBrowserPage
         detailsStack.AddChild(createDetailRow("Glyph Index", _detailIndexText));
 
         _detailHexText = new RichTextBlock();
-        detailsStack.AddChild(createDetailRow("Hex Unicode", _detailHexText));
+        detailsStack.AddChild(createDetailRow("Glyph ID (hex)", _detailHexText));
 
         _detailColorsText = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
         _detailColorsBorder = new Border

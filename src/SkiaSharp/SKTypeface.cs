@@ -148,26 +148,36 @@ public partial class SKTypeface : IDisposable
         {
             if (_default == null)
             {
-                var systemFonts = FontApi.GetSystemFonts();
-                var selectedFont = FindPreferredFont(
-                    systemFonts,
-                    GetGenericFamilyPreferences(GenericFontFamily.SansSerif),
-                    SKFontStyle.Normal);
-                if (selectedFont == null && systemFonts.Count > 0)
-                {
-                    selectedFont = systemFonts[0];
-                }
-                if (selectedFont != null && !string.IsNullOrEmpty(selectedFont.FilePath))
-                {
-                    _default = new SKTypeface(CreateFont(selectedFont), selectedFont.FamilyName);
-                }
-                else
-                {
-                    throw new InvalidOperationException("No system fonts found to initialize default typeface.");
-                }
+                _default = ResolveDefaultTypeface(FontApi.GetSystemFonts(), FontApi.PlatformFallbackFont);
             }
             return _default;
         }
+    }
+
+    internal static SKTypeface ResolveDefaultTypeface(
+        IReadOnlyList<FontInfo> systemFonts,
+        TtfFont? platformFallbackFont)
+    {
+        ArgumentNullException.ThrowIfNull(systemFonts);
+
+        var selectedFont = FindPreferredFont(
+            systemFonts,
+            GetGenericFamilyPreferences(GenericFontFamily.SansSerif),
+            SKFontStyle.Normal);
+        if (selectedFont == null && systemFonts.Count > 0)
+        {
+            selectedFont = systemFonts[0];
+        }
+        if (selectedFont != null && !string.IsNullOrEmpty(selectedFont.FilePath))
+        {
+            return new SKTypeface(CreateFont(selectedFont), selectedFont.FamilyName);
+        }
+        if (platformFallbackFont != null)
+        {
+            return new SKTypeface(platformFallbackFont, platformFallbackFont.FamilyName);
+        }
+
+        throw new InvalidOperationException("No system or platform fallback fonts found to initialize default typeface.");
     }
 
     public static SKTypeface? FromStream(Stream stream, int index = 0)

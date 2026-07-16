@@ -116,7 +116,7 @@ public static class ComputeFxPage
             Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
     
             // Center WebGPU texture offscreen render Canvas (Column 1)
-            AppState._gearCanvasVisual = new GearCanvasVisual(AppState._font!)
+            AppState._gearCanvasVisual ??= new GearCanvasVisual(AppState._font!)
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch

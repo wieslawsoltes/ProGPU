@@ -711,9 +711,6 @@ public static class SamplePagePresenter
         contrastSlider.ValueChanged += (s, e) => updateVisuals();
         gammaSlider.ValueChanged += (s, e) => updateVisuals();
 
-        // Run initial sizing update
-        updateVisuals();
-
         stack.AddChild(grid);
         return scroll;
     }

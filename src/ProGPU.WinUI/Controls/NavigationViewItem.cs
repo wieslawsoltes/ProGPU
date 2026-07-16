@@ -156,6 +156,26 @@ public class NavigationViewItem : Control
         return _page;
     }
 
+    internal Type? PageFactoryOwnerType => _pageFactory?.Method.DeclaringType;
+
+    internal FrameworkElement? CachedPage => _page;
+
+    internal FrameworkElement? RecreatePageForHotReload()
+    {
+        _page = _pageFactory?.Invoke();
+        return _page;
+    }
+
+    internal void ClearPageForHotReload()
+    {
+        _page = null;
+    }
+
+    internal void RestorePageForHotReload(FrameworkElement? page)
+    {
+        _page = page;
+    }
+
     private NavigationView? FindParentNavigationView()
     {
         var p = Parent;

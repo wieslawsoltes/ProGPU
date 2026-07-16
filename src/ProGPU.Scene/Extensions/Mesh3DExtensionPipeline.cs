@@ -99,8 +99,8 @@ namespace ProGPU.Scene.Extensions
             {
                 UniformsBuffer.Dispose();
                 DynamicRecordsBuffer?.Dispose();
-                if (SolidBindGroup != null) context.Wgpu.BindGroupRelease(SolidBindGroup);
-                if (WireframeBindGroup != null) context.Wgpu.BindGroupRelease(WireframeBindGroup);
+                if (SolidBindGroup != null) context.Api.BindGroupRelease(SolidBindGroup);
+                if (WireframeBindGroup != null) context.Api.BindGroupRelease(WireframeBindGroup);
             }
         }
 
@@ -164,7 +164,7 @@ namespace ProGPU.Scene.Extensions
             _currentCompileIndex = 0;
             if (_pendingCommandBuffers.Count > 0)
             {
-                var wgpu = compositor.Context.Wgpu;
+                var wgpu = compositor.Context.Api;
                 for (int i = 0; i < _pendingCommandBuffers.Count; i++)
                 {
                     wgpu.CommandBufferRelease((CommandBuffer*)_pendingCommandBuffers[i]);
@@ -201,7 +201,7 @@ namespace ProGPU.Scene.Extensions
             if (payload == null || payload.Meshes.Count == 0 || payload.ColorTexture == null || payload.DepthTexture == null) return;
 
             _context = compositor.Context;
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
             var queue = compositor.Context.Queue;
             uint sampleCount = payload.SampleCount is 1 or 4 ? payload.SampleCount : 4u;
@@ -530,7 +530,7 @@ namespace ProGPU.Scene.Extensions
         {
             if (_pendingCommandBuffers.Count > 0)
             {
-                var wgpu = compositor.Context.Wgpu;
+                var wgpu = compositor.Context.Api;
                 var queue = compositor.Context.Queue;
 
                 int count = _pendingCommandBuffers.Count;

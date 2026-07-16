@@ -45,6 +45,23 @@ public class VirtualizedCodeEditor : Control
     private Task<SyntaxResources?>? _pendingSyntaxResources;
     private string _rawCode = "";
     private readonly List<List<Run>> _tokenizedLines = new();
+    private readonly bool _useLightweightSyntaxHighlighting;
+
+    public bool IsSyntaxHighlightingReady => _useLightweightSyntaxHighlighting || _grammar != null;
+
+    public int SyntaxTokenRunCount
+    {
+        get
+        {
+            var count = 0;
+            for (var lineIndex = 0; lineIndex < _tokenizedLines.Count; lineIndex++)
+            {
+                count += _tokenizedLines[lineIndex].Count;
+            }
+
+            return count;
+        }
+    }
 
     // Selection tracking state
     private bool _isSelecting = false;
@@ -83,13 +100,17 @@ public class VirtualizedCodeEditor : Control
         }
     }
 
-    public VirtualizedCodeEditor()
+    public VirtualizedCodeEditor(bool useLightweightSyntaxHighlighting = false)
     {
+        _useLightweightSyntaxHighlighting = useLightweightSyntaxHighlighting;
         Padding = new Thickness(0);
         Background = new ThemeResourceBrush("HeaderBackground");
         Foreground = new ThemeResourceBrush("TextPrimary");
-        
-        InitializeTextMate();
+
+        if (!_useLightweightSyntaxHighlighting)
+        {
+            InitializeTextMate();
+        }
 
         _panel = new VirtualizingScrollPanel();
         _panel.ItemHeight = _itemHeight;
@@ -196,8 +217,14 @@ public class VirtualizedCodeEditor : Control
 
     public static void WarmUpSyntaxHighlighting()
     {
-        _ = GetSyntaxResourcesAsync(ThemeName.DarkPlus);
-        _ = GetSyntaxResourcesAsync(ThemeName.LightPlus);
+        _ = WarmUpSyntaxHighlightingAsync();
+    }
+
+    public static Task WarmUpSyntaxHighlightingAsync()
+    {
+        return Task.WhenAll(
+            GetSyntaxResourcesAsync(ThemeName.DarkPlus),
+            GetSyntaxResourcesAsync(ThemeName.LightPlus));
     }
 
     private static Task<SyntaxResources?> GetSyntaxResourcesAsync(ThemeName themeName)
@@ -256,7 +283,10 @@ public class VirtualizedCodeEditor : Control
     protected override void OnThemeChanged()
     {
         base.OnThemeChanged();
-        InitializeTextMate();
+        if (!_useLightweightSyntaxHighlighting)
+        {
+            InitializeTextMate();
+        }
         SetCode(_rawCode);
     }
 
@@ -283,7 +313,7 @@ public class VirtualizedCodeEditor : Control
             _lines.Add(l);
         }
 
-        if (_registry == null || _grammar == null)
+        if (!_useLightweightSyntaxHighlighting && (_registry == null || _grammar == null))
         {
             InitializeTextMate();
         }
@@ -300,6 +330,15 @@ public class VirtualizedCodeEditor : Control
             {
                 lineRuns.Add(new Run(" ") { FontSize = _fontSize });
                 _tokenizedLines.Add(lineRuns);
+                continue;
+            }
+
+            if (_useLightweightSyntaxHighlighting)
+            {
+                _tokenizedLines.Add(CSharpColorizer.TokenizeCSharpLine(
+                    lineText,
+                    Foreground ?? ThemeManager.GetBrush("TextPrimary", ActualTheme),
+                    _fontSize));
                 continue;
             }
 

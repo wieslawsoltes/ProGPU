@@ -329,7 +329,7 @@ public class ArcPathCompilerTests
         string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");
 
         Assert.Contains(
-            "var result = new PathGeometry { FillRule = GetOutputFillRule(pathA, pathB, op) };",
+            "result = new PathGeometry { FillRule = GetOutputFillRule(pathA, pathB, op) };",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -363,28 +363,40 @@ public class ArcPathCompilerTests
     public void PathOperationSolverReadbackFailuresDisposeAllocatedGpuResources()
     {
         string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");
-        int cleanupIndex = source.IndexOf("finally\n                {", StringComparison.Ordinal);
+        int cleanupIndex = source.IndexOf("public void DisposeCore()", StringComparison.Ordinal);
 
-        Assert.True(cleanupIndex >= 0, "PathOpGeometrySolver.Combine should clean temporary GPU resources from a finally block.");
+        Assert.True(cleanupIndex >= 0, "PathOpGeometrySolver should own temporary GPU resources in a disposable async-work object.");
 
         string cleanup = source[cleanupIndex..];
-        Assert.Contains("if (stagingBuffer != null)", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BufferDestroy(stagingBuffer);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BufferRelease(stagingBuffer);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("CommandBufferRelease(cmdBuffer);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("CommandEncoderRelease(encoder);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupRelease(bgGeom);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(bindGroupLayoutGeom);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupRelease(bgFinal);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(bindGroupLayoutFinal);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("recordsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("segmentsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("recordsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("segmentsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("destRecordBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("destSegmentsBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("uniformBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("cache?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("if (_stagingBuffer != null)", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BufferDestroy(_stagingBuffer);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BufferRelease(_stagingBuffer);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("CommandBufferRelease(_cmdBuffer);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("CommandEncoderRelease(_encoder);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupRelease(_bgGeom);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutGeom);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupRelease(_bgFinal);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutFinal);", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_recordsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_segmentsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_recordsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_segmentsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_destRecordBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_destSegmentsBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_uniformBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("_cache?.Dispose();", cleanup, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PathOperationSolverUsesAotSafeAsyncReadback()
+    {
+        string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");
+
+        Assert.Contains("public static Task<PathGeometry> CombineAsync", source, StringComparison.Ordinal);
+        Assert.Contains("_context.Api.BufferMapAsyncTask", source, StringComparison.Ordinal);
+        Assert.Contains("[UnmanagedCallersOnly", source, StringComparison.Ordinal);
+        Assert.Contains("new PfnBufferMapCallback(&OnBufferMapped)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("PfnBufferMapCallback.From", source, StringComparison.Ordinal);
     }
 
     private static PathGeometry CreatePartialCircleArcPath()

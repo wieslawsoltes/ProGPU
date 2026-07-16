@@ -68,10 +68,13 @@ namespace ProGPU.Samples
         public static FrameworkElement Create()
         {
             _benchmarkScrollDirection = 1f;
-            // Register TextMate-based code block factory for preview panel
+            // Code-block editors request the shared TextMate resources only when the preview
+            // actually contains code. They render an immediate plain-text fallback and recolor
+            // in place when the active theme grammar becomes ready.
             MarkdownParser.CodeBlockFactory = (code, language) =>
             {
-                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor
+                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor(
+                    useLightweightSyntaxHighlighting: true)
                 {
                     Font = AppState.GetFontCourier() ?? AppState.GetFont(),
                     Margin = new Thickness(0, 4, 0, 12),
@@ -79,12 +82,9 @@ namespace ProGPU.Samples
                     VerticalAlignment = VerticalAlignment.Top
                 };
                 editor.SetCode(code);
-                
-                // Calculate dynamic height based on number of lines, clamped between 60f and 260f
-                var lines = code.Split('\n');
-                float height = Math.Clamp(lines.Length * 22f + 10f, 60f, 260f);
-                editor.HeightConstraint = height;
-                
+
+                var lineCount = code.AsSpan().Count('\n') + 1;
+                editor.HeightConstraint = Math.Clamp(lineCount * 22f + 10f, 60f, 260f);
                 return editor;
             };
 
@@ -262,7 +262,9 @@ namespace ProGPU.Samples
                 VerticalAlignment = VerticalAlignment.Stretch
             };
             _editorControl.Inlines.Clear();
-            _editorControl.Inlines.Add(new Run(GetDefaultTemplateText()));
+            _editorControl.Inlines.Add(new Run(OperatingSystem.IsBrowser()
+                ? GetDefaultTemplateText()
+                : string.Empty));
             editorContainerGrid.AddChild(_editorControl);
             Microsoft.UI.Xaml.Controls.Grid.SetRow(_editorControl, 1);
             workspaceGrid.AddChild(editorContainerGrid);
@@ -291,7 +293,9 @@ namespace ProGPU.Samples
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
-            _previewControl.Markdown = GetDefaultTemplateText();
+            _previewControl.Markdown = OperatingSystem.IsBrowser()
+                ? GetDefaultTemplateText()
+                : string.Empty;
             _previewScroll.Content = _previewControl;
 
             workspaceGrid.AddChild(previewBorder);
@@ -475,9 +479,38 @@ namespace ProGPU.Samples
                 }
             };
 
-            // Force dynamic layout pass and invalidation on startup to ensure instant rendering
-            _editorControl?.Invalidate();
-            _previewControl?.Invalidate();
+            if (!OperatingSystem.IsBrowser())
+            {
+                // Present the lightweight shell first, then populate the preview and editor on
+                // separate frames. The immediate main-style frame allocates roughly 350 MB for
+                // both text-heavy panes and can stall in GC; staging keeps each frame bounded.
+                var initialMarkdown = GetDefaultTemplateText();
+                var initialEditor = _editorControl;
+                var initialPreview = _previewControl;
+                var initialStatus = _statusText;
+                UIThread.Post(() => UIThread.Post(() =>
+                {
+                    if (string.IsNullOrEmpty(initialPreview.Markdown))
+                    {
+                        initialPreview.Markdown = initialMarkdown;
+
+                        UIThread.Post(() =>
+                        {
+                            if (initialEditor.Inlines.Count == 1 &&
+                                initialEditor.Inlines[0] is Run { Text.Length: 0 })
+                            {
+                                initialEditor.Inlines.Clear();
+                                initialEditor.Inlines.Add(new Run(initialMarkdown));
+                                initialEditor.Invalidate();
+                            }
+
+                            initialStatus.Inlines.Clear();
+                            initialStatus.Inlines.Add(new Run("Idle. Live preview active."));
+                            initialStatus.Invalidate();
+                        });
+                    }
+                }));
+            }
 
             return rootGrid;
         }

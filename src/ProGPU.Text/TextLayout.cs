@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ProGPU.Text;
 
@@ -26,6 +27,8 @@ public struct TextRunGlyph
 
 public class TextLayout
 {
+    private const long SharedFallbackFontFileSizeLimit = 16L * 1024L * 1024L;
+
     private readonly struct LineRange
     {
         public LineRange(int start, int count)
@@ -49,7 +52,15 @@ public class TextLayout
     private static readonly Lazy<IReadOnlyList<FontInfo>> FallbackFontInfos = new(
         CreateFallbackFontInfos,
         LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<TtfFont?>> SharedFallbackFonts = new();
     private static readonly ConcurrentDictionary<(string Path, int FaceIndex, ushort GlyphIndex), Lazy<TtfFont?>> FallbackFonts = new();
+    private static readonly ConcurrentDictionary<string, bool> SharedFallbackDecisions = new(
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
+    private static readonly Lazy<Task> FallbackMetadataWarmup = new(
+        static () => Task.Run(static () => _ = FallbackFontInfos.Value),
+        LazyThreadSafetyMode.ExecutionAndPublication);
 
     private static int EstimateGlyphCapacity(string text)
     {
@@ -114,6 +125,15 @@ public class TextLayout
         return fallbackFontInfos;
     }
 
+    /// <summary>
+    /// Warms the small fallback-face inventory without constructing fonts or retaining
+    /// glyph outlines. Hosts can call this during startup so page activation does no I/O discovery.
+    /// </summary>
+    public static Task WarmUpFallbackMetadataAsync()
+    {
+        return FallbackMetadataWarmup.Value;
+    }
+
     private static bool TryResolveFallback(uint codePoint, out TtfFont? font, out ushort glyphIndex)
     {
         IReadOnlyList<FontInfo> fallbackFontInfos = FallbackFontInfos.Value;
@@ -125,12 +145,7 @@ public class TextLayout
                 continue;
             }
 
-            var key = (info.FilePath, info.FaceIndex, metadataGlyphIndex);
-            font = FallbackFonts.GetOrAdd(
-                key,
-                static value => new Lazy<TtfFont?>(
-                    () => LoadFallbackFont(value.Path, value.FaceIndex, value.GlyphIndex),
-                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            font = GetOrLoadFallbackFont(info.FilePath, info.FaceIndex, metadataGlyphIndex);
             if (font is not null)
             {
                 glyphIndex = font.GetGlyphIndex(codePoint);
@@ -146,15 +161,65 @@ public class TextLayout
         return false;
     }
 
-    private static TtfFont? LoadFallbackFont(string path, int faceIndex, ushort glyphIndex)
+    internal static TtfFont? GetOrLoadFallbackFont(string path, int faceIndex, ushort glyphIndex)
+    {
+        if (ShouldShareFallbackFace(path))
+        {
+            return SharedFallbackFonts.GetOrAdd(
+                (path, faceIndex),
+                static value => new Lazy<TtfFont?>(
+                    () => LoadSharedFallbackFont(value.Path, value.FaceIndex),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        }
+
+        return FallbackFonts.GetOrAdd(
+            (path, faceIndex, glyphIndex),
+            static value => new Lazy<TtfFont?>(
+                () => LoadGlyphResidentFallbackFont(value.Path, value.FaceIndex, value.GlyphIndex),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    private static bool ShouldShareFallbackFace(string path)
+    {
+        return SharedFallbackDecisions.GetOrAdd(
+            path,
+            static candidate =>
+            {
+                try
+                {
+                    return new System.IO.FileInfo(candidate).Length <= SharedFallbackFontFileSizeLimit;
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+            });
+    }
+
+    private static TtfFont? LoadSharedFallbackFont(string path, int faceIndex)
+    {
+        try
+        {
+            var font = new TtfFont(path, faceIndex);
+            ProGpuTextDiagnostics.WriteLine($"[TextLayout] Loaded shared system fallback font face {faceIndex}: {path}");
+            return font;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ProGpuTextDiagnostics.WriteLine($"[TextLayout] Warning: Failed to load shared fallback font face {faceIndex} from '{path}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private static TtfFont? LoadGlyphResidentFallbackFont(string path, int faceIndex, ushort glyphIndex)
     {
         try
         {
             var font = TtfFont.LoadGlyphResidentFile(path, faceIndex, glyphIndex);
-            ProGpuTextDiagnostics.WriteLine($"[TextLayout] Loaded system fallback font face {faceIndex}: {path}");
+            ProGpuTextDiagnostics.WriteLine($"[TextLayout] Loaded glyph-resident system fallback font face {faceIndex}: {path}");
             return font;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             ProGpuTextDiagnostics.WriteLine($"[TextLayout] Warning: Failed to load fallback font face {faceIndex} from '{path}': {ex.Message}");
             return null;

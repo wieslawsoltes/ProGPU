@@ -1156,7 +1156,7 @@ public static unsafe class GpuHitTestEngine
 
             try
             {
-                bindGroupLayout = context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
+                bindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
                 var entries = stackalloc BindGroupEntry[6];
                 entries[0] = new BindGroupEntry { Binding = 0, Buffer = deviceIndex.QueryBuffer.BufferPtr, Offset = 0, Size = deviceIndex.QueryBuffer.Size };
                 entries[1] = new BindGroupEntry { Binding = 1, Buffer = deviceIndex.NodeBuffer.BufferPtr, Offset = 0, Size = deviceIndex.NodeBuffer.Size };
@@ -1171,14 +1171,14 @@ public static unsafe class GpuHitTestEngine
                     EntryCount = 6,
                     Entries = entries
                 };
-                bindGroup = context.Wgpu.DeviceCreateBindGroup(context.Device, &bgDesc);
+                bindGroup = context.Api.DeviceCreateBindGroup(context.Device, &bgDesc);
                 if (bindGroup == null)
                 {
                     throw new InvalidOperationException("Failed to create GPU hit-test bind group.");
                 }
 
                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("GPU Hit Test Encoder") };
-                encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+                encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
                 SilkMarshal.Free((nint)encoderDesc.Label);
                 if (encoder == null)
                 {
@@ -1186,25 +1186,25 @@ public static unsafe class GpuHitTestEngine
                 }
 
                 var passDesc = new ComputePassDescriptor();
-                var pass = context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-                context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
-                context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-                context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
-                context.Wgpu.ComputePassEncoderEnd(pass);
-                context.Wgpu.ComputePassEncoderRelease(pass);
+                var pass = context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+                context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+                context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+                context.Api.ComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
+                context.Api.ComputePassEncoderEnd(pass);
+                context.Api.ComputePassEncoderRelease(pass);
 
                 var commandBufferDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("GPU Hit Test Submit") };
-                commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+                commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
                 SilkMarshal.Free((nint)commandBufferDesc.Label);
                 if (commandBuffer == null)
                 {
                     throw new InvalidOperationException("Failed to finish GPU hit-test command encoder.");
                 }
 
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
                 commandBuffer = null;
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
                 encoder = null;
 
                 Span<byte> bytes = stackalloc byte[ResultBufferSizeBytes];
@@ -1216,22 +1216,22 @@ public static unsafe class GpuHitTestEngine
             {
                 if (commandBuffer != null)
                 {
-                    context.Wgpu.CommandBufferRelease(commandBuffer);
+                    context.Api.CommandBufferRelease(commandBuffer);
                 }
 
                 if (encoder != null)
                 {
-                    context.Wgpu.CommandEncoderRelease(encoder);
+                    context.Api.CommandEncoderRelease(encoder);
                 }
 
                 if (bindGroup != null)
                 {
-                    context.Wgpu.BindGroupRelease(bindGroup);
+                    context.Api.BindGroupRelease(bindGroup);
                 }
 
                 if (bindGroupLayout != null)
                 {
-                    context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
+                    context.Api.BindGroupLayoutRelease(bindGroupLayout);
                 }
             }
         }
@@ -1467,7 +1467,7 @@ public static unsafe class GpuHitTestEngine
 
             try
             {
-                bindGroupLayout = context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
+                bindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
                 var entries = stackalloc BindGroupEntry[6];
                 entries[0] = new BindGroupEntry { Binding = 0, Buffer = deviceIndex.QueryBuffer.BufferPtr, Offset = 0, Size = deviceIndex.QueryBuffer.Size };
                 entries[1] = new BindGroupEntry { Binding = 1, Buffer = deviceIndex.NodeBuffer.BufferPtr, Offset = 0, Size = deviceIndex.NodeBuffer.Size };
@@ -1482,14 +1482,14 @@ public static unsafe class GpuHitTestEngine
                     EntryCount = 6,
                     Entries = entries
                 };
-                bindGroup = context.Wgpu.DeviceCreateBindGroup(context.Device, &bgDesc);
+                bindGroup = context.Api.DeviceCreateBindGroup(context.Device, &bgDesc);
                 if (bindGroup == null)
                 {
                     throw new InvalidOperationException("Failed to create GPU hit-test bind group.");
                 }
 
                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("GPU Hit Test List Encoder") };
-                encoder = context.Wgpu.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
+                encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDesc);
                 SilkMarshal.Free((nint)encoderDesc.Label);
                 if (encoder == null)
                 {
@@ -1497,25 +1497,25 @@ public static unsafe class GpuHitTestEngine
                 }
 
                 var passDesc = new ComputePassDescriptor();
-                var pass = context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-                context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
-                context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-                context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
-                context.Wgpu.ComputePassEncoderEnd(pass);
-                context.Wgpu.ComputePassEncoderRelease(pass);
+                var pass = context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+                context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+                context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+                context.Api.ComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
+                context.Api.ComputePassEncoderEnd(pass);
+                context.Api.ComputePassEncoderRelease(pass);
 
                 var commandBufferDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("GPU Hit Test List Submit") };
-                commandBuffer = context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+                commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
                 SilkMarshal.Free((nint)commandBufferDesc.Label);
                 if (commandBuffer == null)
                 {
                     throw new InvalidOperationException("Failed to finish GPU hit-test command encoder.");
                 }
 
-                context.Wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
-                context.Wgpu.CommandBufferRelease(commandBuffer);
+                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Api.CommandBufferRelease(commandBuffer);
                 commandBuffer = null;
-                context.Wgpu.CommandEncoderRelease(encoder);
+                context.Api.CommandEncoderRelease(encoder);
                 encoder = null;
 
                 int readSizeBytes = checked(initialResults.Length * resultSize);
@@ -1553,22 +1553,22 @@ public static unsafe class GpuHitTestEngine
             {
                 if (commandBuffer != null)
                 {
-                    context.Wgpu.CommandBufferRelease(commandBuffer);
+                    context.Api.CommandBufferRelease(commandBuffer);
                 }
 
                 if (encoder != null)
                 {
-                    context.Wgpu.CommandEncoderRelease(encoder);
+                    context.Api.CommandEncoderRelease(encoder);
                 }
 
                 if (bindGroup != null)
                 {
-                    context.Wgpu.BindGroupRelease(bindGroup);
+                    context.Api.BindGroupRelease(bindGroup);
                 }
 
                 if (bindGroupLayout != null)
                 {
-                    context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
+                    context.Api.BindGroupLayoutRelease(bindGroupLayout);
                 }
 
                 if (rentedInitialResults != null)

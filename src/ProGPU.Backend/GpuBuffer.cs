@@ -38,7 +38,7 @@ public unsafe class GpuBuffer : IDisposable
             MappedAtCreation = false
         };
 
-        BufferPtr = _context.Wgpu.DeviceCreateBuffer(_context.Device, &desc);
+        BufferPtr = _context.Api.DeviceCreateBuffer(_context.Device, &desc);
         SilkMarshal.Free(labelPtr);
 
         if (BufferPtr == null)
@@ -123,7 +123,7 @@ public unsafe class GpuBuffer : IDisposable
     {
         fixed (byte* ptr = data)
         {
-            _context.Wgpu.QueueWriteBuffer(_context.Queue, BufferPtr, offsetBytes, ptr, (uint)data.Length);
+            _context.Api.QueueWriteBuffer(_context.Queue, BufferPtr, offsetBytes, ptr, (uint)data.Length);
         }
     }
 
@@ -199,14 +199,14 @@ public unsafe class GpuBuffer : IDisposable
             Size = copyRange.SizeBytes,
             MappedAtCreation = false
         };
-        var readbackBuffer = _context.Wgpu.DeviceCreateBuffer(_context.Device, &readbackDesc);
+        var readbackBuffer = _context.Api.DeviceCreateBuffer(_context.Device, &readbackDesc);
         if (readbackBuffer == null)
         {
             throw new InvalidOperationException("Failed to create readback buffer.");
         }
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Buffer Readback Encoder") };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
         if (encoder == null)
         {
@@ -214,7 +214,7 @@ public unsafe class GpuBuffer : IDisposable
             throw new InvalidOperationException("Failed to create command encoder for buffer readback.");
         }
 
-        _context.Wgpu.CommandEncoderCopyBufferToBuffer(
+        _context.Api.CommandEncoderCopyBufferToBuffer(
             encoder,
             BufferPtr,
             copyRange.OffsetBytes,
@@ -223,18 +223,18 @@ public unsafe class GpuBuffer : IDisposable
             copyRange.SizeBytes);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Buffer Readback Command Buffer") };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
         if (commandBuffer == null)
         {
-            _context.Wgpu.CommandEncoderRelease(encoder);
+            _context.Api.CommandEncoderRelease(encoder);
             QueueTemporaryReadbackBufferDisposal(readbackBuffer);
             throw new InvalidOperationException("Failed to finish buffer readback command encoder.");
         }
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         MapReadBuffer(readbackBuffer, 0, copyRange.SizeBytes, copyRange.LeadingBytes, destination, destroyAfterRead: true);
     }
@@ -255,7 +255,7 @@ public unsafe class GpuBuffer : IDisposable
             mapSignal.Set();
         });
 
-        _context.Wgpu.BufferMapAsync(buffer, MapMode.Read, offsetBytes, (nuint)sizeBytes, onMapped, null);
+        _context.Api.BufferMapAsync(buffer, MapMode.Read, offsetBytes, (nuint)sizeBytes, onMapped, null);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         while (!mapSignal.IsSet)
@@ -275,7 +275,7 @@ public unsafe class GpuBuffer : IDisposable
             throw new InvalidOperationException($"Failed to map readback buffer. WebGPU Status: {mapStatus}");
         }
 
-        var mappedPtr = _context.Wgpu.BufferGetConstMappedRange(buffer, offsetBytes, (nuint)sizeBytes);
+        var mappedPtr = _context.Api.BufferGetConstMappedRange(buffer, offsetBytes, (nuint)sizeBytes);
         if (mappedPtr != null)
         {
             new ReadOnlySpan<byte>(
@@ -283,7 +283,7 @@ public unsafe class GpuBuffer : IDisposable
                 destination.Length).CopyTo(destination);
         }
 
-        _context.Wgpu.BufferUnmap(buffer);
+        _context.Api.BufferUnmap(buffer);
         if (destroyAfterRead)
         {
             QueueTemporaryReadbackBufferDisposal(buffer);

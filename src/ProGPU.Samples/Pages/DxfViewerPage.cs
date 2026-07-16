@@ -38,11 +38,15 @@ public class DxfCanvasControl : FrameworkElement
     private int _lastActiveLayersHash;
     private GpuPicture? _cachedPicture;
     private float _lastZoom;
-    private float _lastSnappedZoom = -1f;
     private Vector2 _lastPan;
     private bool _lastEnableGpuTransforms;
     private bool _lastEnableStaticGpuBuffers;
+    private bool _lastEnableFlattening;
     private Vector2 _lastSize;
+
+    public int DocumentRenderCount { get; private set; }
+    public int StaticBufferCompileCount { get; private set; }
+    public int StaticTextRecompileCount { get; private set; }
 
     private int GetActiveLayersHash()
     {
@@ -68,15 +72,20 @@ public class DxfCanvasControl : FrameworkElement
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
         PointerWheelChanged += OnPointerWheelChanged;
+        Unloaded += (_, _) => ReleaseRetainedContent();
     }
 
     public void LoadDocument(DxfDocument doc, string? filePath = null)
     {
+        ReleaseRetainedContent();
         Context.FilePath = filePath;
         Document = doc;
         _firstLayout = true;
         _cachedPicture = null;
         _needsRecompile = true;
+        DocumentRenderCount = 0;
+        StaticBufferCompileCount = 0;
+        StaticTextRecompileCount = 0;
 
         // Initialize visible layer mappings and default colors
         Context.ActiveLayers.Clear();
@@ -166,15 +175,17 @@ public class DxfCanvasControl : FrameworkElement
         if (AppState.EnableStaticGpuBuffers)
         {
             // --- OPTION B: Hardware-Accelerated Static WebGPU Buffers ---
-            // Compiles in screen space once at Zoom=1.0 and Pan=0, and zooms/pans entirely on the GPU.
-            // This is extremely fast (60+ FPS on massive models) but results in minor texture-scaling effects.
+            // Compile geometry once in screen space at Zoom=1 and retain it in GPU buffers.
+            // Camera changes update uniforms; text coverage stays at or above device resolution
+            // and is rebuilt only when its bounded supersampling window is crossed.
             int layersHash = GetActiveLayersHash();
-            bool invalidateCache = _cachedPicture == null 
+            bool invalidateCache = _staticBuffer == null
                 || Context.FilePath != _lastFilePath 
                 || Document.ActiveLayout != _lastActiveLayout 
                 || layersHash != _lastActiveLayersHash
                 || AppState.EnableGpuTransforms != _lastEnableGpuTransforms
                 || AppState.EnableStaticGpuBuffers != _lastEnableStaticGpuBuffers
+                || Context.EnableFlattening != _lastEnableFlattening
                 || Size != _lastSize;
 
             if (invalidateCache || _needsRecompile || _staticBuffer == null)
@@ -187,8 +198,10 @@ public class DxfCanvasControl : FrameworkElement
                 _lastPan = Context.Pan;
                 _lastEnableGpuTransforms = AppState.EnableGpuTransforms;
                 _lastEnableStaticGpuBuffers = AppState.EnableStaticGpuBuffers;
+                _lastEnableFlattening = Context.EnableFlattening;
                 _lastSize = Size;
 
+                _cachedPicture?.Dispose();
                 _cachedPicture = null;
                 _staticBuffer?.Dispose();
                 _staticBuffer = null;
@@ -200,65 +213,46 @@ public class DxfCanvasControl : FrameworkElement
                     Vector2 savedCenter = Context.Center;
                     Vector2 savedScreenCenter = Context.ScreenCenter;
                     bool savedEnableGpuTransforms = Context.EnableGpuTransforms;
+                    bool savedEnableLod = Context.EnableLod;
                     bool savedIsCompilingStatic = Context.IsCompilingStatic;
 
-                    // Compile in screen space at Zoom=1.0 and Pan=0 for the static buffer.
-                    Context.Zoom = 1.0f;
-                    Context.Pan = Vector2.Zero;
-                    Context.Center = savedCenter;
-                    Context.ScreenCenter = savedScreenCenter;
-                    Context.EnableGpuTransforms = false;
-                    Context.IsCompilingStatic = true;
-
-                    Context.DrawingContext.Clear();
-                    DxfDocumentRenderer.Render(Document, Context);
-
-                    if (AppState.EnableCommandCaching)
+                    try
                     {
-                        var recorder = new GpuPictureRecorder();
-                        var recCtx = recorder.BeginRecording(new Rect(0, 0, Size.X, Size.Y));
-                        var oldCtx = Context.DrawingContext;
-                        Context.DrawingContext = recCtx;
+                        // Static compilation is itself the retained command boundary.
+                        // Record the document once at a neutral camera without creating
+                        // a second intermediate picture or dropping any quality LOD.
+                        Context.Zoom = 1.0f;
+                        Context.Pan = Vector2.Zero;
+                        Context.Center = savedCenter;
+                        Context.ScreenCenter = savedScreenCenter;
+                        Context.EnableGpuTransforms = false;
+                        Context.EnableLod = false;
+                        Context.IsCompilingStatic = true;
+
+                        Context.DrawingContext.Clear();
                         DxfDocumentRenderer.Render(Document, Context);
-                        Context.DrawingContext = oldCtx;
+                        DocumentRenderCount++;
 
-                        _cachedPicture = recorder.EndRecording();
+                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(
+                            Context.DrawingContext,
+                            staticZoom: 1.0f);
+                        StaticBufferCompileCount++;
                     }
-
-                    float snappedZoom = MathF.Pow(1.2f, MathF.Round(MathF.Log(savedZoom) / MathF.Log(1.2f)));
-                    _lastSnappedZoom = snappedZoom;
-
-                    if (_cachedPicture != null)
+                    finally
                     {
-                        var tempCtx = new DrawingContext();
-                        tempCtx.DrawPicture(_cachedPicture);
-                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(tempCtx, snappedZoom);
+                        Context.Zoom = savedZoom;
+                        Context.Pan = savedPan;
+                        Context.Center = savedCenter;
+                        Context.ScreenCenter = savedScreenCenter;
+                        Context.EnableGpuTransforms = savedEnableGpuTransforms;
+                        Context.EnableLod = savedEnableLod;
+                        Context.IsCompilingStatic = savedIsCompilingStatic;
                     }
-                    else
-                    {
-                        _staticBuffer = AppState._screenCompositor.CompileStaticDxf(Context.DrawingContext, snappedZoom);
-                    }
-
-                    // Restore properties
-                    Context.Zoom = savedZoom;
-                    Context.Pan = savedPan;
-                    Context.Center = savedCenter;
-                    Context.ScreenCenter = savedScreenCenter;
-                    Context.EnableGpuTransforms = savedEnableGpuTransforms;
-                    Context.IsCompilingStatic = savedIsCompilingStatic;
                 }
             }
 
             if (_staticBuffer != null && Size.X > 0 && Size.Y > 0)
             {
-                float snappedZoom = MathF.Pow(1.2f, MathF.Round(MathF.Log(Context.Zoom) / MathF.Log(1.2f)));
-                if (snappedZoom != _lastSnappedZoom && AppState._screenCompositor != null)
-                {
-                    _lastSnappedZoom = snappedZoom;
-                    _lastZoom = Context.Zoom;
-                    AppState._screenCompositor.RecompileStaticText(_staticBuffer, snappedZoom);
-                }
-
                 var projection = new Matrix4x4(
                     2.0f / Size.X, 0f, 0f, 0f,
                     0f, -2.0f / Size.Y, 0f, 0f,
@@ -279,12 +273,13 @@ public class DxfCanvasControl : FrameworkElement
             // Renders natively at perfect retina screen-space resolution on every camera change.
             // Bypasses static buffers to maintain 100% crisp text/paths and stable 1-pixel line thicknesses at all times.
             int layersHash = GetActiveLayersHash();
-            bool invalidateCache = _cachedPicture == null 
+            bool invalidateCache = _cachedPicture == null
                 || Context.FilePath != _lastFilePath 
                 || Document.ActiveLayout != _lastActiveLayout 
                 || layersHash != _lastActiveLayersHash
                 || AppState.EnableGpuTransforms != _lastEnableGpuTransforms
                 || AppState.EnableStaticGpuBuffers != _lastEnableStaticGpuBuffers
+                || Context.EnableFlattening != _lastEnableFlattening
                 || Size != _lastSize;
 
             if (!AppState.EnableGpuTransforms)
@@ -309,8 +304,10 @@ public class DxfCanvasControl : FrameworkElement
                 _lastPan = Context.Pan;
                 _lastEnableGpuTransforms = AppState.EnableGpuTransforms;
                 _lastEnableStaticGpuBuffers = AppState.EnableStaticGpuBuffers;
+                _lastEnableFlattening = Context.EnableFlattening;
                 _lastSize = Size;
 
+                _cachedPicture?.Dispose();
                 _cachedPicture = null;
 
                 if (AppState.EnableCommandCaching)
@@ -320,6 +317,7 @@ public class DxfCanvasControl : FrameworkElement
                     var oldCtx = Context.DrawingContext;
                     Context.DrawingContext = recCtx;
                     DxfDocumentRenderer.Render(Document, Context);
+                    DocumentRenderCount++;
                     Context.DrawingContext = oldCtx;
                     _cachedPicture = recorder.EndRecording();
                 }
@@ -327,6 +325,7 @@ public class DxfCanvasControl : FrameworkElement
                 {
                     Context.DrawingContext.Clear();
                     DxfDocumentRenderer.Render(Document, Context);
+                    DocumentRenderCount++;
                 }
             }
 
@@ -389,6 +388,15 @@ public class DxfCanvasControl : FrameworkElement
             }
             context.PopClip();
         }
+    }
+
+    private void ReleaseRetainedContent()
+    {
+        _staticBuffer?.Dispose();
+        _staticBuffer = null;
+        _cachedPicture?.Dispose();
+        _cachedPicture = null;
+        _needsRecompile = true;
     }
 
     private void OnPointerPressed(object? sender, PointerRoutedEventArgs e)

@@ -80,7 +80,7 @@ public unsafe class GlyphAtlas : IDisposable
     private void CreateBatchEncoder()
     {
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Batch Encoder") };
-        _batchEncoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        _batchEncoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
         if (_batchEncoder == null)
@@ -100,18 +100,34 @@ public unsafe class GlyphAtlas : IDisposable
         FlushBatchEncoder();
     }
 
+    /// <summary>
+    /// Submits glyph rasterization recorded by the active batch before a render pass
+    /// that samples the atlas is submitted. The batch remains active so later glyphs
+    /// in the same compositor frame continue to use the allocation-free ring path.
+    /// </summary>
+    public void FlushPendingBatchWork()
+    {
+        if (_isDisposed || _batchDepth == 0 || _batchEncoder == null || _ringOffset == 0)
+        {
+            return;
+        }
+
+        FlushBatchEncoder();
+        CreateBatchEncoder();
+    }
+
     private void FlushBatchEncoder()
     {
         if (_batchEncoder == null) return;
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Batch Command Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(_batchEncoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(_batchEncoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(_batchEncoder);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(_batchEncoder);
         _batchEncoder = null;
 
         int batchBufferCount = _batchBuffers.Count;
@@ -126,7 +142,7 @@ public unsafe class GlyphAtlas : IDisposable
         for (int bindGroupIndex = 0; bindGroupIndex < batchBindGroupCount; bindGroupIndex++)
         {
             var bg = _batchBindGroups[bindGroupIndex];
-            _context.Wgpu.BindGroupRelease((BindGroup*)bg);
+            _context.Api.BindGroupRelease((BindGroup*)bg);
         }
         _batchBindGroups.Clear();
     }
@@ -424,7 +440,7 @@ public unsafe class GlyphAtlas : IDisposable
                                  SubpixelX = subpixelX * 0.25f
                              };
 
-                            var bindGroupLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_computePipeline, 0);
+                            var bindGroupLayout = _context.Api.ComputePipelineGetBindGroupLayout(_computePipeline, 0);
                             uint alignedSize = (uint)((Marshal.SizeOf<GlyphUniforms>() + 255) & ~255);
 
                             if (_batchEncoder != null)
@@ -436,7 +452,7 @@ public unsafe class GlyphAtlas : IDisposable
                                     CreateBatchEncoder();
                                 }
 
-                                _context.Wgpu.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<GlyphUniforms>());
+                                _context.Api.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<GlyphUniforms>());
 
                                 var entries = stackalloc BindGroupEntry[4];
                                 entries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformRingBuffer.BufferPtr, Offset = _ringOffset, Size = (uint)Marshal.SizeOf<GlyphUniforms>() };
@@ -450,24 +466,24 @@ public unsafe class GlyphAtlas : IDisposable
                                     EntryCount = 4,
                                     Entries = entries
                                 };
-                                var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                                var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
 
                                 // Batch path: Record compute pass to batch encoder, defer resource cleanup to EndBatch
                                 var passDesc = new ComputePassDescriptor();
-                                var pass = _context.Wgpu.CommandEncoderBeginComputePass(_batchEncoder, &passDesc);
+                                var pass = _context.Api.CommandEncoderBeginComputePass(_batchEncoder, &passDesc);
 
-                                _context.Wgpu.ComputePassEncoderSetPipeline(pass, _computePipeline);
-                                _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+                                _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
+                                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
 
                                 uint workgroupsX = DivRoundUp(gW, 16);
                                 uint workgroupsY = DivRoundUp(gH, 16);
-                                _context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
+                                _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
 
-                                _context.Wgpu.ComputePassEncoderEnd(pass);
-                                _context.Wgpu.ComputePassEncoderRelease(pass);
+                                _context.Api.ComputePassEncoderEnd(pass);
+                                _context.Api.ComputePassEncoderRelease(pass);
 
                                 _batchBindGroups.Add((nint)bg);
-                                _context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
+                                _context.Api.BindGroupLayoutRelease(bindGroupLayout);
 
                                 _ringOffset += alignedSize;
                             }
@@ -494,37 +510,37 @@ public unsafe class GlyphAtlas : IDisposable
                                     EntryCount = 4,
                                     Entries = entries
                                 };
-                                var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                                var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
 
                                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Encoder") };
-                                var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+                                var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
                                 SilkMarshal.Free((nint)encoderDesc.Label);
 
                                 var passDesc = new ComputePassDescriptor();
-                                var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
+                                var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
 
-                                _context.Wgpu.ComputePassEncoderSetPipeline(pass, _computePipeline);
-                                _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+                                _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
+                                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
 
                                 uint workgroupsX = DivRoundUp(gW, 16);
                                 uint workgroupsY = DivRoundUp(gH, 16);
-                                _context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
+                                _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
 
-                                _context.Wgpu.ComputePassEncoderEnd(pass);
-                                _context.Wgpu.ComputePassEncoderRelease(pass);
+                                _context.Api.ComputePassEncoderEnd(pass);
+                                _context.Api.ComputePassEncoderRelease(pass);
 
                                 // Submit to queue
                                 var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Command Buffer") };
-                                var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+                                var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
                                 SilkMarshal.Free((nint)cmdDesc.Label);
 
-                                _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+                                _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
                                 // Clean up temporary resources
-                                _context.Wgpu.CommandBufferRelease(cmdBuffer);
-                                _context.Wgpu.CommandEncoderRelease(encoder);
-                                _context.Wgpu.BindGroupRelease(bg);
-                                _context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
+                                _context.Api.CommandBufferRelease(cmdBuffer);
+                                _context.Api.CommandEncoderRelease(encoder);
+                                _context.Api.BindGroupRelease(bg);
+                                _context.Api.BindGroupLayoutRelease(bindGroupLayout);
                                 uniformsBuffer.Dispose();
                             }
 

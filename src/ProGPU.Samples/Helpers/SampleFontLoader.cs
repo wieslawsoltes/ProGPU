@@ -68,6 +68,7 @@ public static class SampleFontLoader
             ?? primary;
 
         _ = FontApi.WarmUpSystemFontsAsync();
+        _ = TextLayout.WarmUpFallbackMetadataAsync();
     }
 
     private static TtfFont LoadRequiredFont(string displayName, string[] fontNames, IEnumerable<string> pathCandidates)

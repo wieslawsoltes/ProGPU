@@ -2,6 +2,7 @@
   <Project Path="SkiaSharp/SkiaSharp.csproj" />
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.Browser/ProGPU.Browser.csproj" />
   <Project Path="ProGPU.DirectX/ProGPU.DirectX.csproj" />
   <Project Path="ProGPU.Vector/ProGPU.Vector.csproj" />
   <Project Path="ProGPU.Text/ProGPU.Text.csproj" />
@@ -18,6 +19,8 @@
   <Project Path="ProGPU.Avalonia/ProGPU.Avalonia.csproj" />
   <Project Path="ProGPU.Uno/ProGPU.Uno.csproj" />
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />
+  <Project Path="ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj" />
+  <Project Path="ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj" />
   <Project Path="ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj" />
   <Project Path="ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj" />
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />

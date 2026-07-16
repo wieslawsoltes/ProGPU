@@ -16,6 +16,8 @@ public class Application
 {
     public static Application Current { get; internal set; } = null!;
 
+    public ResourceDictionary Resources { get; } = new();
+
     public event EventHandler<UnhandledExceptionEventArgs>? UnhandledException;
 
     protected virtual void OnLaunched(LaunchActivatedEventArgs args)

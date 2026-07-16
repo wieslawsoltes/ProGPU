@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Uno.Fonts.Roboto" GeneratePathProperty="true" PrivateAssets="all" />
+    <EmbeddedResource Include="$(PkgUno_Fonts_Roboto)/lib/netstandard2.0/Uno.Fonts.Roboto/Fonts/Roboto-Regular.ttf"
+                      LogicalName="ProGPU.Browser.Fonts.Roboto-Regular.ttf" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="BrowserAssets/progpu-browser.js"
+          Pack="true"
+          PackagePath="contentFiles/any/any/wwwroot/progpu-browser.js" />
+  </ItemGroup>
+</Project>

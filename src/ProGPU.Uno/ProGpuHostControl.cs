@@ -189,8 +189,8 @@ public unsafe class ProGpuHostControl : ContentControl
         {
             if (_stagingBuffer != null)
             {
-                _wgpuContext.Wgpu.BufferDestroy(_stagingBuffer);
-                _wgpuContext.Wgpu.BufferRelease(_stagingBuffer);
+                _wgpuContext.Api.BufferDestroy(_stagingBuffer);
+                _wgpuContext.Api.BufferRelease(_stagingBuffer);
             }
             
             var bufferDesc = new BufferDescriptor
@@ -199,7 +199,7 @@ public unsafe class ProGpuHostControl : ContentControl
                 Size = requiredBufferSize,
                 MappedAtCreation = false
             };
-            _stagingBuffer = _wgpuContext.Wgpu.DeviceCreateBuffer(_wgpuContext.Device, &bufferDesc);
+            _stagingBuffer = _wgpuContext.Api.DeviceCreateBuffer(_wgpuContext.Device, &bufferDesc);
             _stagingBufferSize = requiredBufferSize;
         }
 
@@ -220,8 +220,8 @@ public unsafe class ProGpuHostControl : ContentControl
         ProGpuThemeManager.ThemeChanged -= OnThemeChanged;
         if (_stagingBuffer != null && _wgpuContext != null)
         {
-            _wgpuContext.Wgpu.BufferDestroy(_stagingBuffer);
-            _wgpuContext.Wgpu.BufferRelease(_stagingBuffer);
+            _wgpuContext.Api.BufferDestroy(_stagingBuffer);
+            _wgpuContext.Api.BufferRelease(_stagingBuffer);
             _stagingBuffer = null;
         }
 
@@ -472,7 +472,7 @@ public unsafe class ProGpuHostControl : ContentControl
             uint bufferSize = _bytesPerRow * _renderHeight;
             
             var encoderDesc = new CommandEncoderDescriptor();
-            var encoder = _wgpuContext.Wgpu.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
+            var encoder = _wgpuContext.Api.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
             
             var copySrc = new ImageCopyTexture
             {
@@ -500,18 +500,18 @@ public unsafe class ProGpuHostControl : ContentControl
                 DepthOrArrayLayers = 1
             };
             
-            _wgpuContext.Wgpu.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
+            _wgpuContext.Api.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
             
             var cmdBufferDesc = new CommandBufferDescriptor();
-            var cmdBuffer = _wgpuContext.Wgpu.CommandEncoderFinish(encoder, &cmdBufferDesc);
+            var cmdBuffer = _wgpuContext.Api.CommandEncoderFinish(encoder, &cmdBufferDesc);
             
-            _wgpuContext.Wgpu.QueueSubmit(_wgpuContext.Queue, 1, &cmdBuffer);
-            _wgpuContext.Wgpu.CommandBufferRelease(cmdBuffer);
-            _wgpuContext.Wgpu.CommandEncoderRelease(encoder);
+            _wgpuContext.Api.QueueSubmit(_wgpuContext.Queue, 1, &cmdBuffer);
+            _wgpuContext.Api.CommandBufferRelease(cmdBuffer);
+            _wgpuContext.Api.CommandEncoderRelease(encoder);
 
             // 4. Map staging buffer synchronously
             _isMappingPending = true;
-            _wgpuContext.Wgpu.BufferMapAsync(_stagingBuffer, MapMode.Read, 0, (nuint)bufferSize, _bufferMapCallback, null);
+            _wgpuContext.Api.BufferMapAsync(_stagingBuffer, MapMode.Read, 0, (nuint)bufferSize, _bufferMapCallback, null);
             
             // Poll device until mapping completes
             while (_isMappingPending)
@@ -521,7 +521,7 @@ public unsafe class ProGpuHostControl : ContentControl
             }
 
             // 5. Direct fast memory copy to Uno's WriteableBitmap stream
-            void* mappedPtr = _wgpuContext.Wgpu.BufferGetConstMappedRange(_stagingBuffer, 0, (nuint)bufferSize);
+            void* mappedPtr = _wgpuContext.Api.BufferGetConstMappedRange(_stagingBuffer, 0, (nuint)bufferSize);
             if (mappedPtr != null && _writeableBitmap != null)
             {
                 byte* srcBytes = (byte*)mappedPtr;
@@ -543,7 +543,7 @@ public unsafe class ProGpuHostControl : ContentControl
                     }
                 }
 
-                _wgpuContext.Wgpu.BufferUnmap(_stagingBuffer);
+                _wgpuContext.Api.BufferUnmap(_stagingBuffer);
 
                 // Invalidate WriteableBitmap so Uno repaints the Image control
                 _writeableBitmap.Invalidate();

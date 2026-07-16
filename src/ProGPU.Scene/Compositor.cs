@@ -790,6 +790,10 @@ public unsafe class Compositor : IDisposable
     private PipelineLayout* _vectorPipelineLayoutOffscreen;
     private PipelineLayout* _textPipelineLayoutOffscreen;
     private PipelineLayout* _texturePipelineLayoutOffscreen;
+    private BindGroupLayout* _retainedGlyphBindGroupLayout;
+    private PipelineLayout* _retainedGlyphPipelineLayout;
+    private PipelineLayout* _retainedGlyphPipelineLayoutOffscreen;
+    private ShaderModule* _retainedGlyphShaderModule;
 
     private GpuTexture? _dummyMaskTexture;
     private BindGroup* _dummyMaskBindGroup;
@@ -1155,6 +1159,7 @@ public unsafe class Compositor : IDisposable
 
         InitializePipelinesAndBindGroups();
         GpuTexture.OnDisposedWithId += HandleTextureDisposed;
+        DxfStaticBuffer.Disposed += HandleStaticDxfBufferDisposed;
     }
 
     public void ApplyGaussianBlur(
@@ -1427,17 +1432,17 @@ public unsafe class Compositor : IDisposable
             LodMinClamp = 0f,
             MaxAnisotropy = 1
         };
-        _atlasSampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &samplerDesc);
+        _atlasSampler = _context.Api.DeviceCreateSampler(_context.Device, &samplerDesc);
 
         var nearestSamplerDesc = samplerDesc;
         nearestSamplerDesc.MagFilter = FilterMode.Nearest;
         nearestSamplerDesc.MinFilter = FilterMode.Nearest;
         nearestSamplerDesc.MipmapFilter = MipmapFilterMode.Nearest;
-        _nearestTextureSampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &nearestSamplerDesc);
+        _nearestTextureSampler = _context.Api.DeviceCreateSampler(_context.Device, &nearestSamplerDesc);
 
         var mipmapSamplerDesc = samplerDesc;
         mipmapSamplerDesc.LodMaxClamp = 32f;
-        _mipmapTextureSampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &mipmapSamplerDesc);
+        _mipmapTextureSampler = _context.Api.DeviceCreateSampler(_context.Device, &mipmapSamplerDesc);
 
         // 5. Compile WGSL shaders
         var vecShaderModule = _pipelineCache.GetOrCreateShader("Vector", Shaders.VectorShader, "VectorShader");
@@ -1462,6 +1467,7 @@ public unsafe class Compositor : IDisposable
         _textureBindGroupLayoutOffscreen = CreateSamplerTextureLayout();
         _maskBindGroupLayout = CreateSamplerTextureLayout();
         _maskBindGroupLayoutOffscreen = CreateSamplerTextureLayout();
+        _retainedGlyphBindGroupLayout = CreateRetainedGlyphLayout();
 
         // Create explicit PipelineLayouts to share layouts across dynamic blend pipelines
         var vectorLayouts = stackalloc BindGroupLayout*[3];
@@ -1473,7 +1479,7 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = vectorLayouts
         };
-        _vectorPipelineLayout = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &vectorPipelineLayoutDesc);
+        _vectorPipelineLayout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &vectorPipelineLayoutDesc);
 
         var vectorLayoutsOffscreen = stackalloc BindGroupLayout*[3];
         vectorLayoutsOffscreen[0] = _vectorUniformBindGroupLayoutOffscreen;
@@ -1484,7 +1490,7 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = vectorLayoutsOffscreen
         };
-        _vectorPipelineLayoutOffscreen = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &vectorPipelineLayoutDescOffscreen);
+        _vectorPipelineLayoutOffscreen = _context.Api.DeviceCreatePipelineLayout(_context.Device, &vectorPipelineLayoutDescOffscreen);
 
         var textLayouts = stackalloc BindGroupLayout*[3];
         textLayouts[0] = _textUniformBindGroupLayout;
@@ -1495,7 +1501,7 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = textLayouts
         };
-        _textPipelineLayout = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &textPipelineLayoutDesc);
+        _textPipelineLayout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &textPipelineLayoutDesc);
 
         var textLayoutsOffscreen = stackalloc BindGroupLayout*[3];
         textLayoutsOffscreen[0] = _textUniformBindGroupLayoutOffscreen;
@@ -1506,7 +1512,7 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = textLayoutsOffscreen
         };
-        _textPipelineLayoutOffscreen = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &textPipelineLayoutDescOffscreen);
+        _textPipelineLayoutOffscreen = _context.Api.DeviceCreatePipelineLayout(_context.Device, &textPipelineLayoutDescOffscreen);
 
         var textureLayouts = stackalloc BindGroupLayout*[3];
         textureLayouts[0] = _textureUniformBindGroupLayout;
@@ -1517,7 +1523,7 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = textureLayouts
         };
-        _texturePipelineLayout = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &texturePipelineLayoutDesc);
+        _texturePipelineLayout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &texturePipelineLayoutDesc);
 
         var textureLayoutsOffscreen = stackalloc BindGroupLayout*[3];
         textureLayoutsOffscreen[0] = _textureUniformBindGroupLayoutOffscreen;
@@ -1528,7 +1534,31 @@ public unsafe class Compositor : IDisposable
             BindGroupLayoutCount = 3,
             BindGroupLayouts = textureLayoutsOffscreen
         };
-        _texturePipelineLayoutOffscreen = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &texturePipelineLayoutDescOffscreen);
+        _texturePipelineLayoutOffscreen = _context.Api.DeviceCreatePipelineLayout(_context.Device, &texturePipelineLayoutDescOffscreen);
+
+        var retainedGlyphLayouts = stackalloc BindGroupLayout*[2];
+        retainedGlyphLayouts[0] = _retainedGlyphBindGroupLayout;
+        retainedGlyphLayouts[1] = _maskBindGroupLayout;
+        var retainedGlyphPipelineLayoutDescriptor = new PipelineLayoutDescriptor
+        {
+            BindGroupLayoutCount = 2,
+            BindGroupLayouts = retainedGlyphLayouts
+        };
+        _retainedGlyphPipelineLayout = _context.Api.DeviceCreatePipelineLayout(
+            _context.Device,
+            &retainedGlyphPipelineLayoutDescriptor);
+
+        var retainedGlyphLayoutsOffscreen = stackalloc BindGroupLayout*[2];
+        retainedGlyphLayoutsOffscreen[0] = _retainedGlyphBindGroupLayout;
+        retainedGlyphLayoutsOffscreen[1] = _maskBindGroupLayoutOffscreen;
+        var retainedGlyphPipelineLayoutOffscreenDescriptor = new PipelineLayoutDescriptor
+        {
+            BindGroupLayoutCount = 2,
+            BindGroupLayouts = retainedGlyphLayoutsOffscreen
+        };
+        _retainedGlyphPipelineLayoutOffscreen = _context.Api.DeviceCreatePipelineLayout(
+            _context.Device,
+            &retainedGlyphPipelineLayoutOffscreenDescriptor);
 
         Span<VertexAttribute> vectorAttrs = stackalloc VertexAttribute[8];
         vectorAttrs[0] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }; // Position
@@ -1718,8 +1748,8 @@ public unsafe class Compositor : IDisposable
             }
         }
 
-        _chartLineBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_chartLinePipeline, 0);
-        _chartScatterBindGroupLayout = _context.Wgpu.RenderPipelineGetBindGroupLayout(_chartScatterPipeline, 0);
+        _chartLineBindGroupLayout = _context.Api.RenderPipelineGetBindGroupLayout(_chartLinePipeline, 0);
+        _chartScatterBindGroupLayout = _context.Api.RenderPipelineGetBindGroupLayout(_chartScatterPipeline, 0);
 
         var uBufferEntryVector = new BindGroupEntry
         {
@@ -1764,7 +1794,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 3,
             Entries = vectorEntries
         };
-        _vectorUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVector);
+        _vectorUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVector);
 
         var uDescVectorOffscreen = new BindGroupDescriptor
         {
@@ -1772,7 +1802,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 3,
             Entries = vectorEntries
         };
-        _vectorUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
+        _vectorUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
 
         var uDescText = new BindGroupDescriptor
         {
@@ -1780,7 +1810,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntry
         };
-        _textUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescText);
+        _textUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescText);
 
         var uDescTextOffscreen = new BindGroupDescriptor
         {
@@ -1788,7 +1818,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntry
         };
-        _textUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
+        _textUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
 
         var uDescTexture = new BindGroupDescriptor
         {
@@ -1796,7 +1826,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntry
         };
-        _textureUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTexture);
+        _textureUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTexture);
 
         var uDescTextureOffscreen = new BindGroupDescriptor
         {
@@ -1804,7 +1834,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntry
         };
-        _textureUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTextureOffscreen);
+        _textureUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTextureOffscreen);
 
         var samplerEntry = new BindGroupEntry
         {
@@ -1828,7 +1858,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = atlasEntries
         };
-        _atlasBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &atlasDesc);
+        _atlasBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &atlasDesc);
 
         var atlasDescOffscreen = new BindGroupDescriptor
         {
@@ -1836,7 +1866,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = atlasEntries
         };
-        _atlasBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &atlasDescOffscreen);
+        _atlasBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &atlasDescOffscreen);
 
         var pathViewEntry = new BindGroupEntry
         {
@@ -1853,7 +1883,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = pathAtlasEntries
         };
-        _pathAtlasBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &pathAtlasDesc);
+        _pathAtlasBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &pathAtlasDesc);
 
         var pathAtlasDescOffscreen = new BindGroupDescriptor
         {
@@ -1861,7 +1891,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = pathAtlasEntries
         };
-        _pathAtlasBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &pathAtlasDescOffscreen);
+        _pathAtlasBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &pathAtlasDescOffscreen);
 
         _dummyMaskTexture = new GpuTexture(
             _context,
@@ -1884,7 +1914,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = maskEntries
         };
-        _dummyMaskBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDescMask);
+        _dummyMaskBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescMask);
 
         var bgDescMaskOffscreen = new BindGroupDescriptor
         {
@@ -1892,7 +1922,7 @@ public unsafe class Compositor : IDisposable
             EntryCount = 2,
             Entries = maskEntries
         };
-        _dummyMaskBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDescMaskOffscreen);
+        _dummyMaskBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescMaskOffscreen);
     }
 
     public void RenderScene(
@@ -2465,7 +2495,7 @@ SceneStateUploadComplete:
 
         // 5. WebGPU Command Encoder and Render Pass Execution
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Encoder") };
-        encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
         // Run mask render passes first!
@@ -2496,7 +2526,7 @@ SceneStateUploadComplete:
             DepthStencilAttachment = null
         };
 
-        var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+        var pass = _context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
         ApplyRenderPassViewport(pass, renderWidth, renderHeight, useRenderTargetViewport: true);
 
         DrawCallType? currentType = null;
@@ -2520,30 +2550,30 @@ SceneStateUploadComplete:
 
                 if (currentType != DrawCallType.Vector || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                     fixed (BindGroup** pGrp = &_vectorUniformBindGroup)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
                     fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroup)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                     }
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentType = DrawCallType.Vector;
                     currentBlendMode = dc.BlendMode;
                     currentMaskTexture = dc.MaskTexture;
                 }
                 else if (currentMaskTexture != dc.MaskTexture)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
                 var buffer = _vectorVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
+                _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -2552,29 +2582,29 @@ SceneStateUploadComplete:
 
                 if (currentType != DrawCallType.Text || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                     fixed (BindGroup** pGrp = &_textUniformBindGroup)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
                     fixed (BindGroup** pAtlas = &_atlasBindGroup)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
                     }
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentType = DrawCallType.Text;
                     currentBlendMode = dc.BlendMode;
                     currentMaskTexture = dc.MaskTexture;
                 }
                 else if (currentMaskTexture != dc.MaskTexture)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -2586,17 +2616,17 @@ SceneStateUploadComplete:
                     textureAlphaMode: dc.TextureAlphaMode);
                 var maskBindGroup = GetMaskBindGroup(dc.MaskTexture, isOffscreen: false);
 
-                _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                 fixed (BindGroup** pGrp = &_textureUniformBindGroup)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                 }
                 var buffer = _textureVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
+                _context.Api.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
                 if (currentMaskTexture != dc.MaskTexture || currentType != DrawCallType.Texture || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
@@ -2624,7 +2654,7 @@ SceneStateUploadComplete:
                         textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
 
                         var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = textureEntries };
-                        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
                         cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
                         _persistentTextureBindGroups[cacheKey] = cachedBg;
                     }
@@ -2635,8 +2665,8 @@ SceneStateUploadComplete:
                 }
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
-                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
@@ -2665,14 +2695,14 @@ SceneStateUploadComplete:
                         if (selectedVectorPipeline)
                         {
                             var splinePipeline = GetPipeline(DrawCallType.Vector, dc.BlendMode, isOffscreen: false);
-                            _context.Wgpu.RenderPassEncoderSetPipeline(pass, splinePipeline);
+                            _context.Api.RenderPassEncoderSetPipeline(pass, splinePipeline);
                             fixed (BindGroup** pGrp = &_vectorUniformBindGroup)
                             {
-                                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                                _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                             }
                             fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroup)
                             {
-                                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
+                                _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                             }
                             currentType = DrawCallType.Vector;
                             currentBlendMode = dc.BlendMode;
@@ -2680,13 +2710,13 @@ SceneStateUploadComplete:
 
                         if (selectedVectorPipeline || currentMaskTexture != dc.MaskTexture)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                             currentMaskTexture = dc.MaskTexture;
                         }
 
                         if (dc.PointBufferCount > 0)
                         {
-                            _context.Wgpu.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
+                            _context.Api.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
                         }
                     }
                     else
@@ -2699,8 +2729,8 @@ SceneStateUploadComplete:
             }
         }
 
-        _context.Wgpu.RenderPassEncoderEnd(pass);
-        _context.Wgpu.RenderPassEncoderRelease(pass);
+        _context.Api.RenderPassEncoderEnd(pass);
+        _context.Api.RenderPassEncoderRelease(pass);
 
         if (wavefrontEnabled &&
             _wavefrontEngine != null &&
@@ -2725,27 +2755,27 @@ SceneStateUploadComplete:
                 ColorAttachments = &finalAttachment,
                 DepthStencilAttachment = null
             };
-            var finalPass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &finalPassDescriptor);
+            var finalPass = _context.Api.CommandEncoderBeginRenderPass(encoder, &finalPassDescriptor);
             ApplyRenderPassViewport(finalPass, renderWidth, renderHeight, useRenderTargetViewport: true);
-            _context.Wgpu.RenderPassEncoderSetPipeline(finalPass, _texturePipelineOffscreen);
-            _context.Wgpu.RenderPassEncoderSetBindGroup(finalPass, 0, _textureUniformBindGroupOffscreen, 0, null);
-            _context.Wgpu.RenderPassEncoderSetBindGroup(finalPass, 1, _wavefrontTextureBindGroup, 0, null);
-            _context.Wgpu.RenderPassEncoderSetBindGroup(finalPass, 2, _dummyMaskBindGroupOffscreen, 0, null);
-            _context.Wgpu.RenderPassEncoderSetVertexBuffer(
+            _context.Api.RenderPassEncoderSetPipeline(finalPass, _texturePipelineOffscreen);
+            _context.Api.RenderPassEncoderSetBindGroup(finalPass, 0, _textureUniformBindGroupOffscreen, 0, null);
+            _context.Api.RenderPassEncoderSetBindGroup(finalPass, 1, _wavefrontTextureBindGroup, 0, null);
+            _context.Api.RenderPassEncoderSetBindGroup(finalPass, 2, _dummyMaskBindGroupOffscreen, 0, null);
+            _context.Api.RenderPassEncoderSetVertexBuffer(
                 finalPass,
                 0,
                 _wavefrontQuadVertexBuffer.BufferPtr,
                 0,
                 _wavefrontQuadVertexBuffer.Size);
-            _context.Wgpu.RenderPassEncoderSetIndexBuffer(
+            _context.Api.RenderPassEncoderSetIndexBuffer(
                 finalPass,
                 _wavefrontQuadIndexBuffer.BufferPtr,
                 IndexFormat.Uint32,
                 0,
                 _wavefrontQuadIndexBuffer.Size);
-            _context.Wgpu.RenderPassEncoderDrawIndexed(finalPass, 6, 1, 0, 0, 0);
-            _context.Wgpu.RenderPassEncoderEnd(finalPass);
-            _context.Wgpu.RenderPassEncoderRelease(finalPass);
+            _context.Api.RenderPassEncoderDrawIndexed(finalPass, 6, 1, 0, 0, 0);
+            _context.Api.RenderPassEncoderEnd(finalPass);
+            _context.Api.RenderPassEncoderRelease(finalPass);
         }
         }
         finally
@@ -2760,13 +2790,13 @@ SceneStateUploadComplete:
 
         // Submit to queue
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         ReturnPendingMaskTexturesToPool();
 
@@ -3013,6 +3043,15 @@ SceneStateUploadComplete:
 
         RemoveMaskBindGroups(_maskBindGroups, textureId);
         RemoveMaskBindGroups(_maskBindGroupsOffscreen, textureId);
+    }
+
+    private void HandleStaticDxfBufferDisposed(DxfStaticBuffer buffer)
+    {
+        if (ReferenceEquals(buffer.Context, _context))
+        {
+            _compiledSceneReusable = false;
+            _compiledSceneCacheStateReason = "Static DXF buffer disposed";
+        }
     }
 
     private void RemoveMaskTexturePoolEntries(ulong textureId)
@@ -8857,7 +8896,9 @@ SceneStateUploadComplete:
 
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
-        if (ActiveCompilationContext != null && !ActiveCompilationContext.IsRecompiling)
+        if (ActiveCompilationContext != null &&
+            !ActiveCompilationContext.IsRecompiling &&
+            ActiveCompilationContext.RetainedGlyphBuilder == null)
         {
             _compiledTextRecords.Add(new StaticTextRecord { Command = cmd, Transform = transform });
         }
@@ -8991,6 +9032,23 @@ SceneStateUploadComplete:
                 continue;
             }
 
+            if (TryCompileRetainedGlyph(
+                ActiveCompilationContext?.RetainedGlyphBuilder,
+                glyphFont,
+                glyphIdx,
+                cmd,
+                runGlyph.Position + cmd.Position,
+                glyphItalicSkew,
+                fontScaleX,
+                textPathCoverageGamma,
+                color,
+                activeTransform,
+                passCount,
+                boldOffset))
+            {
+                continue;
+            }
+
             float baseCursorX = runGlyph.Position.X - runGlyph.Glyph.BearX;
             float baseCursorY = runGlyph.Position.Y - runGlyph.Glyph.BearY;
 
@@ -9031,7 +9089,6 @@ SceneStateUploadComplete:
                 continue;
             }
 
-            SwitchBatch(BatchType.Text);
             Vector2 transPos = Vector2.Transform(new Vector2(baseCursorX + cmd.Position.X, baseCursorY + cmd.Position.Y), activeTransform);
             var (subpixelX, snappedLogicalPos) = ResolveTextPlacement(
                 transPos,
@@ -9040,6 +9097,12 @@ SceneStateUploadComplete:
                 isRotated,
                 cmd.TextHintingMode);
 
+            if (IsTextGlyphOutsideActiveClip(snappedLogicalPos, cmd.FontSize))
+            {
+                continue;
+            }
+
+            SwitchBatch(BatchType.Text);
             var info = _atlas.GetOrCreateGlyphByIndex(
                 glyphFont,
                 glyphIdx,
@@ -9066,25 +9129,6 @@ SceneStateUploadComplete:
             for (int pass = 0; pass < passCount; pass++)
             {
                 float xOffset = pass * boldOffset;
-
-                if (_activeClipRect.HasValue && !_useGpuTransformsActive)
-                {
-                    float halfSize = cmd.FontSize * 2f;
-                    float minX = snappedLogicalPos.X - halfSize;
-                    float maxX = snappedLogicalPos.X + halfSize;
-                    float minY = snappedLogicalPos.Y - halfSize;
-                    float maxY = snappedLogicalPos.Y + halfSize;
-
-                    float clipLeft = _activeClipRect.Value.X;
-                    float clipTop = _activeClipRect.Value.Y;
-                    float clipRight = clipLeft + _activeClipRect.Value.Width;
-                    float clipBottom = clipTop + _activeClipRect.Value.Height;
-
-                    if (maxX <= clipLeft || minX >= clipRight || maxY <= clipTop || minY >= clipBottom)
-                    {
-                        continue;
-                    }
-                }
 
                 _textVerticesList.Add(new GlyphInstance
                 {
@@ -9115,7 +9159,9 @@ SceneStateUploadComplete:
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
     {
-        if (ActiveCompilationContext != null && !ActiveCompilationContext.IsRecompiling)
+        if (ActiveCompilationContext != null &&
+            !ActiveCompilationContext.IsRecompiling &&
+            ActiveCompilationContext.RetainedGlyphBuilder == null)
         {
             _compiledTextRecords.Add(new StaticTextRecord { Command = cmd, Transform = transform });
         }
@@ -9228,6 +9274,23 @@ SceneStateUploadComplete:
                 continue;
             }
 
+            if (TryCompileRetainedGlyph(
+                ActiveCompilationContext?.RetainedGlyphBuilder,
+                font,
+                glyphIdx,
+                cmd,
+                position + cmd.Position,
+                glyphItalicSkew,
+                fontScaleX,
+                textPathCoverageGamma,
+                color,
+                activeTransform,
+                passCount,
+                boldOffset))
+            {
+                continue;
+            }
+
             var hasBitmapGlyph = font.HasBitmapGlyphs &&
                 font.TryGetBitmapGlyph(glyphIdx, rasterFontSize, out _);
             if (!hasBitmapGlyph &&
@@ -9248,7 +9311,6 @@ SceneStateUploadComplete:
                 continue;
             }
 
-            SwitchBatch(BatchType.Text);
             float baseCursorX = position.X;
             float baseCursorY = position.Y;
 
@@ -9260,6 +9322,12 @@ SceneStateUploadComplete:
                 isRotated,
                 cmd.TextHintingMode);
 
+            if (IsTextGlyphOutsideActiveClip(snappedLogicalPos, cmd.FontSize))
+            {
+                continue;
+            }
+
+            SwitchBatch(BatchType.Text);
             var info = _atlas.GetOrCreateGlyphByIndex(
                 font,
                 glyphIdx,
@@ -9287,25 +9355,6 @@ SceneStateUploadComplete:
             {
                 float xOffset = pass * boldOffset;
 
-                if (_activeClipRect.HasValue && !_useGpuTransformsActive)
-                {
-                    float halfSize = cmd.FontSize * 2f;
-                    float minX = snappedLogicalPos.X - halfSize;
-                    float maxX = snappedLogicalPos.X + halfSize;
-                    float minY = snappedLogicalPos.Y - halfSize;
-                    float maxY = snappedLogicalPos.Y + halfSize;
-
-                    float clipLeft = _activeClipRect.Value.X;
-                    float clipTop = _activeClipRect.Value.Y;
-                    float clipRight = clipLeft + _activeClipRect.Value.Width;
-                    float clipBottom = clipTop + _activeClipRect.Value.Height;
-
-                    if (maxX <= clipLeft || minX >= clipRight || maxY <= clipTop || minY >= clipBottom)
-                    {
-                        continue;
-                    }
-                }
-
                 _textVerticesList.Add(new GlyphInstance
                 {
                     SnappedLogicalPos = snappedLogicalPos,
@@ -9331,6 +9380,78 @@ SceneStateUploadComplete:
                 });
             }
         }
+    }
+
+    private bool IsTextGlyphOutsideActiveClip(Vector2 snappedLogicalPosition, float fontSize)
+    {
+        if (!_activeClipRect.HasValue || _useGpuTransformsActive)
+        {
+            return false;
+        }
+
+        // Match the existing conservative text bounds, but evaluate them before
+        // requesting atlas residency so clipped glyphs do not consume CPU, GPU,
+        // or atlas memory. Bold and italic offsets remain inside this margin.
+        float halfSize = fontSize * 2f;
+        float minX = snappedLogicalPosition.X - halfSize;
+        float maxX = snappedLogicalPosition.X + halfSize;
+        float minY = snappedLogicalPosition.Y - halfSize;
+        float maxY = snappedLogicalPosition.Y + halfSize;
+
+        var clip = _activeClipRect.Value;
+        float clipRight = clip.X + clip.Width;
+        float clipBottom = clip.Y + clip.Height;
+        return maxX <= clip.X || minX >= clipRight || maxY <= clip.Y || minY >= clipBottom;
+    }
+
+    private static bool TryCompileRetainedGlyph(
+        RetainedGlyphGeometryBuilder? builder,
+        TtfFont font,
+        ushort glyphIndex,
+        RenderCommand command,
+        Vector2 position,
+        float italicSkew,
+        float scaleX,
+        float coverageGamma,
+        Vector4 color,
+        Matrix4x4 activeTransform,
+        int passCount,
+        float boldOffset)
+    {
+        if (builder == null ||
+            command.Brush is not SolidColorBrush ||
+            !builder.TryGetOrAddGlyph(
+                font,
+                glyphIndex,
+                out var recordIndex,
+                out var minBounds,
+                out var maxBounds))
+        {
+            return false;
+        }
+
+        var emScale = command.FontSize / font.UnitsPerEm;
+        var sampleGrid = command.TextRenderingMode == TextRenderingMode.Aliased
+            ? PathAtlas.StandardCoverageSampleGrid
+            : PathAtlas.HighPrecisionCoverageSampleGrid;
+        for (var pass = 0; pass < passCount; pass++)
+        {
+            var glyphTransform = new Matrix4x4(
+                emScale * scaleX, 0f, 0f, 0f,
+                emScale * italicSkew, -emScale, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                position.X + pass * boldOffset, position.Y, 0f, 1f) * activeTransform;
+            builder.AddInstance(
+                glyphTransform,
+                color,
+                minBounds,
+                maxBounds,
+                recordIndex,
+                coverageGamma,
+                sampleGrid);
+        }
+
+        return true;
     }
 
     private void CompileVectorGlyphFallback(
@@ -9883,7 +10004,7 @@ SceneStateUploadComplete:
                 LodMinClamp = 0f,
                 MaxAnisotropy = maxAnisotropy
             };
-            var sampler = _context.Wgpu.DeviceCreateSampler(_context.Device, &descriptor);
+            var sampler = _context.Api.DeviceCreateSampler(_context.Device, &descriptor);
             _anisotropicTextureSamplers.Add(maxAnisotropy, (nint)sampler);
             return sampler;
         }
@@ -10043,7 +10164,7 @@ SceneStateUploadComplete:
                 EntryCount = 2,
                 Entries = entries
             };
-            _wavefrontTextureBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &descriptor);
+            _wavefrontTextureBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
             _wavefrontTextureBindGroupGeneration = _wavefrontColorTexture.Generation;
         }
     }
@@ -10163,6 +10284,9 @@ SceneStateUploadComplete:
                 if (_vectorPipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_vectorPipelineLayoutOffscreen);
                 if (_textPipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_textPipelineLayoutOffscreen);
                 if (_texturePipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_texturePipelineLayoutOffscreen);
+                if (_retainedGlyphPipelineLayout != null) _context.QueuePipelineLayoutDisposal((IntPtr)_retainedGlyphPipelineLayout);
+                if (_retainedGlyphPipelineLayoutOffscreen != null) _context.QueuePipelineLayoutDisposal((IntPtr)_retainedGlyphPipelineLayoutOffscreen);
+                if (_retainedGlyphBindGroupLayout != null) _context.QueueBindGroupLayoutDisposal((IntPtr)_retainedGlyphBindGroupLayout);
                 if (_advancedBlendPipelineLayout != null) _context.QueuePipelineLayoutDisposal((IntPtr)_advancedBlendPipelineLayout);
                 if (_advancedBlendBindGroupLayout != null) _context.QueueBindGroupLayoutDisposal((IntPtr)_advancedBlendBindGroupLayout);
 
@@ -10199,6 +10323,7 @@ SceneStateUploadComplete:
             }
 
             GpuTexture.OnDisposedWithId -= HandleTextureDisposed;
+            DxfStaticBuffer.Disposed -= HandleStaticDxfBufferDisposed;
 
             if (_dummyMaskTexture != null) _dummyMaskTexture.Dispose();
             if (!_context.IsDisposed)
@@ -10259,7 +10384,7 @@ SceneStateUploadComplete:
             ViewFormats = null
         };
 
-        _msaaTexture = _context.Wgpu.DeviceCreateTexture(_context.Device, &desc);
+        _msaaTexture = _context.Api.DeviceCreateTexture(_context.Device, &desc);
         SilkMarshal.Free(labelPtr);
 
         if (_msaaTexture == null)
@@ -10278,7 +10403,7 @@ SceneStateUploadComplete:
             Aspect = TextureAspect.All
         };
 
-        _msaaTextureView = _context.Wgpu.TextureCreateView(_msaaTexture, &viewDesc);
+        _msaaTextureView = _context.Api.TextureCreateView(_msaaTexture, &viewDesc);
         if (_msaaTextureView == null)
         {
             throw new InvalidOperationException($"Failed to create TextureView for MSAA Texture {_msaaWidth}x{_msaaHeight}.");
@@ -10398,7 +10523,7 @@ SceneStateUploadComplete:
             EntryCount = 2,
             Entries = entries
         };
-        _advancedBlendBindGroupLayout = _context.Wgpu.DeviceCreateBindGroupLayout(
+        _advancedBlendBindGroupLayout = _context.Api.DeviceCreateBindGroupLayout(
             _context.Device,
             &bindGroupLayoutDescriptor);
         if (_advancedBlendBindGroupLayout == null)
@@ -10413,7 +10538,7 @@ SceneStateUploadComplete:
             BindGroupLayoutCount = 1,
             BindGroupLayouts = layouts
         };
-        _advancedBlendPipelineLayout = _context.Wgpu.DeviceCreatePipelineLayout(
+        _advancedBlendPipelineLayout = _context.Api.DeviceCreatePipelineLayout(
             _context.Device,
             &pipelineLayoutDescriptor);
         if (_advancedBlendPipelineLayout == null)
@@ -10464,7 +10589,7 @@ SceneStateUploadComplete:
             ColorAttachments = &colorAttachment,
             DepthStencilAttachment = null
         };
-        var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDescriptor);
+        var pass = _context.Api.CommandEncoderBeginRenderPass(encoder, &passDescriptor);
         if (pass == null)
         {
             throw new InvalidOperationException("Failed to begin an offscreen texture pass.");
@@ -10498,26 +10623,26 @@ SceneStateUploadComplete:
                 isOffscreen: true,
                 textureAlphaMode: drawCall.TextureAlphaMode);
             var maskBindGroup = GetMaskBindGroup(drawCall.MaskTexture, isOffscreen: true);
-            _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
-            _context.Wgpu.RenderPassEncoderSetBindGroup(
+            _context.Api.RenderPassEncoderSetPipeline(pass, pipeline);
+            _context.Api.RenderPassEncoderSetBindGroup(
                 pass,
                 0,
                 _textureUniformBindGroupOffscreen,
                 0,
                 null);
-            _context.Wgpu.RenderPassEncoderSetVertexBuffer(
+            _context.Api.RenderPassEncoderSetVertexBuffer(
                 pass,
                 0,
                 _textureVertexBuffer.BufferPtr,
                 0,
                 _textureVertexBuffer.Size);
-            _context.Wgpu.RenderPassEncoderSetIndexBuffer(
+            _context.Api.RenderPassEncoderSetIndexBuffer(
                 pass,
                 _textureIndexBuffer.BufferPtr,
                 IndexFormat.Uint32,
                 0,
                 _textureIndexBuffer.Size);
-            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+            _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
             var cacheKey = new TextureCacheKey(
                 texture.Id,
@@ -10549,7 +10674,7 @@ SceneStateUploadComplete:
                         EntryCount = 2,
                         Entries = entries
                     };
-                    var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &descriptor);
+                    var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
                     cachedBindGroup = new CachedBindGroup((nint)bindGroup, _frameNumber);
                     _persistentTextureBindGroups[cacheKey] = cachedBindGroup;
                 }
@@ -10559,13 +10684,13 @@ SceneStateUploadComplete:
                 }
             }
 
-            _context.Wgpu.RenderPassEncoderSetBindGroup(
+            _context.Api.RenderPassEncoderSetBindGroup(
                 pass,
                 1,
                 (BindGroup*)cachedBindGroup.BindGroupPtr,
                 0,
                 null);
-            _context.Wgpu.RenderPassEncoderDrawIndexed(
+            _context.Api.RenderPassEncoderDrawIndexed(
                 pass,
                 drawCall.IndexCount,
                 1,
@@ -10575,8 +10700,8 @@ SceneStateUploadComplete:
         }
         finally
         {
-            _context.Wgpu.RenderPassEncoderEnd(pass);
-            _context.Wgpu.RenderPassEncoderRelease(pass);
+            _context.Api.RenderPassEncoderEnd(pass);
+            _context.Api.RenderPassEncoderRelease(pass);
         }
     }
 
@@ -10605,7 +10730,7 @@ SceneStateUploadComplete:
             EntryCount = 2,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(
+        var bindGroup = _context.Api.DeviceCreateBindGroup(
             _context.Device,
             &bindGroupDescriptor);
         if (bindGroup == null)
@@ -10620,17 +10745,17 @@ SceneStateUploadComplete:
             new Color());
         try
         {
-            _context.Wgpu.RenderPassEncoderSetPipeline(
+            _context.Api.RenderPassEncoderSetPipeline(
                 pass,
                 GetAdvancedBlendPipeline(blendMode));
-            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-            _context.Wgpu.RenderPassEncoderDraw(pass, 3, 1, 0, 0);
+            _context.Api.RenderPassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+            _context.Api.RenderPassEncoderDraw(pass, 3, 1, 0, 0);
         }
         finally
         {
-            _context.Wgpu.RenderPassEncoderEnd(pass);
-            _context.Wgpu.RenderPassEncoderRelease(pass);
-            _context.Wgpu.BindGroupRelease(bindGroup);
+            _context.Api.RenderPassEncoderEnd(pass);
+            _context.Api.RenderPassEncoderRelease(pass);
+            _context.Api.BindGroupRelease(bindGroup);
         }
     }
 
@@ -10666,11 +10791,11 @@ SceneStateUploadComplete:
                 return false;
             }
 
-            _context.Wgpu.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+            _context.Api.RenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
             return true;
         }
 
-        _context.Wgpu.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, targetWidth, targetHeight);
+        _context.Api.RenderPassEncoderSetScissorRect(pass, viewportX, viewportY, targetWidth, targetHeight);
         return true;
     }
 
@@ -10772,7 +10897,7 @@ SceneStateUploadComplete:
                 targetWidth,
                 targetHeight)
             : RenderTargetViewport.Full(targetWidth, targetHeight);
-        _context.Wgpu.RenderPassEncoderSetViewport(
+        _context.Api.RenderPassEncoderSetViewport(
             pass,
             viewport.X,
             viewport.Y,
@@ -11502,6 +11627,13 @@ SceneStateUploadComplete:
 
         CommitPendingDrawCalls();
 
+        // Cached layers can be compiled while the outer scene's glyph batch is still
+        // active. Submit newly rasterized glyphs before this offscreen render samples
+        // the atlas; otherwise the first cached texture captures empty glyph regions
+        // and remains visually incomplete until another invalidation rebuilds it.
+        // This is a no-op when compilation reused only existing atlas entries.
+        _atlas.FlushPendingBatchWork();
+
         if (_pathAtlas.CapacityExceeded ||
             _pathAtlas.Generation != pathAtlasGenerationAtCompilationStart)
         {
@@ -11561,7 +11693,7 @@ SceneStateUploadComplete:
 
         // Render pass for offscreen (1x MSAA)
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Offscreen Compositor Encoder") };
-        encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
         // Run mask render passes first!
@@ -11590,7 +11722,7 @@ SceneStateUploadComplete:
             DepthStencilAttachment = null
         };
 
-        var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+        var pass = _context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
         ApplyRenderPassViewport(pass, targetTexture.Width, targetTexture.Height, useRenderTargetViewport: false);
         var currentRenderTarget = targetTexture;
 
@@ -11605,8 +11737,8 @@ SceneStateUploadComplete:
             var dc = _drawCalls[drawCallIndex];
             if (CanEncodeAdvancedBlend(in dc, targetTexture))
             {
-                _context.Wgpu.RenderPassEncoderEnd(pass);
-                _context.Wgpu.RenderPassEncoderRelease(pass);
+                _context.Api.RenderPassEncoderEnd(pass);
+                _context.Api.RenderPassEncoderRelease(pass);
 
                 EnsureAdvancedBlendResources(
                     targetTexture.Width,
@@ -11650,30 +11782,30 @@ SceneStateUploadComplete:
 
                 if (currentType != DrawCallType.Vector || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                     fixed (BindGroup** pGrp = &_vectorUniformBindGroupOffscreen)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
                     fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroupOffscreen)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                     }
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentType = DrawCallType.Vector;
                     currentBlendMode = dc.BlendMode;
                     currentMaskTexture = dc.MaskTexture;
                 }
                 else if (currentMaskTexture != dc.MaskTexture)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
                 var buffer = _vectorVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
+                _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -11682,29 +11814,29 @@ SceneStateUploadComplete:
 
                 if (currentType != DrawCallType.Text || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                     fixed (BindGroup** pGrp = &_textUniformBindGroupOffscreen)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
                     fixed (BindGroup** pAtlas = &_atlasBindGroupOffscreen)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
                     }
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentType = DrawCallType.Text;
                     currentBlendMode = dc.BlendMode;
                     currentMaskTexture = dc.MaskTexture;
                 }
                 else if (currentMaskTexture != dc.MaskTexture)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -11716,17 +11848,17 @@ SceneStateUploadComplete:
                     textureAlphaMode: dc.TextureAlphaMode);
                 var maskBindGroup = GetMaskBindGroup(dc.MaskTexture, isOffscreen: true);
 
-                _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                 fixed (BindGroup** pGrp = &_textureUniformBindGroupOffscreen)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                 }
                 var buffer = _textureVertexBuffer.BufferPtr;
-                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
-                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
+                _context.Api.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
                 if (currentMaskTexture != dc.MaskTexture || currentType != DrawCallType.Texture || currentBlendMode != dc.BlendMode)
                 {
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                     currentMaskTexture = dc.MaskTexture;
                 }
 
@@ -11754,7 +11886,7 @@ SceneStateUploadComplete:
                         textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
 
                         var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayoutOffscreen, EntryCount = 2, Entries = textureEntries };
-                        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
                         cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
                         _persistentTextureBindGroups[cacheKey] = cachedBg;
                     }
@@ -11765,8 +11897,8 @@ SceneStateUploadComplete:
                 }
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
-                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
@@ -11795,14 +11927,14 @@ SceneStateUploadComplete:
                         if (selectedVectorPipeline)
                         {
                             var splinePipeline = GetPipeline(DrawCallType.Vector, dc.BlendMode, isOffscreen: true);
-                            _context.Wgpu.RenderPassEncoderSetPipeline(pass, splinePipeline);
+                            _context.Api.RenderPassEncoderSetPipeline(pass, splinePipeline);
                             fixed (BindGroup** pGrp = &_vectorUniformBindGroupOffscreen)
                             {
-                                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                                _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                             }
                             fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroupOffscreen)
                             {
-                                _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
+                                _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                             }
                             currentType = DrawCallType.Vector;
                             currentBlendMode = dc.BlendMode;
@@ -11810,13 +11942,13 @@ SceneStateUploadComplete:
 
                         if (selectedVectorPipeline || currentMaskTexture != dc.MaskTexture)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
                             currentMaskTexture = dc.MaskTexture;
                         }
 
                         if (dc.PointBufferCount > 0)
                         {
-                            _context.Wgpu.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
+                            _context.Api.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
                         }
                     }
                     else
@@ -11829,8 +11961,8 @@ SceneStateUploadComplete:
             }
         }
 
-        _context.Wgpu.RenderPassEncoderEnd(pass);
-        _context.Wgpu.RenderPassEncoderRelease(pass);
+        _context.Api.RenderPassEncoderEnd(pass);
+        _context.Api.RenderPassEncoderRelease(pass);
         if (!ReferenceEquals(currentRenderTarget, targetTexture))
         {
             EncodeAdvancedBlendFullscreen(
@@ -11844,13 +11976,13 @@ SceneStateUploadComplete:
         extensionFrameEnded = true;
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Offscreen Compositor Command Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
         targetTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
         targetTexture.MarkContentsDirty();
 
@@ -12000,7 +12132,12 @@ SceneStateUploadComplete:
         _maskRenderPasses.Clear();
         _masksToReturnToPool.Clear();
 
-        ActiveCompilationContext = new StaticCompilationContext { StaticZoom = staticZoom };
+        var retainedGlyphBuilder = new RetainedGlyphGeometryBuilder();
+        ActiveCompilationContext = new StaticCompilationContext
+        {
+            StaticZoom = staticZoom,
+            RetainedGlyphBuilder = retainedGlyphBuilder
+        };
         lock (_registeredExtensions)
         {
             var extensionCount = _registeredExtensions.Count;
@@ -12272,6 +12409,9 @@ SceneStateUploadComplete:
                 _vectorVerticesList.ToArray(),
                 _vectorIndicesList.ToArray(),
                 _textVerticesList.ToArray(),
+                retainedGlyphBuilder.GetRecords(),
+                retainedGlyphBuilder.GetSegments(),
+                retainedGlyphBuilder.GetInstances(),
                 _activeBrushes.ToArray(),
                 _activeGradientStops.ToArray(),
                 staticDrawCallList.ToArray()
@@ -12293,7 +12433,8 @@ SceneStateUploadComplete:
                 _vectorUniformBindGroupLayout,
                 _vectorUniformBindGroupLayoutOffscreen,
                 _textUniformBindGroupLayout,
-                _textUniformBindGroupLayoutOffscreen
+                _textUniformBindGroupLayoutOffscreen,
+                _retainedGlyphBindGroupLayout
             );
 
             return staticBuffer;
@@ -12431,7 +12572,12 @@ SceneStateUploadComplete:
         _maskRenderPasses.Clear();
         _masksToReturnToPool.Clear();
 
-        ActiveCompilationContext = new StaticCompilationContext { StaticZoom = staticZoom };
+        var retainedGlyphBuilder = new RetainedGlyphGeometryBuilder();
+        ActiveCompilationContext = new StaticCompilationContext
+        {
+            StaticZoom = staticZoom,
+            RetainedGlyphBuilder = retainedGlyphBuilder
+        };
         lock (_registeredExtensions)
         {
             var extensionCount = _registeredExtensions.Count;
@@ -12773,6 +12919,9 @@ SceneStateUploadComplete:
                 _vectorVerticesList.ToArray(),
                 _vectorIndicesList.ToArray(),
                 _textVerticesList.ToArray(),
+                retainedGlyphBuilder.GetRecords(),
+                retainedGlyphBuilder.GetSegments(),
+                retainedGlyphBuilder.GetInstances(),
                 _activeBrushes.ToArray(),
                 _activeGradientStops.ToArray(),
                 staticDrawCallList.ToArray()
@@ -12794,7 +12943,8 @@ SceneStateUploadComplete:
                 _vectorUniformBindGroupLayout,
                 _vectorUniformBindGroupLayoutOffscreen,
                 _textUniformBindGroupLayout,
-                _textUniformBindGroupLayoutOffscreen
+                _textUniformBindGroupLayoutOffscreen,
+                _retainedGlyphBindGroupLayout
             );
 
             return staticBuffer;
@@ -12922,6 +13072,8 @@ SceneStateUploadComplete:
         GpuBlendMode blendMode = GpuBlendMode.SrcOver)
     {
         if (staticBufferObj is not DxfStaticBuffer sb) return;
+        using var renderLease = sb.AcquireRenderLease();
+        if (!renderLease.IsAcquired) return;
 
         sb.UpdateDefaultViewport(_currentProjection, new Vector2(_currentWidth, _currentHeight), _currentDpiScale);
 
@@ -12940,20 +13092,20 @@ SceneStateUploadComplete:
                     var uniformBg = isOffscreen ? sb.UniformBindGroupOffscreen : sb.UniformBindGroup;
                     var pathAtlasBg = isOffscreen ? _pathAtlasBindGroupOffscreen : _pathAtlasBindGroup;
 
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, pipeline);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
 
                     if (sb.VertexBuffer != null && sb.IndexBuffer != null)
                     {
                         var buffer = sb.VertexBuffer.BufferPtr;
-                        _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);
-                        _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, sb.IndexBuffer.BufferPtr, IndexFormat.Uint32, 0, sb.IndexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetIndexBuffer(pass, sb.IndexBuffer.BufferPtr, IndexFormat.Uint32, 0, sb.IndexBuffer.Size);
                     }
                     currentType = DrawCallType.Vector;
                 }
-                _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -12963,19 +13115,19 @@ SceneStateUploadComplete:
                     var uniformBg = isOffscreen ? sb.TextUniformBindGroupOffscreen : sb.TextUniformBindGroup;
                     var atlasBg = isOffscreen ? _atlasBindGroupOffscreen : _atlasBindGroup;
 
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, pipeline);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, atlasBg, 0, null);
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, pipeline);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 1, atlasBg, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
 
                     if (sb.TextVertexBuffer != null)
                     {
                         var buffer = sb.TextVertexBuffer.BufferPtr;
-                        _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.TextVertexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.TextVertexBuffer.Size);
                     }
                     currentType = DrawCallType.Text;
                 }
-                _context.Wgpu.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
             }
             else if (dc.Type == DrawCallType.Extension)
             {
@@ -12990,22 +13142,22 @@ SceneStateUploadComplete:
                             var uniformBg = isOffscreen ? sb.UniformBindGroupOffscreen : sb.UniformBindGroup;
                             var pathAtlasBg = isOffscreen ? _pathAtlasBindGroupOffscreen : _pathAtlasBindGroup;
 
-                            _context.Wgpu.RenderPassEncoderSetPipeline(pass, vectorPipeline);
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
+                            _context.Api.RenderPassEncoderSetPipeline(pass, vectorPipeline);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 0, uniformBg, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 1, pathAtlasBg, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
 
                             if (sb.VertexBuffer != null && sb.IndexBuffer != null)
                             {
                                 var buffer = sb.VertexBuffer.BufferPtr;
-                                _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);
-                                _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, sb.IndexBuffer.BufferPtr, IndexFormat.Uint32, 0, sb.IndexBuffer.Size);
+                                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.VertexBuffer.Size);
+                                _context.Api.RenderPassEncoderSetIndexBuffer(pass, sb.IndexBuffer.BufferPtr, IndexFormat.Uint32, 0, sb.IndexBuffer.Size);
                             }
                             currentType = DrawCallType.Vector;
                         }
                         if (dc.PointBufferCount > 0)
                         {
-                            _context.Wgpu.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
+                            _context.Api.RenderPassEncoderDrawIndexed(pass, (uint)dc.PointBufferCount, 1, (uint)dc.PointBufferOffset, 0, 0);
                         }
                     }
                     else
@@ -13020,6 +13172,17 @@ SceneStateUploadComplete:
                     }
                 }
             }
+        }
+
+        if (sb.RetainedGlyphInstanceCount > 0 &&
+            sb.RetainedGlyphBindGroup != null &&
+            sb.RetainedGlyphInstanceBuffer != null)
+        {
+            var retainedGlyphPipeline = GetRetainedGlyphPipeline(blendMode, isOffscreen);
+            _context.Api.RenderPassEncoderSetPipeline(pass, retainedGlyphPipeline);
+            _context.Api.RenderPassEncoderSetBindGroup(pass, 0, sb.RetainedGlyphBindGroup, 0, null);
+            _context.Api.RenderPassEncoderSetBindGroup(pass, 1, maskBg, 0, null);
+            _context.Api.RenderPassEncoderDraw(pass, 6, sb.RetainedGlyphInstanceCount, 0, 0);
         }
     }
 
@@ -13317,7 +13480,7 @@ SceneStateUploadComplete:
     {
         if (dc.StaticBuffer is not GpuSeriesBuffer seriesBuffer || seriesBuffer.Buffer == null || seriesBuffer.PointsCount < 2) return;
 
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         var device = _context.Device;
 
         if (seriesBuffer.VsUniformBuffer == null)
@@ -13397,7 +13560,7 @@ SceneStateUploadComplete:
     {
         if (dc.StaticBuffer is not GpuSeriesBuffer seriesBuffer || seriesBuffer.Buffer == null || seriesBuffer.PointsCount < 1) return;
 
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         var device = _context.Device;
 
         if (seriesBuffer.VsUniformBuffer == null)
@@ -13533,7 +13696,7 @@ SceneStateUploadComplete:
             Entries = maskEntries
         };
 
-        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDescMask);
+        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescMask);
         if (bg == null)
         {
             throw new InvalidOperationException("Failed to create mask BindGroup");
@@ -13734,6 +13897,30 @@ SceneStateUploadComplete:
                 sourceAlphaMode: sourceAlphaMode
             );
         }
+    }
+
+    private RenderPipeline* GetRetainedGlyphPipeline(GpuBlendMode blendMode, bool isOffscreen)
+    {
+        if (_retainedGlyphShaderModule == null)
+        {
+            _retainedGlyphShaderModule = _pipelineCache.GetOrCreateShader(
+                "RetainedGlyph",
+                RetainedGlyphShaders.Source,
+                "RetainedGlyphShader");
+        }
+
+        return _pipelineCache.GetOrCreateRenderPipeline(
+            $"RetainedGlyph_{(isOffscreen ? "Offscreen" : "Primary")}_{blendMode}",
+            _retainedGlyphShaderModule,
+            ReadOnlySpan<VertexBufferLayout>.Empty,
+            targetFormat: RenderFormat,
+            enableBlend: true,
+            sampleCount: isOffscreen ? 1u : Options.PrimarySampleCount,
+            blendMode: blendMode,
+            pipelineLayout: isOffscreen
+                ? _retainedGlyphPipelineLayoutOffscreen
+                : _retainedGlyphPipelineLayout,
+            sourceAlphaMode: GpuTextureAlphaMode.Premultiplied);
     }
 
     private void PushGeometryMask(PathGeometry geometry, Matrix4x4 transform)
@@ -13956,7 +14143,7 @@ SceneStateUploadComplete:
                 DepthStencilAttachment = null
             };
 
-            var pass = _context.Wgpu.CommandEncoderBeginRenderPass(encoder, &passDesc);
+            var pass = _context.Api.CommandEncoderBeginRenderPass(encoder, &passDesc);
             ApplyRenderPassViewport(
                 pass,
                 maskPass.MaskTexture.Width,
@@ -13983,45 +14170,45 @@ SceneStateUploadComplete:
                     if (currentType != DrawCallType.Vector)
                     {
                         var activePipeline = GetPipeline(dc.Type, dc.BlendMode, isOffscreen: true, overrideFormat: TextureFormat.R8Unorm);
-                        _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                        _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                         fixed (BindGroup** pGrp = &_vectorUniformBindGroupOffscreen)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                         }
                         fixed (BindGroup** pPathAtlas = &_pathAtlasBindGroupOffscreen)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                         }
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
                         var buffer = _vectorVertexBuffer.BufferPtr;
-                        _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
-                        _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
                         currentType = DrawCallType.Vector;
                     }
-                    _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
                 }
                 else if (dc.Type == DrawCallType.Text)
                 {
                     if (currentType != DrawCallType.Text)
                     {
                         var activePipeline = GetPipeline(dc.Type, dc.BlendMode, isOffscreen: true, overrideFormat: TextureFormat.R8Unorm);
-                        _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                        _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                         fixed (BindGroup** pGrp = &_textUniformBindGroupOffscreen)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                         }
                         fixed (BindGroup** pAtlas = &_atlasBindGroupOffscreen)
                         {
-                            _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
+                            _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pAtlas, 0, null);
                         }
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
                         var buffer = _textVertexBuffer.BufferPtr;
-                        _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
+                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
                         currentType = DrawCallType.Text;
                     }
-                    _context.Wgpu.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
                 }
                 else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
                 {
@@ -14032,17 +14219,17 @@ SceneStateUploadComplete:
                         isOffscreen: true,
                         overrideFormat: TextureFormat.R8Unorm,
                         textureAlphaMode: dc.TextureAlphaMode);
-                    _context.Wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);
+                    _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
                     fixed (BindGroup** pGrp = &_textureUniformBindGroupOffscreen)
                     {
-                        _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
+                        _context.Api.RenderPassEncoderSetBindGroup(pass, 0, *pGrp, 0, null);
                     }
                     var buffer = _textureVertexBuffer.BufferPtr;
-                    _context.Wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
-                    _context.Wgpu.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
+                    _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textureVertexBuffer.Size);
+                    _context.Api.RenderPassEncoderSetIndexBuffer(pass, _textureIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _textureIndexBuffer.Size);
                     currentType = DrawCallType.Texture;
 
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
                     var viewPtr = texture.ViewPtr;
                     var cacheKey = new TextureCacheKey(
@@ -14065,7 +14252,7 @@ SceneStateUploadComplete:
                             textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
 
                             var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayoutOffscreen, EntryCount = 2, Entries = textureEntries };
-                            var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                            var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
                             cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
                             _persistentTextureBindGroups[cacheKey] = cachedBg;
                         }
@@ -14076,13 +14263,13 @@ SceneStateUploadComplete:
                     }
 
                     var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
-                    _context.Wgpu.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                    _context.Wgpu.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                    _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
+                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
                 }
             }
 
-            _context.Wgpu.RenderPassEncoderEnd(pass);
-            _context.Wgpu.RenderPassEncoderRelease(pass);
+            _context.Api.RenderPassEncoderEnd(pass);
+            _context.Api.RenderPassEncoderRelease(pass);
         }
     }
 
@@ -14129,7 +14316,63 @@ SceneStateUploadComplete:
             Entries = entries
         };
 
-        return _context.Wgpu.DeviceCreateBindGroupLayout(_context.Device, &desc);
+        return _context.Api.DeviceCreateBindGroupLayout(_context.Device, &desc);
+    }
+
+    private unsafe BindGroupLayout* CreateRetainedGlyphLayout()
+    {
+        var entries = stackalloc BindGroupLayoutEntry[4];
+        entries[0] = new BindGroupLayoutEntry
+        {
+            Binding = 0,
+            Visibility = ShaderStage.Vertex | ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.Uniform,
+                HasDynamicOffset = false,
+                MinBindingSize = 0
+            }
+        };
+        entries[1] = new BindGroupLayoutEntry
+        {
+            Binding = 1,
+            Visibility = ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.ReadOnlyStorage,
+                HasDynamicOffset = false,
+                MinBindingSize = 0
+            }
+        };
+        entries[2] = new BindGroupLayoutEntry
+        {
+            Binding = 2,
+            Visibility = ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.ReadOnlyStorage,
+                HasDynamicOffset = false,
+                MinBindingSize = 0
+            }
+        };
+        entries[3] = new BindGroupLayoutEntry
+        {
+            Binding = 3,
+            Visibility = ShaderStage.Vertex,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.ReadOnlyStorage,
+                HasDynamicOffset = false,
+                MinBindingSize = 0
+            }
+        };
+
+        var descriptor = new BindGroupLayoutDescriptor
+        {
+            EntryCount = 4,
+            Entries = entries
+        };
+        return _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
     }
 
     private unsafe BindGroupLayout* CreateUniformOnlyLayout()
@@ -14152,7 +14395,7 @@ SceneStateUploadComplete:
             Entries = &entry
         };
 
-        return _context.Wgpu.DeviceCreateBindGroupLayout(_context.Device, &desc);
+        return _context.Api.DeviceCreateBindGroupLayout(_context.Device, &desc);
     }
 
     private unsafe BindGroupLayout* CreateSamplerTextureLayout()
@@ -14185,6 +14428,6 @@ SceneStateUploadComplete:
             Entries = entries
         };
 
-        return _context.Wgpu.DeviceCreateBindGroupLayout(_context.Device, &desc);
+        return _context.Api.DeviceCreateBindGroupLayout(_context.Device, &desc);
     }
 }

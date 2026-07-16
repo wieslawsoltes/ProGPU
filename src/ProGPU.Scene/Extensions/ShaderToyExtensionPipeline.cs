@@ -124,7 +124,7 @@ namespace ProGPU.Scene.Extensions
             if (_toyBindGroupLayout != null) return;
 
             _contextRef = compositor.Context;
-            var wgpu = _contextRef.Wgpu;
+            var wgpu = _contextRef.Api;
             var device = _contextRef.Device;
 
             var entry = new BindGroupLayoutEntry
@@ -297,7 +297,7 @@ namespace ProGPU.Scene.Extensions
 
             EnsureLayouts(compositor);
 
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
@@ -406,7 +406,7 @@ namespace ProGPU.Scene.Extensions
                                 vertexBufferLayouts: layouts,
                                 topology: PrimitiveTopology.TriangleList,
                                 targetFormat: compositor.RenderFormat,
-                                sampleCount: isOffscreen ? 1u : 4u,
+                                sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
                                 pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout,
                                 blendMode: dc.BlendMode,
                                 sourceAlphaMode: pipelineSourceAlphaMode

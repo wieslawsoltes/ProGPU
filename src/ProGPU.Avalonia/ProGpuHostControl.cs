@@ -121,7 +121,7 @@ public class ProGpuHostControl : Control
                 {
                     if (IsStagingBufferMapActive)
                     {
-                        _context.Wgpu.BufferUnmap((GpuBuffer*)StagingBuffer);
+                        _context.Api.BufferUnmap((GpuBuffer*)StagingBuffer);
                         IsStagingBufferMapActive = false;
                     }
 
@@ -259,7 +259,7 @@ public class ProGpuHostControl : Control
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var handle = GCHandle.Alloc(tcs);
             var userData = (void*)GCHandle.ToIntPtr(handle);
-            _wgpuContext!.Wgpu.BufferMapAsync((GpuBuffer*)buffer, mode, 0, size, s_mapCallback, userData);
+            _wgpuContext!.Api.BufferMapAsync((GpuBuffer*)buffer, mode, 0, size, s_mapCallback, userData);
             return tcs.Task;
         }
     }
@@ -762,7 +762,7 @@ public class ProGpuHostControl : Control
                         Size = requiredBufferSize,
                         MappedAtCreation = false
                     };
-                    image.StagingBuffer = (IntPtr)_wgpuContext!.Wgpu.DeviceCreateBuffer(_wgpuContext!.Device, &bufferDesc);
+                    image.StagingBuffer = (IntPtr)_wgpuContext!.Api.DeviceCreateBuffer(_wgpuContext!.Device, &bufferDesc);
                 }
             }
 
@@ -849,7 +849,7 @@ public class ProGpuHostControl : Control
     private unsafe void CopyTextureToStagingBuffer(SwapchainImage image, uint renderWidth, uint renderHeight)
     {
         var encoderDesc = new CommandEncoderDescriptor();
-        var encoder = _wgpuContext!.Wgpu.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
+        var encoder = _wgpuContext!.Api.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
         
         var copySrc = new ImageCopyTexture
         {
@@ -877,19 +877,19 @@ public class ProGpuHostControl : Control
             DepthOrArrayLayers = 1
         };
         
-        _wgpuContext.Wgpu.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
+        _wgpuContext.Api.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
         
         var cmdBufferDesc = new CommandBufferDescriptor();
-        var cmdBuffer = _wgpuContext.Wgpu.CommandEncoderFinish(encoder, &cmdBufferDesc);
+        var cmdBuffer = _wgpuContext.Api.CommandEncoderFinish(encoder, &cmdBufferDesc);
         
-        _wgpuContext.Wgpu.QueueSubmit(_wgpuContext.Queue, 1, &cmdBuffer);
-        _wgpuContext.Wgpu.CommandBufferRelease(cmdBuffer);
-        _wgpuContext.Wgpu.CommandEncoderRelease(encoder);
+        _wgpuContext.Api.QueueSubmit(_wgpuContext.Queue, 1, &cmdBuffer);
+        _wgpuContext.Api.CommandBufferRelease(cmdBuffer);
+        _wgpuContext.Api.CommandEncoderRelease(encoder);
     }
 
     private unsafe void CopyMappedToSharedTexture(WgpuContext context, SwapchainImage image, uint renderWidth, uint renderHeight)
     {
-        void* mappedPtr = context.Wgpu.BufferGetConstMappedRange((GpuBuffer*)image.StagingBuffer, 0, (nuint)image.StagingBufferSize);
+        void* mappedPtr = context.Api.BufferGetConstMappedRange((GpuBuffer*)image.StagingBuffer, 0, (nuint)image.StagingBufferSize);
         try
         {
             if (mappedPtr != null)
@@ -936,7 +936,7 @@ public class ProGpuHostControl : Control
         {
             if (!context.IsDisposed && image.StagingBuffer != IntPtr.Zero && image.IsStagingBufferMapActive)
             {
-                context.Wgpu.BufferUnmap((GpuBuffer*)image.StagingBuffer);
+                context.Api.BufferUnmap((GpuBuffer*)image.StagingBuffer);
                 image.IsStagingBufferMapActive = false;
             }
         }
@@ -949,7 +949,7 @@ public class ProGpuHostControl : Control
             return;
         }
 
-        context.Wgpu.BufferUnmap((GpuBuffer*)image.StagingBuffer);
+        context.Api.BufferUnmap((GpuBuffer*)image.StagingBuffer);
         image.IsStagingBufferMapActive = false;
     }
 

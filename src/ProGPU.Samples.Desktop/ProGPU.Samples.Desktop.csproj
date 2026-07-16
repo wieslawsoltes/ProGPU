@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+  </ItemGroup>
+</Project>

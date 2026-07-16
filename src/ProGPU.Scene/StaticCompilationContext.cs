@@ -6,6 +6,7 @@ namespace ProGPU.Scene
     {
         public float StaticZoom { get; set; } = 1.0f;
         public bool IsRecompiling { get; set; } = false;
+        internal RetainedGlyphGeometryBuilder? RetainedGlyphBuilder { get; set; }
         
         private readonly Dictionary<int, object> _builders = new();
         private readonly object _lock = new();

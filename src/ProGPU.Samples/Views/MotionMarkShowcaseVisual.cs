@@ -44,12 +44,14 @@ public struct Element
     public SolidColorBrush CachedBrush;
     public Pen CachedPen;
     public PathGeometry CachedPath;
+    public RenderCommandGeometryCache CachedGeometryCache;
 }
 
 public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
 {
     private readonly List<Element> _elements = new();
     private readonly List<PathGeometry> _groupPaths = new();
+    private readonly List<RenderCommandGeometryCache> _groupGeometryCaches = new();
     private readonly List<PathFigure> _groupFigures = new();
     private readonly List<int> _groupEndIndices = new();
     private readonly Random _rand = new();
@@ -72,6 +74,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
     private int _cachedHudElementCount = -1;
     private int _cachedHudModeMask = -1;
     private bool _cachedHudIndividualPathMode;
+    private float _animationTimeBudget;
     private float _splitToggleBudget;
 
     // Exposed settings
@@ -126,9 +129,19 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
             return;
         }
 
-        // Preserve the original 0.5% per-60-Hz-frame split rate without scanning every element.
-        // Work is O(k), where k ~= elementCount * 0.005 * delta * 60, instead of O(elementCount).
-        _splitToggleBudget += _elements.Count * 0.3f * MathF.Min(delta, 0.1f);
+        // Preserve the original 0.5% per-60-Hz-frame split rate and animation cadence.
+        // High-refresh hosts accumulate time without rebuilding the retained scene hundreds
+        // of times per second; delayed frames catch up in bounded fixed steps and rebuild once.
+        const float animationStep = 1f / 60f;
+        _animationTimeBudget += MathF.Min(delta, 0.1f);
+        var stepCount = (int)(_animationTimeBudget / animationStep);
+        if (stepCount == 0)
+        {
+            return;
+        }
+
+        _animationTimeBudget -= stepCount * animationStep;
+        _splitToggleBudget += _elements.Count * 0.005f * stepCount;
         var toggleCount = Math.Min(_elements.Count, (int)_splitToggleBudget);
         if (toggleCount == 0)
         {
@@ -248,6 +261,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
     public void RegenerateSegments()
     {
         _elements.Clear();
+        _animationTimeBudget = 0f;
         _splitToggleBudget = 0f;
         Resize(ElementCount);
     }
@@ -302,6 +316,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
         element.CachedBrush = new SolidColorBrush(element.Color);
         element.CachedPen = new Pen(element.CachedBrush, element.Width * StrokeThicknessMultiplier);
         element.CachedPath = CreateElementPath(element);
+        element.CachedGeometryCache = RenderCommandGeometryCache.ForPath(element.CachedPath);
 
         return element;
     }
@@ -380,6 +395,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
             path.Figures.Add(figure);
             _groupFigures.Add(figure);
             _groupPaths.Add(path);
+            _groupGeometryCaches.Add(RenderCommandGeometryCache.ForPath(path));
         }
 
         var result = _groupFigures[index];
@@ -451,6 +467,11 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
 
     public override void OnRender(DrawingContext context)
     {
+        // The individual pipeline emits one command per element; grouped mode
+        // emits no more than that. Reserve the deterministic upper bound before
+        // recording so a changing split pattern cannot cross a List growth
+        // boundary during an otherwise allocation-free animation frame.
+        context.EnsureCommandCapacity(checked(_elements.Count + 8));
         EnsureThemeResources();
         context.DrawRoundedRectangle(_backgroundBrush, _borderPen, new Rect(Vector2.Zero, Size), 8f);
 
@@ -480,11 +501,15 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
                     var elem = _elements[k];
                     if (FillShapes)
                     {
-                        context.DrawPath(groupStyleElement.CachedBrush, null, elem.CachedPath);
+                        context.DrawPath(
+                            groupStyleElement.CachedBrush,
+                            null,
+                            elem.CachedPath,
+                            elem.CachedGeometryCache);
                     }
                     else
                     {
-                        context.DrawPath(null, pen, elem.CachedPath);
+                        context.DrawPath(null, pen, elem.CachedPath, elem.CachedGeometryCache);
                     }
                 }
 
@@ -498,11 +523,19 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
                 var style = _elements[_groupEndIndices[groupIndex]];
                 if (FillShapes)
                 {
-                    context.DrawPath(style.CachedBrush, null, _groupPaths[groupIndex]);
+                    context.DrawPath(
+                        style.CachedBrush,
+                        null,
+                        _groupPaths[groupIndex],
+                        _groupGeometryCaches[groupIndex]);
                 }
                 else
                 {
-                    context.DrawPath(null, style.CachedPen, _groupPaths[groupIndex]);
+                    context.DrawPath(
+                        null,
+                        style.CachedPen,
+                        _groupPaths[groupIndex],
+                        _groupGeometryCaches[groupIndex]);
                 }
             }
         }

@@ -91,7 +91,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
             MappedAtCreation = false
         };
 
-        _buffer = _context.Wgpu.DeviceCreateBuffer(_context.Device, &bufferDesc);
+        _buffer = _context.Api.DeviceCreateBuffer(_context.Device, &bufferDesc);
         if (_buffer == null)
         {
             BufferSize = 0;
@@ -243,7 +243,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         ThrowIfContextDisposed();
 
         var encoderDesc = new CommandEncoderDescriptor();
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
 
         var copySrc = new ImageCopyTexture
         {
@@ -271,14 +271,14 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
             DepthOrArrayLayers = depthOrArrayLayers
         };
 
-        _context.Wgpu.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
+        _context.Api.CommandEncoderCopyTextureToBuffer(encoder, &copySrc, &copyDst, &copySize);
 
         var commandBufferDesc = new CommandBufferDescriptor();
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
     }
 
     private static uint GetMipDimension(uint dimension, uint mipLevel)
@@ -306,7 +306,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
 
         using var signal = new ManualResetEventSlim(false);
         _mapSignal = signal;
-        _context.Wgpu.BufferMapAsync(_buffer, MapMode.Read, 0, (nuint)BufferSize, _mapCallback, null);
+        _context.Api.BufferMapAsync(_buffer, MapMode.Read, 0, (nuint)BufferSize, _mapCallback, null);
 
         var stopwatch = Stopwatch.StartNew();
         while (!signal.IsSet)
@@ -340,7 +340,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         _isMapActive = true;
         try
         {
-            void* mappedPtr = _context.Wgpu.BufferGetConstMappedRange(_buffer, 0, (nuint)BufferSize);
+            void* mappedPtr = _context.Api.BufferGetConstMappedRange(_buffer, 0, (nuint)BufferSize);
             if (mappedPtr == null)
             {
                 return false;
@@ -408,7 +408,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
 
         if (!_context.IsDisposed)
         {
-            _context.Wgpu.BufferUnmap(_buffer);
+            _context.Api.BufferUnmap(_buffer);
         }
 
         _isMapActive = false;

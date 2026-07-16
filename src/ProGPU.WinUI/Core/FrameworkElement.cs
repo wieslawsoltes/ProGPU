@@ -42,6 +42,19 @@ public class PointerRoutedEventArgs : RoutedEventArgs
 
 public partial class FrameworkElement
 {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty DataContextProperty =
+        Microsoft.UI.Xaml.DependencyProperty.Register(
+            "DataContext",
+            typeof(object),
+            typeof(FrameworkElement),
+            new Microsoft.UI.Xaml.PropertyMetadata(null, null, isInheritable: true));
+
+    public object? DataContext
+    {
+        get => GetValue(DataContextProperty);
+        set => SetValue(DataContextProperty, value);
+    }
+
     public static readonly Microsoft.UI.Xaml.DependencyProperty IsPointerOverProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "IsPointerOver",

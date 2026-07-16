@@ -902,6 +902,17 @@ public class DrawingContext : IRenderDataProvider
 
     public int RetainedResourceCount => _retainedResources.Count;
 
+    /// <summary>
+    /// Reserves storage for a known upper bound of retained commands. Repeated
+    /// recording then reuses the same backing array without a late capacity
+    /// growth in an animation frame.
+    /// </summary>
+    public void EnsureCommandCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        Commands.EnsureCapacity(capacity);
+    }
+
     public void RetainResource(IDisposable resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
@@ -1077,6 +1088,35 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             Path = path,
             GeometryCache = RenderCommandGeometryCache.ForPath(path)
+        });
+    }
+
+    /// <summary>
+    /// Records a retained path using a cache previously created for the same geometry.
+    /// Animated callers can reuse the cache while changing grouping or style without
+    /// allocating a new cache object for every recorded command.
+    /// </summary>
+    public void DrawPath(
+        Brush? brush,
+        Pen? pen,
+        PathGeometry path,
+        RenderCommandGeometryCache geometryCache)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(geometryCache);
+        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
+            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
+        {
+            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            GeometryCache = geometryCache
         });
     }
 

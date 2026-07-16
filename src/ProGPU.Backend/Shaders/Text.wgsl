@@ -122,6 +122,8 @@ fn text_coverage_to_alpha(alpha: f32, contrast: f32, gamma: f32, aliasedText: bo
 }
 
 fn text_fs_main(input: VertexOutput) -> vec4<f32> {
+    let atlasCoordDx = dpdx(input.texCoord);
+    let atlasCoordDy = dpdy(input.texCoord);
     let atlasColor = textureSample(atlasTexture, atlasSampler, input.texCoord);
     let alpha = atlasColor.r;
     let aliasedText = input.cornerRadius < 0.0;
@@ -140,9 +142,9 @@ fn text_fs_main(input: VertexOutput) -> vec4<f32> {
         let atlasDims = textureDimensions(atlasTexture);
         let atlasSize = vec2<f32>(f32(atlasDims.x), f32(atlasDims.y));
         let subpixelOffset = vec2<f32>(1.0 / max(atlasSize.x * 3.0, 1.0), 0.0);
-        let redCoverage = textureSample(atlasTexture, atlasSampler, input.texCoord - subpixelOffset).r;
+        let redCoverage = textureSampleGrad(atlasTexture, atlasSampler, input.texCoord - subpixelOffset, atlasCoordDx, atlasCoordDy).r;
         let greenCoverage = alpha;
-        let blueCoverage = textureSample(atlasTexture, atlasSampler, input.texCoord + subpixelOffset).r;
+        let blueCoverage = textureSampleGrad(atlasTexture, atlasSampler, input.texCoord + subpixelOffset, atlasCoordDx, atlasCoordDy).r;
         let rgbCoverage = vec3<f32>(
             text_coverage_to_alpha(redCoverage, input.strokeThickness, gamma, false),
             text_coverage_to_alpha(greenCoverage, input.strokeThickness, gamma, false),

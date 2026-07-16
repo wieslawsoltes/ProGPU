@@ -37,6 +37,8 @@ public class DesignerHost : Grid
     private RichTextBlock? _zoomInText;
     private RichTextBlock? _outlinesLabelText;
     private RichTextBlock? _webflowLabelText;
+    private Button? _interactionModeButton;
+    private RichTextBlock? _interactionModeText;
     private RichTextBlock? _desktopText;
     private RichTextBlock? _tabletText;
     private RichTextBlock? _mobileText;
@@ -61,6 +63,27 @@ public class DesignerHost : Grid
     private bool _isBottomExpanded = false;
 
     public DesignerCanvas WorkspaceCanvas => _designerCanvas;
+    public bool IsInteractionMode => _designerCanvas.IsInteractionMode;
+
+    public void SetInteractionMode(bool enabled)
+    {
+        _designerCanvas.IsInteractionMode = enabled;
+        if (_interactionModeButton == null || _interactionModeText == null)
+        {
+            return;
+        }
+
+        _interactionModeText.Inlines.Clear();
+        _interactionModeText.Inlines.Add(new Run(enabled ? "■ Design" : "▶ Interact"));
+        _interactionModeButton.Background = new ThemeResourceBrush(
+            enabled ? "SystemAccentColor" : "ControlBackground");
+        _interactionModeText.Foreground = new ThemeResourceBrush(
+            enabled ? "TextOnAccent" : "TextPrimary");
+        _interactionModeButton.BorderThickness = enabled ? new Thickness(0) : new Thickness(1f);
+        _interactionModeButton.BorderBrush = new ThemeResourceBrush(
+            enabled ? "SystemAccentColor" : "ControlBorder");
+        _interactionModeButton.Invalidate();
+    }
 
     public TtfFont? DesignerFont { get; set; }
     public TtfFont? DesignerFontCourier { get; set; }
@@ -256,6 +279,30 @@ public class DesignerHost : Grid
             UpdateOutline();
         };
         leftPanel.AddChild(btnResponsive);
+
+        _interactionModeButton = new Button
+        {
+            Name = "DesignerInteractionModeButton",
+            Height = 28f,
+            Margin = new Thickness(0, 0, 6, 0),
+            CornerRadius = 4f,
+            Padding = new Thickness(8, 0, 8, 0)
+        };
+        _interactionModeText = new RichTextBlock
+        {
+            Font = DesignerFont,
+            FontSize = 10.5f,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _interactionModeText.Inlines.Add(new Run("▶ Interact"));
+        _interactionModeButton.Content = _interactionModeText;
+        updateToggleStyle(_interactionModeButton, _designerCanvas.IsInteractionMode);
+        _interactionModeButton.Click += (s, e) =>
+        {
+            SetInteractionMode(!_designerCanvas.IsInteractionMode);
+        };
+        leftPanel.AddChild(_interactionModeButton);
 
         Grid.SetColumn(leftPanel, 0);
         toolbarGrid.AddChild(leftPanel);

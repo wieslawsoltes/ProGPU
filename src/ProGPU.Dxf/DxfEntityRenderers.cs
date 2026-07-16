@@ -36,7 +36,6 @@ public static class DxfColorHelper
         return new SolidColorBrush(color);
     }
 }
-
 public class DxfLineRenderer : IDxfEntityRenderer
 {
     public void Render(EntityObject entity, DxfRenderContext context, Matrix4x4 transform)
@@ -91,7 +90,7 @@ public class DxfArcCircleRenderer : IDxfEntityRenderer
             // Viewport culling using circle bounding box
             if (context.IsOffScreen(screenCenter - new Vector2(screenR), screenCenter + new Vector2(screenR))) return;
 
-            if (physicalR < 1f) return; // Too small to render
+            if (!context.IsCompilingStatic && physicalR < 1f) return; // Too small to render
 
             // Detect uniform scaling in the transformation matrix to use native DrawCircle
             var col1 = new Vector3(combined.M11, combined.M12, combined.M13);
@@ -109,7 +108,7 @@ public class DxfArcCircleRenderer : IDxfEntityRenderer
             {
                 // Non-uniform fallback using dynamic LOD segment interpolation
                 int numSegments = 64;
-                if (context.EnableLod)
+                if (!context.IsCompilingStatic && context.EnableLod)
                 {
                     if (physicalR < 5f) numSegments = 8;
                     else if (physicalR < 15f) numSegments = 12;
@@ -153,11 +152,11 @@ public class DxfArcCircleRenderer : IDxfEntityRenderer
             // Viewport culling
             if (context.IsOffScreen(screenCenter - new Vector2(screenR), screenCenter + new Vector2(screenR))) return;
 
-            if (physicalR < 1f) return; // Too small to render
+            if (!context.IsCompilingStatic && physicalR < 1f) return; // Too small to render
 
             // Dynamic LOD for Arc segment count
             int numSegments = 64;
-            if (context.EnableLod)
+            if (!context.IsCompilingStatic && context.EnableLod)
             {
                 if (physicalR < 5f) numSegments = 6;
                 else if (physicalR < 15f) numSegments = 12;
@@ -213,11 +212,11 @@ public class DxfEllipseRenderer : IDxfEntityRenderer
         // Viewport culling using maximum screen radius bounding box
         if (context.IsOffScreen(screenCenter - new Vector2(maxScreenR), screenCenter + new Vector2(maxScreenR))) return;
 
-        if (physicalMaxR < 1f) return; // Too small to see
+        if (!context.IsCompilingStatic && physicalMaxR < 1f) return; // Too small to see
 
         // Dynamic LOD for ellipse segment count
         int numSegments = 64;
-        if (context.EnableLod)
+        if (!context.IsCompilingStatic && context.EnableLod)
         {
             if (physicalMaxR < 5f) numSegments = 8;
             else if (physicalMaxR < 15f) numSegments = 16;
@@ -436,11 +435,11 @@ public class DxfPolylineRenderer : IDxfEntityRenderer
                 // Viewport culling for bulge arc
                 if (context.IsOffScreen(screenCenter - new Vector2(screenR), screenCenter + new Vector2(screenR))) return;
 
-                if (screenR < 1f) return; // Too small to see
+                if (!context.IsCompilingStatic && screenR < 1f) return; // Too small to see
 
                 // Dynamic LOD for bulge arc segment count
                 int numSegments = 16;
-                if (context.EnableLod)
+                if (!context.IsCompilingStatic && context.EnableLod)
                 {
                     if (screenR < 5f) numSegments = 4;
                     else if (screenR < 15f) numSegments = 8;
@@ -1430,4 +1429,3 @@ public class DxfWipeoutRenderer : IDxfEntityRenderer
         }
     }
 }
-

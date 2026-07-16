@@ -67,6 +67,29 @@ public class DesignerCanvas : Panel
     public bool IsLogicalMode { get; set; } = true;
     public bool IsResponsiveMode { get; set; } = false;
 
+    private bool _isInteractionMode;
+    private readonly Dictionary<FrameworkElement, bool> _designHitTestStates = new();
+
+    public bool IsInteractionMode
+    {
+        get => _isInteractionMode;
+        set
+        {
+            if (_isInteractionMode == value)
+            {
+                return;
+            }
+
+            CancelCanvasGesture();
+            _isInteractionMode = value;
+            SelectElement(null);
+            AdornerSurface.IsVisible = !value;
+            AdornerSurface.IsHitTestVisible = !value;
+            SetDesignedTreeHitTesting(value);
+            Invalidate();
+        }
+    }
+
     public event Action? SelectionChanged;
     public event Action? CanvasModified;
     public event Action? CanvasModifying;
@@ -116,7 +139,15 @@ public class DesignerCanvas : Panel
     {
         if (child is FrameworkElement fe)
         {
-            fe.IsHitTestVisible = false;
+            if (IsInteractionMode)
+            {
+                _designHitTestStates.TryAdd(fe, fe.IsHitTestVisible);
+                fe.IsHitTestVisible = true;
+            }
+            else
+            {
+                fe.IsHitTestVisible = false;
+            }
         }
         DesignSurface.Children.Add(child);
         CanvasModified?.Invoke();
@@ -171,7 +202,7 @@ public class DesignerCanvas : Panel
 
         _selectedElement = element;
 
-        if (_selectedElement != null)
+        if (_selectedElement != null && !IsInteractionMode)
         {
             // Force a measure & arrange layout pass on DesignSurface so the element's actual position is fully computed
             float surfaceW = !float.IsFinite(Size.X) ? 2000f : Size.X;
@@ -232,6 +263,12 @@ public class DesignerCanvas : Panel
             _panStartOffset = PanOffset;
             InputSystem.CapturePointer(this);
             e.Handled = true;
+            base.OnPointerPressed(e);
+            return;
+        }
+
+        if (IsInteractionMode)
+        {
             base.OnPointerPressed(e);
             return;
         }
@@ -341,6 +378,12 @@ public class DesignerCanvas : Panel
             ApplyTransforms();
             Invalidate();
             e.Handled = true;
+            base.OnPointerMoved(e);
+            return;
+        }
+
+        if (IsInteractionMode)
+        {
             base.OnPointerMoved(e);
             return;
         }
@@ -491,6 +534,12 @@ public class DesignerCanvas : Panel
             _isPanning = false;
             InputSystem.ReleasePointerCapture();
             e.Handled = true;
+            base.OnPointerReleased(e);
+            return;
+        }
+
+        if (IsInteractionMode)
+        {
             base.OnPointerReleased(e);
             return;
         }
@@ -1005,7 +1054,7 @@ public class DesignerCanvas : Panel
 
     public void OnDrop(DragEventArgs args)
     {
-        if (!AllowDrop) return;
+        if (!AllowDrop || IsInteractionMode) return;
         
         Drop?.Invoke(this, args);
 
@@ -1112,6 +1161,61 @@ public class DesignerCanvas : Panel
     private TtfFont? ThemeResourceFont()
     {
         return PopupService.DefaultFont;
+    }
+
+    private void CancelCanvasGesture()
+    {
+        if (_isPanning || _isDraggingElement)
+        {
+            InputSystem.ReleasePointerCapture();
+        }
+
+        _isPanning = false;
+        _isDraggingElement = false;
+        _dragOverPosition = null;
+        HoveredElement = null;
+        ActiveVerticalSnapX = null;
+        ActiveHorizontalSnapY = null;
+        ClearSnapCache();
+    }
+
+    private void SetDesignedTreeHitTesting(bool enabled)
+    {
+        var children = DesignSurface.Children;
+        for (int childIndex = 0; childIndex < children.Count; childIndex++)
+        {
+            SetDesignedSubtreeHitTesting(children[childIndex], enabled);
+        }
+
+        if (!enabled)
+        {
+            _designHitTestStates.Clear();
+        }
+    }
+
+    private void SetDesignedSubtreeHitTesting(Visual visual, bool enabled)
+    {
+        if (visual is FrameworkElement element)
+        {
+            if (enabled)
+            {
+                _designHitTestStates.TryAdd(element, element.IsHitTestVisible);
+                element.IsHitTestVisible = true;
+            }
+            else if (_designHitTestStates.TryGetValue(element, out bool wasHitTestVisible))
+            {
+                element.IsHitTestVisible = wasHitTestVisible;
+            }
+        }
+
+        if (visual is ContainerVisual container)
+        {
+            var children = container.Children;
+            for (int childIndex = 0; childIndex < children.Count; childIndex++)
+            {
+                SetDesignedSubtreeHitTesting(children[childIndex], enabled);
+            }
+        }
     }
 
     public override void OnRender(DrawingContext context)

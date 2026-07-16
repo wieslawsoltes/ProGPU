@@ -9,8 +9,8 @@ public sealed class WindowsDpiAwarenessTests
     [Fact]
     public void SampleAppManifestDeclaresPerMonitorV2DpiAwareness()
     {
-        string manifest = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "app.manifest"));
-        string project = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "ProGPU.Samples.csproj"));
+        string manifest = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples.Desktop", "app.manifest"));
+        string project = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples.Desktop", "ProGPU.Samples.Desktop.csproj"));
 
         Assert.Contains("<ApplicationManifest>app.manifest</ApplicationManifest>", project, StringComparison.Ordinal);
         Assert.Contains("<dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true/PM</dpiAware>", manifest, StringComparison.Ordinal);

@@ -288,6 +288,8 @@ fn blend_atlas_color(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
 }
 
 fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
+    let textureCoordDx = dpdx(input.texCoord);
+    let textureCoordDy = dpdy(input.texCoord);
     let screen_uv = input.position.xy / uniforms.canvasSize;
     let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
     if (maskAlpha <= 0.0) {
@@ -302,7 +304,7 @@ fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
         return vec4<f32>(input.color.rgb, input.color.a * maskAlpha);
     }
 
-    var texColor = textureSample(texTexture, texSampler, input.texCoord);
+    var texColor = textureSampleGrad(texTexture, texSampler, input.texCoord, textureCoordDx, textureCoordDy);
     if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
         texColor = sample_bicubic(input.texCoord, input.cubicResampler);
     }

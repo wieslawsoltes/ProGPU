@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Text;
 using ProGPU.Layout;
 using ProGPU.Vector;
 using ProGPU.Text;
@@ -1600,19 +1601,26 @@ namespace Microsoft.UI.Xaml.Controls
                 }
             }
 
-            string runBuffer = "";
+            var runBuffer = new StringBuilder(Math.Min(positionedChars.Count, 4096));
             Vector2 startPos = Vector2.Zero;
             RichChar style = default;
+
+            void FlushRun()
+            {
+                if (runBuffer.Length == 0)
+                {
+                    return;
+                }
+
+                RenderRun(context, runBuffer.ToString(), startPos, style, style.Font ?? activeFont);
+                runBuffer.Clear();
+            }
 
             foreach (var pc in positionedChars)
             {
                 if (pc.Info.EmbeddedElement != null)
                 {
-                    if (runBuffer.Length > 0)
-                    {
-                        RenderRun(context, runBuffer, startPos, style, style.Font ?? activeFont);
-                        runBuffer = "";
-                    }
+                    FlushRun();
                     continue;
                 }
 
@@ -1624,18 +1632,14 @@ namespace Microsoft.UI.Xaml.Controls
 
                 if (pc.Info.Character == ' ' || pc.Info.Character == '\t')
                 {
-                    if (runBuffer.Length > 0)
-                    {
-                        RenderRun(context, runBuffer, startPos, style, style.Font ?? activeFont);
-                        runBuffer = "";
-                    }
+                    FlushRun();
                     RenderRun(context, pc.Info.Character.ToString(), pc.Position, pcStyle, pcStyle.Font ?? activeFont);
                     continue;
                 }
 
                 if (runBuffer.Length == 0)
                 {
-                    runBuffer = pc.Info.Character.ToString();
+                    runBuffer.Append(pc.Info.Character);
                     startPos = pc.Position;
                     style = pcStyle;
                 }
@@ -1647,21 +1651,18 @@ namespace Microsoft.UI.Xaml.Controls
                          pcStyle.Font == style.Font &&
                          Math.Abs(pc.Position.Y - startPos.Y) < 1f)
                 {
-                    runBuffer += pc.Info.Character;
+                    runBuffer.Append(pc.Info.Character);
                 }
                 else
                 {
-                    RenderRun(context, runBuffer, startPos, style, style.Font ?? activeFont);
-                    runBuffer = pc.Info.Character.ToString();
+                    FlushRun();
+                    runBuffer.Append(pc.Info.Character);
                     startPos = pc.Position;
                     style = pcStyle;
                 }
             }
 
-            if (runBuffer.Length > 0)
-            {
-                RenderRun(context, runBuffer, startPos, style, style.Font ?? activeFont);
-            }
+            FlushRun();
         }
 
         private static void RenderRun(DrawingContext context, string text, Vector2 pos, RichChar style, TtfFont activeFont)

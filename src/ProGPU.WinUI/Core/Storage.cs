@@ -31,6 +31,11 @@ public class StorageFile
 
     public async Task WriteTextAsync(string text)
     {
+        if (StoragePlatformServices.WriteTextAsync is { } platformWrite &&
+            await platformWrite(Path, text).ConfigureAwait(false))
+        {
+            return;
+        }
         await File.WriteAllTextAsync(Path, text);
     }
 
@@ -38,6 +43,13 @@ public class StorageFile
     {
         return Task.FromResult(new StorageFile(path));
     }
+}
+
+/// <summary>Host-provided storage operations for platforms without native process dialogs.</summary>
+public static class StoragePlatformServices
+{
+    public static Func<int, IReadOnlyList<string>?, string?, Task<string?>>? PickPathAsync { get; set; }
+    public static Func<string, string, Task<bool>>? WriteTextAsync { get; set; }
 }
 
 public class StorageFolder
@@ -142,6 +154,9 @@ internal static class StoragePickerHelper
 {
     public static async Task<string?> RunPickerAsync(PickerMode mode, List<string>? fileTypes, string? defaultName = null)
     {
+        if (StoragePlatformServices.PickPathAsync is { } platformPicker)
+            return await platformPicker((int)mode, fileTypes, defaultName).ConfigureAwait(false);
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             return await RunMacPickerAsync(mode, fileTypes, defaultName);

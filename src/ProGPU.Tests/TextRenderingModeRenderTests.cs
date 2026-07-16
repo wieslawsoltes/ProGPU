@@ -120,7 +120,7 @@ public sealed class TextRenderingModeRenderTests
     }
 
     [Fact]
-    public void CompileStaticDxfPreservesClearTypeTextRenderingMode()
+    public void CompileStaticDxfUsesHighPrecisionRetainedOutlinesForClearTypeText()
     {
         var font = TryLoadTestFont();
         if (font == null)
@@ -140,13 +140,14 @@ public sealed class TextRenderingModeRenderTests
 
         using var buffer = window.Compositor.CompileStaticDxf(context);
 
-        Assert.Contains(
-            buffer.TextRecords,
-            record => record.Command.TextRenderingMode == TextRenderingMode.ClearType);
+        Assert.True(buffer.RetainedGlyphRecordCount > 0);
+        Assert.True(buffer.RetainedGlyphSegmentCount > 0);
+        Assert.True(buffer.RetainedGlyphInstanceCount > 0);
+        Assert.Empty(buffer.TextRecords);
     }
 
     [Fact]
-    public void CompileStaticDxfPreservesAnimatedTextHintingMode()
+    public void CompileStaticDxfRetainsAnimatedTextWithoutAtlasRecompilation()
     {
         var font = TryLoadTestFont();
         if (font == null)
@@ -166,9 +167,10 @@ public sealed class TextRenderingModeRenderTests
 
         using var buffer = window.Compositor.CompileStaticDxf(context);
 
-        Assert.Contains(
-            buffer.TextRecords,
-            record => record.Command.TextHintingMode == TextHintingMode.Animated);
+        Assert.True(buffer.RetainedGlyphRecordCount > 0);
+        Assert.True(buffer.RetainedGlyphSegmentCount > 0);
+        Assert.True(buffer.RetainedGlyphInstanceCount > 0);
+        Assert.Empty(buffer.TextRecords);
     }
 
     [Fact]

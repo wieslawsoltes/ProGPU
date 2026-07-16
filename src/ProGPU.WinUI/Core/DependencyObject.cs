@@ -153,6 +153,23 @@ public class DependencyProperty
         }
     }
 
+    internal static IReadOnlyList<DependencyProperty> GetRegisteredAttachedProperties()
+    {
+        lock (RegisteredProperties)
+        {
+            var properties = new List<DependencyProperty>();
+            foreach (var property in RegisteredProperties)
+            {
+                if (property.IsAttached)
+                {
+                    properties.Add(property);
+                }
+            }
+
+            return properties;
+        }
+    }
+
     public static DependencyProperty? GetPropertyByIndex(int index)
     {
         lock (RegisteredProperties)
@@ -566,6 +583,20 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     {
         int idx = dp.Index;
         return idx < _styleValues.Length && (_styleValues[idx] != null || _styleThemeResources[idx] != null);
+    }
+
+    internal IReadOnlyList<KeyValuePair<DependencyProperty, object?>> GetLocalAttachedValues()
+    {
+        var result = new List<KeyValuePair<DependencyProperty, object?>>();
+        foreach (var property in DependencyProperty.GetRegisteredAttachedProperties())
+        {
+            if (IsPropertySetLocally(property))
+            {
+                result.Add(new KeyValuePair<DependencyProperty, object?>(property, GetValue(property)));
+            }
+        }
+
+        return result;
     }
 
     private long _nextToken = 1;

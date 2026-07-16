@@ -119,7 +119,7 @@ public class FontIcon : IconElement
                     brush,
                     new Vector2(offsetX, offsetY),
                     preferGlyphAtlas: true,
-                    useLogicalGlyphAtlasResolution: true);
+                    useLogicalGlyphAtlasResolution: false);
             }
             else
             {

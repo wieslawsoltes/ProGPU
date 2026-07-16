@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.HotReload;
 
 namespace ProGPU.Samples;
 
@@ -39,12 +40,25 @@ public static class AppState
 
     // Active diagnostic metric stats
     public static RichTextBlock? _statsText;
+    public static Run? _statsFpsRun;
+    public static Run? _statsCpuRun;
+    public static Run? _statsTimingRun;
+    public static Run? _statsDrawsRun;
+    public static Run? _statsVerticesRun;
+    public static Run? _statsAtlasRun;
+    public static Run? _statsCursorRun;
+    public static Run? _statsFocusedRun;
+    public static Run? _statsHotReloadRun;
     public static Vector2 _mousePos;
     public static string _activeFocusedName = "None";
 
     // Category pages and sidebar selections
     public static string _activeCategory = "Basic Input";
     public static NavigationView? _navigationView;
+    public static IDisposable? _hotReloadRegistration;
+    public static Action<HotReloadResult>? _hotReloadCompletedHandler;
+    public static Action? _themeChangedHandler;
+    public static EventHandler? _devToolsStateChangedHandler;
 
     // Framework Effects Page Variables
     public static float _fxBlurRadius = 8f;
@@ -75,7 +89,7 @@ public static class AppState
 
     // DXF viewer optimization controls
     public static bool EnableGpuTransforms { get; set; } = false;
-    public static bool EnableStaticGpuBuffers { get; set; } = false;
+    public static bool EnableStaticGpuBuffers { get; set; } = true;
     public static bool EnableCommandCaching { get; set; } = false;
     public static Compositor.VectorRenderingEngine VectorEngine { get; set; } = Compositor.VectorRenderingEngine.Atlas;
 
