@@ -37,6 +37,7 @@ public static class DxfColorHelper
     }
 }
 
+
 public class DxfLineRenderer : IDxfEntityRenderer
 {
     public void Render(EntityObject entity, DxfRenderContext context, Matrix4x4 transform)
@@ -554,6 +555,10 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
         var u = baselineVec / screenScale;
         var v = new Vector2(-u.Y, u.X);
+        if (context.EnableGpuTransforms)
+        {
+            v = -v;
+        }
 
         float screenFontSize = (float)attr.Height * screenScale;
         float physicalFontSize = screenFontSize;
@@ -642,7 +647,7 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
         var drawPos = screenPos + u * shiftX + v * shiftY;
         float rotationRad = MathF.Atan2(baselineVec.Y, baselineVec.X);
-        context.DrawingContext.DrawText(valStr, context.Font, screenFontSize, brush, drawPos, rotation: rotationRad);
+        DrawCameraAwareText(context, valStr, screenFontSize, brush, drawPos, rotationRad);
     }
 
     public void Render(EntityObject entity, DxfRenderContext context, Matrix4x4 transform)
@@ -667,6 +672,10 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
             var u = baselineVec / screenScale;
             var v = new Vector2(-u.Y, u.X);
+            if (context.EnableGpuTransforms)
+            {
+                v = -v;
+            }
 
             float screenFontSize = (float)text.Height * screenScale;
             float physicalFontSize = screenFontSize;
@@ -734,7 +743,7 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
             var drawPos = screenPos + u * shiftX + v * shiftY;
             float rotationRad = MathF.Atan2(baselineVec.Y, baselineVec.X);
-            context.DrawingContext.DrawText(text.Value, context.Font, screenFontSize, brush, drawPos, rotation: rotationRad);
+            DrawCameraAwareText(context, text.Value, screenFontSize, brush, drawPos, rotationRad);
         }
         else if (entity is MText mtext)
         {
@@ -757,6 +766,10 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
             var u = baselineVec / screenScale;
             var v = new Vector2(-u.Y, u.X);
+            if (context.EnableGpuTransforms)
+            {
+                v = -v;
+            }
 
             float screenFontSize = (float)mtext.Height * screenScale;
             float physicalFontSize = screenFontSize;
@@ -831,9 +844,46 @@ public class DxfTextRenderer : IDxfEntityRenderer
                 var lineShift = u * (-lineWidths[i] * horizontalShiftMultiplier) + 
                                 v * (verticalShift + i * screenLineOffset);
                 var pos = screenPos + lineShift;
-                context.DrawingContext.DrawText(lines[i], context.Font, screenFontSize, brush, pos, rotation: rotationRad);
+                DrawCameraAwareText(context, lines[i], screenFontSize, brush, pos, rotationRad);
             }
         }
+    }
+
+    internal static void DrawCameraAwareText(
+        DxfRenderContext context,
+        string text,
+        float fontSize,
+        Brush brush,
+        Vector2 position,
+        float rotation = 0f)
+    {
+        if (!context.EnableGpuTransforms)
+        {
+            context.DrawingContext.DrawText(
+                text,
+                context.Font,
+                fontSize,
+                brush,
+                position,
+                rotation: rotation);
+            return;
+        }
+
+        // The dynamic CAD view maps the drawing's Y-up world coordinates to
+        // the canvas' Y-down coordinates on the GPU. Reflect each retained
+        // glyph run locally so the later camera reflection keeps the glyphs
+        // upright without CPU-projecting or rebuilding them while zooming.
+        var textTransform = Matrix4x4.CreateTranslation(-position.X, -position.Y, 0f) *
+            Matrix4x4.CreateScale(1f, -1f, 1f) *
+            Matrix4x4.CreateTranslation(position.X, position.Y, 0f);
+        context.DrawingContext.DrawText(
+            text,
+            context.Font,
+            fontSize,
+            brush,
+            position,
+            textTransform,
+            rotation: rotation);
     }
 
     private static float MeasureLineWidthStatic(string line, ProGPU.Text.TtfFont font, float fontSize)
@@ -900,6 +950,10 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
         var u = baselineVec / screenScale;
         var v = new Vector2(-u.Y, u.X);
+        if (context.EnableGpuTransforms)
+        {
+            v = -v;
+        }
 
         float screenFontSize = (float)attdef.Height * screenScale;
         float physicalFontSize = screenFontSize;
@@ -988,7 +1042,7 @@ public class DxfTextRenderer : IDxfEntityRenderer
 
         var drawPos = screenPos + u * shiftX + v * shiftY;
         float rotationRad = MathF.Atan2(baselineVec.Y, baselineVec.X);
-        context.DrawingContext.DrawText(valStr, context.Font, screenFontSize, brush, drawPos, rotation: rotationRad);
+        DrawCameraAwareText(context, valStr, screenFontSize, brush, drawPos, rotationRad);
     }
 }
 
@@ -1210,13 +1264,12 @@ public class DxfViewportRenderer : IDxfEntityRenderer
                         float fontSize = mleader.TextHeight * context.Zoom;
                         if (fontSize > 0.1f)
                         {
-                            context.DrawingContext.DrawText(
+                            DxfTextRenderer.DrawCameraAwareText(
+                                context,
                                 cleanText,
-                                context.Font,
                                 fontSize,
                                 brush,
-                                pos
-                            );
+                                pos);
                         }
                     }
                 }
@@ -1430,4 +1483,3 @@ public class DxfWipeoutRenderer : IDxfEntityRenderer
         }
     }
 }
-

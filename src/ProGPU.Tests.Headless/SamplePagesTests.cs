@@ -707,6 +707,112 @@ public class SamplePagesTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Test_DxfCanvasControl_GpuTransforms_RenderTextLabels(bool usePictureCache)
+    {
+        EnsureFontsAndStateLoaded();
+
+        bool savedEnableGpuTransforms = AppState.EnableGpuTransforms;
+        bool savedEnableStatic = AppState.EnableStaticGpuBuffers;
+        bool savedEnableCaching = AppState.EnableCommandCaching;
+        try
+        {
+            static bool[] RenderYellowMask(bool enableGpuTransforms, bool usePictureCache, out int yellowPixelCount)
+            {
+                AppState.EnableGpuTransforms = enableGpuTransforms;
+                AppState.EnableStaticGpuBuffers = false;
+                AppState.EnableCommandCaching = usePictureCache;
+
+                using var window = new HeadlessWindow(800, 600);
+                var control = new DxfCanvasControl();
+                control.LoadDocument(SampleDxfGenerator.GenerateSample());
+                window.Content = control;
+                window.Render();
+
+                var pixels = window.ReadPixels();
+                var mask = new bool[pixels.Length / 4];
+                yellowPixelCount = 0;
+                for (int pixelIndex = 0; pixelIndex < pixels.Length; pixelIndex += 4)
+                {
+                    bool isYellow = pixels[pixelIndex] >= 160 &&
+                        pixels[pixelIndex + 1] >= 160 &&
+                        pixels[pixelIndex + 2] <= 96 &&
+                        pixels[pixelIndex + 3] >= 192;
+                    mask[pixelIndex / 4] = isYellow;
+                    if (isYellow)
+                    {
+                        yellowPixelCount++;
+                    }
+                }
+
+                return mask;
+            }
+
+            var referenceMask = RenderYellowMask(
+                enableGpuTransforms: false,
+                usePictureCache,
+                out int referenceYellowPixelCount);
+            var gpuMask = RenderYellowMask(
+                enableGpuTransforms: true,
+                usePictureCache,
+                out int yellowPixelCount);
+
+            Assert.True(
+                yellowPixelCount >= 64,
+                $"Expected retained DXF text labels to render yellow pixels, found {yellowPixelCount}.");
+
+            int overlapCount = 0;
+            for (int pixelIndex = 0; pixelIndex < gpuMask.Length; pixelIndex++)
+            {
+                if (gpuMask[pixelIndex] && referenceMask[pixelIndex])
+                {
+                    overlapCount++;
+                }
+            }
+
+            static (int MinX, int MinY, int MaxX, int MaxY) GetMaskBounds(bool[] mask)
+            {
+                int minX = 800;
+                int minY = 600;
+                int maxX = -1;
+                int maxY = -1;
+                for (int pixelIndex = 0; pixelIndex < mask.Length; pixelIndex++)
+                {
+                    if (!mask[pixelIndex])
+                    {
+                        continue;
+                    }
+
+                    int x = pixelIndex % 800;
+                    int y = pixelIndex / 800;
+                    minX = Math.Min(minX, x);
+                    minY = Math.Min(minY, y);
+                    maxX = Math.Max(maxX, x);
+                    maxY = Math.Max(maxY, y);
+                }
+
+                return (minX, minY, maxX, maxY);
+            }
+
+            float overlapRatio = overlapCount / (float)Math.Min(yellowPixelCount, referenceYellowPixelCount);
+            var referenceBounds = GetMaskBounds(referenceMask);
+            var gpuBounds = GetMaskBounds(gpuMask);
+            Assert.True(
+                overlapRatio >= 0.5f,
+                $"Expected GPU-camera DXF text to retain readable CPU-projected glyph orientation; " +
+                $"overlap was {overlapRatio:P1}, CPU={referenceYellowPixelCount} {referenceBounds}, " +
+                $"GPU={yellowPixelCount} {gpuBounds}.");
+        }
+        finally
+        {
+            AppState.EnableGpuTransforms = savedEnableGpuTransforms;
+            AppState.EnableStaticGpuBuffers = savedEnableStatic;
+            AppState.EnableCommandCaching = savedEnableCaching;
+        }
+    }
+
 
     [Fact]
     public void Benchmark_CacheAsLayer_Performance_Comparison()

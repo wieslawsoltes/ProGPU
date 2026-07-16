@@ -61,7 +61,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let scaleRatio = input.scaleBoldItalicUseMvp.x;
     let boldOffset = input.scaleBoldItalicUseMvp.y;
     let italicSkew = input.scaleBoldItalicUseMvp.z;
-    let encodedTextFlags = input.scaleBoldItalicUseMvp.w;
+    let allTextFlags = input.scaleBoldItalicUseMvp.w;
+    let useView = allTextFlags > 13.5;
+    let encodedTextFlags = select(allTextFlags, allTextFlags - 16.0, useView);
     let colorGlyph = encodedTextFlags > 5.5;
     let textFlags = select(encodedTextFlags, encodedTextFlags - 8.0, colorGlyph);
     let aliasedText = textFlags < -0.5;
@@ -96,7 +98,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var finalPosLogical = input.snappedLogicalPos + physicalOffset;
 
     if (useMvp > 0.5) {
-        finalPosLogical = (uniforms.mvp * vec4<f32>(finalPosLogical, 0.0, 1.0)).xy;
+        // Static DXF buffers provide their model transform through mvp, while
+        // retained GPU-camera commands explicitly select view.
+        let transformed = select(
+            uniforms.mvp * vec4<f32>(finalPosLogical, 0.0, 1.0),
+            uniforms.view * vec4<f32>(finalPosLogical, 0.0, 1.0),
+            useView);
+        finalPosLogical = transformed.xy;
     }
 
     output.position = uniforms.projection * vec4<f32>(finalPosLogical, 0.0, 1.0);

@@ -297,6 +297,9 @@ public unsafe class Compositor : IDisposable
             IsColorTextFlags(encodedFlags));
     }
 
+    private static float ForceTextUseView(float encodedFlags) =>
+        ForceTextUseMvp(encodedFlags) + 16f;
+
     private static TextRenderingMode DecodeTextRenderingMode(float encodedFlags)
     {
         encodedFlags = DecodeBaseTextFlags(encodedFlags);
@@ -3914,7 +3917,7 @@ SceneStateUploadComplete:
                     for (int i = textStart; i < _textVerticesList.Count; i++)
                     {
                         var v = _textVerticesList[i];
-                        v.ScaleBoldItalicUseMvp.W = ForceTextUseMvp(v.ScaleBoldItalicUseMvp.W);
+                        v.ScaleBoldItalicUseMvp.W = ForceTextUseView(v.ScaleBoldItalicUseMvp.W);
                         _textVerticesList[i] = v;
                     }
                 }
@@ -4178,7 +4181,7 @@ SceneStateUploadComplete:
                 for (int i = textStart; i < _textVerticesList.Count; i++)
                 {
                     var v = _textVerticesList[i];
-                    v.ScaleBoldItalicUseMvp.W = ForceTextUseMvp(v.ScaleBoldItalicUseMvp.W);
+                    v.ScaleBoldItalicUseMvp.W = ForceTextUseView(v.ScaleBoldItalicUseMvp.W);
                     _textVerticesList[i] = v;
                 }
             }
@@ -8904,9 +8907,12 @@ SceneStateUploadComplete:
         EnsureTextVertexCapacity(layoutGlyphCount * (cmd.IsBold ? 2 : 1));
 
         var staticZoom = ActiveCompilationContext?.StaticZoom ?? 1f;
+        var rasterizationTransform = _useGpuTransformsActive
+            ? activeTransform * _cameraViewMatrix
+            : activeTransform;
         var (dpiScale, rasterFontSize, atlasToLogicalScale) = ResolveTextRasterization(
             cmd.FontSize,
-            activeTransform,
+            rasterizationTransform,
             _currentDpiScale,
             staticZoom);
         if (cmd.UseLogicalGlyphAtlasResolution)
@@ -8923,7 +8929,7 @@ SceneStateUploadComplete:
             ? cmd.FontTransform.Y
             : 0f;
         var glyphItalicSkew = (cmd.IsItalic ? 0.22f : 0f) - fontSkewX;
-        var transformScale = TransformMetrics.GetStrokeScale(activeTransform);
+        var transformScale = TransformMetrics.GetStrokeScale(rasterizationTransform);
         var atlasUpscale = atlasToLogicalScale
             * transformScale
             * staticZoom
@@ -8932,10 +8938,11 @@ SceneStateUploadComplete:
             ? TransformedTextPathCoverageGamma
             : GetTextPathCoverageGamma(
                 cmd.FontSize,
-                activeTransform,
+                rasterizationTransform,
                 transformScale,
                 dpiScale);
-        bool isRotated = MathF.Abs(activeTransform.M12) > 0.0001f ||
+        bool isRotated = _useGpuTransformsActive ||
+                         MathF.Abs(activeTransform.M12) > 0.0001f ||
                          MathF.Abs(activeTransform.M21) > 0.0001f ||
                          activeTransform.M11 < 0.0f ||
                          activeTransform.M22 < 0.0f ||
@@ -9126,9 +9133,12 @@ SceneStateUploadComplete:
         EnsureTextVertexCapacity(cmd.GlyphIndices.Length * (cmd.IsBold ? 2 : 1));
 
         var staticZoom = ActiveCompilationContext?.StaticZoom ?? 1f;
+        var rasterizationTransform = _useGpuTransformsActive
+            ? activeTransform * _cameraViewMatrix
+            : activeTransform;
         var (dpiScale, rasterFontSize, atlasToLogicalScale) = ResolveTextRasterization(
             cmd.FontSize,
-            activeTransform,
+            rasterizationTransform,
             _currentDpiScale,
             staticZoom);
         if (cmd.UseLogicalGlyphAtlasResolution)
@@ -9145,7 +9155,7 @@ SceneStateUploadComplete:
             ? cmd.FontTransform.Y
             : 0f;
         var glyphItalicSkew = (cmd.IsItalic ? 0.22f : 0f) - fontSkewX;
-        var transformScale = TransformMetrics.GetStrokeScale(activeTransform);
+        var transformScale = TransformMetrics.GetStrokeScale(rasterizationTransform);
         var atlasUpscale = atlasToLogicalScale
             * transformScale
             * staticZoom
@@ -9154,11 +9164,12 @@ SceneStateUploadComplete:
             ? TransformedTextPathCoverageGamma
             : GetTextPathCoverageGamma(
                 cmd.FontSize,
-                activeTransform,
+                rasterizationTransform,
                 transformScale,
                 dpiScale);
 
-        bool isRotated = MathF.Abs(activeTransform.M12) > 0.0001f ||
+        bool isRotated = _useGpuTransformsActive ||
+                         MathF.Abs(activeTransform.M12) > 0.0001f ||
                          MathF.Abs(activeTransform.M21) > 0.0001f ||
                          activeTransform.M11 < 0.0f ||
                          activeTransform.M22 < 0.0f ||
