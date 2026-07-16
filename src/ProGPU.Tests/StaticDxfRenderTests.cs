@@ -200,8 +200,7 @@ public sealed class StaticDxfRenderTests
     [Fact]
     public void DisposedStaticDxfCannotRemainInCompiledScene()
     {
-        var window = HeadlessWindow.Shared;
-        window.Resize(64, 64);
+        using var window = new HeadlessWindow(64, 64);
 
         using var buffer = CreateStaticRect(window.Compositor, new Rect(8, 8, 48, 48));
         var projection = new Matrix4x4(
