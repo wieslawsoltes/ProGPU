@@ -197,6 +197,45 @@ public sealed class StaticDxfRenderTests
         Assert.Empty(buffer.TextVertices);
     }
 
+    [Fact]
+    public void DisposedStaticDxfCannotRemainInCompiledScene()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(64, 64);
+
+        using var buffer = CreateStaticRect(window.Compositor, new Rect(8, 8, 48, 48));
+        var projection = new Matrix4x4(
+            2f / 64f, 0f, 0f, 0f,
+            0f, -2f / 64f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            -1f, 1f, 0f, 1f);
+        buffer.UpdateViewport(projection, 1f, Vector2.Zero, Vector2.Zero, Vector2.Zero);
+        window.Content = new SingleStaticDxfVisual(buffer);
+
+        try
+        {
+            window.Render();
+
+            // A retained scene may still hold the external buffer after its owner unloads
+            // or replaces a DXF document. Disposing that buffer must invalidate the scene
+            // before another frame can bind its released native handle.
+            buffer.Dispose();
+            window.Render();
+
+            Assert.True(buffer.IsDisposed);
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+
+            // Recompilation strips the disposed external resource, so the now-safe
+            // scene can be reused without repeatedly compiling the visual tree.
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static DxfStaticBuffer CreateStaticRect(Compositor compositor, Rect rect)
     {
         var context = new DrawingContext();
@@ -384,6 +423,23 @@ public sealed class StaticDxfRenderTests
                 StaticBuffer = _commandMaskedBuffer
             });
             context.PopOpacityMask();
+        }
+    }
+
+    private sealed class SingleStaticDxfVisual : FrameworkElement
+    {
+        private readonly DxfStaticBuffer _buffer;
+
+        public SingleStaticDxfVisual(DxfStaticBuffer buffer)
+        {
+            _buffer = buffer;
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawStaticDxf(_buffer);
         }
     }
 

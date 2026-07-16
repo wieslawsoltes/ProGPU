@@ -1159,6 +1159,7 @@ public unsafe class Compositor : IDisposable
 
         InitializePipelinesAndBindGroups();
         GpuTexture.OnDisposedWithId += HandleTextureDisposed;
+        DxfStaticBuffer.Disposed += HandleStaticDxfBufferDisposed;
     }
 
     public void ApplyGaussianBlur(
@@ -3042,6 +3043,15 @@ SceneStateUploadComplete:
 
         RemoveMaskBindGroups(_maskBindGroups, textureId);
         RemoveMaskBindGroups(_maskBindGroupsOffscreen, textureId);
+    }
+
+    private void HandleStaticDxfBufferDisposed(DxfStaticBuffer buffer)
+    {
+        if (ReferenceEquals(buffer.Context, _context))
+        {
+            _compiledSceneReusable = false;
+            _compiledSceneCacheStateReason = "Static DXF buffer disposed";
+        }
     }
 
     private void RemoveMaskTexturePoolEntries(ulong textureId)
@@ -10313,6 +10323,7 @@ SceneStateUploadComplete:
             }
 
             GpuTexture.OnDisposedWithId -= HandleTextureDisposed;
+            DxfStaticBuffer.Disposed -= HandleStaticDxfBufferDisposed;
 
             if (_dummyMaskTexture != null) _dummyMaskTexture.Dispose();
             if (!_context.IsDisposed)
@@ -13061,6 +13072,8 @@ SceneStateUploadComplete:
         GpuBlendMode blendMode = GpuBlendMode.SrcOver)
     {
         if (staticBufferObj is not DxfStaticBuffer sb) return;
+        using var renderLease = sb.AcquireRenderLease();
+        if (!renderLease.IsAcquired) return;
 
         sb.UpdateDefaultViewport(_currentProjection, new Vector2(_currentWidth, _currentHeight), _currentDpiScale);
 

@@ -1029,6 +1029,7 @@ flowchart LR
 The retained lifetime and invalidation contract are explicit:
 
 - Loading a different document or unloading the control disposes the old GPU buffers.
+- Disposal publishes the buffer's terminal state before releasing WebGPU handles and invalidates every compiled scene on the same `WgpuContext`. A static draw holds an allocation-free render lease until command encoding finishes; concurrent disposal defers resource release, and recompilation removes any already-disposed external buffer. This prevents a cached frame from passing a released vertex buffer to native WebGPU during document replacement, page unload, or resize.
 - Document identity, active layout, active-layer set, entity-flattening mode, viewport size, and backend-mode changes rebuild the static buffer.
 - Pan and zoom never invalidate retained content. Resize rebuilds because the neutral screen-space recording bounds changed.
 - Static compilation disables entity LOD and size culling. Geometry that is tiny at the initial fit remains present at deep zoom, including lines, circles, arcs, ellipses, polylines, splines, hatches, blocks, dimensions, and extension-backed entities.

@@ -9,7 +9,11 @@ namespace ProGPU.Scene;
 
 public unsafe class DxfStaticBuffer : IDisposable
 {
+    internal static event Action<DxfStaticBuffer>? Disposed;
+
     private readonly WgpuContext _context;
+
+    internal WgpuContext Context => _context;
     
     public GpuBuffer? VertexBuffer { get; private set; }
     public GpuBuffer? IndexBuffer { get; private set; }
@@ -53,7 +57,21 @@ public unsafe class DxfStaticBuffer : IDisposable
     
     public Compositor.StaticTextRecord[] TextRecords { get; set; } = Array.Empty<Compositor.StaticTextRecord>();
     
-    private bool _isDisposed;
+    private int _disposeState;
+    private int _activeRenderCount;
+
+    public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
+
+    internal readonly struct RenderLease : IDisposable
+    {
+        private readonly DxfStaticBuffer? _owner;
+
+        internal RenderLease(DxfStaticBuffer owner) => _owner = owner;
+
+        internal bool IsAcquired => _owner != null;
+
+        public void Dispose() => _owner?.ReleaseRenderLease();
+    }
     
     public DxfStaticBuffer(
         WgpuContext context,
@@ -329,6 +347,32 @@ public unsafe class DxfStaticBuffer : IDisposable
         WriteViewportUniforms(projection, Matrix4x4.Identity, canvasSize, dpiScale);
     }
 
+    internal RenderLease AcquireRenderLease()
+    {
+        if (Volatile.Read(ref _disposeState) != 0)
+        {
+            return default;
+        }
+
+        Interlocked.Increment(ref _activeRenderCount);
+        if (Volatile.Read(ref _disposeState) == 0)
+        {
+            return new RenderLease(this);
+        }
+
+        ReleaseRenderLease();
+        return default;
+    }
+
+    private void ReleaseRenderLease()
+    {
+        if (Interlocked.Decrement(ref _activeRenderCount) == 0 &&
+            Volatile.Read(ref _disposeState) == 1)
+        {
+            ReleaseResources();
+        }
+    }
+
     private void WriteViewportUniforms(Matrix4x4 projection, Matrix4x4 modelToScreen, Vector2 canvasSize, float dpiScale)
     {
         if (UniformBuffer == null) return;
@@ -354,8 +398,27 @@ public unsafe class DxfStaticBuffer : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed) return;
-        
+        if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0) return;
+
+        try
+        {
+            Disposed?.Invoke(this);
+        }
+        finally
+        {
+            if (Volatile.Read(ref _activeRenderCount) == 0)
+            {
+                ReleaseResources();
+            }
+
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    private void ReleaseResources()
+    {
+        if (Interlocked.CompareExchange(ref _disposeState, 2, 1) != 1) return;
+
         lock (_context.RenderLock)
         {
             VertexBuffer?.Dispose();
@@ -389,8 +452,5 @@ public unsafe class DxfStaticBuffer : IDisposable
                 if (RetainedGlyphBindGroup != null) _context.Api.BindGroupRelease(RetainedGlyphBindGroup);
             }
         }
-        
-        _isDisposed = true;
-        GC.SuppressFinalize(this);
     }
 }

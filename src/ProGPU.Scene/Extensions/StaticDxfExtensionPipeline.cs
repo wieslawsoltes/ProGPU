@@ -12,7 +12,12 @@ namespace ProGPU.Scene.Extensions
             Matrix4x4 transform,
             ref RenderCommand cmd)
         {
-            // Precompiled DXF static buffer compile pass is a no-op.
+            // Do not retain a released external buffer when recompiling a scene after
+            // its owner replaced or unloaded the DXF document.
+            if (cmd.DataParam is DxfStaticBuffer { IsDisposed: true })
+            {
+                cmd.DataParam = null;
+            }
         }
 
         public unsafe void Render(
