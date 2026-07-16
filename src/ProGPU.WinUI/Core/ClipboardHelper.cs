@@ -11,11 +11,23 @@ namespace Microsoft.UI.Xaml;
 
 public static class ClipboardHelper
 {
+    /// <summary>Optional synchronous platform seam used by hosts without process access.</summary>
+    public static Action<string>? PlatformSetText { get; set; }
+
+    /// <summary>Optional synchronous platform seam used by hosts without process access.</summary>
+    public static Func<string>? PlatformGetText { get; set; }
+
     public static void SetText(string text)
     {
         if (text == null)
         {
             throw new ArgumentNullException(nameof(text));
+        }
+
+        if (PlatformSetText is { } platformSetText)
+        {
+            platformSetText(text);
+            return;
         }
 
         try
@@ -57,6 +69,8 @@ public static class ClipboardHelper
 
     public static string GetText()
     {
+        if (PlatformGetText is { } platformGetText) return platformGetText() ?? string.Empty;
+
         try
         {
             var psi = new ProcessStartInfo

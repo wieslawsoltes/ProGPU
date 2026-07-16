@@ -31,6 +31,7 @@ public class WindowInputState
     public bool IsLeftButtonPressed;
     public bool IsMiddleButtonPressed;
     public bool IsRightButtonPressed;
+    public Action<StandardCursor>? CursorChanged;
 }
 
 public static class InputSystem
@@ -52,6 +53,7 @@ public static class InputSystem
     public static void InjectKeyDown(Key key) => OnKeyDown(key);
     public static void InjectKeyUp(Key key) => OnKeyUp(key);
     public static void InjectKeyChar(char c) => OnKeyChar(c);
+    public static void InjectFocusLost() => OnFocusLost();
 
     public static Action<Action>? DispatcherQueue { get; set; }
 
@@ -180,6 +182,7 @@ public static class InputSystem
 
     public static void SetMouseCursor(StandardCursor cursor)
     {
+        Current.CursorChanged?.Invoke(cursor);
         if (Current.InputContext != null)
         {
             foreach (var mouse in Current.InputContext.Mice)
@@ -194,6 +197,22 @@ public static class InputSystem
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Creates input state for hosts that inject platform events without a Silk input context.
+    /// </summary>
+    public static WindowInputState CreateExternalState(
+        FrameworkElement? root = null,
+        Func<Vector2, Vector2>? pointerPositionTransform = null,
+        Action<StandardCursor>? cursorChanged = null)
+    {
+        return new WindowInputState
+        {
+            Root = root,
+            PointerPositionTransform = pointerPositionTransform,
+            CursorChanged = cursorChanged
+        };
     }
 
     public static WindowInputState Initialize(
@@ -833,6 +852,32 @@ public static class InputSystem
         {
             _focusedElement.OnCharacterReceived(new CharacterReceivedRoutedEventArgs { Character = c });
         }
+    }
+
+    private static void OnFocusLost()
+    {
+        if (Current.IsLeftButtonPressed) OnMouseUp(MouseButton.Left);
+        if (Current.IsMiddleButtonPressed) OnMouseUp(MouseButton.Middle);
+        if (Current.IsRightButtonPressed) OnMouseUp(MouseButton.Right);
+        if (_isShiftPressed) OnKeyUp(Key.ShiftLeft);
+        if (_isControlPressed) OnKeyUp(Key.ControlLeft);
+        if (_isAltPressed) OnKeyUp(Key.AltLeft);
+
+        if (_hoveredElement != null)
+        {
+            _hoveredElement.OnPointerExited(new PointerRoutedEventArgs
+            {
+                Position = GetLocalPosition(_hoveredElement, _lastMousePos),
+                ScreenPosition = _lastMousePos
+            });
+            _hoveredElement = null;
+        }
+
+        ReleasePointerCapture();
+        IsKeyboardFocusActive = false;
+        _hoverCancellation?.Cancel();
+        _hoverCancellation = null;
+        DismissToolTip();
     }
 
     public static void CycleFocus(bool reverse)

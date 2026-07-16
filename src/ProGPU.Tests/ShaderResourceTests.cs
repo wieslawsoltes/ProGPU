@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
 using ProGPU.Backend;
+using ProGPU.Browser;
 using ProGPU.Compute;
 using ProGPU.DirectX;
 using ProGPU.Samples;
@@ -98,6 +99,7 @@ public class ShaderResourceTests
         var projects = new (string Project, Type Anchor)[]
         {
             ("ProGPU.Backend", typeof(Shaders)),
+            ("ProGPU.Browser", typeof(BrowserSmokeScene)),
             ("ProGPU.Compute", typeof(ComputeShaders)),
             ("ProGPU.DirectX", typeof(ProGpuDirectXSciChartRenderContext2D)),
             ("ProGPU.Samples", typeof(ShaderToyPlaygroundPageGrid)),

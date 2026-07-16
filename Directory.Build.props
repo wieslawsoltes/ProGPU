@@ -18,6 +18,7 @@
     <PublishRepositoryUrl Condition="'$(PublishRepositoryUrl)' == ''">true</PublishRepositoryUrl>
     <IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Backend'">true</IsPackable>
+    <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Browser'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.DirectX'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Transpiler'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Compute'">true</IsPackable>

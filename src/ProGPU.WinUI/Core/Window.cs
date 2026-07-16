@@ -54,6 +54,7 @@ public class Window
     private bool _showInTaskbar = true;
     private Window? _owner;
     private bool _isRendering;
+    private bool _isExternalHostActive;
 
     public IWindow? SilkWindow => _silkWindow;
     public WgpuContext? WgpuContext => _wgpuContext;
@@ -296,6 +297,16 @@ public class Window
 
     public void Activate()
     {
+        if (WindowHostServices.Current is { } externalHost)
+        {
+            if (_isExternalHostActive) return;
+            externalHost.Activate(this);
+            _isExternalHostActive = true;
+            WindowManager.Register(this);
+            Activated?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         if (_silkWindow != null)
         {
             _silkWindow.IsVisible = true;
@@ -330,14 +341,31 @@ public class Window
         Activated?.Invoke(this, EventArgs.Empty);
     }
 
+    public Task ActivateAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Activate();
+        return Task.CompletedTask;
+    }
+
     public void Close()
     {
+        if (_isExternalHostActive && WindowHostServices.Current is { } externalHost)
+        {
+            externalHost.Close(this);
+            return;
+        }
         if (_silkWindow == null) return;
         _silkWindow.Close();
     }
 
     public void Hide()
     {
+        if (_isExternalHostActive && WindowHostServices.Current is { } externalHost)
+        {
+            externalHost.Hide(this);
+            return;
+        }
         if (_silkWindow != null)
         {
             _silkWindow.IsVisible = false;
@@ -365,8 +393,23 @@ public class Window
                 PrimarySampleCount = sampleCount
             });
         ApplySystemBackdrop();
-        
-        // Decoupled Compositor Rendering Hooks Setup
+        ConfigureCompositorHooks();
+
+        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
+        if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
+
+        if (System.IO.File.Exists(fontPath))
+        {
+            PopupService.DefaultFont = new ProGPU.Text.TtfFont(fontPath);
+        }
+
+        var inputContext = _silkWindow.CreateInput();
+        _inputState = InputSystem.Initialize(inputContext, _renderRoot, NormalizePointerPosition);
+    }
+
+    private void ConfigureCompositorHooks()
+    {
+        if (_compositor == null) return;
         _compositor.PreRender += (w, h) => PopupService.MeasureAndArrangePopups(new Vector2(w, h));
         _compositor.GetExternalLayers = () => PopupService.ActivePopups;
         _compositor.GetTooltip = () => InputSystem.ActiveToolTip;
@@ -380,17 +423,55 @@ public class Window
             }
             DragDropManager.RenderDragVisual(diagContext, w, h);
         };
+    }
 
-        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
-        if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
+    public void InitializeExternalRenderer(WgpuContext context, float dpiScale)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (_wgpuContext != null || _compositor != null)
+            throw new InvalidOperationException("The window renderer is already initialized.");
+        _wgpuContext = context;
+        var sampleCount = dpiScale >= 1.5f ? 1u : 4u;
+        _compositor = new Compositor(
+            context,
+            context.SwapChainFormat,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                GlyphAtlasSize = GlyphAtlasSize,
+                PrimarySampleCount = sampleCount
+            });
+        ApplySystemBackdrop();
+        ConfigureCompositorHooks();
+        _inputState = InputSystem.CreateExternalState(_renderRoot);
+    }
 
-        if (System.IO.File.Exists(fontPath))
+    public void RenderExternalFrame(double delta, uint framebufferWidth, uint framebufferHeight, float dpiScale)
+    {
+        if (_isRendering || _wgpuContext == null || _compositor == null) return;
+        var scale = float.IsFinite(dpiScale) && dpiScale > 0f ? dpiScale : 1f;
+        var framebufferSize = new Vector2D<int>(checked((int)Math.Max(1u, framebufferWidth)), checked((int)Math.Max(1u, framebufferHeight)));
+        var logicalSize = ResolveLogicalClientSize(framebufferSize, scale);
+        _isRendering = true;
+        try
         {
-            PopupService.DefaultFont = new ProGPU.Text.TtfFont(fontPath);
+            RenderFrameCore(delta, framebufferSize, scale, logicalSize);
         }
+        finally
+        {
+            _isRendering = false;
+        }
+    }
 
-        var inputContext = _silkWindow.CreateInput();
-        _inputState = InputSystem.Initialize(inputContext, _renderRoot, NormalizePointerPosition);
+    public void ShutdownExternalRenderer()
+    {
+        _compositor?.Dispose();
+        _compositor = null;
+        _wgpuContext = null;
+        _inputState = null;
+        _isExternalHostActive = false;
+        WindowManager.Unregister(this);
+        Closed?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnRender(double delta)
@@ -421,6 +502,14 @@ public class Window
 
     private unsafe void RenderFrameCore(double delta)
     {
+        var framebufferSize = GetCurrentFramebufferSize();
+        float dpiScale = ResolveWindowDpiScale(framebufferSize);
+        Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
+        RenderFrameCore(delta, framebufferSize, dpiScale, logicalSize);
+    }
+
+    private unsafe void RenderFrameCore(double delta, Vector2D<int> framebufferSize, float dpiScale, Vector2 logicalSize)
+    {
         long frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var wgpuContext = _wgpuContext!;
         var compositor = _compositor!;
@@ -441,13 +530,10 @@ public class Window
         double renderingCallbackTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        var framebufferSize = GetCurrentFramebufferSize();
         if (!wgpuContext.TryReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y))
         {
             return;
         }
-        float dpiScale = ResolveWindowDpiScale(framebufferSize);
-        Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
         double frameSetupTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         // Core animation updates
@@ -465,7 +551,7 @@ public class Window
         var surfaceTexture = new SurfaceTexture();
         if (wgpuContext.Surface != null)
         {
-            wgpuContext.Wgpu.SurfaceGetCurrentTexture(wgpuContext.Surface, &surfaceTexture);
+            wgpuContext.Api.SurfaceGetCurrentTexture(wgpuContext.Surface, &surfaceTexture);
             
             if (surfaceTexture.Status == SurfaceGetCurrentTextureStatus.Success)
             {
@@ -479,7 +565,7 @@ public class Window
                     ArrayLayerCount = 1,
                     Aspect = TextureAspect.All
                 };
-                targetView = wgpuContext.Wgpu.TextureCreateView(surfaceTexture.Texture, &viewDesc);
+                targetView = wgpuContext.Api.TextureCreateView(surfaceTexture.Texture, &viewDesc);
             }
         }
         double surfaceAcquireTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
@@ -502,7 +588,7 @@ public class Window
                 compositorTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
                 phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                wgpuContext.Wgpu.SurfacePresent(wgpuContext.Surface);
+                wgpuContext.Api.SurfacePresent(wgpuContext.Surface);
                 presentTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
             }
         }
@@ -510,11 +596,11 @@ public class Window
         {
             if (targetView != null)
             {
-                wgpuContext.Wgpu.TextureViewRelease(targetView);
+                wgpuContext.Api.TextureViewRelease(targetView);
             }
             if (surfaceTexture.Texture != null)
             {
-                wgpuContext.Wgpu.TextureRelease(surfaceTexture.Texture);
+                wgpuContext.Api.TextureRelease(surfaceTexture.Texture);
             }
         }
 

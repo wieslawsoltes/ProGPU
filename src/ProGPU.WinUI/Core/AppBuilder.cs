@@ -98,4 +98,24 @@ public class AppRunner<TApp> where TApp : Application, new()
             }
         }
     }
+
+    public Task RunAsync(string[]? args = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (WindowHostServices.Current is { } host)
+        {
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+            Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue = UIThread.Post;
+
+            var app = new TApp();
+            Application.Current = app;
+            app.Launch(new LaunchActivatedEventArgs(args ?? Array.Empty<string>()));
+            return host.RunAsync(cancellationToken);
+        }
+        Run(args);
+        return Task.CompletedTask;
+    }
 }

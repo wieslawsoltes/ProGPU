@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ProGPU.Text;
@@ -25,6 +26,21 @@ public static class FontApi
     private static List<FontInfo>? s_cachedSystemFonts;
     private static Task? s_systemFontWarmup;
     private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<byte[]?>> s_characterMaps = new();
+    private static TtfFont? s_platformFallbackFont;
+
+    /// <summary>
+    /// Gets the first font registered by a platform host for environments without discoverable system fonts.
+    /// </summary>
+    public static TtfFont? PlatformFallbackFont => Volatile.Read(ref s_platformFallbackFont);
+
+    /// <summary>
+    /// Registers a process-wide fallback without replacing a font supplied by an earlier platform host.
+    /// </summary>
+    public static void RegisterPlatformFallbackFont(TtfFont font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        Interlocked.CompareExchange(ref s_platformFallbackFont, font, null);
+    }
 
     public static List<FontInfo> GetSystemFonts()
     {

@@ -2,6 +2,7 @@
 
 progpu_package_ids=(
   ProGPU.Backend
+  ProGPU.Browser
   ProGPU.DirectX
   ProGPU.Transpiler
   ProGPU.Compute
@@ -23,6 +24,7 @@ progpu_package_ids=(
 
 progpu_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Browser/ProGPU.Browser.csproj
   src/ProGPU.DirectX/ProGPU.DirectX.csproj
   src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
   src/ProGPU.Compute/ProGPU.Compute.csproj
@@ -44,6 +46,7 @@ progpu_package_projects=(
 
 progpu_package_purposes=(
   "WebGPU device, swapchain, Silk.NET windowing, and platform backend services."
+  "Batched .NET WebAssembly dispatcher and navigator.gpu browser host services."
   "DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU."
   "Shader/source transformation helpers used by generated GPU pipelines."
   "Compute pipeline helpers for GPU-side effects, acceleration, and future hit-test indexes."
