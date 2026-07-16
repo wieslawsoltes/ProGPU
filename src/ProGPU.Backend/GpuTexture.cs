@@ -231,7 +231,7 @@ public unsafe class GpuTexture : IDisposable
             ViewFormats = null
         };
 
-        TexturePtr = _context.Wgpu.DeviceCreateTexture(_context.Device, &desc);
+        TexturePtr = _context.Api.DeviceCreateTexture(_context.Device, &desc);
         SilkMarshal.Free(labelPtr);
 
         if (TexturePtr == null)
@@ -255,7 +255,7 @@ public unsafe class GpuTexture : IDisposable
             Aspect = TextureAspect.All
         };
 
-        ViewPtr = _context.Wgpu.TextureCreateView(TexturePtr, &viewDesc);
+        ViewPtr = _context.Api.TextureCreateView(TexturePtr, &viewDesc);
         if (ViewPtr == null)
         {
             throw new InvalidOperationException($"Failed to create TextureView for GPU Texture {Width}x{Height}.");
@@ -292,7 +292,7 @@ public unsafe class GpuTexture : IDisposable
             throw new InvalidOperationException("GPU texture does not have a render-target view.");
         }
 
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
         CommandBuffer* commandBuffer = null;
@@ -397,7 +397,7 @@ public unsafe class GpuTexture : IDisposable
 
         fixed (T* ptr = pixels)
         {
-            _context.Wgpu.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
+            _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
         Generation++;
@@ -510,7 +510,7 @@ public unsafe class GpuTexture : IDisposable
 
         fixed (T* ptr = pixels)
         {
-            _context.Wgpu.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
+            _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
         Generation++;
@@ -594,7 +594,7 @@ public unsafe class GpuTexture : IDisposable
 
         fixed (T* ptr = pixels)
         {
-            _context.Wgpu.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
+            _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
         Generation++;
@@ -623,7 +623,7 @@ public unsafe class GpuTexture : IDisposable
         }
 
         var layers = arrayLayerCount ?? (DepthOrArrayLayers - baseArrayLayer);
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         CommandEncoder* encoder = null;
         CommandBuffer* commandBuffer = null;
         try
@@ -684,7 +684,7 @@ public unsafe class GpuTexture : IDisposable
         uint destinationMipLevel,
         uint arrayLayer)
     {
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         var sourceView = CreateMipGeneratorTextureView(sourceMipLevel, arrayLayer);
         var destinationView = CreateMipGeneratorTextureView(destinationMipLevel, arrayLayer);
         var bindGroup = CreateMipGeneratorBindGroup(bindGroupLayout, sampler, sourceView);
@@ -790,7 +790,7 @@ public unsafe class GpuTexture : IDisposable
                 Label = (byte*)labelPtr
             };
 
-            var module = context.Wgpu.DeviceCreateShaderModule(context.Device, &moduleDesc);
+            var module = context.Api.DeviceCreateShaderModule(context.Device, &moduleDesc);
             if (module == null)
             {
                 throw new InvalidOperationException("Failed to create mip generator shader module.");
@@ -820,7 +820,7 @@ public unsafe class GpuTexture : IDisposable
             MaxAnisotropy = 1
         };
 
-        var sampler = context.Wgpu.DeviceCreateSampler(context.Device, &samplerDesc);
+        var sampler = context.Api.DeviceCreateSampler(context.Device, &samplerDesc);
         if (sampler == null)
         {
             throw new InvalidOperationException("Failed to create mip generator sampler.");
@@ -858,7 +858,7 @@ public unsafe class GpuTexture : IDisposable
             Entries = entries
         };
 
-        var layout = context.Wgpu.DeviceCreateBindGroupLayout(context.Device, &desc);
+        var layout = context.Api.DeviceCreateBindGroupLayout(context.Device, &desc);
         if (layout == null)
         {
             throw new InvalidOperationException("Failed to create mip generator bind-group layout.");
@@ -877,7 +877,7 @@ public unsafe class GpuTexture : IDisposable
             BindGroupLayouts = layouts
         };
 
-        var layout = context.Wgpu.DeviceCreatePipelineLayout(context.Device, &desc);
+        var layout = context.Api.DeviceCreatePipelineLayout(context.Device, &desc);
         if (layout == null)
         {
             throw new InvalidOperationException("Failed to create mip generator pipeline layout.");
@@ -939,7 +939,7 @@ public unsafe class GpuTexture : IDisposable
                 Fragment = &fragmentState
             };
 
-            var pipeline = context.Wgpu.DeviceCreateRenderPipeline(context.Device, &pipelineDesc);
+            var pipeline = context.Api.DeviceCreateRenderPipeline(context.Device, &pipelineDesc);
             if (pipeline == null)
             {
                 throw new InvalidOperationException("Failed to create mip generator render pipeline.");
@@ -968,7 +968,7 @@ public unsafe class GpuTexture : IDisposable
             Aspect = TextureAspect.All
         };
 
-        var view = _context.Wgpu.TextureCreateView(TexturePtr, &viewDesc);
+        var view = _context.Api.TextureCreateView(TexturePtr, &viewDesc);
         if (view == null)
         {
             throw new InvalidOperationException($"Failed to create mip generator texture view for mip {mipLevel}, layer {arrayLayer}.");
@@ -1000,7 +1000,7 @@ public unsafe class GpuTexture : IDisposable
             Entries = entries
         };
 
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDesc);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDesc);
         if (bindGroup == null)
         {
             throw new InvalidOperationException("Failed to create mip generator bind group.");
@@ -1017,7 +1017,7 @@ public unsafe class GpuTexture : IDisposable
         BindGroupLayout* bindGroupLayout,
         PipelineLayout* pipelineLayout)
     {
-        var wgpu = context.Wgpu;
+        var wgpu = context.Api;
         if (pipeline != null)
         {
             wgpu.RenderPipelineRelease(pipeline);
@@ -1076,7 +1076,7 @@ public unsafe class GpuTexture : IDisposable
         }
 
         var encoderDesc = new CommandEncoderDescriptor();
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         if (encoder == null)
         {
             throw new InvalidOperationException("Failed to create command encoder for texture copy.");
@@ -1107,14 +1107,14 @@ public unsafe class GpuTexture : IDisposable
                 DepthOrArrayLayers = GetMipDepthOrArrayLayers(mipLevel)
             };
 
-            _context.Wgpu.CommandEncoderCopyTextureToTexture(encoder, &copySource, &copyDestination, &copySize);
+            _context.Api.CommandEncoderCopyTextureToTexture(encoder, &copySource, &copyDestination, &copySize);
         }
 
         var commandBufferDesc = new CommandBufferDescriptor();
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         AlphaMode = source.AlphaMode;
         Generation++;
@@ -1154,7 +1154,7 @@ public unsafe class GpuTexture : IDisposable
         }
 
         var encoderDescriptor = new CommandEncoderDescriptor();
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(
+        var encoder = _context.Api.DeviceCreateCommandEncoder(
             _context.Device,
             &encoderDescriptor);
         if (encoder == null)
@@ -1183,19 +1183,19 @@ public unsafe class GpuTexture : IDisposable
             Height = Height,
             DepthOrArrayLayers = DepthOrArrayLayers
         };
-        _context.Wgpu.CommandEncoderCopyTextureToTexture(
+        _context.Api.CommandEncoderCopyTextureToTexture(
             encoder,
             &copySource,
             &copyDestination,
             &copySize);
 
         var commandBufferDescriptor = new CommandBufferDescriptor();
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(
+        var commandBuffer = _context.Api.CommandEncoderFinish(
             encoder,
             &commandBufferDescriptor);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         AlphaMode = source.AlphaMode;
         Generation++;
@@ -1506,14 +1506,14 @@ public unsafe class GpuTexture : IDisposable
             {
                 if (ViewPtr != null)
                 {
-                    _context.Wgpu.TextureViewRelease(ViewPtr);
+                    _context.Api.TextureViewRelease(ViewPtr);
                     ViewPtr = null;
                 }
 
                 if (TexturePtr != null)
                 {
-                    _context.Wgpu.TextureDestroy(TexturePtr);
-                    _context.Wgpu.TextureRelease(TexturePtr);
+                    _context.Api.TextureDestroy(TexturePtr);
+                    _context.Api.TextureRelease(TexturePtr);
                     TexturePtr = null;
                 }
             }

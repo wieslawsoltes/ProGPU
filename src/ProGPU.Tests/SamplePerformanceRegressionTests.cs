@@ -224,6 +224,31 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void ExtensionPipelinesFollowTheActiveCompositorSampleCount()
+    {
+        string[] extensions =
+        [
+            "AcisSolidExtensionPipeline.cs",
+            "BackdropMaterialExtensionPipeline.cs",
+            "CustomGridExtensionPipeline.cs",
+            "GpuLineSeriesExtensionPipeline.cs",
+            "GpuScatterSeriesExtensionPipeline.cs",
+            "HatchExtensionPipeline.cs",
+            "ImageEffectExtensionPipeline.cs",
+            "Line3DExtensionPipeline.cs",
+            "ShaderToyExtensionPipeline.cs",
+            "WpfShaderEffectExtensionPipeline.cs"
+        ];
+
+        foreach (var extension in extensions)
+        {
+            var source = File.ReadAllText(FindRepoFile("src", "ProGPU.Scene", "Extensions", extension));
+            Assert.Contains("isOffscreen ? 1u : compositor.Options.PrimarySampleCount", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("isOffscreen ? 1u : 4u", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void NavigationContentSwitchDoesNotRebuildPaneItems()
     {
         var navigation = new NavigationView();

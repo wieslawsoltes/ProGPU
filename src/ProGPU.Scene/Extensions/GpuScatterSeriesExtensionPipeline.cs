@@ -200,7 +200,7 @@ namespace ProGPU.Scene.Extensions
         {
             if (dc.StaticBuffer is not GpuSeriesBuffer seriesBuffer || seriesBuffer.Buffer == null || seriesBuffer.PointsCount < 1) return;
 
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
@@ -257,7 +257,7 @@ namespace ProGPU.Scene.Extensions
                         compositor.RenderFormat,
                         PrimitiveTopology.TriangleList,
                         enableBlend: true,
-                        sampleCount: isOffscreen ? 1u : 4u
+                        sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount
                     );
 
                     if (isOffscreen)

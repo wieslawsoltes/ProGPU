@@ -452,7 +452,7 @@ public unsafe class PathAtlas : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var layout = _context.Wgpu.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
+        var layout = _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
         if (layout == null)
         {
             throw new InvalidOperationException("Failed to create the path rasterization bind group layout.");
@@ -470,7 +470,7 @@ public unsafe class PathAtlas : IDisposable
             BindGroupLayoutCount = 1,
             BindGroupLayouts = layouts
         };
-        var layout = _context.Wgpu.DeviceCreatePipelineLayout(_context.Device, &descriptor);
+        var layout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &descriptor);
         if (layout == null)
         {
             throw new InvalidOperationException("Failed to create the path rasterization pipeline layout.");
@@ -2374,11 +2374,11 @@ public unsafe class PathAtlas : IDisposable
             {
                 Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Encoder")
             };
-            var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+            var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
             SilkMarshal.Free((nint)encoderDescriptor.Label);
             var passDescriptor = new ComputePassDescriptor();
-            var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-            _context.Wgpu.ComputePassEncoderSetPipeline(pass, _computePipeline);
+            var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+            _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
 
             for (int dispatchIndex = 0; dispatchIndex < dispatchCount; dispatchIndex++)
             {
@@ -2396,7 +2396,7 @@ public unsafe class PathAtlas : IDisposable
                     EntryCount = 4,
                     Entries = bindGroupEntries
                 };
-                var bindGroup = _context.Wgpu.DeviceCreateBindGroup(
+                var bindGroup = _context.Api.DeviceCreateBindGroup(
                     _context.Device,
                     &bindGroupDescriptor);
                 if (bindGroup == null)
@@ -2409,27 +2409,27 @@ public unsafe class PathAtlas : IDisposable
                     ref bindGroupToReleaseCount,
                     dispatchCount,
                     (nint)bindGroup);
-                _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-                _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+                _context.Api.ComputePassEncoderDispatchWorkgroups(
                     pass,
                     dispatch.WorkgroupsX,
                     dispatch.WorkgroupsY,
                     checked((uint)dispatch.Count));
             }
 
-            _context.Wgpu.ComputePassEncoderEnd(pass);
-            _context.Wgpu.ComputePassEncoderRelease(pass);
+            _context.Api.ComputePassEncoderEnd(pass);
+            _context.Api.ComputePassEncoderRelease(pass);
 
             var commandBufferDescriptor = new CommandBufferDescriptor
             {
                 Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Command Buffer")
             };
-            var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandBufferDescriptor);
+            var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
             SilkMarshal.Free((nint)commandBufferDescriptor.Label);
-            _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+            _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-            _context.Wgpu.CommandBufferRelease(commandBuffer);
-            _context.Wgpu.CommandEncoderRelease(encoder);
+            _context.Api.CommandBufferRelease(commandBuffer);
+            _context.Api.CommandEncoderRelease(encoder);
             _pendingPaths.Clear();
 
             if (diagnosticsEnabled)
@@ -2444,7 +2444,7 @@ public unsafe class PathAtlas : IDisposable
         {
             for (int i = 0; i < bindGroupToReleaseCount; i++)
             {
-                _context.Wgpu.BindGroupRelease((BindGroup*)bindGroupsToRelease![i]);
+                _context.Api.BindGroupRelease((BindGroup*)bindGroupsToRelease![i]);
             }
             PooledRemovalBuffer.Return(bindGroupsToRelease, bindGroupToReleaseCount);
 
@@ -2494,8 +2494,8 @@ public unsafe class PathAtlas : IDisposable
 
         CleanupFrame();
         _pipelineCache.Dispose();
-        _context.Wgpu.PipelineLayoutRelease(_computePipelineLayout);
-        _context.Wgpu.BindGroupLayoutRelease(_computeBindGroupLayout);
+        _context.Api.PipelineLayoutRelease(_computePipelineLayout);
+        _context.Api.BindGroupLayoutRelease(_computeBindGroupLayout);
         _atlasTexture.Dispose();
         _paths.Clear();
         _compiledFillPaths.Clear();

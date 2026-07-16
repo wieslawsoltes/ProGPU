@@ -134,7 +134,7 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
                 Entries = bindGroupEntries
             };
 
-            return context.Wgpu.DeviceCreateBindGroup(context.Device, &bindGroupDesc);
+            return context.Api.DeviceCreateBindGroup(context.Device, &bindGroupDesc);
         }
         finally
         {
@@ -255,7 +255,7 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
                 Entries = layoutEntries
             };
 
-            layout = context.Wgpu.DeviceCreateBindGroupLayout(context.Device, &layoutDesc);
+            layout = context.Api.DeviceCreateBindGroupLayout(context.Device, &layoutDesc);
             if (layout == null)
             {
                 return false;
@@ -269,7 +269,7 @@ public sealed unsafe class ProGpuDirectXBindingSnapshot : IDisposable
                 Entries = bindGroupEntries
             };
 
-            bindGroup = context.Wgpu.DeviceCreateBindGroup(context.Device, &bindGroupDesc);
+            bindGroup = context.Api.DeviceCreateBindGroup(context.Device, &bindGroupDesc);
             if (bindGroup != null)
             {
                 return true;

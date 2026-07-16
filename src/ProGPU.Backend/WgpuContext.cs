@@ -17,10 +17,18 @@ public enum ShaderModuleVerificationStatus
     Invalid
 }
 
+public enum WgpuBackendKind
+{
+    SilkNative,
+    BrowserWebGpu
+}
+
 public unsafe class WgpuContext : IDisposable
 {
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     public WebGPU Wgpu { get; private set; } = null!;
+    public IWebGpuApi Api { get; private set; } = null!;
+    public WgpuBackendKind BackendKind { get; private set; } = WgpuBackendKind.SilkNative;
     public Instance* Instance { get; private set; } = null;
     public Adapter* Adapter { get; private set; } = null;
     public Device* Device { get; private set; } = null;
@@ -267,7 +275,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < bindGroups.Length; index++)
         {
-            Wgpu.BindGroupRelease((BindGroup*)bindGroups[index]);
+            Api.BindGroupRelease((BindGroup*)bindGroups[index]);
         }
     }
 
@@ -275,7 +283,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < views.Length; index++)
         {
-            Wgpu.TextureViewRelease((TextureView*)views[index]);
+            Api.TextureViewRelease((TextureView*)views[index]);
         }
     }
 
@@ -285,7 +293,7 @@ public unsafe class WgpuContext : IDisposable
         {
             // Release ownership without destroying; bind groups/views may still keep
             // the texture alive until the backend has drained all references.
-            Wgpu.TextureRelease((Texture*)textures[index]);
+            Api.TextureRelease((Texture*)textures[index]);
         }
     }
 
@@ -294,8 +302,8 @@ public unsafe class WgpuContext : IDisposable
         for (var index = 0; index < buffers.Length; index++)
         {
             var buffer = (Silk.NET.WebGPU.Buffer*)buffers[index];
-            Wgpu.BufferDestroy(buffer);
-            Wgpu.BufferRelease(buffer);
+            Api.BufferDestroy(buffer);
+            Api.BufferRelease(buffer);
         }
     }
 
@@ -303,7 +311,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < layouts.Length; index++)
         {
-            Wgpu.BindGroupLayoutRelease((BindGroupLayout*)layouts[index]);
+            Api.BindGroupLayoutRelease((BindGroupLayout*)layouts[index]);
         }
     }
 
@@ -311,7 +319,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < pipeLayouts.Length; index++)
         {
-            Wgpu.PipelineLayoutRelease((PipelineLayout*)pipeLayouts[index]);
+            Api.PipelineLayoutRelease((PipelineLayout*)pipeLayouts[index]);
         }
     }
 
@@ -319,7 +327,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < renderPipelines.Length; index++)
         {
-            Wgpu.RenderPipelineRelease((RenderPipeline*)renderPipelines[index]);
+            Api.RenderPipelineRelease((RenderPipeline*)renderPipelines[index]);
         }
     }
 
@@ -327,7 +335,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < computePipelines.Length; index++)
         {
-            Wgpu.ComputePipelineRelease((ComputePipeline*)computePipelines[index]);
+            Api.ComputePipelineRelease((ComputePipeline*)computePipelines[index]);
         }
     }
 
@@ -335,7 +343,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < samplers.Length; index++)
         {
-            Wgpu.SamplerRelease((Sampler*)samplers[index]);
+            Api.SamplerRelease((Sampler*)samplers[index]);
         }
     }
 
@@ -343,7 +351,7 @@ public unsafe class WgpuContext : IDisposable
     {
         for (var index = 0; index < shaders.Length; index++)
         {
-            Wgpu.ShaderModuleRelease((ShaderModule*)shaders[index]);
+            Api.ShaderModuleRelease((ShaderModule*)shaders[index]);
         }
     }
 
@@ -481,6 +489,7 @@ public unsafe class WgpuContext : IDisposable
         SafeLog($"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
         _window = window;
         Wgpu = WebGPU.GetApi();
+        Api = new SilkWebGpuApi(Wgpu);
         
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
@@ -629,6 +638,55 @@ public unsafe class WgpuContext : IDisposable
         Current = this;
     }
 
+    public Task InitializeAsync(IWindow? window, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Initialize(window);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Initializes a context owned by an external WebGPU host such as navigator.gpu.
+    /// Handles are opaque backend tokens represented through the existing Silk pointer types.
+    /// </summary>
+    public void InitializeExternal(
+        IWebGpuApi api,
+        Device* device,
+        Queue* queue,
+        Surface* surface,
+        TextureFormat swapChainFormat,
+        uint maxSampledTexturesPerShaderStage = 16,
+        uint maxSamplersPerShaderStage = 16,
+        uint maxBindGroups = 4,
+        bool supportsReadOnlyAndReadWriteStorageTextures = false)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        if (Api != null || Device != null || _isDisposed)
+            throw new InvalidOperationException("The WebGPU context is already initialized or disposed.");
+        if (device == null || queue == null || surface == null)
+            throw new ArgumentException("External WebGPU device, queue, and surface handles are required.");
+
+        Api = api;
+        BackendKind = WgpuBackendKind.BrowserWebGpu;
+        Device = device;
+        Queue = queue;
+        Surface = surface;
+        SwapChainFormat = swapChainFormat;
+        MaxSampledTexturesPerShaderStage = Math.Max(16, maxSampledTexturesPerShaderStage);
+        MaxSamplersPerShaderStage = Math.Max(16, maxSamplersPerShaderStage);
+        MaxBindGroups = Math.Max(4, maxBindGroups);
+        SupportsReadOnlyAndReadWriteStorageTextures = supportsReadOnlyAndReadWriteStorageTextures;
+        _isSurfaceConfigured = true;
+        _lastWidth = 1;
+        _lastHeight = 1;
+
+        lock (_activeContexts)
+        {
+            if (!_activeContexts.Contains(this)) _activeContexts.Add(this);
+        }
+        Current = this;
+    }
+
     /// <summary>
     /// Creates an additional presentation surface while reusing an initialized context's
     /// instance, adapter, device, and queue. The shared device remains alive until every surface
@@ -664,6 +722,7 @@ public unsafe class WgpuContext : IDisposable
 
         _window = window;
         Wgpu = deviceOwner.Wgpu;
+        Api = deviceOwner.Api;
         Instance = deviceOwner.Instance;
         Adapter = deviceOwner.Adapter;
         Device = deviceOwner.Device;
@@ -712,6 +771,13 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryConfigureSwapChain(uint width, uint height)
     {
+        if (BackendKind == WgpuBackendKind.BrowserWebGpu)
+        {
+            _lastWidth = Math.Max(1, width);
+            _lastHeight = Math.Max(1, height);
+            _isSurfaceConfigured = true;
+            return true;
+        }
         if (Surface == null || Device == null)
         {
             return false;
@@ -935,7 +1001,7 @@ public unsafe class WgpuContext : IDisposable
 
     public void PollDevice(bool wait)
     {
-        if (Device != null && !_isDisposed)
+        if (BackendKind == WgpuBackendKind.SilkNative && Device != null && !_isDisposed)
         {
             wgpuDevicePoll(Device, wait, null);
         }
@@ -969,6 +1035,22 @@ public unsafe class WgpuContext : IDisposable
         return GetShaderModuleVerificationStatus(module, out errors) == ShaderModuleVerificationStatus.Verified;
     }
 
+    public Task<(ShaderModuleVerificationStatus Status, string Errors)> VerifyShaderModuleAsync(
+        ShaderModule* module,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var status = GetShaderModuleVerificationStatus(module, out var errors);
+        return Task.FromResult((status, errors));
+    }
+
+    public Task WaitIdleAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WaitIdle();
+        return Task.CompletedTask;
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -995,7 +1077,7 @@ public unsafe class WgpuContext : IDisposable
             
             if (Surface != null)
             {
-                Wgpu.SurfaceRelease(Surface);
+                Api.SurfaceRelease(Surface);
                 Surface = null;
             }
 

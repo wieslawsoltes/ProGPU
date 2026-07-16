@@ -77,7 +77,7 @@ public unsafe class RenderPipelineCache : IDisposable
             Label = (byte*)labelPtr
         };
 
-        var module = _context.Wgpu.DeviceCreateShaderModule(_context.Device, &desc);
+        var module = _context.Api.DeviceCreateShaderModule(_context.Device, &desc);
 
         SilkMarshal.Free(codePtr);
         SilkMarshal.Free(labelPtr);
@@ -300,7 +300,7 @@ public unsafe class RenderPipelineCache : IDisposable
                 Fragment = &fragmentState
             };
 
-            pipeline = _context.Wgpu.DeviceCreateRenderPipeline(_context.Device, &desc);
+            pipeline = _context.Api.DeviceCreateRenderPipeline(_context.Device, &desc);
         }
 
         SilkMarshal.Free(vsEntryPtr);
@@ -437,7 +437,7 @@ public unsafe class RenderPipelineCache : IDisposable
             }
         };
 
-        var pipeline = _context.Wgpu.DeviceCreateComputePipeline(_context.Device, &desc);
+        var pipeline = _context.Api.DeviceCreateComputePipeline(_context.Device, &desc);
 
         SilkMarshal.Free(entryPtr);
         SilkMarshal.Free(labelPtr);

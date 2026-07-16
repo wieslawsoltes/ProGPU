@@ -61,7 +61,7 @@ public static unsafe class GpuTextureBlitter
     {
         var context = source.Context;
         var resources = GetCache(context).GetOrCreate(destinationFormat);
-        var wgpu = context.Wgpu;
+        var wgpu = context.Api;
         BindGroup* bindGroup = null;
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
@@ -282,10 +282,10 @@ public static unsafe class GpuTextureBlitter
             }
             catch
             {
-                if (pipelineLayout != null) _context.Wgpu.PipelineLayoutRelease(pipelineLayout);
-                if (bindGroupLayout != null) _context.Wgpu.BindGroupLayoutRelease(bindGroupLayout);
-                if (sampler != null) _context.Wgpu.SamplerRelease(sampler);
-                if (shader != null) _context.Wgpu.ShaderModuleRelease(shader);
+                if (pipelineLayout != null) _context.Api.PipelineLayoutRelease(pipelineLayout);
+                if (bindGroupLayout != null) _context.Api.BindGroupLayoutRelease(bindGroupLayout);
+                if (sampler != null) _context.Api.SamplerRelease(sampler);
+                if (shader != null) _context.Api.ShaderModuleRelease(shader);
                 throw;
             }
         }
@@ -311,7 +311,7 @@ public static unsafe class GpuTextureBlitter
                 NextInChain = (ChainedStruct*)&wgslDescriptor,
                 Label = (byte*)labelPointer
             };
-            var shader = context.Wgpu.DeviceCreateShaderModule(context.Device, &descriptor);
+            var shader = context.Api.DeviceCreateShaderModule(context.Device, &descriptor);
             if (shader == null)
             {
                 throw new InvalidOperationException("Failed to create GPU texture blitter shader.");
@@ -339,7 +339,7 @@ public static unsafe class GpuTextureBlitter
             LodMaxClamp = 0f,
             MaxAnisotropy = 1
         };
-        var sampler = context.Wgpu.DeviceCreateSampler(context.Device, &descriptor);
+        var sampler = context.Api.DeviceCreateSampler(context.Device, &descriptor);
         if (sampler == null)
         {
             throw new InvalidOperationException("Failed to create GPU texture blitter sampler.");
@@ -372,7 +372,7 @@ public static unsafe class GpuTextureBlitter
             EntryCount = 2,
             Entries = entries
         };
-        var bindGroupLayout = context.Wgpu.DeviceCreateBindGroupLayout(context.Device, &descriptor);
+        var bindGroupLayout = context.Api.DeviceCreateBindGroupLayout(context.Device, &descriptor);
         if (bindGroupLayout == null)
         {
             throw new InvalidOperationException("Failed to create GPU texture blitter bind-group layout.");
@@ -389,7 +389,7 @@ public static unsafe class GpuTextureBlitter
             BindGroupLayoutCount = 1,
             BindGroupLayouts = layouts
         };
-        var pipelineLayout = context.Wgpu.DeviceCreatePipelineLayout(context.Device, &descriptor);
+        var pipelineLayout = context.Api.DeviceCreatePipelineLayout(context.Device, &descriptor);
         if (pipelineLayout == null)
         {
             throw new InvalidOperationException("Failed to create GPU texture blitter pipeline layout.");
@@ -446,7 +446,7 @@ public static unsafe class GpuTextureBlitter
                 },
                 Fragment = &fragmentState
             };
-            var pipeline = context.Wgpu.DeviceCreateRenderPipeline(context.Device, &descriptor);
+            var pipeline = context.Api.DeviceCreateRenderPipeline(context.Device, &descriptor);
             if (pipeline == null)
             {
                 throw new InvalidOperationException($"Failed to create GPU texture blitter pipeline for {format}.");

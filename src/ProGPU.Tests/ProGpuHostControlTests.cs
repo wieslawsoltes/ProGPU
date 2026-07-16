@@ -230,7 +230,7 @@ public class ProGpuHostControlTests
         string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
 
         int unmapIndex = source.IndexOf(
-            "_context.Wgpu.BufferUnmap((GpuBuffer*)StagingBuffer)",
+            "_context.Api.BufferUnmap((GpuBuffer*)StagingBuffer)",
             StringComparison.Ordinal);
         int queueIndex = source.IndexOf(
             "_context.QueueBufferDisposal(StagingBuffer)",
@@ -272,7 +272,7 @@ public class ProGpuHostControlTests
         Assert.DoesNotContain("BufferMapAsync(_stagingBuffer", source, StringComparison.Ordinal);
 
         Assert.Contains("private void UnmapActiveBuffer()", readbackSource, StringComparison.Ordinal);
-        Assert.Contains("_context.Wgpu.BufferUnmap(_buffer);", readbackSource, StringComparison.Ordinal);
+        Assert.Contains("_context.Api.BufferUnmap(_buffer);", readbackSource, StringComparison.Ordinal);
         Assert.Contains("finally\n        {\n            UnmapActiveBuffer();\n        }", readbackSource, StringComparison.Ordinal);
         Assert.Contains("QueueBufferDisposal();", readbackSource, StringComparison.Ordinal);
     }

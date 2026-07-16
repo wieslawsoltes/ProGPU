@@ -73,7 +73,7 @@ namespace ProGPU.Scene.Extensions
             }
 
             _contextRef = compositor.Context;
-            var wgpu = _contextRef.Wgpu;
+            var wgpu = _contextRef.Api;
             var device = _contextRef.Device;
 
             var effectEntry = new BindGroupLayoutEntry
@@ -297,7 +297,7 @@ namespace ProGPU.Scene.Extensions
                 p.LastError = null;
             }
 
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
@@ -332,7 +332,7 @@ namespace ProGPU.Scene.Extensions
                         layouts,
                         topology: PrimitiveTopology.TriangleList,
                         targetFormat: compositor.RenderFormat,
-                        sampleCount: isOffscreen ? 1u : 4u,
+                        sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
                         pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout,
                         blendMode: dc.BlendMode,
                         sourceAlphaMode: pipelineSourceAlphaMode

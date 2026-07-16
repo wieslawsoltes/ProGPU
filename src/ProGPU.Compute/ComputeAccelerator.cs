@@ -402,7 +402,7 @@ public unsafe class ComputeAccelerator : IDisposable
     {
         for (int i = 0; i < bindGroupsToRelease.Length; i++)
         {
-            _context.Wgpu.BindGroupRelease((BindGroup*)bindGroupsToRelease[i]);
+            _context.Api.BindGroupRelease((BindGroup*)bindGroupsToRelease[i]);
         }
     }
 
@@ -436,11 +436,11 @@ public unsafe class ComputeAccelerator : IDisposable
         verticalParams.WriteSingle(new GaussianBlurParams(sigmaY));
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Blur Encoder") };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
-        var blurHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurHorizPipeline, 0);
-        var blurVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_blurVertPipeline, 0);
+        var blurHLayout = _context.Api.ComputePipelineGetBindGroupLayout(_blurHorizPipeline, 0);
+        var blurVLayout = _context.Api.ComputePipelineGetBindGroupLayout(_blurVertPipeline, 0);
 
         Span<nint> bindGroupsToRelease = stackalloc nint[2];
         var bindGroupToReleaseCount = 0;
@@ -470,19 +470,19 @@ public unsafe class ComputeAccelerator : IDisposable
 
         // Submit commands to queue
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Blur Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
         // Release resources
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
 
-        _context.Wgpu.BindGroupLayoutRelease(blurHLayout);
-        _context.Wgpu.BindGroupLayoutRelease(blurVLayout);
+        _context.Api.BindGroupLayoutRelease(blurHLayout);
+        _context.Api.BindGroupLayoutRelease(blurVLayout);
     }
 
     public void ApplyGaussianBlur(GpuTexture source, GpuTexture temp, GpuTexture destination, float sigma) =>
@@ -525,9 +525,9 @@ public unsafe class ComputeAccelerator : IDisposable
         verticalParams.WriteSingle(new MorphologyParams(0, 1, verticalRadius, dilate));
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Morphology Encoder") };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_morphologyPipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_morphologyPipeline, 0);
         Span<nint> bindGroupsToRelease = stackalloc nint[2];
         var bindGroupToReleaseCount = 0;
 
@@ -555,13 +555,13 @@ public unsafe class ComputeAccelerator : IDisposable
             ref bindGroupToReleaseCount);
 
         var commandDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Morphology Buffer") };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDesc);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDesc);
         SilkMarshal.Free((nint)commandDesc.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
         ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyImageLighting(
@@ -604,9 +604,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Image Lighting Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_imageLightingPipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_imageLightingPipeline, 0);
 
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -624,32 +624,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _imageLightingPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _imageLightingPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Image Lighting Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyMatrixConvolution(
@@ -713,9 +713,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Matrix Convolution Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_matrixConvolutionPipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_matrixConvolutionPipeline, 0);
 
         var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -740,32 +740,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _matrixConvolutionPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _matrixConvolutionPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Matrix Convolution Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyDisplacementMap(
@@ -806,9 +806,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Displacement Map Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_displacementMapPipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_displacementMapPipeline, 0);
 
         var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -827,32 +827,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _displacementMapPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _displacementMapPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Displacement Map Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyMagnifier(
@@ -887,9 +887,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Magnifier Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
 
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -907,32 +907,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Magnifier Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     private ComputePipeline* GetOrCreateMagnifierPipeline()
@@ -980,9 +980,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Arithmetic Composite Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_arithmeticCompositePipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_arithmeticCompositePipeline, 0);
 
         var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = background.ViewPtr };
@@ -1001,32 +1001,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _arithmeticCompositePipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _arithmeticCompositePipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Arithmetic Composite Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyImageBlend(
@@ -1051,9 +1051,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Image Blend Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_imageBlendPipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_imageBlendPipeline, 0);
 
         var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = background.ViewPtr };
@@ -1072,32 +1072,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _imageBlendPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _imageBlendPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Image Blend Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyColorTable(
@@ -1138,9 +1138,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Color Table Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_colorTablePipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(_colorTablePipeline, 0);
 
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -1158,32 +1158,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _colorTablePipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _colorTablePipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Color Table Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     public void ApplyNonlinearColorFilter(
@@ -1217,9 +1217,9 @@ public unsafe class ComputeAccelerator : IDisposable
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Nonlinear Color Filter Encoder")
         };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         SilkMarshal.Free((nint)encoderDescriptor.Label);
-        var layout = _context.Wgpu.ComputePipelineGetBindGroupLayout(pipeline, 0);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
 
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -1237,32 +1237,32 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
 
         var passDescriptor = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             (width + 15) / 16,
             (height + 15) / 16,
             1);
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var commandDescriptor = new CommandBufferDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("Compute Nonlinear Color Filter Buffer")
         };
-        var commandBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &commandDescriptor);
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
 
-        _context.Wgpu.CommandBufferRelease(commandBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bindGroup);
-        _context.Wgpu.BindGroupLayoutRelease(layout);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
     }
 
     private ComputePipeline* GetOrCreateNonlinearColorFilterPipeline()
@@ -1305,20 +1305,20 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
         TrackBindGroupForRelease(bindGroupsToRelease, ref bindGroupToReleaseCount, bg);
 
         var passDesc = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, pipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
+        _context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
 
         uint workgroupX = (width + 15) / 16;
         uint workgroupY = (height + 15) / 16;
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, workgroupX, workgroupY, 1);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupX, workgroupY, 1);
 
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
     }
 
     private void RunSharpDropShadow(GpuTexture source, GpuTexture destination, Vector2 offset, Vector4 shadowColor, float blurRadius)
@@ -1332,10 +1332,10 @@ public unsafe class ComputeAccelerator : IDisposable
         paramsBuffer.WriteSingle(new ShadowParams(offset, shadowColor, blurRadius));
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Encoder") };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
-        var shadowLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_shadowPipeline, 0);
+        var shadowLayout = _context.Api.ComputePipelineGetBindGroupLayout(_shadowPipeline, 0);
 
         var entries = stackalloc BindGroupEntry[3];
         entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
@@ -1348,31 +1348,31 @@ public unsafe class ComputeAccelerator : IDisposable
             EntryCount = 3,
             Entries = entries
         };
-        var bg = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &bgDesc);
+        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
 
         var passDesc = new ComputePassDescriptor();
-        var pass = _context.Wgpu.CommandEncoderBeginComputePass(encoder, &passDesc);
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
 
-        _context.Wgpu.ComputePassEncoderSetPipeline(pass, _shadowPipeline);
-        _context.Wgpu.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+        _context.Api.ComputePassEncoderSetPipeline(pass, _shadowPipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
 
         uint workgroupX = (source.Width + 15) / 16;
         uint workgroupY = (source.Height + 15) / 16;
-        _context.Wgpu.ComputePassEncoderDispatchWorkgroups(pass, workgroupX, workgroupY, 1);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupX, workgroupY, 1);
 
-        _context.Wgpu.ComputePassEncoderEnd(pass);
-        _context.Wgpu.ComputePassEncoderRelease(pass);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
-        _context.Wgpu.BindGroupRelease(bg);
-        _context.Wgpu.BindGroupLayoutRelease(shadowLayout);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bg);
+        _context.Api.BindGroupLayoutRelease(shadowLayout);
         paramsBuffer.Dispose();
     }
 
@@ -1395,7 +1395,7 @@ public unsafe class ComputeAccelerator : IDisposable
         }
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Encoder") };
-        var encoder = _context.Wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
         var paramsBuffer = new GpuBuffer(
@@ -1406,8 +1406,8 @@ public unsafe class ComputeAccelerator : IDisposable
         );
         paramsBuffer.WriteSingle(new ShadowParams(offset, shadowColor, snappedBlurRadius));
 
-        var shadowHLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_shadowBlurHorizPipeline, 0);
-        var shadowVLayout = _context.Wgpu.ComputePipelineGetBindGroupLayout(_shadowBlurVertPipeline, 0);
+        var shadowHLayout = _context.Api.ComputePipelineGetBindGroupLayout(_shadowBlurHorizPipeline, 0);
+        var shadowVLayout = _context.Api.ComputePipelineGetBindGroupLayout(_shadowBlurVertPipeline, 0);
 
         Span<nint> bindGroupsToRelease = stackalloc nint[2];
         var bindGroupToReleaseCount = 0;
@@ -1416,18 +1416,18 @@ public unsafe class ComputeAccelerator : IDisposable
         RunShadowPass(encoder, _shadowBlurVertPipeline, shadowVLayout, temp, destination, paramsBuffer, width, height, bindGroupsToRelease, ref bindGroupToReleaseCount);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
-        var cmdBuffer = _context.Wgpu.CommandEncoderFinish(encoder, &cmdDesc);
+        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
 
-        _context.Wgpu.CommandBufferRelease(cmdBuffer);
-        _context.Wgpu.CommandEncoderRelease(encoder);
+        _context.Api.CommandBufferRelease(cmdBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
 
         ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
 
-        _context.Wgpu.BindGroupLayoutRelease(shadowHLayout);
-        _context.Wgpu.BindGroupLayoutRelease(shadowVLayout);
+        _context.Api.BindGroupLayoutRelease(shadowHLayout);
+        _context.Api.BindGroupLayoutRelease(shadowVLayout);
         paramsBuffer.Dispose();
     }
 

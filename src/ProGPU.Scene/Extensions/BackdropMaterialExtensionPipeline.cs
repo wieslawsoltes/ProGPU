@@ -249,7 +249,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         var textureBindGroup = GetTextureBindGroup(compositor, sourceTexture, parameters.SamplingMode, isOffscreen);
         var maskBindGroup = compositor.GetMaskBindGroup(effectiveMask, isOffscreen);
         var pass = (RenderPassEncoder*)renderPassEncoder;
-        var wgpu = compositor.Context.Wgpu;
+        var wgpu = compositor.Context.Api;
 
         wgpu.RenderPassEncoderSetPipeline(pass, (RenderPipeline*)pipelinePointer);
         wgpu.RenderPassEncoderSetVertexBuffer(
@@ -290,7 +290,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         }
 
         _contextRef = compositor.Context;
-        var wgpu = _contextRef.Wgpu;
+        var wgpu = _contextRef.Api;
         var device = _contextRef.Device;
 
         var materialEntry = new BindGroupLayoutEntry
@@ -394,7 +394,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
                 EntryCount = 1,
                 Entries = &entry
             };
-            var bindGroup = compositor.Context.Wgpu.DeviceCreateBindGroup(compositor.Context.Device, &descriptor);
+            var bindGroup = compositor.Context.Api.DeviceCreateBindGroup(compositor.Context.Device, &descriptor);
             _pool.Add(new MaterialGpuResources
             {
                 UniformBuffer = buffer,
@@ -451,7 +451,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
                 new ReadOnlySpan<VertexBufferLayout>(&layout, 1),
                 topology: PrimitiveTopology.TriangleList,
                 targetFormat: compositor.RenderFormat,
-                sampleCount: isOffscreen ? 1u : 4u,
+                sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount,
                 pipelineLayout: isOffscreen ? _offscreenPipelineLayout : _onscreenPipelineLayout,
                 blendMode: blendMode,
                 sourceAlphaMode: GpuTextureAlphaMode.Premultiplied);
@@ -495,7 +495,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
                 EntryCount = 2,
                 Entries = entries
             };
-            var bindGroup = compositor.Context.Wgpu.DeviceCreateBindGroup(compositor.Context.Device, &descriptor);
+            var bindGroup = compositor.Context.Api.DeviceCreateBindGroup(compositor.Context.Device, &descriptor);
             cached = new Compositor.CachedBindGroup((nint)bindGroup, compositor.FrameNumber);
             _textureBindGroups.Add(key, cached);
             return cached;

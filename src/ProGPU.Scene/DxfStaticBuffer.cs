@@ -189,7 +189,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             EntryCount = 3,
             Entries = vectorEntries
         };
-        UniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVector);
+        UniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVector);
 
         var uDescVectorOffscreen = new BindGroupDescriptor
         {
@@ -197,7 +197,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             EntryCount = 3,
             Entries = vectorEntries
         };
-        UniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
+        UniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
 
         // Text bindings
         var uBufferEntryText = new BindGroupEntry
@@ -214,7 +214,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntryText
         };
-        TextUniformBindGroup = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescText);
+        TextUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescText);
 
         var uDescTextOffscreen = new BindGroupDescriptor
         {
@@ -222,7 +222,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             EntryCount = 1,
             Entries = &uBufferEntryText
         };
-        TextUniformBindGroupOffscreen = _context.Wgpu.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
+        TextUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
     }
     
     public void UpdateViewport(Matrix4x4 projection, float zoom, Vector2 pan, Vector2 center, Vector2 screenCenter)
@@ -300,10 +300,10 @@ public unsafe class DxfStaticBuffer : IDisposable
             
             if (!_context.IsDisposed)
             {
-                if (UniformBindGroup != null) _context.Wgpu.BindGroupRelease(UniformBindGroup);
-                if (UniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(UniformBindGroupOffscreen);
-                if (TextUniformBindGroup != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroup);
-                if (TextUniformBindGroupOffscreen != null) _context.Wgpu.BindGroupRelease(TextUniformBindGroupOffscreen);
+                if (UniformBindGroup != null) _context.Api.BindGroupRelease(UniformBindGroup);
+                if (UniformBindGroupOffscreen != null) _context.Api.BindGroupRelease(UniformBindGroupOffscreen);
+                if (TextUniformBindGroup != null) _context.Api.BindGroupRelease(TextUniformBindGroup);
+                if (TextUniformBindGroupOffscreen != null) _context.Api.BindGroupRelease(TextUniformBindGroupOffscreen);
             }
         }
         

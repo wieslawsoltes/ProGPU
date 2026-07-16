@@ -884,7 +884,44 @@ fn blend_mesh_colors(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
     return mesh_unpremultiply(clamp(result, vec4<f32>(0.0), vec4<f32>(1.0)));
 }
 
+fn analytic_shape_distance(
+    shapeType: u32,
+    coordinate: vec2<f32>,
+    shapeSize: vec2<f32>,
+    cornerRadius: f32) -> f32 {
+    if (shapeType == 0u) {
+        let distanceVector = abs(coordinate) - shapeSize * 0.5;
+        return length(max(distanceVector, vec2<f32>(0.0))) +
+            min(max(distanceVector.x, distanceVector.y), 0.0);
+    }
+    if (shapeType == 1u) {
+        let rx = shapeSize.x * 0.5;
+        let ry = shapeSize.y * 0.5;
+        if (rx <= 0.0001 || ry <= 0.0001) {
+            return -1.0;
+        }
+        if (abs(rx - ry) <= 0.0001) {
+            return length(coordinate) - rx;
+        }
+        let value = (coordinate.x * coordinate.x) / (rx * rx) +
+            (coordinate.y * coordinate.y) / (ry * ry);
+        let gradient = vec2<f32>(
+            (2.0 * coordinate.x) / (rx * rx),
+            (2.0 * coordinate.y) / (ry * ry));
+        return (value - 1.0) / max(length(gradient), 0.0001);
+    }
+    if (shapeType == 2u) {
+        let distanceVector = abs(coordinate) -
+            (shapeSize * 0.5 - vec2<f32>(cornerRadius));
+        return length(max(distanceVector, vec2<f32>(0.0))) +
+            min(max(distanceVector.x, distanceVector.y), 0.0) - cornerRadius;
+    }
+    return -1.0;
+}
+
 fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
+    let atlasCoordDx = dpdx(input.texCoord);
+    let atlasCoordDy = dpdy(input.texCoord);
     var encodedShapeType = input.shapeType;
     let aliasedEdge = encodedShapeType >= 1000.0;
     if (aliasedEdge) {
@@ -892,7 +929,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
     }
 
     let sType = u32(round(encodedShapeType));
-    var d: f32 = -1.0;
+    let d = analytic_shape_distance(sType, input.texCoord, input.shapeSize, input.cornerRadius);
 
     var evalCoord = input.texCoord;
     if (sType < 3u) {
@@ -901,37 +938,12 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         evalCoord = input.shapeSize;
     }
 
-    if (sType == 0u) {
-        // Rectangle SDF
-        let d_vec = abs(input.texCoord) - input.shapeSize * 0.5;
-        d = length(max(d_vec, vec2<f32>(0.0))) + min(max(d_vec.x, d_vec.y), 0.0);
-    } else if (sType == 1u) {
-        // Ellipse SDF
-        let rx = input.shapeSize.x * 0.5;
-        let ry = input.shapeSize.y * 0.5;
-        if (rx > 0.0001 && ry > 0.0001) {
-            if (abs(rx - ry) <= 0.0001) {
-                d = length(input.texCoord) - rx;
-            } else {
-                let v = (input.texCoord.x * input.texCoord.x) / (rx * rx) +
-                    (input.texCoord.y * input.texCoord.y) / (ry * ry);
-                let grad = vec2<f32>(
-                    (2.0 * input.texCoord.x) / (rx * rx),
-                    (2.0 * input.texCoord.y) / (ry * ry));
-                d = (v - 1.0) / max(length(grad), 0.0001);
-            }
-        }
-    } else if (sType == 2u) {
-        // Rounded Rectangle SDF
-        let r = input.cornerRadius;
-        let d_vec = abs(input.texCoord) - (input.shapeSize * 0.5 - vec2<f32>(r));
-        d = length(max(d_vec, vec2<f32>(0.0))) + min(max(d_vec.x, d_vec.y), 0.0) - r;
-    }
-
     var shapeAlpha: f32 = 1.0;
     if (sType == 0u && input.strokeThickness <= 0.0) {
         let edgeDistance = abs(input.texCoord) - input.shapeSize * 0.5;
-        let edgeWidth = max(fwidth(edgeDistance), vec2<f32>(0.0001));
+        let edgeWidth = max(
+            abs(atlasCoordDx) + abs(atlasCoordDy),
+            vec2<f32>(0.0001));
         let antialiasedCoverage = vec2<f32>(1.0) - smoothstep(
             -0.5 * edgeWidth,
             0.5 * edgeWidth,
@@ -958,7 +970,33 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         } else {
             d_shape = d;
         }
-        let fw = max(fwidth(d_shape), 0.0001);
+        // Estimate the local SDF gradient with fixed central differences, then
+        // transform it with derivatives obtained before non-uniform branching.
+        let gradientStep = 0.01;
+        let gradient = vec2<f32>(
+            analytic_shape_distance(
+                sType,
+                input.texCoord + vec2<f32>(gradientStep, 0.0),
+                input.shapeSize,
+                input.cornerRadius) -
+                analytic_shape_distance(
+                    sType,
+                    input.texCoord - vec2<f32>(gradientStep, 0.0),
+                    input.shapeSize,
+                    input.cornerRadius),
+            analytic_shape_distance(
+                sType,
+                input.texCoord + vec2<f32>(0.0, gradientStep),
+                input.shapeSize,
+                input.cornerRadius) -
+                analytic_shape_distance(
+                    sType,
+                    input.texCoord - vec2<f32>(0.0, gradientStep),
+                    input.shapeSize,
+                    input.cornerRadius)) / (2.0 * gradientStep);
+        let fw = max(
+            abs(dot(gradient, atlasCoordDx)) + abs(dot(gradient, atlasCoordDy)),
+            0.0001);
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
@@ -1006,7 +1044,8 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             d_shape = select(max(d_shape, capDistance), d_shape, insideSweep);
         }
 
-        let fw = max(fwidth(d_shape), 0.0001);
+        // Arc distance is evaluated in framebuffer pixels and has unit gradient.
+        let fw = 1.0;
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
@@ -1053,7 +1092,9 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             max(
                 select(-1000000.0, distance1, (edgeMask & 2u) != 0u),
                 select(-1000000.0, distance2, (edgeMask & 4u) != 0u)));
-        let fw = max(fwidth(exteriorDistance), 0.0001);
+        // The edge equations and fragment position are both in framebuffer pixels,
+        // so a one-pixel filter width is exact and avoids branch-local derivatives.
+        let fw = 1.0;
         let antialiasedAlpha = select(
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
@@ -1109,7 +1150,9 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
             max(
                 select(-1000000.0, distance2, (exteriorEdgeMask & 4u) != 0u),
                 select(-1000000.0, distance3, (exteriorEdgeMask & 8u) != 0u)));
-        let fw = max(fwidth(exteriorDistance), 0.0001);
+        // The edge equations and fragment position are both in framebuffer pixels,
+        // so a one-pixel filter width is exact and avoids branch-local derivatives.
+        let fw = 1.0;
         let antialiasedAlpha = select(
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
@@ -1135,7 +1178,7 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 4u) {
         // Path rendering: sample coverage directly from PathAtlas
-        let coverage = textureSample(pathAtlasTexture, pathAtlasSampler, input.texCoord).r;
+        let coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, input.texCoord, atlasCoordDx, atlasCoordDy).r;
         let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
         let correctedCoverage = pow(coverage, coverageGamma);
         shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);

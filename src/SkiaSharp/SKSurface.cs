@@ -468,7 +468,7 @@ public class SKSurface : IDisposable
             alphaMode: _gpuTexture.AlphaMode
         );
 
-        var wgpu = _context.Wgpu;
+        var wgpu = _context.Api;
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Surface Snapshot Encoder") };
         var encoder = wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);

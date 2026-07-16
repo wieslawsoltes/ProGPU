@@ -89,7 +89,7 @@ public static unsafe class DevToolsWindowController
             var surfaceTexture = new SurfaceTexture();
             if (AppState._devToolsWgpuContext.Surface != null)
             {
-                AppState._devToolsWgpuContext.Wgpu.SurfaceGetCurrentTexture(AppState._devToolsWgpuContext.Surface, &surfaceTexture);
+                AppState._devToolsWgpuContext.Api.SurfaceGetCurrentTexture(AppState._devToolsWgpuContext.Surface, &surfaceTexture);
                 
                 if (surfaceTexture.Status == SurfaceGetCurrentTextureStatus.Success)
                 {
@@ -103,7 +103,7 @@ public static unsafe class DevToolsWindowController
                         ArrayLayerCount = 1,
                         Aspect = TextureAspect.All
                     };
-                    targetView = AppState._devToolsWgpuContext.Wgpu.TextureCreateView(surfaceTexture.Texture, &viewDesc);
+                    targetView = AppState._devToolsWgpuContext.Api.TextureCreateView(surfaceTexture.Texture, &viewDesc);
                 }
             }
 
@@ -120,18 +120,18 @@ public static unsafe class DevToolsWindowController
                         dpiScale,
                         targetView);
 
-                    AppState._devToolsWgpuContext.Wgpu.SurfacePresent(AppState._devToolsWgpuContext.Surface);
+                    AppState._devToolsWgpuContext.Api.SurfacePresent(AppState._devToolsWgpuContext.Surface);
                 }
             }
             finally
             {
                 if (targetView != null)
                 {
-                    AppState._devToolsWgpuContext.Wgpu.TextureViewRelease(targetView);
+                    AppState._devToolsWgpuContext.Api.TextureViewRelease(targetView);
                 }
                 if (surfaceTexture.Texture != null)
                 {
-                    AppState._devToolsWgpuContext.Wgpu.TextureRelease(surfaceTexture.Texture);
+                    AppState._devToolsWgpuContext.Api.TextureRelease(surfaceTexture.Texture);
                 }
             }
         }

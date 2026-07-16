@@ -264,7 +264,7 @@ namespace ProGPU.Scene.Extensions
         {
             if (dc.PointBufferCount <= 0) return;
 
-            var wgpu = compositor.Context.Wgpu;
+            var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
             var pass = (RenderPassEncoder*)renderPassEncoder;
 
@@ -300,7 +300,7 @@ namespace ProGPU.Scene.Extensions
                         layouts,
                         topology: PrimitiveTopology.TriangleList,
                         targetFormat: compositor.RenderFormat,
-                        sampleCount: isOffscreen ? 1u : 4u
+                        sampleCount: isOffscreen ? 1u : compositor.Options.PrimarySampleCount
                     );
 
                     if (isOffscreen)

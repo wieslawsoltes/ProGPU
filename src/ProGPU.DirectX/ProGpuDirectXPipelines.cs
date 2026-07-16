@@ -95,7 +95,7 @@ public sealed unsafe class ProGpuDirectXShader : IDisposable
                 Label = (byte*)labelPtr
             };
 
-            var module = context.Wgpu.DeviceCreateShaderModule(context.Device, &moduleDesc);
+            var module = context.Api.DeviceCreateShaderModule(context.Device, &moduleDesc);
             if (module == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX shader module '{descriptor.Label}'.");
@@ -598,7 +598,7 @@ public sealed unsafe class ProGpuDirectXGraphicsPipeline : IDisposable
                 Fragment = descriptor.PixelShader is null ? null : &fragmentState
             };
 
-            var pipeline = context.Wgpu.DeviceCreateRenderPipeline(context.Device, &pipelineDesc);
+            var pipeline = context.Api.DeviceCreateRenderPipeline(context.Device, &pipelineDesc);
             if (pipeline == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX graphics pipeline '{pipelineKey}'.");
@@ -1099,7 +1099,7 @@ public sealed unsafe class ProGpuDirectXComputePipeline : IDisposable
                 }
             };
 
-            var pipeline = context.Wgpu.DeviceCreateComputePipeline(context.Device, &pipelineDesc);
+            var pipeline = context.Api.DeviceCreateComputePipeline(context.Device, &pipelineDesc);
             if (pipeline == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX compute pipeline '{descriptor.Label}'.");

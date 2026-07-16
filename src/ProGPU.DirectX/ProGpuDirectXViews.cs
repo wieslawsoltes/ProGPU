@@ -117,7 +117,7 @@ public abstract unsafe class ProGpuDirectXView : IDisposable
                 Aspect = TextureAspect.All
             };
 
-            var view = device.Context!.Wgpu.TextureCreateView(texture, &viewDesc);
+            var view = device.Context!.Api.TextureCreateView(texture, &viewDesc);
             if (view == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX texture view '{label}'.");
@@ -601,7 +601,7 @@ public sealed unsafe class ProGpuDirectXSamplerState : IDisposable
                     : CompareFunction.Undefined
             };
 
-            var sampler = context.Wgpu.DeviceCreateSampler(context.Device, &samplerDesc);
+            var sampler = context.Api.DeviceCreateSampler(context.Device, &samplerDesc);
             if (sampler == null)
             {
                 throw new InvalidOperationException($"Failed to create DirectX sampler '{descriptor.Label}'.");
