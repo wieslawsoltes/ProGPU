@@ -347,6 +347,10 @@ public sealed class SamplePerformanceRegressionTests
                 .Where(static command => command.Type == RenderCommandType.DrawPath)
                 .Select(static command => command.Path)
                 .ToArray();
+            var firstGeometryCaches = firstContext.Commands
+                .Where(static command => command.Type == RenderCommandType.DrawPath)
+                .Select(static command => command.GeometryCache)
+                .ToArray();
             Assert.NotEmpty(firstPaths);
             Assert.True(firstPaths.Length < visual.ElementCount);
             Assert.DoesNotContain(firstContext.Commands, static command =>
@@ -358,10 +362,15 @@ public sealed class SamplePerformanceRegressionTests
                 .Where(static command => command.Type == RenderCommandType.DrawPath)
                 .Select(static command => command.Path)
                 .ToArray();
+            var secondGeometryCaches = secondContext.Commands
+                .Where(static command => command.Type == RenderCommandType.DrawPath)
+                .Select(static command => command.GeometryCache)
+                .ToArray();
             Assert.Equal(firstPaths.Length, secondPaths.Length);
             for (var index = 0; index < firstPaths.Length; index++)
             {
                 Assert.Same(firstPaths[index], secondPaths[index]);
+                Assert.Same(firstGeometryCaches[index], secondGeometryCaches[index]);
             }
 
             var versionBeforeAdvance = visual.ChangeVersion;
@@ -389,6 +398,73 @@ public sealed class SamplePerformanceRegressionTests
 
         Assert.True(visual.ChangeVersion > visualVersion);
         Assert.True(root.ChangeVersion > rootVersion);
+    }
+
+    [Fact]
+    public void MotionMarkAnimationUsesTheOriginalSixtyHertzCadence()
+    {
+        var visual = new ProGPU.Samples.MotionMarkShowcaseVisual();
+        visual.Measure(new Vector2(900f, 620f));
+        visual.Arrange(new Rect(0f, 0f, 900f, 620f));
+        var initialVersion = visual.ChangeVersion;
+
+        visual.Update(1f / 120f);
+        Assert.Equal(initialVersion, visual.ChangeVersion);
+
+        visual.Update(1f / 120f);
+        Assert.True(visual.ChangeVersion > initialVersion);
+    }
+
+    [Fact]
+    public void MotionMarkRetainedRecordingAllocationsStayBounded()
+    {
+        var previousFont = ProGPU.Samples.AppState._font;
+        ProGPU.Samples.AppState._font = null;
+        try
+        {
+            foreach (var useIndividualPaths in new[] { false, true })
+            {
+                foreach (var fillShapes in new[] { false, true })
+                {
+                    var visual = new ProGPU.Samples.MotionMarkShowcaseVisual
+                    {
+                        UseIndividualPaths = useIndividualPaths,
+                        FillShapes = fillShapes
+                    };
+                    visual.Measure(new Vector2(900f, 620f));
+                    visual.Arrange(new Rect(0f, 0f, 900f, 620f));
+                    var context = new DrawingContext();
+
+                    for (var frame = 0; frame < 240; frame++)
+                    {
+                        visual.Update(1f / 60f);
+                        context.Clear();
+                        visual.OnRender(context);
+                    }
+
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+                    for (var frame = 0; frame < 120; frame++)
+                    {
+                        visual.Update(1f / 60f);
+                        context.Clear();
+                        visual.OnRender(context);
+                    }
+
+                    long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+                    Assert.True(
+                        allocatedBytes < 64 * 1024,
+                        $"MotionMark retained recording allocated {allocatedBytes:N0} bytes across 120 " +
+                        $"animated frames (individual={useIndividualPaths}, fill={fillShapes}).");
+                }
+            }
+        }
+        finally
+        {
+            ProGPU.Samples.AppState._font = previousFont;
+        }
     }
 
     [Fact]

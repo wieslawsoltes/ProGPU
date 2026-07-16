@@ -1080,6 +1080,35 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    /// <summary>
+    /// Records a retained path using a cache previously created for the same geometry.
+    /// Animated callers can reuse the cache while changing grouping or style without
+    /// allocating a new cache object for every recorded command.
+    /// </summary>
+    public void DrawPath(
+        Brush? brush,
+        Pen? pen,
+        PathGeometry path,
+        RenderCommandGeometryCache geometryCache)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(geometryCache);
+        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
+            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
+        {
+            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            GeometryCache = geometryCache
+        });
+    }
+
     public void DrawPath(Brush? brush, Pen? pen, PathGeometry path, Matrix4x4 transform)
     {
         Commands.Add(new RenderCommand
