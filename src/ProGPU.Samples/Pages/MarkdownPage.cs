@@ -68,12 +68,13 @@ namespace ProGPU.Samples
         public static FrameworkElement Create()
         {
             _benchmarkScrollDirection = 1f;
-            // TextMate resources are warmed asynchronously with the shared sample fonts, so the
-            // preview retains syntax-colored virtualized code blocks without starting grammar
-            // discovery from the desktop layout pass.
+            // Code-block editors request the shared TextMate resources only when the preview
+            // actually contains code. They render an immediate plain-text fallback and recolor
+            // in place when the active theme grammar becomes ready.
             MarkdownParser.CodeBlockFactory = (code, language) =>
             {
-                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor
+                var editor = new ProGPU.WinUI.Designer.VirtualizedCodeEditor(
+                    useLightweightSyntaxHighlighting: true)
                 {
                     Font = AppState.GetFontCourier() ?? AppState.GetFont(),
                     Margin = new Thickness(0, 4, 0, 12),
@@ -480,10 +481,9 @@ namespace ProGPU.Samples
 
             if (!OperatingSystem.IsBrowser())
             {
-                // Let desktop navigation present the lightweight page shell first, then populate
-                // the preview and editor on separate frames. Rendering both text-heavy panes on
-                // the first frame requests more than a thousand glyph/phase entries while the
-                // system-font warmup is active, producing a long rasterization and GC burst.
+                // Present the lightweight shell first, then populate the preview and editor on
+                // separate frames. The immediate main-style frame allocates roughly 350 MB for
+                // both text-heavy panes and can stall in GC; staging keeps each frame bounded.
                 var initialMarkdown = GetDefaultTemplateText();
                 var initialEditor = _editorControl;
                 var initialPreview = _previewControl;

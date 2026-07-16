@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Text;
-using ProGPU.WinUI.Designer;
 
 namespace ProGPU.Samples;
 
@@ -70,7 +69,6 @@ public static class SampleFontLoader
 
         _ = FontApi.WarmUpSystemFontsAsync();
         _ = TextLayout.WarmUpFallbackMetadataAsync();
-        VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
     }
 
     private static TtfFont LoadRequiredFont(string displayName, string[] fontNames, IEnumerable<string> pathCandidates)
