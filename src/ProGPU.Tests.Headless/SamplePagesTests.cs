@@ -336,6 +336,32 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
+    public void Test_PathOpsVisual_RetainsCompletedSnapshotWhileReplacementIsPending()
+    {
+        EnsureFontsAndStateLoaded();
+
+        var visual = new PathOpsVisual();
+        var pathA = PathGeometry.Parse("M 10 10 L 30 10 L 30 30 Z");
+        var pathB = PathGeometry.Parse("M 20 20 L 40 20 L 40 40 Z");
+        var result = PathGeometry.Parse("M 10 10 L 30 10 L 40 20 L 40 40 Z");
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        typeof(PathOpsVisual).GetField("_pathA", flags)!.SetValue(visual, pathA);
+        typeof(PathOpsVisual).GetField("_pathB", flags)!.SetValue(visual, pathB);
+        typeof(PathOpsVisual).GetField("_result", flags)!.SetValue(visual, result);
+
+        visual.OverlapOffset += 10f;
+
+        Assert.Same(pathA, typeof(PathOpsVisual).GetField("_pathA", flags)!.GetValue(visual));
+        Assert.Same(pathB, typeof(PathOpsVisual).GetField("_pathB", flags)!.GetValue(visual));
+        Assert.Same(result, typeof(PathOpsVisual).GetField("_result", flags)!.GetValue(visual));
+
+        var context = new DrawingContext();
+        visual.OnRender(context);
+
+        Assert.Equal(3, context.Commands.Count(static command => command.Type == RenderCommandType.DrawPath));
+    }
+
+    [Fact]
     public void Test_DataVirtualizationPage_Renders()
     {
         RunPageTest(DataVirtualizationPage.Create(), "Data Virtualization");

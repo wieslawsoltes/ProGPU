@@ -93,10 +93,7 @@ public class PathOpsVisual : FrameworkElement
     private void RequestComputation()
     {
         _requestVersion++;
-        _result = null;
-        _error = null;
         TryStartComputation();
-        Invalidate();
     }
 
     private void TryStartComputation()
@@ -106,9 +103,9 @@ public class PathOpsVisual : FrameworkElement
         _isComputing = true;
         var version = _requestVersion;
         var center = _requestedSize / 2f;
-        _pathA = CreateShapeA(center - new Vector2(_overlapOffset / 2f, 0f));
-        _pathB = CreateShapeB(center + new Vector2(_overlapOffset / 2f, 0f));
-        _ = CompleteComputationAsync(version, _pathA, _pathB, _operation);
+        var pathA = CreateShapeA(center - new Vector2(_overlapOffset / 2f, 0f));
+        var pathB = CreateShapeB(center + new Vector2(_overlapOffset / 2f, 0f));
+        _ = CompleteComputationAsync(version, pathA, pathB, _operation);
     }
 
     private async Task CompleteComputationAsync(int version, PathGeometry pathA, PathGeometry pathB, int operation)
@@ -127,6 +124,12 @@ public class PathOpsVisual : FrameworkElement
         _isComputing = false;
         if (version == _requestVersion)
         {
+            // Publish the operands and result as one visual snapshot. Keeping the
+            // previous completed snapshot visible while a newer request is in flight
+            // prevents slider input from alternating between result and source-only
+            // frames.
+            _pathA = pathA;
+            _pathB = pathB;
             _result = result;
             _error = error;
             Invalidate();
