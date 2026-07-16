@@ -56,23 +56,136 @@ dotnet workload restore src/ProGPU.slnx
 
 `ProGPU.Browser` is the reusable browser backend. It supplies the `navigator.gpu` implementation of `IWebGpuApi`, the batched command protocol, browser input and storage adapters, and the external WinUI-shaped window host. `ProGPU.Samples.Browser` shows the complete startup wiring while reusing every page and shader from the `ProGPU.Samples` library.
 
-For another WebAssembly host, reference `ProGPU.Browser` and the application project, copy `BrowserAssets/progpu-browser.js` into the site's `wwwroot`, initialize `BrowserGpuRuntime`, install a `BrowserWindowHost`, and start the application with `AppRunner.RunAsync`. See [`src/ProGPU.Samples.Browser/Program.cs`](src/ProGPU.Samples.Browser/Program.cs) for the minimal host sequence and [`docs/browser.md`](docs/browser.md) for the protocol and deployment model.
+To add a browser host to another ProGPU application:
 
-### Build and run without AOT
+1. Create a `Microsoft.NET.Sdk.WebAssembly` executable targeting `net10.0` with `RuntimeIdentifier` set to `browser-wasm`.
+2. Reference `ProGPU.Browser` and the project containing the shared application and views.
+3. Copy [`src/ProGPU.Browser/BrowserAssets/progpu-browser.js`](src/ProGPU.Browser/BrowserAssets/progpu-browser.js) to the host's `wwwroot` as its JavaScript entry point, and provide an `index.html` containing the canvas selected by `BrowserAppHostOptions.CanvasSelector`.
+4. Call `BrowserGpuRuntime.InitializeAsync`, install its capabilities in a `BrowserWindowHost`, assign that host to `WindowHostServices.Current`, and run the shared application through `AppBuilder<TApplication>`.
 
-Debug configuration uses the normal managed WebAssembly/interpreter development path. Build it explicitly with:
+The browser sample's [`ProGPU.Samples.Browser.csproj`](src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj), [`Program.cs`](src/ProGPU.Samples.Browser/Program.cs), and [`index.html`](src/ProGPU.Samples.Browser/wwwroot/index.html) are a minimal working template. The shared UI belongs in `ProGPU.Samples`; only startup, canvas/DOM assets, and browser platform wiring belong in the thin browser host. See [`docs/browser.md`](docs/browser.md) for the command protocol, transport modes, and deployment model.
+
+### Browser implementation architecture
+
+The browser backend is an implementation of the same typed `IWebGpuApi` boundary used by desktop. Renderer, compositor, vector, text, compute, control, and sample code do not branch into a browser renderer. Only the host and WebGPU transport change:
+
+```mermaid
+flowchart LR
+    App["Shared C# application and controls"] --> Scene["Retained scene, text, vector, and compute"]
+    Scene --> Api["IWebGpuApi"]
+    Api --> Desktop["SilkWebGpuApi<br/>wgpu-native"]
+    Api --> BrowserApi["BrowserWebGpuApi<br/>browser-wasm"]
+    BrowserApi --> Packet["Reusable aligned binary command arena"]
+    Packet --> Interop["One coarse JS interop dispatch"]
+    Interop --> Decoder["progpu-browser.js packet decoder"]
+    Decoder --> WebGPU["navigator.gpu"]
+    Shader["Embedded WGSL shader resources"] --> Scene
+    Shader -->|"unchanged UTF-8 source"| WebGPU
+```
+
+The browser path is composed of these layers:
+
+- `ProGPU.Samples` contains the application, windows, pages, retained visuals, and every shader-using sample. It is a library shared unchanged by both hosts.
+- `ProGPU.Samples.Desktop` is a thin Silk.NET executable. `ProGPU.Samples.Browser` is a thin `Microsoft.NET.Sdk.WebAssembly` executable with the canvas, DOM shell, and JavaScript module.
+- `BrowserGpuRuntime.InitializeAsync` selects the canvas, requests an adapter/device/profile, chooses a transport, and returns a typed `BrowserGpuCapabilities` result. Unsupported capabilities fail during negotiation rather than rewriting application shaders.
+- `BrowserWindowHost` installs browser input, storage, clipboard, fallback font, and window services. Its `requestAnimationFrame` loop drains one fixed-width input batch, reads physical canvas size and DPI, then calls the ordinary `Window.RenderExternalFrame` path.
+- `BrowserWebGpuApi` implements renderer-facing WebGPU operations. It serializes resource descriptors, pass commands, copies, uploads, submission, mapping, and destruction into a versioned little-endian protocol. Packets have a 16-byte `PGPU` header, eight-byte-aligned commands, and generation-bearing handles that reject stale JavaScript resources.
+- `progpu-browser.js` reads packets directly from the current WebAssembly linear-memory view. It creates the corresponding `GPUDevice`, buffers, textures, bind groups, pipelines, render/compute passes, and queue operations without JSON or one JS call per draw. Upload payloads and mapped-buffer completion use separate coarse asynchronous seams where WebGPU requires them.
+- `MainThread`, `Worker`, and `IsolatedWorker` transports use the same packet format. `Auto` prefers a cross-origin-isolated shared-memory worker, then an `OffscreenCanvas` worker, and finally the main thread. All packets produced by one managed frame are handed to a worker as one ordered batch so the acquired surface texture remains valid for the complete frame.
+- Production WGSL remains in each owning project's `Shaders/` directory and is embedded by `ShaderResource`. The exact source used by desktop is carried through `ShaderModuleWGSLDescriptor` and passed directly to `GPUDevice.createShaderModule`; the browser does not transpile, fork, or maintain copies of those shaders.
+
+The standard browser canvas host currently supports one top-level `Window`. Popups remain ordinary compositor layers, so menus, flyouts, tooltips, and dialogs still share the same frame, input, and hot-reload tree.
+
+### Hot Reload architecture
+
+Desktop and browser Debug hosts use the same framework-level metadata update pipeline. `ProGPU.WinUI` registers `HotReloadManager` with the runtime through `MetadataUpdateHandlerAttribute`; the browser project additionally enables the .NET WebAssembly Hot Reload component in Debug.
+
+```mermaid
+flowchart LR
+    Edit["C# edit from dotnet watch or IDE"] --> Delta[".NET metadata/IL delta"]
+    Delta --> Clear["HotReloadManager.ClearCache"]
+    Delta --> Update["HotReloadManager.UpdateApplication"]
+    Clear --> Queue["Coalesced UIThread generation"]
+    Update --> Queue
+    Queue --> Maps["Original/replacement type mapping"]
+    Maps --> Hooks["Application and registered update hooks"]
+    Hooks --> Roots["Active windows, popups, and registered roots"]
+    Roots --> Choice{"Reload strategy"}
+    Choice --> InPlace["IHotReloadable.Reload"]
+    Choice --> Factory["Typed factory or development activator"]
+    Choice --> Page["Static NavigationView page factory refresh"]
+    Factory --> State["Capture and restore interaction state"]
+    Page --> State
+    InPlace --> Done["Invalidate layout/render and report result"]
+    State --> Done
+```
+
+Each runtime callback only queues work; reconciliation runs on `UIThread` before rendering. Multiple deltas arriving before the next UI turn become one generation. The manager clears theme/style caches, maps replacement types back to their original live types, invokes application hooks, and walks active `Window` content, popup roots, plus roots registered by embedded hosts.
+
+For an updated element, the manager uses these strategies in order:
+
+1. An `IHotReloadable` element rebuilds itself in place. This is the preferred choice for controls with explicit construction state or an existing `Build` method.
+2. A factory registered with `HotReloadManager.RegisterFactory<TElement>` recreates the element without reflection and is suitable for required constructor arguments.
+3. In an untrimmed modifiable development runtime, a parameterless element can be activated automatically. This reflection fallback is gated off when runtime metadata updates are unavailable, so Release AOT remains trim-safe.
+4. Cached `NavigationViewItem` pages created by static page factories are recreated when their factory owner type changes. Inactive cached pages are cleared and will use the updated factory when selected.
+5. If recreation is unavailable or fails, the old element stays live, is invalidated, and a diagnostic is reported; failure in one subtree does not stop the remaining roots.
+
+Replacement captures state recursively by stable `Name` with structural-path fallback. The built-in state store preserves local `DataContext`, text/password and caret/selection, check/toggle state, selector and pivot selection, navigation selection and pane state, data-grid selection, scroll/virtualization offsets, attached layout properties such as `Grid.Row`, focus, and custom `IHotReloadStateful` values. Loading/unloaded lifecycle events are isolated, immediate state is restored before the next draw, and layout-dependent scrolling/focus is restored on the following UI turn.
+
+Application authors can opt into the pipeline with small typed contracts:
+
+```csharp
+using Microsoft.UI.Xaml.HotReload;
+
+public sealed class LiveChart : Grid, IHotReloadable, IHotReloadStateful
+{
+    public void Reload(HotReloadContext context)
+    {
+        ClearChildren();
+        BuildChart();
+    }
+
+    public object? CaptureHotReloadState() => SelectedSeries;
+    public void RestoreHotReloadState(object? state) => SelectedSeries = state as string;
+}
+
+// Retain this IDisposable for as long as the factory should be active.
+var registration = HotReloadManager.RegisterFactory(
+    () => new ConstructorBoundControl(applicationService));
+```
+
+An `Application` may implement `IHotReloadable` to reapply window- or application-level configuration. Static shell builders can register an update callback and call `HotReloadManager.ReloadWindowContent`; custom containers whose backing collection must change with a visual child can implement `IHotReloadChildReplacer`. Embedded/non-window hosts register their visual root with `HotReloadManager.RegisterRoot`.
+
+`HotReloadManager.UpdateStarted`, `UpdateCompleted`, `LastResult`, and `Diagnostic` expose generation, duration, replacement/reload/invalidation/failure counts, and isolated exceptions. Set `PROGPU_HOT_RELOAD=0` to disable framework reconciliation. Live metadata updates are a Debug development feature: Release AOT artifacts retain the same UI/browser architecture but do not activate metadata-update handlers.
+
+### Quick start
+
+From the repository root, restore and run the normal Debug build:
+
+```bash
+dotnet restore src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
+dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj -c Debug
+```
+
+Open the HTTP URL printed by the command. The sample itself is used like the desktop gallery: select pages from the navigation pane, interact with the controls and GPU samples, and use **Settings → Show Browser WebGPU Diagnostics** when transport or adapter details are needed.
+
+### Normal development mode (without AOT)
+
+Debug configuration uses the managed WebAssembly interpreter and keeps browser Hot Reload enabled. Build it without starting a server with:
 
 ```bash
 dotnet build src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj -c Debug
 ```
 
-Run the local development server with:
+For the normal edit/run loop, start the local server with `dotnet watch`:
 
 ```bash
-dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj -c Debug
+dotnet watch --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj run -c Debug
 ```
 
-Open the HTTP URL printed by `dotnet run`. To produce a deployable non-AOT artifact—useful for faster publish iterations or AOT comparison—publish with AOT disabled explicitly:
+Open the printed URL and leave `dotnet watch` running. Supported C# method-body edits are applied to the running browser application; use `Ctrl+R` in the watch terminal when an edit requires a restart and `Ctrl+C` to stop it. `dotnet run` can be used instead when Hot Reload is not needed.
+
+To create a deployable interpreter artifact—useful for fast deployment iterations or comparison with AOT—publish with AOT disabled explicitly:
 
 ```bash
 dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj \
@@ -85,9 +198,9 @@ python3 -m http.server 8080 --directory artifacts/browser-interpreter/wwwroot
 
 Then browse to `http://localhost:8080/`.
 
-### Publish and run with WebAssembly AOT
+### AOT mode: publish and run
 
-Release configuration enables managed WebAssembly AOT compilation, trimming, SIMD, and native relinking by default:
+Release configuration enables managed WebAssembly AOT compilation, trimming, SIMD, and native relinking by default. AOT is a publish-time mode, so use `dotnet publish` rather than `dotnet run`:
 
 ```bash
 dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj \
@@ -99,7 +212,16 @@ python3 -m http.server 8080 --directory artifacts/browser-aot/wwwroot
 
 Open `http://localhost:8080/`. All ProGPU and sample assemblies are AOT compiled. `netDxf.netstandard` is intentionally retained in supported mixed interpreter/AOT mode because the .NET 10 Mono AOT compiler currently asserts while compiling that upstream assembly.
 
-To confirm that a publish actually used AOT, inspect the publish log for `AOT'ing` and native WebAssembly linking steps. For a clean comparison between modes, remove the selected output directory before republishing so stale fingerprinted framework assets cannot be served.
+The deployable application is the complete contents of `artifacts/browser-aot/wwwroot`; upload that directory to any static HTTP(S) host. Do not deploy its parent directory and do not open `index.html` with a `file://` URL.
+
+To confirm that a publish actually used AOT, inspect the publish log for `AOT'ing` and native WebAssembly linking steps. Browser Hot Reload is a Debug development feature and is not active in the trimmed Release AOT artifact. For a clean comparison between modes, remove the selected output directory before republishing so stale fingerprinted framework assets cannot be served.
+
+The two local deployment modes can use different ports when comparing them side by side:
+
+```bash
+python3 -m http.server 8080 --directory artifacts/browser-interpreter/wwwroot
+python3 -m http.server 8081 --directory artifacts/browser-aot/wwwroot
+```
 
 ### GitHub Pages AOT deployment
 
