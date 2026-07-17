@@ -152,6 +152,7 @@ public static class OpenTypeTextShaper
         string unicodeScript = options.Script ?? InferScript(text);
         bool useShaper = ResolveLayoutScript(font, unicodeScript, out string script);
         bool indicShaper = !useShaper && IsIndicShaperScript(unicodeScript);
+        bool khmerShaper = script == "khmr";
         ShapingDirection direction = ResolveDirection(options.Direction, unicodeScript);
         options = AddScriptFeatures(options, script, useShaper, indicShaper);
         options = AddDirectionalFeatures(options, direction);
@@ -198,6 +199,12 @@ public static class OpenTypeTextShaper
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicConjunct);
             substitutions.FinalReorderIndic(unicodeScript);
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicPresentation);
+        }
+        else if (khmerShaper)
+        {
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.KhmerBasic);
+            substitutions.ClearSyllables();
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.KhmerPresentation);
         }
         else
         {
@@ -494,7 +501,7 @@ public static class OpenTypeTextShaper
     }
 
     private static bool IsUsePerSyllableFeature(string tag, UseSubstitutionStage stage) =>
-        stage is not UseSubstitutionStage.All &&
+        stage is not (UseSubstitutionStage.All or UseSubstitutionStage.KhmerPresentation) &&
         (tag is "locl" or "ccmp" or "nukt" or "akhn" or "rphf" or "pref" or
             "rkrf" or "abvf" or "blwf" or "half" or "pstf" or "vatu" or "cjct" ||
          stage == UseSubstitutionStage.IndicPresentation && tag is "init" or "pres" or "abvs" or "blws" or "psts" or "haln");
@@ -529,6 +536,12 @@ public static class OpenTypeTextShaper
             UseSubstitutionStage.IndicPresentation => tag is not
                 ("rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or "nukt" or "akhn" or
                  "rphf" or "rkrf" or "pref" or "blwf" or "abvf" or "half" or "pstf" or "vatu" or "cjct"),
+            UseSubstitutionStage.KhmerBasic => tag is
+                "rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or
+                "pref" or "blwf" or "abvf" or "pstf" or "cfar",
+            UseSubstitutionStage.KhmerPresentation => tag is not
+                ("rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or
+                 "pref" or "blwf" or "abvf" or "pstf" or "cfar"),
             _ => false
         };
     }
@@ -2739,7 +2752,9 @@ public static class OpenTypeTextShaper
         IndicPost,
         IndicVattu,
         IndicConjunct,
-        IndicPresentation
+        IndicPresentation,
+        KhmerBasic,
+        KhmerPresentation
     }
 
     private static IEnumerable<EnabledLookup> GetEnabledLookupIndices(
@@ -3076,6 +3091,16 @@ public static class OpenTypeTextShaper
             _lookupSyllable = 0;
         }
 
+        public void ClearSyllables()
+        {
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.UseSyllable = 0;
+                _glyphs[index] = glyph;
+            }
+        }
+
         public void ApplyVowelConstraints(string script)
         {
             for (var index = 0; index + 1 < _glyphs.Count;)
@@ -3180,85 +3205,110 @@ public static class OpenTypeTextShaper
                 return;
             }
 
-            InsertBrokenKhmerDottedCircles();
-
             for (var index = 0; index < _glyphs.Count; index++)
             {
                 GlyphRecord glyph = _glyphs[index];
                 glyph.ScriptShaper = ScriptShaperKhmer;
+                glyph.IndicCategory = IndicShapingData.GetCategory(IndicShapingData.GetProperties(glyph.CodePoint));
                 _glyphs[index] = glyph;
             }
 
+            FindKhmerSyllables();
+            InsertBrokenKhmerDottedCircles();
             for (var start = 0; start < _glyphs.Count;)
             {
-                if (!IsKhmerCharacter(_glyphs[start].CodePoint))
-                {
-                    start++;
-                    continue;
-                }
-
-                int end = FindKhmerSyllableEnd(start);
-                PrepareKhmerSyllable(start, end);
+                byte syllable = _glyphs[start].UseSyllable;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].UseSyllable == syllable) end++;
+                byte type = (byte)(syllable & 0x0F);
+                if (type is KhmerConsonantSyllable or KhmerBrokenCluster)
+                    PrepareKhmerSyllable(start, end);
                 start = end;
             }
         }
 
-        private void InsertBrokenKhmerDottedCircles()
+        private void FindKhmerSyllables()
         {
-            bool hasBase = false;
-            for (var index = 0; index < _glyphs.Count; index++)
+            if (_glyphs.Count == 0) return;
+            int state = KhmerSyllableMachineData.StartState;
+            int position = 0;
+            int tokenStart = -1;
+            int tokenEnd = -1;
+            int pendingAction = 0;
+            byte serial = 1;
+            while (true)
             {
-                uint codePoint = _glyphs[index].CodePoint;
-                if (IsKhmerBase(codePoint) || codePoint == 0x17D9)
+                int transition;
+                if (position == _glyphs.Count)
                 {
-                    hasBase = true;
-                    continue;
+                    transition = KhmerSyllableMachineData.GetEofTransition(state);
+                    if (transition < 0) break;
                 }
-                if (codePoint is 0x200C or 0x200D)
+                else
                 {
-                    continue;
+                    if (KhmerSyllableMachineData.GetFromStateAction(state) == 7) tokenStart = position;
+                    transition = KhmerSyllableMachineData.GetTransition(state, _glyphs[position].IndicCategory);
                 }
-                if (!IsKhmerMark(codePoint))
+
+                state = KhmerSyllableMachineData.GetTarget(transition);
+                switch (KhmerSyllableMachineData.GetAction(transition))
                 {
-                    hasBase = false;
-                    continue;
+                    case 2: tokenEnd = position + 1; break;
+                    case 8: tokenEnd = position + 1; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerNonCluster, ref serial); break;
+                    case 10: tokenEnd = position; position--; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerConsonantSyllable, ref serial); break;
+                    case 11: tokenEnd = position; position--; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerBrokenCluster, ref serial); break;
+                    case 12: tokenEnd = position; position--; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerNonCluster, ref serial); break;
+                    case 1: position = tokenEnd - 1; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerConsonantSyllable, ref serial); break;
+                    case 3: position = tokenEnd - 1; AssignKhmerSyllable(tokenStart, tokenEnd, KhmerBrokenCluster, ref serial); break;
+                    case 5:
+                        position = tokenEnd - 1;
+                        AssignKhmerSyllable(tokenStart, tokenEnd,
+                            pendingAction == 2 ? KhmerBrokenCluster : KhmerNonCluster, ref serial);
+                        break;
+                    case 4: tokenEnd = position + 1; pendingAction = 2; break;
+                    case 9: tokenEnd = position + 1; pendingAction = 3; break;
                 }
-                if (!hasBase)
-                {
-                    GlyphRecord mark = _glyphs[index];
-                    _glyphs.Insert(index, new GlyphRecord(_font.GetGlyphIndex(0x25CC), mark.Cluster, 0x25CC));
-                    index++;
-                    hasBase = true;
-                }
-                if (codePoint == 0x17D2)
-                {
-                    hasBase = false;
-                }
+                if (KhmerSyllableMachineData.GetToStateAction(state) == 6) tokenStart = -1;
+                position++;
+                if (position < 0 || position > _glyphs.Count) break;
             }
         }
 
-        private int FindKhmerSyllableEnd(int start)
+        private void AssignKhmerSyllable(int start, int end, byte type, ref byte serial)
         {
-            int index = start + 1;
-            bool previousWasCoeng = _glyphs[start].CodePoint == 0x17D2;
-            while (index < _glyphs.Count)
+            if (start < 0 || end < start) return;
+            byte value = (byte)(serial << 4 | type);
+            for (var index = start; index < end; index++)
             {
-                uint codePoint = _glyphs[index].CodePoint;
-                if (codePoint is 0x200C or 0x200D || IsKhmerMark(codePoint))
-                {
-                    previousWasCoeng = codePoint == 0x17D2;
-                    index++;
-                    continue;
-                }
-                if (IsKhmerBase(codePoint) && previousWasCoeng)
-                {
-                    previousWasCoeng = false;
-                    index++;
-                    continue;
-                }
-                break;
+                GlyphRecord glyph = _glyphs[index];
+                glyph.UseSyllable = value;
+                _glyphs[index] = glyph;
             }
-            return index;
+            if (++serial == 16) serial = 1;
+        }
+
+        private void InsertBrokenKhmerDottedCircles()
+        {
+            ushort dottedGlyph = _font.GetGlyphIndex(0x25CC);
+            if (dottedGlyph == 0) return;
+            byte previous = 0;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord current = _glyphs[index];
+                if (current.UseSyllable == previous || (current.UseSyllable & 0x0F) != KhmerBrokenCluster)
+                {
+                    previous = current.UseSyllable;
+                    continue;
+                }
+                previous = current.UseSyllable;
+                _glyphs.Insert(index, new GlyphRecord(dottedGlyph, current.Cluster, 0x25CC)
+                {
+                    ScriptShaper = ScriptShaperKhmer,
+                    IndicCategory = IndicShapingData.DottedCircle,
+                    UseSyllable = previous
+                });
+                index++;
+            }
         }
 
         private void PrepareKhmerSyllable(int start, int end)
@@ -3275,22 +3325,13 @@ public static class OpenTypeTextShaper
                 _glyphs[index] = glyph;
             }
 
-            for (var index = start + 1; index + 1 < end; index++)
-            {
-                if (_glyphs[index].CodePoint == 0x17D2 && IsKhmerConsonant(_glyphs[index + 1].CodePoint))
-                {
-                    MergeCluster(start, end);
-                    break;
-                }
-            }
-
             int coengCount = 0;
             for (var index = start + 1; index < end; index++)
             {
-                if (_glyphs[index].CodePoint == 0x17D2 && coengCount <= 2 && index + 1 < end)
+                if (_glyphs[index].IndicCategory == IndicShapingData.Halant && coengCount <= 2 && index + 1 < end)
                 {
                     coengCount++;
-                    if (_glyphs[index + 1].CodePoint == 0x179A)
+                    if (_glyphs[index + 1].IndicCategory == IndicShapingData.Ra)
                     {
                         GlyphRecord coeng = _glyphs[index];
                         GlyphRecord ro = _glyphs[index + 1];
@@ -3312,7 +3353,7 @@ public static class OpenTypeTextShaper
                         coengCount = 2;
                     }
                 }
-                else if (IsKhmerPreBaseVowel(_glyphs[index].CodePoint))
+                else if (_glyphs[index].IndicCategory == IndicShapingData.VowelPre)
                 {
                     GlyphRecord vowel = _glyphs[index];
                     vowel.Cluster = MergeCluster(start, index + 1);
@@ -3342,21 +3383,6 @@ public static class OpenTypeTextShaper
             }
             return cluster;
         }
-
-        private static bool IsKhmerCharacter(uint codePoint) =>
-            codePoint is >= 0x1780 and <= 0x17FF or 0x25CC;
-
-        private static bool IsKhmerBase(uint codePoint) =>
-            codePoint is >= 0x1780 and <= 0x17B3 or 0x25CC;
-
-        private static bool IsKhmerConsonant(uint codePoint) =>
-            codePoint is >= 0x1780 and <= 0x17A2;
-
-        private static bool IsKhmerMark(uint codePoint) =>
-            codePoint is >= 0x17B4 and <= 0x17D3 or >= 0x17DD and <= 0x17DD;
-
-        private static bool IsKhmerPreBaseVowel(uint codePoint) =>
-            codePoint is >= 0x17C1 and <= 0x17C3;
 
         public void PrepareIndicShaping(bool enabled)
         {
@@ -4789,9 +4815,15 @@ public static class OpenTypeTextShaper
                         splitAfterIndicZwnj = rune.Value == 0x200C &&
                             followingCodePoint != 0 && !IsUnicodeMark(followingCodePoint);
                     }
+                    else if (script == "khmr" &&
+                             (rune.Value is 0x200C or 0x200D ||
+                              previousCodePoint == 0x17D2 && IsKhmerBaseCategory((uint)rune.Value)))
+                    {
+                        indicCluster = graphemeStart + index;
+                    }
                     int cluster = separateClusters && normalizedGrapheme is null
                         ? graphemeStart + index
-                        : IsIndicShaperScript(script) ? indicCluster : graphemeStart;
+                        : IsIndicShaperScript(script) || script == "khmr" ? indicCluster : graphemeStart;
                     if (IsVariationSelector(rune.Value) && glyphs.Count > 0)
                     {
                         GlyphRecord previous = glyphs[^1];
@@ -4817,6 +4849,13 @@ public static class OpenTypeTextShaper
                 graphemeStart = graphemeEnd;
             }
             return new GlyphSubstitutionBuffer(glyphs, font);
+        }
+
+        private static bool IsKhmerBaseCategory(uint codePoint)
+        {
+            byte category = IndicShapingData.GetCategory(IndicShapingData.GetProperties(codePoint));
+            return category is IndicShapingData.Consonant or IndicShapingData.Vowel or
+                IndicShapingData.Ra or IndicShapingData.Placeholder or IndicShapingData.DottedCircle;
         }
 
         private static bool PreservesIndicComposite(ReadOnlySpan<char> grapheme, string script)
@@ -5348,6 +5387,10 @@ public static class OpenTypeTextShaper
     private const byte ScriptShaperKhmer = 1;
     private const byte ScriptShaperUse = 2;
     private const byte ScriptShaperIndic = 3;
+
+    private const byte KhmerConsonantSyllable = 0;
+    private const byte KhmerBrokenCluster = 1;
+    private const byte KhmerNonCluster = 2;
 
     private const byte IndicConsonantSyllable = 0;
     private const byte IndicVowelSyllable = 1;
