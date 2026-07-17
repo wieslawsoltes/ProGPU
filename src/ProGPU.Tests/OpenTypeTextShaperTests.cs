@@ -174,6 +174,22 @@ public sealed class OpenTypeTextShaperTests
         Assert.InRange(glyphs[2].OffsetY, -434f, -432f);
     }
 
+    [Theory]
+    [InlineData("a\u0308\u0301")]
+    [InlineData("\U0001F636\u200D\U0001F32B\uFE0F")]
+    [InlineData("\U0001F1FA\U0001F1FC")]
+    public void DefaultClustersFollowExtendedGraphemeBoundaries(string text)
+    {
+        IReadOnlyList<ShapedGlyph> glyphs = OpenTypeTextShaper.Shape(
+            text,
+            InterFontFamily.Regular,
+            InterFontFamily.Regular.UnitsPerEm,
+            TextShapingOptions.WithFeatures(new OpenTypeFeatureSetting("ccmp", 0)));
+
+        Assert.NotEmpty(glyphs);
+        Assert.All(glyphs, static glyph => Assert.Equal(0, glyph.Cluster));
+    }
+
     private static TextShapingOptions Features(params string[] optional)
     {
         var features = new List<OpenTypeFeatureSetting>

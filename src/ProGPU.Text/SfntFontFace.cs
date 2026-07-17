@@ -105,7 +105,7 @@ sealed class SfntFontFace
     public int FaceIndex { get; }
     public uint BaseOffset { get; }
     public IReadOnlyDictionary<string, SfntTableRecord> Tables => _tables;
-    public bool UsesSymbolCharacterMap => TryFindCmapSubtables(out _, out _, out bool usesSymbolCharacterMap) && usesSymbolCharacterMap;
+    public bool UsesSymbolCharacterMap => TryFindCmapSubtables(out _, out _, out _, out bool usesSymbolCharacterMap) && usesSymbolCharacterMap;
 
     public static SfntFontFace Load(string filePath, int faceIndex = 0)
     {
@@ -348,12 +348,23 @@ sealed class SfntFontFace
         out ushort glyphIndex)
     {
         glyphIndex = 0;
-        if (!TryFindCmapSubtables(cmapMemory, out ReadOnlyMemory<byte> format4Memory, out ReadOnlyMemory<byte> format12Memory, out _))
+        if (!TryFindCmapSubtables(
+                cmapMemory,
+                out ReadOnlyMemory<byte> format4Memory,
+                out ReadOnlyMemory<byte> format12Memory,
+                out ReadOnlyMemory<byte> format13Memory,
+                out _))
         {
             return false;
         }
 
         if (!format12Memory.IsEmpty && TryGetFormat12GlyphIndex(format12Memory.Span, codePoint, out glyphIndex) &&
+            (glyphIndex != 0 || format4Memory.IsEmpty))
+        {
+            return true;
+        }
+
+        if (!format13Memory.IsEmpty && TryGetFormat13GlyphIndex(format13Memory.Span, codePoint, out glyphIndex) &&
             (glyphIndex != 0 || format4Memory.IsEmpty))
         {
             return true;
@@ -561,27 +572,31 @@ sealed class SfntFontFace
     private bool TryFindCmapSubtables(
         out ReadOnlyMemory<byte> format4,
         out ReadOnlyMemory<byte> format12,
+        out ReadOnlyMemory<byte> format13,
         out bool usesSymbolCharacterMap)
     {
         if (!TryGetTable("cmap", out ReadOnlyMemory<byte> cmapMemory))
         {
             format4 = default;
             format12 = default;
+            format13 = default;
             usesSymbolCharacterMap = false;
             return false;
         }
 
-        return TryFindCmapSubtables(cmapMemory, out format4, out format12, out usesSymbolCharacterMap);
+        return TryFindCmapSubtables(cmapMemory, out format4, out format12, out format13, out usesSymbolCharacterMap);
     }
 
     private static bool TryFindCmapSubtables(
         ReadOnlyMemory<byte> cmapMemory,
         out ReadOnlyMemory<byte> format4,
         out ReadOnlyMemory<byte> format12,
+        out ReadOnlyMemory<byte> format13,
         out bool usesSymbolCharacterMap)
     {
         format4 = default;
         format12 = default;
+        format13 = default;
         usesSymbolCharacterMap = false;
 
         ReadOnlySpan<byte> cmap = cmapMemory.Span;
@@ -619,6 +634,10 @@ sealed class SfntFontFace
             {
                 format12 = subtable;
             }
+            else if (format == 13 && IsUnicodeCmap(platformId, encodingId))
+            {
+                format13 = subtable;
+            }
             else if (format == 4 && IsUnicodeCmap(platformId, encodingId))
             {
                 format4 = subtable;
@@ -636,7 +655,7 @@ sealed class SfntFontFace
             usesSymbolCharacterMap = true;
         }
 
-        return !format4.IsEmpty || !format12.IsEmpty;
+        return !format4.IsEmpty || !format12.IsEmpty || !format13.IsEmpty;
     }
 
     private static ReadOnlyMemory<byte> GetCmapSubtable(ReadOnlyMemory<byte> cmap, uint offset, ushort format)
@@ -656,7 +675,7 @@ sealed class SfntFontFace
                 : default;
         }
 
-        if (format == 12)
+        if (format is 12 or 13)
         {
             if (!CanRead(span, subtableOffset, 8))
             {
@@ -712,6 +731,48 @@ sealed class SfntFontFace
         }
 
         glyphIndex = 0;
+        return true;
+    }
+
+    private static bool TryGetFormat13GlyphIndex(ReadOnlySpan<byte> format13, uint codePoint, out ushort glyphIndex)
+    {
+        glyphIndex = 0;
+        if (format13.Length < 16)
+        {
+            return false;
+        }
+
+        uint groupCount = ReadUInt(format13, 12);
+        if (groupCount > (uint)((format13.Length - 16) / 12))
+        {
+            return false;
+        }
+
+        int low = 0;
+        int high = checked((int)groupCount) - 1;
+        while (low <= high)
+        {
+            int mid = low + ((high - low) / 2);
+            int offset = 16 + mid * 12;
+            uint start = ReadUInt(format13, offset);
+            uint end = ReadUInt(format13, offset + 4);
+            if (codePoint >= start && codePoint <= end)
+            {
+                uint value = ReadUInt(format13, offset + 8);
+                glyphIndex = value <= ushort.MaxValue ? (ushort)value : (ushort)0;
+                return true;
+            }
+
+            if (codePoint < start)
+            {
+                high = mid - 1;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
         return true;
     }
 

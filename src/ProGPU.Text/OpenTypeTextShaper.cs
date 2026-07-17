@@ -1,5 +1,6 @@
 using OpenFontSharp;
 using OpenFontSharp.Tables.AdvancedLayout;
+using System.Globalization;
 using System.Numerics;
 using System.Text;
 
@@ -74,6 +75,8 @@ public readonly record struct ShapedGlyph(
 
 public static class OpenTypeTextShaper
 {
+    private const int MaximumShapedGlyphCount = 1_048_576;
+
     public static IReadOnlyList<string> GetFeatureTags(TtfFont font)
     {
         ArgumentNullException.ThrowIfNull(font);
@@ -160,7 +163,16 @@ public static class OpenTypeTextShaper
             GSUB.LookupTable lookup = table.LookupList[lookupIndex];
             for (var position = 0; position < glyphs.Count; position++)
             {
+                int countBefore = glyphs.Count;
                 lookup.DoSubstitutionAt(glyphs, position, glyphs.Count - position);
+                int insertedGlyphs = glyphs.Count - countBefore;
+                if (insertedGlyphs > 0)
+                {
+                    // A multiple substitution is applied once to the original
+                    // input glyph. Its newly inserted output must not be fed
+                    // back through the same lookup during this pass.
+                    position += insertedGlyphs;
+                }
             }
 
             ApplyUnsupportedChainingLookup(font, glyphs, lookupIndex);
@@ -1177,17 +1189,26 @@ public static class OpenTypeTextShaper
 
         public static GlyphSubstitutionBuffer Create(string text, TtfFont font)
         {
-            var glyphs = new List<GlyphRecord>(text.Length);
-            for (var index = 0; index < text.Length; index++)
+            if (text.Length > MaximumShapedGlyphCount)
             {
-                char character = text[index];
-                uint codePoint = character;
-                int cluster = index;
-                if (char.IsHighSurrogate(character) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))
+                throw new InvalidOperationException($"Text exceeds the {MaximumShapedGlyphCount} glyph shaping limit.");
+            }
+            var glyphs = new List<GlyphRecord>(text.Length);
+            for (var graphemeStart = 0; graphemeStart < text.Length;)
+            {
+                int graphemeLength = StringInfo.GetNextTextElementLength(text.AsSpan(graphemeStart));
+                int graphemeEnd = checked(graphemeStart + graphemeLength);
+                for (var index = graphemeStart; index < graphemeEnd; index++)
                 {
-                    codePoint = (uint)char.ConvertToUtf32(character, text[++index]);
+                    char character = text[index];
+                    uint codePoint = character;
+                    if (char.IsHighSurrogate(character) && index + 1 < graphemeEnd && char.IsLowSurrogate(text[index + 1]))
+                    {
+                        codePoint = (uint)char.ConvertToUtf32(character, text[++index]);
+                    }
+                    glyphs.Add(new GlyphRecord(font.GetGlyphIndex(codePoint), graphemeStart, codePoint));
                 }
-                glyphs.Add(new GlyphRecord(font.GetGlyphIndex(codePoint), cluster, codePoint));
+                graphemeStart = graphemeEnd;
             }
             return new GlyphSubstitutionBuffer(glyphs);
         }
@@ -1213,6 +1234,11 @@ public static class OpenTypeTextShaper
         public void Replace(int index, ushort[] newGlyphIndices)
         {
             ArgumentNullException.ThrowIfNull(newGlyphIndices);
+            int newCount = checked(_glyphs.Count - 1 + newGlyphIndices.Length);
+            if (newCount > MaximumShapedGlyphCount)
+            {
+                throw new InvalidOperationException($"OpenType substitution exceeds the {MaximumShapedGlyphCount} glyph shaping limit.");
+            }
             GlyphRecord record = _glyphs[index];
             _glyphs.RemoveAt(index);
             for (var replacementIndex = newGlyphIndices.Length - 1; replacementIndex >= 0; replacementIndex--)
