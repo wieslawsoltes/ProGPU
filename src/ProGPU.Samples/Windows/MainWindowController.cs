@@ -289,6 +289,7 @@ public static unsafe class MainWindowController
         var stylesShowcaseItem = PageItem("Styles Showcase", "💅", SamplePagePresenter.CreateStylesShowcaseView);
         var motionMarkItem = PageItem("MotionMark Showcase", "🏁", SamplePagePresenter.CreateMotionMarkShowcaseView);
         var scriptsItem = PageItem("Typography & Scripts", "🔤", SamplePagePresenter.CreateTypographyScriptsView);
+        var interShowcaseItem = PageItem("Inter Typeface", "Aa", InterShowcasePage.Create);
         var textInputItem = PageItem("Interactive Input", "⌨️", SamplePagePresenter.CreateInteractiveInputView);
         var lolsItem = PageItem("LOL/s Benchmark", "💥", LolsPage.Create);
         var radioButtonItem = PageItem("Radio Button", "🔘", RadioButtonPage.Create);
@@ -342,6 +343,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(stylesShowcaseItem);
         AppState._navigationView.MenuItems.Add(motionMarkItem);
         AppState._navigationView.MenuItems.Add(scriptsItem);
+        AppState._navigationView.MenuItems.Add(interShowcaseItem);
         AppState._navigationView.MenuItems.Add(textInputItem);
         AppState._navigationView.MenuItems.Add(lolsItem);
         AppState._navigationView.MenuItems.Add(radioButtonItem);

@@ -95,6 +95,12 @@ public static class ThemeManager
         { "ControlBorderHover", new Vector4(1f, 1f, 1f, 0.15f) }, // White 15%
         { "TextPrimary", new Vector4(1f, 1f, 1f, 1.0f) }, // Solid White
         { "TextSecondary", new Vector4(1f, 1f, 1f, 0.6f) }, // Muted White
+        { "TypographySpecimenSurface", new Vector4(0.035f, 0.035f, 0.035f, 1f) },
+        { "TypographySpecimenInk", new Vector4(0.98f, 0.98f, 0.98f, 1f) },
+        { "TypographySpecimenMuted", new Vector4(0.7f, 0.7f, 0.7f, 1f) },
+        { "TypographySpecimenRule", new Vector4(1f, 1f, 1f, 0.18f) },
+        { "TypographySpecimenAccent", new Vector4(1f, 0.84f, 0f, 1f) },
+        { "TypographySpecimenAccentInk", new Vector4(0f, 0f, 0f, 1f) },
         { "SystemAccentColor", new Vector4(0.0f, 0.47f, 0.83f, 1.0f) }, // Segoe Blue: #0078D4
         { "SystemAccentColorLight1", new Vector4(0.17f, 0.53f, 0.85f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.35f, 0.62f, 1.0f) }, // Pressed
@@ -122,6 +128,12 @@ public static class ThemeManager
         { "ControlBorderHover", new Vector4(0f, 0f, 0f, 0.18f) }, // Black 18%
         { "TextPrimary", new Vector4(0.08f, 0.08f, 0.12f, 1.0f) }, // Solid Dark
         { "TextSecondary", new Vector4(0.08f, 0.08f, 0.12f, 0.6f) }, // Muted Dark
+        { "TypographySpecimenSurface", new Vector4(1f, 1f, 1f, 1f) },
+        { "TypographySpecimenInk", new Vector4(0f, 0f, 0f, 1f) },
+        { "TypographySpecimenMuted", new Vector4(0.29f, 0.29f, 0.29f, 1f) },
+        { "TypographySpecimenRule", new Vector4(0f, 0f, 0f, 0.2f) },
+        { "TypographySpecimenAccent", new Vector4(1f, 0.84f, 0f, 1f) },
+        { "TypographySpecimenAccentInk", new Vector4(0f, 0f, 0f, 1f) },
         { "SystemAccentColor", new Vector4(0.0f, 0.47f, 0.83f, 1.0f) }, // Segoe Blue: #0078D4
         { "SystemAccentColorLight1", new Vector4(0.17f, 0.53f, 0.85f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.35f, 0.62f, 1.0f) }, // Pressed
@@ -149,6 +161,12 @@ public static class ThemeManager
         { "ControlBorderHover", new Vector4(1f, 1f, 1f, 0.25f) },
         { "TextPrimary", new Vector4(0.9f, 0.9f, 0.9f, 1.0f) }, // Crisp Cocoa White
         { "TextSecondary", new Vector4(0.9f, 0.9f, 0.9f, 0.55f) }, // Muted Cocoa Gray
+        { "TypographySpecimenSurface", new Vector4(0.035f, 0.035f, 0.035f, 1f) },
+        { "TypographySpecimenInk", new Vector4(0.98f, 0.98f, 0.98f, 1f) },
+        { "TypographySpecimenMuted", new Vector4(0.7f, 0.7f, 0.7f, 1f) },
+        { "TypographySpecimenRule", new Vector4(1f, 1f, 1f, 0.18f) },
+        { "TypographySpecimenAccent", new Vector4(1f, 0.84f, 0f, 1f) },
+        { "TypographySpecimenAccentInk", new Vector4(0f, 0f, 0f, 1f) },
         { "SystemAccentColor", new Vector4(0.039f, 0.518f, 1.0f, 1.0f) }, // macOS Vibrant Accent Blue: #0A84FF
         { "SystemAccentColorLight1", new Vector4(0.2f, 0.6f, 1.0f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.4f, 0.8f, 1.0f) }, // Pressed
@@ -204,6 +222,12 @@ public static class ThemeManager
         { "ControlBorderHover", new Vector4(0f, 0f, 0f, 0.28f) },
         { "TextPrimary", new Vector4(0.16f, 0.16f, 0.16f, 1.0f) }, // Deep Cocoa charcoal
         { "TextSecondary", new Vector4(0.16f, 0.16f, 0.16f, 0.5f) }, // Muted Cocoa gray
+        { "TypographySpecimenSurface", new Vector4(1f, 1f, 1f, 1f) },
+        { "TypographySpecimenInk", new Vector4(0f, 0f, 0f, 1f) },
+        { "TypographySpecimenMuted", new Vector4(0.29f, 0.29f, 0.29f, 1f) },
+        { "TypographySpecimenRule", new Vector4(0f, 0f, 0f, 0.2f) },
+        { "TypographySpecimenAccent", new Vector4(1f, 0.84f, 0f, 1f) },
+        { "TypographySpecimenAccentInk", new Vector4(0f, 0f, 0f, 1f) },
         { "SystemAccentColor", new Vector4(0.0f, 0.478f, 1.0f, 1.0f) }, // macOS System Blue: #007AFF
         { "SystemAccentColorLight1", new Vector4(0.15f, 0.55f, 1.0f, 1.0f) },
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.39f, 0.84f, 1.0f) },
