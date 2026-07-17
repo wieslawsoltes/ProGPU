@@ -418,7 +418,9 @@ internal sealed class SuiteRunner
     {
         if (expected.Count != actual.Count)
         {
-            return $"glyph count expected {expected.Count}, actual {actual.Count}";
+            return $"glyph count expected {expected.Count}, actual {actual.Count}; " +
+                   $"expected [{string.Join(',', expected.Select(static glyph => glyph.Glyph))}], " +
+                   $"actual [{string.Join(',', actual.Select(static glyph => glyph.GlyphIndex))}]";
         }
 
         for (int index = 0; index < expected.Count; index++)
@@ -427,7 +429,9 @@ internal sealed class SuiteRunner
             ShapedGlyph right = actual[index];
             if (left.Glyph != right.GlyphIndex)
             {
-                return $"glyph[{index}] expected gid {left.Glyph}, actual {right.GlyphIndex}";
+                return $"glyph[{index}] expected gid {left.Glyph}, actual {right.GlyphIndex}; " +
+                       $"expected [{string.Join(',', expected.Select(static glyph => glyph.Glyph))}], " +
+                       $"actual [{string.Join(',', actual.Select(static glyph => glyph.GlyphIndex))}]";
             }
             int actualCluster = Utf16ClusterToScalarIndex(text, right.Cluster);
             if (!configuration.IgnoreClusters && left.Cluster != actualCluster)
