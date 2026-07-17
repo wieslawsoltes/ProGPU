@@ -96,13 +96,29 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void BrowserHostRegistersItsEmbeddedFontForSkiaSharpDefaults()
+    public void BrowserHostRegistersBundledInterForSkiaSharpDefaults()
     {
         var browserHost = Read("src", "ProGPU.Browser", "BrowserWindowHost.cs");
         var typeface = Read("src", "SkiaSharp", "SKTypeface.cs");
 
+        Assert.Contains("var fallbackFont = InterFontFamily.Regular;", browserHost, StringComparison.Ordinal);
         Assert.Contains("FontApi.RegisterPlatformFallbackFont(fallbackFont);", browserHost, StringComparison.Ordinal);
         Assert.Contains("ResolveDefaultTypeface(FontApi.GetSystemFonts(), FontApi.PlatformFallbackFont)", typeface, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserFilePickerUsesNativeDialogWithCancellationSafeDirectByteFallback()
+    {
+        var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
+        var storageServices = Read("src", "ProGPU.Browser", "BrowserStorageServices.cs");
+
+        Assert.Contains("globalThis.showOpenFilePicker", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("input.addEventListener('cancel'", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("globalThis.addEventListener('focus', onWindowFocus", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("heap.set(bytes, destination);", browserAsset, StringComparison.Ordinal);
+        Assert.DoesNotContain("bytesToBase64", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("CopyPickedStorage((nint)destination, length)", storageServices, StringComparison.Ordinal);
+        Assert.Contains("ClearPickedStorage();", storageServices, StringComparison.Ordinal);
     }
 
     [Fact]

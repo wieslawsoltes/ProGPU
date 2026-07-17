@@ -25,7 +25,6 @@
     <PackageVersion Include="TextMateSharp" Version="2.0.3" />
     <PackageVersion Include="TextMateSharp.Grammars" Version="2.0.3" />
     <PackageVersion Include="Uno.WinUI" Version="5.2.0" />
-    <PackageVersion Include="Uno.Fonts.Roboto" Version="2.2.2" />
     <PackageVersion Include="xunit" Version="2.9.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>

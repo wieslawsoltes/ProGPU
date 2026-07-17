@@ -23,7 +23,30 @@ public class SKFontStyleSet : SKObject, IEnumerable<SKFontStyle>, IReadOnlyList<
         {
             var font = fonts[index];
             var style = ParseStyle(font.Name);
-            _entries[index] = new Entry(font, style, GetStyleName(font, style));
+            _entries[index] = new Entry(
+                style,
+                GetStyleName(font, style),
+                () => SKTypeface.CreateFont(font));
+        }
+    }
+
+    internal SKFontStyleSet(IReadOnlyList<FontFace> fonts)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _entries = new Entry[fonts.Count];
+        for (var index = 0; index < fonts.Count; index++)
+        {
+            FontFace font = fonts[index];
+            var style = new StyleData(
+                font.Style.Weight,
+                font.Style.Width,
+                font.Style.Slant switch
+                {
+                    FontSlant.Italic => SKFontStyleSlant.Italic,
+                    FontSlant.Oblique => SKFontStyleSlant.Oblique,
+                    _ => SKFontStyleSlant.Upright
+                });
+            _entries[index] = new Entry(style, GetStyleName(font, style), font.Load);
         }
     }
 
@@ -38,8 +61,8 @@ public class SKFontStyleSet : SKObject, IEnumerable<SKFontStyle>, IReadOnlyList<
                 "index");
         }
 
-        var font = _entries[index].Font;
-        return SKTypeface.FromFile(font.FilePath, font.FaceIndex)!;
+        TtfFont? font = _entries[index].Load();
+        return font is null ? null! : new SKTypeface(font, font.FamilyName);
     }
 
     public SKTypeface CreateTypeface(SKFontStyle style)
@@ -72,6 +95,8 @@ public class SKFontStyleSet : SKObject, IEnumerable<SKFontStyle>, IReadOnlyList<
 
         return CreateTypeface(bestIndex);
     }
+
+    public SKTypeface MatchStyle(SKFontStyle style) => CreateTypeface(style);
 
     public IEnumerator<SKFontStyle> GetEnumerator()
     {
@@ -154,6 +179,20 @@ public class SKFontStyleSet : SKObject, IEnumerable<SKFontStyle>, IReadOnlyList<
         return font.Name;
     }
 
+    private static string GetStyleName(FontFace font, StyleData style)
+    {
+        if (font.Name.StartsWith(font.FamilyName, StringComparison.OrdinalIgnoreCase))
+        {
+            string suffix = font.Name[font.FamilyName.Length..].Trim(' ', '-', '_');
+            if (suffix.Length > 0)
+            {
+                return suffix;
+            }
+        }
+
+        return font.Name;
+    }
+
     private readonly record struct StyleData(int Weight, int Width, SKFontStyleSlant Slant);
-    private sealed record Entry(FontInfo Font, StyleData Style, string Name);
+    private sealed record Entry(StyleData Style, string Name, Func<TtfFont?> Load);
 }

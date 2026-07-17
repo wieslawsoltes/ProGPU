@@ -115,7 +115,7 @@ public readonly struct BitmapGlyphData
         new(pixelsPerEm, bearingX, bearingY, graphicType, data);
 }
 
-public class TtfFont
+public partial class TtfFont
 {
     private const int MaxSvgDocumentBytes = 16 * 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -127,6 +127,7 @@ public class TtfFont
     private readonly byte[] _data;
     private readonly SfntFontFace _face;
     private readonly Typeface? _cffTypeface;
+    private readonly Lazy<Typeface?> _layoutTypeface;
     private readonly Dictionary<string, (uint offset, uint length)> _tables = new();
     private readonly Dictionary<ushort, List<FontColorLayer>?> _svgColorLayerCache = new();
 
@@ -202,6 +203,9 @@ public class TtfFont
         _data = SfntFontContainer.Normalize(fontData);
         FaceIndex = faceIndex;
         _face = SfntFontFace.Load(_data, faceIndex);
+        _layoutTypeface = new Lazy<Typeface?>(
+            LoadLayoutTypeface,
+            LazyThreadSafetyMode.ExecutionAndPublication);
         FamilyName = GetName(SfntNameIds.PreferredFamilyName, SfntNameIds.FamilyName) ?? string.Empty;
         SubfamilyName = GetName(SfntNameIds.PreferredSubfamilyName, SfntNameIds.SubfamilyName) ?? string.Empty;
         FullName = GetName(SfntNameIds.FullName) ?? FamilyName;
@@ -229,6 +233,25 @@ public class TtfFont
         ParseColrTable();
         ParseCpalTable();
     }
+
+    internal Typeface? LayoutTypeface => _layoutTypeface.Value;
+
+    private Typeface? LoadLayoutTypeface()
+    {
+        try
+        {
+            byte[] data = _face.BaseOffset == 0 ? _data : _face.CreateStandaloneFontData();
+            using var stream = new MemoryStream(data, writable: false);
+            return new OpenFontReader().Read(stream);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ProGpuTextDiagnostics.WriteLine($"[TtfFont] OpenType layout tables unavailable for '{FullName}': {exception.Message}");
+            return null;
+        }
+    }
+
+    public IReadOnlyList<string> GetOpenTypeFeatureTags() => OpenTypeTextShaper.GetFeatureTags(this);
 
     public TtfFont(string filePath) : this(File.ReadAllBytes(filePath))
     {
@@ -1052,7 +1075,7 @@ public class TtfFont
             offset = _hmtxOffset + (uint)((_numberOfHMetrics - 1) * 4);
         }
 
-        ushort advanceWidth = ReadUShort(offset);
+        float advanceWidth = ReadUShort(offset) + GetVariationAdvanceDelta(glyphIndex);
         float scale = emSize / UnitsPerEm;
         return advanceWidth * scale;
     }
@@ -1303,7 +1326,7 @@ public class TtfFont
             return false;
         }
 
-        if (!HasTrueTypeOutlines)
+        if (!HasTrueTypeOutlines || HasActiveVariations)
         {
             var outline = GetGlyphOutline(glyphIndex);
             if (outline is null || !outline.TryGetBounds(out var minimum, out var maximum))
@@ -1405,7 +1428,7 @@ public class TtfFont
 
         if (numberOfContours < 0)
         {
-            return ParseCompositeGlyphOutline(glyphOffset, ancestors, depth);
+            return ParseCompositeGlyphOutline(glyphIndex, glyphOffset, ancestors, depth);
         }
 
         if (numberOfContours == 0)
@@ -1504,6 +1527,8 @@ public class TtfFont
             coords[i].Y = lastY;
         }
 
+        ApplySimpleGlyphVariations(glyphIndex, coords, endPtsOfContours);
+
         // Process coordinates into PathGeometry (contour by contour)
         int ptIndex = 0;
         for (int c = 0; c < numberOfContours; c++)
@@ -1535,7 +1560,11 @@ public class TtfFont
         return new ParsedGlyph(geometry, coords);
     }
 
-    private ParsedGlyph? ParseCompositeGlyphOutline(uint glyphOffset, HashSet<ushort> ancestors, int depth)
+    private ParsedGlyph? ParseCompositeGlyphOutline(
+        ushort glyphIndex,
+        uint glyphOffset,
+        HashSet<ushort> ancestors,
+        int depth)
     {
         const ushort ArgumentsAreWords = 0x0001;
         const ushort ArgumentsAreXyValues = 0x0002;
@@ -1546,11 +1575,9 @@ public class TtfFont
         const ushort WeHaveTwoByTwo = 0x0080;
         const ushort ScaledComponentOffset = 0x0800;
 
-        var geometry = new PathGeometry();
-        var points = new List<Vector2>();
+        var components = new List<CompositeGlyphComponent>();
         var offset = glyphOffset + 10;
         ushort flags;
-
         do
         {
             if (offset + 4 > _data.Length)
@@ -1642,59 +1669,101 @@ public class TtfFont
                 offset += 8;
             }
 
-            var component = GetGlyphOutlineInternal(componentGlyphIndex, ancestors, depth + 1);
-            if (component == null)
-            {
-                continue;
-            }
+            components.Add(new CompositeGlyphComponent(
+                flags,
+                componentGlyphIndex,
+                argument1,
+                argument2,
+                m00,
+                m01,
+                m10,
+                m11));
+        }
+        while ((flags & MoreComponents) != 0);
 
-            var linearTransform = new Matrix4x4(
-                m00, m10, 0, 0,
-                m01, m11, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1);
+        Vector2[] variationOffsets = GetCompositeGlyphVariationOffsets(
+            components.Count,
+            glyphIndex);
+        return BuildCompositeGlyph(components, variationOffsets, ancestors, depth);
 
-            Vector2 translation;
-            if ((flags & ArgumentsAreXyValues) != 0)
+        ParsedGlyph? BuildCompositeGlyph(
+            List<CompositeGlyphComponent> source,
+            Vector2[] deltas,
+            HashSet<ushort> glyphAncestors,
+            int glyphDepth)
+        {
+            var geometry = new PathGeometry();
+            var points = new List<Vector2>();
+            for (var componentIndex = 0; componentIndex < source.Count; componentIndex++)
             {
-                translation = new Vector2(argument1, argument2);
-                if ((flags & ScaledComponentOffset) != 0)
-                {
-                    translation = Vector2.TransformNormal(translation, linearTransform);
-                }
-            }
-            else
-            {
-                if ((uint)argument1 >= (uint)points.Count ||
-                    (uint)argument2 >= (uint)component.Points.Length)
+                CompositeGlyphComponent descriptor = source[componentIndex];
+                var component = GetGlyphOutlineInternal(descriptor.GlyphIndex, glyphAncestors, glyphDepth + 1);
+                if (component == null)
                 {
                     continue;
                 }
 
-                var componentPoint = Vector2.Transform(component.Points[argument2], linearTransform);
-                translation = points[argument1] - componentPoint;
+                var linearTransform = new Matrix4x4(
+                    descriptor.M00, descriptor.M10, 0, 0,
+                    descriptor.M01, descriptor.M11, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1);
+
+                Vector2 translation;
+                if ((descriptor.Flags & ArgumentsAreXyValues) != 0)
+                {
+                    translation = new Vector2(descriptor.Argument1, descriptor.Argument2);
+                    if ((uint)componentIndex < (uint)deltas.Length)
+                    {
+                        translation += deltas[componentIndex];
+                    }
+                    if ((descriptor.Flags & ScaledComponentOffset) != 0)
+                    {
+                        translation = Vector2.TransformNormal(translation, linearTransform);
+                    }
+                }
+                else
+                {
+                    if ((uint)descriptor.Argument1 >= (uint)points.Count ||
+                        (uint)descriptor.Argument2 >= (uint)component.Points.Length)
+                    {
+                        continue;
+                    }
+
+                    var componentPoint = Vector2.Transform(component.Points[descriptor.Argument2], linearTransform);
+                    translation = points[descriptor.Argument1] - componentPoint;
+                }
+
+                if ((descriptor.Flags & RoundXyToGrid) != 0)
+                {
+                    translation = new Vector2(MathF.Round(translation.X), MathF.Round(translation.Y));
+                }
+
+                linearTransform.M41 = translation.X;
+                linearTransform.M42 = translation.Y;
+                var transformed = component.Geometry.CreateTransformed(linearTransform);
+                geometry.Figures.AddRange(transformed.Figures);
+                foreach (var point in component.Points)
+                {
+                    points.Add(Vector2.Transform(point, linearTransform));
+                }
             }
 
-            if ((flags & RoundXyToGrid) != 0)
-            {
-                translation = new Vector2(MathF.Round(translation.X), MathF.Round(translation.Y));
-            }
-
-            linearTransform.M41 = translation.X;
-            linearTransform.M42 = translation.Y;
-            var transformed = component.Geometry.CreateTransformed(linearTransform);
-            geometry.Figures.AddRange(transformed.Figures);
-            foreach (var point in component.Points)
-            {
-                points.Add(Vector2.Transform(point, linearTransform));
-            }
+            return geometry.Figures.Count == 0
+                ? null
+                : new ParsedGlyph(geometry, points.ToArray());
         }
-        while ((flags & MoreComponents) != 0);
-
-        return geometry.Figures.Count == 0
-            ? null
-            : new ParsedGlyph(geometry, points.ToArray());
     }
+
+    private readonly record struct CompositeGlyphComponent(
+        ushort Flags,
+        ushort GlyphIndex,
+        int Argument1,
+        int Argument2,
+        float M00,
+        float M01,
+        float M10,
+        float M11);
 
     private float ReadF2Dot14(uint offset)
     {

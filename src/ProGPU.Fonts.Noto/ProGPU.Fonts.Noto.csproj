@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Official Noto fallback font assets and typed ProGPU accessors for deterministic cross-platform glyph coverage.</Description>
+    <PackageDescription>Official Noto fallback font assets and typed ProGPU accessors for deterministic cross-platform glyph coverage.</PackageDescription>
+    <PackageTags>progpu;font;noto;fallback;cjk;symbols;webassembly</PackageTags>
+    <PackageReleaseNotes>Bundles unmodified Noto Sans CJK JP 2.004 Regular and Noto Sans Symbols 2 2.006 Regular faces from the official Noto projects.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT AND OFL-1.1</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Fonts/NotoSansCJKjp-Regular.otf"
+                      LogicalName="ProGPU.Fonts.Noto.Fonts.NotoSansCJKjp-Regular.otf" />
+    <EmbeddedResource Include="Fonts/NotoSansSymbols2-Regular.ttf"
+                      LogicalName="ProGPU.Fonts.Noto.Fonts.NotoSansSymbols2-Regular.ttf" />
+    <None Update="Fonts/NotoSansCJK-LICENSE.txt" Pack="true" PackagePath="fonts/NotoSansCJK-LICENSE.txt" />
+    <None Update="Fonts/NotoSansSymbols2-LICENSE.txt" Pack="true" PackagePath="fonts/NotoSansSymbols2-LICENSE.txt" />
+    <None Update="Fonts/SOURCES.md" Pack="true" PackagePath="fonts/SOURCES.md" />
+  </ItemGroup>
+</Project>

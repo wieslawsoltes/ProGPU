@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 
 namespace ProGPU.Browser;
@@ -21,7 +22,7 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         ArgumentNullException.ThrowIfNull(capabilities);
         if (!capabilities.IsSupported) throw new PlatformNotSupportedException("WebGPU is unavailable.");
         _capabilities = capabilities;
-        var fallbackFont = BrowserFontResource.Default;
+        var fallbackFont = InterFontFamily.Regular;
         FontApi.RegisterPlatformFallbackFont(fallbackFont);
         PopupService.DefaultFont ??= fallbackFont;
         ClipboardHelper.PlatformSetText = SetClipboardText;
@@ -133,17 +134,4 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
 
     private readonly record struct CanvasMetrics(uint Width, uint Height, float DpiScale);
 
-    private static class BrowserFontResource
-    {
-        public static readonly TtfFont Default = Load();
-
-        private static TtfFont Load()
-        {
-            using var stream = typeof(BrowserWindowHost).Assembly.GetManifestResourceStream("ProGPU.Browser.Fonts.Roboto-Regular.ttf")
-                ?? throw new InvalidOperationException("The embedded browser fallback font is missing.");
-            using var memory = new MemoryStream(checked((int)stream.Length));
-            stream.CopyTo(memory);
-            return new TtfFont(memory.ToArray());
-        }
-    }
 }

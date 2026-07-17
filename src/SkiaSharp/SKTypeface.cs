@@ -256,6 +256,21 @@ public partial class SKTypeface : IDisposable
             return null;
         }
 
+        TtfFont? managedFont = FontApi.Manager.MatchFamily(
+            familyName,
+            ToFontStyleRequest(style));
+        if (managedFont is not null)
+        {
+            return new SKTypeface(
+                managedFont,
+                managedFont.FamilyName,
+                style.Weight >= (int)SKFontStyleWeight.SemiBold,
+                style.Slant != SKFontStyleSlant.Upright,
+                style.Weight,
+                style.Width,
+                style.Slant);
+        }
+
         var systemFonts = FontApi.GetSystemFonts();
         if (OperatingSystem.IsLinux() &&
             TryGetGenericFontFamily(familyName, out var genericFamily))
@@ -516,22 +531,19 @@ public partial class SKTypeface : IDisposable
 
     internal static TtfFont CreateFont(FontInfo font)
     {
-        var key = (font.FilePath, font.FaceIndex);
-        var lazy = s_systemFonts.GetOrAdd(
-            key,
-            static value => new Lazy<TtfFont>(
-                () => new TtfFont(value.Path, value.FaceIndex),
-                isThreadSafe: true));
-        try
-        {
-            return lazy.Value;
-        }
-        catch
-        {
-            s_systemFonts.TryRemove(key, out _);
-            throw;
-        }
+        return ProGPU.Text.FontManager.LoadSystemFont(font);
     }
+
+    private static FontStyleRequest ToFontStyleRequest(SKFontStyle style) =>
+        new(
+            style.Weight,
+            style.Width,
+            style.Slant switch
+            {
+                SKFontStyleSlant.Italic => ProGPU.Text.FontSlant.Italic,
+                SKFontStyleSlant.Oblique => ProGPU.Text.FontSlant.Oblique,
+                _ => ProGPU.Text.FontSlant.Upright
+            });
 }
 
 public abstract class SKStreamAsset : SKStreamSeekable
@@ -623,13 +635,13 @@ public class SKFontManager : SKObject
     }
 
     public static SKFontManager Default => s_defaultInstance;
-    public int FontFamilyCount => _catalog.Value.Families.Length;
+    public int FontFamilyCount => FontApi.Manager.FontFamilyCount;
     public IEnumerable<string> FontFamilies
     {
         get
         {
-            var families = _catalog.Value.Families;
-            for (var index = 0; index < families.Length; index++)
+            var families = FontApi.Manager.FontFamilies;
+            for (var index = 0; index < families.Count; index++)
             {
                 yield return families[index];
             }
@@ -638,13 +650,13 @@ public class SKFontManager : SKObject
 
     public static SKFontManager CreateDefault() => new();
 
-    public string GetFamilyName(int index) => _catalog.Value.Families[index];
+    public string GetFamilyName(int index) => FontApi.Manager.FontFamilies[index];
 
-    public string[] GetFontFamilies() => _catalog.Value.Families.ToArray();
+    public string[] GetFontFamilies() => FontApi.Manager.FontFamilies.ToArray();
 
     public SKFontStyleSet GetFontStyles(int index) =>
-        (uint)index < (uint)_catalog.Value.Families.Length
-            ? GetFontStyles(_catalog.Value.Families[index])
+        (uint)index < (uint)FontApi.Manager.FontFamilies.Count
+            ? GetFontStyles(FontApi.Manager.FontFamilies[index])
             : new SKFontStyleSet();
 
     public SKFontStyleSet GetFontStyles(string familyName)
@@ -652,6 +664,12 @@ public class SKFontManager : SKObject
         if (familyName is null)
         {
             return new SKFontStyleSet();
+        }
+
+        IReadOnlyList<FontFace> managedFaces = FontApi.Manager.GetFontStyles(familyName);
+        if (managedFaces.Count > 0)
+        {
+            return new SKFontStyleSet(managedFaces);
         }
 
         var catalog = _catalog.Value;
@@ -669,6 +687,21 @@ public class SKFontManager : SKObject
     public SKTypeface? MatchFamily(string familyName, SKFontStyle style)
     {
         return SKTypeface.MatchFamilyName(familyName, style);
+    }
+
+    public SKTypeface? MatchTypeface(SKTypeface typeface, SKFontStyle style)
+    {
+        ArgumentNullException.ThrowIfNull(typeface);
+        ArgumentNullException.ThrowIfNull(style);
+        TtfFont font = FontApi.Manager.MatchTypeface(typeface.Font, ToFontStyleRequest(style));
+        return new SKTypeface(
+            font,
+            font.FamilyName,
+            style.Weight >= (int)SKFontStyleWeight.SemiBold,
+            style.Slant != SKFontStyleSlant.Upright,
+            style.Weight,
+            style.Width,
+            style.Slant);
     }
 
     public SKTypeface? CreateTypeface(string path, int index = 0) => SKTypeface.FromFile(path, index);
@@ -740,6 +773,26 @@ public class SKFontManager : SKObject
             return null;
         }
 
+        TtfFont? managedFont = FontApi.Manager.MatchCharacter(
+            familyName,
+            ToFontStyleRequest(style),
+            bcp47,
+            character);
+        if (managedFont is not null)
+        {
+            return new SKTypeface(
+                managedFont,
+                managedFont.FamilyName,
+                style.Weight >= (int)SKFontStyleWeight.SemiBold,
+                style.Slant != SKFontStyleSlant.Upright,
+                style.Weight,
+                style.Width,
+                style.Slant);
+        }
+
+        return null;
+
+#pragma warning disable CS0162, CS8602
         var systemFonts = FontApi.GetSystemFonts();
         var visited = new HashSet<(string Path, int FaceIndex)>();
         if (!string.IsNullOrWhiteSpace(familyName) &&
@@ -776,12 +829,16 @@ public class SKFontManager : SKObject
         }
 
         return null;
+#pragma warning restore CS0162, CS8602
     }
 
     internal static IReadOnlyList<string> GetFallbackFamilyPreferences(
         IReadOnlyList<string>? bcp47,
         int codepoint)
     {
+        return FontManager.GetFallbackFamilyPreferences(bcp47, codepoint);
+
+#pragma warning disable CS0162, CS8602
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -921,7 +978,19 @@ public class SKFontManager : SKObject
         }
 
         return result;
+#pragma warning restore CS0162, CS8602
     }
+
+    private static FontStyleRequest ToFontStyleRequest(SKFontStyle style) =>
+        new(
+            style.Weight,
+            style.Width,
+            style.Slant switch
+            {
+                SKFontStyleSlant.Italic => FontSlant.Italic,
+                SKFontStyleSlant.Oblique => FontSlant.Oblique,
+                _ => FontSlant.Upright
+            });
 
     private static bool IsArabicCodepoint(int codepoint) =>
         codepoint is >= 0x0600 and <= 0x06FF or

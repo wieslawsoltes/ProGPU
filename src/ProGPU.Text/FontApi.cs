@@ -13,6 +13,9 @@ public class FontInfo
     public string FamilyName { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public int FaceIndex { get; set; }
+    public int Weight { get; set; } = 400;
+    public int Width { get; set; } = 5;
+    public bool IsItalic { get; set; }
 
     public override string ToString()
     {
@@ -27,6 +30,9 @@ public static class FontApi
     private static Task? s_systemFontWarmup;
     private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<byte[]?>> s_characterMaps = new();
     private static TtfFont? s_platformFallbackFont;
+    private static readonly object s_platformFallbackFontsLock = new();
+    private static TtfFont[] s_platformFallbackFonts = [];
+    private static Lazy<TtfFont>[] s_lazyPlatformFallbackFonts = [];
 
     /// <summary>
     /// Gets the first font registered by a platform host for environments without discoverable system fonts.
@@ -34,12 +40,113 @@ public static class FontApi
     public static TtfFont? PlatformFallbackFont => Volatile.Read(ref s_platformFallbackFont);
 
     /// <summary>
+    /// Gets the process-wide font manager used by ProGPU text, WinUI, and compatibility layers.
+    /// </summary>
+    public static FontManager Manager => FontManager.Default;
+
+    /// <summary>
     /// Registers a process-wide fallback without replacing a font supplied by an earlier platform host.
     /// </summary>
     public static void RegisterPlatformFallbackFont(TtfFont font)
     {
         ArgumentNullException.ThrowIfNull(font);
+        Manager.RegisterFont(font, isFallback: true);
         Interlocked.CompareExchange(ref s_platformFallbackFont, font, null);
+
+        lock (s_platformFallbackFontsLock)
+        {
+            var current = s_platformFallbackFonts;
+            for (int index = 0; index < current.Length; index++)
+            {
+                if (ReferenceEquals(current[index], font)) return;
+            }
+
+            var updated = new TtfFont[current.Length + 1];
+            Array.Copy(current, updated, current.Length);
+            updated[^1] = font;
+            Volatile.Write(ref s_platformFallbackFonts, updated);
+        }
+    }
+
+    /// <summary>
+    /// Registers a fallback that is loaded only after an already-active font misses a glyph.
+    /// </summary>
+    public static void RegisterPlatformFallbackFont(Lazy<TtfFont> font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        Manager.RegisterFont(font, isFallback: true);
+        lock (s_platformFallbackFontsLock)
+        {
+            var current = s_lazyPlatformFallbackFonts;
+            for (int index = 0; index < current.Length; index++)
+            {
+                if (ReferenceEquals(current[index], font)) return;
+            }
+
+            var updated = new Lazy<TtfFont>[current.Length + 1];
+            Array.Copy(current, updated, current.Length);
+            updated[^1] = font;
+            Volatile.Write(ref s_lazyPlatformFallbackFonts, updated);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a glyph from platform-owned fallback faces. The common path calls
+    /// this only after the requested font reports glyph zero.
+    /// </summary>
+    public static bool TryResolvePlatformFallback(
+        TtfFont requestedFont,
+        int codePoint,
+        out TtfFont? fallbackFont,
+        out ushort glyphIndex)
+    {
+        if (Manager.TryMatchCharacter(
+                requestedFont.FamilyName,
+                FontStyleRequest.FromFont(requestedFont),
+                languageTags: null,
+                codePoint,
+                requestedFont,
+                out fallbackFont,
+                out glyphIndex))
+        {
+            return true;
+        }
+
+        // Retain the legacy arrays for binary/source compatibility with hosts that
+        // registered before FontManager became the process-wide authority.
+        var fonts = Volatile.Read(ref s_platformFallbackFonts);
+        for (int index = 0; index < fonts.Length; index++)
+        {
+            var candidate = fonts[index];
+            if (ReferenceEquals(candidate, requestedFont)) continue;
+
+            ushort candidateGlyph = candidate.GetGlyphIndex((uint)codePoint);
+            if (candidateGlyph != 0)
+            {
+                fallbackFont = candidate;
+                glyphIndex = candidateGlyph;
+                return true;
+            }
+        }
+
+        var lazyFonts = Volatile.Read(ref s_lazyPlatformFallbackFonts);
+        for (int index = 0; index < lazyFonts.Length; index++)
+        {
+            var candidate = lazyFonts[index].Value;
+            if (ReferenceEquals(candidate, requestedFont)) continue;
+
+            ushort candidateGlyph = candidate.GetGlyphIndex((uint)codePoint);
+            if (candidateGlyph != 0)
+            {
+                fallbackFont = candidate;
+                glyphIndex = candidateGlyph;
+                return true;
+            }
+        }
+
+        fallbackFont = null;
+        glyphIndex = 0;
+        return false;
     }
 
     public static List<FontInfo> GetSystemFonts()

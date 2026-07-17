@@ -24,6 +24,8 @@
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Compute'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Vector'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Text'">true</IsPackable>
+    <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Fonts.Inter'">true</IsPackable>
+    <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Fonts.Noto'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Scene'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Layout'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Virtualization'">true</IsPackable>

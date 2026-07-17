@@ -29,6 +29,7 @@ public static class AppState
     public static Compositor? _devToolsCompositor;
 
     public static TtfFont? _font;
+    public static TtfFont? _fontArial;
     public static TtfFont? _fontTimes;
     public static TtfFont? _fontCourier;
     public static TtfFont? _fontGeorgia;
@@ -107,6 +108,7 @@ public static class AppState
     public static float GetBlurRadius() => _blurRadius;
     public static float GetShadowRadius() => _shadowRadius;
     public static TtfFont? GetFont() => _font;
+    public static TtfFont? GetFontArial() => _fontArial;
     public static TtfFont? GetFontTimes() => _fontTimes;
     public static TtfFont? GetFontCourier() => _fontCourier;
     public static TtfFont? GetFontGeorgia() => _fontGeorgia;

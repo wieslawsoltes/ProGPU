@@ -32,6 +32,8 @@ public class SkiaSharpFontManagerTests
             Assert.Equal(families[0], typeface.FamilyName);
             using var matched = styles.CreateTypeface(SKFontStyle.Bold);
             Assert.NotNull(matched);
+            using var matchedAlias = styles.MatchStyle(SKFontStyle.Bold);
+            Assert.NotNull(matchedAlias);
         }
 
         using (var missing = manager.GetFontStyles("ProGPU Missing Font Family"))
@@ -101,6 +103,18 @@ public class SkiaSharpFontManagerTests
 
         Assert.NotNull(typeface);
         Assert.Equal(familyName, typeface.FamilyName);
+    }
+
+    [Fact]
+    public void MatchTypefaceUsesSharedFamilyStyleMatcher()
+    {
+        SKTypeface source = SKTypeface.Default;
+        using SKTypeface? matched = SKFontManager.Default.MatchTypeface(source, SKFontStyle.BoldItalic);
+
+        Assert.NotNull(matched);
+        Assert.Equal(source.FamilyName, matched.FamilyName);
+        Assert.Equal((int)SKFontStyleWeight.Bold, matched.FontWeight);
+        Assert.Equal(SKFontStyleSlant.Italic, matched.FontSlant);
     }
 
     [Fact]

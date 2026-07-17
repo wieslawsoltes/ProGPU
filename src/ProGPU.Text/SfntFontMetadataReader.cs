@@ -151,6 +151,7 @@ internal static class SfntFontMetadataReader
         for (var faceIndex = 0; faceIndex < faceOffsets.Length; faceIndex++)
         {
             NameSelection names = ReadFaceNames(stream, faceOffsets[faceIndex]);
+            FaceStyle style = ReadFaceStyle(stream, faceOffsets[faceIndex]);
             var familyName = names.PreferredFamilyName ?? names.FamilyName ?? fallbackName;
             var fullName = names.FullName ?? familyName;
             infos.Add(new FontInfo
@@ -158,11 +159,55 @@ internal static class SfntFontMetadataReader
                 Name = fullName,
                 FamilyName = familyName,
                 FilePath = file,
-                FaceIndex = faceIndex
+                FaceIndex = faceIndex,
+                Weight = style.Weight,
+                Width = style.Width,
+                IsItalic = style.IsItalic
             });
         }
 
         return infos;
+    }
+
+    private static FaceStyle ReadFaceStyle(Stream stream, uint faceOffset)
+    {
+        Span<byte> header = stackalloc byte[SfntHeaderSize];
+        ReadExactly(stream, faceOffset, header);
+        ushort tableCount = ReadUShort(header, 4);
+        if (tableCount > MaxTableCount)
+        {
+            throw new FormatException("SFNT face has an invalid table count.");
+        }
+
+        var weight = 400;
+        var width = 5;
+        var italic = false;
+        Span<byte> record = stackalloc byte[TableRecordSize];
+        for (var tableIndex = 0; tableIndex < tableCount; tableIndex++)
+        {
+            ReadExactly(
+                stream,
+                checked((long)faceOffset + SfntHeaderSize + (long)tableIndex * TableRecordSize),
+                record);
+            uint tableOffset = ReadUInt(record, 8);
+            uint tableLength = ReadUInt(record, 12);
+            if (HasTag(record, "OS/2") && tableLength >= 64)
+            {
+                Span<byte> attributes = stackalloc byte[64];
+                ReadExactly(stream, tableOffset, attributes);
+                weight = Math.Clamp((int)ReadUShort(attributes, 4), 1, 1000);
+                width = Math.Clamp((int)ReadUShort(attributes, 6), 1, 9);
+                italic |= (ReadUShort(attributes, 62) & 0x0001) != 0;
+            }
+            else if (HasTag(record, "head") && tableLength >= 46)
+            {
+                Span<byte> attributes = stackalloc byte[46];
+                ReadExactly(stream, tableOffset, attributes);
+                italic |= (ReadUShort(attributes, 44) & 0x0002) != 0;
+            }
+        }
+
+        return new FaceStyle(weight, width, italic);
     }
 
     private static uint[] ReadFaceOffsets(Stream stream)
@@ -673,4 +718,6 @@ internal static class SfntFontMetadataReader
     private readonly record struct SourceTable(string Tag, uint Checksum, uint Offset, uint Length);
 
     private readonly record struct ResidentTable(string Tag, uint Checksum, byte[] Data);
+
+    private readonly record struct FaceStyle(int Weight, int Width, bool IsItalic);
 }

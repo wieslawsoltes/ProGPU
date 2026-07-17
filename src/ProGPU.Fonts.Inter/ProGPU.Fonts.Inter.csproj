@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Official Inter 4.1 static and variable fonts with typed ProGPU accessors for deterministic cross-platform UI text.</Description>
+    <PackageDescription>Official Inter 4.1 static and variable fonts with typed ProGPU accessors for deterministic cross-platform UI text.</PackageDescription>
+    <PackageTags>progpu;font;inter;typography;ui;webassembly</PackageTags>
+    <PackageReleaseNotes>Bundles all 36 static faces plus the two official Inter 4.1 variable TrueType fonts with wght and opsz axes.</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT AND OFL-1.1</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Fonts/Inter*.ttf"
+                      LogicalName="ProGPU.Fonts.Inter.Fonts.%(Filename)%(Extension)" />
+    <None Update="Fonts/LICENSE.txt" Pack="true" PackagePath="fonts/LICENSE.txt" />
+    <None Update="Fonts/SOURCES.md" Pack="true" PackagePath="fonts/SOURCES.md" />
+  </ItemGroup>
+</Project>

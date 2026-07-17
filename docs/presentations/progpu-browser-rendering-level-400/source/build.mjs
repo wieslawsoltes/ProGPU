@@ -239,7 +239,7 @@ setNotes(17, 'This coarse seam is intentionally separate from the packet protoco
 setJourney(18, 'DOM input is batched into the neutral WinUI input seam', [
   '1  Queue DOM records\nListeners append fixed 32-byte events. Pointer moves replace the previous move; adjacent wheel deltas accumulate; queue caps at 4096.',
   '2  Drain per frame\nBrowserInputDispatcher stackallocs 256 records and drains at most four batches before injecting InputSystem events.',
-  '3  Install platform services\nBrowserWindowHost wires cursor, focus/text, clipboard, storage/file pickers, canvas metrics, and an embedded Roboto fallback.',
+  '3  Install platform services\nBrowserWindowHost wires cursor, focus/text, clipboard, storage/file pickers, canvas metrics, and the bundled Inter UI fallback.',
 ], ['DOM', 'FRAME BATCH', 'HOST SERVICES']);
 setNotes(18, 'High-frequency DOM events never call managed code directly. Popups, flyouts, tooltips, and dialogs remain compositor layers in the one top-level canvas window. Source: BrowserInputDispatcher.cs; BrowserWindowHost.cs; progpu-browser.js input helpers.');
 

@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -7,7 +6,6 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using ProGPU.Samples;
 using ProGPU.Avalonia;
-using ProGPU.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -32,18 +30,11 @@ public partial class MainWindow : global::Avalonia.Controls.Window
 
     private void OnLoaded(object? sender, global::Avalonia.Interactivity.RoutedEventArgs e)
     {
-        // 1. Initialize ProGPU text rendering default system font
-        string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
-        if (!File.Exists(fontPath)) fontPath = "Arial.ttf";
-        if (File.Exists(fontPath))
-        {
-            Microsoft.UI.Xaml.Controls.PopupService.DefaultFont = new TtfFont(fontPath);
-        }
-
-        // 2. Start the embedded offscreen context and compositor
+        // 1. Start the embedded offscreen context and compositor. The shared sample
+        // loader installs the bundled Inter face for the ProGPU UI.
         MainWindowController.StartEmbedded(ProGpuHost.WgpuContext!, ProGpuHost.Compositor!);
 
-        // 3. Setup event listeners for the host controls
+        // 2. Setup event listeners for the host controls
         SidebarList.SelectionChanged += OnSidebarSelectionChanged;
         ThemeCombo.SelectionChanged += OnThemeSelectionChanged;
         PlayPauseBtn.Click += OnPlayPauseClicked;
@@ -52,12 +43,12 @@ public partial class MainWindow : global::Avalonia.Controls.Window
         SidebarList.SelectedIndex = 0;
         ThemeCombo.SelectedIndex = 0;
 
-        // 4. Hook up the native VSync-locked animation loop using RequestAnimationFrame
+        // 3. Hook up the native VSync-locked animation loop using RequestAnimationFrame
         _stopwatch.Start();
         _lastTickTime = _stopwatch.Elapsed.TotalSeconds;
         RequestAnimationFrame(OnAnimationTick);
 
-        // 5. Hook up DevTools state changes to open/close native Avalonia DevTools Window
+        // 4. Hook up DevTools state changes to open/close native Avalonia DevTools Window
         global::Microsoft.UI.Xaml.Controls.DevToolsService.StateChanged += OnDevToolsStateChanged;
     }
 

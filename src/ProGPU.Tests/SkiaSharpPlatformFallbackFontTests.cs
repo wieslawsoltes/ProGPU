@@ -1,4 +1,4 @@
-using ProGPU.Browser;
+using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 using SkiaSharp;
 using Xunit;
@@ -10,12 +10,7 @@ public sealed class SkiaSharpPlatformFallbackFontTests
     [Fact]
     public void DefaultTypefaceUsesPlatformFontWhenSystemFontsAreUnavailable()
     {
-        using var stream = typeof(BrowserWindowHost).Assembly.GetManifestResourceStream(
-            "ProGPU.Browser.Fonts.Roboto-Regular.ttf");
-        Assert.NotNull(stream);
-        using var memory = new MemoryStream(checked((int)stream.Length));
-        stream.CopyTo(memory);
-        var fallback = new TtfFont(memory.ToArray());
+        var fallback = InterFontFamily.Regular;
 
         var typeface = SKTypeface.ResolveDefaultTypeface([], fallback);
 
