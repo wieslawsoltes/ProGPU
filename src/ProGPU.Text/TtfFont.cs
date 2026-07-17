@@ -169,6 +169,8 @@ public partial class TtfFont
     // hmtx metrics
     private ushort _numberOfHMetrics;
     private uint _hmtxOffset;
+    private ushort _numberOfVMetrics;
+    private uint _vmtxOffset;
 
     // loca and glyf offsets
     private uint _locaOffset;
@@ -227,6 +229,7 @@ public partial class TtfFont
         }
         ParseHeadTable();
         ParseHheaTable();
+        ParseVheaTable();
         ParseMaxpTable();
         ParseFontAttributes();
         ParsePostMetrics();
@@ -421,6 +424,16 @@ public partial class TtfFont
         if (_tables.TryGetValue("hmtx", out var hmtx))
         {
             _hmtxOffset = hmtx.offset;
+        }
+    }
+
+    private void ParseVheaTable()
+    {
+        if (!_tables.TryGetValue("vhea", out var vhea) || vhea.length < 36) return;
+        _numberOfVMetrics = ReadUShort(vhea.offset + 34);
+        if (_tables.TryGetValue("vmtx", out var vmtx))
+        {
+            _vmtxOffset = vmtx.offset;
         }
     }
 
@@ -1078,6 +1091,90 @@ public partial class TtfFont
         float advanceWidth = ReadUShort(offset) + GetVariationAdvanceDelta(glyphIndex);
         float scale = emSize / UnitsPerEm;
         return advanceWidth * scale;
+    }
+
+    public float GetAdvanceHeight(ushort glyphIndex, float emSize)
+    {
+        float advanceHeight;
+        if (_vmtxOffset == 0 || _numberOfVMetrics == 0)
+        {
+            advanceHeight = Ascender - Descender;
+        }
+        else
+        {
+            uint offset = glyphIndex < _numberOfVMetrics
+                ? _vmtxOffset + (uint)(glyphIndex * 4)
+                : _vmtxOffset + (uint)((_numberOfVMetrics - 1) * 4);
+            advanceHeight = ReadUShort(offset);
+        }
+        return advanceHeight * (emSize / UnitsPerEm);
+    }
+
+    public float GetVerticalOriginY(ushort glyphIndex, float emSize)
+    {
+        float origin = TryGetVorgOrigin(glyphIndex, out short vorgOrigin)
+            ? vorgOrigin
+            : GetTrueTypeVerticalOrigin(glyphIndex);
+        return origin * (emSize / UnitsPerEm);
+    }
+
+    private bool TryGetVorgOrigin(ushort glyphIndex, out short origin)
+    {
+        origin = 0;
+        if (!TryGetTable("VORG", out ReadOnlyMemory<byte> vorgMemory) || vorgMemory.Length < 8)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> vorg = vorgMemory.Span;
+        short defaultOrigin = ReadShort(vorg, 4);
+        ushort metricCount = ReadUShort(vorg, 6);
+        if (metricCount > (vorg.Length - 8) / 4)
+        {
+            return false;
+        }
+
+        int low = 0;
+        int high = metricCount - 1;
+        while (low <= high)
+        {
+            int mid = low + ((high - low) / 2);
+            int offset = 8 + mid * 4;
+            ushort candidate = ReadUShort(vorg, offset);
+            if (candidate == glyphIndex)
+            {
+                origin = ReadShort(vorg, offset + 2);
+                return true;
+            }
+            if (glyphIndex < candidate) high = mid - 1;
+            else low = mid + 1;
+        }
+
+        origin = defaultOrigin;
+        return true;
+    }
+
+    private float GetTrueTypeVerticalOrigin(ushort glyphIndex)
+    {
+        if (_vmtxOffset != 0 && _numberOfVMetrics != 0 &&
+            _face.TryGetGlyphBounds(glyphIndex, out SfntGlyphBounds bounds))
+        {
+            uint bearingOffset = glyphIndex < _numberOfVMetrics
+                ? _vmtxOffset + (uint)(glyphIndex * 4 + 2)
+                : _vmtxOffset + (uint)(_numberOfVMetrics * 4 + (glyphIndex - _numberOfVMetrics) * 2);
+            if (_tables.TryGetValue("vmtx", out var vmtx) && bearingOffset + 2 <= vmtx.offset + vmtx.length)
+            {
+                return bounds.YMax + ReadShort(bearingOffset);
+            }
+        }
+
+        if (TryGetGlyphBounds(glyphIndex, out _, out short yMin, out _, out short fallbackYMax))
+        {
+            int fontAdvance = Ascender - Descender;
+            int glyphHeight = fallbackYMax - yMin;
+            return fallbackYMax + ((fontAdvance - glyphHeight) >> 1);
+        }
+        return Ascender;
     }
 
     public float GetKerning(char left, char right, float emSize)

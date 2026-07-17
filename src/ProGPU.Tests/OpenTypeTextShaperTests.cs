@@ -1,4 +1,5 @@
 using ProGPU.Fonts.Inter;
+using ProGPU.Text.Shaping;
 using ProGPU.Text;
 using Xunit;
 
@@ -188,6 +189,20 @@ public sealed class OpenTypeTextShaperTests
 
         Assert.NotEmpty(glyphs);
         Assert.All(glyphs, static glyph => Assert.Equal(0, glyph.Cluster));
+    }
+
+    [Fact]
+    public void ExplicitRightToLeftDirectionReversesVisualGlyphOrder()
+    {
+        IReadOnlyList<ShapedGlyph> leftToRight = OpenTypeTextShaper.Shape("abc", InterFontFamily.Regular, 32f);
+        IReadOnlyList<ShapedGlyph> rightToLeft = OpenTypeTextShaper.Shape(
+            "abc",
+            InterFontFamily.Regular,
+            32f,
+            new TextShapingOptions { Direction = ShapingDirection.RightToLeft });
+
+        Assert.Equal(leftToRight.Select(static glyph => glyph.GlyphIndex).Reverse(), rightToLeft.Select(static glyph => glyph.GlyphIndex));
+        Assert.Equal(new[] { 2, 1, 0 }, rightToLeft.Select(static glyph => glyph.Cluster));
     }
 
     private static TextShapingOptions Features(params string[] optional)

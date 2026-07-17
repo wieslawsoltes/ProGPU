@@ -433,13 +433,14 @@ internal sealed class SuiteRunner
                 return $"glyph[{index}] cluster expected {left.Cluster}, actual {right.Cluster}";
             }
             if (!configuration.IgnorePositions &&
-                (left.AdvanceX != Round(right.AdvanceX) ||
+                ((!configuration.IgnoreAdvances &&
+                  (left.AdvanceX != Round(right.AdvanceX) ||
+                   left.AdvanceY != Round(-right.AdvanceY))) ||
                  left.OffsetX != Round(right.OffsetX) ||
-                 left.OffsetY != Round(-right.OffsetY) ||
-                 left.AdvanceY != 0))
+                 left.OffsetY != Round(-right.OffsetY)))
             {
                 return $"glyph[{index}] position expected ({left.AdvanceX},{left.AdvanceY},{left.OffsetX},{left.OffsetY}), " +
-                       $"actual ({Round(right.AdvanceX)},0,{Round(right.OffsetX)},{Round(-right.OffsetY)})";
+                       $"actual ({Round(right.AdvanceX)},{Round(-right.AdvanceY)},{Round(right.OffsetX)},{Round(-right.OffsetY)})";
             }
         }
         return null;
@@ -469,9 +470,11 @@ internal sealed class CaseConfiguration
     public List<FontVariationSetting> Variations { get; } = [];
     public string? Script { get; private set; }
     public string? Language { get; private set; }
+    public ProGPU.Text.Shaping.ShapingDirection Direction { get; private set; }
     public int FaceIndex { get; private set; }
     public float? FontSize { get; private set; }
     public bool IgnorePositions { get; private set; }
+    public bool IgnoreAdvances { get; private set; }
     public bool IgnoreClusters { get; private set; }
 
     public static CaseConfiguration Parse(string options)
@@ -497,8 +500,19 @@ internal sealed class CaseConfiguration
                 result.IgnorePositions = true;
                 continue;
             }
+            if (option == "--no-advances")
+            {
+                result.IgnoreAdvances = true;
+                continue;
+            }
             if (option == "--no-clusters")
             {
+                result.IgnoreClusters = true;
+                continue;
+            }
+            if (option == "--ned")
+            {
+                result.IgnoreAdvances = true;
                 result.IgnoreClusters = true;
                 continue;
             }
@@ -522,6 +536,22 @@ internal sealed class CaseConfiguration
                 result.Language = language;
                 continue;
             }
+            if (TryValue(option, "--direction=", out string? direction))
+            {
+                result.Direction = direction.ToLowerInvariant() switch
+                {
+                    "l" or "ltr" => ProGPU.Text.Shaping.ShapingDirection.LeftToRight,
+                    "r" or "rtl" => ProGPU.Text.Shaping.ShapingDirection.RightToLeft,
+                    "t" or "ttb" => ProGPU.Text.Shaping.ShapingDirection.TopToBottom,
+                    "b" or "btt" => ProGPU.Text.Shaping.ShapingDirection.BottomToTop,
+                    _ => ProGPU.Text.Shaping.ShapingDirection.Unspecified
+                };
+                if (result.Direction == ProGPU.Text.Shaping.ShapingDirection.Unspecified)
+                {
+                    AddUnsupported(result, $"direction:{direction}");
+                }
+                continue;
+            }
             if (TryValue(option, "--face-index=", out string? faceIndex) &&
                 int.TryParse(faceIndex, NumberStyles.None, CultureInfo.InvariantCulture, out int parsedFaceIndex))
             {
@@ -538,8 +568,7 @@ internal sealed class CaseConfiguration
                 continue;
             }
 
-            if (option.StartsWith("--direction=", StringComparison.Ordinal)) AddUnsupported(result, "direction");
-            else if (option.StartsWith("--cluster-level=", StringComparison.Ordinal)) AddUnsupported(result, "cluster-level");
+            if (option.StartsWith("--cluster-level=", StringComparison.Ordinal)) AddUnsupported(result, "cluster-level");
             else if (option is "--bot" or "--eot") AddUnsupported(result, "item-context-flags");
             else if (option.Contains("default-ignorables", StringComparison.Ordinal)) AddUnsupported(result, "default-ignorables");
             else if (option.StartsWith("--unicodes-before=", StringComparison.Ordinal) || option.StartsWith("--unicodes-after=", StringComparison.Ordinal)) AddUnsupported(result, "item-context");
@@ -569,6 +598,7 @@ internal sealed class CaseConfiguration
         {
             Script = Script,
             Language = Language,
+            Direction = Direction,
             Features = values.Select(static pair => new OpenTypeFeatureSetting(pair.Key, pair.Value)).ToArray()
         };
     }
@@ -691,9 +721,28 @@ internal sealed record TestCase(
 
 internal static class OptionTokenizer
 {
+    private static readonly HashSet<string> s_optionsWithValues = new(StringComparer.Ordinal)
+    {
+        "--cluster-level",
+        "--direction",
+        "--face-index",
+        "--features",
+        "--font-bold",
+        "--font-ptem",
+        "--font-size",
+        "--font-slant",
+        "--language",
+        "--not-found-variation-selector-glyph",
+        "--script",
+        "--unicodes-after",
+        "--unicodes-before",
+        "--variations"
+    };
+
     public static IEnumerable<string> Tokenize(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) yield break;
+        var rawTokens = new List<string>();
         var token = new StringBuilder();
         bool escaped = false;
         foreach (char character in value)
@@ -711,7 +760,7 @@ internal static class OptionTokenizer
             {
                 if (token.Length != 0)
                 {
-                    yield return token.ToString();
+                    rawTokens.Add(token.ToString());
                     token.Clear();
                 }
             }
@@ -721,7 +770,20 @@ internal static class OptionTokenizer
             }
         }
         if (escaped) token.Append('\\');
-        if (token.Length != 0) yield return token.ToString();
+        if (token.Length != 0) rawTokens.Add(token.ToString());
+
+        for (int index = 0; index < rawTokens.Count; index++)
+        {
+            string option = rawTokens[index];
+            if (s_optionsWithValues.Contains(option) && index + 1 < rawTokens.Count)
+            {
+                yield return option + "=" + rawTokens[++index];
+            }
+            else
+            {
+                yield return option;
+            }
+        }
     }
 }
 

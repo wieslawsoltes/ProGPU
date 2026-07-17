@@ -152,6 +152,8 @@ public partial class TtfFont : IEquatable<TtfFont>
         _indexToLocFormat = source._indexToLocFormat;
         _numberOfHMetrics = source._numberOfHMetrics;
         _hmtxOffset = source._hmtxOffset;
+        _numberOfVMetrics = source._numberOfVMetrics;
+        _vmtxOffset = source._vmtxOffset;
         _locaOffset = source._locaOffset;
         _glyfOffset = source._glyfOffset;
         _colrOffset = source._colrOffset;

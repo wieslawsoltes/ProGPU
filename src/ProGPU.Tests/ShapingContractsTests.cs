@@ -93,6 +93,8 @@ public sealed class ShapingContractsTests
         Assert.Equal(InterFontFamily.Regular.UnitsPerEm, face.UnitsPerEm);
         Assert.Equal(InterFontFamily.Regular.NumGlyphs, face.GlyphCount);
         Assert.True(face.GetHorizontalAdvance(glyph) > 0);
+        Assert.True(face.GetVerticalAdvance(glyph) > 0);
+        Assert.True(face.GetHorizontalOrigin(glyph) > 0);
         Assert.True(face.TryGetTable(new OpenTypeTag("GSUB"), out ReadOnlyMemory<byte> table));
         Assert.False(table.IsEmpty);
         Assert.False(face.TryGetVariationGlyph('A', 0xfe0f, out _));

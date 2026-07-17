@@ -39,7 +39,17 @@ public sealed class TtfShapingFontFace : IShapingFontFace
         return checked((int)MathF.Round(Font.GetAdvanceWidth((ushort)glyphId, Font.UnitsPerEm)));
     }
 
-    public int GetVerticalAdvance(uint glyphId) => UnitsPerEm;
-    public int GetHorizontalOrigin(uint glyphId) => 0;
-    public int GetVerticalOrigin(uint glyphId) => 0;
+    public int GetVerticalAdvance(uint glyphId)
+    {
+        if (glyphId > ushort.MaxValue) return 0;
+        return checked((int)MathF.Round(Font.GetAdvanceHeight((ushort)glyphId, Font.UnitsPerEm)));
+    }
+
+    public int GetHorizontalOrigin(uint glyphId) => GetHorizontalAdvance(glyphId) / 2;
+
+    public int GetVerticalOrigin(uint glyphId)
+    {
+        if (glyphId > ushort.MaxValue) return 0;
+        return checked((int)MathF.Round(Font.GetVerticalOriginY((ushort)glyphId, Font.UnitsPerEm)));
+    }
 }

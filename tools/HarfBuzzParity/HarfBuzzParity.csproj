@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ProGPU.Text.Shaping\ProGPU.Text.Shaping.csproj" />
     <ProjectReference Include="..\..\src\ProGPU.Text\ProGPU.Text.csproj" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using OpenFontSharp;
 using OpenFontSharp.Tables.AdvancedLayout;
+using ProGPU.Text.Shaping;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -34,6 +35,9 @@ public sealed class TextShapingOptions
         new("liga"),
         new("clig"),
         new("calt"),
+        new("rclt"),
+        new("curs"),
+        new("dist"),
         new("kern"),
         new("mark"),
         new("mkmk")
@@ -62,6 +66,7 @@ public sealed class TextShapingOptions
 
     public string? Script { get; init; }
     public string? Language { get; init; }
+    public ShapingDirection Direction { get; init; }
     public IReadOnlyList<OpenTypeFeatureSetting> Features { get; init; } = s_defaultFeatures;
 }
 
@@ -70,6 +75,7 @@ public readonly record struct ShapedGlyph(
     int Cluster,
     uint CodePoint,
     float AdvanceX,
+    float AdvanceY,
     float OffsetX,
     float OffsetY);
 
@@ -109,6 +115,8 @@ public static class OpenTypeTextShaper
         }
 
         string script = options.Script ?? InferScript(text);
+        ShapingDirection direction = ResolveDirection(options.Direction, script);
+        options = AddDirectionalFeatures(options, direction);
 
         var substitutions = GlyphSubstitutionBuffer.Create(text, font);
         Typeface? typeface = font.LayoutTypeface;
@@ -117,27 +125,92 @@ public static class OpenTypeTextShaper
             ApplySubstitutions(font, typeface.GSUBTable, substitutions, options, script);
         }
 
-        var positions = new GlyphPositionBuffer(substitutions, font);
+        var positions = new GlyphPositionBuffer(substitutions, font, direction);
         if (typeface is not null)
         {
             ApplyPositions(font, typeface.GPOSTable, positions, options, script);
         }
 
+        if (direction is ShapingDirection.RightToLeft or ShapingDirection.BottomToTop)
+        {
+            positions.Reverse();
+        }
+
         float scale = fontSize / font.UnitsPerEm;
+        bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
         var result = new ShapedGlyph[positions.Count];
         for (var index = 0; index < result.Length; index++)
         {
             GlyphRecord record = positions[index];
+            float advanceY = record.AdvanceY * scale;
+            float offsetX = record.OffsetX * scale;
+            float offsetY = record.OffsetY * scale;
+            if (vertical && scale != 1f)
+            {
+                // HarfBuzz scales integer font metrics before applying the
+                // vertical-origin integer division. Preserve that order while
+                // leaving GPOS deltas in design units for the common path.
+                int baseAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, font.UnitsPerEm));
+                int scaledAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, fontSize));
+                advanceY = (record.AdvanceY - baseAdvanceY) * scale + scaledAdvanceY;
+
+                int baseOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)) / 2);
+                int scaledOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, fontSize)) / 2);
+                offsetX = (record.OffsetX - baseOffsetX) * scale + scaledOffsetX;
+
+                int baseOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, font.UnitsPerEm));
+                int scaledOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, fontSize));
+                offsetY = (record.OffsetY - baseOffsetY) * scale + scaledOffsetY;
+            }
             result[index] = new ShapedGlyph(
                 record.GlyphIndex,
                 record.Cluster,
                 record.CodePoint,
                 record.AdvanceX * scale,
-                record.OffsetX * scale,
-                -record.OffsetY * scale);
+                -advanceY,
+                offsetX,
+                -offsetY);
         }
 
         return result;
+    }
+
+    private static ShapingDirection ResolveDirection(ShapingDirection requested, string script)
+    {
+        if (requested != ShapingDirection.Unspecified) return requested;
+        return script is "arab" or "hebr" or "syrc" or "thaa" or "nko " or "adlm" or "rohg"
+            ? ShapingDirection.RightToLeft
+            : ShapingDirection.LeftToRight;
+    }
+
+    private static TextShapingOptions AddDirectionalFeatures(TextShapingOptions options, ShapingDirection direction)
+    {
+        string[] required = direction switch
+        {
+            ShapingDirection.TopToBottom or ShapingDirection.BottomToTop => ["vert", "vrt2", "vkrn"],
+            ShapingDirection.RightToLeft => ["rtla", "rtlm"],
+            _ => ["ltra", "ltrm"]
+        };
+        var features = new List<OpenTypeFeatureSetting>(options.Features.Count + required.Length);
+        foreach (OpenTypeFeatureSetting feature in options.Features)
+        {
+            if (direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop && feature.Tag == "kern")
+            {
+                continue;
+            }
+            features.Add(feature);
+        }
+        foreach (string tag in required)
+        {
+            if (!features.Any(feature => feature.Tag == tag)) features.Add(new OpenTypeFeatureSetting(tag));
+        }
+        return new TextShapingOptions
+        {
+            Script = options.Script,
+            Language = options.Language,
+            Direction = direction,
+            Features = features
+        };
     }
 
     private static void ApplySubstitutions(
@@ -1255,17 +1328,36 @@ public static class OpenTypeTextShaper
         private readonly GlyphRecord[] _glyphs;
         private readonly Typeface? _typeface;
 
-        public GlyphPositionBuffer(GlyphSubstitutionBuffer substitutions, TtfFont font)
+        public GlyphPositionBuffer(GlyphSubstitutionBuffer substitutions, TtfFont font, ShapingDirection direction)
         {
             _typeface = font.LayoutTypeface;
             _glyphs = new GlyphRecord[substitutions.Count];
+            bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
             for (var index = 0; index < _glyphs.Length; index++)
             {
                 GlyphRecord record = substitutions.GetRecord(index);
-                record.AdvanceX = checked((short)Math.Clamp(
-                    MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)),
-                    short.MinValue,
-                    short.MaxValue));
+                if (vertical)
+                {
+                    record.AdvanceY = checked((short)Math.Clamp(
+                        -MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, font.UnitsPerEm)),
+                        short.MinValue,
+                        short.MaxValue));
+                    record.OffsetX = checked((short)Math.Clamp(
+                        -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)) / 2),
+                        short.MinValue,
+                        short.MaxValue));
+                    record.OffsetY = checked((short)Math.Clamp(
+                        -MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, font.UnitsPerEm)),
+                        short.MinValue,
+                        short.MaxValue));
+                }
+                else
+                {
+                    record.AdvanceX = checked((short)Math.Clamp(
+                        MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)),
+                        short.MinValue,
+                        short.MaxValue));
+                }
                 _glyphs[index] = record;
             }
         }
@@ -1294,7 +1386,10 @@ public static class OpenTypeTextShaper
         public void AppendGlyphAdvance(int index, short appendAdvX, short appendAdvY)
         {
             _glyphs[index].AdvanceX = AddClamped(_glyphs[index].AdvanceX, appendAdvX);
+            _glyphs[index].AdvanceY = AddClamped(_glyphs[index].AdvanceY, appendAdvY);
         }
+
+        public void Reverse() => Array.Reverse(_glyphs);
 
         public ushort GetGlyph(int index, out short advW)
         {
@@ -1346,6 +1441,7 @@ public static class OpenTypeTextShaper
         public int Cluster;
         public uint CodePoint;
         public short AdvanceX;
+        public short AdvanceY;
         public short OffsetX;
         public short OffsetY;
     }
