@@ -153,6 +153,7 @@ public static class OpenTypeTextShaper
         bool useShaper = ResolveLayoutScript(font, unicodeScript, out string script);
         bool indicShaper = !useShaper && IsIndicShaperScript(unicodeScript);
         bool khmerShaper = script == "khmr";
+        bool arabicShaper = UsesArabicJoiningScript(unicodeScript);
         ShapingDirection direction = ResolveDirection(options.Direction, unicodeScript);
         options = AddScriptFeatures(options, script, useShaper, indicShaper);
         options = AddDirectionalFeatures(options, direction);
@@ -208,6 +209,22 @@ public static class OpenTypeTextShaper
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.KhmerBasic);
             substitutions.ClearSyllables();
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.KhmerPresentation);
+        }
+        else if (arabicShaper)
+        {
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicStretch);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicPreprocessing);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicIsolated);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicFinal);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicFinal2);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicFinal3);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicMedial);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicMedial2);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicInitial);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicRequiredLigatures);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicContextual);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicLigatures);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicPresentation);
         }
         else
         {
@@ -277,6 +294,10 @@ public static class OpenTypeTextShaper
             : ShapingDirection.LeftToRight;
     }
 
+    private static bool UsesArabicJoiningScript(string script) => script is
+        "adlm" or "arab" or "chrs" or "rohg" or "mand" or "mani" or "mong" or
+        "nkoo" or "ougr" or "phag" or "phlp" or "sogd" or "syrc";
+
     private static TextShapingOptions AddDirectionalFeatures(TextShapingOptions options, ShapingDirection direction)
     {
         IReadOnlySet<string> explicitFeatureTags = options.ResolveExplicitFeatureTags();
@@ -315,7 +336,8 @@ public static class OpenTypeTextShaper
         bool useShaper,
         bool indicShaper)
     {
-        if (script != "khmr" && !useShaper && !indicShaper)
+        bool arabicShaper = UsesArabicJoiningScript(script);
+        if (script != "khmr" && !useShaper && !indicShaper && !arabicShaper)
         {
             return options;
         }
@@ -351,10 +373,18 @@ public static class OpenTypeTextShaper
         {
             values["liga"] = 0;
         }
+        else if (arabicShaper)
+        {
+            values.TryAdd("stch", 1);
+            values.TryAdd("mset", 1);
+        }
 
         string[] orderedTags = script == "khmr"
             ? ["rvrn", "frac", "numr", "dnom", "locl", "ccmp",
                "pref", "blwf", "abvf", "pstf", "cfar", "pres", "abvs", "blws", "psts"]
+            : arabicShaper
+            ? ["rvrn", "frac", "numr", "dnom", "stch", "ccmp", "locl", "isol", "fina", "fin2", "fin3",
+               "medi", "med2", "init", "rlig", "calt", "rclt", "liga", "clig", "mset"]
             : ["rvrn", "frac", "numr", "dnom", "locl", "ccmp", "nukt", "akhn", "rphf", "pref",
                "rkrf", "abvf", "blwf", "half", "pstf", "vatu", "cjct", "isol", "init", "medi", "fina",
                "abvs", "blws", "haln", "pres", "psts"];
@@ -570,6 +600,23 @@ public static class OpenTypeTextShaper
             UseSubstitutionStage.KhmerPresentation => tag is not
                 ("rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or
                  "pref" or "blwf" or "abvf" or "pstf" or "cfar"),
+            UseSubstitutionStage.ArabicStretch => tag == "stch",
+            UseSubstitutionStage.ArabicPreprocessing => tag is
+                "rvrn" or "frac" or "numr" or "dnom" or "ccmp" or "locl",
+            UseSubstitutionStage.ArabicIsolated => tag == "isol",
+            UseSubstitutionStage.ArabicFinal => tag == "fina",
+            UseSubstitutionStage.ArabicFinal2 => tag == "fin2",
+            UseSubstitutionStage.ArabicFinal3 => tag == "fin3",
+            UseSubstitutionStage.ArabicMedial => tag == "medi",
+            UseSubstitutionStage.ArabicMedial2 => tag == "med2",
+            UseSubstitutionStage.ArabicInitial => tag == "init",
+            UseSubstitutionStage.ArabicRequiredLigatures => tag == "rlig",
+            UseSubstitutionStage.ArabicContextual => tag is "calt" or "rclt",
+            UseSubstitutionStage.ArabicLigatures => tag is "liga" or "clig" or "mset",
+            UseSubstitutionStage.ArabicPresentation => tag is not
+                ("rvrn" or "frac" or "numr" or "dnom" or "stch" or "ccmp" or "locl" or
+                 "isol" or "fina" or "fin2" or "fin3" or "medi" or "med2" or "init" or
+                 "rlig" or "calt" or "rclt" or "liga" or "clig" or "mset"),
             _ => false
         };
     }
@@ -2890,7 +2937,20 @@ public static class OpenTypeTextShaper
         IndicConjunct,
         IndicPresentation,
         KhmerBasic,
-        KhmerPresentation
+        KhmerPresentation,
+        ArabicStretch,
+        ArabicPreprocessing,
+        ArabicIsolated,
+        ArabicFinal,
+        ArabicFinal2,
+        ArabicFinal3,
+        ArabicMedial,
+        ArabicMedial2,
+        ArabicInitial,
+        ArabicRequiredLigatures,
+        ArabicContextual,
+        ArabicLigatures,
+        ArabicPresentation
     }
 
     private static IEnumerable<EnabledLookup> GetEnabledLookupIndices(
@@ -3319,69 +3379,86 @@ public static class OpenTypeTextShaper
 
         public void ReorderModifiedCombiningMarks(string script)
         {
-            if (script != "hebr") return;
             for (var start = 0; start < _glyphs.Count;)
             {
                 int cluster = _glyphs[start].Cluster;
                 int end = start + 1;
                 while (end < _glyphs.Count && _glyphs[end].Cluster == cluster) end++;
-                int segmentStart = start + 1;
+                int segmentStart = start;
                 while (segmentStart < end)
                 {
-                    while (segmentStart < end && GetHebrewModifiedCombiningClass(_glyphs[segmentStart].CodePoint) == 0)
+                    while (segmentStart < end && GetModifiedCombiningClass(_glyphs[segmentStart].CodePoint) == 0)
                         segmentStart++;
                     int segmentEnd = segmentStart;
-                    while (segmentEnd < end && GetHebrewModifiedCombiningClass(_glyphs[segmentEnd].CodePoint) != 0)
+                    while (segmentEnd < end && GetModifiedCombiningClass(_glyphs[segmentEnd].CodePoint) != 0)
                         segmentEnd++;
                     for (var index = segmentStart + 1; index < segmentEnd; index++)
                     {
                         GlyphRecord value = _glyphs[index];
-                        int valueClass = GetHebrewModifiedCombiningClass(value.CodePoint);
+                        int valueClass = GetModifiedCombiningClass(value.CodePoint);
                         int destination = index;
                         while (destination > segmentStart &&
-                               GetHebrewModifiedCombiningClass(_glyphs[destination - 1].CodePoint) > valueClass)
+                               GetModifiedCombiningClass(_glyphs[destination - 1].CodePoint) > valueClass)
                         {
                             _glyphs[destination] = _glyphs[destination - 1];
                             destination--;
                         }
                         _glyphs[destination] = value;
                     }
+                    if (UsesArabicJoining(script))
+                        ReorderArabicModifierMarks(segmentStart, segmentEnd);
                     segmentStart = segmentEnd + 1;
                 }
                 start = end;
             }
         }
 
-        private static int GetHebrewModifiedCombiningClass(uint codePoint)
+        private static int GetModifiedCombiningClass(uint codePoint)
         {
-            // CGJ deliberately blocks canonical reordering even though it is
-            // represented as a non-spacing mark by the Unicode category API.
-            if (codePoint == 0x034F) return 0;
-            int modified = codePoint switch
+            int canonical = UnicodeCombiningClassData.GetCanonicalClass(codePoint);
+            return canonical switch
             {
-                0x05C1 => 10,
-                0x05C2 => 11,
-                0x05BC => 12,
-                0x05BF => 13,
-                0x05B9 or 0x05BA => 14,
-                0x05B1 => 15,
-                0x05B2 => 16,
-                0x05B3 => 17,
-                0x05B5 => 18,
-                0x05B6 => 19,
-                0x05B7 => 20,
-                0x05B8 or 0x05C7 => 21,
-                0x05B0 => 22,
-                0x05B4 => 23,
-                0x05BB => 24,
-                0x05BD => 25,
-                _ => 0
+                10 => 22, 11 => 15, 12 => 16, 13 => 17, 14 => 23, 15 => 18,
+                16 => 19, 17 => 20, 18 => 21, 19 => 14, 20 => 24, 21 => 12,
+                22 => 25, 23 => 13, 24 => 10, 25 => 11,
+                27 => 28, 28 => 29, 29 => 30, 30 => 31, 31 => 32, 32 => 33,
+                33 => 27, 84 => 4, 91 => 5, 103 => 3, 130 => 132, 132 => 131,
+                _ => canonical
             };
-            if (modified != 0) return modified;
-            UnicodeCategory category = Rune.GetUnicodeCategory(new Rune((int)codePoint));
-            return category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or
-                UnicodeCategory.EnclosingMark ? 200 : 0;
         }
+
+        private void ReorderArabicModifierMarks(int start, int end)
+        {
+            for (var canonicalClass = 220; canonicalClass <= 230; canonicalClass += 10)
+            {
+                int first = start;
+                while (first < end && GetModifiedCombiningClass(_glyphs[first].CodePoint) < canonicalClass)
+                    first++;
+                if (first == end || GetModifiedCombiningClass(_glyphs[first].CodePoint) != canonicalClass)
+                    continue;
+                int last = first;
+                while (last < end &&
+                       GetModifiedCombiningClass(_glyphs[last].CodePoint) == canonicalClass &&
+                       IsArabicModifierCombiningMark(_glyphs[last].CodePoint))
+                    last++;
+                int count = last - first;
+                if (count == 0) continue;
+                ReverseGlyphRecords(start, first);
+                ReverseGlyphRecords(first, last);
+                ReverseGlyphRecords(start, last);
+                start += count;
+            }
+        }
+
+        private void ReverseGlyphRecords(int start, int end)
+        {
+            for (end--; start < end; start++, end--)
+                (_glyphs[start], _glyphs[end]) = (_glyphs[end], _glyphs[start]);
+        }
+
+        private static bool IsArabicModifierCombiningMark(uint codePoint) => codePoint is
+            0x0654 or 0x0655 or 0x0658 or 0x06DC or 0x06E3 or 0x06E7 or 0x06E8 or
+            0x08CA or 0x08CB or 0x08CD or 0x08CE or 0x08CF or 0x08D3 or 0x08F3;
 
         private static bool IsHebrewStarter(uint codePoint) =>
             codePoint is >= 0x05D0 and <= 0x05EA or >= 0xFB1D and <= 0xFB4E or 0x05F2;
