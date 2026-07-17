@@ -1,0 +1,39 @@
+digraph Architecture {
+  graph [bgcolor="#101620", rankdir=LR, pad="0.25", nodesep="0.28", ranksep="0.55", splines=ortho];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=11, fontcolor="#F7FAFF", color="#334155", fillcolor="#1B2635", margin="0.12,0.08"];
+  edge [color="#75A7FF", penwidth=1.7, arrowsize=0.7];
+
+  subgraph cluster_frontends {
+    label="FRAMEWORK SEMANTICS"; labelloc=t; fontname="Helvetica Neue"; fontsize=11; fontcolor="#8DB2FF"; color="#27364A"; style="rounded";
+    winui [label="ProGPU.WinUI\nDPs · layout · controls"];
+    wpf [label="LibreWPF\nVisual · Drawing · MIL"];
+    forms [label="LibreWinForms\nControl · Paint · GDI API"];
+  }
+
+  subgraph cluster_adapters {
+    label="ADAPTER / RECORDING SEAMS"; labelloc=t; fontname="Helvetica Neue"; fontsize=11; fontcolor="#8DB2FF"; color="#27364A"; style="rounded";
+    direct [label="Direct Visual +\nDrawingContext recording", fillcolor="#17315A"];
+    mil [label="Portable render-data\ndecode + retained sink", fillcolor="#17315A"];
+    gdi [label="System.Drawing.Graphics\n+ WPF-compatible host", fillcolor="#17315A"];
+  }
+
+  subgraph cluster_core {
+    label="SHARED PROGPU CORE"; labelloc=t; fontname="Helvetica Neue"; fontsize=11; fontcolor="#8DB2FF"; color="#27364A"; style="rounded";
+    visual [label="Visual tree\nChangeVersion"];
+    commands [label="RenderCommand IR\nproviders + extensions"];
+    compositor [label="Compositor\ncompile · batch · cache", fillcolor="#244A84"];
+  }
+
+  subgraph cluster_gpu {
+    label="GPU EXECUTION"; labelloc=t; fontname="Helvetica Neue"; fontsize=11; fontcolor="#8DB2FF"; color="#27364A"; style="rounded";
+    resources [label="buffers · textures\natlases · pipelines"];
+    shaders [label="WGSL\nvector · text · effects"];
+    webgpu [label="IWebGpuApi\nWebGPU device/queue", fillcolor="#244A84"];
+  }
+
+  winui -> direct; wpf -> mil; forms -> gdi;
+  direct -> visual; mil -> visual; gdi -> commands;
+  visual -> commands -> compositor;
+  compositor -> resources -> webgpu;
+  compositor -> shaders -> webgpu;
+}

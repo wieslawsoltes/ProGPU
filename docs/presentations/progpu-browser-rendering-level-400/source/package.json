@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hpcc-js/wasm": "^2.30.0"
+  }
+}

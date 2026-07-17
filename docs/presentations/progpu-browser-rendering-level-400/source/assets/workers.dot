@@ -1,0 +1,23 @@
+digraph G {
+  graph [rankdir=TB, bgcolor="transparent", pad="0.20", nodesep="0.40", ranksep="0.56", splines=ortho, size="10,5.4!", ratio=fill];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=22, margin="0.20,0.13", color="#B8BCC4", penwidth=1.5, fillcolor="#F2F2F2", fontcolor="#111111"];
+  edge [color="#3D8DFF", penwidth=2.3, arrowsize=0.85, fontname="Helvetica Neue", fontsize=17, fontcolor="#5E697A"];
+
+  auto [label="ExecutionMode.Auto", fillcolor="#D0EDFA", color="#3D8DFF"];
+  iso [label="IsolatedWorker\nCOOP/COEP + SAB"];
+  worker [label="Worker\nOffscreenCanvas"];
+  main [label="MainThread\nHTMLCanvasElement"];
+  batch [label="Frame packet batch\none task per managed frame", fillcolor="#D0EDFA", color="#3D8DFF"];
+  serial [label="Serialized worker\nmessageChain"];
+  gpu [label="One GPUDevice\nordered WebGPU calls"];
+
+  { rank=same; iso; worker; main; }
+  { rank=same; batch; serial; gpu; }
+  auto -> iso [label="isolated"];
+  auto -> worker [label="offscreen"];
+  auto -> main [label="fallback"];
+  iso -> batch;
+  worker -> batch;
+  batch -> serial -> gpu;
+  main -> gpu [label="direct decode"];
+}

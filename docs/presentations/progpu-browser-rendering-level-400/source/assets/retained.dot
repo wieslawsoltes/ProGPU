@@ -1,0 +1,22 @@
+digraph G {
+  graph [rankdir=TB, bgcolor="transparent", pad="0.20", nodesep="0.40", ranksep="0.54", splines=ortho, size="10,5.4!", ratio=fill];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=22, margin="0.20,0.13", color="#B8BCC4", penwidth=1.5, fillcolor="#F2F2F2", fontcolor="#111111"];
+  edge [color="#3D8DFF", penwidth=2.3, arrowsize=0.85, fontname="Helvetica Neue", fontsize=17, fontcolor="#5E697A"];
+
+  mutation [label="Visual mutation\nInvalidate() → ChangeVersion"];
+  frame [label="RenderSceneCore\ncollect target + atlas state", fillcolor="#D0EDFA", color="#3D8DFF"];
+  predicate [shape=diamond, label="CanReuseCompiledScene?", fillcolor="#FFFFFF", color="#3D8DFF"];
+  replay [label="Replay retained\nvertices • indices • batches"];
+  compile [label="Compile dirty scene\nrecord + upload + cache"];
+  execute [label="Execute render pass\ncurrent target view", fillcolor="#D0EDFA", color="#3D8DFF"];
+  retry [label="PathAtlas full?\nreset generation + same-frame retry"];
+
+  mutation -> frame -> predicate;
+  { rank=same; replay; compile; retry; }
+  predicate -> replay [label=" yes "];
+  predicate -> compile [label=" no "];
+  replay -> execute;
+  compile -> execute;
+  compile -> retry [style=dashed, label="capacity"];
+  retry -> compile [style=dashed, label="retry"];
+}

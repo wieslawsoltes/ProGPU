@@ -1,0 +1,22 @@
+digraph G {
+  graph [rankdir=TB, bgcolor="transparent", pad="0.20", nodesep="0.36", ranksep="0.60", splines=ortho, size="10,5.4!", ratio=fill];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=22, margin="0.20,0.13", color="#B8BCC4", penwidth=1.5, fillcolor="#F2F2F2", fontcolor="#111111"];
+  edge [color="#3D8DFF", penwidth=2.3, arrowsize=0.85, fontname="Helvetica Neue", fontsize=17, fontcolor="#5E697A"];
+
+  app [label="Shared app\n+ controls"];
+  scene [label="Retained scene\ntext • vector • compute"];
+  api [label="IWebGpuApi\ntyped descriptors", fillcolor="#D0EDFA", color="#3D8DFF"];
+  serializer [label="BrowserWebGpuApi\nserialize"];
+  packet [label="PGPU packet\nLE • aligned", fillcolor="#D0EDFA", color="#3D8DFF"];
+  decoder [label="JavaScript decoder\nresolve handles"];
+  gpu [label="navigator.gpu\nDevice • Queue • Canvas", fillcolor="#D0EDFA", color="#3D8DFF"];
+  wgsl [label="Embedded WGSL", shape=note, fillcolor="#FFFFFF", color="#3D8DFF", fontcolor="#3D8DFF"];
+
+  { rank=same; app; scene; api; }
+  { rank=same; serializer; packet; decoder; gpu; }
+  app -> scene -> api;
+  api -> serializer;
+  serializer -> packet -> decoder -> gpu;
+  wgsl -> scene [style=dashed];
+  wgsl -> gpu [style=dashed, label="unchanged UTF-8"];
+}

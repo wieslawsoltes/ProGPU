@@ -1,0 +1,29 @@
+PRIMARY SOURCE NOTES
+
+README.md, Browser WebGPU sample and Browser implementation architecture: project split, startup recipe, typed IWebGpuApi boundary, reusable aligned command arena, 16-byte PGPU header, 8-byte alignment, generation-bearing handles, worker coalescing, direct WGSL, Hot Reload, Debug/interpreter and Release/AOT build modes.
+
+docs/browser.md: complete renderer-facing IWebGpuApi coverage, one fixed-width DOM input batch per frame, MainThread/Worker/IsolatedWorker selection, surface-texture batch lifetime, async map semantics, device-loss reload, COOP/COEP requirements, capability downgrade behavior.
+
+src/ProGPU.Samples.Browser/Program.cs: InitializeAsync options; BrowserWindowHost installation; shared AppBuilder<ProGPU.Samples.App> startup.
+
+src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj: Microsoft.NET.Sdk.WebAssembly, browser-wasm RID, SIMD, Debug Hot Reload, Release AOT, trimming, native relinking, mixed interpreter/AOT exception for netDxf.netstandard.
+
+src/ProGPU.Backend/IWebGpuApi.cs: typed resource, pipeline, render/compute pass, upload, copy, submit, mapped-buffer, surface, and lifetime seam; SilkWebGpuApi desktop forwarding implementation.
+
+src/ProGPU.Backend/WgpuContext.cs: InitializeExternal installs the browser api/device/queue/surface tokens while keeping compositor code unchanged.
+
+src/ProGPU.Browser/BrowserGpuRuntime.cs: capability negotiation through one JSON startup seam; packet dispatch from unmanaged WASM address/length; coarse upload dispatch; counters.
+
+src/ProGPU.Browser/BrowserGpuProtocol.cs: magic 0x55504750 (PGPU), version 1, packet header 16 bytes, command header 8 bytes, 8-byte alignment; handle index 20 bits and generation 12 bits; reusable NativeMemory command encoder.
+
+src/ProGPU.Browser/BrowserWebGpuApi.cs: Silk pointer values are opaque generation-checked tokens; descriptors are serialized; QueueSubmit flushes; mapAsync flushes and crosses an asynchronous JS seam; WGSL source is UTF-8 encoded directly.
+
+src/ProGPU.Browser/BrowserAssets/progpu-browser.js: feature-based transport selection; direct view of current WASM memory on main thread; packet copy and one microtask-coalesced dispatch-batch to worker; navigator.gpu adapter/device negotiation; createShaderModule({code}); requireResource stale-handle guard; current surface texture acquisition; async map/copy/write; serialized worker message chain; device-loss reload.
+
+src/ProGPU.Browser/BrowserWindowHost.cs and BrowserInputDispatcher.cs: requestAnimationFrame loop; physical framebuffer metrics and DPR; dispatcher/input/layout/render call order; 32-byte input records, 256 records per stack batch, max four batches/frame; pointer move and wheel coalescing in JavaScript.
+
+src/ProGPU.WinUI/Core/Window.cs: UIThread, callbacks, swapchain setup, animation, layout, surface acquire, compositor, present, and release sequencing; external host uses identical RenderFrameCore.
+
+src/ProGPU.Scene/Compositor.cs and Visual.cs: ChangeVersion propagation; compiled scene cache predicate includes root identity/version, logical/physical target, viewport, DPI, glyph/path atlas generations, tooltip, external layers, and CacheAsLayer validity; path atlas recoverable reset and same-frame retry.
+
+src/ProGPU.Backend/Shaders/*.wgsl and src/ProGPU.Vector/PathAtlas.cs: embedded WGSL resources, retained path/glyph coverage, analytic winding rasterization, atlas generations, and resource reuse.

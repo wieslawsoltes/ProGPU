@@ -1,0 +1,19 @@
+digraph Frameworks {
+  graph [bgcolor="#101620", rankdir=TB, pad="0.25", nodesep="0.25", ranksep="0.35", splines=ortho];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=11, fontcolor="#F7FAFF", color="#334155", fillcolor="#1B2635", margin="0.12,0.08"];
+  edge [color="#75A7FF", penwidth=1.7, arrowsize=0.7];
+
+  winui [label="ProGPU.WinUI\nFrameworkElement → Visual"];
+  wpf [label="LibreWPF\nVisual/Drawing → portable MIL replay"];
+  forms [label="LibreWinForms\nControl.OnPaint → Graphics"];
+  record [label="Retained ProGPU.Scene\nVisuals + DrawingContext + RenderCommand", fillcolor="#244A84"];
+  compile [label="Compositor\ncache predicate → compile → batch"];
+  gpu [label="Shared GPU state\natlases · buffers · textures · pipelines"];
+  host [label="Platform host\nwindow · input · DPI · frame timing"];
+
+  winui -> record; wpf -> record; forms -> record;
+  record -> compile -> gpu;
+  host -> winui [style=dashed, color="#7C8BA1"];
+  host -> wpf [style=dashed, color="#7C8BA1"];
+  host -> forms [style=dashed, color="#7C8BA1"];
+}

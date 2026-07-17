@@ -1,0 +1,11 @@
+INTENTIONAL DEVIATIONS
+
+Slides 2, 10, 13, and 21 replace the inherited screenshot image with architecture diagrams rendered from Graphviz. The inherited rounded image frame, coordinates, and caption band remain unchanged.
+
+Slides duplicated from source slide 3 retain the three-card journey geometry but carry denser engineering labels and file/API names appropriate for a Level 400 audience.
+
+Slides duplicated from source slide 4 retain the four-point grid and use it for protocol fields, cache predicates, and GPU-retention invariants.
+
+Slide 23 preserves the closing bumper layout while expanding its source rail into a concise implementation code map.
+
+No new slide design language, font family, color palette, or decorative system is introduced.

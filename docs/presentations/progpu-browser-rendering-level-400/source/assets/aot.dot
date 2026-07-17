@@ -1,0 +1,17 @@
+digraph G {
+  graph [rankdir=TB, bgcolor="transparent", pad="0.20", nodesep="0.40", ranksep="0.58", splines=ortho, size="10,5.4!", ratio=fill];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=22, margin="0.20,0.13", color="#B8BCC4", penwidth=1.5, fillcolor="#F2F2F2", fontcolor="#111111"];
+  edge [color="#3D8DFF", penwidth=2.3, arrowsize=0.85, fontname="Helvetica Neue", fontsize=17, fontcolor="#5E697A"];
+
+  source [label="Shared C# projects\n+ ProGPU.Browser"];
+  sdk [label="WebAssembly SDK\nbrowser-wasm"];
+  aot [label="Trim + AOT + SIMD\nnative relink\nnetDxf interpreted", fillcolor="#D0EDFA", color="#3D8DFF"];
+  static [label="wwwroot\nWASM • JS • CSS • assets"];
+  host [label="Static HTTP(S) host\nGitHub Pages / CDN"];
+  runtime [label="Browser startup\nidentical IWebGpuApi path", fillcolor="#D0EDFA", color="#3D8DFF"];
+
+  { rank=same; source; sdk; aot; }
+  { rank=same; static; host; runtime; }
+  source -> sdk -> aot;
+  aot -> static -> host -> runtime;
+}

@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node render-graphs.mjs && node build.mjs"
+  },
+  "dependencies": {
+    "@hpcc-js/wasm": "^2.30.0"
+  }
+}

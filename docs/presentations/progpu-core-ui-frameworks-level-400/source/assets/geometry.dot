@@ -1,0 +1,17 @@
+digraph Geometry {
+  graph [bgcolor="#101620", rankdir=LR, pad="0.25", nodesep="0.28", ranksep="0.48", splines=ortho];
+  node [shape=box, style="rounded,filled", fontname="Helvetica Neue", fontsize=11, fontcolor="#F7FAFF", color="#334155", fillcolor="#1B2635", margin="0.12,0.08"];
+  edge [color="#75A7FF", penwidth=1.7, arrowsize=0.7];
+
+  path [label="PathGeometry\nanalytic segments"];
+  glyph [label="Font + glyph index\nretained outline"];
+  image [label="Image / bitmap\ntexture source"];
+  key [label="Stable cache key\ngeometry · style · scale · phase", fillcolor="#17315A"];
+  atlas [label="PathAtlas + GlyphAtlas\ncoverage + generation", fillcolor="#244A84"];
+  texture [label="GpuTexture\nidentity + sampling"];
+  vertices [label="Vector/Text/Texture\nvertex streams"];
+  pass [label="Ordered render pass\nphysical-pixel target", fillcolor="#244A84"];
+
+  path -> key; glyph -> key; key -> atlas; image -> texture;
+  atlas -> vertices; texture -> vertices; vertices -> pass;
+}

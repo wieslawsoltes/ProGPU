@@ -1,0 +1,16 @@
+SOURCE DECK AUDIT — ProGPU browser rendering
+
+Source: /Users/wieslawsoltes/.codex/worktrees/aad7/ProGPU/outputs/progpu-browser-rendering.pptx
+Slides: 6
+Canvas: 1280 × 720 (16:9)
+Fonts: Helvetica Neue for authored content; Calibri/Calibri Light theme fallbacks.
+Palette: white background, black primary text, #3D8DFF blue accent, #F2F2F2 neutral panels, #D0EDFA light-blue image caption band, #5E697A secondary text.
+
+1. Cover pattern. Blue uppercase eyebrow, very large two-line title, one-line subtitle. No page number.
+2. Evidence/image pattern. One-line title; left narrative column; right rounded image frame; light-blue caption band; page number.
+3. Three-stage journey pattern. Title; three neutral cards; blue dots on a horizontal rule; three stage labels; page number.
+4. Four-point technical grid. Title; four two-line text blocks in a 2 × 2 layout; blue numbered headings; page number.
+5. Two-column comparison. Title; left/right blue accents; two text columns; muted summary line; page number.
+6. Closing bumper. Blue eyebrow; very large two-line thesis; three-line implementation summary; small source rail.
+
+The expanded deck duplicates these six source patterns. No separate visual source is mixed in. Complex architecture diagrams replace the inherited image element on duplicated slide-2 frames; process diagrams reuse the inherited slide-3 cards, connectors, labels, and dots; matrices reuse slide 4; comparisons reuse slide 5.

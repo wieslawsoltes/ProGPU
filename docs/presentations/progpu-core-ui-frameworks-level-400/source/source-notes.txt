@@ -1,0 +1,88 @@
+SOURCE NOTES — ProGPU core rendering and UI-framework substrate
+
+Primary repository sources
+
+README.md
+  Architectural Hierarchy; shared core/project table; frame architecture; layout cache and invalidation; compiled-scene validation; span-based mesh compilation; analytical vector rasterization; text/DPI; CacheAsLayer; dynamic z-ordered batching; GpuPicture/IRenderDataProvider; retained DXF; atlas batching/recovery; module and shader architecture.
+
+AGENTS.md
+  Reflection-free WPF port boundary; DPI/text quality; shader source contract; compiled-scene correctness; hot-path, text, path, atlas, framework adapter, and performance regression invariants.
+
+src/ProGPU.Scene/Visual.cs
+  Stable visual identity; parent propagation; pixel-affecting properties; IsDirty and ChangeVersion; transforms, clips, effects, masks, CacheAsLayer.
+
+src/ProGPU.Scene/RenderCommand.cs
+  Renderer command IR: vector, text, texture, state, static data, picture, mesh, point batch, and extension commands.
+
+src/ProGPU.Scene/Compositor.cs
+  RenderScene/RenderSceneCore; compiled-scene cache predicate; CompileVisualTree; state scopes; batching; GPU buffer growth/uploads; passes; atlases; layers/effects; optional GPU hit testing; retry after PathAtlas capacity exhaustion.
+
+src/ProGPU.Scene/CompositorHostFrame.cs
+  Logical/physical target, viewport, and DPI transaction passed by hosts.
+
+src/ProGPU.Scene/StaticCompilationContext.cs
+src/ProGPU.Scene/ICompositorExtension.cs
+src/ProGPU.Scene/SharedCompositorCache.cs
+src/ProGPU.Scene/Extensions/
+  Static provider and extension seams; shared caches; DXF, chart, spline, 3D, hatch, image, shader, and other pipelines.
+
+src/ProGPU.Backend/WgpuContext.cs
+src/ProGPU.Backend/IWebGpuApi.cs
+src/ProGPU.Backend/GpuBuffer.cs
+src/ProGPU.Backend/GpuTexture.cs
+src/ProGPU.Backend/RenderPipelineCache.cs
+src/ProGPU.Backend/ShaderResource.cs
+  WebGPU device/queue/surface abstraction; resource identity; buffers/textures; pipeline and shader-source caching.
+
+src/ProGPU.Layout/LayoutNode.cs
+  Independent measure/arrange validity, input caching, propagation, and Visual invalidation.
+
+src/ProGPU.WinUI/Core/DependencyObject.cs
+src/ProGPU.WinUI/Core/FrameworkElement.cs
+src/ProGPU.WinUI/Core/Window.cs
+src/ProGPU.WinUI/Input/InputSystem.cs
+src/ProGPU.WinUI/Controls/
+  Direct framework mapping: property storage/metadata, layout and visual invalidation, frame ownership, CPU visual-tree hit testing, controls/templates/text/virtualization.
+
+src/ProGPU.Wpf.Interop/
+src/PresentationCore/
+  Typed portable WPF contracts and WPF-shaped presentation primitives without hot-path reflection or shim-owned cross-assembly types.
+
+src/System.Drawing.Common/System/Drawing/Graphics.cs
+src/System.Drawing.Common/System/Drawing/Bitmap.cs
+src/System.Drawing.Common/System/Drawing/Brush.cs
+src/System.Drawing.Common/System/Drawing/Pen.cs
+  ProGPU-backed System.Drawing surface used to preserve classic drawing semantics while converging on retained GPU primitives.
+
+LibreWPF repository (read-only architecture evidence)
+
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/ProGpuWpfWindowHost.cs
+  Window/platform host, portable presentation source, DPI/input/lifecycle, scene root and compositor target.
+
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfVisualTreeRenderer.cs
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfVisualContentBridge.cs
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfRenderDataBridge.cs
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfMilRenderDataDecoder.cs
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfRetainedVisualBranchMap.cs
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/Mil/WpfVisualInvalidationTracker.cs
+  Portable visual/render-data decode, resource resolution, retained branch identity, and precise invalidation.
+
+/Users/wieslawsoltes/GitHub/wpf/src/ProGPU.Wpf/Composition/ProGpuRetainedCompositionCommandSink.cs
+  Native mapping of WPF brushes, geometry, glyphs, images, clips, opacity, effects, caches, and retained drawing scopes into ProGPU.Scene.
+
+LibreWinForms repository (read-only architecture evidence)
+
+/Users/wieslawsoltes/GitHub/winforms/src/LibreWinForms.Portable/LibreWinForms.System.Windows.Forms/src/IPortableWinFormsPaintSource.cs
+/Users/wieslawsoltes/GitHub/winforms/src/LibreWinForms.Portable/LibreWinForms.WindowsFormsIntegration/src/WindowsFormsHost.cs
+/Users/wieslawsoltes/GitHub/winforms/src/LibreWinForms.Portable/LibreWinForms.WindowsFormsIntegration/src/WpfPortableWinFormsApplicationHost.cs
+  Portable paint-source and WPF-compatible application/hosting seam for Control lifecycle, input, focus, and rendering integration.
+
+/Users/wieslawsoltes/GitHub/winforms/src/System.Windows.Forms/System/Windows/Forms/Control.cs
+/Users/wieslawsoltes/GitHub/winforms/src/System.Windows.Forms/System/Windows/Forms/Application.cs
+  WinForms semantic surface retained by the port.
+
+Visual reference
+
+docs/presentations/progpu-browser-rendering-level-400/ProGPU-Browser-Rendering-Level-400.pptx
+docs/presentations/progpu-browser-rendering-level-400/source/template-starter.pptx
+  Audited slide language and reusable starter. The starter is referenced, not duplicated.

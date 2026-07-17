@@ -1,0 +1,21 @@
+LEVEL 400 COVERAGE AUDIT
+
+Outcome: senior UI-framework and rendering engineers can trace framework state to a presented WebGPU frame and identify the reusable seams for a new UI framework.
+
+Slides 2–4: complete multi-framework architecture, ownership, convergence seams.
+Slides 5–7: host transaction, layout/paint validity, Visual identity, ChangeVersion propagation, composite state.
+Slides 8–12: command IR, compositor traversal/lowering, strict compiled-scene predicate, ordered batching, GPU resource and pipeline lifetime.
+Slides 13–15: retained path/glyph/image identity, physical-pixel text quality, atlases, layers, effects, providers, extension pipelines.
+Slides 16–17: CPU/GPU hit-testing choices, platform input/services, host responsibilities.
+Slides 18–21: direct ProGPU.WinUI mapping, typed LibreWPF portable/MIL replay, LibreWinForms paint/System.Drawing mapping, shared post-convergence substrate.
+Slides 22–23: correctness/performance contract, required adapter invariants, implementation playbook and code map.
+
+Validation evidence (scratch workspace):
+- every final slide rendered and inspected individually at 1280 × 720;
+- template plan: pass, 0 issues;
+- template fidelity: pass, 0 issues;
+- slide overflow test: pass;
+- PPTX package test: pass;
+- 23 slide XML parts and 23 non-empty speaker-note parts;
+- 0 unresolved placeholder strings;
+- 0 layout warning terms.

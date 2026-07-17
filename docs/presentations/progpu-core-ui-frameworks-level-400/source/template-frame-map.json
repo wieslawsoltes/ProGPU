@@ -1,0 +1,511 @@
+{
+  "outputSlides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 1,
+      "narrativeRole": "opening thesis",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/7qp4be9c",
+            "sh/547294r6",
+            "sh/k3yl0zql"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 2,
+      "sourceSlide": 2,
+      "narrativeRole": "multi-framework end-to-end architecture",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/r65knqtk",
+            "sh/9072xkry",
+            "sh/a10jqpsj",
+            "sh/x4r21kru"
+          ],
+          "action": "rewrite"
+        },
+        {
+          "shapeId": "im/nix0be18",
+          "action": "delete"
+        },
+        {
+          "action": "add",
+          "newPrimitiveAllowed": true,
+          "zone": {
+            "left": 596.11,
+            "top": 164,
+            "width": 641.78,
+            "height": 361
+          },
+          "reason": "Insert the unique architecture diagram into the exact inherited image frame after deleting the inherited image.",
+          "mustNotOverlapInherited": true
+        }
+      ]
+    },
+    {
+      "outputSlide": 3,
+      "sourceSlide": 3,
+      "narrativeRole": "renderer ownership boundaries",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/pcjqtg36",
+            "sh/cza94vmx",
+            "sh/d0jax03i",
+            "sh/298ryl4v",
+            "sh/3ah8rqlg",
+            "sh/obq90bml"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 4,
+      "sourceSlide": 4,
+      "narrativeRole": "framework adapter fan-in",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/a5kr2xg3",
+            "sh/ih8ju9sn",
+            "sh/kbm987y5",
+            "sh/5cva1cfq",
+            "sh/i94r6xgz",
+            "sh/jadsz2xk",
+            "sh/w72947yt",
+            "sh/x8vaxsfe"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 5,
+      "sourceSlide": 5,
+      "narrativeRole": "host frame transaction",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/i54fmlc7",
+            "sh/m5kbi1oj",
+            "sh/w32dkbuh",
+            "sh/x4vedgvm",
+            "sh/ahkvi1cb",
+            "sh/v2twb6dw",
+            "sh/k7mxovud",
+            "sh/58vehgvy"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 6,
+      "sourceSlide": 6,
+      "narrativeRole": "layout visual and scene validity",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/j6dcr65c",
+            "sh/pc76hkr2",
+            "sh/h4bupgn6",
+            "sh/w32twb6l",
+            "sh/v2tcn650",
+            "sh/u1kbu1ov",
+            "sh/5svutgni",
+            "sh/47mt0b6x"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 7,
+      "sourceSlide": 7,
+      "narrativeRole": "retained visual identity",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/p8fih03e",
+            "sh/fi9c369c",
+            "sh/baxkjqlk",
+            "sh/a9ojq5kz",
+            "sh/xcz2l03q",
+            "sh/cbq1sv25",
+            "sh/n6x0fqlo",
+            "sh/25ojml43"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 8,
+      "sourceSlide": 8,
+      "narrativeRole": "DrawingContext and RenderCommand IR",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/ehgvihwr",
+            "sh/id0fu50z",
+            "sh/o7ydoret",
+            "sh/98rehwve",
+            "sh/m5gvmhwn",
+            "sh/n6pwfmd8",
+            "sh/0jydkreh",
+            "sh/1k7edwv2"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 9,
+      "sourceSlide": 9,
+      "narrativeRole": "compositor lowering stages",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/ofq5svm5",
+            "sh/1cfmhgne",
+            "sh/0b65obm9",
+            "sh/nex4jq5k",
+            "sh/mdonql4z",
+            "sh/9gzml0nq"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 10,
+      "sourceSlide": 10,
+      "narrativeRole": "compiled scene cache architecture",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/725onyl4",
+            "sh/xc3mho32",
+            "sh/ydcnatkn",
+            "sh/l036l83y"
+          ],
+          "action": "rewrite"
+        },
+        {
+          "shapeId": "im/fm9sbalk",
+          "action": "delete"
+        },
+        {
+          "action": "add",
+          "newPrimitiveAllowed": true,
+          "zone": {
+            "left": 596.11,
+            "top": 164,
+            "width": 641.78,
+            "height": 361
+          },
+          "reason": "Insert the unique architecture diagram into the exact inherited image frame after deleting the inherited image.",
+          "mustNotOverlapInherited": true
+        }
+      ]
+    },
+    {
+      "outputSlide": 11,
+      "sourceSlide": 11,
+      "narrativeRole": "ordered adjacent batching",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/epobatgr",
+            "sh/61kzalof",
+            "sh/ofqtgnyt",
+            "sh/9gza9sze",
+            "sh/mdobedg3",
+            "sh/nehs7iho",
+            "sh/0b6tc3yx",
+            "sh/1cfa58zi"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 12,
+      "sourceSlide": 12,
+      "narrativeRole": "GPU resource and pipeline lifetime",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/mps7a5or",
+            "sh/a543mx4r",
+            "sh/wvupgz6t",
+            "sh/xw3q94ne",
+            "sh/atc7epon",
+            "sh/bulo7u58",
+            "sh/orapcf6h",
+            "sh/9sj65kn2"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 13,
+      "sourceSlide": 13,
+      "narrativeRole": "retained path glyph and image pipeline",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/gzy5s3a1",
+            "sh/q50nydsj",
+            "sh/p4r6p8by",
+            "sh/21gnuts7"
+          ],
+          "action": "rewrite"
+        },
+        {
+          "shapeId": "im/47250fqh",
+          "action": "delete"
+        },
+        {
+          "action": "add",
+          "newPrimitiveAllowed": true,
+          "zone": {
+            "left": 596.11,
+            "top": 164,
+            "width": 641.78,
+            "height": 361
+          },
+          "reason": "Insert the unique architecture diagram into the exact inherited image frame after deleting the inherited image.",
+          "mustNotOverlapInherited": true
+        }
+      ]
+    },
+    {
+      "outputSlide": 14,
+      "sourceSlide": 14,
+      "narrativeRole": "retained text and physical-pixel quality",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/kfidonqx",
+            "sh/xc7eds76",
+            "sh/wbydknq1",
+            "sh/jepwf2pc",
+            "sh/idgvmx8r",
+            "sh/5grehs7i"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 15,
+      "sourceSlide": 15,
+      "narrativeRole": "layers effects extensions and providers",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/s7y5sv2x",
+            "sh/547mhg3m",
+            "sh/k3y5ov21",
+            "sh/76p4jqls",
+            "sh/65gnqlk7",
+            "sh/t87ml0ji"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 16,
+      "sourceSlide": 16,
+      "narrativeRole": "input and hit-testing policies",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/lwbyxwra",
+            "sh/8z2h8bq1",
+            "sh/9kby1g7m",
+            "sh/ytkf2h8j",
+            "sh/zutgvm94",
+            "sh/kv2h4rqp"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 17,
+      "sourceSlide": 17,
+      "narrativeRole": "platform host seam",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/ulw7ihoj",
+            "sh/ihcvml4j",
+            "sh/4by9or6l",
+            "sh/pc7qhwn6",
+            "sh/29grm1of",
+            "sh/3ap8fm50",
+            "sh/gnepkr69",
+            "sh/honqdwnu"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 18,
+      "sourceSlide": 18,
+      "narrativeRole": "ProGPU WinUI direct mapping",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/to72pw76",
+            "sh/rip4retw",
+            "sh/fapkr6pw",
+            "sh/upg3i18r",
+            "sh/1cr2tg72",
+            "sh/gbylkbqh",
+            "sh/7mpknmp0",
+            "sh/6lg3e18f"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 19,
+      "sourceSlide": 19,
+      "narrativeRole": "LibreWPF portable retained mapping",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/et0jix8r",
+            "sh/il47u5sz",
+            "sh/cri1gnql",
+            "sh/dsri9sr6",
+            "sh/qpgjex8f",
+            "sh/rqp07290",
+            "sh/0vi1k7qx",
+            "sh/1gridcr2"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 20,
+      "sourceSlide": 20,
+      "narrativeRole": "LibreWinForms semantic and execution mapping",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/gjuhg7ql",
+            "sh/qpwjmh8n",
+            "sh/rq50vmp8",
+            "sh/2lczih8r",
+            "sh/3ml0rmpw"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 21,
+      "sourceSlide": 21,
+      "narrativeRole": "framework convergence architecture",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/b6d432pc",
+            "sh/1gbmxs7a",
+            "sh/qp03yt8n",
+            "sh/dcb2t87y"
+          ],
+          "action": "rewrite"
+        },
+        {
+          "shapeId": "im/7apw3axo",
+          "action": "delete"
+        },
+        {
+          "action": "add",
+          "newPrimitiveAllowed": true,
+          "zone": {
+            "left": 596.11,
+            "top": 164,
+            "width": 641.78,
+            "height": 361
+          },
+          "reason": "Insert the unique architecture diagram into the exact inherited image frame after deleting the inherited image.",
+          "mustNotOverlapInherited": true
+        }
+      ]
+    },
+    {
+      "outputSlide": 22,
+      "sourceSlide": 22,
+      "narrativeRole": "performance and correctness contract",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/43u9snu5",
+            "sh/6987itcr",
+            "sh/7a18rydc",
+            "sh/il87etcv",
+            "sh/jmh8nyd0"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    },
+    {
+      "outputSlide": 23,
+      "sourceSlide": 23,
+      "narrativeRole": "implementation playbook and code map",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "shapeIds": [
+            "sh/a14rmhgb",
+            "sh/90vqdczq",
+            "sh/8zm9k7y5",
+            "sh/v2d8fmhw"
+          ],
+          "action": "rewrite"
+        }
+      ]
+    }
+  ],
+  "omittedSourceSlides": []
+}
