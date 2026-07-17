@@ -50,6 +50,8 @@ public sealed class TextShapingOptions
         new("clig"),
         new("curs"),
         new("dist"),
+        new("abvm"),
+        new("blwm"),
         new("kern"),
         new("liga"),
         new("rclt")
@@ -148,10 +150,12 @@ public static class OpenTypeTextShaper
 
         string script = options.Script ?? InferScript(text);
         ShapingDirection direction = ResolveDirection(options.Direction, script);
+        options = AddScriptFeatures(options, script);
         options = AddDirectionalFeatures(options, direction);
 
-        var substitutions = GlyphSubstitutionBuffer.Create(text, font);
+        var substitutions = GlyphSubstitutionBuffer.Create(text, font, script);
         substitutions.AssignFractionActions();
+        substitutions.PrepareKhmerShaping(script);
         substitutions.AssignArabicJoiningActions(script);
         Typeface? typeface = font.LayoutTypeface;
         ApplySubstitutions(font, typeface?.GSUBTable, substitutions, options, script);
@@ -161,6 +165,7 @@ public static class OpenTypeTextShaper
         {
             ApplyPositions(font, typeface.GPOSTable, positions, options, script);
         }
+        positions.ResolveAttachmentOffsets();
 
         if (direction is ShapingDirection.RightToLeft or ShapingDirection.BottomToTop)
         {
@@ -242,6 +247,68 @@ public static class OpenTypeTextShaper
             Script = options.Script,
             Language = options.Language,
             Direction = direction,
+            Features = features,
+            ExplicitFeatureTags = explicitFeatureTags
+        };
+    }
+
+    private static TextShapingOptions AddScriptFeatures(TextShapingOptions options, string script)
+    {
+        if (script != "khmr")
+        {
+            return options;
+        }
+
+        IReadOnlySet<string> explicitFeatureTags = options.ResolveExplicitFeatureTags();
+        var values = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < options.Features.Count; index++)
+        {
+            OpenTypeFeatureSetting feature = options.Features[index];
+            values[feature.Tag] = feature.Value;
+        }
+
+        string[] khmerFeatures = ["pref", "blwf", "abvf", "pstf", "cfar", "pres", "abvs", "blws", "psts"];
+        foreach (string tag in khmerFeatures)
+        {
+            values.TryAdd(tag, 1);
+        }
+        values.TryAdd("clig", 1);
+        if (!explicitFeatureTags.Contains("liga"))
+        {
+            values["liga"] = 0;
+        }
+
+        string[] orderedTags =
+        [
+            "rvrn", "frac", "numr", "dnom", "locl", "ccmp",
+            "pref", "blwf", "abvf", "pstf", "cfar",
+            "pres", "abvs", "blws", "psts"
+        ];
+        var features = new List<OpenTypeFeatureSetting>(values.Count);
+        foreach (string tag in orderedTags)
+        {
+            if (values.Remove(tag, out int value))
+            {
+                features.Add(new OpenTypeFeatureSetting(tag, value));
+            }
+        }
+        foreach (OpenTypeFeatureSetting feature in options.Features)
+        {
+            if (values.Remove(feature.Tag, out int value))
+            {
+                features.Add(new OpenTypeFeatureSetting(feature.Tag, value));
+            }
+        }
+        foreach ((string tag, int value) in values)
+        {
+            features.Add(new OpenTypeFeatureSetting(tag, value));
+        }
+
+        return new TextShapingOptions
+        {
+            Script = options.Script,
+            Language = options.Language,
+            Direction = options.Direction,
             Features = features,
             ExplicitFeatureTags = explicitFeatureTags
         };
@@ -1457,15 +1524,318 @@ public static class OpenTypeTextShaper
             return;
         }
 
+        ReadOnlyMemory<byte> rawTable = default;
+        bool hasRawTable = font.TryGetTable("GPOS", out rawTable);
+
         foreach (EnabledLookup enabled in GetEnabledLookupIndices(table, features, options, script))
         {
             ushort lookupIndex = enabled.LookupIndex;
             if (lookupIndex < table.LookupList.Count)
             {
-                table.LookupList[lookupIndex].DoGlyphPosition(glyphs, 0, glyphs.Count);
+                bool rawOwned = hasRawTable && IsRawOwnedPositionLookup(rawTable.Span, lookupIndex);
+                if (rawOwned)
+                {
+                    ApplyRawPositionLookup(rawTable.Span, glyphs, lookupIndex);
+                }
+                else
+                {
+                    table.LookupList[lookupIndex].DoGlyphPosition(glyphs, 0, glyphs.Count);
+                }
                 ApplyPositionVariations(font, glyphs, lookupIndex);
             }
         }
+    }
+
+    private static bool IsRawOwnedPositionLookup(ReadOnlySpan<byte> data, ushort lookupIndex)
+    {
+        if (!TryGetLookup(data, lookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
+        {
+            return false;
+        }
+        if (lookupType is 1 or 2 or 4 or 5 or 6) return true;
+        if (lookupType != 9 || ReadU16(data, subtableCountOffset) == 0 || !CanRead(data, subtableCountOffset + 2, 2))
+        {
+            return false;
+        }
+        int extension = lookupOffset + ReadU16(data, subtableCountOffset + 2);
+        return CanRead(data, extension, 8) &&
+               ReadU16(data, extension) == 1 &&
+               ReadU16(data, extension + 2) is 1 or 2 or 4 or 5 or 6;
+    }
+
+    private static void ApplyRawPositionLookup(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        ushort lookupIndex)
+    {
+        if (!TryGetLookup(data, lookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
+        {
+            return;
+        }
+
+        ushort lookupFlags = ReadU16(data, lookupOffset + 2);
+        ushort subtableCount = ReadU16(data, subtableCountOffset);
+        for (var position = 0; position < glyphs.Count; position++)
+        {
+            for (var subtableIndex = 0; subtableIndex < subtableCount; subtableIndex++)
+            {
+                int offsetPosition = subtableCountOffset + 2 + subtableIndex * 2;
+                if (!CanRead(data, offsetPosition, 2)) break;
+                int subtableOffset = lookupOffset + ReadU16(data, offsetPosition);
+                ushort effectiveType = lookupType;
+                if (effectiveType == 9)
+                {
+                    if (!CanRead(data, subtableOffset, 8) || ReadU16(data, subtableOffset) != 1) continue;
+                    effectiveType = ReadU16(data, subtableOffset + 2);
+                    uint extensionOffset = ReadU32(data, subtableOffset + 4);
+                    if (extensionOffset > int.MaxValue) continue;
+                    subtableOffset += (int)extensionOffset;
+                }
+
+                bool matched = effectiveType switch
+                {
+                    1 => ApplySinglePosition(data, glyphs, subtableOffset, position),
+                    2 => ApplyPairPosition(data, glyphs, subtableOffset, position, lookupFlags),
+                    4 => ApplyMarkToBasePosition(data, glyphs, subtableOffset, position, lookupFlags),
+                    5 => ApplyMarkToLigaturePosition(data, glyphs, subtableOffset, position, lookupFlags),
+                    6 => ApplyMarkToMarkPosition(data, glyphs, subtableOffset, position, lookupFlags),
+                    _ => false
+                };
+                if (matched) break;
+            }
+        }
+    }
+
+    private static bool ApplySinglePosition(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int position)
+    {
+        if (!CanRead(data, offset, 6)) return false;
+        ushort format = ReadU16(data, offset);
+        int coverageIndex = FindCoverage(data, offset + ReadU16(data, offset + 2), glyphs.GetGlyph(position));
+        if (coverageIndex < 0) return false;
+        ushort valueFormat = ReadU16(data, offset + 4);
+        int valueOffset;
+        if (format == 1)
+        {
+            valueOffset = offset + 6;
+        }
+        else if (format == 2 && CanRead(data, offset + 6, 2) && coverageIndex < ReadU16(data, offset + 6))
+        {
+            valueOffset = offset + 8 + coverageIndex * GetValueRecordSize(valueFormat);
+        }
+        else
+        {
+            return false;
+        }
+        return ApplyValueRecord(data, glyphs, position, valueOffset, valueFormat);
+    }
+
+    private static bool ApplyPairPosition(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int position,
+        ushort lookupFlags)
+    {
+        if (!CanRead(data, offset, 10)) return false;
+        int coverageIndex = FindCoverage(data, offset + ReadU16(data, offset + 2), glyphs.GetGlyph(position));
+        if (coverageIndex < 0) return false;
+        int second = glyphs.NextEligibleIndex(position + 1, lookupFlags);
+        if (second < 0) return false;
+        ushort valueFormat1 = ReadU16(data, offset + 4);
+        ushort valueFormat2 = ReadU16(data, offset + 6);
+        int valueSize1 = GetValueRecordSize(valueFormat1);
+        int valueSize2 = GetValueRecordSize(valueFormat2);
+        int value1Offset;
+        int value2Offset;
+        if (ReadU16(data, offset) == 1)
+        {
+            ushort setCount = ReadU16(data, offset + 8);
+            if ((uint)coverageIndex >= setCount || !CanRead(data, offset + 10 + coverageIndex * 2, 2)) return false;
+            int pairSet = offset + ReadU16(data, offset + 10 + coverageIndex * 2);
+            if (!CanRead(data, pairSet, 2)) return false;
+            ushort pairCount = ReadU16(data, pairSet);
+            int recordSize = 2 + valueSize1 + valueSize2;
+            int record = pairSet + 2;
+            bool found = false;
+            for (var pair = 0; pair < pairCount; pair++, record += recordSize)
+            {
+                if (!CanRead(data, record, recordSize)) return false;
+                if (ReadU16(data, record) != glyphs.GetGlyph(second)) continue;
+                value1Offset = record + 2;
+                value2Offset = value1Offset + valueSize1;
+                found = true;
+                if (valueFormat1 != 0) ApplyValueRecord(data, glyphs, position, value1Offset, valueFormat1);
+                if (valueFormat2 != 0) ApplyValueRecord(data, glyphs, second, value2Offset, valueFormat2);
+                break;
+            }
+            return found;
+        }
+        if (ReadU16(data, offset) != 2 || !CanRead(data, offset, 16)) return false;
+        int class1 = GetGlyphClass(data, offset + ReadU16(data, offset + 8), glyphs.GetGlyph(position));
+        int class2 = GetGlyphClass(data, offset + ReadU16(data, offset + 10), glyphs.GetGlyph(second));
+        int class1Count = ReadU16(data, offset + 12);
+        int class2Count = ReadU16(data, offset + 14);
+        if ((uint)class1 >= class1Count || (uint)class2 >= class2Count) return false;
+        int recordOffset = offset + 16 + (class1 * class2Count + class2) * (valueSize1 + valueSize2);
+        if (!CanRead(data, recordOffset, valueSize1 + valueSize2)) return false;
+        if (valueFormat1 != 0) ApplyValueRecord(data, glyphs, position, recordOffset, valueFormat1);
+        if (valueFormat2 != 0) ApplyValueRecord(data, glyphs, second, recordOffset + valueSize1, valueFormat2);
+        return true;
+    }
+
+    private static bool ApplyMarkToBasePosition(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int markIndex,
+        ushort lookupFlags)
+    {
+        if (!TryReadMarkAttachmentHeader(data, glyphs, offset, markIndex,
+                out int markCoverageIndex, out int targetCoverage, out int classCount,
+                out int markArray, out int targetArray)) return false;
+        int targetIndex = glyphs.PreviousEligibleIndex(markIndex - 1, lookupFlags, targetCoverage, data, skipMarks: true);
+        if (targetIndex < 0 || glyphs.GetGlyphClassKind(targetIndex) is not (GlyphClassKind.Base or GlyphClassKind.Zero)) return false;
+        int targetCoverageIndex = FindCoverage(data, targetCoverage, glyphs.GetGlyph(targetIndex));
+        return ApplyMarkAttachment(data, glyphs, markIndex, targetIndex, markCoverageIndex,
+            targetCoverageIndex, classCount, markArray, targetArray, targetArray + 2);
+    }
+
+    private static bool ApplyMarkToLigaturePosition(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int markIndex,
+        ushort lookupFlags)
+    {
+        if (!TryReadMarkAttachmentHeader(data, glyphs, offset, markIndex,
+                out int markCoverageIndex, out int ligatureCoverage, out int classCount,
+                out int markArray, out int ligatureArray)) return false;
+        int ligatureIndex = glyphs.PreviousEligibleIndex(markIndex - 1, lookupFlags, ligatureCoverage, data, skipMarks: true);
+        if (ligatureIndex < 0 || glyphs.GetGlyphClassKind(ligatureIndex) != GlyphClassKind.Ligature) return false;
+        int ligatureCoverageIndex = FindCoverage(data, ligatureCoverage, glyphs.GetGlyph(ligatureIndex));
+        if (!CanRead(data, ligatureArray + 2 + ligatureCoverageIndex * 2, 2)) return false;
+        int ligatureAttach = ligatureArray + ReadU16(data, ligatureArray + 2 + ligatureCoverageIndex * 2);
+        if (!CanRead(data, ligatureAttach, 2)) return false;
+        int componentCount = ReadU16(data, ligatureAttach);
+        if (componentCount == 0) return false;
+        int component = Math.Min(glyphs.GetLigatureComponent(markIndex, ligatureIndex), componentCount - 1);
+        int componentRecords = ligatureAttach + 2 + component * classCount * 2;
+        return ApplyMarkAttachment(data, glyphs, markIndex, ligatureIndex, markCoverageIndex,
+            0, classCount, markArray, ligatureAttach, componentRecords);
+    }
+
+    private static bool ApplyMarkToMarkPosition(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int markIndex,
+        ushort lookupFlags)
+    {
+        if (!TryReadMarkAttachmentHeader(data, glyphs, offset, markIndex,
+                out int markCoverageIndex, out int mark2Coverage, out int classCount,
+                out int mark1Array, out int mark2Array)) return false;
+        int mark2Index = glyphs.PreviousEligibleIndex(markIndex - 1, lookupFlags, mark2Coverage, data, skipMarks: false);
+        if (mark2Index < 0 || glyphs.GetGlyphClassKind(mark2Index) != GlyphClassKind.Mark) return false;
+        int mark2CoverageIndex = FindCoverage(data, mark2Coverage, glyphs.GetGlyph(mark2Index));
+        return ApplyMarkAttachment(data, glyphs, markIndex, mark2Index, markCoverageIndex,
+            mark2CoverageIndex, classCount, mark1Array, mark2Array, mark2Array + 2);
+    }
+
+    private static bool TryReadMarkAttachmentHeader(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int markIndex,
+        out int markCoverageIndex,
+        out int targetCoverage,
+        out int classCount,
+        out int markArray,
+        out int targetArray)
+    {
+        markCoverageIndex = -1;
+        targetCoverage = classCount = markArray = targetArray = 0;
+        if (!CanRead(data, offset, 12) || ReadU16(data, offset) != 1) return false;
+        int markCoverage = offset + ReadU16(data, offset + 2);
+        markCoverageIndex = FindCoverage(data, markCoverage, glyphs.GetGlyph(markIndex));
+        if (markCoverageIndex < 0) return false;
+        targetCoverage = offset + ReadU16(data, offset + 4);
+        classCount = ReadU16(data, offset + 6);
+        markArray = offset + ReadU16(data, offset + 8);
+        targetArray = offset + ReadU16(data, offset + 10);
+        return classCount > 0;
+    }
+
+    private static bool ApplyMarkAttachment(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int markIndex,
+        int targetIndex,
+        int markCoverageIndex,
+        int targetCoverageIndex,
+        int classCount,
+        int markArray,
+        int targetAnchorBase,
+        int targetRecordBase)
+    {
+        int markRecord = markArray + 2 + markCoverageIndex * 4;
+        if (!CanRead(data, markRecord, 4)) return false;
+        int markClass = ReadU16(data, markRecord);
+        if ((uint)markClass >= classCount) return false;
+        int markAnchorOffset = markArray + ReadU16(data, markRecord + 2);
+        int targetRecord = targetRecordBase + (targetCoverageIndex * classCount + markClass) * 2;
+        if (!CanRead(data, targetRecord, 2)) return false;
+        ushort targetAnchorRelative = ReadU16(data, targetRecord);
+        if (targetAnchorRelative == 0) return false;
+        int targetAnchorOffset = targetAnchorBase + targetAnchorRelative;
+        if (!TryReadAnchor(data, markAnchorOffset, out int markX, out int markY) ||
+            !TryReadAnchor(data, targetAnchorOffset, out int targetX, out int targetY)) return false;
+        glyphs.Attach(markIndex, targetIndex, targetX - markX, targetY - markY);
+        return true;
+    }
+
+    private static bool TryReadAnchor(ReadOnlySpan<byte> data, int offset, out int x, out int y)
+    {
+        x = y = 0;
+        if (!CanRead(data, offset, 6) || ReadU16(data, offset) is < 1 or > 3) return false;
+        x = ReadI16(data, offset + 2);
+        y = ReadI16(data, offset + 4);
+        return true;
+    }
+
+    private static bool ApplyValueRecord(
+        ReadOnlySpan<byte> data,
+        GlyphPositionBuffer glyphs,
+        int index,
+        int offset,
+        ushort valueFormat)
+    {
+        int size = GetValueRecordSize(valueFormat);
+        if (!CanRead(data, offset, size)) return false;
+        int cursor = offset;
+        short xPlacement = 0;
+        short yPlacement = 0;
+        short xAdvance = 0;
+        short yAdvance = 0;
+        for (var bit = 0; bit < 8; bit++)
+        {
+            if ((valueFormat & (1 << bit)) == 0) continue;
+            short value = ReadI16(data, cursor);
+            cursor += 2;
+            switch (bit)
+            {
+                case 0: xPlacement = value; break;
+                case 1: yPlacement = value; break;
+                case 2: xAdvance = value; break;
+                case 3: yAdvance = value; break;
+            }
+        }
+        glyphs.AppendGlyphOffset(index, xPlacement, yPlacement);
+        glyphs.AppendGlyphAdvance(index, xAdvance, yAdvance);
+        return true;
     }
 
     private static void ApplyPositionVariations(
@@ -1889,7 +2259,22 @@ public static class OpenTypeTextShaper
             if (value is >= 0x0700 and <= 0x074F) return "syrc";
             if (value is >= 0x07C0 and <= 0x07FF) return "nkoo";
             if (value is >= 0x0840 and <= 0x085F) return "mand";
+            if (value is >= 0x0900 and <= 0x097F) return "deva";
+            if (value is >= 0x0980 and <= 0x09FF) return "beng";
+            if (value is >= 0x0A00 and <= 0x0A7F) return "guru";
+            if (value is >= 0x0A80 and <= 0x0AFF) return "gujr";
+            if (value is >= 0x0B00 and <= 0x0B7F) return "orya";
+            if (value is >= 0x0B80 and <= 0x0BFF) return "taml";
+            if (value is >= 0x0C00 and <= 0x0C7F) return "telu";
+            if (value is >= 0x0C80 and <= 0x0CFF) return "knda";
+            if (value is >= 0x0D00 and <= 0x0D7F) return "mlym";
+            if (value is >= 0x0D80 and <= 0x0DFF) return "sinh";
+            if (value is >= 0x0E00 and <= 0x0E7F) return "thai";
+            if (value is >= 0x0E80 and <= 0x0EFF) return "lao ";
+            if (value is >= 0x0F00 and <= 0x0FFF) return "tibt";
+            if (value is >= 0x1000 and <= 0x109F or >= 0xA9E0 and <= 0xA9FF or >= 0xAA60 and <= 0xAA7F) return "mymr";
             if (value is >= 0x1800 and <= 0x18AF) return "mong";
+            if (value is >= 0x1780 and <= 0x17FF) return "khmr";
             if (value is >= 0xA840 and <= 0xA87F) return "phag";
             if (value is >= 0x10AC0 and <= 0x10AFF) return "mani";
             if (value is >= 0x10B80 and <= 0x10BAF) return "phlp";
@@ -1944,16 +2329,191 @@ public static class OpenTypeTextShaper
 
         private readonly List<GlyphRecord> _glyphs;
         private readonly Typeface? _typeface;
+        private readonly TtfFont _font;
 
         private GlyphSubstitutionBuffer(List<GlyphRecord> glyphs, TtfFont font)
         {
             _glyphs = glyphs;
+            _font = font;
             _typeface = font.LayoutTypeface;
         }
 
         public int Count => _glyphs.Count;
         public ushort this[int index] => _glyphs[index].GlyphIndex;
         public GlyphRecord GetRecord(int index) => _glyphs[index];
+
+        public void PrepareKhmerShaping(string script)
+        {
+            if (script != "khmr")
+            {
+                return;
+            }
+
+            InsertBrokenKhmerDottedCircles();
+
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                if (!IsKhmerCharacter(_glyphs[start].CodePoint))
+                {
+                    start++;
+                    continue;
+                }
+
+                int end = FindKhmerSyllableEnd(start);
+                PrepareKhmerSyllable(start, end);
+                start = end;
+            }
+        }
+
+        private void InsertBrokenKhmerDottedCircles()
+        {
+            bool hasBase = false;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                uint codePoint = _glyphs[index].CodePoint;
+                if (IsKhmerBase(codePoint) || codePoint == 0x17D9)
+                {
+                    hasBase = true;
+                    continue;
+                }
+                if (codePoint is 0x200C or 0x200D)
+                {
+                    continue;
+                }
+                if (!IsKhmerMark(codePoint))
+                {
+                    hasBase = false;
+                    continue;
+                }
+                if (!hasBase)
+                {
+                    GlyphRecord mark = _glyphs[index];
+                    _glyphs.Insert(index, new GlyphRecord(_font.GetGlyphIndex(0x25CC), mark.Cluster, 0x25CC));
+                    index++;
+                    hasBase = true;
+                }
+                if (codePoint == 0x17D2)
+                {
+                    hasBase = false;
+                }
+            }
+        }
+
+        private int FindKhmerSyllableEnd(int start)
+        {
+            int index = start + 1;
+            bool previousWasCoeng = _glyphs[start].CodePoint == 0x17D2;
+            while (index < _glyphs.Count)
+            {
+                uint codePoint = _glyphs[index].CodePoint;
+                if (codePoint is 0x200C or 0x200D || IsKhmerMark(codePoint))
+                {
+                    previousWasCoeng = codePoint == 0x17D2;
+                    index++;
+                    continue;
+                }
+                if (IsKhmerBase(codePoint) && previousWasCoeng)
+                {
+                    previousWasCoeng = false;
+                    index++;
+                    continue;
+                }
+                break;
+            }
+            return index;
+        }
+
+        private void PrepareKhmerSyllable(int start, int end)
+        {
+            if (end - start <= 1)
+            {
+                return;
+            }
+
+            for (var index = start + 1; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.ScriptFeatureMask |= KhmerPostBaseMask;
+                _glyphs[index] = glyph;
+            }
+
+            for (var index = start + 1; index + 1 < end; index++)
+            {
+                if (_glyphs[index].CodePoint == 0x17D2 && IsKhmerConsonant(_glyphs[index + 1].CodePoint))
+                {
+                    MergeCluster(start, end);
+                    break;
+                }
+            }
+
+            int coengCount = 0;
+            for (var index = start + 1; index < end; index++)
+            {
+                if (_glyphs[index].CodePoint == 0x17D2 && coengCount <= 2 && index + 1 < end)
+                {
+                    coengCount++;
+                    if (_glyphs[index + 1].CodePoint == 0x179A)
+                    {
+                        GlyphRecord coeng = _glyphs[index];
+                        GlyphRecord ro = _glyphs[index + 1];
+                        coeng.ScriptFeatureMask |= KhmerPrefMask;
+                        ro.ScriptFeatureMask |= KhmerPrefMask;
+                        int cluster = MergeCluster(start, index + 2);
+                        coeng.Cluster = cluster;
+                        ro.Cluster = cluster;
+                        _glyphs.RemoveRange(index, 2);
+                        _glyphs.Insert(start, ro);
+                        _glyphs.Insert(start, coeng);
+
+                        for (var following = index + 2; following < end; following++)
+                        {
+                            GlyphRecord glyph = _glyphs[following];
+                            glyph.ScriptFeatureMask |= KhmerCfarMask;
+                            _glyphs[following] = glyph;
+                        }
+                        coengCount = 2;
+                    }
+                }
+                else if (IsKhmerPreBaseVowel(_glyphs[index].CodePoint))
+                {
+                    GlyphRecord vowel = _glyphs[index];
+                    vowel.Cluster = MergeCluster(start, index + 1);
+                    _glyphs.RemoveAt(index);
+                    _glyphs.Insert(start, vowel);
+                }
+            }
+        }
+
+        private int MergeCluster(int start, int end)
+        {
+            int cluster = int.MaxValue;
+            for (var index = start; index < end; index++)
+            {
+                cluster = Math.Min(cluster, _glyphs[index].Cluster);
+            }
+            for (var index = start; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.Cluster = cluster;
+                _glyphs[index] = glyph;
+            }
+            return cluster;
+        }
+
+        private static bool IsKhmerCharacter(uint codePoint) =>
+            codePoint is >= 0x1780 and <= 0x17FF or 0x25CC;
+
+        private static bool IsKhmerBase(uint codePoint) =>
+            codePoint is >= 0x1780 and <= 0x17B3 or 0x25CC;
+
+        private static bool IsKhmerConsonant(uint codePoint) =>
+            codePoint is >= 0x1780 and <= 0x17A2;
+
+        private static bool IsKhmerMark(uint codePoint) =>
+            codePoint is >= 0x17B4 and <= 0x17D3 or >= 0x17DD and <= 0x17DD;
+
+        private static bool IsKhmerPreBaseVowel(uint codePoint) =>
+            codePoint is >= 0x17C1 and <= 0x17C3;
 
         public void AssignArabicJoiningActions(string script)
         {
@@ -2032,6 +2592,9 @@ public static class OpenTypeTextShaper
                 "frac" => explicitlyEnabled || _glyphs[index].FractionAction != FractionNone,
                 "numr" => explicitlyEnabled || _glyphs[index].FractionAction == FractionNumerator,
                 "dnom" => explicitlyEnabled || _glyphs[index].FractionAction == FractionDenominator,
+                "pref" => (_glyphs[index].ScriptFeatureMask & KhmerPrefMask) != 0,
+                "blwf" or "abvf" or "pstf" => (_glyphs[index].ScriptFeatureMask & KhmerPostBaseMask) != 0,
+                "cfar" => (_glyphs[index].ScriptFeatureMask & KhmerCfarMask) != 0,
                 "isol" => action == Isolated,
                 "fina" => action == Final,
                 "fin2" => action == Final2,
@@ -2070,11 +2633,29 @@ public static class OpenTypeTextShaper
             if (componentIndices.IsEmpty) return;
             GlyphRecord ligature = _glyphs[componentIndices[0]];
             ligature.GlyphIndex = ligatureGlyph;
-            for (var index = 1; index < componentIndices.Length; index++)
+            ligature.LigatureComponentCount = checked((byte)Math.Min(componentIndices.Length, byte.MaxValue));
+            int first = componentIndices[0];
+            int last = componentIndices[^1];
+            for (var component = 0; component + 1 < componentIndices.Length; component++)
             {
-                ligature.Cluster = Math.Min(ligature.Cluster, _glyphs[componentIndices[index]].Cluster);
+                for (var index = componentIndices[component] + 1; index < componentIndices[component + 1]; index++)
+                {
+                    GlyphRecord skipped = _glyphs[index];
+                    skipped.LigatureComponent = checked((byte)Math.Min(component, byte.MaxValue - 1));
+                    _glyphs[index] = skipped;
+                }
             }
-            _glyphs[componentIndices[0]] = ligature;
+            for (var index = first; index <= last; index++)
+            {
+                ligature.Cluster = Math.Min(ligature.Cluster, _glyphs[index].Cluster);
+            }
+            for (var index = first; index <= last; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.Cluster = ligature.Cluster;
+                _glyphs[index] = glyph;
+            }
+            _glyphs[first] = ligature;
             for (var index = componentIndices.Length - 1; index >= 1; index--)
             {
                 _glyphs.RemoveAt(componentIndices[index]);
@@ -2090,7 +2671,7 @@ public static class OpenTypeTextShaper
             >= 0x1BCA0 and <= 0x1BCAF or >= 0x1D173 and <= 0x1D17A or
             >= 0xE0000 and <= 0xE0FFF;
 
-        public static GlyphSubstitutionBuffer Create(string text, TtfFont font)
+        public static GlyphSubstitutionBuffer Create(string text, TtfFont font, string script)
         {
             if (text.Length > MaximumShapedGlyphCount)
             {
@@ -2126,6 +2707,10 @@ public static class OpenTypeTextShaper
                             index += consumed;
                             continue;
                         }
+                    }
+                    if (script == "khmr" && IsKhmerSplitMatra((uint)rune.Value))
+                    {
+                        AppendMappedRune(glyphs, font, new Rune(0x17C1), cluster);
                     }
                     AppendNormalizedRune(glyphs, font, rune, cluster);
                     index += consumed;
@@ -2200,6 +2785,9 @@ public static class OpenTypeTextShaper
         private static bool IsVariationSelector(int codePoint) =>
             codePoint is >= 0xFE00 and <= 0xFE0F or >= 0xE0100 and <= 0xE01EF;
 
+        private static bool IsKhmerSplitMatra(uint codePoint) =>
+            codePoint is 0x17BE or 0x17BF or 0x17C0 or 0x17C4 or 0x17C5;
+
         private static byte GetSpaceFallback(uint codePoint) => codePoint switch
         {
             0x0020 or 0x00A0 => Space,
@@ -2258,17 +2846,19 @@ public static class OpenTypeTextShaper
     {
         private readonly GlyphRecord[] _glyphs;
         private readonly Typeface? _typeface;
+        private readonly ReadOnlyMemory<byte> _gdefTable;
 
         public GlyphPositionBuffer(GlyphSubstitutionBuffer substitutions, TtfFont font, ShapingDirection direction)
         {
             _typeface = font.LayoutTypeface;
+            font.TryGetTable("GDEF", out _gdefTable);
             _glyphs = new GlyphRecord[substitutions.Count];
             bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
             for (var index = 0; index < _glyphs.Length; index++)
             {
                 GlyphRecord record = substitutions.GetRecord(index);
                 bool defaultIgnorable = GlyphSubstitutionBuffer.IsDefaultIgnorable(record.CodePoint);
-                if (defaultIgnorable && record.GlyphIndex == 0)
+                if (defaultIgnorable)
                 {
                     record.GlyphIndex = font.GetGlyphIndex(' ');
                 }
@@ -2369,6 +2959,98 @@ public static class OpenTypeTextShaper
         public GlyphClassKind GetGlyphClassKind(int index) =>
             _typeface?.GetGlyph(_glyphs[index].GlyphIndex).GlyphClass ?? GlyphClassKind.Zero;
 
+        public int NextEligibleIndex(int index, ushort lookupFlags)
+        {
+            while (index < _glyphs.Length)
+            {
+                if (!IsIgnored(index, lookupFlags)) return index;
+                index++;
+            }
+            return -1;
+        }
+
+        public int PreviousEligibleIndex(
+            int index,
+            ushort lookupFlags,
+            int coverageOffset,
+            ReadOnlySpan<byte> data,
+            bool skipMarks)
+        {
+            while (index >= 0 && (IsIgnored(index, lookupFlags) || skipMarks && IsMark(index))) index--;
+            return index >= 0 && FindCoverage(data, coverageOffset, GetGlyph(index)) >= 0 ? index : -1;
+        }
+
+        private bool IsIgnored(int index, ushort lookupFlags)
+        {
+            if (GlyphSubstitutionBuffer.IsDefaultIgnorable(_glyphs[index].CodePoint)) return true;
+            GlyphClassKind glyphClass = GetGlyphClassKind(index);
+            if (glyphClass == GlyphClassKind.Mark)
+            {
+                int requiredMarkClass = lookupFlags >> 8;
+                if (requiredMarkClass != 0 && GetMarkAttachmentClass(_glyphs[index].GlyphIndex) != requiredMarkClass)
+                {
+                    return true;
+                }
+            }
+            return glyphClass switch
+            {
+                GlyphClassKind.Base => (lookupFlags & 0x0002) != 0,
+                GlyphClassKind.Ligature => (lookupFlags & 0x0004) != 0,
+                GlyphClassKind.Mark => (lookupFlags & 0x0008) != 0,
+                _ => false
+            };
+        }
+
+        private int GetMarkAttachmentClass(ushort glyph)
+        {
+            ReadOnlySpan<byte> data = _gdefTable.Span;
+            if (!CanRead(data, 10, 2)) return 0;
+            int classDefOffset = ReadU16(data, 10);
+            return classDefOffset == 0 ? 0 : OpenTypeTextShaper.GetGlyphClass(data, classDefOffset, glyph);
+        }
+
+        public int GetLigatureComponent(int markIndex, int ligatureIndex)
+        {
+            if (_glyphs[markIndex].LigatureComponent != byte.MaxValue)
+            {
+                return _glyphs[markIndex].LigatureComponent;
+            }
+            int componentCount = _glyphs[ligatureIndex].LigatureComponentCount;
+            return componentCount > 0 ? componentCount - 1 : int.MaxValue;
+        }
+
+        public void Attach(int markIndex, int targetIndex, int anchorDeltaX, int anchorDeltaY)
+        {
+            GlyphRecord mark = _glyphs[markIndex];
+            int x = anchorDeltaX - mark.OffsetX;
+            int y = anchorDeltaY - mark.OffsetY;
+            for (var index = targetIndex; index < markIndex; index++)
+            {
+                x -= _glyphs[index].AdvanceX;
+                y -= _glyphs[index].AdvanceY;
+            }
+            mark.OffsetX = AddClamped(mark.OffsetX, x);
+            mark.OffsetY = AddClamped(mark.OffsetY, y);
+            mark.AttachmentTarget = targetIndex;
+            _glyphs[markIndex] = mark;
+        }
+
+        public void ResolveAttachmentOffsets()
+        {
+            for (var index = 0; index < _glyphs.Length; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                if (glyph.AttachmentTarget < 0 || glyph.AttachmentTarget >= index)
+                {
+                    continue;
+                }
+                GlyphRecord target = _glyphs[glyph.AttachmentTarget];
+                glyph.OffsetX = AddClamped(glyph.OffsetX, target.OffsetX);
+                glyph.OffsetY = AddClamped(glyph.OffsetY, target.OffsetY);
+                _glyphs[index] = glyph;
+            }
+        }
+
         public void AppendGlyphOffset(int index, short appendOffsetX, short appendOffsetY)
         {
             _glyphs[index].OffsetX = AddClamped(_glyphs[index].OffsetX, appendOffsetX);
@@ -2419,9 +3101,14 @@ public static class OpenTypeTextShaper
 
         private bool IsMark(int index)
         {
-            if (GetGlyphClassKind(index) == GlyphClassKind.Mark)
+            GlyphClassKind glyphClass = GetGlyphClassKind(index);
+            if (glyphClass == GlyphClassKind.Mark)
             {
                 return true;
+            }
+            if (glyphClass != GlyphClassKind.Zero)
+            {
+                return false;
             }
             UnicodeCategory category = Rune.GetUnicodeCategory(new Rune((int)_glyphs[index].CodePoint));
             return category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
@@ -2472,6 +3159,8 @@ public static class OpenTypeTextShaper
             Cluster = cluster;
             CodePoint = codePoint;
             ArabicAction = None;
+            LigatureComponent = byte.MaxValue;
+            AttachmentTarget = -1;
         }
 
         public ushort GlyphIndex;
@@ -2484,6 +3173,10 @@ public static class OpenTypeTextShaper
         public byte ArabicAction;
         public byte SpaceFallback;
         public byte FractionAction;
+        public byte ScriptFeatureMask;
+        public byte LigatureComponentCount;
+        public byte LigatureComponent;
+        public int AttachmentTarget;
     }
 
     private readonly record struct ArabicStateEntry(byte PreviousAction, byte CurrentAction, byte NextState);
@@ -2515,4 +3208,8 @@ public static class OpenTypeTextShaper
     private const byte FractionNumerator = 1;
     private const byte FractionDenominator = 2;
     private const byte FractionSlash = 3;
+
+    private const byte KhmerPrefMask = 1 << 0;
+    private const byte KhmerPostBaseMask = 1 << 1;
+    private const byte KhmerCfarMask = 1 << 2;
 }
