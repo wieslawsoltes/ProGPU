@@ -151,8 +151,9 @@ public static class OpenTypeTextShaper
 
         string unicodeScript = options.Script ?? InferScript(text);
         bool useShaper = ResolveLayoutScript(font, unicodeScript, out string script);
+        bool indicShaper = !useShaper && IsIndicShaperScript(unicodeScript);
         ShapingDirection direction = ResolveDirection(options.Direction, unicodeScript);
-        options = AddScriptFeatures(options, script, useShaper);
+        options = AddScriptFeatures(options, script, useShaper, indicShaper);
         options = AddDirectionalFeatures(options, direction);
 
         var substitutions = GlyphSubstitutionBuffer.Create(text, font, unicodeScript);
@@ -161,6 +162,7 @@ public static class OpenTypeTextShaper
         substitutions.PrepareThaiLao(unicodeScript);
         substitutions.AssignFractionActions();
         substitutions.PrepareKhmerShaping(script);
+        substitutions.PrepareIndicShaping(indicShaper);
         substitutions.PrepareUseShaping(useShaper, unicodeScript);
         substitutions.AssignArabicJoiningActions(unicodeScript);
         Typeface? typeface = font.LayoutTypeface;
@@ -178,6 +180,24 @@ public static class OpenTypeTextShaper
             substitutions.ReorderUseShaping(true);
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.Topographical);
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.Presentation);
+        }
+        else if (indicShaper)
+        {
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicPreprocessing);
+            substitutions.InitialReorderIndic(unicodeScript, script, substitutionPlan);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicNukta);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicAkhand);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.Repha);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicRakar);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.Prebase);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicBelow);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicAbove);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicHalf);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicPost);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicVattu);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicConjunct);
+            substitutions.FinalReorderIndic(unicodeScript);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.IndicPresentation);
         }
         else
         {
@@ -276,9 +296,13 @@ public static class OpenTypeTextShaper
         };
     }
 
-    private static TextShapingOptions AddScriptFeatures(TextShapingOptions options, string script, bool useShaper)
+    private static TextShapingOptions AddScriptFeatures(
+        TextShapingOptions options,
+        string script,
+        bool useShaper,
+        bool indicShaper)
     {
-        if (script != "khmr" && !useShaper)
+        if (script != "khmr" && !useShaper && !indicShaper)
         {
             return options;
         }
@@ -293,6 +317,9 @@ public static class OpenTypeTextShaper
 
         string[] scriptFeatures = script == "khmr"
             ? ["pref", "blwf", "abvf", "pstf", "cfar", "pres", "abvs", "blws", "psts"]
+            : indicShaper
+            ? ["nukt", "akhn", "rphf", "rkrf", "pref", "blwf", "abvf", "half", "pstf", "vatu", "cjct",
+               "init", "pres", "abvs", "blws", "psts", "haln"]
             : ["nukt", "akhn", "rphf", "pref", "rkrf", "abvf", "blwf", "half", "pstf", "vatu", "cjct",
                "isol", "init", "medi", "fina", "abvs", "blws", "haln", "pres", "psts"];
         foreach (string tag in scriptFeatures)
@@ -306,6 +333,10 @@ public static class OpenTypeTextShaper
             {
                 values["liga"] = 0;
             }
+        }
+        else if (indicShaper)
+        {
+            values["liga"] = 0;
         }
 
         string[] orderedTags = script == "khmr"
@@ -483,6 +514,20 @@ public static class OpenTypeTextShaper
                 ("rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or "nukt" or "akhn" or
                  "rphf" or "pref" or "rkrf" or "abvf" or "blwf" or "half" or "pstf" or "vatu" or
                  "cjct" or "isol" or "init" or "medi" or "fina"),
+            UseSubstitutionStage.IndicPreprocessing => tag is
+                "rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp",
+            UseSubstitutionStage.IndicNukta => tag == "nukt",
+            UseSubstitutionStage.IndicAkhand => tag == "akhn",
+            UseSubstitutionStage.IndicRakar => tag == "rkrf",
+            UseSubstitutionStage.IndicBelow => tag == "blwf",
+            UseSubstitutionStage.IndicAbove => tag == "abvf",
+            UseSubstitutionStage.IndicHalf => tag == "half",
+            UseSubstitutionStage.IndicPost => tag == "pstf",
+            UseSubstitutionStage.IndicVattu => tag == "vatu",
+            UseSubstitutionStage.IndicConjunct => tag == "cjct",
+            UseSubstitutionStage.IndicPresentation => tag is not
+                ("rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or "nukt" or "akhn" or
+                 "rphf" or "rkrf" or "pref" or "blwf" or "abvf" or "half" or "pstf" or "vatu" or "cjct"),
             _ => false
         };
     }
@@ -2640,7 +2685,18 @@ public static class OpenTypeTextShaper
         Prebase,
         Basic,
         Topographical,
-        Presentation
+        Presentation,
+        IndicPreprocessing,
+        IndicNukta,
+        IndicAkhand,
+        IndicRakar,
+        IndicBelow,
+        IndicAbove,
+        IndicHalf,
+        IndicPost,
+        IndicVattu,
+        IndicConjunct,
+        IndicPresentation
     }
 
     private static IEnumerable<EnabledLookup> GetEnabledLookupIndices(
@@ -2851,6 +2907,25 @@ public static class OpenTypeTextShaper
             return true;
         }
 
+        string? secondGenerationTag = unicodeScript switch
+        {
+            "beng" => "bng2",
+            "deva" => "dev2",
+            "gujr" => "gjr2",
+            "guru" => "gur2",
+            "knda" => "knd2",
+            "mlym" => "mlm2",
+            "orya" => "ory2",
+            "taml" => "tml2",
+            "telu" => "tel2",
+            _ => null
+        };
+        if (secondGenerationTag is not null && HasOpenTypeScript(font, "GSUB", secondGenerationTag))
+        {
+            layoutScript = secondGenerationTag;
+            return false;
+        }
+
         layoutScript = unicodeScript;
         return unicodeScript is
             "tibt" or "mong" or "sinh" or "java" or "marc" or "limb" or "tale" or
@@ -2865,6 +2940,9 @@ public static class OpenTypeTextShaper
             "diak" or "kits" or "yezi" or "cpmn" or "ougr" or "tnsa" or "toto" or
             "vith" or "kawi" or "nagm";
     }
+
+    private static bool IsIndicShaperScript(string script) => script is
+        "beng" or "deva" or "gujr" or "guru" or "knda" or "mlym" or "orya" or "taml" or "telu";
 
     private static bool HasOpenTypeScript(TtfFont font, string tableTag, string scriptTag)
     {
@@ -3228,6 +3306,492 @@ public static class OpenTypeTextShaper
 
         private static bool IsKhmerPreBaseVowel(uint codePoint) =>
             codePoint is >= 0x17C1 and <= 0x17C3;
+
+        public void PrepareIndicShaping(bool enabled)
+        {
+            if (!enabled) return;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                ushort properties = IndicShapingData.GetProperties(glyph.CodePoint);
+                glyph.ScriptShaper = ScriptShaperIndic;
+                glyph.IndicCategory = IndicShapingData.GetCategory(properties);
+                glyph.IndicPosition = IndicShapingData.GetPosition(properties);
+                _glyphs[index] = glyph;
+            }
+            FindIndicSyllables();
+        }
+
+        private void FindIndicSyllables()
+        {
+            if (_glyphs.Count == 0) return;
+            int state = IndicSyllableMachineData.StartState;
+            int position = 0;
+            int tokenStart = -1;
+            int tokenEnd = -1;
+            int pendingAction = 0;
+            byte serial = 1;
+            while (true)
+            {
+                int transition;
+                if (position == _glyphs.Count)
+                {
+                    transition = IndicSyllableMachineData.GetEofTransition(state);
+                    if (transition < 0) break;
+                }
+                else
+                {
+                    if (IndicSyllableMachineData.GetFromStateAction(state) == 10) tokenStart = position;
+                    transition = IndicSyllableMachineData.GetTransition(state, _glyphs[position].IndicCategory);
+                }
+
+                state = IndicSyllableMachineData.GetTarget(transition);
+                switch (IndicSyllableMachineData.GetAction(transition))
+                {
+                    case 2: tokenEnd = position + 1; break;
+                    case 11: tokenEnd = position + 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicNonCluster, ref serial); break;
+                    case 14: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicConsonantSyllable, ref serial); break;
+                    case 15: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicVowelSyllable, ref serial); break;
+                    case 18: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicStandaloneCluster, ref serial); break;
+                    case 20: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicSymbolCluster, ref serial); break;
+                    case 16: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicBrokenCluster, ref serial); break;
+                    case 17: tokenEnd = position; position--; AssignIndicSyllable(tokenStart, tokenEnd, IndicNonCluster, ref serial); break;
+                    case 1: position = tokenEnd - 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicConsonantSyllable, ref serial); break;
+                    case 3: position = tokenEnd - 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicVowelSyllable, ref serial); break;
+                    case 7: position = tokenEnd - 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicStandaloneCluster, ref serial); break;
+                    case 8: position = tokenEnd - 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicSymbolCluster, ref serial); break;
+                    case 4: position = tokenEnd - 1; AssignIndicSyllable(tokenStart, tokenEnd, IndicBrokenCluster, ref serial); break;
+                    case 6:
+                        position = tokenEnd - 1;
+                        AssignIndicSyllable(tokenStart, tokenEnd, pendingAction switch
+                        {
+                            1 => IndicConsonantSyllable,
+                            6 => IndicBrokenCluster,
+                            _ => IndicNonCluster
+                        }, ref serial);
+                        break;
+                    case 19: tokenEnd = position + 1; pendingAction = 1; break;
+                    case 13: tokenEnd = position + 1; pendingAction = 5; break;
+                    case 5: tokenEnd = position + 1; pendingAction = 6; break;
+                    case 12: tokenEnd = position + 1; pendingAction = 7; break;
+                }
+                if (IndicSyllableMachineData.GetToStateAction(state) == 9) tokenStart = -1;
+                position++;
+                if (position < 0 || position > _glyphs.Count) break;
+            }
+        }
+
+        private void AssignIndicSyllable(int start, int end, byte type, ref byte serial)
+        {
+            if (start < 0 || end < start) return;
+            byte value = (byte)(serial << 4 | type);
+            for (var index = start; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.UseSyllable = value;
+                _glyphs[index] = glyph;
+            }
+            if (++serial == 16) serial = 1;
+        }
+
+        public void InitialReorderIndic(string unicodeScript, string layoutScript, SubstitutionPlan plan)
+        {
+            bool oldSpec = layoutScript.Length < 4 || layoutScript[3] != '2';
+            UpdateIndicConsonantPositions(unicodeScript, plan, oldSpec);
+            InsertBrokenIndicDottedCircles();
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                byte syllable = _glyphs[start].UseSyllable;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].UseSyllable == syllable) end++;
+                byte type = (byte)(syllable & 0x0F);
+                if (type is IndicConsonantSyllable or IndicVowelSyllable or IndicStandaloneCluster or IndicBrokenCluster)
+                    InitialReorderIndicSyllable(start, end, unicodeScript, oldSpec, plan);
+                start = end;
+            }
+        }
+
+        private void UpdateIndicConsonantPositions(string script, SubstitutionPlan plan, bool oldSpec)
+        {
+            uint virama = GetIndicVirama(script);
+            ushort viramaGlyph = _font.GetGlyphIndex(virama);
+            if (viramaGlyph == 0) return;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                if (glyph.IndicPosition != IndicShapingData.PositionBaseConsonant) continue;
+                Span<ushort> first = stackalloc ushort[2] { viramaGlyph, glyph.GlyphIndex };
+                Span<ushort> second = stackalloc ushort[2] { glyph.GlyphIndex, viramaGlyph };
+                if (WouldSubstitute(plan, "blwf", first) || WouldSubstitute(plan, "blwf", second) ||
+                    WouldSubstitute(plan, "vatu", first) || WouldSubstitute(plan, "vatu", second))
+                    glyph.IndicPosition = IndicShapingData.PositionBelowConsonant;
+                else if (WouldSubstitute(plan, "pstf", first) || WouldSubstitute(plan, "pstf", second) ||
+                         WouldSubstitute(plan, "pref", first) || WouldSubstitute(plan, "pref", second))
+                    glyph.IndicPosition = IndicShapingData.PositionPostConsonant;
+                _glyphs[index] = glyph;
+            }
+        }
+
+        private bool WouldSubstitute(SubstitutionPlan plan, string tag, ReadOnlySpan<ushort> glyphIndices)
+        {
+            if (plan.RawTable.IsEmpty) return false;
+            var records = new List<GlyphRecord>(glyphIndices.Length);
+            for (var index = 0; index < glyphIndices.Length; index++)
+                records.Add(new GlyphRecord(glyphIndices[index], index, 0));
+            var probe = new GlyphSubstitutionBuffer(records, _font);
+            foreach (EnabledLookup lookup in plan.RawLookups)
+            {
+                if (lookup.Tag != tag) continue;
+                int beforeCount = probe.Count;
+                ushort beforeGlyph = probe[0];
+                if (ApplyNestedLookup(plan.RawTable.Span, probe, lookup.LookupIndex, 0) &&
+                    (probe.Count != beforeCount || probe[0] != beforeGlyph)) return true;
+            }
+            return false;
+        }
+
+        private void InsertBrokenIndicDottedCircles()
+        {
+            ushort dottedGlyph = _font.GetGlyphIndex(0x25CC);
+            if (dottedGlyph == 0) return;
+            byte previous = 0;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord current = _glyphs[index];
+                if (current.UseSyllable == previous || (current.UseSyllable & 0x0F) != IndicBrokenCluster)
+                {
+                    previous = current.UseSyllable;
+                    continue;
+                }
+                previous = current.UseSyllable;
+                while (index < _glyphs.Count && _glyphs[index].UseSyllable == previous &&
+                       _glyphs[index].IndicCategory == IndicShapingData.Repha) index++;
+                _glyphs.Insert(index, new GlyphRecord(dottedGlyph, current.Cluster, 0x25CC)
+                {
+                    ScriptShaper = ScriptShaperIndic,
+                    IndicCategory = IndicShapingData.DottedCircle,
+                    IndicPosition = IndicShapingData.PositionEnd,
+                    UseSyllable = previous
+                });
+            }
+        }
+
+        private void InitialReorderIndicSyllable(
+            int start,
+            int end,
+            string script,
+            bool oldSpec,
+            SubstitutionPlan plan)
+        {
+            if (script == "knda" && end - start >= 3 &&
+                _glyphs[start].IndicCategory == IndicShapingData.Ra &&
+                _glyphs[start + 1].IndicCategory == IndicShapingData.Halant &&
+                _glyphs[start + 2].IndicCategory == IndicShapingData.Zwj)
+            {
+                MergeCluster(start + 1, start + 3);
+                (_glyphs[start + 1], _glyphs[start + 2]) = (_glyphs[start + 2], _glyphs[start + 1]);
+            }
+
+            int limit = start;
+            int baseIndex = end;
+            bool hasReph = false;
+            IndicRephMode rephMode = GetIndicRephMode(script);
+            if (end - start >= 3 &&
+                ((rephMode == IndicRephMode.Implicit && !IsIndicJoiner(_glyphs[start + 2])) ||
+                 (rephMode == IndicRephMode.Explicit && _glyphs[start + 2].IndicCategory == IndicShapingData.Zwj)))
+            {
+                int length = rephMode == IndicRephMode.Explicit ? 3 : 2;
+                Span<ushort> probe = stackalloc ushort[3];
+                for (var index = 0; index < length; index++) probe[index] = _glyphs[start + index].GlyphIndex;
+                if (WouldSubstitute(plan, "rphf", probe[..2]) ||
+                    length == 3 && WouldSubstitute(plan, "rphf", probe[..3]))
+                {
+                    limit += 2;
+                    while (limit < end && IsIndicJoiner(_glyphs[limit])) limit++;
+                    baseIndex = start;
+                    hasReph = true;
+                }
+            }
+            else if (rephMode == IndicRephMode.Logical && _glyphs[start].IndicCategory == IndicShapingData.Repha)
+            {
+                limit++;
+                while (limit < end && IsIndicJoiner(_glyphs[limit])) limit++;
+                baseIndex = start;
+                hasReph = true;
+            }
+
+            bool seenBelow = false;
+            for (var index = end - 1; index >= limit; index--)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                if (IsIndicConsonant(glyph))
+                {
+                    if (glyph.IndicPosition != IndicShapingData.PositionBelowConsonant &&
+                        (glyph.IndicPosition != IndicShapingData.PositionPostConsonant || seenBelow))
+                    {
+                        baseIndex = index;
+                        break;
+                    }
+                    if (glyph.IndicPosition == IndicShapingData.PositionBelowConsonant) seenBelow = true;
+                    baseIndex = index;
+                }
+                else if (index > start && glyph.IndicCategory == IndicShapingData.Zwj &&
+                         _glyphs[index - 1].IndicCategory == IndicShapingData.Halant) break;
+            }
+            if (hasReph && baseIndex == start && limit - baseIndex <= 2) hasReph = false;
+
+            for (var index = start; index < baseIndex; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.IndicPosition = Math.Min(IndicShapingData.PositionPreConsonant, glyph.IndicPosition);
+                _glyphs[index] = glyph;
+            }
+            if (baseIndex < end)
+            {
+                GlyphRecord glyph = _glyphs[baseIndex];
+                glyph.IndicPosition = IndicShapingData.PositionBaseConsonant;
+                _glyphs[baseIndex] = glyph;
+            }
+            if (hasReph)
+            {
+                GlyphRecord glyph = _glyphs[start];
+                glyph.IndicPosition = IndicShapingData.PositionRaToBecomeReph;
+                _glyphs[start] = glyph;
+            }
+
+            if (oldSpec && baseIndex < end)
+            {
+                bool disallowDoubleHalants = script == "knda";
+                for (var index = baseIndex + 1; index < end; index++)
+                {
+                    if (_glyphs[index].IndicCategory != IndicShapingData.Halant) continue;
+                    int destination = end - 1;
+                    while (destination > index && !IsIndicConsonant(_glyphs[destination]) &&
+                           !(disallowDoubleHalants && _glyphs[destination].IndicCategory == IndicShapingData.Halant))
+                        destination--;
+                    if (_glyphs[destination].IndicCategory != IndicShapingData.Halant && destination > index)
+                    {
+                        GlyphRecord halant = _glyphs[index];
+                        _glyphs.RemoveAt(index);
+                        _glyphs.Insert(destination, halant);
+                    }
+                    break;
+                }
+            }
+
+            AttachIndicMarkPositions(start, end, baseIndex);
+            StableSortIndic(start, end);
+            baseIndex = FindIndicBase(start, end);
+            SetupIndicFeatureMasks(start, end, baseIndex, oldSpec, script, plan);
+        }
+
+        private void AttachIndicMarkPositions(int start, int end, int baseIndex)
+        {
+            byte lastPosition = IndicShapingData.PositionStart;
+            for (var index = start; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                if (IsIndicJoiner(glyph) || glyph.IndicCategory is IndicShapingData.Nukta or
+                    IndicShapingData.RegisterShifter or IndicShapingData.ConsonantMedial or IndicShapingData.Halant)
+                {
+                    glyph.IndicPosition = lastPosition;
+                    if (glyph.IndicCategory == IndicShapingData.Halant && glyph.IndicPosition == IndicShapingData.PositionPreMatra)
+                    {
+                        for (var prior = index; prior > start; prior--)
+                            if (_glyphs[prior - 1].IndicPosition != IndicShapingData.PositionPreMatra)
+                            {
+                                glyph.IndicPosition = _glyphs[prior - 1].IndicPosition;
+                                break;
+                            }
+                    }
+                    _glyphs[index] = glyph;
+                }
+                else if (glyph.IndicPosition != IndicShapingData.PositionSyllableModifierVedic)
+                {
+                    if (glyph.IndicCategory == IndicShapingData.MatraPost && index > start &&
+                        _glyphs[index - 1].IndicCategory == IndicShapingData.SyllableModifier)
+                    {
+                        GlyphRecord previous = _glyphs[index - 1];
+                        previous.IndicPosition = glyph.IndicPosition;
+                        _glyphs[index - 1] = previous;
+                    }
+                    lastPosition = glyph.IndicPosition;
+                }
+            }
+            int last = Math.Min(baseIndex, end - 1);
+            for (var index = last + 1; index < end; index++)
+            {
+                if (IsIndicConsonant(_glyphs[index]))
+                {
+                    for (var mark = last + 1; mark < index; mark++)
+                    {
+                        GlyphRecord glyph = _glyphs[mark];
+                        if (glyph.IndicPosition < IndicShapingData.PositionSyllableModifierVedic)
+                        {
+                            glyph.IndicPosition = _glyphs[index].IndicPosition;
+                            _glyphs[mark] = glyph;
+                        }
+                    }
+                    last = index;
+                }
+                else if (_glyphs[index].IndicCategory is IndicShapingData.Matra or IndicShapingData.MatraPost) last = index;
+            }
+        }
+
+        private void StableSortIndic(int start, int end)
+        {
+            for (var index = start + 1; index < end; index++)
+            {
+                GlyphRecord value = _glyphs[index];
+                int insertion = index;
+                while (insertion > start && _glyphs[insertion - 1].IndicPosition > value.IndicPosition)
+                {
+                    _glyphs[insertion] = _glyphs[insertion - 1];
+                    insertion--;
+                }
+                _glyphs[insertion] = value;
+            }
+        }
+
+        private int FindIndicBase(int start, int end)
+        {
+            for (var index = start; index < end; index++)
+                if (_glyphs[index].IndicPosition == IndicShapingData.PositionBaseConsonant) return index;
+            return end;
+        }
+
+        private void SetupIndicFeatureMasks(
+            int start,
+            int end,
+            int baseIndex,
+            bool oldSpec,
+            string script,
+            SubstitutionPlan plan)
+        {
+            for (var index = start; index < end && _glyphs[index].IndicPosition == IndicShapingData.PositionRaToBecomeReph; index++)
+                AddIndicMask(index, IndicRphfMask);
+            byte preMask = IndicHalfMask;
+            if (!oldSpec && GetIndicBelowMode(script) == IndicBelowMode.PreAndPost) preMask |= IndicBlwfMask;
+            for (var index = start; index < baseIndex; index++) AddIndicMask(index, preMask);
+            for (var index = baseIndex + 1; index < end; index++) AddIndicMask(index, IndicBlwfMask | IndicAbvfMask | IndicPstfMask);
+
+            if (baseIndex + 2 < end)
+            {
+                for (var index = baseIndex + 1; index + 1 < end; index++)
+                {
+                    Span<ushort> probe = stackalloc ushort[2] { _glyphs[index].GlyphIndex, _glyphs[index + 1].GlyphIndex };
+                    if (!WouldSubstitute(plan, "pref", probe)) continue;
+                    AddIndicMask(index, IndicPrefMask);
+                    AddIndicMask(index + 1, IndicPrefMask);
+                    break;
+                }
+            }
+            for (var index = start + 1; index < end; index++)
+            {
+                if (!IsIndicJoiner(_glyphs[index]) || _glyphs[index].IndicCategory != IndicShapingData.Zwnj) continue;
+                for (var prior = index - 1; prior >= start; prior--)
+                {
+                    RemoveIndicMask(prior, IndicHalfMask);
+                    if (IsIndicConsonant(_glyphs[prior])) break;
+                }
+            }
+        }
+
+        private void AddIndicMask(int index, byte mask)
+        {
+            GlyphRecord glyph = _glyphs[index];
+            glyph.ScriptFeatureMask |= mask;
+            _glyphs[index] = glyph;
+        }
+
+        private void RemoveIndicMask(int index, byte mask)
+        {
+            GlyphRecord glyph = _glyphs[index];
+            glyph.ScriptFeatureMask &= (byte)~mask;
+            _glyphs[index] = glyph;
+        }
+
+        public void FinalReorderIndic(string script)
+        {
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                byte syllable = _glyphs[start].UseSyllable;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].UseSyllable == syllable) end++;
+                FinalReorderIndicSyllable(start, end, script);
+                start = end;
+            }
+        }
+
+        private void FinalReorderIndicSyllable(int start, int end, string script)
+        {
+            int baseIndex = start;
+            while (baseIndex < end && _glyphs[baseIndex].IndicPosition < IndicShapingData.PositionBaseConsonant) baseIndex++;
+            if (baseIndex == end && end > start && _glyphs[end - 1].IndicCategory == IndicShapingData.Zwj) baseIndex--;
+            while (baseIndex > start && baseIndex < end &&
+                   _glyphs[baseIndex].IndicCategory is IndicShapingData.Nukta or IndicShapingData.Halant) baseIndex--;
+
+            if (start + 1 < end && start < baseIndex)
+            {
+                int destination = baseIndex == end ? baseIndex - 2 : baseIndex - 1;
+                if (script is not ("mlym" or "taml"))
+                {
+                    while (destination > start && _glyphs[destination].IndicCategory is not
+                           (IndicShapingData.Matra or IndicShapingData.MatraPost or IndicShapingData.Halant)) destination--;
+                    if (_glyphs[destination].IndicCategory != IndicShapingData.Halant ||
+                        _glyphs[destination].IndicPosition == IndicShapingData.PositionPreMatra) destination = start;
+                }
+                if (destination > start && _glyphs[destination].IndicPosition != IndicShapingData.PositionPreMatra)
+                {
+                    for (var index = destination; index > start; index--)
+                    {
+                        if (_glyphs[index - 1].IndicPosition != IndicShapingData.PositionPreMatra) continue;
+                        GlyphRecord matra = _glyphs[index - 1];
+                        _glyphs.RemoveAt(index - 1);
+                        _glyphs.Insert(destination, matra);
+                        MergeCluster(destination, Math.Min(end, baseIndex + 1));
+                        destination--;
+                    }
+                }
+                else
+                {
+                    for (var index = start; index < baseIndex; index++)
+                        if (_glyphs[index].IndicPosition == IndicShapingData.PositionPreMatra)
+                        {
+                            MergeCluster(index, Math.Min(end, baseIndex + 1));
+                            break;
+                        }
+                }
+            }
+
+            if (_glyphs[start].IndicPosition == IndicShapingData.PositionPreMatra) AddIndicMask(start, IndicInitMask);
+        }
+
+        private static bool IsIndicConsonant(GlyphRecord glyph) => glyph.Ligated == 0 && glyph.IndicCategory is
+            IndicShapingData.Consonant or IndicShapingData.ConsonantWithStacker or IndicShapingData.Ra or
+            IndicShapingData.ConsonantMedial or IndicShapingData.Vowel or IndicShapingData.Placeholder or
+            IndicShapingData.DottedCircle;
+
+        private static bool IsIndicJoiner(GlyphRecord glyph) => glyph.Ligated == 0 &&
+            glyph.IndicCategory is IndicShapingData.Zwj or IndicShapingData.Zwnj;
+
+        private static uint GetIndicVirama(string script) => script switch
+        {
+            "deva" => 0x094D, "beng" => 0x09CD, "guru" => 0x0A4D, "gujr" => 0x0ACD,
+            "orya" => 0x0B4D, "taml" => 0x0BCD, "telu" => 0x0C4D, "knda" => 0x0CCD,
+            "mlym" => 0x0D4D, _ => 0
+        };
+
+        private static IndicRephMode GetIndicRephMode(string script) => script switch
+        {
+            "telu" => IndicRephMode.Explicit,
+            "mlym" => IndicRephMode.Logical,
+            _ => IndicRephMode.Implicit
+        };
+
+        private static IndicBelowMode GetIndicBelowMode(string script) => script is "telu" or "knda"
+            ? IndicBelowMode.PostOnly
+            : IndicBelowMode.PreAndPost;
 
         public void PrepareUseShaping(bool enabled, string unicodeScript)
         {
@@ -3715,6 +4279,20 @@ public static class OpenTypeTextShaper
         public bool IsFeatureEnabled(int index, string tag, TextShapingOptions options)
         {
             GlyphRecord glyph = _glyphs[index];
+            if (glyph.ScriptShaper == ScriptShaperIndic)
+            {
+                return tag switch
+                {
+                    "rphf" => (glyph.ScriptFeatureMask & IndicRphfMask) != 0,
+                    "pref" => (glyph.ScriptFeatureMask & IndicPrefMask) != 0,
+                    "blwf" => (glyph.ScriptFeatureMask & IndicBlwfMask) != 0,
+                    "abvf" => (glyph.ScriptFeatureMask & IndicAbvfMask) != 0,
+                    "half" => (glyph.ScriptFeatureMask & IndicHalfMask) != 0,
+                    "pstf" => (glyph.ScriptFeatureMask & IndicPstfMask) != 0,
+                    "init" => (glyph.ScriptFeatureMask & IndicInitMask) != 0,
+                    _ => true
+                };
+            }
             byte action = glyph.ArabicAction;
             bool explicitlyEnabled = options.ExplicitFeatureTags?.Contains(tag) == true;
             return tag switch
@@ -4319,6 +4897,8 @@ public static class OpenTypeTextShaper
         public byte ScriptShaper;
         public byte UseCategory;
         public byte UseSyllable;
+        public byte IndicCategory;
+        public byte IndicPosition;
         public byte UseRphfEligible;
         public byte Substituted;
         public byte Ligated;
@@ -4329,6 +4909,9 @@ public static class OpenTypeTextShaper
     }
 
     private readonly record struct ArabicStateEntry(byte PreviousAction, byte CurrentAction, byte NextState);
+
+    private enum IndicRephMode : byte { Implicit, Explicit, Logical }
+    private enum IndicBelowMode : byte { PreAndPost, PostOnly }
 
     private const byte Isolated = 0;
     private const byte Final = 1;
@@ -4341,6 +4924,22 @@ public static class OpenTypeTextShaper
 
     private const byte ScriptShaperKhmer = 1;
     private const byte ScriptShaperUse = 2;
+    private const byte ScriptShaperIndic = 3;
+
+    private const byte IndicConsonantSyllable = 0;
+    private const byte IndicVowelSyllable = 1;
+    private const byte IndicStandaloneCluster = 2;
+    private const byte IndicSymbolCluster = 3;
+    private const byte IndicBrokenCluster = 4;
+    private const byte IndicNonCluster = 5;
+
+    private const byte IndicRphfMask = 1 << 0;
+    private const byte IndicPrefMask = 1 << 1;
+    private const byte IndicBlwfMask = 1 << 2;
+    private const byte IndicAbvfMask = 1 << 3;
+    private const byte IndicHalfMask = 1 << 4;
+    private const byte IndicPstfMask = 1 << 5;
+    private const byte IndicInitMask = 1 << 6;
 
     private const byte UseViramaTerminated = 0;
     private const byte UseSakotTerminated = 1;
