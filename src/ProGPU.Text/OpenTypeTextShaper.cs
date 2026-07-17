@@ -5822,26 +5822,8 @@ public static class OpenTypeTextShaper
         public void Attach(int markIndex, int targetIndex, int anchorDeltaX, int anchorDeltaY)
         {
             GlyphRecord mark = _glyphs[markIndex];
-            int x = anchorDeltaX - mark.OffsetX;
-            int y = anchorDeltaY - mark.OffsetY;
-            if (_direction is ShapingDirection.LeftToRight or ShapingDirection.TopToBottom)
-            {
-                for (var index = targetIndex; index < markIndex; index++)
-                {
-                    x -= _glyphs[index].AdvanceX;
-                    y -= _glyphs[index].AdvanceY;
-                }
-            }
-            else
-            {
-                for (var index = targetIndex + 1; index <= markIndex; index++)
-                {
-                    x += _glyphs[index].AdvanceX;
-                    y += _glyphs[index].AdvanceY;
-                }
-            }
-            mark.OffsetX = AddClamped(mark.OffsetX, x);
-            mark.OffsetY = AddClamped(mark.OffsetY, y);
+            mark.OffsetX = ClampToShort(anchorDeltaX);
+            mark.OffsetY = ClampToShort(anchorDeltaY);
             mark.AttachmentTarget = targetIndex;
             mark.AttachmentKind = AttachmentMark;
             _glyphs[markIndex] = mark;
@@ -5890,7 +5872,11 @@ public static class OpenTypeTextShaper
             bool rightToLeftLookup = (lookupFlags & 0x0001) != 0;
             int childIndex = rightToLeftLookup ? previousIndex : currentIndex;
             int parentIndex = rightToLeftLookup ? currentIndex : previousIndex;
-            GlyphRecord child = rightToLeftLookup ? previous : current;
+            _glyphs[previousIndex] = previous;
+            _glyphs[currentIndex] = current;
+
+            ReverseCursiveMinorOffset(childIndex, parentIndex, horizontal);
+            GlyphRecord child = _glyphs[childIndex];
             child.AttachmentTarget = parentIndex;
             child.AttachmentKind = horizontal ? AttachmentCursiveHorizontal : AttachmentCursiveVertical;
             if (horizontal)
@@ -5898,9 +5884,36 @@ public static class OpenTypeTextShaper
             else
                 child.OffsetX = ClampToShort(rightToLeftLookup ? entryX - exitX : exitX - entryX);
 
-            _glyphs[previousIndex] = previous;
-            _glyphs[currentIndex] = current;
             _glyphs[childIndex] = child;
+            GlyphRecord parent = _glyphs[parentIndex];
+            if (parent.AttachmentTarget == childIndex &&
+                parent.AttachmentKind == child.AttachmentKind)
+            {
+                parent.AttachmentTarget = -1;
+                parent.AttachmentKind = 0;
+                if (horizontal) parent.OffsetY = 0;
+                else parent.OffsetX = 0;
+                _glyphs[parentIndex] = parent;
+            }
+        }
+
+        private void ReverseCursiveMinorOffset(int index, int newParent, bool horizontal)
+        {
+            GlyphRecord glyph = _glyphs[index];
+            if (glyph.AttachmentKind is not (AttachmentCursiveHorizontal or AttachmentCursiveVertical)) return;
+            int oldParent = glyph.AttachmentTarget;
+            glyph.AttachmentTarget = -1;
+            glyph.AttachmentKind = 0;
+            _glyphs[index] = glyph;
+            if ((uint)oldParent >= _glyphs.Length || oldParent == newParent) return;
+
+            ReverseCursiveMinorOffset(oldParent, newParent, horizontal);
+            GlyphRecord reversed = _glyphs[oldParent];
+            if (horizontal) reversed.OffsetY = ClampToShort(-glyph.OffsetY);
+            else reversed.OffsetX = ClampToShort(-glyph.OffsetX);
+            reversed.AttachmentTarget = index;
+            reversed.AttachmentKind = horizontal ? AttachmentCursiveHorizontal : AttachmentCursiveVertical;
+            _glyphs[oldParent] = reversed;
         }
 
         public void ResolveAttachmentOffsets()
@@ -6186,10 +6199,41 @@ public static class OpenTypeTextShaper
             {
                 ResolveAttachmentOffset(targetIndex, states);
                 GlyphRecord target = _glyphs[targetIndex];
-                if (glyph.AttachmentKind is AttachmentMark or AttachmentCursiveVertical)
+                if (glyph.AttachmentKind == AttachmentMark)
+                {
                     glyph.OffsetX = AddClamped(glyph.OffsetX, target.OffsetX);
-                if (glyph.AttachmentKind is AttachmentMark or AttachmentCursiveHorizontal)
                     glyph.OffsetY = AddClamped(glyph.OffsetY, target.OffsetY);
+                    bool forward = _direction is ShapingDirection.LeftToRight or ShapingDirection.TopToBottom;
+                    if (targetIndex < index)
+                    {
+                        int start = forward ? targetIndex : targetIndex + 1;
+                        int end = forward ? index : index + 1;
+                        int sign = forward ? -1 : 1;
+                        for (var advanceIndex = start; advanceIndex < end; advanceIndex++)
+                        {
+                            glyph.OffsetX = AddClamped(glyph.OffsetX, sign * _glyphs[advanceIndex].AdvanceX);
+                            glyph.OffsetY = AddClamped(glyph.OffsetY, sign * _glyphs[advanceIndex].AdvanceY);
+                        }
+                    }
+                    else if (targetIndex > index)
+                    {
+                        int start = forward ? index : index + 1;
+                        int end = forward ? targetIndex : targetIndex + 1;
+                        int sign = forward ? 1 : -1;
+                        for (var advanceIndex = start; advanceIndex < end; advanceIndex++)
+                        {
+                            glyph.OffsetX = AddClamped(glyph.OffsetX, sign * _glyphs[advanceIndex].AdvanceX);
+                            glyph.OffsetY = AddClamped(glyph.OffsetY, sign * _glyphs[advanceIndex].AdvanceY);
+                        }
+                    }
+                }
+                else
+                {
+                    if (glyph.AttachmentKind == AttachmentCursiveVertical)
+                        glyph.OffsetX = AddClamped(glyph.OffsetX, target.OffsetX);
+                    if (glyph.AttachmentKind == AttachmentCursiveHorizontal)
+                        glyph.OffsetY = AddClamped(glyph.OffsetY, target.OffsetY);
+                }
                 _glyphs[index] = glyph;
             }
             states[index] = 2;
