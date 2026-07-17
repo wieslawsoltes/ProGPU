@@ -554,6 +554,26 @@ public class SfntFontFaceTests
         Assert.Equal(0, missing);
     }
 
+    [Fact]
+    public void ReadsNonDefaultFormat14VariationGlyph()
+    {
+        byte[] fontData = BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("hhea", BuildHheaTable()),
+            ("maxp", BuildMaxpTable()),
+            ("hmtx", BuildHmtxTable()),
+            ("cmap", BuildCmapFormat4And14Table()),
+            ("loca", BuildLocaTable()),
+            ("glyf", BuildGlyfTable()),
+            ("OS/2", BuildOs2Table()));
+
+        var font = new TtfFont(fontData);
+
+        Assert.True(font.TryGetVariationGlyph('A', 0xFE0F, out ushort glyph));
+        Assert.Equal(1, glyph);
+        Assert.False(font.TryGetVariationGlyph('B', 0xFE0F, out _));
+    }
+
     private static byte[] BuildSfnt(string familyName, string fullName)
     {
         return BuildSfnt(BuildNameTable(familyName, fullName));
@@ -1188,6 +1208,41 @@ public class SfntFontFaceTests
         WriteUShort(writer, 10);
         WriteUInt(writer, 12);
         writer.Write(format13);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildCmapFormat4And14Table()
+    {
+        byte[] format4 = BuildFormat4Subtable();
+        using var format14Stream = new MemoryStream();
+        using (var format14Writer = new BinaryWriter(format14Stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            WriteUShort(format14Writer, 14);
+            WriteUInt(format14Writer, 30);
+            WriteUInt(format14Writer, 1);
+            format14Writer.Write(new byte[] { 0x00, 0xFE, 0x0F });
+            WriteUInt(format14Writer, 0);
+            WriteUInt(format14Writer, 21);
+            WriteUInt(format14Writer, 1);
+            format14Writer.Write(new byte[] { 0x00, 0x00, 0x41 });
+            WriteUShort(format14Writer, 1);
+        }
+        byte[] format14 = format14Stream.ToArray();
+        uint format4Offset = 20;
+        uint format14Offset = format4Offset + (uint)format4.Length;
+
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        WriteUShort(writer, 0);
+        WriteUShort(writer, 2);
+        WriteUShort(writer, 3);
+        WriteUShort(writer, 1);
+        WriteUInt(writer, format4Offset);
+        WriteUShort(writer, 0);
+        WriteUShort(writer, 5);
+        WriteUInt(writer, format14Offset);
+        writer.Write(format4);
+        writer.Write(format14);
         return stream.ToArray();
     }
 

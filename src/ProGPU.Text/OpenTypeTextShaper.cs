@@ -243,17 +243,17 @@ public static class OpenTypeTextShaper
                 }
 
                 GSUB.LookupTable lookup = table.LookupList[lookupIndex];
-                bool rawContextLookup = IsContextLookup(rawTable.Span, lookupIndex);
+                bool rawOwnedLookup = IsRawOwnedLookup(rawTable.Span, lookupIndex);
                 for (var position = 0; position < glyphs.Count; position++)
                 {
                     if (!glyphs.IsFeatureEnabled(position, enabled.Tag))
                     {
                         continue;
                     }
-                    if (rawContextLookup)
+                    if (rawOwnedLookup)
                     {
                         int rawCountBefore = glyphs.Count;
-                        ApplyContextLookupAt(rawTable.Span, glyphs, lookupIndex, position);
+                        ApplyNestedLookup(rawTable.Span, glyphs, lookupIndex, position);
                         int rawInsertedGlyphs = glyphs.Count - rawCountBefore;
                         if (rawInsertedGlyphs > 0) position += rawInsertedGlyphs;
                         continue;
@@ -289,13 +289,13 @@ public static class OpenTypeTextShaper
         {
             foreach (EnabledLookup enabled in rawLookups)
             {
-                if (!IsContextLookup(rawTable.Span, enabled.LookupIndex)) continue;
+                if (!IsRawOwnedLookup(rawTable.Span, enabled.LookupIndex)) continue;
                 for (var position = 0; position < glyphs.Count; position++)
                 {
                     if (glyphs.IsFeatureEnabled(position, enabled.Tag))
                     {
                         int countBefore = glyphs.Count;
-                        ApplyContextLookupAt(rawTable.Span, glyphs, enabled.LookupIndex, position);
+                        ApplyNestedLookup(rawTable.Span, glyphs, enabled.LookupIndex, position);
                         int insertedGlyphs = glyphs.Count - countBefore;
                         if (insertedGlyphs > 0) position += insertedGlyphs;
                     }
@@ -309,19 +309,19 @@ public static class OpenTypeTextShaper
         }
     }
 
-    private static bool IsContextLookup(ReadOnlySpan<byte> data, ushort lookupIndex)
+    private static bool IsRawOwnedLookup(ReadOnlySpan<byte> data, ushort lookupIndex)
     {
         if (!TryGetLookup(data, lookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
         {
             return false;
         }
-        if (lookupType is 5 or 6) return true;
+        if (lookupType is 4 or 5 or 6) return true;
         if (lookupType != 7 || ReadU16(data, subtableCountOffset) == 0 || !CanRead(data, subtableCountOffset + 2, 2))
         {
             return false;
         }
         int extension = lookupOffset + ReadU16(data, subtableCountOffset + 2);
-        return CanRead(data, extension, 4) && ReadU16(data, extension) == 1 && ReadU16(data, extension + 2) is 5 or 6;
+        return CanRead(data, extension, 4) && ReadU16(data, extension) == 1 && ReadU16(data, extension + 2) is 4 or 5 or 6;
     }
 
     private static bool ApplyContextLookupAt(
@@ -1275,19 +1275,27 @@ public static class OpenTypeTextShaper
                 if (!CanRead(data, ligatureOffset, 4)) continue;
                 ushort ligatureGlyph = ReadU16(data, ligatureOffset);
                 ushort componentCount = ReadU16(data, ligatureOffset + 2);
-                if (componentCount == 0 || position + componentCount > glyphs.Count ||
+                if (componentCount == 0 ||
                     !CanRead(data, ligatureOffset + 4, (componentCount - 1) * 2)) continue;
+                Span<int> componentIndices = componentCount <= 64
+                    ? stackalloc int[componentCount]
+                    : new int[componentCount];
+                componentIndices[0] = position;
                 bool matches = true;
+                int candidateIndex = position;
                 for (var component = 1; component < componentCount; component++)
                 {
-                    if (glyphs[position + component] != ReadU16(data, ligatureOffset + 4 + (component - 1) * 2))
+                    candidateIndex = glyphs.NextVisibleIndex(candidateIndex + 1);
+                    if (candidateIndex < 0 ||
+                        glyphs[candidateIndex] != ReadU16(data, ligatureOffset + 4 + (component - 1) * 2))
                     {
                         matches = false;
                         break;
                     }
+                    componentIndices[component] = candidateIndex;
                 }
                 if (!matches) continue;
-                glyphs.Replace(position, componentCount, ligatureGlyph);
+                glyphs.ReplaceLigature(componentIndices, ligatureGlyph);
                 return true;
             }
         }
@@ -1966,6 +1974,41 @@ public static class OpenTypeTextShaper
             };
         }
 
+        public int NextVisibleIndex(int index)
+        {
+            while (index < _glyphs.Count)
+            {
+                if (!IsDefaultIgnorable(_glyphs[index].CodePoint)) return index;
+                index++;
+            }
+            return -1;
+        }
+
+        public void ReplaceLigature(ReadOnlySpan<int> componentIndices, ushort ligatureGlyph)
+        {
+            if (componentIndices.IsEmpty) return;
+            GlyphRecord ligature = _glyphs[componentIndices[0]];
+            ligature.GlyphIndex = ligatureGlyph;
+            for (var index = 1; index < componentIndices.Length; index++)
+            {
+                ligature.Cluster = Math.Min(ligature.Cluster, _glyphs[componentIndices[index]].Cluster);
+            }
+            _glyphs[componentIndices[0]] = ligature;
+            for (var index = componentIndices.Length - 1; index >= 1; index--)
+            {
+                _glyphs.RemoveAt(componentIndices[index]);
+            }
+        }
+
+        public static bool IsDefaultIgnorable(uint codePoint) => codePoint is
+            0x00AD or 0x034F or 0x061C or 0x115F or 0x1160 or 0x17B4 or 0x17B5 or
+            >= 0x180B and <= 0x180F or >= 0x200B and <= 0x200F or
+            >= 0x202A and <= 0x202E or >= 0x2060 and <= 0x206F or
+            0x3164 or 0xFEFF or 0xFFA0 or >= 0xFFF0 and <= 0xFFF8 or
+            >= 0xFE00 and <= 0xFE0F or
+            >= 0x1BCA0 and <= 0x1BCAF or >= 0x1D173 and <= 0x1D17A or
+            >= 0xE0000 and <= 0xE0FFF;
+
         public static GlyphSubstitutionBuffer Create(string text, TtfFont font)
         {
             if (text.Length > MaximumShapedGlyphCount)
@@ -1992,6 +2035,17 @@ public static class OpenTypeTextShaper
                     int cluster = separateClusters && normalizedGrapheme is null
                         ? graphemeStart + index
                         : graphemeStart;
+                    if (IsVariationSelector(rune.Value) && glyphs.Count > 0)
+                    {
+                        GlyphRecord previous = glyphs[^1];
+                        if (font.TryGetVariationGlyph(previous.CodePoint, (uint)rune.Value, out ushort variationGlyph))
+                        {
+                            previous.GlyphIndex = variationGlyph;
+                            glyphs[^1] = previous;
+                            index += consumed;
+                            continue;
+                        }
+                    }
                     AppendNormalizedRune(glyphs, font, rune, cluster);
                     index += consumed;
                 }
@@ -2062,6 +2116,9 @@ public static class OpenTypeTextShaper
             0x1193F or 0x11941 or 0x11A3A or >= 0x11A84 and <= 0x11A89 or
             0x11D46;
 
+        private static bool IsVariationSelector(int codePoint) =>
+            codePoint is >= 0xFE00 and <= 0xFE0F or >= 0xE0100 and <= 0xE01EF;
+
         private static byte GetSpaceFallback(uint codePoint) => codePoint switch
         {
             0x0020 or 0x00A0 => Space,
@@ -2129,6 +2186,11 @@ public static class OpenTypeTextShaper
             for (var index = 0; index < _glyphs.Length; index++)
             {
                 GlyphRecord record = substitutions.GetRecord(index);
+                bool defaultIgnorable = GlyphSubstitutionBuffer.IsDefaultIgnorable(record.CodePoint);
+                if (defaultIgnorable && record.GlyphIndex == 0)
+                {
+                    record.GlyphIndex = font.GetGlyphIndex(' ');
+                }
                 if (vertical)
                 {
                     record.AdvanceY = checked((short)Math.Clamp(
@@ -2152,6 +2214,11 @@ public static class OpenTypeTextShaper
                         short.MaxValue));
                 }
                 ApplySpaceFallback(font, vertical, ref record);
+                if (defaultIgnorable)
+                {
+                    record.AdvanceX = 0;
+                    record.AdvanceY = 0;
+                }
                 _glyphs[index] = record;
             }
         }

@@ -309,6 +309,12 @@ public partial class TtfFont
                       (data[offset + 2] << 8) |
                       data[offset + 3]);
     }
+
+    private static uint ReadUInt24(ReadOnlySpan<byte> data, int offset) =>
+        (uint)((data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2]);
+
+    private static bool CanRead(ReadOnlySpan<byte> data, int offset, int length) =>
+        offset >= 0 && length >= 0 && offset <= data.Length - length;
     #endregion
 
     private void ParseTableDirectory()
@@ -451,6 +457,78 @@ public partial class TtfFont
     public ushort GetGlyphIndex(uint codePoint)
     {
         return _face.TryGetGlyphIndex(codePoint, out var glyphIndex) ? glyphIndex : (ushort)0;
+    }
+
+    public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out ushort glyphIndex)
+    {
+        glyphIndex = 0;
+        if (!_face.TryGetTable("cmap", out ReadOnlyMemory<byte> cmapMemory)) return false;
+        ReadOnlySpan<byte> cmap = cmapMemory.Span;
+        if (!CanRead(cmap, 0, 4)) return false;
+        ushort tableCount = ReadUShort(cmap, 2);
+        for (var tableIndex = 0; tableIndex < tableCount; tableIndex++)
+        {
+            int recordOffset = 4 + tableIndex * 8;
+            if (!CanRead(cmap, recordOffset, 8)) break;
+            uint relative = ReadUInt(cmap, recordOffset + 4);
+            if (relative > int.MaxValue) continue;
+            int subtableOffset = (int)relative;
+            if (!CanRead(cmap, subtableOffset, 10) || ReadUShort(cmap, subtableOffset) != 14) continue;
+            uint recordCount = ReadUInt(cmap, subtableOffset + 6);
+            if (recordCount > int.MaxValue / 11) return false;
+            for (var recordIndex = 0; recordIndex < (int)recordCount; recordIndex++)
+            {
+                int selectorRecord = subtableOffset + 10 + recordIndex * 11;
+                if (!CanRead(cmap, selectorRecord, 11)) return false;
+                uint selector = ReadUInt24(cmap, selectorRecord);
+                if (selector != variationSelector) continue;
+
+                uint nonDefaultRelative = ReadUInt(cmap, selectorRecord + 7);
+                if (nonDefaultRelative != 0 && nonDefaultRelative <= int.MaxValue)
+                {
+                    int mappingsOffset = subtableOffset + (int)nonDefaultRelative;
+                    if (!CanRead(cmap, mappingsOffset, 4)) return false;
+                    uint mappingCount = ReadUInt(cmap, mappingsOffset);
+                    int low = 0;
+                    int high = mappingCount > int.MaxValue ? int.MaxValue : (int)mappingCount - 1;
+                    while (low <= high)
+                    {
+                        int middle = low + ((high - low) >> 1);
+                        int mappingOffset = mappingsOffset + 4 + middle * 5;
+                        if (!CanRead(cmap, mappingOffset, 5)) return false;
+                        uint candidate = ReadUInt24(cmap, mappingOffset);
+                        if (candidate == codePoint)
+                        {
+                            glyphIndex = ReadUShort(cmap, mappingOffset + 3);
+                            return true;
+                        }
+                        if (candidate < codePoint) low = middle + 1;
+                        else high = middle - 1;
+                    }
+                }
+
+                uint defaultRelative = ReadUInt(cmap, selectorRecord + 3);
+                if (defaultRelative == 0 || defaultRelative > int.MaxValue) return false;
+                int rangesOffset = subtableOffset + (int)defaultRelative;
+                if (!CanRead(cmap, rangesOffset, 4)) return false;
+                uint rangeCount = ReadUInt(cmap, rangesOffset);
+                for (var rangeIndex = 0; rangeIndex < rangeCount; rangeIndex++)
+                {
+                    int rangeOffset = rangesOffset + 4 + rangeIndex * 4;
+                    if (!CanRead(cmap, rangeOffset, 4)) return false;
+                    uint start = ReadUInt24(cmap, rangeOffset);
+                    uint end = start + cmap[rangeOffset + 3];
+                    if (codePoint < start) break;
+                    if (codePoint <= end)
+                    {
+                        glyphIndex = GetGlyphIndex(codePoint);
+                        return glyphIndex != 0;
+                    }
+                }
+                return false;
+            }
+        }
+        return false;
     }
 
     public bool HasGlyph(uint codePoint)

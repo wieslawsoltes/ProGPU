@@ -26,11 +26,9 @@ public sealed class TtfShapingFontFace : IShapingFontFace
 
     public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out uint glyphId)
     {
-        // cmap format 14 support is implemented in the standalone font model.
-        // Returning false is distinct from returning glyph zero and keeps the
-        // existing adapter honest until that table parser is moved.
-        glyphId = 0;
-        return false;
+        bool found = Font.TryGetVariationGlyph(codePoint, variationSelector, out ushort glyph);
+        glyphId = glyph;
+        return found;
     }
 
     public int GetHorizontalAdvance(uint glyphId)
