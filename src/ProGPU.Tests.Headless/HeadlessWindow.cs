@@ -23,6 +23,14 @@ public unsafe class HeadlessWindow : IDisposable
     private static HeadlessWindow? _shared;
     public static HeadlessWindow Shared => _shared ??= new HeadlessWindow(1280, 800);
 
+    public static void ClearSharedContent()
+    {
+        if (_shared != null)
+        {
+            _shared.Content = null;
+        }
+    }
+
     public static void DisposeShared()
     {
         _shared?.Dispose();

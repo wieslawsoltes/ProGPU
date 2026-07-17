@@ -21,8 +21,44 @@ namespace ProGPU.Tests.Headless;
 [Collection("HeadlessTests")]
 public class SamplePagesTests : IDisposable
 {
+    private const int SharedWindowBatchSize = 12;
+    private static int s_testInstanceCount;
+
+    public SamplePagesTests()
+    {
+        int testInstance = System.Threading.Interlocked.Increment(ref s_testInstanceCount);
+        if ((testInstance - 1) % SharedWindowBatchSize == 0)
+        {
+            // Bound native atlas, pipeline, and texture residency across the long
+            // sample-page suite while preserving reuse within each test batch.
+            DisposeSampleGpuResources();
+            PopupService.Clear();
+            HeadlessWindow.DisposeShared();
+        }
+    }
+
     public void Dispose()
     {
+        HeadlessWindow.ClearSharedContent();
+        DisposeSampleGpuResources();
+        PopupService.Clear();
+    }
+
+    private static void DisposeSampleGpuResources()
+    {
+        AppState._offscreenCompositor?.Dispose();
+        AppState._offscreenCompositor = null;
+        AppState._compute?.Dispose();
+        AppState._compute = null;
+        AppState._canvasSourceTexture?.Dispose();
+        AppState._canvasSourceTexture = null;
+        AppState._canvasTempTexture?.Dispose();
+        AppState._canvasTempTexture = null;
+        AppState._canvasBlurTexture?.Dispose();
+        AppState._canvasBlurTexture = null;
+        AppState._canvasShadowTexture?.Dispose();
+        AppState._canvasShadowTexture = null;
+        AppState._wgpuContext = null;
     }
 
     private static string GetArtifactPath(string fileName)
@@ -574,36 +610,7 @@ public class SamplePagesTests : IDisposable
 
         // Cleanup
         window.Content = null;
-        if (AppState._offscreenCompositor != null)
-        {
-            AppState._offscreenCompositor.Dispose();
-            AppState._offscreenCompositor = null;
-        }
-        if (AppState._compute != null)
-        {
-            AppState._compute.Dispose();
-            AppState._compute = null;
-        }
-        if (AppState._canvasSourceTexture != null)
-        {
-            AppState._canvasSourceTexture.Dispose();
-            AppState._canvasSourceTexture = null;
-        }
-        if (AppState._canvasTempTexture != null)
-        {
-            AppState._canvasTempTexture.Dispose();
-            AppState._canvasTempTexture = null;
-        }
-        if (AppState._canvasBlurTexture != null)
-        {
-            AppState._canvasBlurTexture.Dispose();
-            AppState._canvasBlurTexture = null;
-        }
-        if (AppState._canvasShadowTexture != null)
-        {
-            AppState._canvasShadowTexture.Dispose();
-            AppState._canvasShadowTexture = null;
-        }
+        DisposeSampleGpuResources();
     }
 
     [Fact]
