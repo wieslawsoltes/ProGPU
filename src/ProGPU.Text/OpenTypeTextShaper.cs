@@ -154,6 +154,7 @@ public static class OpenTypeTextShaper
         bool useShaper = ResolveLayoutScript(font, unicodeScript, out string script);
         bool indicShaper = !useShaper && IsIndicShaperScript(unicodeScript);
         bool khmerShaper = script == "khmr";
+        bool myanmarShaper = unicodeScript == "mymr";
         bool arabicShaper = UsesArabicJoiningScript(unicodeScript);
         ShapingDirection direction = ResolveDirection(options.Direction, unicodeScript);
         options = AddScriptFeatures(options, script, useShaper, indicShaper);
@@ -177,6 +178,7 @@ public static class OpenTypeTextShaper
         substitutions.AssignFractionActions();
         substitutions.PrepareKhmerShaping(script);
         substitutions.PrepareIndicShaping(indicShaper);
+        substitutions.PrepareMyanmarShaping(myanmarShaper);
         substitutions.PrepareUseShaping(useShaper, unicodeScript);
         substitutions.AssignArabicJoiningActions(unicodeScript);
         if (useShaper || indicShaper || khmerShaper || arabicShaper)
@@ -221,6 +223,17 @@ public static class OpenTypeTextShaper
             substitutions.ClearSyllables();
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.KhmerPresentation);
         }
+        else if (myanmarShaper)
+        {
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarPreprocessing);
+            substitutions.ReorderMyanmar();
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarRepha);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarPrebase);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarBelow);
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarPostbase);
+            substitutions.ClearSyllables();
+            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.MyanmarPresentation);
+        }
         else if (arabicShaper)
         {
             ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicStretch);
@@ -254,7 +267,7 @@ public static class OpenTypeTextShaper
             substitutions,
             font,
             direction,
-            zeroMarkAdvancesEarly: useShaper);
+            zeroMarkAdvancesEarly: useShaper || myanmarShaper);
         bool hasGpos = font.TryGetTable("GPOS", out _);
         bool hasGposKerning = false;
         if (typeface is not null)
@@ -346,7 +359,7 @@ public static class OpenTypeTextShaper
         bool useShaper,
         bool indicShaper,
         bool khmerShaper) =>
-        !useShaper && !indicShaper && !khmerShaper && script is not ("thai" or "lao " or "mymr");
+        !useShaper && !indicShaper && !khmerShaper && script is not ("thai" or "lao " or "mymr" or "qaag");
 
     private static TextShapingOptions AddDirectionalFeatures(TextShapingOptions options, ShapingDirection direction)
     {
@@ -387,7 +400,7 @@ public static class OpenTypeTextShaper
         bool indicShaper)
     {
         bool arabicShaper = UsesArabicJoiningScript(script);
-        if (script is not ("khmr" or "hang") && !useShaper && !indicShaper && !arabicShaper)
+        if (script is not ("khmr" or "hang" or "mymr" or "mym2") && !useShaper && !indicShaper && !arabicShaper)
         {
             return options;
         }
@@ -402,6 +415,8 @@ public static class OpenTypeTextShaper
 
         string[] scriptFeatures = script == "khmr"
             ? ["pref", "blwf", "abvf", "pstf", "cfar", "pres", "abvs", "blws", "psts"]
+            : script is "mymr" or "mym2"
+            ? ["rphf", "pref", "blwf", "pstf", "pres", "abvs", "blws", "psts"]
             : script == "hang"
             ? ["ljmo", "vjmo", "tjmo"]
             : indicShaper
@@ -624,7 +639,7 @@ public static class OpenTypeTextShaper
     }
 
     private static bool IsUsePerSyllableFeature(string tag, UseSubstitutionStage stage) =>
-        stage is not (UseSubstitutionStage.All or UseSubstitutionStage.KhmerPresentation) &&
+        stage is not (UseSubstitutionStage.All or UseSubstitutionStage.KhmerPresentation or UseSubstitutionStage.MyanmarPresentation) &&
         (tag is "locl" or "ccmp" or "nukt" or "akhn" or "rphf" or "pref" or
             "rkrf" or "abvf" or "blwf" or "half" or "pstf" or "vatu" or "cjct" ||
          stage == UseSubstitutionStage.IndicPresentation && tag is "init" or "pres" or "abvs" or "blws" or "psts" or "haln");
@@ -666,6 +681,15 @@ public static class OpenTypeTextShaper
             UseSubstitutionStage.KhmerPresentation => tag is not
                 ("ltra" or "ltrm" or "rtla" or "rtlm" or "rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or
                  "pref" or "blwf" or "abvf" or "pstf" or "cfar"),
+            UseSubstitutionStage.MyanmarPreprocessing => tag is
+                "rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp",
+            UseSubstitutionStage.MyanmarRepha => tag == "rphf",
+            UseSubstitutionStage.MyanmarPrebase => tag == "pref",
+            UseSubstitutionStage.MyanmarBelow => tag == "blwf",
+            UseSubstitutionStage.MyanmarPostbase => tag == "pstf",
+            UseSubstitutionStage.MyanmarPresentation => tag is not
+                ("ltra" or "ltrm" or "rtla" or "rtlm" or "rvrn" or "frac" or "numr" or "dnom" or "locl" or "ccmp" or
+                 "rphf" or "pref" or "blwf" or "pstf"),
             UseSubstitutionStage.ArabicStretch => tag == "stch",
             UseSubstitutionStage.ArabicPreprocessing => tag is
                 "rvrn" or "frac" or "numr" or "dnom" or "ccmp" or "locl",
@@ -3020,6 +3044,12 @@ public static class OpenTypeTextShaper
         IndicPresentation,
         KhmerBasic,
         KhmerPresentation,
+        MyanmarPreprocessing,
+        MyanmarRepha,
+        MyanmarPrebase,
+        MyanmarBelow,
+        MyanmarPostbase,
+        MyanmarPresentation,
         ArabicStretch,
         ArabicPreprocessing,
         ArabicIsolated,
@@ -3243,6 +3273,7 @@ public static class OpenTypeTextShaper
             "guru" => "gur2",
             "knda" => "knd2",
             "mlym" => "mlm2",
+            "mymr" => "mym2",
             "orya" => "ory2",
             "taml" => "tml2",
             "telu" => "tel2",
@@ -4076,6 +4107,256 @@ public static class OpenTypeTextShaper
                 _glyphs[index] = glyph;
             }
             return cluster;
+        }
+
+        public void PrepareMyanmarShaping(bool enabled)
+        {
+            if (!enabled) return;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.ScriptShaper = ScriptShaperMyanmar;
+                glyph.IndicCategory = IndicShapingData.GetCategory(
+                    IndicShapingData.GetProperties(glyph.CodePoint));
+                _glyphs[index] = glyph;
+            }
+            FindMyanmarSyllables();
+        }
+
+        private void FindMyanmarSyllables()
+        {
+            if (_glyphs.Count == 0) return;
+            int state = MyanmarSyllableMachineData.StartState;
+            int position = 0;
+            int tokenStart = -1;
+            int tokenEnd = -1;
+            int pendingAction = 0;
+            byte serial = 1;
+            while (true)
+            {
+                int transition;
+                if (position == _glyphs.Count)
+                {
+                    transition = MyanmarSyllableMachineData.GetEofTransition(state);
+                    if (transition < 0) break;
+                }
+                else
+                {
+                    if (MyanmarSyllableMachineData.GetFromStateAction(state) == 2)
+                        tokenStart = position;
+                    transition = MyanmarSyllableMachineData.GetTransition(
+                        state, _glyphs[position].IndicCategory);
+                }
+
+                state = MyanmarSyllableMachineData.GetTarget(transition);
+                switch (MyanmarSyllableMachineData.GetAction(transition))
+                {
+                    case 8: tokenEnd = position + 1; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarConsonantSyllable, ref serial); break;
+                    case 4:
+                    case 3: tokenEnd = position + 1; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarNonCluster, ref serial); break;
+                    case 10: tokenEnd = position + 1; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarBrokenCluster, ref serial); break;
+                    case 7: tokenEnd = position; position--; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarConsonantSyllable, ref serial); break;
+                    case 9: tokenEnd = position; position--; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarBrokenCluster, ref serial); break;
+                    case 12: tokenEnd = position; position--; AssignMyanmarSyllable(tokenStart, tokenEnd, MyanmarNonCluster, ref serial); break;
+                    case 11:
+                        position = tokenEnd - 1;
+                        AssignMyanmarSyllable(
+                            tokenStart,
+                            tokenEnd,
+                            pendingAction == 2 ? MyanmarNonCluster : MyanmarBrokenCluster,
+                            ref serial);
+                        break;
+                    case 6: tokenEnd = position + 1; pendingAction = 2; break;
+                    case 5: tokenEnd = position + 1; pendingAction = 3; break;
+                }
+                if (MyanmarSyllableMachineData.GetToStateAction(state) == 1)
+                    tokenStart = -1;
+                position++;
+                if (position < 0 || position > _glyphs.Count) break;
+            }
+        }
+
+        private void AssignMyanmarSyllable(int start, int end, byte type, ref byte serial)
+        {
+            if (start < 0 || end < start) return;
+            byte value = (byte)(serial << 4 | type);
+            for (var index = start; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.UseSyllable = value;
+                _glyphs[index] = glyph;
+            }
+            if (++serial == 16) serial = 1;
+        }
+
+        public void ReorderMyanmar()
+        {
+            InsertBrokenMyanmarDottedCircles();
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                byte syllable = _glyphs[start].UseSyllable;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].UseSyllable == syllable) end++;
+                byte type = (byte)(syllable & 0x0F);
+                if (type is MyanmarConsonantSyllable or MyanmarBrokenCluster)
+                    ReorderMyanmarSyllable(start, end);
+                start = end;
+            }
+        }
+
+        private void InsertBrokenMyanmarDottedCircles()
+        {
+            ushort dottedGlyph = _font.GetGlyphIndex(0x25CC);
+            if (dottedGlyph == 0) return;
+            byte previous = 0;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord current = _glyphs[index];
+                if (current.UseSyllable == previous ||
+                    (current.UseSyllable & 0x0F) != MyanmarBrokenCluster)
+                {
+                    previous = current.UseSyllable;
+                    continue;
+                }
+                previous = current.UseSyllable;
+                _glyphs.Insert(index, new GlyphRecord(dottedGlyph, current.Cluster, 0x25CC)
+                {
+                    ScriptShaper = ScriptShaperMyanmar,
+                    IndicCategory = IndicShapingData.DottedCircle,
+                    UseSyllable = previous
+                });
+                index++;
+            }
+        }
+
+        private void ReorderMyanmarSyllable(int start, int end)
+        {
+            int baseIndex = end;
+            bool hasReph = end - start >= 3 &&
+                _glyphs[start].IndicCategory == IndicShapingData.Ra &&
+                _glyphs[start + 1].IndicCategory == IndicShapingData.Asat &&
+                _glyphs[start + 2].IndicCategory == IndicShapingData.Halant;
+            int limit = hasReph ? start + 3 : start;
+            if (hasReph) baseIndex = start;
+            else baseIndex = limit;
+            for (var index = limit; index < end; index++)
+            {
+                if (IsMyanmarConsonant(_glyphs[index]))
+                {
+                    baseIndex = index;
+                    break;
+                }
+            }
+
+            int cursor = start;
+            for (; cursor < start + (hasReph ? 3 : 0); cursor++)
+                SetIndicPosition(cursor, IndicShapingData.PositionAfterMain);
+            for (; cursor < baseIndex; cursor++)
+                SetIndicPosition(cursor, IndicShapingData.PositionPreConsonant);
+            if (cursor < end)
+                SetIndicPosition(cursor++, IndicShapingData.PositionBaseConsonant);
+
+            byte position = IndicShapingData.PositionAfterMain;
+            for (; cursor < end; cursor++)
+            {
+                byte category = _glyphs[cursor].IndicCategory;
+                if (category == IndicShapingData.MedialRa)
+                {
+                    SetIndicPosition(cursor, IndicShapingData.PositionPreConsonant);
+                    continue;
+                }
+                if (category == IndicShapingData.VowelPre)
+                {
+                    SetIndicPosition(cursor, IndicShapingData.PositionPreMatra);
+                    continue;
+                }
+                if (category == IndicShapingData.VariationSelector)
+                {
+                    SetIndicPosition(cursor, _glyphs[cursor - 1].IndicPosition);
+                    continue;
+                }
+                if (position == IndicShapingData.PositionAfterMain && category == IndicShapingData.VowelBelow)
+                {
+                    position = IndicShapingData.PositionBelowConsonant;
+                    SetIndicPosition(cursor, position);
+                    continue;
+                }
+                if (position == IndicShapingData.PositionBelowConsonant && category == IndicShapingData.VedicSign)
+                {
+                    SetIndicPosition(cursor, IndicShapingData.PositionBeforeSub);
+                    continue;
+                }
+                if (position == IndicShapingData.PositionBelowConsonant && category == IndicShapingData.VowelBelow)
+                {
+                    SetIndicPosition(cursor, position);
+                    continue;
+                }
+                if (position == IndicShapingData.PositionBelowConsonant && category != IndicShapingData.VedicSign)
+                    position = IndicShapingData.PositionAfterSub;
+                SetIndicPosition(cursor, position);
+            }
+
+            MergeCluster(start, end);
+            StableSortMyanmarPositions(start, end);
+
+            int firstLeftMatra = end;
+            int lastLeftMatra = end;
+            for (var index = start; index < end; index++)
+            {
+                if (_glyphs[index].IndicPosition != IndicShapingData.PositionPreMatra) continue;
+                if (firstLeftMatra == end) firstLeftMatra = index;
+                lastLeftMatra = index;
+            }
+            if (firstLeftMatra < lastLeftMatra)
+            {
+                _glyphs.Reverse(firstLeftMatra, lastLeftMatra - firstLeftMatra + 1);
+                int segmentStart = firstLeftMatra;
+                for (var index = segmentStart; index <= lastLeftMatra; index++)
+                {
+                    if (_glyphs[index].IndicCategory != IndicShapingData.VowelPre) continue;
+                    _glyphs.Reverse(segmentStart, index - segmentStart + 1);
+                    segmentStart = index + 1;
+                }
+            }
+        }
+
+        private void SetIndicPosition(int index, byte position)
+        {
+            GlyphRecord glyph = _glyphs[index];
+            glyph.IndicPosition = position;
+            _glyphs[index] = glyph;
+        }
+
+        private void StableSortMyanmarPositions(int start, int end)
+        {
+            int count = end - start;
+            if (count < 2) return;
+            Span<int> buckets = stackalloc int[IndicShapingData.PositionEnd + 2];
+            for (var index = start; index < end; index++)
+                buckets[Math.Min(_glyphs[index].IndicPosition, IndicShapingData.PositionEnd) + 1]++;
+            for (var index = 1; index < buckets.Length; index++)
+                buckets[index] += buckets[index - 1];
+            GlyphRecord[] ordered = ArrayPool<GlyphRecord>.Shared.Rent(count);
+            try
+            {
+                for (var index = start; index < end; index++)
+                {
+                    GlyphRecord glyph = _glyphs[index];
+                    ordered[buckets[Math.Min(glyph.IndicPosition, IndicShapingData.PositionEnd)]++] = glyph;
+                }
+                for (var index = 0; index < count; index++) _glyphs[start + index] = ordered[index];
+            }
+            finally
+            {
+                ArrayPool<GlyphRecord>.Shared.Return(ordered);
+            }
+        }
+
+        private static bool IsMyanmarConsonant(GlyphRecord glyph)
+        {
+            if (glyph.Ligated != 0) return false;
+            return glyph.IndicCategory is IndicShapingData.Consonant or IndicShapingData.ConsonantWithStacker or
+                IndicShapingData.Ra or IndicShapingData.Vowel or IndicShapingData.Placeholder or IndicShapingData.DottedCircle;
         }
 
         public void PrepareIndicShaping(bool enabled)
@@ -6957,6 +7238,7 @@ public static class OpenTypeTextShaper
     private const byte ScriptShaperUse = 2;
     private const byte ScriptShaperIndic = 3;
     private const byte ScriptShaperHangul = 4;
+    private const byte ScriptShaperMyanmar = 5;
 
     private const byte KhmerConsonantSyllable = 0;
     private const byte KhmerBrokenCluster = 1;
@@ -6968,6 +7250,10 @@ public static class OpenTypeTextShaper
     private const byte IndicSymbolCluster = 3;
     private const byte IndicBrokenCluster = 4;
     private const byte IndicNonCluster = 5;
+
+    private const byte MyanmarConsonantSyllable = 0;
+    private const byte MyanmarBrokenCluster = 1;
+    private const byte MyanmarNonCluster = 2;
 
     private const byte IndicRphfMask = 1 << 0;
     private const byte IndicPrefMask = 1 << 1;

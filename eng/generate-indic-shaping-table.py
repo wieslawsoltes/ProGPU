@@ -15,8 +15,8 @@ CATEGORIES = {
     "R": 15, "CM": 16, "S": 17, "CS": 18, "SP": 57,
     # Categories shared with the Khmer/Myanmar machines.
     "VA": 20, "VB": 21, "VL": 22, "VR": 23, "Rt": 25,
-    "Xg": 26, "Yg": 27, "As": 32, "MH": 33, "MR": 36,
-    "MW": 37, "MY": 38, "PT": 40, "VS": 42, "ML": 43,
+    "Xg": 26, "Yg": 27, "As": 32, "MH": 35, "MR": 36,
+    "MW": 37, "MY": 38, "PT": 39, "VS": 40, "ML": 41,
 }
 
 POSITIONS = {
@@ -138,6 +138,14 @@ internal static class IndicShapingData
     public const byte Robatic = 25;
     public const byte XGroup = 26;
     public const byte YGroup = 27;
+    public const byte Asat = 32;
+    public const byte MedialHa = 35;
+    public const byte MedialRa = 36;
+    public const byte MedialWa = 37;
+    public const byte MedialYa = 38;
+    public const byte PwoTone = 39;
+    public const byte VariationSelector = 40;
+    public const byte MedialLa = 41;
 
     public const byte PositionStart = 0;
     public const byte PositionRaToBecomeReph = 1;

@@ -9,8 +9,8 @@ internal static class IndicShapingData
     private static readonly ushort[] s_values =
     [
         3337, 3616, 1025, 1040, 1042, 1035, 1034, 2052, 1540, 3588, 1287, 3079, 2311, 2055,
-        1799, 519, 3617, 3627, 3085, 3620, 3621, 3622, 3587, 3624, 1039, 3598, 3609, 3345,
-        1800, 3336, 3385, 1026, 1556, 2069, 790, 2839, 3626, 3584, 3610, 3611, 3590, 3589,
+        1799, 519, 3619, 3625, 3085, 3620, 3621, 3622, 3587, 3623, 1039, 3598, 3609, 3345,
+        1800, 3336, 3385, 1026, 1556, 2069, 790, 2839, 3624, 3584, 3610, 3611, 3590, 3589,
     ];
 
     private static readonly byte[] s_u8 =
@@ -119,6 +119,14 @@ internal static class IndicShapingData
     public const byte Robatic = 25;
     public const byte XGroup = 26;
     public const byte YGroup = 27;
+    public const byte Asat = 32;
+    public const byte MedialHa = 35;
+    public const byte MedialRa = 36;
+    public const byte MedialWa = 37;
+    public const byte MedialYa = 38;
+    public const byte PwoTone = 39;
+    public const byte VariationSelector = 40;
+    public const byte MedialLa = 41;
 
     public const byte PositionStart = 0;
     public const byte PositionRaToBecomeReph = 1;
