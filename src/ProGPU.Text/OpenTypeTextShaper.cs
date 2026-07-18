@@ -950,7 +950,7 @@ public static class OpenTypeTextShaper
             else if (tag == ToTag("DFLT")) defaultScriptOffset = tableOffset;
         }
         int scriptOffset = selectedScriptOffset != 0 ? selectedScriptOffset : defaultScriptOffset;
-        if (!CanRead(data, scriptOffset, 4)) return null;
+        if (!CanRead(data, scriptOffset, 4)) return [];
 
         int languageOffset = 0;
         ushort defaultRelative = ReadU16(data, scriptOffset);
@@ -974,6 +974,15 @@ public static class OpenTypeTextShaper
         requiredFeatureIndex = ReadU16(data, languageOffset + 2);
         ushort featureCount = ReadU16(data, languageOffset + 4);
         if (!CanRead(data, languageOffset + 6, featureCount * 2)) return null;
+        int languageEnd = languageOffset + 6 + featureCount * 2;
+        int featureListOffset = ReadU16(data, 6);
+        int lookupListOffset = ReadU16(data, 8);
+        if (languageOffset < featureListOffset && languageEnd > featureListOffset ||
+            languageOffset < lookupListOffset && languageEnd > lookupListOffset)
+        {
+            requiredFeatureIndex = ushort.MaxValue;
+            return [];
+        }
         var result = new HashSet<ushort>();
         for (var index = 0; index < featureCount; index++)
             result.Add(ReadU16(data, languageOffset + 6 + index * 2));
@@ -3069,7 +3078,7 @@ public static class OpenTypeTextShaper
     }
 
     private static bool IsGlobalShaperFeature(string script, string tag) =>
-        IsDirectionalShaperFeature(tag) || script == "hang" && IsHangulJamoFeature(tag);
+        tag == "rand" || IsDirectionalShaperFeature(tag) || script == "hang" && IsHangulJamoFeature(tag);
 
     private static bool IsHangulJamoFeature(string tag) => tag is "ljmo" or "vjmo" or "tjmo";
 
@@ -3077,7 +3086,7 @@ public static class OpenTypeTextShaper
         tag is "ltra" or "ltrm" or "rtla" or "rtlm" or "vert" or "vrt2";
 
     private static bool IsGlobalFeatureTag(string tag) =>
-        IsHangulJamoFeature(tag) || IsDirectionalShaperFeature(tag);
+        tag == "rand" || IsHangulJamoFeature(tag) || IsDirectionalShaperFeature(tag);
 
     private static void AddFeatureLookups(
         FeatureList.FeatureTable feature,
@@ -3128,13 +3137,13 @@ public static class OpenTypeTextShaper
         requiredFeatureIndex = null;
         if (scripts is null || scripts.Count == 0)
         {
-            return null;
+            return [];
         }
 
         ScriptTable? scriptTable = scripts[ToTag(script)] ?? scripts[ToTag("DFLT")];
         if (scriptTable is null)
         {
-            return null;
+            return [];
         }
 
         ScriptTable.LangSysTable? languageTable = null;
