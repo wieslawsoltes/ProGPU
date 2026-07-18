@@ -996,8 +996,8 @@ fn is_use_postbase(category: u32) -> bool {
 
 fn is_use_halant(position: u32) -> bool {
     let category = use_category(position);
-    return category == 12u || category == 53u ||
-        (category == 44u && glyph_states[position].ligature_id == 0u);
+    return (category == 12u || category == 53u || category == 44u) &&
+        glyph_states[position].ligature_id == 0u;
 }
 
 fn insert_broken_use_dotted_circles() {
