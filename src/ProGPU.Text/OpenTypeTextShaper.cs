@@ -55,7 +55,8 @@ public sealed class TextShapingOptions
         new("blwm"),
         new("kern"),
         new("liga"),
-        new("rclt")
+        new("rclt"),
+        new("rand", ushort.MaxValue)
     ];
 
     public static TextShapingOptions Default { get; } = new();
@@ -559,7 +560,7 @@ public static class OpenTypeTextShaper
                 }
                 glyphs.ClearLookupSyllable();
 
-                ApplyAlternateLookup(font, glyphs, lookupIndex, enabled.Value);
+                ApplyAlternateLookup(font, glyphs, lookupIndex, enabled.Value, enabled.Tag);
             }
         }
 
@@ -588,7 +589,7 @@ public static class OpenTypeTextShaper
                     }
                 }
                 glyphs.ClearLookupSyllable();
-                ApplyAlternateLookup(font, glyphs, enabled.LookupIndex, enabled.Value);
+                ApplyAlternateLookup(font, glyphs, enabled.LookupIndex, enabled.Value, enabled.Tag);
             }
         }
 
@@ -1100,7 +1101,8 @@ public static class OpenTypeTextShaper
         TtfFont font,
         GlyphSubstitutionBuffer glyphs,
         ushort lookupIndex,
-        int featureValue)
+        int featureValue,
+        string featureTag)
     {
         if (featureValue <= 0 || !font.TryGetTable("GSUB", out ReadOnlyMemory<byte> tableMemory))
         {
@@ -1168,7 +1170,9 @@ public static class OpenTypeTextShaper
                     continue;
                 }
 
-                int alternateIndex = Math.Clamp(featureValue, 1, alternateCount) - 1;
+                int alternateIndex = featureTag == "rand" && featureValue == ushort.MaxValue
+                    ? glyphs.NextRandomAlternate(alternateCount)
+                    : Math.Clamp(featureValue, 1, alternateCount) - 1;
                 int alternateOffset = setOffset + 2 + alternateIndex * 2;
                 if (CanRead(data, alternateOffset, 2))
                 {
@@ -3321,6 +3325,7 @@ public static class OpenTypeTextShaper
         private bool _restrictLookupToSyllable;
         private int _contextMatchEnd;
         private int _markFilteringCoverage = -1;
+        private uint _randomState = 1;
 
         private GlyphSubstitutionBuffer(List<GlyphRecord> glyphs, TtfFont font)
         {
@@ -3333,6 +3338,12 @@ public static class OpenTypeTextShaper
         public int Count => _glyphs.Count;
 
         public void Reverse() => _glyphs.Reverse();
+
+        public int NextRandomAlternate(int count)
+        {
+            _randomState = unchecked(_randomState * 48271u) % 2147483647u;
+            return (int)(_randomState % (uint)count);
+        }
 
         public int ContextMatchEnd => _contextMatchEnd;
         public ushort this[int index] =>
