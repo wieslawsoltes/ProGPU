@@ -135,6 +135,13 @@ public unsafe class WgpuContext : IDisposable
     /// </summary>
     public long BlockingDeviceWaitCount => Interlocked.Read(ref _blockingDeviceWaitCount);
 
+    /// <summary>
+    /// Number of uncaptured WebGPU errors reported by this device. Performance harnesses use this
+    /// counter to reject runs whose command streams or pipelines were invalid instead of treating
+    /// asynchronous queue callbacks as successfully rendered frames.
+    /// </summary>
+    public long UncapturedErrorCount => Interlocked.Read(ref _uncapturedErrorCount);
+
     internal void RecordQueueBufferWrite(uint byteCount)
     {
         Interlocked.Increment(ref _queueBufferWriteCount);
@@ -171,6 +178,7 @@ public unsafe class WgpuContext : IDisposable
     }
 
     private PfnErrorCallback _errorCallback;
+    private long _uncapturedErrorCount;
 
     public readonly object RenderLock = new();
     public readonly object DisposalLock = new();
@@ -741,6 +749,7 @@ public unsafe class WgpuContext : IDisposable
         _errorCallback = PfnErrorCallback.From((type, msg, _) =>
         {
             string errorMsg = (msg != null ? SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
+            Interlocked.Increment(ref _uncapturedErrorCount);
             Console.WriteLine($"[WebGPU Error] Type: {type}, Message: {errorMsg}");
             OnWebGpuError?.Invoke(type, errorMsg);
         });

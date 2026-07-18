@@ -88,6 +88,7 @@ internal static class SamplePerformanceBenchmark
     private static GpuFrameCompletionMetrics s_gpuCompletionAtStart;
     private static GpuTimestampMetrics s_gpuTimestampsAtStart;
     private static long s_blockingDeviceWaitsAtStart;
+    private static long s_webGpuErrorsAtStart;
 
     public static string? RequestedPage => s_requestedPage;
 
@@ -117,6 +118,8 @@ internal static class SamplePerformanceBenchmark
             benchmarkContext.EnableFrameCompletionTracking = true;
             benchmarkContext.EnableGpuTimestampTracking = true;
         }
+
+        s_webGpuErrorsAtStart = AppState._wgpuContext?.UncapturedErrorCount ?? 0;
 
         Console.WriteLine(
             $"[SampleBenchmark] page={selectedPage} warmupFrames={s_warmupFrames}" +
@@ -290,6 +293,15 @@ internal static class SamplePerformanceBenchmark
         long blockingDeviceWaits = Math.Max(
             0,
             (AppState._wgpuContext?.BlockingDeviceWaitCount ?? 0) - s_blockingDeviceWaitsAtStart);
+        long webGpuErrors = Math.Max(
+            0,
+            (AppState._wgpuContext?.UncapturedErrorCount ?? 0) - s_webGpuErrorsAtStart);
+        if (webGpuErrors != 0)
+        {
+            throw new InvalidOperationException(
+                $"Performance benchmark observed {webGpuErrors} uncaptured WebGPU error(s); " +
+                "the run is invalid. Inspect the benchmark log for the first device error.");
+        }
         double intervalP50 = Percentile(s_frameIntervalSamples, measuredFrames, 0.50d);
         double intervalP95 = Percentile(s_frameIntervalSamples, measuredFrames, 0.95d);
         double intervalP99 = Percentile(s_frameIntervalSamples, measuredFrames, 0.99d);
