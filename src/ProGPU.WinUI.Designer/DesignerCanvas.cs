@@ -1246,47 +1246,22 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
         // 1. Grid Background (Scaled & Panned)
         if (ShowGridLines && GridSize > 1f)
         {
-            float gridSpacing = GridSize;
-            float physicalSpacing = gridSpacing * ZoomScale * dpiScale;
-            if (physicalSpacing >= 8f)
+            float screenSpacing = GridSize * ZoomScale;
+            float physicalSpacing = screenSpacing * dpiScale;
+            if (float.IsFinite(screenSpacing) && screenSpacing > 0f && physicalSpacing >= 8f)
             {
                 var gridBrush = ActualTheme == ElementTheme.Dark
                     ? new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.08f))
                     : new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.06f));
-
-                // Calculate visible logical bounds
-                Vector2 minLogical = (Vector2.Zero - PanOffset) / ZoomScale;
-                Vector2 maxLogical = (Size - PanOffset) / ZoomScale;
-
-                float minX = MathF.Floor(minLogical.X / gridSpacing) * gridSpacing;
-                float maxX = MathF.Ceiling(maxLogical.X / gridSpacing) * gridSpacing;
-                float minY = MathF.Floor(minLogical.Y / gridSpacing) * gridSpacing;
-                float maxY = MathF.Ceiling(maxLogical.Y / gridSpacing) * gridSpacing;
-
-                if (float.IsFinite(minX) && float.IsFinite(maxX) &&
-                    float.IsFinite(minY) && float.IsFinite(maxY))
-                {
-                    for (float x = minX; x <= maxX; x += gridSpacing)
-                    {
-                        for (float y = minY; y <= maxY; y += gridSpacing)
-                        {
-                            // Calculate screen position
-                            Vector2 screenPos = new Vector2(x, y) * ZoomScale + PanOffset;
-
-                            // Skip if outside screen bounds
-                            if (screenPos.X < 0 || screenPos.X > Size.X || screenPos.Y < 0 || screenPos.Y > Size.Y)
-                                continue;
-
-                            // DPI-Aware Snapping: snaps in physical coordinates snapped to 1/4th of a physical pixel, then snap-backed
-                            float physX = MathF.Round(screenPos.X * dpiScale * 4f) / 4f;
-                            float physY = MathF.Round(screenPos.Y * dpiScale * 4f) / 4f;
-
-                            Vector2 snapBackPos = new Vector2(physX, physY) / dpiScale;
-                            
-                            context.FillCircle(gridBrush, snapBackPos, 0.75f);
-                        }
-                    }
-                }
+                var boundedPhase = new Vector2(
+                    PanOffset.X % screenSpacing,
+                    PanOffset.Y % screenSpacing);
+                context.DrawDotGrid(
+                    gridBrush,
+                    new Rect(0f, 0f, Size.X, Size.Y),
+                    screenSpacing,
+                    0.75f,
+                    boundedPhase);
             }
         }
 
