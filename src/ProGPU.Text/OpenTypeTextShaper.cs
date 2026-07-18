@@ -3625,6 +3625,8 @@ public static class OpenTypeTextShaper
 
         public static int GetModifiedCombiningClass(uint codePoint)
         {
+            if (codePoint is 0x1A60 or 0x0FC6) return 254;
+            if (codePoint == 0x0F39) return 127;
             int canonical = UnicodeCombiningClassData.GetCanonicalClass(codePoint);
             return canonical switch
             {
