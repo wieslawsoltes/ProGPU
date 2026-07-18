@@ -219,6 +219,14 @@ public struct ShapingGlyph
     public int OffsetY;
 }
 
+/// <summary>One glyph's y-up design-unit bounding box.</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public readonly record struct ShapingGlyphExtents(
+    int XBearing,
+    int YBearing,
+    int Width,
+    int Height);
+
 /// <summary>
 /// Backend-neutral access to one immutable font face/variation instance.
 /// Implementations may borrow table memory for the lifetime of the face.
@@ -236,6 +244,11 @@ public interface IShapingFontFace
     int GetVerticalAdvance(uint glyphId);
     int GetHorizontalOrigin(uint glyphId);
     int GetVerticalOrigin(uint glyphId);
+    bool TryGetGlyphExtents(uint glyphId, out ShapingGlyphExtents extents)
+    {
+        extents = default;
+        return false;
+    }
     uint VariationAxisCount { get; }
     bool HasActiveVariations { get; }
     bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate);

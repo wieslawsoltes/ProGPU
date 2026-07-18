@@ -229,6 +229,7 @@ public sealed class ShapingContractsTests
 
         Assert.Equal(16, Marshal.SizeOf<GpuCmapRange>());
         Assert.Equal(16, Marshal.SizeOf<GpuGlyphMetrics>());
+        Assert.Equal(20, Marshal.SizeOf<GpuGlyphExtents>());
         Assert.Equal(16, Marshal.SizeOf<GpuShapingScalar>());
         Assert.Equal(32, Marshal.SizeOf<GpuOpenTypeTableDirectory>());
         Assert.Equal(40, Marshal.SizeOf<GpuOpenTypeLookupCommand>());
@@ -239,6 +240,13 @@ public sealed class ShapingContractsTests
         Assert.Equal(face.GetHorizontalAdvance(glyph), metric.AdvanceX);
         Assert.Equal(face.GetVerticalAdvance(glyph), metric.AdvanceY);
         Assert.Equal(face.GetVerticalOrigin(glyph), metric.OriginY);
+        Assert.True(face.TryGetGlyphExtents(glyph, out ShapingGlyphExtents expectedExtents));
+        GpuGlyphExtents actualExtents = plan.Extents.Span[checked((int)glyph)];
+        Assert.Equal(1u, actualExtents.IsValid);
+        Assert.Equal(expectedExtents.XBearing, actualExtents.XBearing);
+        Assert.Equal(expectedExtents.YBearing, actualExtents.YBearing);
+        Assert.Equal(expectedExtents.Width, actualExtents.Width);
+        Assert.Equal(expectedExtents.Height, actualExtents.Height);
         Assert.True(face.TryGetTable(new OpenTypeTag("GSUB"), out ReadOnlyMemory<byte> gsub));
         Assert.Equal((uint)gsub.Length, plan.Tables.GsubLength);
         Assert.Equal(gsub.Span, plan.TableData.Span.Slice(
@@ -930,6 +938,31 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuPositioningAppliesExtentBasedMarkFallbackWithoutGpos()
+    {
+        var face = new FallbackMarkFontFace();
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [new GpuShapingScalar('x', 0), new GpuShapingScalar(0x0301, 0)],
+            fontData,
+            new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("latn")),
+            [],
+            actual);
+
+        Assert.Equal(2, actual.Count);
+        Assert.Equal(500, actual[0].AdvanceX);
+        Assert.Equal(0, actual[1].AdvanceX);
+        Assert.Equal(-350, actual[1].OffsetX);
+        Assert.Equal(-162, actual[1].OffsetY);
+    }
+
+    [Fact]
     public void GpuPositioningMatchesVariableInterInstance()
     {
         const string text = "AVATAR";
@@ -1472,6 +1505,51 @@ public sealed class ShapingContractsTests
                 for (var index = 0; index < 4; index++) data[offset + index] = (byte)value[index];
             }
         }
+    }
+
+    private sealed class FallbackMarkFontFace : IShapingFontFace
+    {
+        public int FaceIndex => 0;
+        public ushort UnitsPerEm => 1000;
+        public uint GlyphCount => 3;
+        public uint VariationAxisCount => 0;
+        public bool HasActiveVariations => false;
+        public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table)
+        {
+            table = ReadOnlyMemory<byte>.Empty;
+            return false;
+        }
+        public uint GetNominalGlyph(uint codePoint) => codePoint switch
+        {
+            'x' => 1,
+            0x0301 => 2,
+            _ => 0
+        };
+        public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out uint glyphId)
+        {
+            glyphId = 0;
+            return false;
+        }
+        public int GetHorizontalAdvance(uint glyphId) => glyphId == 1 ? 500 : glyphId == 2 ? 200 : 0;
+        public int GetVerticalAdvance(uint glyphId) => 1000;
+        public int GetHorizontalOrigin(uint glyphId) => GetHorizontalAdvance(glyphId) / 2;
+        public int GetVerticalOrigin(uint glyphId) => 800;
+        public bool TryGetGlyphExtents(uint glyphId, out ShapingGlyphExtents extents)
+        {
+            extents = glyphId switch
+            {
+                1 => new ShapingGlyphExtents(0, 700, 500, -700),
+                2 => new ShapingGlyphExtents(0, 700, 200, -100),
+                _ => default
+            };
+            return glyphId is 1 or 2;
+        }
+        public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate)
+        {
+            coordinate = 0;
+            return false;
+        }
+        public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
     }
 
     private sealed class VariationSelectorFontFace : IShapingFontFace

@@ -1,6 +1,6 @@
-// Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering, execute positioning, then load direction-aware design-unit metrics and finalize output order.
+// Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering, load metrics, execute GPOS or extent-based fallback mark positioning, then finalize output order.
 // Time complexity: O(N*(log R + log V + log U + log D + log Q + log K) + S*N + L*N*log C) for typical bounded combining runs, and O(N^2 + S*N + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, K invalid-vowel constraints, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
-// Space complexity: O(N + R + V + U + D + Q + K + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization and vowel-constraint data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics, and lookup commands; each invocation uses O(1) private storage and no textures.
+// Space complexity: O(N + R + V + U + D + Q + K + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization and vowel-constraint data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics and optional extents, and lookup commands; each invocation uses O(1) private storage and no textures.
 // Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup VM use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state); the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
 struct Params {
@@ -41,6 +41,14 @@ struct GlyphMetric {
     advance_y: i32,
     origin_x: i32,
     origin_y: i32,
+};
+
+struct GlyphExtents {
+    x_bearing: i32,
+    y_bearing: i32,
+    width: i32,
+    height: i32,
+    is_valid: u32,
 };
 
 struct LayoutVariationDelta {
@@ -133,6 +141,7 @@ struct LookupTask {
 @group(0) @binding(10) var<storage, read> variation_deltas: array<LayoutVariationDelta>;
 @group(0) @binding(11) var<storage, read> variation_mappings: array<VariationMapping>;
 @group(0) @binding(12) var<storage, read> unicode_data: array<u32>;
+@group(0) @binding(13) var<storage, read> glyph_extents: array<GlyphExtents>;
 
 const FEATURE_EXPLICIT: u32 = 1u;
 // Lookup behavior mirrors HarfBuzz matcher semantics: syllable limits apply only
@@ -3329,11 +3338,222 @@ fn apply_legacy_kern(table: u32) {
     }
 }
 
+fn is_unicode_mark(codepoint: u32) -> bool {
+    return (unicode_properties_b(codepoint) & 0x100u) != 0u;
+}
+
+fn is_positioning_mark(position: u32) -> bool {
+    if (table_directory.gdef_length >= 6u &&
+            table_u16(table_directory.gdef_offset + 4u) != 0u) {
+        return gdef_class(4u, glyphs[position].glyph_id) == 3u;
+    }
+    let category = (unicode_properties_b(glyphs[position].codepoint) >> 9u) & 0x1fu;
+    return category == 5u && !is_default_ignorable(glyphs[position].codepoint);
+}
+
+fn uses_fallback_mark_positioning() -> bool {
+    return !is_use_syllable_script() && !is_indic_syllable_script() &&
+        params.script_tag != 0x6b686d72u && params.script_tag != 0x74686169u &&
+        params.script_tag != 0x6c616f20u && params.script_tag != 0x6d796d72u &&
+        params.script_tag != 0x6d796d32u && params.script_tag != 0x71616167u;
+}
+
+fn zero_mark_advances(adjust_offsets: bool) {
+    for (var position = 0u; position < run_state.glyph_count; position++) {
+        if (!is_positioning_mark(position)) { continue; }
+        if (adjust_offsets) {
+            glyphs[position].offset_x -= glyphs[position].advance_x;
+            glyphs[position].offset_y -= glyphs[position].advance_y;
+        }
+        glyphs[position].advance_x = 0;
+        glyphs[position].advance_y = 0;
+    }
+}
+
+fn fallback_combining_class(codepoint: u32) -> u32 {
+    var combining = modified_combining_class(codepoint);
+    if (combining >= 200u) { return combining; }
+    if ((codepoint & ~0xffu) == 0x0e00u) {
+        if (combining == 0u) {
+            if (codepoint == 0x0e31u || (codepoint >= 0x0e34u && codepoint <= 0x0e37u) ||
+                    codepoint == 0x0e47u || (codepoint >= 0x0e4cu && codepoint <= 0x0e4eu)) {
+                combining = 232u;
+            } else if (codepoint == 0x0eb1u || (codepoint >= 0x0eb4u && codepoint <= 0x0eb7u) ||
+                    codepoint == 0x0ebbu || codepoint == 0x0eccu || codepoint == 0x0ecdu) {
+                combining = 230u;
+            } else if (codepoint == 0x0ebcu) { combining = 220u; }
+        } else if (codepoint == 0x0e3au) { combining = 222u; }
+    }
+    switch combining {
+        case 22u: { return 220u; } case 15u: { return 220u; } case 16u: { return 220u; }
+        case 17u: { return 220u; } case 23u: { return 220u; } case 18u: { return 220u; }
+        case 19u: { return 220u; } case 20u: { return 220u; } case 21u: { return 220u; }
+        case 24u: { return 220u; } case 25u: { return 220u; } case 13u: { return 214u; }
+        case 10u: { return 232u; } case 11u: { return 228u; } case 14u: { return 228u; }
+        case 26u: { return 230u; } case 27u: { return 230u; } case 28u: { return 230u; }
+        case 29u: { return 230u; } case 31u: { return 230u; } case 32u: { return 230u; }
+        case 34u: { return 230u; } case 35u: { return 230u; } case 36u: { return 230u; }
+        case 30u: { return 220u; } case 33u: { return 220u; } case 103u: { return 232u; }
+        case 107u: { return 232u; } case 118u: { return 220u; } case 129u: { return 220u; }
+        case 132u: { return 220u; } case 122u: { return 230u; } case 130u: { return 230u; }
+        default: { return combining; }
+    }
+}
+
+fn position_fallback_above(base: ptr<function, GlyphExtents>, mark: GlyphExtents, gap: i32) -> i32 {
+    var y_offset = (*base).y_bearing - (mark.y_bearing + mark.height);
+    if ((gap > 0) != (y_offset > 0)) {
+        let correction = -y_offset / 2;
+        (*base).y_bearing += correction;
+        (*base).height -= correction;
+        y_offset += correction;
+    }
+    (*base).y_bearing -= mark.height;
+    (*base).height += mark.height;
+    return y_offset;
+}
+
+fn position_fallback_mark(position: u32, combining: u32,
+    base: ptr<function, GlyphExtents>, gap: i32) {
+    let glyph_id = glyphs[position].glyph_id;
+    if (glyph_id >= params.metric_count || glyph_extents[glyph_id].is_valid == 0u) { return; }
+    let mark = glyph_extents[glyph_id];
+    var x_offset = (*base).x_bearing + ((*base).width - mark.width) / 2 - mark.x_bearing;
+    if ((combining == 233u || combining == 234u) && params.direction == 1u) {
+        x_offset = (*base).x_bearing + (*base).width - mark.width / 2 - mark.x_bearing;
+    } else if ((combining == 233u || combining == 234u) && params.direction == 2u) {
+        x_offset = (*base).x_bearing - mark.width / 2 - mark.x_bearing;
+    } else if (combining == 200u || combining == 218u || combining == 228u) {
+        x_offset = (*base).x_bearing - mark.x_bearing;
+    } else if (combining == 216u || combining == 222u || combining == 232u) {
+        x_offset = (*base).x_bearing + (*base).width - mark.width - mark.x_bearing;
+    }
+    var y_offset = 0;
+    if (combining == 233u || combining == 218u || combining == 220u || combining == 222u) {
+        (*base).height -= gap;
+    }
+    if (combining == 200u || combining == 202u || combining == 218u || combining == 220u ||
+            combining == 222u || combining == 233u) {
+        y_offset = (*base).y_bearing + (*base).height - mark.y_bearing;
+        if ((gap > 0) == (y_offset > 0)) {
+            (*base).height -= y_offset;
+            y_offset = 0;
+        }
+        (*base).height += mark.height;
+    } else if (combining == 228u || combining == 230u || combining == 232u || combining == 234u) {
+        (*base).y_bearing += gap;
+        (*base).height -= gap;
+        y_offset = position_fallback_above(base, mark, gap);
+    } else if (combining == 214u || combining == 216u) {
+        y_offset = position_fallback_above(base, mark, gap);
+    }
+    glyphs[position].offset_x = x_offset;
+    glyphs[position].offset_y = y_offset;
+}
+
+fn position_fallback_marks_around_base(base_index: u32, end: u32) {
+    let base_glyph = glyphs[base_index].glyph_id;
+    if (base_glyph >= params.metric_count || glyph_extents[base_glyph].is_valid == 0u) { return; }
+    var base = glyph_extents[base_glyph];
+    base.y_bearing += glyphs[base_index].offset_y;
+    base.x_bearing = 0;
+    base.width = glyph_metrics[base_glyph].advance_x;
+    var x_offset = 0;
+    var y_offset = 0;
+    let forward = params.direction == 1u || params.direction == 3u;
+    if (forward) {
+        x_offset -= glyphs[base_index].advance_x;
+        y_offset -= glyphs[base_index].advance_y;
+    }
+    var last_class = 255u;
+    var last_component = 0xffffffffu;
+    var class_extents = base;
+    var component_extents = base;
+    let component_count = glyph_states[base_index].ligature_component;
+    for (var position = base_index + 1u; position < end; position++) {
+        let combining = fallback_combining_class(glyphs[position].codepoint);
+        if (combining == 0u) {
+            if (forward) {
+                x_offset -= glyphs[position].advance_x;
+                y_offset -= glyphs[position].advance_y;
+            } else {
+                x_offset += glyphs[position].advance_x;
+                y_offset += glyphs[position].advance_y;
+            }
+            continue;
+        }
+        if (component_count > 1u) {
+            var component = glyph_states[position].ligature_component;
+            if (component == 0u) { component = component_count - 1u; }
+            component = min(component, component_count - 1u);
+            if (last_component != component) {
+                last_component = component;
+                last_class = 255u;
+                component_extents = base;
+                if (params.direction == 1u) {
+                    component_extents.x_bearing += i32(component) * component_extents.width / i32(component_count);
+                } else {
+                    component_extents.x_bearing +=
+                        i32(component_count - 1u - component) * component_extents.width / i32(component_count);
+                }
+                component_extents.width /= i32(component_count);
+            }
+        }
+        if (last_class != combining) {
+            last_class = combining;
+            class_extents = component_extents;
+        }
+        position_fallback_mark(position, combining, &class_extents, i32(params.reserved1) / 16);
+        glyphs[position].advance_x = 0;
+        glyphs[position].advance_y = 0;
+        glyphs[position].offset_x += x_offset;
+        glyphs[position].offset_y += y_offset;
+    }
+}
+
+fn apply_fallback_mark_positioning() {
+    var cluster_start = 0u;
+    for (var position = 1u; position < run_state.glyph_count; position++) {
+        if (is_unicode_mark(glyphs[position].codepoint) ||
+                is_default_ignorable(glyphs[position].codepoint)) { continue; }
+        if (position - cluster_start >= 2u) {
+            var base = cluster_start;
+            while (base < position) {
+                if (is_unicode_mark(glyphs[base].codepoint)) { base += 1u; continue; }
+                var mark_end = base + 1u;
+                while (mark_end < position && (is_unicode_mark(glyphs[mark_end].codepoint) ||
+                        is_default_ignorable(glyphs[mark_end].codepoint))) { mark_end += 1u; }
+                position_fallback_marks_around_base(base, mark_end);
+                base = mark_end;
+            }
+        }
+        cluster_start = position;
+    }
+    if (run_state.glyph_count - cluster_start >= 2u) {
+        var base = cluster_start;
+        while (base < run_state.glyph_count) {
+            if (is_unicode_mark(glyphs[base].codepoint)) { base += 1u; continue; }
+            var mark_end = base + 1u;
+            while (mark_end < run_state.glyph_count &&
+                    (is_unicode_mark(glyphs[mark_end].codepoint) ||
+                     is_default_ignorable(glyphs[mark_end].codepoint))) { mark_end += 1u; }
+            position_fallback_marks_around_base(base, mark_end);
+            base = mark_end;
+        }
+    }
+}
+
 @compute @workgroup_size(1)
 fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x != 0u) { return; }
     run_state.reserved1 = 0u;
     run_state.reserved2 = FEATURE_GPOS_MATCH;
+    let has_gpos = table_directory.gpos_length != 0u;
+    let forward = params.direction == 1u || params.direction == 3u;
+    if (is_use_syllable_script() || params.script_tag == 0x6d796d72u ||
+            params.script_tag == 0x6d796d32u) {
+        zero_mark_advances(!has_gpos && forward);
+    }
     var tasks: array<LookupTask, 64>;
     var task_count = 0u;
     for (var command_index = 0u; command_index < params.lookup_count; command_index++) {
@@ -3363,7 +3583,12 @@ fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
             break;
         }
     }
+    let fallback_marks = uses_fallback_mark_positioning();
+    if (fallback_marks || params.script_tag == 0x74686169u || params.script_tag == 0x6c616f20u) {
+        zero_mark_advances(!has_gpos && forward);
+    }
     resolve_attachments();
+    if (!has_gpos && fallback_marks) { apply_fallback_mark_positioning(); }
     run_state.reserved2 = 0u;
 }
 

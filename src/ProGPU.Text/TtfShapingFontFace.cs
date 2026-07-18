@@ -53,6 +53,18 @@ public sealed class TtfShapingFontFace : IShapingFontFace
         return checked((int)MathF.Round(Font.GetVerticalOriginY((ushort)glyphId, Font.UnitsPerEm)));
     }
 
+    public bool TryGetGlyphExtents(uint glyphId, out ShapingGlyphExtents extents)
+    {
+        if (glyphId <= ushort.MaxValue && Font.TryGetGlyphBounds(
+                (ushort)glyphId, out short xMin, out short yMin, out short xMax, out short yMax))
+        {
+            extents = new ShapingGlyphExtents(xMin, yMax, xMax - xMin, yMin - yMax);
+            return true;
+        }
+        extents = default;
+        return false;
+    }
+
     public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate)
     {
         coordinate = 0;

@@ -23,6 +23,15 @@ public readonly record struct GpuGlyphMetrics(
     int OriginX,
     int OriginY);
 
+/// <summary>One optional y-up glyph bounding box used only by fallback positioning.</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public readonly record struct GpuGlyphExtents(
+    int XBearing,
+    int YBearing,
+    int Width,
+    int Height,
+    uint IsValid);
+
 /// <summary>One pre-evaluated ItemVariationStore delta keyed by outer/inner indices.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public readonly record struct GpuLayoutVariationDelta(uint Key, float Delta);
@@ -70,28 +79,34 @@ public sealed class GpuOpenTypeShapingPlan
     internal GpuOpenTypeShapingPlan(
         GpuCmapRange[] cmap,
         GpuGlyphMetrics[] metrics,
+        GpuGlyphExtents[] extents,
         GpuVariationMapping[] variationMappings,
         short[] normalizedVariationCoordinates,
         GpuLayoutVariationDelta[] variations,
         GpuOpenTypeTableDirectory tables,
-        byte[] tableData)
+        byte[] tableData,
+        ushort unitsPerEm)
     {
         Cmap = cmap;
         Metrics = metrics;
+        Extents = extents;
         VariationMappings = variationMappings;
         NormalizedVariationCoordinates = normalizedVariationCoordinates;
         Variations = variations;
         Tables = tables;
         TableData = tableData;
+        UnitsPerEm = unitsPerEm;
     }
 
     public ReadOnlyMemory<GpuCmapRange> Cmap { get; }
     public ReadOnlyMemory<GpuGlyphMetrics> Metrics { get; }
+    public ReadOnlyMemory<GpuGlyphExtents> Extents { get; }
     public ReadOnlyMemory<GpuVariationMapping> VariationMappings { get; }
     public ReadOnlyMemory<short> NormalizedVariationCoordinates { get; }
     public ReadOnlyMemory<GpuLayoutVariationDelta> Variations { get; }
     public GpuOpenTypeTableDirectory Tables { get; }
     public ReadOnlyMemory<byte> TableData { get; }
+    public ushort UnitsPerEm { get; }
 
     public uint GetNominalGlyph(uint codePoint)
     {
@@ -120,19 +135,28 @@ public static class GpuOpenTypeShapingPlanCompiler
         if (font.GlyphCount > int.MaxValue)
             throw new InvalidOperationException("The font glyph count exceeds managed/GPU buffer limits.");
         var metrics = new GpuGlyphMetrics[checked((int)font.GlyphCount)];
+        var extents = new GpuGlyphExtents[metrics.Length];
         for (uint glyph = 0; glyph < font.GlyphCount; glyph++)
         {
-            metrics[checked((int)glyph)] = new GpuGlyphMetrics(
+            int index = checked((int)glyph);
+            metrics[index] = new GpuGlyphMetrics(
                 font.GetHorizontalAdvance(glyph),
                 font.GetVerticalAdvance(glyph),
                 font.GetHorizontalOrigin(glyph),
                 font.GetVerticalOrigin(glyph));
+            if (font.TryGetGlyphExtents(glyph, out ShapingGlyphExtents value))
+            {
+                extents[index] = new GpuGlyphExtents(
+                    value.XBearing, value.YBearing, value.Width, value.Height, 1);
+            }
         }
         GpuVariationMapping[] variationMappings = CompileVariationMappings(font);
         short[] coordinates = CompileVariationCoordinates(font);
         byte[] tableData = CompileTables(font, out GpuOpenTypeTableDirectory tables);
         GpuLayoutVariationDelta[] variations = CompileVariations(font, tableData, tables);
-        return new GpuOpenTypeShapingPlan(cmap, metrics, variationMappings, coordinates, variations, tables, tableData);
+        return new GpuOpenTypeShapingPlan(
+            cmap, metrics, extents, variationMappings, coordinates, variations, tables, tableData,
+            font.UnitsPerEm);
     }
 
     private static GpuVariationMapping[] CompileVariationMappings(IShapingFontFace font)
