@@ -94,6 +94,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
     private GpuBuffer? _stateBuffer;
     private GpuBuffer? _lookupBuffer;
     private readonly ComputePipeline* _lookupPipeline;
+    private readonly ComputePipeline* _positionPipeline;
     private int _capacity;
     private bool _disposed;
 
@@ -109,6 +110,8 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             "OpenTypeMetrics", shader, "load_metrics");
         _lookupPipeline = _pipelineCache.GetOrCreateComputePipeline(
             "OpenTypeLookups", shader, "execute_lookups");
+        _positionPipeline = _pipelineCache.GetOrCreateComputePipeline(
+            "OpenTypePositions", shader, "execute_positions");
     }
 
     public void InitializeRun(
@@ -150,6 +153,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         BindGroup* initializeGroup = CreateBindGroup(_initializePipeline, font, 0);
         BindGroup* metricsGroup = CreateBindGroup(_metricsPipeline, font, 1);
         BindGroup* lookupGroup = CreateBindGroup(_lookupPipeline, font, 2);
+        BindGroup* positionGroup = CreateBindGroup(_positionPipeline, font, 3);
         CommandEncoderDescriptor encoderDescriptor = default;
         CommandEncoder* encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         if (encoder == null) throw new InvalidOperationException("Failed to create the OpenType shaping command encoder.");
@@ -158,6 +162,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             Dispatch(encoder, _initializePipeline, initializeGroup, checked((uint)input.Length));
             if (!lookups.IsEmpty) Dispatch(encoder, _lookupPipeline, lookupGroup, 1);
             Dispatch(encoder, _metricsPipeline, metricsGroup, checked((uint)_capacity));
+            if (!lookups.IsEmpty) Dispatch(encoder, _positionPipeline, positionGroup, 1);
             CommandBufferDescriptor commandDescriptor = default;
             CommandBuffer* command = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
             if (command == null) throw new InvalidOperationException("Failed to finish the OpenType shaping command buffer.");
@@ -168,6 +173,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         {
             _context.Api.CommandEncoderRelease(encoder);
             _context.Api.BindGroupRelease(metricsGroup);
+            _context.Api.BindGroupRelease(positionGroup);
             _context.Api.BindGroupRelease(lookupGroup);
             _context.Api.BindGroupRelease(initializeGroup);
         }
@@ -206,6 +212,17 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
                 entries[2] = Entry(4, _glyphBuffer!);
                 entries[3] = Entry(7, _stateBuffer!);
                 count = 4;
+            }
+            else if (stage == 2)
+            {
+                entries[0] = Entry(0, _paramsBuffer!);
+                entries[1] = Entry(4, _glyphBuffer!);
+                entries[2] = Entry(5, font.TableDirectoryBuffer);
+                entries[3] = Entry(6, font.TablesBuffer);
+                entries[4] = Entry(7, _stateBuffer!);
+                entries[5] = Entry(8, _lookupBuffer!);
+                entries[6] = Entry(9, _glyphStateBuffer!);
+                count = 7;
             }
             else
             {

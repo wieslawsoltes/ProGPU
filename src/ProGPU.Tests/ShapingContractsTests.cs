@@ -377,6 +377,55 @@ public sealed class ShapingContractsTests
             actual.Glyphs.ToArray().Select(glyph => glyph.Cluster));
     }
 
+    [Fact]
+    public void GpuPositioningMatchesInterKerning()
+    {
+        const string text = "AVATAR To Wa Yo";
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("latn"), language: "en");
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        GpuShapingScalar[] input = text.Select((character, index) =>
+            new GpuShapingScalar(character, index)).ToArray();
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(input, fontData, request.Direction, commands, actual);
+
+        Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
+    }
+
+    [Fact]
+    public void GpuPositioningMatchesInterMarkAttachment()
+    {
+        const string text = "x\u030a";
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("latn"), language: "en");
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [new GpuShapingScalar('x', 0), new GpuShapingScalar(0x030a, 0)],
+            fontData,
+            request.Direction,
+            commands,
+            actual);
+
+        Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
+    }
+
     private static (uint LookupOffset, uint InputGlyph, uint ExpectedGlyph) FindSingleSubstitution(
         GpuOpenTypeShapingPlan plan)
     {
