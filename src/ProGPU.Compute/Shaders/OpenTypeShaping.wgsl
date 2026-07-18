@@ -1419,6 +1419,9 @@ fn initial_reorder_indic_syllable(start: u32, end: u32, old_spec: bool) {
     reverse_indic_left_matras(start, end);
     base_index = find_indic_base(start, end);
     merge_indic_sort_clusters(start, end, base_index, old_spec);
+    for (var position = start; position < end; position++) {
+        glyph_states[position].attachment_type &= 0xffffff00u;
+    }
     setup_indic_feature_masks(start, end, base_index, old_spec);
 }
 

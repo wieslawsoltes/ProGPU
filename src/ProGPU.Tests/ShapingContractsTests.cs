@@ -789,6 +789,7 @@ public sealed class ShapingContractsTests
                 fontData, request, [], actual);
             Assert.Equal(item.Expected,
                 actual.Glyphs.ToArray().Select(static glyph => glyph.CodePoint));
+            Assert.All(actual.Glyphs.ToArray(), static glyph => Assert.Equal(0, glyph.OffsetX));
         }
     }
 
