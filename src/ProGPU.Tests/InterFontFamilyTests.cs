@@ -92,6 +92,25 @@ public sealed class InterFontFamilyTests
         Assert.Equal((14f, 14f, 32f), (opticalSize.Minimum, opticalSize.Default, opticalSize.Maximum));
     }
 
+    [Fact]
+    public void TypefaceMatchingUsesSeparateVariableItalicFaceWhenSlantIsNotAnAxis()
+    {
+        var manager = new FontManager();
+        InterFontFamily.RegisterFonts(manager);
+        TtfFont upright = Assert.IsType<TtfFont>(manager.MatchFamily(
+            InterFontFamily.VariableFamilyName,
+            new FontStyleRequest(400, 5, FontSlant.Upright)));
+
+        TtfFont italic = manager.MatchTypeface(
+            upright,
+            new FontStyleRequest(637, 5, FontSlant.Italic));
+
+        Assert.NotSame(upright, italic);
+        Assert.True(italic.IsItalic);
+        Assert.Equal((ushort)637, italic.WeightClass);
+        Assert.DoesNotContain(italic.VariationAxes, static axis => axis.Tag is "ital" or "slnt");
+    }
+
     [Theory]
     [InlineData(100f, 14f, 100, false)]
     [InlineData(537f, 23f, 537, false)]

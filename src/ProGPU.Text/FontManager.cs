@@ -249,6 +249,17 @@ public sealed class FontManager
         style = NormalizeStyle(style);
         if (typeface.IsVariableFont)
         {
+            bool currentItalic = typeface.IsItalic;
+            bool requestedItalic = style.Slant != FontSlant.Upright;
+            if (currentItalic != requestedItalic && !SupportsSlantVariation(typeface))
+            {
+                return _styleMatches.GetOrAdd(
+                    (typeface, style),
+                    key => MatchFamily(key.Font.FamilyName, key.Style) is { } familyMatch &&
+                           !ReferenceEquals(familyMatch, key.Font)
+                        ? familyMatch
+                        : ApplyStyleVariations(key.Font, key.Style) ?? key.Font);
+            }
             return ApplyStyleVariations(typeface, style) ?? typeface;
         }
         if (GetStyleDistance(FontStyleRequest.FromFont(typeface), style) == 0)
@@ -719,6 +730,16 @@ public sealed class FontManager
         }
 
         return settings.Count == 0 ? font : font.WithVariations(settings);
+    }
+
+    private static bool SupportsSlantVariation(TtfFont font)
+    {
+        IReadOnlyList<FontVariationAxis> axes = font.VariationAxes;
+        for (var index = 0; index < axes.Count; index++)
+        {
+            if (axes[index].Tag is "ital" or "slnt") return true;
+        }
+        return false;
     }
 
     private static float WidthClassToPercent(int width) => width switch

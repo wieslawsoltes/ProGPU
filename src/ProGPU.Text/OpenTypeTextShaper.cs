@@ -26,7 +26,7 @@ public readonly record struct OpenTypeFeatureSetting
     public int Value { get; }
 }
 
-public sealed class TextShapingOptions
+public sealed class TextShapingOptions : IEquatable<TextShapingOptions>
 {
     private static readonly IReadOnlySet<string> s_noExplicitFeatures = new HashSet<string>(StringComparer.Ordinal);
     private static readonly OpenTypeFeatureSetting[] s_defaultFeatures =
@@ -147,6 +147,102 @@ public sealed class TextShapingOptions
             ? s_noExplicitFeatures
             : Features.Select(static feature => feature.Tag).ToHashSet(StringComparer.Ordinal);
     }
+
+    public bool Equals(TextShapingOptions? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        if (other is null ||
+            !string.Equals(Script, other.Script, StringComparison.Ordinal) ||
+            !string.Equals(Language, other.Language, StringComparison.Ordinal) ||
+            Direction != other.Direction ||
+            ClusterLevel != other.ClusterLevel ||
+            BufferFlags != other.BufferFlags ||
+            !FeatureListsEqual(Features, other.Features) ||
+            !FeatureListsEqual(BaseFeatures, other.BaseFeatures) ||
+            !FeatureSetsEqual(ExplicitFeatureTags, other.ExplicitFeatureTags))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<ShapingFeature> leftRanges = RangedFeatures.Span;
+        ReadOnlySpan<ShapingFeature> rightRanges = other.RangedFeatures.Span;
+        return leftRanges.SequenceEqual(rightRanges);
+    }
+
+    public override bool Equals(object? obj) => obj is TextShapingOptions other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Script, StringComparer.Ordinal);
+        hash.Add(Language, StringComparer.Ordinal);
+        hash.Add(Direction);
+        hash.Add(ClusterLevel);
+        hash.Add(BufferFlags);
+        AddFeatures(ref hash, Features);
+        AddFeatures(ref hash, BaseFeatures);
+        AddFeatureSet(ref hash, ExplicitFeatureTags);
+        ReadOnlySpan<ShapingFeature> ranges = RangedFeatures.Span;
+        hash.Add(ranges.Length);
+        for (var index = 0; index < ranges.Length; index++)
+        {
+            hash.Add(ranges[index]);
+        }
+        return hash.ToHashCode();
+    }
+
+    private static bool FeatureListsEqual(
+        IReadOnlyList<OpenTypeFeatureSetting>? left,
+        IReadOnlyList<OpenTypeFeatureSetting>? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null || left.Count != right.Count) return false;
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (left[index] != right[index]) return false;
+        }
+        return true;
+    }
+
+    private static bool FeatureSetsEqual(IReadOnlySet<string>? left, IReadOnlySet<string>? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        return left is not null && right is not null && left.Count == right.Count && left.SetEquals(right);
+    }
+
+    private static void AddFeatures(ref HashCode hash, IReadOnlyList<OpenTypeFeatureSetting>? features)
+    {
+        if (features is null)
+        {
+            hash.Add(-1);
+            return;
+        }
+
+        hash.Add(features.Count);
+        for (var index = 0; index < features.Count; index++)
+        {
+            hash.Add(features[index]);
+        }
+    }
+
+    private static void AddFeatureSet(ref HashCode hash, IReadOnlySet<string>? features)
+    {
+        if (features is null)
+        {
+            hash.Add(-1);
+            return;
+        }
+
+        // Addition is order-independent, so equal sets produce equal hashes without
+        // sorting or allocating in the compositor cache lookup path.
+        var setHash = 0;
+        foreach (string feature in features)
+        {
+            setHash = unchecked(setHash + StringComparer.Ordinal.GetHashCode(feature));
+        }
+        hash.Add(features.Count);
+        hash.Add(setHash);
+    }
 }
 
 public readonly record struct ShapedGlyph(
@@ -162,6 +258,9 @@ public static class OpenTypeTextShaper
 {
     private const int MaximumShapedGlyphCount = 1_048_576;
     private const int MaximumLookupNestingDepth = 64;
+
+    internal static bool IsDefaultIgnorableCodePoint(uint codePoint) =>
+        GlyphSubstitutionBuffer.IsDefaultIgnorable(codePoint);
 
     public static IReadOnlyList<string> GetFeatureTags(TtfFont font)
     {

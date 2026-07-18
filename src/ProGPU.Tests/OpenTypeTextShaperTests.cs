@@ -229,6 +229,29 @@ public sealed class OpenTypeTextShaperTests
         Assert.Equal(0, decomposed[0].Cluster);
     }
 
+    [Fact]
+    public void EquivalentShapingOptionsHaveStableValueIdentity()
+    {
+        TextShapingOptions first = TextShapingOptions.WithFeatures(
+            new OpenTypeFeatureSetting("liga", 0),
+            new OpenTypeFeatureSetting("ss01", 1));
+        TextShapingOptions second = TextShapingOptions.WithFeatures(
+            new OpenTypeFeatureSetting("liga", 0),
+            new OpenTypeFeatureSetting("ss01", 1));
+
+        Assert.NotSame(first, second);
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+
+        var layouts = new Dictionary<TextShapingOptions, string> { [first] = "retained" };
+        Assert.Equal("retained", layouts[second]);
+        Assert.NotEqual(
+            first,
+            TextShapingOptions.WithFeatures(
+                new OpenTypeFeatureSetting("liga", 1),
+                new OpenTypeFeatureSetting("ss01", 1)));
+    }
+
     private static TextShapingOptions Features(params string[] optional)
     {
         var features = new List<OpenTypeFeatureSetting>

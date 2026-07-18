@@ -449,11 +449,19 @@ public class TextLayout
 
             TtfFont resolvedFont = Font;
             ushort glyphIndex = Font.GetGlyphIndex(codePoint);
-            if (glyphIndex == 0 && codePoint is not (' ' or '\t') &&
-                TryResolveFallback(Font, codePoint, out TtfFont? fallbackFont, out _) &&
-                fallbackFont is not null)
+            if (glyphIndex == 0 && codePoint is not (' ' or '\t'))
             {
-                resolvedFont = fallbackFont;
+                if (runFont is not null && OpenTypeTextShaper.IsDefaultIgnorableCodePoint(codePoint))
+                {
+                    // Variation selectors, joiners, and other default ignorables belong to
+                    // the preceding fallback run even when they have no standalone cmap entry.
+                    resolvedFont = runFont;
+                }
+                else if (TryResolveFallback(Font, codePoint, out TtfFont? fallbackFont, out _) &&
+                         fallbackFont is not null)
+                {
+                    resolvedFont = fallbackFont;
+                }
             }
 
             if (runFont is null)
