@@ -433,7 +433,7 @@ public static class GpuOpenTypeLookupPlanCompiler
             else if (tag == Tag("DFLT")) fallback = offset;
         }
         int script = selected != 0 ? selected : fallback;
-        if (!CanRead(data, script, 4) || script >= tableEnd) return [];
+        if (script == 0 || !CanRead(data, script, 4) || script >= tableEnd) return [];
         int languageSystem = 0;
         ushort defaultOffset = ReadU16(data, script);
         if (defaultOffset != 0) languageSystem = script + defaultOffset;
@@ -449,6 +449,16 @@ public static class GpuOpenTypeLookupPlanCompiler
         if (languageSystem == 0 || !CanRead(data, languageSystem, 6) || languageSystem >= tableEnd) return [];
         required = ReadU16(data, languageSystem + 2);
         ushort count = ReadU16(data, languageSystem + 4);
+        int languageEnd = languageSystem + 6 + count * 2;
+        int featureList = table + ReadU16(data, table + 6);
+        int lookupList = table + ReadU16(data, table + 8);
+        if (!CanReadInTable(data, languageSystem + 6, count * 2, tableEnd) ||
+            languageSystem < featureList && languageEnd > featureList ||
+            languageSystem < lookupList && languageEnd > lookupList)
+        {
+            required = ushort.MaxValue;
+            return [];
+        }
         var result = new HashSet<ushort>();
         for (var index = 0; index < count && CanRead(data, languageSystem + 6 + index * 2, 2); index++)
             result.Add(ReadU16(data, languageSystem + 6 + index * 2));
