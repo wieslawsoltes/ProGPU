@@ -542,12 +542,10 @@ internal sealed class SuiteRunner : IDisposable
     {
         foreach (Rune rune in text.EnumerateRunes())
         {
-            UnicodeCategory category = Rune.GetUnicodeCategory(rune);
-            if (category is not (UnicodeCategory.UppercaseLetter or UnicodeCategory.LowercaseLetter or
-                UnicodeCategory.TitlecaseLetter or UnicodeCategory.ModifierLetter or UnicodeCategory.OtherLetter))
-                continue;
-            string script = OpenTypeScriptResolver.GetScript(checked((uint)rune.Value)).ToString();
-            return script is "arab" or "hebr" or "syrc" or "thaa" or "nkoo" or "adlm" or "rohg"
+            OpenTypeTag scriptTag = OpenTypeScriptResolver.GetScript(checked((uint)rune.Value));
+            if (scriptTag == OpenTypeTag.DefaultScript) continue;
+            string script = scriptTag.ToString();
+            return script is "arab" or "hebr" or "syrc" or "thaa" or "nko " or "nkoo" or "adlm" or "rohg"
                 ? ShapingDirection.RightToLeft
                 : ShapingDirection.LeftToRight;
         }

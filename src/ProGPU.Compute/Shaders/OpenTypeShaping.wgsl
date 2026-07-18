@@ -4160,6 +4160,40 @@ fn previous_covered(position: u32, lookup_offset: u32, lookup_flags: u32,
     return -1;
 }
 
+fn reverse_cursive_minor_offset(index: u32, new_parent: u32, horizontal: bool) {
+    if (glyph_states[index].attachment_type != 2u &&
+            glyph_states[index].attachment_type != 3u) { return; }
+
+    var current = index;
+    var old_parent = glyph_states[current].attachment_chain;
+    var previous_minor = select(glyphs[current].offset_x, glyphs[current].offset_y, horizontal);
+    glyph_states[current].attachment_chain = -1;
+    glyph_states[current].attachment_type = 0u;
+
+    for (var step = 0u; step < run_state.glyph_count; step++) {
+        if (old_parent < 0 || u32(old_parent) >= run_state.glyph_count ||
+                u32(old_parent) == new_parent) { break; }
+        let reversed_index = u32(old_parent);
+        let next_parent = glyph_states[reversed_index].attachment_chain;
+        let next_minor = select(
+            glyphs[reversed_index].offset_x,
+            glyphs[reversed_index].offset_y,
+            horizontal);
+        let next_type = glyph_states[reversed_index].attachment_type;
+        if (horizontal) {
+            glyphs[reversed_index].offset_y = -previous_minor;
+        } else {
+            glyphs[reversed_index].offset_x = -previous_minor;
+        }
+        glyph_states[reversed_index].attachment_chain = i32(current);
+        glyph_states[reversed_index].attachment_type = select(3u, 2u, horizontal);
+        current = reversed_index;
+        previous_minor = next_minor;
+        if (next_type != 2u && next_type != 3u) { break; }
+        old_parent = next_parent;
+    }
+}
+
 fn apply_cursive_position(subtable: u32, position: u32,
     lookup_offset: u32, lookup_flags: u32) -> bool {
     if (table_u16(subtable) != 1u) { return false; }
@@ -4205,13 +4239,25 @@ fn apply_cursive_position(subtable: u32, position: u32,
     let rtl_lookup = (lookup_flags & 1u) != 0u;
     let child = select(position, previous, rtl_lookup);
     let parent = select(previous, position, rtl_lookup);
+    let horizontal = params.direction == 1u || params.direction == 2u;
+    reverse_cursive_minor_offset(child, parent, horizontal);
     glyph_states[child].attachment_chain = i32(parent);
-    if (params.direction == 1u || params.direction == 2u) {
+    if (horizontal) {
         glyph_states[child].attachment_type = 2u;
         glyphs[child].offset_y = select(exit.y - entry.y, entry.y - exit.y, rtl_lookup);
     } else {
         glyph_states[child].attachment_type = 3u;
         glyphs[child].offset_x = select(exit.x - entry.x, entry.x - exit.x, rtl_lookup);
+    }
+    if (glyph_states[parent].attachment_chain == i32(child) &&
+            glyph_states[parent].attachment_type == glyph_states[child].attachment_type) {
+        glyph_states[parent].attachment_chain = -1;
+        glyph_states[parent].attachment_type = 0u;
+        if (horizontal) {
+            glyphs[parent].offset_y = 0;
+        } else {
+            glyphs[parent].offset_x = 0;
+        }
     }
     return true;
 }
