@@ -93,6 +93,10 @@ public sealed class TextShapingOptions
     /// </summary>
     public IReadOnlySet<string>? ExplicitFeatureTags { get; init; }
 
+    internal ShapingClusterLevel ClusterLevel { get; init; } = ShapingClusterLevel.MonotoneGraphemes;
+    internal ShapingBufferFlags BufferFlags { get; init; }
+    internal ReadOnlyMemory<ShapingFeature> RangedFeatures { get; init; }
+
     internal IReadOnlySet<string> ResolveExplicitFeatureTags()
     {
         if (ExplicitFeatureTags is not null)
@@ -150,6 +154,86 @@ public static class OpenTypeTextShaper
         {
             return [];
         }
+
+        ShapingResult shaping = ShapeCore(text, font, options);
+        GlyphPositionBuffer positions = shaping.Positions;
+        ShapingDirection direction = shaping.Direction;
+        float scale = fontSize / font.UnitsPerEm;
+        bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
+        var result = new ShapedGlyph[positions.Count];
+        for (var index = 0; index < result.Length; index++)
+        {
+            GlyphRecord record = positions[index];
+            float advanceY = record.AdvanceY * scale;
+            float offsetX = record.OffsetX * scale;
+            float offsetY = record.OffsetY * scale;
+            if (vertical && scale != 1f)
+            {
+                // HarfBuzz scales integer font metrics before applying the
+                // vertical-origin integer division. Preserve that order while
+                // leaving GPOS deltas in design units for the common path.
+                int baseAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, font.UnitsPerEm));
+                int scaledAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, fontSize));
+                advanceY = (record.AdvanceY - baseAdvanceY) * scale + scaledAdvanceY;
+
+                int baseOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)) / 2);
+                int scaledOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, fontSize)) / 2);
+                offsetX = (record.OffsetX - baseOffsetX) * scale + scaledOffsetX;
+
+                int baseOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, font.UnitsPerEm));
+                int scaledOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, fontSize));
+                offsetY = (record.OffsetY - baseOffsetY) * scale + scaledOffsetY;
+            }
+            result[index] = new ShapedGlyph(
+                record.GlyphIndex,
+                record.Cluster,
+                record.CodePoint,
+                record.AdvanceX * scale,
+                -advanceY,
+                offsetX,
+                -offsetY);
+        }
+
+        return result;
+    }
+
+    internal static void ShapeDesignUnits(
+        string text,
+        TtfFont font,
+        TextShapingOptions options,
+        ShapingBuffer destination)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(destination);
+        destination.Clear();
+        if (text.Length == 0) return;
+
+        ShapingResult shaping = ShapeCore(text, font, options);
+        GlyphPositionBuffer positions = shaping.Positions;
+        destination.EnsureCapacity(positions.Count);
+        for (var index = 0; index < positions.Count; index++)
+        {
+            GlyphRecord record = positions[index];
+            destination.Append(new ShapingGlyph
+            {
+                GlyphId = record.GlyphIndex,
+                CodePoint = record.CodePoint,
+                Cluster = record.Cluster,
+                AdvanceX = record.AdvanceX,
+                AdvanceY = -record.AdvanceY,
+                OffsetX = record.OffsetX,
+                OffsetY = -record.OffsetY
+            });
+        }
+    }
+
+    private static ShapingResult ShapeCore(
+        string text,
+        TtfFont font,
+        TextShapingOptions options)
+    {
 
         string unicodeScript = options.Script ?? InferScript(text);
         bool useShaper = ResolveLayoutScript(font, unicodeScript, out string script);
@@ -308,44 +392,12 @@ public static class OpenTypeTextShaper
             positions.ApplyArabicStretch(font, direction == ShapingDirection.RightToLeft);
         }
 
-        float scale = fontSize / font.UnitsPerEm;
-        bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
-        var result = new ShapedGlyph[positions.Count];
-        for (var index = 0; index < result.Length; index++)
-        {
-            GlyphRecord record = positions[index];
-            float advanceY = record.AdvanceY * scale;
-            float offsetX = record.OffsetX * scale;
-            float offsetY = record.OffsetY * scale;
-            if (vertical && scale != 1f)
-            {
-                // HarfBuzz scales integer font metrics before applying the
-                // vertical-origin integer division. Preserve that order while
-                // leaving GPOS deltas in design units for the common path.
-                int baseAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, font.UnitsPerEm));
-                int scaledAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(record.GlyphIndex, fontSize));
-                advanceY = (record.AdvanceY - baseAdvanceY) * scale + scaledAdvanceY;
-
-                int baseOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, font.UnitsPerEm)) / 2);
-                int scaledOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(record.GlyphIndex, fontSize)) / 2);
-                offsetX = (record.OffsetX - baseOffsetX) * scale + scaledOffsetX;
-
-                int baseOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, font.UnitsPerEm));
-                int scaledOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(record.GlyphIndex, fontSize));
-                offsetY = (record.OffsetY - baseOffsetY) * scale + scaledOffsetY;
-            }
-            result[index] = new ShapedGlyph(
-                record.GlyphIndex,
-                record.Cluster,
-                record.CodePoint,
-                record.AdvanceX * scale,
-                -advanceY,
-                offsetX,
-                -offsetY);
-        }
-
-        return result;
+        return new ShapingResult(positions, direction);
     }
+
+    private readonly record struct ShapingResult(
+        GlyphPositionBuffer Positions,
+        ShapingDirection Direction);
 
     private static ShapingDirection ResolveDirection(ShapingDirection requested, string script)
     {
@@ -394,7 +446,10 @@ public static class OpenTypeTextShaper
             Language = options.Language,
             Direction = direction,
             Features = features,
-            ExplicitFeatureTags = explicitFeatureTags
+            ExplicitFeatureTags = explicitFeatureTags,
+            ClusterLevel = options.ClusterLevel,
+            BufferFlags = options.BufferFlags,
+            RangedFeatures = options.RangedFeatures
         };
     }
 
@@ -492,7 +547,10 @@ public static class OpenTypeTextShaper
             Language = options.Language,
             Direction = options.Direction,
             Features = features,
-            ExplicitFeatureTags = explicitFeatureTags
+            ExplicitFeatureTags = explicitFeatureTags,
+            ClusterLevel = options.ClusterLevel,
+            BufferFlags = options.BufferFlags,
+            RangedFeatures = options.RangedFeatures
         };
     }
 

@@ -100,5 +100,40 @@ public sealed class ShapingContractsTests
         Assert.False(face.TryGetVariationGlyph('A', 0xfe0f, out _));
     }
 
+    [Fact]
+    public void CpuExecutorProducesTheRendererResultInDesignUnits()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        const string text = "office";
+        var request = new ShapingRequest(
+            ShapingDirection.LeftToRight,
+            new OpenTypeTag("latn"),
+            language: "en");
+        using var buffer = new ShapingBuffer();
+
+        CpuOpenTypeShaper.Instance.Shape(text, new TtfShapingFontFace(font), request, buffer);
+        IReadOnlyList<ShapedGlyph> renderer = OpenTypeTextShaper.Shape(text, font, font.UnitsPerEm,
+            new TextShapingOptions
+            {
+                Script = "latn",
+                Language = "en",
+                Direction = ShapingDirection.LeftToRight
+            });
+
+        Assert.Equal(renderer.Count, buffer.Count);
+        for (var index = 0; index < renderer.Count; index++)
+        {
+            ShapedGlyph expected = renderer[index];
+            ShapingGlyph actual = buffer[index];
+            Assert.Equal(expected.GlyphIndex, actual.GlyphId);
+            Assert.Equal(expected.CodePoint, actual.CodePoint);
+            Assert.Equal(expected.Cluster, actual.Cluster);
+            Assert.Equal(expected.AdvanceX, actual.AdvanceX);
+            Assert.Equal(expected.AdvanceY, actual.AdvanceY);
+            Assert.Equal(expected.OffsetX, actual.OffsetX);
+            Assert.Equal(expected.OffsetY, actual.OffsetY);
+        }
+    }
+
     private static ShapingGlyph Glyph(uint glyphId) => new() { GlyphId = glyphId };
 }
