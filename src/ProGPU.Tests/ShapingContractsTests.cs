@@ -605,6 +605,66 @@ public sealed class ShapingContractsTests
         Assert.Equal(expectedGlyph == 1 ? 500 : 600, actual[0].AdvanceX);
     }
 
+    [Fact]
+    public void GpuPositioningAppliesLegacyKernFallback()
+    {
+        var face = new LegacyKernFontFace();
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, OpenTypeTag.DefaultScript);
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        Assert.Contains(commands, command => command.TableKind == 3);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [new GpuShapingScalar('A', 0), new GpuShapingScalar('V', 1)],
+            fontData, request, commands, actual);
+
+        Assert.Equal(450, actual[0].AdvanceX);
+        Assert.Equal(450, actual[1].AdvanceX);
+        Assert.Equal(-50, actual[1].OffsetX);
+    }
+
+    private sealed class LegacyKernFontFace : IShapingFontFace
+    {
+        private static readonly byte[] s_kern =
+        [
+            0, 0, 0, 1,
+            0, 0, 0, 20, 0, 1,
+            0, 1, 0, 0, 0, 0, 0, 0,
+            0, 1, 0, 2, 0xff, 0x9c
+        ];
+        public int FaceIndex => 0;
+        public ushort UnitsPerEm => 1000;
+        public uint GlyphCount => 3;
+        public uint VariationAxisCount => 0;
+        public bool HasActiveVariations => false;
+        public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table)
+        {
+            table = tag == new OpenTypeTag("kern") ? s_kern : ReadOnlyMemory<byte>.Empty;
+            return !table.IsEmpty;
+        }
+        public uint GetNominalGlyph(uint codePoint) => codePoint == 'A' ? 1u : codePoint == 'V' ? 2u : 0u;
+        public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out uint glyphId)
+        {
+            glyphId = 0;
+            return false;
+        }
+        public int GetHorizontalAdvance(uint glyphId) => glyphId == 0 ? 0 : 500;
+        public int GetVerticalAdvance(uint glyphId) => 1000;
+        public int GetHorizontalOrigin(uint glyphId) => 250;
+        public int GetVerticalOrigin(uint glyphId) => 800;
+        public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate)
+        {
+            coordinate = 0;
+            return false;
+        }
+        public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
+    }
+
     private sealed class VariationSelectorFontFace : IShapingFontFace
     {
         private static readonly byte[] s_cmap = CreateCmap();

@@ -1031,6 +1031,105 @@ fn finalize_substitutions(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 }
 
+fn legacy_kern_class(subtable: u32, length: u32, relative: u32, glyph: u32) -> u32 {
+    if (relative == 0u || relative + 4u > length) { return 0u; }
+    let class_table = subtable + relative;
+    let first_glyph = table_u16(class_table);
+    let count = table_u16(class_table + 2u);
+    if (glyph < first_glyph || glyph - first_glyph >= count ||
+            relative + 4u + (glyph - first_glyph + 1u) * 2u > length) { return 0u; }
+    return table_u16(class_table + 4u + (glyph - first_glyph) * 2u);
+}
+
+fn next_legacy_kern_glyph(start: u32) -> i32 {
+    for (var index = start; index < run_state.glyph_count; index++) {
+        if (gdef_class(4u, glyphs[index].glyph_id) != 3u) { return i32(index); }
+    }
+    return -1;
+}
+
+fn apply_legacy_kern_adjustment(left: u32, right: u32, kerning: i32, cross_stream: bool) {
+    if (kerning == 0) { return; }
+    if (cross_stream) {
+        glyphs[right].offset_y += kerning;
+        return;
+    }
+    let first = kerning >> 1;
+    let second = kerning - first;
+    glyphs[left].advance_x += first;
+    glyphs[right].advance_x += second;
+    glyphs[right].offset_x += second;
+}
+
+fn apply_legacy_kern_format0(subtable: u32, header_size: u32, cross_stream: bool) {
+    let body = subtable + header_size;
+    let pair_count = table_u16(body);
+    let records = body + 8u;
+    for (var left = 0u; left + 1u < run_state.glyph_count; left++) {
+        let right_signed = next_legacy_kern_glyph(left + 1u);
+        if (right_signed < 0) { break; }
+        let right = u32(right_signed);
+        let key_left = glyphs[left].glyph_id;
+        let key_right = glyphs[right].glyph_id;
+        var low = 0u;
+        var high = pair_count;
+        var kerning = 0;
+        loop {
+            if (low >= high) { break; }
+            let middle = low + ((high - low) >> 1u);
+            let record = records + middle * 6u;
+            let record_left = table_u16(record);
+            let record_right = table_u16(record + 2u);
+            if (key_left < record_left || (key_left == record_left && key_right < record_right)) {
+                high = middle;
+            } else if (key_left > record_left || key_right > record_right) {
+                low = middle + 1u;
+            } else {
+                kerning = i32(table_u16(record + 4u) << 16u) >> 16;
+                break;
+            }
+        }
+        apply_legacy_kern_adjustment(left, right, kerning, cross_stream);
+    }
+}
+
+fn apply_legacy_kern_format2(subtable: u32, header_size: u32, length: u32, cross_stream: bool) {
+    let body = subtable + header_size;
+    let left_table = table_u16(body + 2u);
+    let right_table = table_u16(body + 4u);
+    let array_offset = table_u16(body + 6u);
+    for (var left = 0u; left + 1u < run_state.glyph_count; left++) {
+        let right_signed = next_legacy_kern_glyph(left + 1u);
+        if (right_signed < 0) { break; }
+        let right = u32(right_signed);
+        let value_offset = legacy_kern_class(subtable, length, left_table, glyphs[left].glyph_id) +
+            legacy_kern_class(subtable, length, right_table, glyphs[right].glyph_id);
+        var kerning = 0;
+        if (value_offset >= array_offset && value_offset + 2u <= length) {
+            kerning = i32(table_u16(subtable + value_offset) << 16u) >> 16;
+        }
+        apply_legacy_kern_adjustment(left, right, kerning, cross_stream);
+    }
+}
+
+fn apply_legacy_kern(table: u32) {
+    let apple = table_u32(table) == 0x00010000u;
+    let count = select(table_u16(table + 2u), table_u32(table + 4u), apple);
+    var subtable = table + select(4u, 8u, apple);
+    for (var index = 0u; index < count; index++) {
+        let header_size = select(6u, 8u, apple);
+        let length = select(table_u16(subtable + 2u), table_u32(subtable), apple);
+        if (length < header_size) { break; }
+        let format = table_u8(subtable + select(4u, 5u, apple));
+        let coverage = table_u8(subtable + select(5u, 4u, apple));
+        let horizontal = select((coverage & 1u) != 0u, (coverage & 0x80u) == 0u, apple);
+        let cross_stream = select((coverage & 4u) != 0u, (coverage & 0x40u) != 0u, apple);
+        if (horizontal && format == 0u) { apply_legacy_kern_format0(subtable, header_size, cross_stream); }
+        else if (horizontal && format == 2u) { apply_legacy_kern_format2(subtable, header_size, length, cross_stream); }
+        subtable += length;
+    }
+}
+
 @compute @workgroup_size(1)
 fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x != 0u) { return; }
@@ -1054,6 +1153,13 @@ fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
                 _ = apply_gpos_lookup_at(nested_lookup, u32(target_index), task.depth, &tasks, &task_count);
             }
             if (run_state.status != 0u) { return; }
+        }
+    }
+    for (var command_index = 0u; command_index < params.lookup_count; command_index++) {
+        let command = lookup_commands[command_index];
+        if (command.table_kind == 3u && command.feature_value != 0u) {
+            apply_legacy_kern(command.lookup_offset);
+            break;
         }
     }
     resolve_attachments();

@@ -52,6 +52,22 @@ public static class GpuOpenTypeLookupPlanCompiler
                 });
             }
         }
+        bool hasGposKerning = resolved.Any(static lookup =>
+            lookup.Command.TableKind == 2 && lookup.FeatureTag is 0x6b65726eu or 0x64697374u);
+        if (!hasGposKerning && plan.Tables.KernLength != 0 &&
+            request.Direction is ShapingDirection.LeftToRight or ShapingDirection.RightToLeft &&
+            !IsIndicScript(request.Script.ToString().ToLowerInvariant()))
+        {
+            uint kernTag = Tag("kern");
+            foreach (FeatureInterval interval in ResolveIntervals(
+                         request.Features.Span, kernTag, features.BaseValues.GetValueOrDefault(kernTag)))
+            {
+                if (interval.Value == 0) continue;
+                commands.Add(new GpuOpenTypeLookupCommand(
+                    3, plan.Tables.KernOffset, 0, 0, kernTag, interval.Value,
+                    interval.Start, interval.End, HasFeatureTag(request.Features.Span, kernTag) ? 1u : 0u));
+            }
+        }
         return commands.ToArray();
     }
 
