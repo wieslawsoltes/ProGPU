@@ -132,7 +132,8 @@ public static class FontApi
         var lazyFonts = Volatile.Read(ref s_lazyPlatformFallbackFonts);
         for (int index = 0; index < lazyFonts.Length; index++)
         {
-            var candidate = lazyFonts[index].Value;
+            TtfFont? candidate = TryLoadLazyPlatformFallback(lazyFonts[index]);
+            if (candidate is null) continue;
             if (ReferenceEquals(candidate, requestedFont)) continue;
 
             ushort candidateGlyph = candidate.GetGlyphIndex((uint)codePoint);
@@ -147,6 +148,41 @@ public static class FontApi
         fallbackFont = null;
         glyphIndex = 0;
         return false;
+    }
+
+    private static TtfFont? TryLoadLazyPlatformFallback(Lazy<TtfFont> lazyFont)
+    {
+        try
+        {
+            return lazyFont.Value;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ProGpuTextDiagnostics.WriteLine($"[FontApi] Failed to load platform fallback font: {exception.Message}");
+            RemoveFailedLazyPlatformFallback(lazyFont);
+            return null;
+        }
+    }
+
+    private static void RemoveFailedLazyPlatformFallback(Lazy<TtfFont> failedFont)
+    {
+        lock (s_platformFallbackFontsLock)
+        {
+            Lazy<TtfFont>[] current = s_lazyPlatformFallbackFonts;
+            int failedIndex = Array.IndexOf(current, failedFont);
+            if (failedIndex < 0) return;
+
+            var updated = new Lazy<TtfFont>[current.Length - 1];
+            if (failedIndex > 0)
+            {
+                Array.Copy(current, 0, updated, 0, failedIndex);
+            }
+            if (failedIndex < current.Length - 1)
+            {
+                Array.Copy(current, failedIndex + 1, updated, failedIndex, current.Length - failedIndex - 1);
+            }
+            Volatile.Write(ref s_lazyPlatformFallbackFonts, updated);
+        }
     }
 
     public static List<FontInfo> GetSystemFonts()

@@ -60,6 +60,7 @@ public sealed class FontManager
         public required FontStyleRequest Style { get; init; }
         public required Lazy<TtfFont> Font { get; init; }
         public required bool IsFallback { get; init; }
+        public int LoadFailed;
     }
 
     private static readonly Lazy<FontManager> s_default = new(
@@ -668,12 +669,18 @@ public sealed class FontManager
 
     private static TtfFont? TryGetRegisteredFont(RegisteredFace face)
     {
+        if (Volatile.Read(ref face.LoadFailed) != 0)
+        {
+            return null;
+        }
+
         try
         {
             return face.Font.Value;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            Volatile.Write(ref face.LoadFailed, 1);
             ProGpuTextDiagnostics.WriteLine($"[FontManager] Failed to load registered font '{face.FamilyName}': {exception.Message}");
             return null;
         }

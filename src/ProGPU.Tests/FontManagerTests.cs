@@ -1,5 +1,6 @@
 using ProGPU.Fonts.Inter;
 using ProGPU.Text;
+using System.Reflection;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -58,5 +59,39 @@ public sealed class FontManagerTests
         manager.RegisterFont(InterFontFamily.TextFamilyName, bold, boldStyle);
 
         Assert.Same(InterFontFamily.Bold, manager.MatchTypeface(regular, boldStyle));
+    }
+
+    [Fact]
+    public void FailedRegisteredFaceIsNotRetried()
+    {
+        var manager = new FontManager();
+        var loadCount = 0;
+        var broken = new Lazy<TtfFont>(
+            () =>
+            {
+                loadCount++;
+                throw new InvalidDataException("Invalid optional font.");
+            },
+            LazyThreadSafetyMode.PublicationOnly);
+        manager.RegisterFont("Broken optional font", broken);
+
+        Assert.Null(manager.MatchFamily("Broken optional font"));
+        Assert.Null(manager.MatchFamily("Broken optional font"));
+        Assert.Equal(1, loadCount);
+    }
+
+    [Fact]
+    public void LegacyLazyFallbackLoaderSkipsNonMemoryFailures()
+    {
+        MethodInfo? loader = typeof(FontApi).GetMethod(
+            "TryLoadLazyPlatformFallback",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(loader);
+        var broken = new Lazy<TtfFont>(
+            static () => throw new InvalidDataException("Invalid optional font."));
+
+        object? result = loader.Invoke(null, [broken]);
+
+        Assert.Null(result);
     }
 }
