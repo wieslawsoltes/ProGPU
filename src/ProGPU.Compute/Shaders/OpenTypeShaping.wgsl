@@ -2792,6 +2792,8 @@ fn apply_arabic_fallback_ligature_table(count_field: u32, offset_field: u32,
             glyphs[position].glyph_id = ligature;
             glyphs[position].cluster = cluster;
             glyph_states[position].internal_flags |= GLYPH_SUBSTITUTED;
+            glyph_states[position].internal_flags &= ~(GLYPH_MULTIPLIED | GLYPH_MULTIPLE_COMPONENT);
+            set_multiple_substitution_component(position, 0u);
             let ligature_id = run_state.reserved0 + 1u;
             run_state.reserved0 = ligature_id;
             glyph_states[position].ligature_id = ligature_id;
@@ -3242,6 +3244,8 @@ fn apply_ligature(subtable: u32, position: u32, lookup_offset: u32, lookup_flags
         let cluster = merge_cluster(position, match_position + 1u);
         glyphs[position].glyph_id = table_u16(ligature);
         glyph_states[position].internal_flags |= GLYPH_SUBSTITUTED;
+        glyph_states[position].internal_flags &= ~(GLYPH_MULTIPLIED | GLYPH_MULTIPLE_COMPONENT);
+        set_multiple_substitution_component(position, 0u);
         glyphs[position].cluster = cluster;
         let ligature_id = run_state.reserved0 + 1u;
         run_state.reserved0 = ligature_id;
