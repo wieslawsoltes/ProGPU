@@ -119,11 +119,12 @@ jobs:
           )
 
           if ($IsWindows) {
-            # The multilingual specimen loads the large CJK face. Keep it required,
-            # but run it in a fresh process after the long GPU sample-page suite.
+            # Keep native WebGPU lifetime bounded on the hosted Windows runner.
+            # Sample pages share one retained headless device, while ordinary headless,
+            # ShaderToy, and the large multilingual specimen each get a fresh process.
             $headlessArgs += @(
               "--filter",
-              "FullyQualifiedName!~Test_TypographyScriptsPage_Renders"
+              "FullyQualifiedName!~SamplePagesTests"
             )
           }
 
@@ -133,6 +134,28 @@ jobs:
           }
 
           if ($IsWindows) {
+            dotnet test `
+              src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj `
+              --configuration Release `
+              --runtime "${{ matrix.rid }}" `
+              --no-build `
+              --verbosity normal `
+              --filter "FullyQualifiedName~SamplePagesTests&FullyQualifiedName!~ShaderToy&FullyQualifiedName!~Test_TypographyScriptsPage_Renders"
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+
+            dotnet test `
+              src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj `
+              --configuration Release `
+              --runtime "${{ matrix.rid }}" `
+              --no-build `
+              --verbosity normal `
+              --filter "FullyQualifiedName~SamplePagesTests&FullyQualifiedName~ShaderToy"
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+
             dotnet test `
               src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj `
               --configuration Release `

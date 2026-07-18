@@ -58,6 +58,10 @@ jobs:
           path: external/Svg.Skia-progpu
           submodules: recursive
 
+      - name: Stabilize managed text-metrics JavaScript deadline
+        working-directory: external/Svg.Skia-progpu
+        run: git apply "${{ github.workspace }}/eng/svg-skia-progpu-ci.patch"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -146,4 +150,3 @@ jobs:
             external/Svg.Skia-native/tests/Tests/**/* (Actual).png
             external/Svg.Skia-progpu/tests/Tests/**/* (Actual).png
           if-no-files-found: warn
-

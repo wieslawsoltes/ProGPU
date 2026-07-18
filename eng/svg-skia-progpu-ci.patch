@@ -1,0 +1,12 @@
+diff --git a/tests/Svg.Skia.UnitTests/SvgJavaScriptRuntimeTests.cs b/tests/Svg.Skia.UnitTests/SvgJavaScriptRuntimeTests.cs
+index 9ed632c..48c41d0 100644
+--- a/tests/Svg.Skia.UnitTests/SvgJavaScriptRuntimeTests.cs
++++ b/tests/Svg.Skia.UnitTests/SvgJavaScriptRuntimeTests.cs
+@@ -2216,6 +2216,7 @@ public class SvgJavaScriptRuntimeTests
+         using var svg = new SKSvg();
+         svg.Settings.EnableJavaScript = true;
+         svg.Settings.ThrowOnJavaScriptError = true;
++        svg.Settings.JavaScriptTimeoutMilliseconds = 5000;
+         svg.Settings.EnableSvgFonts = false;
+         svg.Settings.EnableTextReferences = false;
+         svg.Settings.StandaloneViewport = SkiaSharp.SKRect.Create(0f, 0f, 480f, 360f);
