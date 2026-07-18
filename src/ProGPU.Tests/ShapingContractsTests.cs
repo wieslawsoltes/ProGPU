@@ -510,6 +510,43 @@ public sealed class ShapingContractsTests
         Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
     }
 
+    [Theory]
+    [InlineData(ShapingDirection.RightToLeft)]
+    [InlineData(ShapingDirection.TopToBottom)]
+    [InlineData(ShapingDirection.BottomToTop)]
+    public void GpuOutputDirectionMatchesCpuExecutor(ShapingDirection direction)
+    {
+        const string text = "AV";
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(direction, new OpenTypeTag("latn"), language: "en");
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [new GpuShapingScalar('A', 0), new GpuShapingScalar('V', 1)],
+            fontData,
+            request,
+            commands,
+            actual);
+
+        ShapingGlyph[] expectedGlyphs = expected.Glyphs.ToArray();
+        ShapingGlyph[] actualGlyphs = actual.Glyphs.ToArray();
+        Assert.True(expectedGlyphs.SequenceEqual(actualGlyphs),
+            $"Expected: {string.Join("; ", expectedGlyphs.Select(Describe))}\n" +
+            $"Actual: {string.Join("; ", actualGlyphs.Select(Describe))}");
+
+        static string Describe(ShapingGlyph glyph) =>
+            $"gid={glyph.GlyphId},cp={glyph.CodePoint:x},c={glyph.Cluster}," +
+            $"a=({glyph.AdvanceX},{glyph.AdvanceY}),o=({glyph.OffsetX},{glyph.OffsetY})";
+    }
+
     private sealed class FeatureVariationFontFace(short coordinate) : IShapingFontFace
     {
         private static readonly byte[] s_gsub = CreateGsub();

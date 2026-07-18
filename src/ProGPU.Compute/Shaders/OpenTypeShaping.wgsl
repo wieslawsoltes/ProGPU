@@ -11,6 +11,10 @@ struct Params {
     direction: u32,
     lookup_count: u32,
     variation_count: u32,
+    request_flags: u32,
+    cluster_level: u32,
+    script_tag: u32,
+    reserved0: u32,
     reserved1: u32,
 };
 
@@ -1339,6 +1343,27 @@ fn finalize_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
     // OpenType layout is evaluated in its native y-up design space. Public
     // shaping records use the renderer's y-down convention, matching the CPU
     // executor and HarfBuzz adapter boundary.
-    glyphs[index].advance_y = -glyphs[index].advance_y;
-    glyphs[index].offset_y = -glyphs[index].offset_y;
+    let reverse = params.direction == 2u || params.direction == 4u;
+    if (!reverse) {
+        var value = glyphs[index];
+        value.advance_y = -value.advance_y;
+        value.offset_y = -value.offset_y;
+        glyphs[index] = value;
+        return;
+    }
+    let middle = (run_state.glyph_count + 1u) >> 1u;
+    if (index >= middle) { return; }
+    let partner = run_state.glyph_count - 1u - index;
+    var first = glyphs[index];
+    first.advance_y = -first.advance_y;
+    first.offset_y = -first.offset_y;
+    if (partner == index) {
+        glyphs[index] = first;
+        return;
+    }
+    var second = glyphs[partner];
+    second.advance_y = -second.advance_y;
+    second.offset_y = -second.offset_y;
+    glyphs[index] = second;
+    glyphs[partner] = first;
 }

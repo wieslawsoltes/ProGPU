@@ -64,6 +64,8 @@ public static class GpuOpenTypeLookupPlanCompiler
         string script = request.Script.ToString().ToLowerInvariant();
         foreach (string tag in ScriptFeatures(script)) Add(tag, 1);
         foreach (string tag in DirectionFeatures(request.Direction)) Add(tag, 1);
+        if (request.Direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop)
+            AddOrReplace(Tag("kern"), 0);
 
         bool explicitLiga = false;
         foreach (ShapingFeature feature in request.Features.Span)
