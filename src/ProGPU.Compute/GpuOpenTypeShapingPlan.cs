@@ -45,7 +45,8 @@ public readonly record struct GpuOpenTypeLookupCommand(
     uint FeatureTag,
     uint FeatureValue,
     uint RangeStart = 0,
-    uint RangeEnd = uint.MaxValue);
+    uint RangeEnd = uint.MaxValue,
+    uint CommandFlags = 0);
 
 /// <summary>
 /// Immutable GPU upload plan for one font face and variation instance. The

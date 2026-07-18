@@ -231,7 +231,7 @@ public sealed class ShapingContractsTests
         Assert.Equal(16, Marshal.SizeOf<GpuGlyphMetrics>());
         Assert.Equal(16, Marshal.SizeOf<GpuShapingScalar>());
         Assert.Equal(32, Marshal.SizeOf<GpuOpenTypeTableDirectory>());
-        Assert.Equal(32, Marshal.SizeOf<GpuOpenTypeLookupCommand>());
+        Assert.Equal(36, Marshal.SizeOf<GpuOpenTypeLookupCommand>());
         foreach (uint codePoint in new uint[] { 'A', 'z', 0x00e9, 0x03a9, 0x20ac, 0x1f642 })
             Assert.Equal(face.GetNominalGlyph(codePoint), plan.GetNominalGlyph(codePoint));
         uint glyph = face.GetNominalGlyph('A');
@@ -347,6 +347,34 @@ public sealed class ShapingContractsTests
 
         Assert.Equal(1, output.Count);
         Assert.Equal(expectedGlyph, output[0].GlyphId);
+    }
+
+    [Theory]
+    [InlineData("office")]
+    [InlineData("affine difficult efficient")]
+    [InlineData("AVATAR Typography")]
+    public void GpuLookupVmMatchesInterLatinSubstitutions(string text)
+    {
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("latn"), language: "en");
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        GpuShapingScalar[] input = text.Select((character, index) =>
+            new GpuShapingScalar(character, index)).ToArray();
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(input, fontData, request.Direction, commands, actual);
+
+        Assert.Equal(expected.Glyphs.ToArray().Select(glyph => glyph.GlyphId),
+            actual.Glyphs.ToArray().Select(glyph => glyph.GlyphId));
+        Assert.Equal(expected.Glyphs.ToArray().Select(glyph => glyph.Cluster),
+            actual.Glyphs.ToArray().Select(glyph => glyph.Cluster));
     }
 
     private static (uint LookupOffset, uint InputGlyph, uint ExpectedGlyph) FindSingleSubstitution(

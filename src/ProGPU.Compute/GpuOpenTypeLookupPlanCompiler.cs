@@ -47,7 +47,8 @@ public static class GpuOpenTypeLookupPlanCompiler
                 {
                     FeatureValue = interval.Value,
                     RangeStart = interval.Start,
-                    RangeEnd = interval.End
+                    RangeEnd = interval.End,
+                    CommandFlags = lookup.Explicit ? 1u : 0u
                 });
             }
         }
@@ -108,6 +109,7 @@ public static class GpuOpenTypeLookupPlanCompiler
         ReadOnlyMemory<byte> dataMemory = plan.TableData;
         ReadOnlySpan<byte> data = dataMemory.Span;
         OpenTypeTag scriptTag = request.Script;
+        ReadOnlyMemory<ShapingFeature> requestFeatures = request.Features;
         int table = checked((int)tableOffset);
         int end = checked(table + (int)tableLength);
         if (!CanRead(data, table, 10) || end > data.Length) return;
@@ -160,6 +162,7 @@ public static class GpuOpenTypeLookupPlanCompiler
                     tag,
                     baseValue,
                     requiredFeature,
+                    HasFeatureTag(requestFeatures.Span, tag),
                     command);
                 if (!selected.TryGetValue(lookupIndex, out ResolvedLookup existing) ||
                     !IsGlobalFeature(existing.FeatureTag) || IsGlobalFeature(tag))
@@ -204,6 +207,13 @@ public static class GpuOpenTypeLookupPlanCompiler
     {
         for (var index = 0; index < features.Length; index++)
             if (features[index].Tag.Value == tag && features[index].Value != 0) return true;
+        return false;
+    }
+
+    private static bool HasFeatureTag(ReadOnlySpan<ShapingFeature> features, uint tag)
+    {
+        for (var index = 0; index < features.Length; index++)
+            if (features[index].Tag.Value == tag) return true;
         return false;
     }
 
@@ -388,5 +398,6 @@ public static class GpuOpenTypeLookupPlanCompiler
         uint FeatureTag,
         uint BaseValue,
         bool Required,
+        bool Explicit,
         GpuOpenTypeLookupCommand Command);
 }
