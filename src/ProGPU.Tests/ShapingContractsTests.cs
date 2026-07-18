@@ -892,6 +892,20 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuLookupPlanFallsBackToLatinForUnknownScripts()
+    {
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(
+            new IndicShapingFontFace("ccmp", "latn"));
+        var request = new ShapingRequest(
+            ShapingDirection.LeftToRight,
+            OpenTypeTag.DefaultScript);
+
+        Assert.Contains(
+            GpuOpenTypeLookupPlanCompiler.Compile(plan, request),
+            static command => command.FeatureTag == new OpenTypeTag("ccmp").Value);
+    }
+
+    [Fact]
     public void GpuLookupPlanPreservesHalfOpenFeatureRanges()
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);

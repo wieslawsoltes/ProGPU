@@ -421,7 +421,9 @@ public static class GpuOpenTypeLookupPlanCompiler
         int scriptList = table + ReadU16(data, table + 4);
         if (!CanRead(data, scriptList, 2)) return [];
         int selected = 0;
-        int fallback = 0;
+        int defaultFallback = 0;
+        int lowercaseDefaultFallback = 0;
+        int latinFallback = 0;
         ushort scriptCount = ReadU16(data, scriptList);
         for (var index = 0; index < scriptCount; index++)
         {
@@ -430,9 +432,12 @@ public static class GpuOpenTypeLookupPlanCompiler
             int offset = scriptList + ReadU16(data, record + 4);
             uint tag = ReadU32(data, record);
             if (tag == requestedScript) selected = offset;
-            else if (tag == Tag("DFLT")) fallback = offset;
+            else if (tag == Tag("DFLT")) defaultFallback = offset;
+            else if (tag == Tag("dflt")) lowercaseDefaultFallback = offset;
+            else if (tag == Tag("latn")) latinFallback = offset;
         }
-        int script = selected != 0 ? selected : fallback;
+        int script = selected != 0 ? selected : defaultFallback != 0 ? defaultFallback :
+            lowercaseDefaultFallback != 0 ? lowercaseDefaultFallback : latinFallback;
         if (script == 0 || !CanRead(data, script, 4) || script >= tableEnd) return [];
         int languageSystem = 0;
         ushort defaultOffset = ReadU16(data, script);
