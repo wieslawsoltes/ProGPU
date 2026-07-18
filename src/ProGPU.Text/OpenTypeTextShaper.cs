@@ -253,9 +253,17 @@ public static class OpenTypeTextShaper
             bool reverseArabicContext = direction == ShapingDirection.LeftToRight &&
                 !NeedsArabicFallback(substitutionPlan);
             if (reverseArabicContext) substitutions.Reverse();
-            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicContextual);
-            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicLigatures);
-            ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicPresentation);
+            bool hasRequiredContextualAlternates = substitutionPlan.RawLookups.Any(static lookup => lookup.Tag == "rclt") ||
+                substitutionPlan.Lookups.Any(static lookup => lookup.Tag == "rclt");
+            if (hasRequiredContextualAlternates)
+            {
+                ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicPostRequired);
+            }
+            else
+            {
+                ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicContextual);
+                ApplySubstitutions(font, substitutionPlan, substitutions, options, UseSubstitutionStage.ArabicPostContextual);
+            }
             if (reverseArabicContext) substitutions.Reverse();
         }
         else
@@ -269,11 +277,7 @@ public static class OpenTypeTextShaper
             direction,
             zeroMarkAdvancesEarly: useShaper || myanmarShaper);
         bool hasGpos = font.TryGetTable("GPOS", out _);
-        bool hasGposKerning = false;
-        if (typeface is not null)
-        {
-            hasGposKerning = ApplyPositions(font, typeface.GPOSTable, positions, options, script);
-        }
+        bool hasGposKerning = ApplyPositions(font, typeface?.GPOSTable, positions, options, script);
         bool kernEnabled = IsFeatureEnabled(options.Features, "kern");
         if (!hasGposKerning && kernEnabled && !indicShaper &&
             direction is ShapingDirection.LeftToRight or ShapingDirection.RightToLeft)
@@ -534,6 +538,11 @@ public static class OpenTypeTextShaper
                 GSUB.LookupTable lookup = table.LookupList[lookupIndex];
                 bool rawOwnedLookup = IsRawOwnedLookup(rawTable.Span, lookupIndex);
                 bool restrictToSyllable = IsUsePerSyllableFeature(enabled.Tag, stage);
+                if (IsRawReverseLookup(rawTable.Span, lookupIndex))
+                {
+                    ApplyReverseChainingLookup(rawTable.Span, glyphs, lookupIndex, restrictToSyllable);
+                    continue;
+                }
                 for (var position = 0; position < glyphs.Count; position++)
                 {
                     glyphs.SetLookupSyllable(position, restrictToSyllable);
@@ -589,6 +598,12 @@ public static class OpenTypeTextShaper
                 glyphs.SetManualJoiners(IsManualJoinerStage(stage));
                 bool restrictToSyllable = IsUsePerSyllableFeature(enabled.Tag, stage);
                 bool alternateLookup = IsRawAlternateLookup(rawTable.Span, enabled.LookupIndex);
+                if (IsRawReverseLookup(rawTable.Span, enabled.LookupIndex))
+                {
+                    ApplyReverseChainingLookup(
+                        rawTable.Span, glyphs, enabled.LookupIndex, restrictToSyllable);
+                    continue;
+                }
                 if (!alternateLookup)
                 {
                     for (var position = 0; position < glyphs.Count; position++)
@@ -613,15 +628,6 @@ public static class OpenTypeTextShaper
         }
 
         glyphs.SetManualJoiners(false);
-        foreach (EnabledLookup enabled in rawLookups)
-        {
-            if (!IsSubstitutionStageFeature(enabled.Tag, stage)) continue;
-            ApplyReverseChainingLookup(
-                rawTable.Span,
-                glyphs,
-                enabled.LookupIndex,
-                IsUsePerSyllableFeature(enabled.Tag, stage));
-        }
     }
 
     private static bool NeedsArabicFallback(SubstitutionPlan plan)
@@ -641,6 +647,18 @@ public static class OpenTypeTextShaper
         int extension = lookupOffset + ReadU16(data, subtableCountOffset + 2);
         return CanRead(data, extension, 4) && ReadU16(data, extension) == 1 &&
                ReadU16(data, extension + 2) == 3;
+    }
+
+    private static bool IsRawReverseLookup(ReadOnlySpan<byte> data, ushort lookupIndex)
+    {
+        if (!TryGetLookup(data, lookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
+            return false;
+        if (lookupType == 8) return true;
+        if (lookupType != 7 || ReadU16(data, subtableCountOffset) == 0 ||
+            !CanRead(data, subtableCountOffset + 2, 2)) return false;
+        int extension = lookupOffset + ReadU16(data, subtableCountOffset + 2);
+        return CanRead(data, extension, 4) && ReadU16(data, extension) == 1 &&
+               ReadU16(data, extension + 2) == 8;
     }
 
     private static bool IsUsePerSyllableFeature(string tag, UseSubstitutionStage stage) =>
@@ -716,6 +734,12 @@ public static class OpenTypeTextShaper
             UseSubstitutionStage.ArabicInitial => tag == "init",
             UseSubstitutionStage.ArabicRequiredLigatures => tag == "rlig",
             UseSubstitutionStage.ArabicContextual => tag is "calt" or "rclt",
+            UseSubstitutionStage.ArabicPostRequired => tag is not
+                ("ltra" or "ltrm" or "rtla" or "rtlm" or "rvrn" or "frac" or "numr" or "dnom" or "stch" or "ccmp" or "locl" or
+                 "isol" or "fina" or "fin2" or "fin3" or "medi" or "med2" or "init" or "rlig"),
+            UseSubstitutionStage.ArabicPostContextual => tag is not
+                ("ltra" or "ltrm" or "rtla" or "rtlm" or "rvrn" or "frac" or "numr" or "dnom" or "stch" or "ccmp" or "locl" or
+                 "isol" or "fina" or "fin2" or "fin3" or "medi" or "med2" or "init" or "rlig" or "calt" or "rclt"),
             UseSubstitutionStage.ArabicLigatures => tag is "liga" or "clig" or "mset",
             UseSubstitutionStage.ArabicPresentation => tag is not
                 ("ltra" or "ltrm" or "rtla" or "rtlm" or "rvrn" or "frac" or "numr" or "dnom" or "stch" or "ccmp" or "locl" or
@@ -1038,8 +1062,14 @@ public static class OpenTypeTextShaper
         {
             return;
         }
-
         ushort subtableCount = ReadU16(data, subtableCountOffset);
+        ushort lookupFlags = ReadU16(data, lookupOffset + 2);
+        ushort markFilteringSet = ushort.MaxValue;
+        int markFilteringSetOffset = subtableCountOffset + 2 + subtableCount * 2;
+        if ((lookupFlags & 0x0010) != 0 && CanRead(data, markFilteringSetOffset, 2))
+            markFilteringSet = ReadU16(data, markFilteringSetOffset);
+        int previousMarkFilteringCoverage = glyphs.SetMarkFilteringSet(markFilteringSet);
+        ushort previousLookup = glyphs.SetActiveLookup(lookupIndex);
         for (var position = glyphs.Count - 1; position >= 0; position--)
         {
             glyphs.SetLookupSyllable(position, restrictToSyllable);
@@ -1067,12 +1097,15 @@ public static class OpenTypeTextShaper
                     subtableOffset += (int)extensionOffset;
                 }
 
-                if (effectiveType == 8 && ApplyReverseChainingSubtable(data, glyphs, subtableOffset, position))
+                if (effectiveType == 8 && ApplyReverseChainingSubtable(
+                        data, glyphs, subtableOffset, position, lookupFlags))
                 {
                     break;
                 }
             }
         }
+        glyphs.SetActiveLookup(previousLookup);
+        glyphs.RestoreMarkFilteringCoverage(previousMarkFilteringCoverage);
         glyphs.ClearLookupSyllable();
     }
 
@@ -1080,7 +1113,8 @@ public static class OpenTypeTextShaper
         ReadOnlySpan<byte> data,
         GlyphSubstitutionBuffer glyphs,
         int offset,
-        int position)
+        int position,
+        ushort lookupFlags)
     {
         if (!CanRead(data, offset, 6) || ReadU16(data, offset) != 1)
         {
@@ -1092,18 +1126,20 @@ public static class OpenTypeTextShaper
         {
             return false;
         }
-
         int cursor = offset + 4;
         ushort backtrackCount = ReadU16(data, cursor);
         cursor += 2;
-        if (position < backtrackCount || !CanRead(data, cursor, backtrackCount * 2))
+        if (!CanRead(data, cursor, backtrackCount * 2))
         {
             return false;
         }
+        int matchPosition = position;
         for (var index = 0; index < backtrackCount; index++)
         {
+            matchPosition = glyphs.PreviousContextIndex(matchPosition - 1, lookupFlags);
+            if (matchPosition < 0) return false;
             int coverageOffset = offset + ReadU16(data, cursor + index * 2);
-            if (FindCoverage(data, coverageOffset, glyphs[position - index - 1]) < 0)
+            if (FindCoverage(data, coverageOffset, glyphs[matchPosition]) < 0)
             {
                 return false;
             }
@@ -1116,14 +1152,17 @@ public static class OpenTypeTextShaper
         }
         ushort lookaheadCount = ReadU16(data, cursor);
         cursor += 2;
-        if (position + lookaheadCount >= glyphs.Count || !CanRead(data, cursor, lookaheadCount * 2))
+        if (!CanRead(data, cursor, lookaheadCount * 2))
         {
             return false;
         }
+        matchPosition = position;
         for (var index = 0; index < lookaheadCount; index++)
         {
+            matchPosition = glyphs.NextContextIndex(matchPosition + 1, lookupFlags);
+            if (matchPosition < 0) return false;
             int coverageOffset = offset + ReadU16(data, cursor + index * 2);
-            if (FindCoverage(data, coverageOffset, glyphs[position + index + 1]) < 0)
+            if (FindCoverage(data, coverageOffset, glyphs[matchPosition]) < 0)
             {
                 return false;
             }
@@ -3079,6 +3118,8 @@ public static class OpenTypeTextShaper
         ArabicInitial,
         ArabicRequiredLigatures,
         ArabicContextual,
+        ArabicPostRequired,
+        ArabicPostContextual,
         ArabicLigatures,
         ArabicPresentation
     }
