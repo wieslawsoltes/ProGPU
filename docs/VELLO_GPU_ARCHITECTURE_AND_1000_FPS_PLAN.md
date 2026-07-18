@@ -72,7 +72,7 @@ The first retained-scene milestone is implemented on the working branch:
 - `SceneFragmentHandle` provides stable retained identity and versioned picture replacement.
 - `GpuSceneFragmentArena` owns grow-only persistent vector, index, text, brush, and gradient storage and updates only changed fragment ranges.
 - Translation-only placement uses shared `SceneTransformHandle` uniforms instead of rewriting glyph instances.
-- Text-only visuals can be promoted automatically when GPU hit testing, cached layers, effects, and unsupported transforms are absent.
+- Text-only visuals have an experimental automatic-promotion path when GPU hit testing, cached layers, effects, and unsupported transforms are absent. It is disabled by default after A/B testing showed that recycled font pages lost throughput through draw fragmentation and arena churn; explicit retained fragments remain enabled.
 - DataGrid recycles a fixed fragment-handle ring, changes about 1.43 row fragments per 40-pixel scroll frame, and reuses about 28.43 row fragments.
 
 On Data Virtualization, the detailed-instrumentation baseline completed 343.68 GPU frames/s, compiled for 1.8168 ms/frame, and uploaded 157,627 bytes/frame. The retained-fragment implementation has produced process-isolated runs between 375 and 638 completed frames/s, with the best repeat compiling for 0.8047 ms/frame and uploading 38,605 bytes/frame. The variation is material and means the 638 result is not yet a sustained-performance claim. Ten-second gates and tail latency remain required.

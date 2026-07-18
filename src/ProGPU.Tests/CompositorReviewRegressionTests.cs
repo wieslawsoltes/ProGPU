@@ -30,6 +30,16 @@ namespace ProGPU.Tests;
 
 public sealed class CompositorReviewRegressionTests
 {
+    [Fact]
+    public void AutomaticTextFragmentPromotionIsOptIn()
+    {
+        Assert.False(CompositorOptions.Default.EnableAutomaticTextFragments);
+        Assert.True((CompositorOptions.Default with
+        {
+            EnableAutomaticTextFragments = true
+        }).EnableAutomaticTextFragments);
+    }
+
     private const string SolidShaderToySource = """
 fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);

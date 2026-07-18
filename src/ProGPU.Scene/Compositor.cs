@@ -4290,6 +4290,7 @@ SceneStateUploadComplete:
     }
 
     private bool CanUseAutomaticTextFragment(Visual node, Matrix4x4 globalTransform) =>
+        Options.EnableAutomaticTextFragments &&
         !Options.EnableGpuHitTesting &&
         ActiveCompilationContext == null &&
         _offscreenRenderDepth == 0 &&

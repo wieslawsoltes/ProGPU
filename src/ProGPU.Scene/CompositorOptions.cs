@@ -16,6 +16,13 @@ public sealed record CompositorOptions
 
     public bool EnableCompiledSceneCache { get; init; } = true;
 
+    /// <summary>
+    /// Enables experimental automatic promotion of text-only visuals into persistent fragment
+    /// arenas. Disabled by default because recycled/scrolling text can increase draw fragmentation
+    /// and GPU work even when CPU compilation decreases. Explicit scene fragments are unaffected.
+    /// </summary>
+    public bool EnableAutomaticTextFragments { get; init; }
+
     public uint PrimarySampleCount { get; init; } = 4;
 
     internal void Validate()
