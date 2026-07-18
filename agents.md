@@ -44,6 +44,42 @@ Static production shader source must be reusable, reviewable source code rather 
 * Small test-only shader literals may remain inline when they are the direct input under test. Reusable fixtures and all production modules belong in shader files.
 * Run `ShaderResourceTests` after adding or moving a shader. Its source audit rejects new inline production stage modules and verifies that every resource is embedded and carries the required algorithm and complexity contract.
 
+### E. Mandatory Cross-Engine Rendering and Text Research
+
+Before designing or changing rendering, text shaping, font management, glyph caching,
+scene compilation, scrolling, startup, or GPU pipeline architecture, research how the
+equivalent feature is implemented by current production and research engines. This is
+a required design gate, not an optional follow-up.
+
+* Always examine Skia/SkParagraph, DirectWrite/Direct2D and Win2D, WebRender,
+  Vello/Parley, and HarfBuzz. Include other relevant engines when they have a materially
+  different solution, such as Chromium/Blink, CoreText, Qt, Pathfinder, or Servo.
+* Use primary sources: official documentation, specifications, design documents,
+  upstream repositories and source comments, maintainer-authored architecture notes,
+  and papers describing the implemented algorithm. Do not base architecture decisions
+  on summaries, search snippets, or benchmarks that cannot be reproduced.
+* Compare at least startup/lazy initialization, shaping and layout reuse, display-list or
+  retained-scene reuse, visibility culling, glyph/texture/path cache keys and eviction,
+  demand-driven upload, worker-thread preparation, GPU batching/compute organization,
+  DPI/subpixel/hinting behavior, fallback fonts, variable-font state, and device-loss or
+  atlas-generation invalidation.
+* Record which concepts are adopted, adapted, or rejected and why. Translate them into
+  ProGPU's typed, reflection-free architecture rather than adding compatibility bridges
+  or blindly copying another engine's platform assumptions.
+* Preserve the separation used by high-performance stacks: Unicode/OpenType shaping and
+  line layout remain reusable CPU results unless profiling demonstrates a complete and
+  correct GPU algorithm; visibility, upload, rasterization, compositing, and other
+  parallel work should use the GPU when that improves measured latency or throughput.
+* Validate the resulting design with cold-start and first-interaction timings, sustained
+  scroll frame-time percentiles and worst frames, allocation and cache-residency data,
+  focused correctness tests, browser AOT runs, and image-quality comparisons. Measure
+  the same final binaries before and after, and investigate any repeatable performance
+  or quality regression before integration.
+
+The task or PR summary must link the primary sources consulted and explain how their
+architecture informed the implementation. A rendering or text performance change is
+incomplete without this research record and measured evidence.
+
 ---
 
 ## 2. Rendering Performance Regression Contract
