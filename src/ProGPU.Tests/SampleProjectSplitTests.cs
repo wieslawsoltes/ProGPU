@@ -101,6 +101,8 @@ public sealed class SampleProjectSplitTests
         var browserHost = Read("src", "ProGPU.Browser", "BrowserWindowHost.cs");
         var typeface = Read("src", "SkiaSharp", "SKTypeface.cs");
 
+        Assert.Contains("InterFontFamily.RegisterFonts();", browserHost, StringComparison.Ordinal);
+        Assert.Contains("NotoFontFamily.RegisterFallbacks();", browserHost, StringComparison.Ordinal);
         Assert.Contains("var fallbackFont = InterFontFamily.Regular;", browserHost, StringComparison.Ordinal);
         Assert.Contains("FontApi.RegisterPlatformFallbackFont(fallbackFont);", browserHost, StringComparison.Ordinal);
         Assert.Contains("ResolveDefaultTypeface(FontApi.GetSystemFonts(), FontApi.PlatformFallbackFont)", typeface, StringComparison.Ordinal);

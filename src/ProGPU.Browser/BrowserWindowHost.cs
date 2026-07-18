@@ -3,6 +3,7 @@ using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Fonts.Inter;
+using ProGPU.Fonts.Noto;
 using ProGPU.Text;
 
 namespace ProGPU.Browser;
@@ -22,6 +23,8 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         ArgumentNullException.ThrowIfNull(capabilities);
         if (!capabilities.IsSupported) throw new PlatformNotSupportedException("WebGPU is unavailable.");
         _capabilities = capabilities;
+        InterFontFamily.RegisterFonts();
+        NotoFontFamily.RegisterFallbacks();
         var fallbackFont = InterFontFamily.Regular;
         FontApi.RegisterPlatformFallbackFont(fallbackFont);
         PopupService.DefaultFont ??= fallbackFont;
