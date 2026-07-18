@@ -109,6 +109,42 @@ public unsafe sealed class BrowserWebGpuApiTests
             ReadOpcodes(packets[0]));
     }
 
+    [Fact]
+    public void TimestampQueriesUseTheTypedPacketWithoutSynchronousReadback()
+    {
+        var packets = new List<byte[]>();
+        using var api = new BrowserWebGpuApi(packet => packets.Add(packet.WrittenSpan.ToArray()));
+        var queryDescriptor = new QuerySetDescriptor { Type = QueryType.Timestamp, Count = 2 };
+        var querySet = api.DeviceCreateQuerySet(BrowserWebGpuApi.DeviceHandle, &queryDescriptor);
+        var bufferDescriptor = new BufferDescriptor
+        {
+            Size = 256,
+            Usage = BufferUsage.QueryResolve | BufferUsage.CopySrc
+        };
+        var resolveBuffer = api.DeviceCreateBuffer(BrowserWebGpuApi.DeviceHandle, &bufferDescriptor);
+        var encoder = api.DeviceCreateCommandEncoder(BrowserWebGpuApi.DeviceHandle, null);
+        api.CommandEncoderWriteTimestamp(encoder, querySet, 0);
+        api.CommandEncoderWriteTimestamp(encoder, querySet, 1);
+        api.CommandEncoderResolveQuerySet(encoder, querySet, 0, 2, resolveBuffer, 0);
+        var commands = api.CommandEncoderFinish(encoder, null);
+        api.QueueSubmit(BrowserWebGpuApi.QueueHandle, 1, &commands);
+
+        Assert.Single(packets);
+        Assert.Equal(
+            new[]
+            {
+                BrowserGpuOpcode.CreateQuerySet,
+                BrowserGpuOpcode.CreateBuffer,
+                BrowserGpuOpcode.CreateCommandEncoder,
+                BrowserGpuOpcode.WriteTimestamp,
+                BrowserGpuOpcode.WriteTimestamp,
+                BrowserGpuOpcode.ResolveQuerySet,
+                BrowserGpuOpcode.FinishCommandEncoder,
+                BrowserGpuOpcode.Submit
+            },
+            ReadOpcodes(packets[0]));
+    }
+
     private static BrowserGpuOpcode[] ReadOpcodes(byte[] packet)
     {
         var result = new List<BrowserGpuOpcode>();

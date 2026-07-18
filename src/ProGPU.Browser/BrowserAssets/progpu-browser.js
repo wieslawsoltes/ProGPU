@@ -580,9 +580,11 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
   if (!state.adapter) throw new Error('No WebGPU adapter matched the requested power preference.');
 
   const supportsBgraStorage = state.adapter.features.has('bgra8unorm-storage');
+  const supportsTimestampQuery = state.adapter.features.has('timestamp-query');
   const requiredFeatures = [];
   let activeProfile = request.gpuProfile === 'Full' ? 1 : 0;
   if (request.gpuProfile === 'Full' && supportsBgraStorage) requiredFeatures.push('bgra8unorm-storage');
+  if (supportsTimestampQuery) requiredFeatures.push('timestamp-query');
   if (request.gpuProfile === 'Full' && !supportsBgraStorage) {
     activeProfile = 0;
     diagnostics.push('Full profile downgraded: bgra8unorm-storage is unavailable; dependent Wavefront storage output is disabled.');
@@ -617,6 +619,7 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
     supportsSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
     supportsOffscreenCanvas: typeof OffscreenCanvas !== 'undefined',
     supportsBgra8UnormStorage: supportsBgraStorage,
+    supportsTimestampQuery,
     features: [...state.adapter.features],
     diagnostics
   };
@@ -1002,6 +1005,11 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
       state.resourceMetadata.set(handle, { kind: 'texture', dimension: '2d' });
       break;
     }
+    case 27: {
+      const handle = view.getUint32(payload, true);
+      state.resources.set(handle, state.device.createQuerySet({ type: 'timestamp', count: view.getUint32(payload + 4, true) }));
+      break;
+    }
     case 30: {
       const passHandle = view.getUint32(payload, true);
       const encoder = requireResource(view.getUint32(payload + 4, true));
@@ -1147,6 +1155,19 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
     case 63:
       requireResource(view.getUint32(payload, true)).copyTextureToTexture(imageCopyTexture(view, payload + 4), imageCopyTexture(view, payload + 28), extent3d(view, payload + 52));
       break;
+    case 65:
+      requireResource(view.getUint32(payload, true)).writeTimestamp(
+        requireResource(view.getUint32(payload + 4, true)),
+        view.getUint32(payload + 8, true));
+      break;
+    case 66:
+      requireResource(view.getUint32(payload, true)).resolveQuerySet(
+        requireResource(view.getUint32(payload + 4, true)),
+        view.getUint32(payload + 8, true),
+        view.getUint32(payload + 12, true),
+        requireResource(view.getUint32(payload + 16, true)),
+        Number(view.getBigUint64(payload + 20, true)));
+      break;
     case 70: {
       if (payloadLength === 0) {
         state.device.queue.submit([state.encoder.finish()]); state.encoder = null;
@@ -1205,6 +1226,16 @@ async function mapBuffer(handle, mode, offset, size) {
   const buffer = requireResource(handle);
   await buffer.mapAsync(mode, offset, size);
   state.mappedBuffers.set(handle, { offset, size });
+  return true;
+}
+
+async function waitForSubmittedWorkDone() {
+  if (state.worker) {
+    await workerRequest('submitted-work-done');
+    return true;
+  }
+  if (!state.device) return false;
+  await state.device.queue.onSubmittedWorkDone();
   return true;
 }
 
@@ -1343,6 +1374,10 @@ async function handleDispatcherWorkerMessage(event) {
         await state.device.queue.onSubmittedWorkDone();
         globalThis.postMessage({ type: 'uncapped-frame-ready' });
         break;
+      case 'submitted-work-done':
+        await state.device.queue.onSubmittedWorkDone();
+        globalThis.postMessage({ type: 'response', id: message.id, completed: true });
+        break;
       case 'upload':
         state.uploads = new Uint8Array(message.upload);
         break;
@@ -1375,6 +1410,6 @@ if (isDispatcherWorker) {
 } else {
   initializeDiagnosticsVisibility();
   runtime = await dotnet.create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, waitForSubmittedWorkDone, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   await runtime.runMain();
 }

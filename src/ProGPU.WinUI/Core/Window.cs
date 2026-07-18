@@ -25,7 +25,10 @@ public readonly record struct WindowFrameMetrics(
     double SurfaceAcquireTimeMs,
     double CompositorTimeMs,
     double PresentTimeMs,
-    double TotalTimeMs);
+    double TotalTimeMs,
+    uint RenderTargetWidth,
+    uint RenderTargetHeight,
+    float DpiScale);
 
 public class Window
 {
@@ -613,7 +616,10 @@ public class Window
             surfaceAcquireTimeMs,
             compositorTimeMs,
             presentTimeMs,
-            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds,
+            (uint)framebufferSize.X,
+            (uint)framebufferSize.Y,
+            dpiScale);
     }
 
     private void OnResize(Vector2D<int> _)

@@ -1,0 +1,46 @@
+# Keep this list in NavigationView order. SampleBenchmarkManifestTests verifies it
+# against the PageItem declarations in MainWindowController.
+Basic Input
+GPU Charting
+Layout Panels
+Wrap Panel
+Dock Panel
+Grid Splitter
+Color Picker
+Vector Shapes
+SkiaSharp Shim
+Path Operations
+Font Glyph Browser
+Text & Documents
+Markdown Playground
+Data Virtualization
+Virtualization Controls
+Framework Effects
+Image Effects
+GDI Shim Showcase
+Glyph Run Showcase
+WPF Shim Showcase
+Compute FX
+Motion & Animations
+Advanced Controls
+Keyboard & Focus
+Theme Showcase
+Compositor API
+SplitView Layout
+Image & Buttons
+Drawing Context
+File Storage
+Styles Showcase
+MotionMark Showcase
+Typography & Scripts
+Inter Typeface
+Interactive Input
+LOL/s Benchmark
+Radio Button
+Rating Control
+Password Box
+DXF CAD Viewer
+Visual Designer
+Picture Caching
+3D Mesh Viewer
+ShaderToy Playground

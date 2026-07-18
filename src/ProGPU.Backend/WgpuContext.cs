@@ -26,6 +26,8 @@ public enum WgpuBackendKind
 public unsafe class WgpuContext : IDisposable
 {
     private SharedDeviceLifetime? _sharedDeviceLifetime;
+    private GpuFrameCompletionTracker? _frameCompletionTracker;
+    private GpuTimestampRing? _gpuTimestampRing;
     public WebGPU Wgpu { get; private set; } = null!;
     public IWebGpuApi Api { get; private set; } = null!;
     public WgpuBackendKind BackendKind { get; private set; } = WgpuBackendKind.SilkNative;
@@ -39,6 +41,75 @@ public unsafe class WgpuContext : IDisposable
     public uint MaxSamplersPerShaderStage { get; private set; } = 16;
     public uint MaxBindGroups { get; private set; } = 4;
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
+    public bool SupportsTimestampQueries { get; private set; }
+
+    /// <summary>
+    /// Enables queue-completion callbacks for compositor frame submissions. This is intentionally
+    /// opt-in because a callback per frame is diagnostic work and is not part of normal rendering.
+    /// </summary>
+    public bool EnableFrameCompletionTracking
+    {
+        get => Volatile.Read(ref _frameCompletionTracker) != null;
+        set
+        {
+            if (value)
+            {
+                if (Volatile.Read(ref _frameCompletionTracker) == null)
+                {
+                    var tracker = new GpuFrameCompletionTracker();
+                    if (Interlocked.CompareExchange(ref _frameCompletionTracker, tracker, null) != null)
+                    {
+                        tracker.Dispose();
+                    }
+                }
+            }
+            else
+            {
+                Interlocked.Exchange(ref _frameCompletionTracker, null)?.Dispose();
+            }
+        }
+    }
+
+    public GpuFrameCompletionMetrics FrameCompletionMetrics =>
+        Volatile.Read(ref _frameCompletionTracker)?.Metrics ?? default;
+
+    /// <summary>
+    /// Enables non-blocking timestamp pairs around the main compositor command buffer. The
+    /// setting remains false when the adapter did not expose the timestamp-query feature.
+    /// </summary>
+    public bool EnableGpuTimestampTracking
+    {
+        get => _gpuTimestampRing != null;
+        set
+        {
+            if (value && SupportsTimestampQueries)
+            {
+                _gpuTimestampRing ??= new GpuTimestampRing(this);
+            }
+            else if (!value)
+            {
+                Interlocked.Exchange(ref _gpuTimestampRing, null)?.Dispose();
+            }
+        }
+    }
+
+    public GpuTimestampMetrics GpuTimestampMetrics => _gpuTimestampRing?.Metrics ?? default;
+
+    public bool BeginFrameGpuTimestamp(CommandEncoder* encoder) =>
+        _gpuTimestampRing?.BeginFrame(encoder) == true;
+
+    public void EndFrameGpuTimestamp(CommandEncoder* encoder) =>
+        _gpuTimestampRing?.EndFrame(encoder);
+
+    /// <summary>
+    /// Records the main compositor submission. Auxiliary uploads and offscreen utility submits do
+    /// not count as completed frames.
+    /// </summary>
+    public void NotifyFrameSubmitted()
+    {
+        _gpuTimestampRing?.NotifySubmitted();
+        Volatile.Read(ref _frameCompletionTracker)?.RecordSubmission(Api, Queue);
+    }
 
     public static event Action<ErrorType, string>? OnWebGpuError;
 
@@ -561,14 +632,20 @@ public unsafe class WgpuContext : IDisposable
         var adapterLimits = new SupportedLimits();
         Wgpu.AdapterGetLimits(Adapter, &adapterLimits);
         var requiredLimits = CreateRequiredLimits(adapterLimits);
-        var requiredFeatures = stackalloc FeatureName[1];
-        requiredFeatures[0] = FeatureName.Bgra8UnormStorage;
+        var requiredFeatures = stackalloc FeatureName[2];
+        int requiredFeatureCount = 0;
+        requiredFeatures[requiredFeatureCount++] = FeatureName.Bgra8UnormStorage;
+        SupportsTimestampQueries = Wgpu.AdapterHasFeature(Adapter, FeatureName.TimestampQuery);
+        if (SupportsTimestampQueries)
+        {
+            requiredFeatures[requiredFeatureCount++] = FeatureName.TimestampQuery;
+        }
 
         var deviceDesc = new DeviceDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("ProGPU Primary Device"),
             RequiredLimits = &requiredLimits,
-            RequiredFeatureCount = 1,
+            RequiredFeatureCount = (nuint)requiredFeatureCount,
             RequiredFeatures = requiredFeatures
         };
 
@@ -659,7 +736,8 @@ public unsafe class WgpuContext : IDisposable
         uint maxSampledTexturesPerShaderStage = 16,
         uint maxSamplersPerShaderStage = 16,
         uint maxBindGroups = 4,
-        bool supportsReadOnlyAndReadWriteStorageTextures = false)
+        bool supportsReadOnlyAndReadWriteStorageTextures = false,
+        bool supportsTimestampQueries = false)
     {
         ArgumentNullException.ThrowIfNull(api);
         if (Api != null || Device != null || _isDisposed)
@@ -677,6 +755,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = Math.Max(16, maxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, maxBindGroups);
         SupportsReadOnlyAndReadWriteStorageTextures = supportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTimestampQueries = supportsTimestampQueries;
         _isSurfaceConfigured = true;
         _lastWidth = 1;
         _lastHeight = 1;
@@ -732,6 +811,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTimestampQueries = deviceOwner.SupportsTimestampQueries;
         _sharedDeviceLifetime = sharedDeviceLifetime;
 
         Surface = window.CreateWebGPUSurface(Wgpu, Instance);
@@ -1062,9 +1142,12 @@ public unsafe class WgpuContext : IDisposable
 
             Disposing?.Invoke(this);
 
-            CleanupPendingResources();
-
             WaitIdle();
+
+            Interlocked.Exchange(ref _gpuTimestampRing, null)?.Dispose();
+            Interlocked.Exchange(ref _frameCompletionTracker, null)?.Dispose();
+
+            CleanupPendingResources();
 
             if (Current == this)
             {

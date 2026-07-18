@@ -1,5 +1,9 @@
 using System;
+using System.Buffers;
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+using ProGPU.Backend;
 
 namespace ProGPU.Samples;
 
@@ -11,6 +15,7 @@ internal static class SamplePerformanceBenchmark
     private const string VSyncVariable = "PROGPU_SAMPLE_BENCHMARK_VSYNC";
     private const string ScrollVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL";
     private const string ScrollStepVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP";
+    private const string GpuCompletionVariable = "PROGPU_SAMPLE_BENCHMARK_GPU_COMPLETION";
 
     private static readonly int s_warmupFrames = ReadPositiveInt(WarmupFramesVariable, 180);
     private static readonly int s_measureFrames = ReadPositiveInt(MeasureFramesVariable, 600);
@@ -48,10 +53,20 @@ internal static class SamplePerformanceBenchmark
     private static float s_maximumMarkdownOffset;
     private static bool s_workloadStarted;
     private static bool s_finished;
+    private static readonly string? s_requestedPage = ReadRequestedPage();
     private static readonly bool s_scrollWorkload = ReadOptionalBool(ScrollVariable) == true;
+    private static readonly bool s_scriptedScrollWorkload = s_scrollWorkload && IsScriptedScrollPage(RequestedPage);
+    private static readonly bool s_gpuCompletionTracking = ReadOptionalBool(GpuCompletionVariable) != false;
     private static readonly float s_scrollStep = ReadPositiveFloat(ScrollStepVariable, 40f);
+    private static readonly double[] s_frameIntervalSamples = new double[s_measureFrames];
+    private static readonly double[] s_totalFrameSamples = new double[s_measureFrames];
+    private static readonly double[] s_compileSamples = new double[s_measureFrames];
+    private static readonly double[] s_compositorSamples = new double[s_measureFrames];
+    private static readonly double[] s_surfaceAcquireSamples = new double[s_measureFrames];
+    private static GpuFrameCompletionMetrics s_gpuCompletionAtStart;
+    private static GpuTimestampMetrics s_gpuTimestampsAtStart;
 
-    public static string? RequestedPage { get; } = ReadRequestedPage();
+    public static string? RequestedPage => s_requestedPage;
 
     public static void AttachWindow(Microsoft.UI.Xaml.Window window)
     {
@@ -74,10 +89,17 @@ internal static class SamplePerformanceBenchmark
             }
         }
 
+        if (s_gpuCompletionTracking && AppState._wgpuContext is { } benchmarkContext)
+        {
+            benchmarkContext.EnableFrameCompletionTracking = true;
+            benchmarkContext.EnableGpuTimestampTracking = true;
+        }
+
         Console.WriteLine(
             $"[SampleBenchmark] page={selectedPage} warmupFrames={s_warmupFrames}" +
             $" measureFrames={s_measureFrames} vsync={AppState._wgpuContext?.VSync}" +
-            $" scroll={s_scrollWorkload} scrollStep={s_scrollStep:F0}");
+            $" workload={(s_scriptedScrollWorkload ? "scroll" : "retained-replay")}" +
+            $" scrollStep={s_scrollStep:F0} gpuCompletion={s_gpuCompletionTracking}");
     }
 
     public static void ObserveFrame(double deltaSeconds)
@@ -102,7 +124,7 @@ internal static class SamplePerformanceBenchmark
             s_workloadStarted = true;
         }
 
-        if (s_scrollWorkload)
+        if (s_scriptedScrollWorkload)
         {
             if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
             {
@@ -145,6 +167,8 @@ internal static class SamplePerformanceBenchmark
             s_glyphAtlasEvictionsAtStart = AppState._screenCompositor?.Atlas.EvictionCount ?? 0;
             s_glyphAtlasClearsAtStart = AppState._screenCompositor?.Atlas.ClearCount ?? 0;
             s_pathAtlasGenerationAtStart = AppState._screenCompositor?.PathAtlas.Generation ?? 0;
+            s_gpuCompletionAtStart = AppState._wgpuContext?.FrameCompletionMetrics ?? default;
+            s_gpuTimestampsAtStart = AppState._wgpuContext?.GpuTimestampMetrics ?? default;
         }
 
         s_deltaSeconds += deltaSeconds;
@@ -171,6 +195,22 @@ internal static class SamplePerformanceBenchmark
             if (metrics.SceneCacheHit) s_sceneCacheHitFrames++;
         }
 
+        int sampleIndex = s_frame - s_warmupFrames - 1;
+        if ((uint)sampleIndex < (uint)s_measureFrames)
+        {
+            s_frameIntervalSamples[sampleIndex] = deltaSeconds * 1000d;
+            if (s_window is { } measuredWindow)
+            {
+                s_totalFrameSamples[sampleIndex] = measuredWindow.FrameMetrics.TotalTimeMs;
+                s_surfaceAcquireSamples[sampleIndex] = measuredWindow.FrameMetrics.SurfaceAcquireTimeMs;
+            }
+            if (AppState._screenCompositor is { } measuredCompositor)
+            {
+                s_compileSamples[sampleIndex] = measuredCompositor.Metrics.VisualTreeCompileTimeMs;
+                s_compositorSamples[sampleIndex] = measuredCompositor.Metrics.FrameTimeMs;
+            }
+        }
+
         int measuredFrames = s_frame - s_warmupFrames;
         if (measuredFrames < s_measureFrames)
         {
@@ -188,6 +228,32 @@ internal static class SamplePerformanceBenchmark
         double divisor = Math.Max(1, measuredFrames);
         long allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(precise: false) - s_allocatedBytesAtStart);
         var finalMetrics = AppState._screenCompositor?.Metrics;
+        var finalFrameMetrics = s_window?.FrameMetrics ?? default;
+        var finalGpuCompletion = AppState._wgpuContext?.FrameCompletionMetrics ?? default;
+        AppState._wgpuContext?.PollDevice(wait: false);
+        var finalGpuTimestamps = AppState._wgpuContext?.GpuTimestampMetrics ?? default;
+        long submittedGpuFrames = Math.Max(0, finalGpuCompletion.SubmittedFrames - s_gpuCompletionAtStart.SubmittedFrames);
+        long completedGpuFrames = Math.Max(0, finalGpuCompletion.CompletedFrames - s_gpuCompletionAtStart.CompletedFrames);
+        long failedGpuFrames = Math.Max(0, finalGpuCompletion.FailedFrames - s_gpuCompletionAtStart.FailedFrames);
+        double completedGpuFps = s_wallClock.Elapsed.TotalSeconds > 0d
+            ? completedGpuFrames / s_wallClock.Elapsed.TotalSeconds
+            : 0d;
+        long timestampedGpuFrames = Math.Max(0, finalGpuTimestamps.CompletedSamples - s_gpuTimestampsAtStart.CompletedSamples);
+        long failedGpuTimestamps = Math.Max(0, finalGpuTimestamps.FailedSamples - s_gpuTimestampsAtStart.FailedSamples);
+        long droppedGpuTimestamps = Math.Max(0, finalGpuTimestamps.DroppedSamples - s_gpuTimestampsAtStart.DroppedSamples);
+        double intervalP50 = Percentile(s_frameIntervalSamples, measuredFrames, 0.50d);
+        double intervalP95 = Percentile(s_frameIntervalSamples, measuredFrames, 0.95d);
+        double intervalP99 = Percentile(s_frameIntervalSamples, measuredFrames, 0.99d);
+        double intervalMax = Maximum(s_frameIntervalSamples, measuredFrames);
+        double totalFrameP95 = Percentile(s_totalFrameSamples, measuredFrames, 0.95d);
+        double totalFrameMax = Maximum(s_totalFrameSamples, measuredFrames);
+        double compileP95 = Percentile(s_compileSamples, measuredFrames, 0.95d);
+        double compileP99 = Percentile(s_compileSamples, measuredFrames, 0.99d);
+        double compileMax = Maximum(s_compileSamples, measuredFrames);
+        double compositorP95 = Percentile(s_compositorSamples, measuredFrames, 0.95d);
+        double compositorMax = Maximum(s_compositorSamples, measuredFrames);
+        double acquireP95 = Percentile(s_surfaceAcquireSamples, measuredFrames, 0.95d);
+        double acquireMax = Maximum(s_surfaceAcquireSamples, measuredFrames);
         string workloadDetails = string.Empty;
         if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
         {
@@ -241,17 +307,41 @@ internal static class SamplePerformanceBenchmark
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
             $" deltaFps={deltaFps:F2} wallFps={wallFps:F2}" +
+            $" frameIntervalP50Ms={intervalP50:F4}" +
+            $" frameIntervalP95Ms={intervalP95:F4}" +
+            $" frameIntervalP99Ms={intervalP99:F4}" +
+            $" frameIntervalMaxMs={intervalMax:F4}" +
+            $" totalFrameP95Ms={totalFrameP95:F4}" +
+            $" totalFrameMaxMs={totalFrameMax:F4}" +
             $" compileMs={s_compileMilliseconds / divisor:F4}" +
-            $" maxCompileMs={s_maxCompileMilliseconds:F4}" +
+            $" compileP95Ms={compileP95:F4}" +
+            $" compileP99Ms={compileP99:F4}" +
+            $" maxCompileMs={compileMax:F4}" +
             $" compileFramesOverBudget={s_compileFramesOverBudget}" +
             $" uploadMs={s_uploadMilliseconds / divisor:F4}" +
             $" renderMs={s_renderMilliseconds / divisor:F4}" +
             $" compositorMs={s_compositorMilliseconds / divisor:F4}" +
+            $" compositorP95Ms={compositorP95:F4}" +
+            $" compositorMaxMs={compositorMax:F4}" +
             $" hostUpdateMs={s_hostUpdateMilliseconds / divisor:F4}" +
             $" layoutMs={s_layoutMilliseconds / divisor:F4}" +
             $" animationMs={s_animationMilliseconds / divisor:F4}" +
             $" acquireMs={s_surfaceAcquireMilliseconds / divisor:F4}" +
+            $" acquireP95Ms={acquireP95:F4}" +
+            $" acquireMaxMs={acquireMax:F4}" +
             $" presentMs={s_presentMilliseconds / divisor:F4}" +
+            $" gpuSubmittedFrames={submittedGpuFrames}" +
+            $" gpuCompletedFrames={completedGpuFrames}" +
+            $" gpuCompletedFps={completedGpuFps:F2}" +
+            $" gpuFailedFrames={failedGpuFrames}" +
+            $" gpuInFlightFrames={finalGpuCompletion.InFlightFrames}" +
+            $" gpuMaxInFlightFrames={finalGpuCompletion.MaxInFlightFrames}" +
+            $" gpuTimestampSupported={AppState._wgpuContext?.SupportsTimestampQueries == true}" +
+            $" gpuTimestampedFrames={timestampedGpuFrames}" +
+            $" gpuFrameAverageMs={finalGpuTimestamps.AverageFrameMilliseconds:F4}" +
+            $" gpuFrameMaxMs={finalGpuTimestamps.MaximumFrameMilliseconds:F4}" +
+            $" gpuTimestampFailures={failedGpuTimestamps}" +
+            $" gpuTimestampDrops={droppedGpuTimestamps}" +
             $" allocatedBytesPerFrame={allocatedBytes / divisor:F0}" +
             $" sceneCacheHits={s_sceneCacheHitFrames}/{measuredFrames}" +
             $" sceneCacheMiss=\"{finalMetrics?.SceneCacheMissReason ?? "none"}\"" +
@@ -259,6 +349,36 @@ internal static class SamplePerformanceBenchmark
             $" draws={finalMetrics?.DrawCallsCount ?? 0}" +
             $" vectorVertices={finalMetrics?.VectorVerticesCount ?? 0}" +
             $" textVertices={finalMetrics?.TextVerticesCount ?? 0}");
+
+        WriteJsonResult(
+            measuredFrames,
+            deltaFps,
+            wallFps,
+            intervalP50,
+            intervalP95,
+            intervalP99,
+            intervalMax,
+            totalFrameP95,
+            totalFrameMax,
+            compileP95,
+            compileP99,
+            compileMax,
+            compositorP95,
+            compositorMax,
+            acquireP95,
+            acquireMax,
+            allocatedBytes / divisor,
+            submittedGpuFrames,
+            completedGpuFrames,
+            completedGpuFps,
+            failedGpuFrames,
+            finalGpuCompletion,
+            timestampedGpuFrames,
+            failedGpuTimestamps,
+            droppedGpuTimestamps,
+            finalGpuTimestamps,
+            finalFrameMetrics,
+            finalMetrics);
 
         AppState._window?.Close();
     }
@@ -269,6 +389,133 @@ internal static class SamplePerformanceBenchmark
         {
             s_hostUpdateMilliseconds += elapsed.TotalMilliseconds;
         }
+    }
+
+    private static double Percentile(double[] samples, int count, double percentile)
+    {
+        count = Math.Clamp(count, 0, samples.Length);
+        if (count == 0)
+        {
+            return 0d;
+        }
+
+        var sorted = new double[count];
+        Array.Copy(samples, sorted, count);
+        Array.Sort(sorted);
+        double rank = Math.Clamp(percentile, 0d, 1d) * (count - 1);
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper)
+        {
+            return sorted[lower];
+        }
+
+        double fraction = rank - lower;
+        return sorted[lower] + (sorted[upper] - sorted[lower]) * fraction;
+    }
+
+    private static double Maximum(double[] samples, int count)
+    {
+        count = Math.Clamp(count, 0, samples.Length);
+        double maximum = 0d;
+        for (int index = 0; index < count; index++)
+        {
+            maximum = Math.Max(maximum, samples[index]);
+        }
+
+        return maximum;
+    }
+
+    private static void WriteJsonResult(
+        int measuredFrames,
+        double deltaFps,
+        double wallFps,
+        double intervalP50,
+        double intervalP95,
+        double intervalP99,
+        double intervalMax,
+        double totalFrameP95,
+        double totalFrameMax,
+        double compileP95,
+        double compileP99,
+        double compileMax,
+        double compositorP95,
+        double compositorMax,
+        double acquireP95,
+        double acquireMax,
+        double allocatedBytesPerFrame,
+        long submittedGpuFrames,
+        long completedGpuFrames,
+        double completedGpuFps,
+        long failedGpuFrames,
+        GpuFrameCompletionMetrics gpuCompletion,
+        long timestampedGpuFrames,
+        long failedGpuTimestamps,
+        long droppedGpuTimestamps,
+        GpuTimestampMetrics gpuTimestamps,
+        Microsoft.UI.Xaml.WindowFrameMetrics frameMetrics,
+        ProGPU.Scene.CompositorMetrics? compositorMetrics)
+    {
+        var output = new ArrayBufferWriter<byte>(2048);
+        using (var writer = new Utf8JsonWriter(output))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", 1);
+            writer.WriteString("page", RequestedPage);
+            writer.WriteString("platform", OperatingSystem.IsBrowser() ? "browser" : "desktop");
+            writer.WriteString("backend", AppState._wgpuContext?.BackendKind.ToString());
+            writer.WriteString("colorFormat", AppState._wgpuContext?.SwapChainFormat.ToString());
+            writer.WriteString("workload", s_scriptedScrollWorkload ? "scroll" : "retained-replay");
+            writer.WriteBoolean("vsync", AppState._wgpuContext?.VSync ?? false);
+            writer.WriteBoolean("scroll", s_scriptedScrollWorkload);
+            writer.WriteBoolean("gpuCompletionTracking", s_gpuCompletionTracking);
+            writer.WriteNumber("scrollStep", s_scrollStep);
+            writer.WriteNumber("warmupFrames", s_warmupFrames);
+            writer.WriteNumber("measuredFrames", measuredFrames);
+            writer.WriteNumber("renderTargetWidth", frameMetrics.RenderTargetWidth);
+            writer.WriteNumber("renderTargetHeight", frameMetrics.RenderTargetHeight);
+            writer.WriteNumber("dpiScale", frameMetrics.DpiScale);
+            writer.WriteNumber("deltaFps", deltaFps);
+            writer.WriteNumber("wallFps", wallFps);
+            writer.WriteNumber("cpuSubmittedFps", wallFps);
+            writer.WriteNumber("frameIntervalP50Ms", intervalP50);
+            writer.WriteNumber("frameIntervalP95Ms", intervalP95);
+            writer.WriteNumber("frameIntervalP99Ms", intervalP99);
+            writer.WriteNumber("frameIntervalMaxMs", intervalMax);
+            writer.WriteNumber("totalFrameP95Ms", totalFrameP95);
+            writer.WriteNumber("totalFrameMaxMs", totalFrameMax);
+            writer.WriteNumber("compileAverageMs", s_compileMilliseconds / Math.Max(1, measuredFrames));
+            writer.WriteNumber("compileP95Ms", compileP95);
+            writer.WriteNumber("compileP99Ms", compileP99);
+            writer.WriteNumber("compileMaxMs", compileMax);
+            writer.WriteNumber("compositorAverageMs", s_compositorMilliseconds / Math.Max(1, measuredFrames));
+            writer.WriteNumber("compositorP95Ms", compositorP95);
+            writer.WriteNumber("compositorMaxMs", compositorMax);
+            writer.WriteNumber("surfaceAcquireAverageMs", s_surfaceAcquireMilliseconds / Math.Max(1, measuredFrames));
+            writer.WriteNumber("surfaceAcquireP95Ms", acquireP95);
+            writer.WriteNumber("surfaceAcquireMaxMs", acquireMax);
+            writer.WriteNumber("allocatedBytesPerFrame", allocatedBytesPerFrame);
+            writer.WriteNumber("gpuSubmittedFrames", submittedGpuFrames);
+            writer.WriteNumber("gpuCompletedFrames", completedGpuFrames);
+            writer.WriteNumber("gpuCompletedFps", completedGpuFps);
+            writer.WriteNumber("gpuFailedFrames", failedGpuFrames);
+            writer.WriteNumber("gpuInFlightFrames", gpuCompletion.InFlightFrames);
+            writer.WriteNumber("gpuMaxInFlightFrames", gpuCompletion.MaxInFlightFrames);
+            writer.WriteBoolean("gpuTimestampSupported", AppState._wgpuContext?.SupportsTimestampQueries == true);
+            writer.WriteNumber("gpuTimestampedFrames", timestampedGpuFrames);
+            writer.WriteNumber("gpuFrameAverageMs", gpuTimestamps.AverageFrameMilliseconds);
+            writer.WriteNumber("gpuFrameMaximumMs", gpuTimestamps.MaximumFrameMilliseconds);
+            writer.WriteNumber("gpuTimestampFailures", failedGpuTimestamps);
+            writer.WriteNumber("gpuTimestampDrops", droppedGpuTimestamps);
+            writer.WriteNumber("sceneCacheHits", s_sceneCacheHitFrames);
+            writer.WriteString("sceneCacheMiss", compositorMetrics?.SceneCacheMissReason ?? "none");
+            writer.WriteNumber("draws", compositorMetrics?.DrawCallsCount ?? 0);
+            writer.WriteNumber("vectorVertices", compositorMetrics?.VectorVerticesCount ?? 0);
+            writer.WriteNumber("textVertices", compositorMetrics?.TextVerticesCount ?? 0);
+            writer.WriteEndObject();
+        }
+
+        Console.WriteLine($"[SampleBenchmark] JSON {Encoding.UTF8.GetString(output.WrittenSpan)}");
     }
 
     private static void RecordGlyphBrowserState()
@@ -315,6 +562,12 @@ internal static class SamplePerformanceBenchmark
         string? value = Environment.GetEnvironmentVariable(PageVariable);
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
+    private static bool IsScriptedScrollPage(string? page) => page is not null &&
+        (string.Equals(page, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(page, "Markdown Playground", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(page, "Inter Typeface", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(page, "Data Virtualization", StringComparison.OrdinalIgnoreCase));
 
     private static int ReadPositiveInt(string name, int fallback)
     {

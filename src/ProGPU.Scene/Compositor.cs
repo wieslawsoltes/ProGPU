@@ -2498,6 +2498,7 @@ SceneStateUploadComplete:
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Encoder") };
         encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
+        _context.BeginFrameGpuTimestamp(encoder);
 
         // Run mask render passes first!
         ExecuteMaskRenderPasses(encoder, isOffscreen: false);
@@ -2790,11 +2791,13 @@ SceneStateUploadComplete:
         }
 
         // Submit to queue
+        _context.EndFrameGpuTimestamp(encoder);
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compositor Command Buffer") };
         var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
         _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.NotifyFrameSubmitted();
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
