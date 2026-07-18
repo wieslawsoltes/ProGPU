@@ -236,6 +236,10 @@ public interface IShapingFontFace
     int GetVerticalAdvance(uint glyphId);
     int GetHorizontalOrigin(uint glyphId);
     int GetVerticalOrigin(uint glyphId);
+    uint VariationAxisCount { get; }
+    bool HasActiveVariations { get; }
+    bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate);
+    float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex);
 }
 
 /// <summary>

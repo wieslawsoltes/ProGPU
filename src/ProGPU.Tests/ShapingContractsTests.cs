@@ -246,6 +246,27 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuLookupPlanSelectsFirstMatchingFeatureVariation()
+    {
+        GpuOpenTypeShapingPlan regular = GpuOpenTypeShapingPlanCompiler.Compile(
+            new FeatureVariationFontFace(0));
+        GpuOpenTypeShapingPlan varied = GpuOpenTypeShapingPlanCompiler.Compile(
+            new FeatureVariationFontFace(0x2000));
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, OpenTypeTag.DefaultScript);
+
+        GpuOpenTypeLookupCommand regularLiga = Assert.Single(
+            GpuOpenTypeLookupPlanCompiler.Compile(regular, request),
+            command => command.FeatureTag == new OpenTypeTag("liga").Value);
+        GpuOpenTypeLookupCommand variedLiga = Assert.Single(
+            GpuOpenTypeLookupPlanCompiler.Compile(varied, request),
+            command => command.FeatureTag == new OpenTypeTag("liga").Value);
+
+        Assert.NotEqual(regularLiga.LookupOffset, variedLiga.LookupOffset);
+        Assert.Equal(0, regular.NormalizedVariationCoordinates.Span[0]);
+        Assert.Equal(0x2000, varied.NormalizedVariationCoordinates.Span[0]);
+    }
+
+    [Fact]
     public void GpuInitializationMatchesFontFace()
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
@@ -424,6 +445,140 @@ public sealed class ShapingContractsTests
             actual);
 
         Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
+    }
+
+    [Fact]
+    public void GpuPositioningMatchesVariableInterInstance()
+    {
+        const string text = "AVATAR";
+        TtfFont font = InterFontFamily.GetVariableFont(537, 23);
+        var face = new TtfShapingFontFace(font);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        Assert.False(plan.Variations.IsEmpty);
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("latn"), language: "en");
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            text.Select((character, index) => new GpuShapingScalar(character, index)).ToArray(),
+            fontData,
+            request.Direction,
+            commands,
+            actual);
+
+        Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
+    }
+
+    [Fact]
+    public void GpuPositioningMatchesVariableInterMarkAnchors()
+    {
+        const string text = "q\u0308\u0301";
+        TtfFont font = InterFontFamily.GetVariableFont(537, 23);
+        var face = new TtfShapingFontFace(font);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(
+            ShapingDirection.LeftToRight,
+            new OpenTypeTag("latn"),
+            language: "en",
+            features: new[] { new ShapingFeature(new OpenTypeTag("ccmp"), 0) });
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [
+                new GpuShapingScalar('q', 0),
+                new GpuShapingScalar(0x0308, 0),
+                new GpuShapingScalar(0x0301, 0)
+            ],
+            fontData,
+            request.Direction,
+            commands,
+            actual);
+
+        Assert.Equal(expected.Glyphs.ToArray(), actual.Glyphs.ToArray());
+    }
+
+    private sealed class FeatureVariationFontFace(short coordinate) : IShapingFontFace
+    {
+        private static readonly byte[] s_gsub = CreateGsub();
+
+        public int FaceIndex => 0;
+        public ushort UnitsPerEm => 1000;
+        public uint GlyphCount => 1;
+        public uint VariationAxisCount => 1;
+        public bool HasActiveVariations => coordinate != 0;
+        public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table)
+        {
+            table = tag == new OpenTypeTag("GSUB") ? s_gsub : ReadOnlyMemory<byte>.Empty;
+            return !table.IsEmpty;
+        }
+        public uint GetNominalGlyph(uint codePoint) => 0;
+        public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out uint glyphId)
+        {
+            glyphId = 0;
+            return false;
+        }
+        public int GetHorizontalAdvance(uint glyphId) => 0;
+        public int GetVerticalAdvance(uint glyphId) => 0;
+        public int GetHorizontalOrigin(uint glyphId) => 0;
+        public int GetVerticalOrigin(uint glyphId) => 0;
+        public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short value)
+        {
+            value = coordinate;
+            return axisIndex == 0;
+        }
+        public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
+
+        private static byte[] CreateGsub()
+        {
+            var data = new byte[116];
+            U16(0, 1); U16(2, 1); U16(4, 14); U16(6, 34); U16(8, 50); U32(10, 68);
+            U16(14, 1); Tag(16, "DFLT"); U16(20, 8);
+            U16(22, 4); U16(24, 0);
+            U16(26, 0); U16(28, ushort.MaxValue); U16(30, 1); U16(32, 0);
+            U16(34, 1); Tag(36, "liga"); U16(40, 10);
+            U16(44, 0); U16(46, 1); U16(48, 0);
+            U16(50, 2); U16(52, 6); U16(54, 12);
+            U16(56, 1); U16(58, 0); U16(60, 0);
+            U16(62, 1); U16(64, 0); U16(66, 0);
+            U16(68, 1); U16(70, 0); U32(72, 1);
+            U32(76, 16); U32(80, 30);
+            U16(84, 1); U32(86, 6);
+            U16(90, 1); U16(92, 0); U16(94, 0x2000); U16(96, 0x4000);
+            U16(98, 1); U16(100, 0); U16(102, 1);
+            U16(104, 0); U32(106, 12);
+            U16(110, 0); U16(112, 1); U16(114, 1);
+            return data;
+
+            void U16(int offset, ushort value)
+            {
+                data[offset] = (byte)(value >> 8);
+                data[offset + 1] = (byte)value;
+            }
+            void U32(int offset, uint value)
+            {
+                data[offset] = (byte)(value >> 24);
+                data[offset + 1] = (byte)(value >> 16);
+                data[offset + 2] = (byte)(value >> 8);
+                data[offset + 3] = (byte)value;
+            }
+            void Tag(int offset, string value)
+            {
+                for (var index = 0; index < 4; index++) data[offset + index] = (byte)value[index];
+            }
+        }
     }
 
     private static (uint LookupOffset, uint InputGlyph, uint ExpectedGlyph) FindSingleSubstitution(

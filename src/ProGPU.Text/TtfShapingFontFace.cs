@@ -18,6 +18,8 @@ public sealed class TtfShapingFontFace : IShapingFontFace
     public int FaceIndex => Font.FaceIndex;
     public ushort UnitsPerEm => Font.UnitsPerEm;
     public uint GlyphCount => Font.NumGlyphs;
+    public uint VariationAxisCount => checked((uint)Font.VariationAxes.Count);
+    public bool HasActiveVariations => Font.HasActiveFontVariations;
 
     public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table) =>
         Font.TryGetTable(tag.ToString(), out table);
@@ -50,4 +52,14 @@ public sealed class TtfShapingFontFace : IShapingFontFace
         if (glyphId > ushort.MaxValue) return 0;
         return checked((int)MathF.Round(Font.GetVerticalOriginY((ushort)glyphId, Font.UnitsPerEm)));
     }
+
+    public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate)
+    {
+        coordinate = 0;
+        return axisIndex <= ushort.MaxValue &&
+            Font.TryGetNormalizedVariationCoordinate((ushort)axisIndex, out coordinate);
+    }
+
+    public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) =>
+        Font.GetLayoutVariationDelta(outerIndex, innerIndex);
 }

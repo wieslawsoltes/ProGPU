@@ -116,6 +116,7 @@ public static class GpuOpenTypeLookupPlanCompiler
         int featureList = table + ReadU16(data, table + 6);
         int lookupList = table + ReadU16(data, table + 8);
         if (!CanRead(data, featureList, 2) || !CanRead(data, lookupList, 2)) return;
+        Dictionary<ushort, int>? substitutions = GetFeatureVariationSubstitutions(plan, data, table, end);
         HashSet<ushort> allowed = ResolveLanguageSystem(
             data, table, end, request.Script.Value, request.Language, out ushort required);
         ushort featureCount = ReadU16(data, featureList);
@@ -146,7 +147,9 @@ public static class GpuOpenTypeLookupPlanCompiler
             int record = featureList + 2 + featureIndex * 6;
             if (!CanRead(data, record, 6)) return;
             uint tag = ReadU32(data, record);
-            int feature = featureList + ReadU16(data, record + 4);
+            int feature = substitutions is not null && substitutions.TryGetValue(featureIndex, out int alternate)
+                ? alternate
+                : featureList + ReadU16(data, record + 4);
             if (!CanRead(data, feature, 4)) return;
             ushort lookupCount = ReadU16(data, feature + 2);
             for (var index = 0; index < lookupCount; index++)
@@ -169,6 +172,84 @@ public static class GpuOpenTypeLookupPlanCompiler
                     selected[lookupIndex] = value;
             }
         }
+    }
+
+    private static Dictionary<ushort, int>? GetFeatureVariationSubstitutions(
+        GpuOpenTypeShapingPlan plan,
+        ReadOnlySpan<byte> data,
+        int table,
+        int tableEnd)
+    {
+        if (!CanRead(data, table, 14) || ReadU16(data, table) != 1 || ReadU16(data, table + 2) < 1)
+            return null;
+        uint relative = ReadU32(data, table + 10);
+        if (relative == 0 || relative > int.MaxValue - table) return null;
+        int featureVariations = table + checked((int)relative);
+        if (!CanReadInTable(data, featureVariations, 8, tableEnd) ||
+            ReadU16(data, featureVariations) != 1 || ReadU16(data, featureVariations + 2) != 0)
+            return null;
+        uint recordCount = ReadU32(data, featureVariations + 4);
+        if (recordCount > int.MaxValue / 8 ||
+            !CanReadInTable(data, featureVariations + 8, checked((int)recordCount * 8), tableEnd))
+            return null;
+
+        ReadOnlySpan<short> coordinates = plan.NormalizedVariationCoordinates.Span;
+        for (var recordIndex = 0; recordIndex < (int)recordCount; recordIndex++)
+        {
+            int record = featureVariations + 8 + recordIndex * 8;
+            uint conditionRelative = ReadU32(data, record);
+            uint substitutionRelative = ReadU32(data, record + 4);
+            if (conditionRelative > int.MaxValue - featureVariations ||
+                substitutionRelative > int.MaxValue - featureVariations)
+                continue;
+            int conditionSet = featureVariations + checked((int)conditionRelative);
+            if (!MatchesFeatureVariationConditions(data, conditionSet, tableEnd, coordinates)) continue;
+            int substitution = featureVariations + checked((int)substitutionRelative);
+            if (!CanReadInTable(data, substitution, 6, tableEnd) ||
+                ReadU16(data, substitution) != 1 || ReadU16(data, substitution + 2) != 0)
+                return null;
+            ushort count = ReadU16(data, substitution + 4);
+            if (!CanReadInTable(data, substitution + 6, count * 6, tableEnd)) return null;
+            var result = new Dictionary<ushort, int>(count);
+            for (var index = 0; index < count; index++)
+            {
+                int item = substitution + 6 + index * 6;
+                uint alternateRelative = ReadU32(data, item + 2);
+                if (alternateRelative <= int.MaxValue - substitution)
+                {
+                    int alternate = substitution + checked((int)alternateRelative);
+                    if (CanReadInTable(data, alternate, 4, tableEnd))
+                        result[ReadU16(data, item)] = alternate;
+                }
+            }
+            return result;
+        }
+        return null;
+    }
+
+    private static bool MatchesFeatureVariationConditions(
+        ReadOnlySpan<byte> data,
+        int conditionSet,
+        int tableEnd,
+        ReadOnlySpan<short> coordinates)
+    {
+        if (!CanReadInTable(data, conditionSet, 2, tableEnd)) return false;
+        ushort count = ReadU16(data, conditionSet);
+        if (!CanReadInTable(data, conditionSet + 2, count * 4, tableEnd)) return false;
+        for (var index = 0; index < count; index++)
+        {
+            uint relative = ReadU32(data, conditionSet + 2 + index * 4);
+            if (relative > int.MaxValue - conditionSet) return false;
+            int condition = conditionSet + checked((int)relative);
+            if (!CanReadInTable(data, condition, 8, tableEnd) || ReadU16(data, condition) != 1)
+                return false;
+            ushort axis = ReadU16(data, condition + 2);
+            if (axis >= coordinates.Length) return false;
+            short coordinate = coordinates[axis];
+            if (coordinate < ReadI16(data, condition + 4) || coordinate > ReadI16(data, condition + 6))
+                return false;
+        }
+        return true;
     }
 
     private static List<FeatureInterval> ResolveIntervals(
@@ -385,8 +466,11 @@ public static class GpuOpenTypeLookupPlanCompiler
     private static uint Tag(string tag) => new OpenTypeTag(tag).Value;
     private static bool CanRead(ReadOnlySpan<byte> data, int offset, int count) =>
         offset >= 0 && count >= 0 && offset <= data.Length - count;
+    private static bool CanReadInTable(ReadOnlySpan<byte> data, int offset, int count, int tableEnd) =>
+        CanRead(data, offset, count) && offset <= tableEnd - count;
     private static ushort ReadU16(ReadOnlySpan<byte> data, int offset) =>
         (ushort)(data[offset] << 8 | data[offset + 1]);
+    private static short ReadI16(ReadOnlySpan<byte> data, int offset) => unchecked((short)ReadU16(data, offset));
     private static uint ReadU32(ReadOnlySpan<byte> data, int offset) =>
         (uint)(data[offset] << 24 | data[offset + 1] << 16 | data[offset + 2] << 8 | data[offset + 3]);
 

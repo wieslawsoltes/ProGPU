@@ -23,6 +23,10 @@ public readonly record struct GpuGlyphMetrics(
     int OriginX,
     int OriginY);
 
+/// <summary>One pre-evaluated ItemVariationStore delta keyed by outer/inner indices.</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public readonly record struct GpuLayoutVariationDelta(uint Key, float Delta);
+
 /// <summary>Byte ranges for raw big-endian OpenType tables in one upload.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 public readonly record struct GpuOpenTypeTableDirectory(
@@ -58,17 +62,23 @@ public sealed class GpuOpenTypeShapingPlan
     internal GpuOpenTypeShapingPlan(
         GpuCmapRange[] cmap,
         GpuGlyphMetrics[] metrics,
+        short[] normalizedVariationCoordinates,
+        GpuLayoutVariationDelta[] variations,
         GpuOpenTypeTableDirectory tables,
         byte[] tableData)
     {
         Cmap = cmap;
         Metrics = metrics;
+        NormalizedVariationCoordinates = normalizedVariationCoordinates;
+        Variations = variations;
         Tables = tables;
         TableData = tableData;
     }
 
     public ReadOnlyMemory<GpuCmapRange> Cmap { get; }
     public ReadOnlyMemory<GpuGlyphMetrics> Metrics { get; }
+    public ReadOnlyMemory<short> NormalizedVariationCoordinates { get; }
+    public ReadOnlyMemory<GpuLayoutVariationDelta> Variations { get; }
     public GpuOpenTypeTableDirectory Tables { get; }
     public ReadOnlyMemory<byte> TableData { get; }
 
@@ -107,8 +117,57 @@ public static class GpuOpenTypeShapingPlanCompiler
                 font.GetHorizontalOrigin(glyph),
                 font.GetVerticalOrigin(glyph));
         }
+        short[] coordinates = CompileVariationCoordinates(font);
         byte[] tableData = CompileTables(font, out GpuOpenTypeTableDirectory tables);
-        return new GpuOpenTypeShapingPlan(cmap, metrics, tables, tableData);
+        GpuLayoutVariationDelta[] variations = CompileVariations(font, tableData, tables);
+        return new GpuOpenTypeShapingPlan(cmap, metrics, coordinates, variations, tables, tableData);
+    }
+
+    private static short[] CompileVariationCoordinates(IShapingFontFace font)
+    {
+        if (font.VariationAxisCount > int.MaxValue)
+            throw new InvalidOperationException("The font variation axis count exceeds managed buffer limits.");
+        var result = new short[checked((int)font.VariationAxisCount)];
+        for (uint axis = 0; axis < font.VariationAxisCount; axis++)
+        {
+            if (!font.TryGetNormalizedVariationCoordinate(axis, out result[checked((int)axis)]))
+                throw new InvalidOperationException($"The font did not provide normalized variation axis {axis}.");
+        }
+        return result;
+    }
+
+    private static GpuLayoutVariationDelta[] CompileVariations(
+        IShapingFontFace font,
+        ReadOnlySpan<byte> data,
+        GpuOpenTypeTableDirectory tables)
+    {
+        if (!font.HasActiveVariations || tables.GdefLength < 18 || tables.GdefOffset > int.MaxValue)
+            return [];
+        int gdef = checked((int)tables.GdefOffset);
+        if (!CanRead(data, gdef, 18) || ReadU16(data, gdef) != 1 || ReadU16(data, gdef + 2) < 3)
+            return [];
+        uint relative = ReadU32(data, gdef + 14);
+        if (relative == 0 || relative > int.MaxValue) return [];
+        int store = checked(gdef + (int)relative);
+        if (!CanRead(data, store, 8) || ReadU16(data, store) != 1) return [];
+        ushort outerCount = ReadU16(data, store + 6);
+        if (!CanRead(data, store + 8, outerCount * 4)) return [];
+        var result = new List<GpuLayoutVariationDelta>();
+        for (ushort outer = 0; outer < outerCount; outer++)
+        {
+            uint dataRelative = ReadU32(data, store + 8 + outer * 4);
+            if (dataRelative > int.MaxValue) continue;
+            int itemData = checked(store + (int)dataRelative);
+            if (!CanRead(data, itemData, 6)) continue;
+            ushort innerCount = ReadU16(data, itemData);
+            for (ushort inner = 0; inner < innerCount; inner++)
+            {
+                float delta = font.GetLayoutVariationDelta(outer, inner);
+                if (delta != 0f)
+                    result.Add(new GpuLayoutVariationDelta((uint)outer << 16 | inner, delta));
+            }
+        }
+        return result.ToArray();
     }
 
     private static byte[] CompileTables(IShapingFontFace font, out GpuOpenTypeTableDirectory directory)
@@ -176,4 +235,11 @@ public static class GpuOpenTypeShapingPlanCompiler
             hasRange = false;
         }
     }
+
+    private static bool CanRead(ReadOnlySpan<byte> data, int offset, int count) =>
+        offset >= 0 && count >= 0 && offset <= data.Length - count;
+    private static ushort ReadU16(ReadOnlySpan<byte> data, int offset) =>
+        (ushort)(data[offset] << 8 | data[offset + 1]);
+    private static uint ReadU32(ReadOnlySpan<byte> data, int offset) =>
+        (uint)(data[offset] << 24 | data[offset + 1] << 16 | data[offset + 2] << 8 | data[offset + 3]);
 }

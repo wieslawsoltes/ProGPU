@@ -1,5 +1,5 @@
 // Algorithm: initialize a shaping run by binary-searching a compressed nominal cmap, then load direction-aware design-unit metrics by glyph ID.
-// Time complexity: O(N log R + L*N*log C) for N scalars, R cmap ranges, L ordered ranged lookups, and coverage size C; initialization/metrics are parallel and lookup mutation is serial.
+// Time complexity: O(N log R + L*N*log C) for N scalars, R cmap ranges, L ordered ranged lookups, and coverage size C; initialization, metrics, and output conversion are parallel while lookup mutation is serial.
 // Space complexity: O(N + R + G + L) storage for glyphs plus stable internal identities, cmap ranges, G metrics, and lookup commands; each invocation uses O(1) private storage and no textures.
 // Workgroups contain 64 independent glyph invocations; the ordered lookup VM uses one invocation because substitutions mutate shared order. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
@@ -10,7 +10,7 @@ struct Params {
     metric_count: u32,
     direction: u32,
     lookup_count: u32,
-    reserved0: u32,
+    variation_count: u32,
     reserved1: u32,
 };
 
@@ -33,6 +33,11 @@ struct GlyphMetric {
     advance_y: i32,
     origin_x: i32,
     origin_y: i32,
+};
+
+struct LayoutVariationDelta {
+    key: u32,
+    delta: f32,
 };
 
 struct ShapingGlyph {
@@ -109,6 +114,7 @@ struct LookupTask {
 @group(0) @binding(7) var<storage, read_write> run_state: RunState;
 @group(0) @binding(8) var<storage, read> lookup_commands: array<LookupCommand>;
 @group(0) @binding(9) var<storage, read_write> glyph_states: array<GlyphState>;
+@group(0) @binding(10) var<storage, read> variation_deltas: array<LayoutVariationDelta>;
 
 const FEATURE_EXPLICIT: u32 = 1u;
 const FRACTION_NUMERATOR: u32 = 1u;
@@ -917,7 +923,23 @@ fn value_record_size(format: u32) -> u32 {
     return countOneBits(format & 0xffu) * 2u;
 }
 
-fn apply_value_record(offset: u32, format: u32, position: u32) {
+fn layout_variation_delta(offset: u32) -> f32 {
+    if (offset == 0u || table_u16(offset + 4u) != 0x8000u) { return 0.0; }
+    let key = (table_u16(offset) << 16u) | table_u16(offset + 2u);
+    var low = 0u;
+    var high = params.variation_count;
+    loop {
+        if (low >= high) { break; }
+        let middle = low + ((high - low) >> 1u);
+        let value = variation_deltas[middle];
+        if (key < value.key) { high = middle; }
+        else if (key > value.key) { low = middle + 1u; }
+        else { return value.delta; }
+    }
+    return 0.0;
+}
+
+fn apply_value_record(offset: u32, format: u32, position: u32, subtable: u32) {
     var cursor = offset;
     if ((format & 1u) != 0u) {
         glyphs[position].offset_x += i32(table_u16(cursor) << 16u) >> 16;
@@ -935,7 +957,25 @@ fn apply_value_record(offset: u32, format: u32, position: u32) {
         glyphs[position].advance_y += i32(table_u16(cursor) << 16u) >> 16;
         cursor += 2u;
     }
-    _ = cursor;
+    if ((format & 16u) != 0u) {
+        let relative = table_u16(cursor);
+        if (relative != 0u) { glyphs[position].offset_x += i32(round(layout_variation_delta(subtable + relative))); }
+        cursor += 2u;
+    }
+    if ((format & 32u) != 0u) {
+        let relative = table_u16(cursor);
+        if (relative != 0u) { glyphs[position].offset_y += i32(round(layout_variation_delta(subtable + relative))); }
+        cursor += 2u;
+    }
+    if ((format & 64u) != 0u) {
+        let relative = table_u16(cursor);
+        if (relative != 0u) { glyphs[position].advance_x += i32(round(layout_variation_delta(subtable + relative))); }
+        cursor += 2u;
+    }
+    if ((format & 128u) != 0u) {
+        let relative = table_u16(cursor);
+        if (relative != 0u) { glyphs[position].advance_y += i32(round(layout_variation_delta(subtable + relative))); }
+    }
 }
 
 fn apply_single_position(subtable: u32, position: u32) -> bool {
@@ -944,12 +984,12 @@ fn apply_single_position(subtable: u32, position: u32) -> bool {
     let format = table_u16(subtable);
     let value_format = table_u16(subtable + 4u);
     if (format == 1u) {
-        apply_value_record(subtable + 6u, value_format, position);
+        apply_value_record(subtable + 6u, value_format, position, subtable);
         return true;
     }
     if (format == 2u && u32(covered) < table_u16(subtable + 6u)) {
         apply_value_record(subtable + 8u + u32(covered) * value_record_size(value_format),
-            value_format, position);
+            value_format, position, subtable);
         return true;
     }
     return false;
@@ -982,8 +1022,8 @@ fn apply_pair_position(subtable: u32, position: u32, lookup_offset: u32, lookup_
             if (glyphs[second].glyph_id < glyph) { high = middle; }
             else if (glyphs[second].glyph_id > glyph) { low = middle + 1u; }
             else {
-                if (value_format1 != 0u) { apply_value_record(record + 2u, value_format1, position); }
-                if (value_format2 != 0u) { apply_value_record(record + 2u + value_size1, value_format2, second); }
+                if (value_format1 != 0u) { apply_value_record(record + 2u, value_format1, position, subtable); }
+                if (value_format2 != 0u) { apply_value_record(record + 2u + value_size1, value_format2, second, subtable); }
                 return true;
             }
         }
@@ -996,16 +1036,23 @@ fn apply_pair_position(subtable: u32, position: u32, lookup_offset: u32, lookup_
     let class2_count = table_u16(subtable + 14u);
     if (class1 >= class1_count || class2 >= class2_count) { return false; }
     let record = subtable + 16u + (class1 * class2_count + class2) * (value_size1 + value_size2);
-    if (value_format1 != 0u) { apply_value_record(record, value_format1, position); }
-    if (value_format2 != 0u) { apply_value_record(record + value_size1, value_format2, second); }
+    if (value_format1 != 0u) { apply_value_record(record, value_format1, position, subtable); }
+    if (value_format2 != 0u) { apply_value_record(record + value_size1, value_format2, second, subtable); }
     return true;
 }
 
 fn read_anchor(offset: u32) -> vec2<i32> {
     let format = table_u16(offset);
     if (offset == 0u || format < 1u || format > 3u) { return vec2<i32>(0x7fffffffi, 0); }
-    return vec2<i32>(i32(table_u16(offset + 2u) << 16u) >> 16,
-        i32(table_u16(offset + 4u) << 16u) >> 16);
+    var x = i32(table_u16(offset + 2u) << 16u) >> 16;
+    var y = i32(table_u16(offset + 4u) << 16u) >> 16;
+    if (format == 3u) {
+        let x_relative = table_u16(offset + 6u);
+        let y_relative = table_u16(offset + 8u);
+        if (x_relative != 0u) { x += i32(round(layout_variation_delta(offset + x_relative))); }
+        if (y_relative != 0u) { y += i32(round(layout_variation_delta(offset + y_relative))); }
+    }
+    return vec2<i32>(x, y);
 }
 
 fn previous_covered(position: u32, lookup_offset: u32, lookup_flags: u32,
@@ -1283,4 +1330,15 @@ fn load_metrics(@builtin(global_invocation_id) id: vec3<u32>) {
     } else {
         glyphs[index].advance_x = metric.advance_x;
     }
+}
+
+@compute @workgroup_size(64)
+fn finalize_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
+    let index = id.x;
+    if (index >= run_state.glyph_count) { return; }
+    // OpenType layout is evaluated in its native y-up design space. Public
+    // shaping records use the renderer's y-down convention, matching the CPU
+    // executor and HarfBuzz adapter boundary.
+    glyphs[index].advance_y = -glyphs[index].advance_y;
+    glyphs[index].offset_y = -glyphs[index].offset_y;
 }

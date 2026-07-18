@@ -22,8 +22,10 @@ public sealed class GpuOpenTypeFontData : IDisposable
     internal GpuBuffer MetricsBuffer { get; }
     internal GpuBuffer TablesBuffer { get; }
     internal GpuBuffer TableDirectoryBuffer { get; }
+    internal GpuBuffer VariationBuffer { get; }
     public int CmapRangeCount { get; }
     public int GlyphMetricCount { get; }
+    public int VariationCount { get; }
 
     public GpuOpenTypeFontData(WgpuContext context, GpuOpenTypeShapingPlan plan)
     {
@@ -31,6 +33,7 @@ public sealed class GpuOpenTypeFontData : IDisposable
         ArgumentNullException.ThrowIfNull(plan);
         CmapRangeCount = plan.Cmap.Length;
         GlyphMetricCount = plan.Metrics.Length;
+        VariationCount = plan.Variations.Length;
         uint cmapBytes = checked((uint)Math.Max(16, CmapRangeCount * Marshal.SizeOf<GpuCmapRange>()));
         uint metricBytes = checked((uint)Math.Max(16, GlyphMetricCount * Marshal.SizeOf<GpuGlyphMetrics>()));
         CmapBuffer = new GpuBuffer(context, cmapBytes, BufferUsage.Storage | BufferUsage.CopyDst, "OpenType cmap ranges");
@@ -38,9 +41,12 @@ public sealed class GpuOpenTypeFontData : IDisposable
         uint tableBytes = checked((uint)Math.Max(4, (plan.TableData.Length + 3) & ~3));
         TablesBuffer = new GpuBuffer(context, tableBytes, BufferUsage.Storage | BufferUsage.CopyDst, "OpenType table bytes");
         TableDirectoryBuffer = new GpuBuffer(context, 32, BufferUsage.Uniform | BufferUsage.CopyDst, "OpenType table directory");
+        uint variationBytes = checked((uint)Math.Max(8, VariationCount * Marshal.SizeOf<GpuLayoutVariationDelta>()));
+        VariationBuffer = new GpuBuffer(context, variationBytes, BufferUsage.Storage | BufferUsage.CopyDst, "OpenType variation deltas");
         if (CmapRangeCount != 0) CmapBuffer.Write(plan.Cmap.Span);
         if (GlyphMetricCount != 0) MetricsBuffer.Write(plan.Metrics.Span);
         if (!plan.TableData.IsEmpty) TablesBuffer.WriteBytes(plan.TableData.Span);
+        if (VariationCount != 0) VariationBuffer.Write(plan.Variations.Span);
         TableDirectoryBuffer.WriteSingle(plan.Tables);
     }
 
@@ -49,6 +55,7 @@ public sealed class GpuOpenTypeFontData : IDisposable
         MetricsBuffer.Dispose();
         TablesBuffer.Dispose();
         TableDirectoryBuffer.Dispose();
+        VariationBuffer.Dispose();
         CmapBuffer.Dispose();
     }
 }
@@ -69,7 +76,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         uint MetricCount,
         uint Direction,
         uint LookupCount,
-        uint Reserved0,
+        uint VariationCount,
         uint Reserved1);
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -95,6 +102,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
     private GpuBuffer? _lookupBuffer;
     private readonly ComputePipeline* _lookupPipeline;
     private readonly ComputePipeline* _positionPipeline;
+    private readonly ComputePipeline* _finalizePipeline;
     private int _capacity;
     private bool _disposed;
 
@@ -112,6 +120,8 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             "OpenTypeLookups", shader, "execute_lookups");
         _positionPipeline = _pipelineCache.GetOrCreateComputePipeline(
             "OpenTypePositions", shader, "execute_positions");
+        _finalizePipeline = _pipelineCache.GetOrCreateComputePipeline(
+            "OpenTypeFinalize", shader, "finalize_glyphs");
     }
 
     public void InitializeRun(
@@ -144,7 +154,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             checked((uint)font.GlyphMetricCount),
             (uint)direction,
             checked((uint)lookups.Length),
-            0,
+            checked((uint)font.VariationCount),
             0));
         _inputBuffer!.Write(input);
         _stateBuffer!.WriteSingle(new RunState(checked((uint)input.Length), 0, 0, checked((uint)input.Length + 1), 1, 0, 0, 0));
@@ -154,6 +164,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         BindGroup* metricsGroup = CreateBindGroup(_metricsPipeline, font, 1);
         BindGroup* lookupGroup = CreateBindGroup(_lookupPipeline, font, 2);
         BindGroup* positionGroup = CreateBindGroup(_positionPipeline, font, 3);
+        BindGroup* finalizeGroup = CreateBindGroup(_finalizePipeline, font, 4);
         CommandEncoderDescriptor encoderDescriptor = default;
         CommandEncoder* encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         if (encoder == null) throw new InvalidOperationException("Failed to create the OpenType shaping command encoder.");
@@ -163,6 +174,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             if (!lookups.IsEmpty) Dispatch(encoder, _lookupPipeline, lookupGroup, 1);
             Dispatch(encoder, _metricsPipeline, metricsGroup, checked((uint)_capacity));
             if (!lookups.IsEmpty) Dispatch(encoder, _positionPipeline, positionGroup, 1);
+            Dispatch(encoder, _finalizePipeline, finalizeGroup, checked((uint)_capacity));
             CommandBufferDescriptor commandDescriptor = default;
             CommandBuffer* command = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
             if (command == null) throw new InvalidOperationException("Failed to finish the OpenType shaping command buffer.");
@@ -172,6 +184,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         finally
         {
             _context.Api.CommandEncoderRelease(encoder);
+            _context.Api.BindGroupRelease(finalizeGroup);
             _context.Api.BindGroupRelease(metricsGroup);
             _context.Api.BindGroupRelease(positionGroup);
             _context.Api.BindGroupRelease(lookupGroup);
@@ -193,7 +206,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         BindGroupLayout* layout = _context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
         try
         {
-            BindGroupEntry* entries = stackalloc BindGroupEntry[7];
+            BindGroupEntry* entries = stackalloc BindGroupEntry[8];
             uint count;
             if (stage == 0)
             {
@@ -224,7 +237,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
                 entries[6] = Entry(9, _glyphStateBuffer!);
                 count = 7;
             }
-            else
+            else if (stage == 3)
             {
                 entries[0] = Entry(0, _paramsBuffer!);
                 entries[1] = Entry(4, _glyphBuffer!);
@@ -233,7 +246,14 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
                 entries[4] = Entry(7, _stateBuffer!);
                 entries[5] = Entry(8, _lookupBuffer!);
                 entries[6] = Entry(9, _glyphStateBuffer!);
-                count = 7;
+                entries[7] = Entry(10, font.VariationBuffer);
+                count = 8;
+            }
+            else
+            {
+                entries[0] = Entry(4, _glyphBuffer!);
+                entries[1] = Entry(7, _stateBuffer!);
+                count = 2;
             }
             BindGroupDescriptor descriptor = new() { Layout = layout, EntryCount = count, Entries = entries };
             BindGroup* group = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
