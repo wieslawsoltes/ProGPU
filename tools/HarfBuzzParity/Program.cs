@@ -363,7 +363,11 @@ internal sealed class SuiteRunner : IDisposable
         using var buffer = new ShapingBuffer();
         ShapingRequest request = CreateRequest(testCase, configuration, clusterLevel);
         CpuOpenTypeShaper.Instance.Shape(testCase.Text, new TtfShapingFontFace(font), request, buffer);
-        return Convert(buffer, configuration.FontSize ?? font.UnitsPerEm, font.UnitsPerEm);
+        return Convert(
+            buffer,
+            configuration.FontSize ?? font.UnitsPerEm,
+            font,
+            request.Direction);
     }
 
     private IReadOnlyList<ShapedGlyph> ShapeGpu(
@@ -462,7 +466,11 @@ internal sealed class SuiteRunner : IDisposable
         }
         using var buffer = new ShapingBuffer();
         _gpuPipeline!.ExecuteRun(input.ToArray(), fontData, request, commands, buffer);
-        return Convert(buffer, configuration.FontSize ?? font.UnitsPerEm, font.UnitsPerEm);
+        return Convert(
+            buffer,
+            configuration.FontSize ?? font.UnitsPerEm,
+            font,
+            request.Direction);
     }
 
     private static bool IsPrepend(int codePoint) => codePoint is
@@ -514,13 +522,38 @@ internal sealed class SuiteRunner : IDisposable
         return OpenTypeTag.DefaultScript;
     }
 
-    private static IReadOnlyList<ShapedGlyph> Convert(ShapingBuffer buffer, float size, ushort unitsPerEm)
+    private static IReadOnlyList<ShapedGlyph> Convert(
+        ShapingBuffer buffer,
+        float size,
+        TtfFont font,
+        ShapingDirection direction)
     {
-        float scale = size / unitsPerEm;
-        return buffer.Glyphs.ToArray().Select(glyph => new ShapedGlyph(
-            checked((ushort)glyph.GlyphId), glyph.Cluster, glyph.CodePoint,
-            glyph.AdvanceX * scale, glyph.AdvanceY * scale,
-            glyph.OffsetX * scale, glyph.OffsetY * scale)).ToArray();
+        float scale = size / font.UnitsPerEm;
+        bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
+        return buffer.Glyphs.ToArray().Select(glyph =>
+        {
+            float advanceY = glyph.AdvanceY * scale;
+            float offsetX = glyph.OffsetX * scale;
+            float offsetY = glyph.OffsetY * scale;
+            if (vertical && scale != 1f)
+            {
+                ushort glyphId = checked((ushort)glyph.GlyphId);
+                int baseAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(glyphId, font.UnitsPerEm));
+                int scaledAdvanceY = -(int)MathF.Round(font.GetAdvanceHeight(glyphId, size));
+                advanceY = (glyph.AdvanceY - baseAdvanceY) * scale + scaledAdvanceY;
+
+                int baseOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(glyphId, font.UnitsPerEm)) / 2);
+                int scaledOffsetX = -((int)MathF.Round(font.GetAdvanceWidth(glyphId, size)) / 2);
+                offsetX = (glyph.OffsetX - baseOffsetX) * scale + scaledOffsetX;
+
+                int baseOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(glyphId, font.UnitsPerEm));
+                int scaledOffsetY = -(int)MathF.Round(font.GetVerticalOriginY(glyphId, size));
+                offsetY = (glyph.OffsetY - baseOffsetY) * scale + scaledOffsetY;
+            }
+            return new ShapedGlyph(
+                checked((ushort)glyph.GlyphId), glyph.Cluster, glyph.CodePoint,
+                glyph.AdvanceX * scale, advanceY, offsetX, offsetY);
+        }).ToArray();
     }
 
     private void EnsureGpu()
