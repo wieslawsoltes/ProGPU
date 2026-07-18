@@ -66,6 +66,7 @@ internal static class KhmerSyllableMachineData
 {chr(10).join(declarations)}
 
     public const int StartState = {start_match.group(1)};
+    public static int StateCount => s_key_spans.Length;
 
     public static int GetTransition(int state, byte category)
     {{

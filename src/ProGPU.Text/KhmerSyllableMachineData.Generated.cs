@@ -95,6 +95,7 @@ internal static class KhmerSyllableMachineData
     ];
 
     public const int StartState = 21;
+    public static int StateCount => s_key_spans.Length;
 
     public static int GetTransition(int state, byte category)
     {

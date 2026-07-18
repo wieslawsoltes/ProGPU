@@ -1,7 +1,7 @@
 // Algorithm: initialize through a compressed nominal cmap, preprocess variation selectors and Unicode joining properties, execute ordered OpenType substitutions/positioning, then load direction-aware design-unit metrics and finalize output order.
-// Time complexity: O(N*(log R + log V + log U + log D + log Q) + L*N*log C) for typical bounded combining runs, and O(N^2 + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
-// Space complexity: O(N + R + V + U + D + Q + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization data, G metrics, and lookup commands; each invocation uses O(1) private storage and no textures.
-// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup VM use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state). Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
+// Time complexity: O(N*(log R + log V + log U + log D + log Q) + S*N + L*N*log C) for typical bounded combining runs, and O(N^2 + S*N + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
+// Space complexity: O(N + R + V + U + D + Q + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics, and lookup commands; each invocation uses O(1) private storage and no textures.
+// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup VM use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state); the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
 struct Params {
     input_count: u32,
@@ -311,6 +311,265 @@ fn unicode_properties_a(codepoint: u32) -> u32 {
         else { return unicode_data[record + 2u]; }
     }
     return 0u;
+}
+
+fn unicode_properties_b(codepoint: u32) -> u32 {
+    var low = 0u;
+    var high = unicode_data[1u];
+    let base = unicode_data[2u];
+    loop {
+        if (low >= high) { break; }
+        let middle = low + ((high - low) >> 1u);
+        let record = base + middle * 4u;
+        if (codepoint < unicode_data[record]) { high = middle; }
+        else if (codepoint >= unicode_data[record + 1u]) { low = middle + 1u; }
+        else { return unicode_data[record + 3u]; }
+    }
+    return 0u;
+}
+
+fn is_indic_syllable_script() -> bool {
+    let script = params.script_tag;
+    return script == 0x62656e67u || script == 0x626e6732u ||
+        script == 0x64657661u || script == 0x64657632u ||
+        script == 0x67756a72u || script == 0x676a7232u ||
+        script == 0x67757275u || script == 0x67757232u ||
+        script == 0x6b6e6461u || script == 0x6b6e6432u ||
+        script == 0x6d6c796du || script == 0x6d6c6d32u ||
+        script == 0x6f727961u || script == 0x6f727932u ||
+        script == 0x74616d6cu || script == 0x746d6c32u ||
+        script == 0x74656c75u || script == 0x74656c32u;
+}
+
+fn is_use_syllable_script() -> bool {
+    let script = params.script_tag;
+    return script == 0x626e6733u || script == 0x64657633u ||
+        script == 0x676a7233u || script == 0x67757233u ||
+        script == 0x6b6e6433u || script == 0x6d6c6d33u ||
+        script == 0x6f727933u || script == 0x746d6c33u || script == 0x74656c33u ||
+        script == 0x74696274u || script == 0x6d6f6e67u || script == 0x73696e68u ||
+        script == 0x6a617661u || script == 0x6d617263u || script == 0x6c696d62u ||
+        script == 0x74616c65u || script == 0x62756769u || script == 0x6b686172u ||
+        script == 0x73796c6fu || script == 0x74666e67u || script == 0x62616c69u ||
+        script == 0x6e6b6f6fu || script == 0x70686167u || script == 0x6368616du ||
+        script == 0x6b616c69u || script == 0x6c657063u || script == 0x726a6e67u ||
+        script == 0x73617572u || script == 0x73756e64u || script == 0x65677970u ||
+        script == 0x6b746869u || script == 0x6d746569u || script == 0x6c616e61u ||
+        script == 0x74617674u || script == 0x6261746bu || script == 0x62726168u ||
+        script == 0x6d616e64u || script == 0x63616b6du || script == 0x706c7264u ||
+        script == 0x73687264u || script == 0x74616b72u || script == 0x6475706cu ||
+        script == 0x6772616eu || script == 0x6b686f6au || script == 0x73696e64u ||
+        script == 0x6d61686au || script == 0x6d616e69u || script == 0x6d6f6469u ||
+        script == 0x686d6e67u || script == 0x70686c70u || script == 0x73696464u ||
+        script == 0x74697268u || script == 0x61686f6du || script == 0x6d756c74u ||
+        script == 0x61646c6du || script == 0x62686b73u || script == 0x6e657761u ||
+        script == 0x676f6e6du || script == 0x736f796fu || script == 0x7a616e62u ||
+        script == 0x646f6772u || script == 0x676f6e67u || script == 0x726f6867u ||
+        script == 0x6d616b61u || script == 0x6d656466u || script == 0x736f676fu ||
+        script == 0x736f6764u || script == 0x656c796du || script == 0x6e616e64u ||
+        script == 0x686d6e70u || script == 0x7763686fu || script == 0x63687273u ||
+        script == 0x6469616bu || script == 0x6b697473u || script == 0x79657a69u ||
+        script == 0x63706d6eu || script == 0x6f756772u || script == 0x746e7361u ||
+        script == 0x746f746fu || script == 0x76697468u || script == 0x6b617769u ||
+        script == 0x6e61676du;
+}
+
+fn syllable_machine_descriptor(machine: u32) -> u32 {
+    if (machine >= unicode_data[11u]) { return 0xffffffffu; }
+    return unicode_data[12u] + machine * 7u;
+}
+
+fn syllable_machine_transition(descriptor: u32, state: u32, category: u32) -> u32 {
+    let state_count = unicode_data[descriptor + 2u];
+    if (state >= state_count) { return 0xffffffffu; }
+    return unicode_data[unicode_data[descriptor + 3u] + state * 256u + min(category, 255u)];
+}
+
+fn syllable_machine_eof(descriptor: u32, state: u32) -> u32 {
+    let state_count = unicode_data[descriptor + 2u];
+    if (state >= state_count) { return 0xffffffffu; }
+    return unicode_data[unicode_data[descriptor + 6u] + state];
+}
+
+fn syllable_machine_from_action(descriptor: u32, state: u32) -> u32 {
+    return unicode_data[unicode_data[descriptor + 5u] + state];
+}
+
+fn syllable_machine_to_action(descriptor: u32, state: u32) -> u32 {
+    return unicode_data[unicode_data[descriptor + 4u] + state];
+}
+
+fn syllable_machine_token_start_action(machine: u32) -> u32 {
+    if (machine == 0u) { return 10u; }
+    if (machine == 1u) { return 3u; }
+    if (machine == 2u) { return 2u; }
+    return 7u;
+}
+
+fn syllable_machine_token_clear_action(machine: u32) -> u32 {
+    if (machine == 0u) { return 9u; }
+    if (machine == 1u) { return 2u; }
+    if (machine == 2u) { return 1u; }
+    return 6u;
+}
+
+fn use_machine_includes(position: u32) -> bool {
+    let category = unicode_properties_b(glyphs[position].codepoint) & 0xffu;
+    if (category == 6u) { return false; } // CGJ
+    if (category != 14u) { return true; } // ZWNJ
+    var following = position + 1u;
+    while (following < run_state.glyph_count &&
+            (unicode_properties_b(glyphs[following].codepoint) & 0xffu) == 6u) {
+        following += 1u;
+    }
+    return following >= run_state.glyph_count ||
+        (unicode_properties_b(glyphs[following].codepoint) & 0x100u) == 0u;
+}
+
+fn next_syllable_machine_position(machine: u32, position: u32) -> u32 {
+    var next = position + 1u;
+    if (machine != 1u) { return min(next, run_state.glyph_count); }
+    while (next < run_state.glyph_count && !use_machine_includes(next)) { next += 1u; }
+    return next;
+}
+
+fn first_syllable_machine_position(machine: u32) -> u32 {
+    if (machine != 1u) { return 0u; }
+    var position = 0u;
+    while (position < run_state.glyph_count && !use_machine_includes(position)) { position += 1u; }
+    return position;
+}
+
+fn syllable_category(machine: u32, position: u32) -> u32 {
+    if (machine == 1u) { return unicode_properties_b(glyphs[position].codepoint) & 0xffu; }
+    return (unicode_properties_a(glyphs[position].codepoint) >> 16u) & 0xffu;
+}
+
+fn assign_syllable(start: u32, end: u32, syllable_type: u32, serial: ptr<function, u32>) {
+    if (start == 0xffffffffu || end < start) { return; }
+    let value = ((*serial & 0x0fu) << 4u) | (syllable_type & 0x0fu);
+    for (var index = start; index < end; index++) { glyph_states[index].syllable = value; }
+    *serial += 1u;
+    if (*serial == 16u) { *serial = 1u; }
+}
+
+fn run_syllable_machine(machine: u32) {
+    if (run_state.glyph_count == 0u) { return; }
+    let descriptor = syllable_machine_descriptor(machine);
+    if (descriptor == 0xffffffffu) { run_state.status = 20u; return; }
+    var state = unicode_data[descriptor + 1u];
+    var position = first_syllable_machine_position(machine);
+    var token_start = 0xffffffffu;
+    var token_end = 0u;
+    var pending_action = 0u;
+    var serial = 1u;
+    var steps = 0u;
+    loop {
+        steps += 1u;
+        if (steps > (run_state.glyph_count + 1u) * 32u + 256u) {
+            run_state.status = 21u;
+            return;
+        }
+        let at_eof = position >= run_state.glyph_count;
+        var transition = 0xffffffffu;
+        if (at_eof) {
+            transition = syllable_machine_eof(descriptor, state);
+            if (transition == 0xffffffffu) { break; }
+        } else {
+            if (syllable_machine_from_action(descriptor, state) ==
+                    syllable_machine_token_start_action(machine)) {
+                token_start = position;
+            }
+            transition = syllable_machine_transition(descriptor, state, syllable_category(machine, position));
+        }
+        state = transition & 0xffffu;
+        let action = transition >> 16u;
+        let next_position = select(position, next_syllable_machine_position(machine, position), !at_eof);
+        var resume = next_position;
+
+        if (machine == 0u) {
+            if (action == 2u) { token_end = next_position; }
+            else if (action == 11u) { token_end = next_position; assign_syllable(token_start, token_end, 5u, &serial); }
+            else if (action == 14u) { token_end = position; assign_syllable(token_start, token_end, 0u, &serial); resume = position; }
+            else if (action == 15u) { token_end = position; assign_syllable(token_start, token_end, 1u, &serial); resume = position; }
+            else if (action == 18u) { token_end = position; assign_syllable(token_start, token_end, 2u, &serial); resume = position; }
+            else if (action == 20u) { token_end = position; assign_syllable(token_start, token_end, 3u, &serial); resume = position; }
+            else if (action == 16u) { token_end = position; assign_syllable(token_start, token_end, 4u, &serial); resume = position; }
+            else if (action == 17u) { token_end = position; assign_syllable(token_start, token_end, 5u, &serial); resume = position; }
+            else if (action == 1u) { assign_syllable(token_start, token_end, 0u, &serial); resume = token_end; }
+            else if (action == 3u) { assign_syllable(token_start, token_end, 1u, &serial); resume = token_end; }
+            else if (action == 7u) { assign_syllable(token_start, token_end, 2u, &serial); resume = token_end; }
+            else if (action == 8u) { assign_syllable(token_start, token_end, 3u, &serial); resume = token_end; }
+            else if (action == 4u) { assign_syllable(token_start, token_end, 4u, &serial); resume = token_end; }
+            else if (action == 6u) {
+                var syllable_type = 5u;
+                if (pending_action == 1u) { syllable_type = 0u; }
+                else if (pending_action == 6u) { syllable_type = 4u; }
+                assign_syllable(token_start, token_end, syllable_type, &serial); resume = token_end;
+            } else if (action == 19u) { token_end = next_position; pending_action = 1u; }
+            else if (action == 13u) { token_end = next_position; pending_action = 5u; }
+            else if (action == 5u) { token_end = next_position; pending_action = 6u; }
+            else if (action == 12u) { token_end = next_position; pending_action = 7u; }
+        } else if (machine == 1u) {
+            if (action == 7u) { token_end = next_position; }
+            else if (action == 16u) { token_end = next_position; assign_syllable(token_start, token_end, 0u, &serial); }
+            else if (action == 14u) { token_end = next_position; assign_syllable(token_start, token_end, 1u, &serial); }
+            else if (action == 12u) { token_end = next_position; assign_syllable(token_start, token_end, 2u, &serial); }
+            else if (action == 20u) { token_end = next_position; assign_syllable(token_start, token_end, 3u, &serial); }
+            else if (action == 18u) { token_end = next_position; assign_syllable(token_start, token_end, 4u, &serial); }
+            else if (action == 10u) { token_end = next_position; assign_syllable(token_start, token_end, 5u, &serial); }
+            else if (action == 25u) { token_end = next_position; assign_syllable(token_start, token_end, 6u, &serial); }
+            else if (action == 5u) { token_end = next_position; assign_syllable(token_start, token_end, 7u, &serial); }
+            else if (action == 4u) { token_end = next_position; assign_syllable(token_start, token_end, 8u, &serial); }
+            else if (action == 15u) { token_end = position; assign_syllable(token_start, token_end, 0u, &serial); resume = position; }
+            else if (action == 13u) { token_end = position; assign_syllable(token_start, token_end, 1u, &serial); resume = position; }
+            else if (action == 11u) { token_end = position; assign_syllable(token_start, token_end, 2u, &serial); resume = position; }
+            else if (action == 19u) { token_end = position; assign_syllable(token_start, token_end, 3u, &serial); resume = position; }
+            else if (action == 17u) { token_end = position; assign_syllable(token_start, token_end, 4u, &serial); resume = position; }
+            else if (action == 9u) { token_end = position; assign_syllable(token_start, token_end, 5u, &serial); resume = position; }
+            else if (action == 24u) { token_end = position; assign_syllable(token_start, token_end, 6u, &serial); resume = position; }
+            else if (action == 21u) { token_end = position; assign_syllable(token_start, token_end, 7u, &serial); resume = position; }
+            else if (action == 23u) { token_end = position; assign_syllable(token_start, token_end, 8u, &serial); resume = position; }
+            else if (action == 1u) { assign_syllable(token_start, token_end, 5u, &serial); resume = token_end; }
+            else if (action == 22u) { assign_syllable(token_start, token_end, select(8u, 7u, pending_action == 9u), &serial); resume = token_end; }
+            else if (action == 6u) { token_end = next_position; pending_action = 8u; }
+            else if (action == 8u) { token_end = next_position; pending_action = 9u; }
+        } else if (machine == 2u) {
+            if (action == 8u) { token_end = next_position; assign_syllable(token_start, token_end, 0u, &serial); }
+            else if (action == 4u || action == 3u) { token_end = next_position; assign_syllable(token_start, token_end, 2u, &serial); }
+            else if (action == 10u) { token_end = next_position; assign_syllable(token_start, token_end, 1u, &serial); }
+            else if (action == 7u) { token_end = position; assign_syllable(token_start, token_end, 0u, &serial); resume = position; }
+            else if (action == 9u) { token_end = position; assign_syllable(token_start, token_end, 1u, &serial); resume = position; }
+            else if (action == 12u) { token_end = position; assign_syllable(token_start, token_end, 2u, &serial); resume = position; }
+            else if (action == 11u) { assign_syllable(token_start, token_end, select(1u, 2u, pending_action == 2u), &serial); resume = token_end; }
+            else if (action == 6u) { token_end = next_position; pending_action = 2u; }
+            else if (action == 5u) { token_end = next_position; pending_action = 3u; }
+        } else {
+            if (action == 2u) { token_end = next_position; }
+            else if (action == 8u) { token_end = next_position; assign_syllable(token_start, token_end, 2u, &serial); }
+            else if (action == 10u) { token_end = position; assign_syllable(token_start, token_end, 0u, &serial); resume = position; }
+            else if (action == 11u) { token_end = position; assign_syllable(token_start, token_end, 1u, &serial); resume = position; }
+            else if (action == 12u) { token_end = position; assign_syllable(token_start, token_end, 2u, &serial); resume = position; }
+            else if (action == 1u) { assign_syllable(token_start, token_end, 0u, &serial); resume = token_end; }
+            else if (action == 3u) { assign_syllable(token_start, token_end, 1u, &serial); resume = token_end; }
+            else if (action == 5u) { assign_syllable(token_start, token_end, select(2u, 1u, pending_action == 2u), &serial); resume = token_end; }
+            else if (action == 4u) { token_end = next_position; pending_action = 2u; }
+            else if (action == 9u) { token_end = next_position; pending_action = 3u; }
+        }
+        if (syllable_machine_to_action(descriptor, state) ==
+                syllable_machine_token_clear_action(machine)) {
+            token_start = 0xffffffffu;
+        }
+        position = resume;
+    }
+}
+
+fn prepare_complex_syllables() {
+    if (is_indic_syllable_script()) { run_syllable_machine(0u); }
+    else if (is_use_syllable_script()) { run_syllable_machine(1u); }
+    else if (params.script_tag == 0x6d796d72u || params.script_tag == 0x6d796d32u) {
+        run_syllable_machine(2u);
+    } else if (params.script_tag == 0x6b686d72u) { run_syllable_machine(3u); }
 }
 
 fn directional_mapping(codepoint: u32, vertical: bool) -> u32 {
@@ -1613,6 +1872,8 @@ fn preprocess_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
     if (run_state.status != 0u) { return; }
     apply_directional_codepoint_fallback();
     reorder_modified_combining_marks();
+    prepare_complex_syllables();
+    if (run_state.status != 0u) { return; }
     assign_arabic_joining_actions();
 }
 

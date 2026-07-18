@@ -66,6 +66,7 @@ internal static class UseSyllableMachineData
 {chr(10).join(declarations)}
 
     public const int StartState = 1;
+    public static int StateCount => s_key_spans.Length;
 
     public static int GetTransition(int state, byte category)
     {{

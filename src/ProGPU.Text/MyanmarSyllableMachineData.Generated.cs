@@ -180,6 +180,7 @@ internal static class MyanmarSyllableMachineData
     ];
 
     public const int StartState = 0;
+    public static int StateCount => s_key_spans.Length;
 
     public static int GetTransition(int state, byte category)
     {

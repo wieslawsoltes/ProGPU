@@ -311,8 +311,60 @@ public sealed class ShapingContractsTests
         Assert.Equal((uint)')', UnicodeShapingProperties.GetMirroredCodePoint('('));
         Assert.Equal(0xfe11u, UnicodeShapingProperties.GetVerticalCodePoint(0x3001));
 
+        ReadOnlySpan<uint> packed = GpuUnicodeShapingPlan.PackedData.Span;
+        Assert.Equal(4u, packed[11]);
+        uint directory = packed[12];
+        Assert.InRange(directory, 16u, checked((uint)packed.Length - 28u));
+        for (var machine = 0; machine < 4; machine++)
+        {
+            int descriptor = checked((int)directory + machine * 7);
+            Assert.Equal((uint)machine, packed[descriptor]);
+            Assert.Equal(
+                (uint)UnicodeShapingProperties.GetSyllableMachineStartState(
+                    (UnicodeShapingProperties.SyllableMachine)machine),
+                packed[descriptor + 1]);
+            Assert.Equal(
+                (uint)UnicodeShapingProperties.GetSyllableMachineStateCount(
+                    (UnicodeShapingProperties.SyllableMachine)machine),
+                packed[descriptor + 2]);
+        }
+
         for (var index = 1; index < ranges.Length; index++)
             Assert.Equal(ranges[index - 1].End, ranges[index].Start);
+    }
+
+    [Theory]
+    [InlineData("deva", 0x0915u, 0x094du, 0x0937u)]
+    [InlineData("dev3", 0x0915u, 0x094du, 0x0937u)]
+    [InlineData("mymr", 0x1000u, 0x1039u, 0x1001u)]
+    [InlineData("khmr", 0x1780u, 0x17d2u, 0x179au)]
+    public void GpuRunsAuthoritativeComplexScriptSyllableMachines(
+        string script,
+        uint first,
+        uint second,
+        uint third)
+    {
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var output = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [
+                new GpuShapingScalar(first, 0),
+                new GpuShapingScalar(second, 0),
+                new GpuShapingScalar(third, 0)
+            ],
+            fontData,
+            new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag(script)),
+            [],
+            output);
+
+        Assert.Equal(new[] { first, second, third },
+            output.Glyphs.ToArray().Select(static glyph => glyph.CodePoint));
     }
 
     [Fact]

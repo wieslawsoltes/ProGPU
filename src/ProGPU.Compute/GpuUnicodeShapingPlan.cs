@@ -148,6 +148,48 @@ public static class GpuUnicodeShapingPlan
         {
             words.Add(value.First); words.Add(value.Second); words.Add(value.Composed);
         }
+        words[11] = 4u;
+        words[12] = checked((uint)words.Count);
+        int machineDirectory = words.Count;
+        for (var index = 0; index < 4 * 7; index++) words.Add(0);
+        for (var machineIndex = 0; machineIndex < 4; machineIndex++)
+        {
+            var machine = (UnicodeShapingProperties.SyllableMachine)machineIndex;
+            int stateCount = UnicodeShapingProperties.GetSyllableMachineStateCount(machine);
+            int descriptor = machineDirectory + machineIndex * 7;
+            words[descriptor] = checked((uint)machineIndex);
+            words[descriptor + 1] = checked((uint)UnicodeShapingProperties.GetSyllableMachineStartState(machine));
+            words[descriptor + 2] = checked((uint)stateCount);
+            words[descriptor + 3] = checked((uint)words.Count);
+            for (var state = 0; state < stateCount; state++)
+            {
+                for (var category = 0; category < 256; category++)
+                {
+                    (int target, int action) = UnicodeShapingProperties.GetSyllableTransition(
+                        machine, state, checked((byte)category));
+                    words.Add(Pack(target, action));
+                }
+            }
+            words[descriptor + 4] = checked((uint)words.Count);
+            for (var state = 0; state < stateCount; state++)
+                words.Add(checked((uint)UnicodeShapingProperties.GetSyllableToStateAction(machine, state)));
+            words[descriptor + 5] = checked((uint)words.Count);
+            for (var state = 0; state < stateCount; state++)
+                words.Add(checked((uint)UnicodeShapingProperties.GetSyllableFromStateAction(machine, state)));
+            words[descriptor + 6] = checked((uint)words.Count);
+            for (var state = 0; state < stateCount; state++)
+            {
+                (int Target, int Action)? eof = UnicodeShapingProperties.GetSyllableEofTransition(machine, state);
+                words.Add(eof is { } value ? Pack(value.Target, value.Action) : uint.MaxValue);
+            }
+        }
         return words.ToArray();
+
+        static uint Pack(int target, int action)
+        {
+            if ((uint)target > ushort.MaxValue || (uint)action > ushort.MaxValue)
+                throw new InvalidOperationException("A Unicode syllable-machine transition exceeds packed limits.");
+            return (uint)target | (uint)action << 16;
+        }
     }
 }
