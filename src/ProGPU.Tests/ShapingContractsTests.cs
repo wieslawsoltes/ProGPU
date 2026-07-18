@@ -944,6 +944,49 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuDefaultFeatureKeepsExplicitFlagScopedToRequestedRange()
+    {
+        const string text = "1/2 3/4";
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var fractionTag = new OpenTypeTag("frac");
+        var request = new ShapingRequest(
+            ShapingDirection.LeftToRight,
+            new OpenTypeTag("latn"),
+            features: new[] { new ShapingFeature(fractionTag, 1, 0, 3) });
+        GpuOpenTypeLookupCommand[] commands =
+            GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        GpuOpenTypeLookupCommand[] fractions = commands
+            .Where(command => command.FeatureTag == fractionTag.Value)
+            .ToArray();
+
+        Assert.Contains(fractions, static command =>
+            command.RangeStart == 0 && command.RangeEnd == 3 &&
+            (command.CommandFlags & 1u) != 0);
+        Assert.Contains(fractions, static command =>
+            command.RangeStart == 3 && command.RangeEnd == uint.MaxValue &&
+            (command.CommandFlags & 1u) == 0);
+
+        using var expected = new ShapingBuffer();
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+        pipeline.ExecuteRun(
+            text.Select((character, index) => new GpuShapingScalar(character, index)).ToArray(),
+            fontData,
+            request,
+            commands,
+            actual);
+
+        Assert.Equal(
+            expected.Glyphs.ToArray().Select(static glyph => glyph.GlyphId),
+            actual.Glyphs.ToArray().Select(static glyph => glyph.GlyphId));
+    }
+
+    [Fact]
     public void GpuLookupVmAppliesRangedInterFeature()
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);

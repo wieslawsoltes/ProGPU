@@ -149,6 +149,36 @@ public sealed class TextShapingOptions : IEquatable<TextShapingOptions>
             : Features.Select(static feature => feature.Tag).ToHashSet(StringComparer.Ordinal);
     }
 
+    internal bool IsFeatureExplicitAt(string tag, int inputIndex)
+    {
+        if (ExplicitFeatureTags?.Contains(tag) != true)
+        {
+            return false;
+        }
+
+        bool hasRangedSetting = false;
+        uint position = checked((uint)Math.Max(inputIndex, 0));
+        ReadOnlySpan<ShapingFeature> ranges = RangedFeatures.Span;
+        for (var index = 0; index < ranges.Length; index++)
+        {
+            ShapingFeature feature = ranges[index];
+            if (feature.Tag.ToString() != tag)
+            {
+                continue;
+            }
+
+            hasRangedSetting = true;
+            if (feature.AppliesTo(position))
+            {
+                return true;
+            }
+        }
+
+        // Public TextShapingOptions.WithFeatures calls have no ranged request memory;
+        // their explicit tags apply to the complete run.
+        return !hasRangedSetting;
+    }
+
     public bool Equals(TextShapingOptions? other)
     {
         if (ReferenceEquals(this, other)) return true;
@@ -6048,7 +6078,7 @@ public static class OpenTypeTextShaper
             {
                 return tag switch
                 {
-                    "calt" => options.ResolveExplicitFeatureTags().Contains("calt"),
+                    "calt" => options.IsFeatureExplicitAt("calt", glyph.Cluster),
                     "ljmo" => (glyph.ScriptFeatureMask & HangulLjmoMask) != 0,
                     "vjmo" => (glyph.ScriptFeatureMask & HangulVjmoMask) != 0,
                     "tjmo" => (glyph.ScriptFeatureMask & HangulTjmoMask) != 0,
@@ -6070,7 +6100,7 @@ public static class OpenTypeTextShaper
                 };
             }
             byte action = glyph.ArabicAction;
-            bool explicitlyEnabled = options.ExplicitFeatureTags?.Contains(tag) == true;
+            bool explicitlyEnabled = options.IsFeatureExplicitAt(tag, glyph.Cluster);
             return tag switch
             {
                 "frac" => explicitlyEnabled || glyph.FractionAction != FractionNone,

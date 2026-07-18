@@ -70,7 +70,7 @@ public static class GpuOpenTypeLookupPlanCompiler
                     RangeStart = interval.Start,
                     RangeEnd = interval.End,
                     CommandFlags = lookup.Command.CommandFlags |
-                        (lookup.Explicit ? FeatureExplicit : 0u),
+                        (interval.Explicit ? FeatureExplicit : 0u),
                     Stage = checked((uint)lookup.Stage)
                 });
             }
@@ -90,7 +90,7 @@ public static class GpuOpenTypeLookupPlanCompiler
                     if (interval.Value == 0) continue;
                     commands.Add(new GpuOpenTypeLookupCommand(
                         4, 0, 0, 0, tag, interval.Value, interval.Start, interval.End,
-                        HasFeatureTag(request.Features.Span, tag) ? FeatureExplicit : 0u, 160));
+                        interval.Explicit ? FeatureExplicit : 0u, 160));
                 }
             }
         }
@@ -107,7 +107,7 @@ public static class GpuOpenTypeLookupPlanCompiler
                 if (interval.Value == 0) continue;
                 commands.Add(new GpuOpenTypeLookupCommand(
                     3, plan.Tables.KernOffset, 0, 0, kernTag, interval.Value,
-                    interval.Start, interval.End, HasFeatureTag(request.Features.Span, kernTag) ? 1u : 0u));
+                    interval.Start, interval.End, interval.Explicit ? FeatureExplicit : 0u));
             }
         }
         return commands.ToArray();
@@ -220,7 +220,6 @@ public static class GpuOpenTypeLookupPlanCompiler
         ReadOnlyMemory<byte> dataMemory = plan.TableData;
         ReadOnlySpan<byte> data = dataMemory.Span;
         OpenTypeTag scriptTag = request.Script;
-        ReadOnlyMemory<ShapingFeature> requestFeatures = request.Features;
         int table = checked((int)tableOffset);
         int end = checked(table + (int)tableLength);
         if (!CanRead(data, table, 10) || end > data.Length) return;
@@ -276,7 +275,6 @@ public static class GpuOpenTypeLookupPlanCompiler
                     tag,
                     baseValue,
                     requiredFeature,
-                    HasFeatureTag(requestFeatures.Span, tag),
                     command with { CommandFlags = GetFeatureBehaviorFlags(scriptTag, tag, tableKind) });
                 if (!selected.TryGetValue(lookupIndex, out ResolvedLookup existing) ||
                     !IsGlobalFeature(existing.FeatureTag) || IsGlobalFeature(tag))
@@ -384,13 +382,17 @@ public static class GpuOpenTypeLookupPlanCompiler
             uint end = values[boundary + 1];
             if (start == end) continue;
             uint value = baseValue;
+            bool explicitlyRequested = false;
             for (var featureIndex = 0; featureIndex < requested.Length; featureIndex++)
             {
                 ShapingFeature feature = requested[featureIndex];
                 if (feature.Tag.Value == tag && start >= feature.Start && start < feature.End)
+                {
                     value = feature.Value;
+                    explicitlyRequested = true;
+                }
             }
-            result.Add(new FeatureInterval(start, end, value));
+            result.Add(new FeatureInterval(start, end, value, explicitlyRequested));
         }
         return result;
     }
@@ -399,13 +401,6 @@ public static class GpuOpenTypeLookupPlanCompiler
     {
         for (var index = 0; index < features.Length; index++)
             if (features[index].Tag.Value == tag && features[index].Value != 0) return true;
-        return false;
-    }
-
-    private static bool HasFeatureTag(ReadOnlySpan<ShapingFeature> features, uint tag)
-    {
-        for (var index = 0; index < features.Length; index++)
-            if (features[index].Tag.Value == tag) return true;
         return false;
     }
 
@@ -703,13 +698,12 @@ public static class GpuOpenTypeLookupPlanCompiler
         (uint)(data[offset] << 24 | data[offset + 1] << 16 | data[offset + 2] << 8 | data[offset + 3]);
 
     private sealed record FeaturePlan(List<uint> OrderedTags, Dictionary<uint, uint> BaseValues);
-    private readonly record struct FeatureInterval(uint Start, uint End, uint Value);
+    private readonly record struct FeatureInterval(uint Start, uint End, uint Value, bool Explicit);
     private readonly record struct ResolvedLookup(
         ushort LookupIndex,
         int Stage,
         uint FeatureTag,
         uint BaseValue,
         bool Required,
-        bool Explicit,
         GpuOpenTypeLookupCommand Command);
 }
