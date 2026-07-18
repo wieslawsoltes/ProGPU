@@ -120,6 +120,10 @@ internal static class SamplePerformanceBenchmark
                     RecordMarkdownState();
                 }
             }
+            else if (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
+            {
+                InterShowcasePage.AdvanceBenchmarkScroll(s_scrollStep);
+            }
         }
 
         s_frame++;

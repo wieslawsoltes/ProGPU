@@ -2,8 +2,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using ProGPU.Fonts.Inter;
+using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.Vector;
+using System.Diagnostics;
 
 namespace ProGPU.Samples;
 
@@ -23,6 +25,8 @@ public static class InterShowcasePage
 
     private static readonly TtfFont Inter = InterFontFamily.Regular;
     private static readonly TtfFont InterDisplay = InterFontFamily.GetVariableFont(500f, 32f);
+    private static ScrollViewer? _benchmarkScrollViewer;
+    private static float _benchmarkScrollDirection = 1f;
 
     private static readonly (int Weight, string Name)[] Weights =
     [
@@ -116,6 +120,7 @@ public static class InterShowcasePage
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
+        _benchmarkScrollViewer = scroll;
         page.Child = scroll;
 
         var document = new StackPanel
@@ -152,7 +157,110 @@ public static class InterShowcasePage
         document.AddChild(CreateLanguageSection());
         document.AddChild(CreateClosingStatement());
 
+        StageInvisibleSpecimenLayouts(page);
+
         return page;
+    }
+
+    private static void StageInvisibleSpecimenLayouts(FrameworkElement page)
+    {
+        var specimens = new List<TextVisual>();
+        CollectFixedHeightSpecimens(page, specimens);
+        for (var index = 0; index < specimens.Count; index++)
+        {
+            specimens[index].DeferLayoutUntilRender = true;
+        }
+        if (specimens.Count == 0)
+        {
+            return;
+        }
+
+        var next = 0;
+        var retriesBeforeLayout = 0;
+        void WarmNextFrame()
+        {
+            if (page.Parent == null)
+            {
+                // Navigation may cache a detached page. Do not keep warming content that
+                // cannot become visible; a later activation still shapes on demand.
+                return;
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            do
+            {
+                if (!specimens[next].WarmDeferredLayout())
+                {
+                    if (++retriesBeforeLayout < 4)
+                    {
+                        UIThread.Post(WarmNextFrame);
+                    }
+                    return;
+                }
+
+                retriesBeforeLayout = 0;
+                next++;
+            }
+            while (next < specimens.Count && Stopwatch.GetElapsedTime(start).TotalMilliseconds < 4d);
+
+            if (next < specimens.Count)
+            {
+                UIThread.Post(WarmNextFrame);
+            }
+        }
+
+        // Let the lightweight visible page measure, arrange, and present before starting
+        // bounded CPU-only shaping work for content below the viewport.
+        UIThread.Post(() => UIThread.Post(WarmNextFrame));
+    }
+
+    private static void CollectFixedHeightSpecimens(Visual visual, List<TextVisual> specimens)
+    {
+        if (visual is TextVisual { HeightConstraint: not null } specimen)
+        {
+            specimens.Add(specimen);
+        }
+
+        if (visual is not ContainerVisual container)
+        {
+            return;
+        }
+
+        var children = container.Children;
+        for (var index = 0; index < children.Count; index++)
+        {
+            CollectFixedHeightSpecimens(children[index], specimens);
+        }
+    }
+
+    internal static void AdvanceBenchmarkScroll(float step)
+    {
+        if (_benchmarkScrollViewer == null)
+        {
+            return;
+        }
+
+        float maxOffset = Math.Max(
+            0f,
+            _benchmarkScrollViewer.ContentHeight - _benchmarkScrollViewer.Size.Y);
+        if (maxOffset <= 0f)
+        {
+            return;
+        }
+
+        float nextOffset = _benchmarkScrollViewer.VerticalOffset + _benchmarkScrollDirection * step;
+        if (nextOffset >= maxOffset)
+        {
+            nextOffset = maxOffset;
+            _benchmarkScrollDirection = -1f;
+        }
+        else if (nextOffset <= 0f)
+        {
+            nextOffset = 0f;
+            _benchmarkScrollDirection = 1f;
+        }
+
+        _benchmarkScrollViewer.VerticalOffset = nextOffset;
     }
 
     private static FrameworkElement CreateTopNavigation()

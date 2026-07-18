@@ -125,6 +125,46 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void DeferredTextVisualWarmsAfterLayoutWithoutChangingArrangedBounds()
+    {
+        var text = new TextVisual
+        {
+            Text = "Deferred retained shaping",
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            WidthConstraint = 240f,
+            HeightConstraint = 48f,
+            DeferLayoutUntilRender = true
+        };
+
+        text.Measure(new Vector2(240f, 48f));
+        Assert.False(text.WarmDeferredLayout());
+        text.Arrange(new Rect(0f, 0f, 240f, 48f));
+        Assert.True(text.WarmDeferredLayout());
+
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        TextLayout? layout = text.GetOrUpdateLayout(atlas);
+
+        Assert.NotNull(layout);
+        Assert.Equal(240f, layout.MaxWidth);
+        Assert.Equal(new Vector2(240f, 48f), text.Size);
+    }
+
+    [Fact]
+    public void ClippedBoundsSkipOnlyLocalCommandsAndStillTraverseOverflowDescendants()
+    {
+        var visibleGrandchild = new RenderCounterVisual();
+        var clippedParent = new RenderCounterContainer(visibleGrandchild);
+        using var window = new HeadlessWindow(100, 100);
+        window.Content = new ClipCullHost(clippedParent);
+
+        window.Render();
+
+        Assert.Equal(0, clippedParent.RenderCount);
+        Assert.Equal(1, visibleGrandchild.RenderCount);
+    }
+
+    [Fact]
     public void FontIconUsesBoundedGlyphAtlasByDefault()
     {
         var font = LoadTestFont();
@@ -161,6 +201,41 @@ public sealed class SamplePerformanceRegressionTests
         Assert.Equal(0u, first.Width);
         Assert.Equal(first.Width, second.Width);
         Assert.Equal(first.Advance, second.Advance);
+    }
+
+    [Fact]
+    public void GlyphAtlasCompilesOnlyRequestedGpuOutlines()
+    {
+        var font = LoadTestFont();
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 512);
+        ushort firstGlyph = font.GetGlyphIndex('A');
+        ushort secondGlyph = font.GetGlyphIndex('B');
+
+        atlas.BeginBatch();
+        try
+        {
+            Assert.True(atlas.GetOrCreateGlyphByIndex(font, firstGlyph, 32f).Width > 0);
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        Assert.Equal(1, atlas.CompiledGpuGlyphCount);
+        Assert.True(atlas.CompiledGpuGlyphCount < font.NumGlyphs);
+        Assert.True(atlas.AllocatedGpuGlyphRecordCapacity < font.NumGlyphs);
+
+        atlas.BeginBatch();
+        try
+        {
+            Assert.True(atlas.GetOrCreateGlyphByIndex(font, secondGlyph, 32f).Width > 0);
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        Assert.Equal(2, atlas.CompiledGpuGlyphCount);
     }
 
     [Fact]
@@ -851,6 +926,72 @@ public sealed class SamplePerformanceRegressionTests
         protected override void ArrangeOverride(Rect arrangeRect)
         {
             ArrangeCount++;
+        }
+    }
+
+    private sealed class ClipCullHost : FrameworkElement
+    {
+        private readonly RenderCounterContainer _child;
+
+        public ClipCullHost(RenderCounterContainer child)
+        {
+            _child = child;
+            AddChild(child);
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _child.Measure(new Vector2(20f, 20f));
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            ClipBounds = new Rect(0f, 0f, arrangeRect.Width, arrangeRect.Height);
+            _child.Arrange(new Rect(0f, 200f, 20f, 20f));
+        }
+    }
+
+    private sealed class RenderCounterContainer : FrameworkElement
+    {
+        private readonly RenderCounterVisual _child;
+
+        public RenderCounterContainer(RenderCounterVisual child)
+        {
+            _child = child;
+            AddChild(child);
+        }
+
+        public int RenderCount { get; private set; }
+        public override Rect? LocalRenderBounds => new(Vector2.Zero, Size);
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _child.Measure(new Vector2(20f, 20f));
+            return new Vector2(20f, 20f);
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            _child.Arrange(new Rect(0f, -200f, 20f, 20f));
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            RenderCount++;
+        }
+    }
+
+    private sealed class RenderCounterVisual : FrameworkElement
+    {
+        public int RenderCount { get; private set; }
+        public override Rect? LocalRenderBounds => new(Vector2.Zero, Size);
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize) => new(20f, 20f);
+
+        public override void OnRender(DrawingContext context)
+        {
+            RenderCount++;
         }
     }
 }
