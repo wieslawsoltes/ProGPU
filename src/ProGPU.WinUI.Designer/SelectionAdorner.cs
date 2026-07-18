@@ -149,10 +149,6 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         this.Height = height;
         
         this.Rotation = AssociatedElement.Rotation;
-        
-        InvalidateMeasure();
-        InvalidateArrange();
-        Invalidate();
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
