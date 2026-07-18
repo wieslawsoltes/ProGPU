@@ -1077,12 +1077,7 @@ public class RichEditBox : Control
                 bestCharIdx = idx;
             }
 
-            float advance = 0f;
-            if (activeFont != null)
-            {
-                ushort gIdx = activeFont.GetGlyphIndex(pc.Info.Character);
-                advance = activeFont.GetAdvanceWidth(gIdx, pc.Info.FontSize);
-            }
+            float advance = GetPositionedCharacterAdvance(pc, activeFont);
             float distRight = Math.Abs(clickX - (charX + advance));
             if (distRight < bestCharDist)
             {
@@ -1092,6 +1087,19 @@ public class RichEditBox : Control
         }
 
         return Math.Clamp(bestCharIdx, 0, pcs.Count);
+    }
+
+    private static float GetPositionedCharacterAdvance(PositionedRichChar character, TtfFont? defaultFont)
+    {
+        if (character.Info.EmbeddedElement is { } embeddedElement)
+        {
+            return embeddedElement.DesiredSize.X + 4f;
+        }
+
+        TtfFont? font = character.Info.Font ?? defaultFont;
+        if (font is null) return 0f;
+        ushort glyphIndex = font.GetGlyphIndex(character.Info.Character);
+        return font.GetAdvanceWidth(glyphIndex, character.Info.FontSize);
     }
 
     public override void OnPointerPressed(PointerRoutedEventArgs e)
@@ -1519,11 +1527,7 @@ public class RichEditBox : Control
                         {
                             var pc = pcs[pcs.Count - 1];
                             currentPos = pc.Position;
-                            if (Font != null)
-                            {
-                                ushort lastG = Font.GetGlyphIndex(pc.Info.Character);
-                                currentPos.X += Font.GetAdvanceWidth(lastG, pc.Info.FontSize);
-                            }
+                            currentPos.X += GetPositionedCharacterAdvance(pc, Font);
                         }
 
                         int bestTargetCaretIdx = -1;
@@ -1547,12 +1551,7 @@ public class RichEditBox : Control
 
                             if (k == targetLine.Count - 1)
                             {
-                                float advance = 0f;
-                                if (Font != null)
-                                {
-                                    ushort gIdx = Font.GetGlyphIndex(pcs[charIdx].Info.Character);
-                                    advance = Font.GetAdvanceWidth(gIdx, pcs[charIdx].Info.FontSize);
-                                }
+                                float advance = GetPositionedCharacterAdvance(pcs[charIdx], Font);
                                 Vector2 candPosAfter = new Vector2(pcs[charIdx].Position.X + advance, pcs[charIdx].Position.Y);
                                 float xDiffAfter = Math.Abs(candPosAfter.X - currentPos.X);
                                 float yDiffAfter = Math.Abs(candPosAfter.Y - currentPos.Y);
@@ -1958,8 +1957,7 @@ public class RichEditBox : Control
                 if (CaretIndex >= pcs.Count)
                 {
                     // place caret at end of last char
-                    ushort lastG = Font.GetGlyphIndex(pc.Info.Character);
-                    caretPos.X += Font.GetAdvanceWidth(lastG, pc.Info.FontSize);
+                    caretPos.X += GetPositionedCharacterAdvance(pc, Font);
                 }
             }
 

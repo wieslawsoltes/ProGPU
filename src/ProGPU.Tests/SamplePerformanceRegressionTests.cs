@@ -2,6 +2,8 @@ using System.Collections;
 using System.Numerics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using ProGPU.Fonts.Inter;
+using ProGPU.Fonts.Noto;
 using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
@@ -654,6 +656,48 @@ public sealed class SamplePerformanceRegressionTests
         editor.Arrange(new Rect(0f, 0f, 400f, 160f));
 
         Assert.Same(firstPositionedCharacter, text.PositionedChars[0]);
+    }
+
+    [Fact]
+    public void RichEditCaretHitTestingUsesResolvedFallbackAdvance()
+    {
+        NotoFontFamily.RegisterFallbacks();
+        TtfFont baseFont = InterFontFamily.Regular;
+        var editor = new RichEditBox
+        {
+            Font = baseFont,
+            FontSize = 32f,
+            Text = "\u4E00"
+        };
+        editor.Measure(new Vector2(200f, 80f));
+        editor.Arrange(new Rect(0f, 0f, 200f, 80f));
+        var scrollViewer = Assert.IsType<ScrollViewer>(Assert.Single(editor.Children));
+        var text = Assert.IsType<RichTextBlock>(scrollViewer.Content);
+        PositionedRichChar character = Assert.Single(text.PositionedChars);
+        TtfFont fallbackFont = Assert.IsType<TtfFont>(character.Info.Font);
+        Assert.NotSame(baseFont, fallbackFont);
+
+        float fallbackAdvance = fallbackFont.GetAdvanceWidth(
+            fallbackFont.GetGlyphIndex(character.Info.Character),
+            character.Info.FontSize);
+        float baseAdvance = baseFont.GetAdvanceWidth(
+            baseFont.GetGlyphIndex(character.Info.Character),
+            character.Info.FontSize);
+        Assert.True(Math.Abs(fallbackAdvance - baseAdvance) > 0.01f);
+        float withinCharacter = (fallbackAdvance + baseAdvance) * 0.25f;
+        int expectedCaret = withinCharacter > fallbackAdvance * 0.5f ? 1 : 0;
+        int baseFontCaret = withinCharacter > baseAdvance * 0.5f ? 1 : 0;
+        Assert.NotEqual(baseFontCaret, expectedCaret);
+
+        editor.OnPointerPressed(new PointerRoutedEventArgs
+        {
+            Position = new Vector2(
+                editor.Padding.Left + character.Position.X + withinCharacter,
+                editor.Padding.Top + character.Position.Y + character.Info.FontSize * 0.5f)
+        });
+        editor.OnPointerReleased(new PointerRoutedEventArgs());
+
+        Assert.Equal(expectedCaret, editor.CaretIndex);
     }
 
     [Fact]
