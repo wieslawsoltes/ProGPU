@@ -130,14 +130,17 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void BrowserFilePickerUsesNativeDialogWithCancellationSafeDirectByteFallback()
+    public void BrowserFilePickerUsesCancellationSafeDirectByteTransfer()
     {
         var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
         var storageServices = Read("src", "ProGPU.Browser", "BrowserStorageServices.cs");
+        var browserInput = Read("src", "ProGPU.Browser", "BrowserInputDispatcher.cs");
 
-        Assert.Contains("globalThis.showOpenFilePicker", browserAsset, StringComparison.Ordinal);
         Assert.Contains("input.addEventListener('cancel'", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("globalThis.addEventListener('focus', onWindowFocus", browserAsset, StringComparison.Ordinal);
+        Assert.DoesNotContain("globalThis.addEventListener('focus'", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("runtime.getAssemblyExports('ProGPU.Browser.dll')", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("dispatchPointerEvent(3, event, point)", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("DispatchImmediatePointer", browserInput, StringComparison.Ordinal);
         Assert.Contains("heap.set(bytes, destination);", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain("bytesToBase64", browserAsset, StringComparison.Ordinal);
         Assert.Contains("CopyPickedStorage((nint)destination, length)", storageServices, StringComparison.Ordinal);

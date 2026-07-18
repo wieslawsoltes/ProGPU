@@ -18,6 +18,7 @@ const state = {
   uploads: null,
   inputEvents: [],
   inputInstalled: false,
+  dispatchImmediatePointer: null,
   textSink: null,
   clipboardText: '',
   pickedStorageBytes: null,
@@ -358,6 +359,17 @@ function eventModifiers(event) {
     (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
 }
 
+function dispatchPointerEvent(kind, event, point) {
+  if (state.dispatchImmediatePointer) {
+    try {
+      if (state.dispatchImmediatePointer(kind, point.x, point.y, event.button)) return;
+    } catch (error) {
+      globalThis.console.error('[ProGPU] Immediate pointer dispatch failed.', error);
+    }
+  }
+  queueInputEvent(kind, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
+}
+
 function installBrowserInput() {
   if (state.inputInstalled) return;
   state.inputInstalled = true;
@@ -379,14 +391,14 @@ function installBrowserInput() {
   });
   state.canvas.addEventListener('pointerdown', event => {
     const point = pointerPosition(event);
-    queueInputEvent(2, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
+    dispatchPointerEvent(2, event, point);
     try { state.canvas.setPointerCapture(event.pointerId); } catch { }
     textSink.focus({ preventScroll: true });
     event.preventDefault();
   });
   state.canvas.addEventListener('pointerup', event => {
     const point = pointerPosition(event);
-    queueInputEvent(3, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
+    dispatchPointerEvent(3, event, point);
     try { state.canvas.releasePointerCapture(event.pointerId); } catch { }
     event.preventDefault();
   });
@@ -460,17 +472,6 @@ function getClipboardText() {
   return state.clipboardText;
 }
 
-function filePickerTypes(filters) {
-  const extensions = String(filters || '')
-    .split(',')
-    .map(value => value.trim().toLowerCase())
-    .filter(value => /^\.[a-z0-9][a-z0-9._+-]*$/.test(value));
-  return extensions.length === 0 ? undefined : [{
-    description: 'Supported files',
-    accept: { 'application/octet-stream': extensions }
-  }];
-}
-
 async function stagePickedFile(file) {
   state.pickedStorageBytes = new Uint8Array(await file.arrayBuffer());
   return encodeURIComponent(file.name);
@@ -486,7 +487,6 @@ function pickStorageWithInput(filters) {
     document.body.appendChild(input);
 
     const cleanup = () => {
-      globalThis.removeEventListener('focus', onWindowFocus);
       input.remove();
     };
     const finish = async file => {
@@ -497,15 +497,8 @@ function pickStorageWithInput(filters) {
       try { resolve(await stagePickedFile(file)); }
       catch { state.pickedStorageBytes = null; resolve(''); }
     };
-    const onWindowFocus = () => {
-      globalThis.setTimeout(() => {
-        if (!settled && !input.files?.length) finish(null);
-      }, 0);
-    };
-
     input.addEventListener('change', () => finish(input.files?.[0] || null), { once: true });
     input.addEventListener('cancel', () => finish(null), { once: true });
-    globalThis.addEventListener('focus', onWindowFocus, { once: true });
     try { input.click(); }
     catch { finish(null); }
   });
@@ -515,22 +508,6 @@ async function pickStorage(mode, filters, defaultName) {
   if (mode === 1) return Promise.resolve(defaultName || 'untitled.txt');
   if (mode !== 0) return Promise.resolve('');
   state.pickedStorageBytes = null;
-
-  if (typeof globalThis.showOpenFilePicker === 'function') {
-    try {
-      const handles = await globalThis.showOpenFilePicker({
-        multiple: false,
-        types: filePickerTypes(filters),
-        excludeAcceptAllOption: false
-      });
-      if (handles.length === 0) return '';
-      return await stagePickedFile(await handles[0].getFile());
-    } catch (error) {
-      if (error?.name === 'AbortError') return '';
-      // Permission, activation, or option support can vary by browser/origin.
-      // Fall through to the standards-compatible file-input path.
-    }
-  }
 
   return await pickStorageWithInput(filters);
 }
@@ -1376,5 +1353,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   runtime = await dotnet.create();
   runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
+  state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   await runtime.runMain();
 }
