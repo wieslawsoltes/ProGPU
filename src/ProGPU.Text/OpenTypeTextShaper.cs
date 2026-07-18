@@ -159,6 +159,7 @@ public static class OpenTypeTextShaper
         options = AddDirectionalFeatures(options, direction);
 
         var substitutions = GlyphSubstitutionBuffer.Create(text, font, unicodeScript);
+        substitutions.PrepareHangulShaping(unicodeScript == "hang", font);
         substitutions.ReorderModifiedCombiningMarks(unicodeScript);
         substitutions.ComposeHebrewPresentationForms(
             unicodeScript == "hebr" && !GetFeatureTags(font).Contains("mark", StringComparer.Ordinal));
@@ -368,7 +369,7 @@ public static class OpenTypeTextShaper
         bool indicShaper)
     {
         bool arabicShaper = UsesArabicJoiningScript(script);
-        if (script != "khmr" && !useShaper && !indicShaper && !arabicShaper)
+        if (script is not ("khmr" or "hang") && !useShaper && !indicShaper && !arabicShaper)
         {
             return options;
         }
@@ -383,6 +384,8 @@ public static class OpenTypeTextShaper
 
         string[] scriptFeatures = script == "khmr"
             ? ["pref", "blwf", "abvf", "pstf", "cfar", "pres", "abvs", "blws", "psts"]
+            : script == "hang"
+            ? ["ljmo", "vjmo", "tjmo"]
             : indicShaper
             ? ["nukt", "akhn", "rphf", "rkrf", "pref", "blwf", "abvf", "half", "pstf", "vatu", "cjct",
                "init", "pres", "abvs", "blws", "psts", "haln"]
@@ -409,6 +412,12 @@ public static class OpenTypeTextShaper
             values.TryAdd("stch", 1);
             values.TryAdd("mset", 1);
         }
+        else if (script == "hang")
+        {
+            values.TryAdd("ljmo", 1);
+            values.TryAdd("vjmo", 1);
+            values.TryAdd("tjmo", 1);
+        }
 
         string[] orderedTags = script == "khmr"
             ? ["rvrn", "frac", "numr", "dnom", "locl", "ccmp",
@@ -418,7 +427,7 @@ public static class OpenTypeTextShaper
                "medi", "med2", "init", "rlig", "calt", "rclt", "liga", "clig", "mset"]
             : ["rvrn", "frac", "numr", "dnom", "locl", "ccmp", "nukt", "akhn", "rphf", "pref",
                "rkrf", "abvf", "blwf", "half", "pstf", "vatu", "cjct", "isol", "init", "medi", "fina",
-               "abvs", "blws", "haln", "pres", "psts"];
+               "abvs", "blws", "haln", "pres", "psts", "ljmo", "vjmo", "tjmo"];
         var features = new List<OpenTypeFeatureSetting>(values.Count);
         foreach (string tag in orderedTags)
         {
@@ -759,7 +768,8 @@ public static class OpenTypeTextShaper
             }
             for (var featureIndex = 0; featureIndex < featureCount; featureIndex++)
             {
-                if (allowedFeatures is not null && !allowedFeatures.Contains((ushort)featureIndex))
+                if (allowedFeatures is not null && !allowedFeatures.Contains((ushort)featureIndex) &&
+                    !IsGlobalShaperFeature(script, setting.Tag))
                     continue;
                 int recordOffset = featureListOffset + 2 + featureIndex * 6;
                 if (!CanRead(data, recordOffset, 6))
@@ -803,7 +813,8 @@ public static class OpenTypeTextShaper
             ushort lookupIndex = ReadU16(data, lookupOffset);
             if (positions.TryGetValue(lookupIndex, out int existing))
             {
-                result[existing] = new EnabledLookup(lookupIndex, value, tag);
+                if (!IsHangulJamoFeature(result[existing].Tag) || IsHangulJamoFeature(tag))
+                    result[existing] = new EnabledLookup(lookupIndex, value, tag);
             }
             else
             {
@@ -3019,7 +3030,8 @@ public static class OpenTypeTextShaper
             {
                 FeatureList.FeatureTable feature = features[featureIndex];
                 if (feature.TagName != setting.Tag ||
-                    (allowedFeatures is not null && !allowedFeatures.Contains(featureIndex)))
+                    (allowedFeatures is not null && !allowedFeatures.Contains(featureIndex) &&
+                     !IsGlobalShaperFeature(script, setting.Tag)))
                 {
                     continue;
                 }
@@ -3032,6 +3044,11 @@ public static class OpenTypeTextShaper
         return lookups;
     }
 
+    private static bool IsGlobalShaperFeature(string script, string tag) =>
+        script == "hang" && IsHangulJamoFeature(tag);
+
+    private static bool IsHangulJamoFeature(string tag) => tag is "ljmo" or "vjmo" or "tjmo";
+
     private static void AddFeatureLookups(
         FeatureList.FeatureTable feature,
         int value,
@@ -3043,7 +3060,8 @@ public static class OpenTypeTextShaper
             ushort index = feature.LookupListIndices[lookupIndex];
             if (lookupPositions.TryGetValue(index, out int existing))
             {
-                lookups[existing] = new EnabledLookup(index, value, feature.TagName);
+                if (!IsHangulJamoFeature(lookups[existing].Tag) || IsHangulJamoFeature(feature.TagName))
+                    lookups[existing] = new EnabledLookup(index, value, feature.TagName);
             }
             else
             {
@@ -3646,6 +3664,139 @@ public static class OpenTypeTextShaper
                 index++;
             }
         }
+
+        public void PrepareHangulShaping(bool enabled, TtfFont font)
+        {
+            if (!enabled) return;
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.ScriptShaper = ScriptShaperHangul;
+                glyph.ScriptFeatureMask = 0;
+                _glyphs[index] = glyph;
+            }
+
+            for (var index = 0; index < _glyphs.Count; index++)
+            {
+                uint codePoint = _glyphs[index].CodePoint;
+                if (IsHangulL(codePoint) && index + 1 < _glyphs.Count && IsHangulV(_glyphs[index + 1].CodePoint))
+                {
+                    uint trailing = index + 2 < _glyphs.Count && IsHangulT(_glyphs[index + 2].CodePoint)
+                        ? _glyphs[index + 2].CodePoint
+                        : 0;
+                    int inputCount = trailing == 0 ? 2 : 3;
+                    if (codePoint is >= 0x1100 and <= 0x1112 &&
+                        _glyphs[index + 1].CodePoint is >= 0x1161 and <= 0x1175 &&
+                        (trailing == 0 || trailing is >= 0x11A8 and <= 0x11C2))
+                    {
+                        uint syllable = 0xAC00u + (codePoint - 0x1100u) * 588u +
+                            (_glyphs[index + 1].CodePoint - 0x1161u) * 28u +
+                            (trailing == 0 ? 0 : trailing - 0x11A7u);
+                        ushort composedGlyph = font.GetGlyphIndex(syllable);
+                        if (composedGlyph != 0)
+                        {
+                            GlyphRecord composed = _glyphs[index];
+                            composed.CodePoint = syllable;
+                            composed.GlyphIndex = composedGlyph;
+                            composed.Cluster = MergeCluster(index, index + inputCount);
+                            composed.ScriptFeatureMask = 0;
+                            _glyphs[index] = composed;
+                            _glyphs.RemoveRange(index + 1, inputCount - 1);
+                            continue;
+                        }
+                    }
+
+                    SetHangulFeature(index, HangulLjmoMask);
+                    SetHangulFeature(index + 1, HangulVjmoMask);
+                    if (trailing != 0) SetHangulFeature(index + 2, HangulTjmoMask);
+                    MergeCluster(index, index + inputCount);
+                    index += inputCount - 1;
+                    continue;
+                }
+
+                if (codePoint is >= 0xAC00 and <= 0xD7A3)
+                {
+                    uint syllableIndex = codePoint - 0xAC00u;
+                    uint trailingIndex = syllableIndex % 28u;
+                    if (trailingIndex == 0 && index + 1 < _glyphs.Count &&
+                        _glyphs[index + 1].CodePoint is >= 0x11A8 and <= 0x11C2)
+                    {
+                        uint combined = codePoint + _glyphs[index + 1].CodePoint - 0x11A7u;
+                        ushort combinedGlyph = font.GetGlyphIndex(combined);
+                        if (combinedGlyph != 0)
+                        {
+                            GlyphRecord composed = _glyphs[index];
+                            composed.CodePoint = combined;
+                            composed.GlyphIndex = combinedGlyph;
+                            composed.Cluster = MergeCluster(index, index + 2);
+                            _glyphs[index] = composed;
+                            _glyphs.RemoveAt(index + 1);
+                            continue;
+                        }
+                    }
+
+                    bool hasSyllableGlyph = font.GetGlyphIndex(codePoint) != 0;
+                    bool followedByNonCombiningTrailing = trailingIndex == 0 && index + 1 < _glyphs.Count &&
+                        IsHangulT(_glyphs[index + 1].CodePoint) &&
+                        _glyphs[index + 1].CodePoint is not (>= 0x11A8 and <= 0x11C2);
+                    if (!hasSyllableGlyph || followedByNonCombiningTrailing)
+                    {
+                        uint leading = 0x1100u + syllableIndex / 588u;
+                        uint vowel = 0x1161u + syllableIndex % 588u / 28u;
+                        uint trailingJamo = 0x11A7u + trailingIndex;
+                        ushort leadingGlyph = font.GetGlyphIndex(leading);
+                        ushort vowelGlyph = font.GetGlyphIndex(vowel);
+                        ushort trailingGlyph = trailingIndex == 0 ? (ushort)0 : font.GetGlyphIndex(trailingJamo);
+                        if (leadingGlyph != 0 && vowelGlyph != 0 && (trailingIndex == 0 || trailingGlyph != 0))
+                        {
+                            GlyphRecord source = _glyphs[index];
+                            source.CodePoint = leading;
+                            source.GlyphIndex = leadingGlyph;
+                            source.ScriptFeatureMask = HangulLjmoMask;
+                            _glyphs[index] = source;
+                            GlyphRecord vowelRecord = source;
+                            vowelRecord.CodePoint = vowel;
+                            vowelRecord.GlyphIndex = vowelGlyph;
+                            vowelRecord.ScriptFeatureMask = HangulVjmoMask;
+                            _glyphs.Insert(index + 1, vowelRecord);
+                            int decompositionCount = 2;
+                            if (trailingIndex != 0)
+                            {
+                                GlyphRecord trailingRecord = source;
+                                trailingRecord.CodePoint = trailingJamo;
+                                trailingRecord.GlyphIndex = trailingGlyph;
+                                trailingRecord.ScriptFeatureMask = HangulTjmoMask;
+                                _glyphs.Insert(index + 2, trailingRecord);
+                                decompositionCount++;
+                            }
+                            if (followedByNonCombiningTrailing)
+                            {
+                                SetHangulFeature(index + decompositionCount, HangulTjmoMask);
+                                decompositionCount++;
+                            }
+                            index += decompositionCount - 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void SetHangulFeature(int index, byte feature)
+        {
+            GlyphRecord glyph = _glyphs[index];
+            glyph.ScriptShaper = ScriptShaperHangul;
+            glyph.ScriptFeatureMask = feature;
+            _glyphs[index] = glyph;
+        }
+
+        private static bool IsHangulL(uint codePoint) => codePoint is
+            >= 0x1100 and <= 0x115F or >= 0xA960 and <= 0xA97C;
+
+        private static bool IsHangulV(uint codePoint) => codePoint is
+            >= 0x1160 and <= 0x11A7 or >= 0xD7B0 and <= 0xD7C6;
+
+        private static bool IsHangulT(uint codePoint) => codePoint is
+            >= 0x11A8 and <= 0x11FF or >= 0xD7CB and <= 0xD7FB;
 
         private static bool IsThaiLaoAboveBaseMark(uint codePoint)
         {
@@ -5065,6 +5216,17 @@ public static class OpenTypeTextShaper
         public bool IsFeatureEnabled(int index, string tag, TextShapingOptions options)
         {
             GlyphRecord glyph = _glyphs[index];
+            if (glyph.ScriptShaper == ScriptShaperHangul)
+            {
+                return tag switch
+                {
+                    "calt" => options.ResolveExplicitFeatureTags().Contains("calt"),
+                    "ljmo" => (glyph.ScriptFeatureMask & HangulLjmoMask) != 0,
+                    "vjmo" => (glyph.ScriptFeatureMask & HangulVjmoMask) != 0,
+                    "tjmo" => (glyph.ScriptFeatureMask & HangulTjmoMask) != 0,
+                    _ => true
+                };
+            }
             if (glyph.ScriptShaper == ScriptShaperIndic)
             {
                 return tag switch
@@ -5113,7 +5275,7 @@ public static class OpenTypeTextShaper
                 // ZWNJ is default-ignorable for display but remains a shaping
                 // barrier. Skipping it here incorrectly permits ligatures to
                 // form across an explicit non-join request.
-                if (!IsDefaultIgnorable(glyph.CodePoint) ||
+                if (!IsDefaultIgnorable(glyph.CodePoint) || IsVisibleDefaultIgnorable(glyph) ||
                     glyph.CodePoint == 0x200C || IsMongolianShapingControl(glyph.CodePoint) ||
                     IsUnicodeTagCharacter(glyph.CodePoint))
                 {
@@ -5142,7 +5304,7 @@ public static class OpenTypeTextShaper
             {
                 GlyphRecord glyph = _glyphs[index];
                 if (_restrictLookupToSyllable && glyph.UseSyllable != _lookupSyllable) return -1;
-                if (IsDefaultIgnorable(glyph.CodePoint))
+                if (IsDefaultIgnorable(glyph.CodePoint) && !IsVisibleDefaultIgnorable(glyph))
                 {
                     if (glyph.GlyphIndex == expectedGlyph || glyph.CodePoint == 0x200C ||
                         IsMongolianShapingControl(glyph.CodePoint) ||
@@ -5170,11 +5332,15 @@ public static class OpenTypeTextShaper
         private bool IsLookupIgnored(int index, ushort lookupFlags)
         {
             GlyphRecord glyph = _glyphs[index];
-            if (IsDefaultIgnorable(glyph.CodePoint) && glyph.CodePoint != 0x200C &&
+            if (IsDefaultIgnorable(glyph.CodePoint) && !IsVisibleDefaultIgnorable(glyph) && glyph.CodePoint != 0x200C &&
                 !IsMongolianShapingControl(glyph.CodePoint) &&
                 !IsUnicodeTagCharacter(glyph.CodePoint)) return true;
             return IsGlyphClassIgnored(index, lookupFlags);
         }
+
+        private static bool IsVisibleDefaultIgnorable(GlyphRecord glyph) =>
+            glyph.Substituted != 0 ||
+            glyph.ScriptShaper == ScriptShaperHangul && glyph.ScriptFeatureMask != 0;
 
         private bool IsGlyphClassIgnored(int index, ushort lookupFlags)
         {
@@ -5302,7 +5468,7 @@ public static class OpenTypeTextShaper
                 int graphemeLength = StringInfo.GetNextTextElementLength(text.AsSpan(graphemeStart));
                 int graphemeEnd = checked(graphemeStart + graphemeLength);
                 ReadOnlySpan<char> originalGrapheme = text.AsSpan(graphemeStart, graphemeLength);
-                string? normalizedGrapheme = textIsNormalized || preserveUseMarkOrder ||
+                string? normalizedGrapheme = textIsNormalized || preserveUseMarkOrder || script == "hang" ||
                     PreservesIndicComposite(originalGrapheme, script)
                     ? null
                     : text.Substring(graphemeStart, graphemeLength).Normalize(NormalizationForm.FormC);
@@ -5340,7 +5506,7 @@ public static class OpenTypeTextShaper
                     {
                         indicCluster = graphemeStart + index;
                     }
-                    int cluster = separateClusters && normalizedGrapheme is null
+                    int cluster = (separateClusters || script == "hang") && normalizedGrapheme is null
                         ? graphemeStart + index
                         : IsIndicShaperScript(script) || script == "khmr" ? indicCluster : graphemeStart;
                     if (preserveUseMarkOrder)
@@ -5571,7 +5737,11 @@ public static class OpenTypeTextShaper
             if (invisibleGlyph == 0)
             {
                 for (var index = 0; index < substitutions.Count; index++)
-                    if (GlyphSubstitutionBuffer.IsDefaultIgnorable(substitutions.GetRecord(index).CodePoint)) outputCount--;
+                {
+                    GlyphRecord record = substitutions.GetRecord(index);
+                    if (GlyphSubstitutionBuffer.IsDefaultIgnorable(record.CodePoint) && record.Substituted == 0)
+                        outputCount--;
+                }
             }
             _glyphs = new GlyphRecord[outputCount];
             bool vertical = direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop;
@@ -5581,7 +5751,7 @@ public static class OpenTypeTextShaper
             {
                 GlyphRecord record = substitutions.GetRecord(sourceIndex);
                 bool defaultIgnorable = GlyphSubstitutionBuffer.IsDefaultIgnorable(record.CodePoint);
-                if (defaultIgnorable && invisibleGlyph == 0)
+                if (defaultIgnorable && record.Substituted == 0 && invisibleGlyph == 0)
                 {
                     int cluster = record.Cluster;
                     if (sourceIndex + 1 < substitutions.Count &&
@@ -5646,7 +5816,7 @@ public static class OpenTypeTextShaper
                     record.AdvanceX = 0;
                     record.AdvanceY = 0;
                 }
-                if (defaultIgnorable)
+                if (defaultIgnorable && record.Substituted == 0)
                 {
                     record.AdvanceX = 0;
                     record.AdvanceY = 0;
@@ -6526,6 +6696,7 @@ public static class OpenTypeTextShaper
     private const byte ScriptShaperKhmer = 1;
     private const byte ScriptShaperUse = 2;
     private const byte ScriptShaperIndic = 3;
+    private const byte ScriptShaperHangul = 4;
 
     private const byte KhmerConsonantSyllable = 0;
     private const byte KhmerBrokenCluster = 1;
@@ -6582,4 +6753,7 @@ public static class OpenTypeTextShaper
     private const byte KhmerPrefMask = 1 << 0;
     private const byte KhmerPostBaseMask = 1 << 1;
     private const byte KhmerCfarMask = 1 << 2;
+    private const byte HangulLjmoMask = 1 << 0;
+    private const byte HangulVjmoMask = 1 << 1;
+    private const byte HangulTjmoMask = 1 << 2;
 }
