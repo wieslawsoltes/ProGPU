@@ -259,6 +259,12 @@ public static class OpenTypeTextShaper
         {
             ApplyPositions(font, typeface.GPOSTable, positions, options, script);
         }
+        bool kernEnabled = IsFeatureEnabled(options.Features, "kern");
+        if (!hasGpos && kernEnabled && !indicShaper &&
+            direction is ShapingDirection.LeftToRight or ShapingDirection.RightToLeft)
+        {
+            positions.ApplyLegacyKern(font);
+        }
         bool usesFallbackMarkPositioning = UsesFallbackMarkPositioning(
             unicodeScript, useShaper, indicShaper, khmerShaper);
         bool zeroMarkAdvancesLate = usesFallbackMarkPositioning || unicodeScript is "thai" or "lao ";
@@ -3096,6 +3102,13 @@ public static class OpenTypeTextShaper
             result[setting.Tag] = setting.Value;
         }
         return result;
+    }
+
+    private static bool IsFeatureEnabled(IReadOnlyList<OpenTypeFeatureSetting> settings, string tag)
+    {
+        for (var index = settings.Count - 1; index >= 0; index--)
+            if (settings[index].Tag == tag) return settings[index].Value != 0;
+        return false;
     }
 
     private static HashSet<ushort>? GetLanguageFeatureIndices(
@@ -6209,6 +6222,168 @@ public static class OpenTypeTextShaper
                 clusterStart = index;
             }
             PositionFallbackCluster(font, clusterStart, _glyphs.Length);
+        }
+
+        public void ApplyLegacyKern(TtfFont font)
+        {
+            if (!font.TryGetTable("kern", out ReadOnlyMemory<byte> memory)) return;
+            ReadOnlySpan<byte> data = memory.Span;
+            bool apple = CanRead(data, 0, 8) && ReadU32(data, 0) == 0x00010000;
+            int subtableCount;
+            int subtable;
+            if (apple)
+            {
+                uint count = ReadU32(data, 4);
+                if (count > int.MaxValue) return;
+                subtableCount = (int)count;
+                subtable = 8;
+            }
+            else
+            {
+                if (!CanRead(data, 0, 4) || ReadU16(data, 0) != 0) return;
+                subtableCount = ReadU16(data, 2);
+                subtable = 4;
+            }
+
+            for (var tableIndex = 0; tableIndex < subtableCount; tableIndex++)
+            {
+                int headerSize = apple ? 8 : 6;
+                if (!CanRead(data, subtable, headerSize)) break;
+                uint rawLength = apple ? ReadU32(data, subtable) : ReadU16(data, subtable + 2);
+                if (rawLength < headerSize || rawLength > int.MaxValue ||
+                    !CanRead(data, subtable, (int)rawLength)) break;
+                int length = (int)rawLength;
+                byte format = data[subtable + (apple ? 5 : 4)];
+                byte coverage = data[subtable + (apple ? 4 : 5)];
+                bool horizontal = apple ? (coverage & 0x80) == 0 : (coverage & 0x01) != 0;
+                bool crossStream = apple ? (coverage & 0x40) != 0 : (coverage & 0x04) != 0;
+                if (horizontal)
+                {
+                    if (format == 0) ApplyLegacyKernFormat0(data, subtable, headerSize, length, crossStream);
+                    else if (format == 2) ApplyLegacyKernFormat2(data, subtable, headerSize, length, crossStream);
+                }
+                subtable += length;
+            }
+        }
+
+        private void ApplyLegacyKernFormat0(
+            ReadOnlySpan<byte> data,
+            int subtable,
+            int headerSize,
+            int length,
+            bool crossStream)
+        {
+            int body = subtable + headerSize;
+            if (!CanRead(data, body, 8)) return;
+            int pairCount = ReadU16(data, body);
+            int records = body + 8;
+            if (!CanRead(data, records, pairCount * 6)) return;
+            for (var leftIndex = 0; leftIndex + 1 < _glyphs.Length; leftIndex++)
+            {
+                int rightIndex = NextLegacyKernGlyph(leftIndex + 1);
+                if (rightIndex >= _glyphs.Length) break;
+                int kerning = FindLegacyKernPair(
+                    data,
+                    records,
+                    pairCount,
+                    _glyphs[leftIndex].GlyphIndex,
+                    _glyphs[rightIndex].GlyphIndex);
+                ApplyLegacyKernAdjustment(leftIndex, rightIndex, kerning, crossStream);
+            }
+        }
+
+        private void ApplyLegacyKernFormat2(
+            ReadOnlySpan<byte> data,
+            int subtable,
+            int headerSize,
+            int length,
+            bool crossStream)
+        {
+            int body = subtable + headerSize;
+            if (!CanRead(data, body, 8)) return;
+            int leftTable = ReadU16(data, body + 2);
+            int rightTable = ReadU16(data, body + 4);
+            int array = ReadU16(data, body + 6);
+            for (var leftIndex = 0; leftIndex + 1 < _glyphs.Length; leftIndex++)
+            {
+                int rightIndex = NextLegacyKernGlyph(leftIndex + 1);
+                if (rightIndex >= _glyphs.Length) break;
+                int leftOffset = GetLegacyKernClass(
+                    data, subtable, length, leftTable, _glyphs[leftIndex].GlyphIndex);
+                int rightOffset = GetLegacyKernClass(
+                    data, subtable, length, rightTable, _glyphs[rightIndex].GlyphIndex);
+                int valueOffset = leftOffset + rightOffset;
+                int kerning = valueOffset < array || valueOffset > length - 2
+                    ? 0
+                    : ReadI16(data, subtable + valueOffset);
+                ApplyLegacyKernAdjustment(leftIndex, rightIndex, kerning, crossStream);
+            }
+        }
+
+        private int NextLegacyKernGlyph(int index)
+        {
+            while (index < _glyphs.Length && GetGlyphClassKind(index) == GlyphClassKind.Mark) index++;
+            return index;
+        }
+
+        private void ApplyLegacyKernAdjustment(int leftIndex, int rightIndex, int kerning, bool crossStream)
+        {
+            if (kerning == 0) return;
+            GlyphRecord left = _glyphs[leftIndex];
+            GlyphRecord right = _glyphs[rightIndex];
+            if (crossStream)
+            {
+                right.OffsetY = AddClamped(right.OffsetY, kerning);
+            }
+            else
+            {
+                int first = kerning >> 1;
+                int second = kerning - first;
+                left.AdvanceX = AddClamped(left.AdvanceX, first);
+                right.AdvanceX = AddClamped(right.AdvanceX, second);
+                right.OffsetX = AddClamped(right.OffsetX, second);
+            }
+            _glyphs[leftIndex] = left;
+            _glyphs[rightIndex] = right;
+        }
+
+        private static int FindLegacyKernPair(
+            ReadOnlySpan<byte> data,
+            int records,
+            int pairCount,
+            ushort left,
+            ushort right)
+        {
+            uint key = ((uint)left << 16) | right;
+            var low = 0;
+            var high = pairCount - 1;
+            while (low <= high)
+            {
+                int middle = (low + high) >> 1;
+                int record = records + middle * 6;
+                uint candidate = ReadU32(data, record);
+                if (key < candidate) high = middle - 1;
+                else if (key > candidate) low = middle + 1;
+                else return ReadI16(data, record + 4);
+            }
+            return 0;
+        }
+
+        private static int GetLegacyKernClass(
+            ReadOnlySpan<byte> data,
+            int subtable,
+            int length,
+            int relativeOffset,
+            ushort glyph)
+        {
+            if (relativeOffset < 0 || relativeOffset > length - 4) return 0;
+            int table = subtable + relativeOffset;
+            ushort firstGlyph = ReadU16(data, table);
+            ushort glyphCount = ReadU16(data, table + 2);
+            int index = glyph - firstGlyph;
+            return (uint)index < glyphCount && CanRead(data, table + 4 + index * 2, 2)
+                ? ReadU16(data, table + 4 + index * 2)
+                : 0;
         }
 
         private void PositionFallbackCluster(TtfFont font, int start, int end)
