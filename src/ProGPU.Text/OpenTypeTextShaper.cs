@@ -255,12 +255,13 @@ public static class OpenTypeTextShaper
             direction,
             zeroMarkAdvancesEarly: useShaper);
         bool hasGpos = font.TryGetTable("GPOS", out _);
+        bool hasGposKerning = false;
         if (typeface is not null)
         {
-            ApplyPositions(font, typeface.GPOSTable, positions, options, script);
+            hasGposKerning = ApplyPositions(font, typeface.GPOSTable, positions, options, script);
         }
         bool kernEnabled = IsFeatureEnabled(options.Features, "kern");
-        if (!hasGpos && kernEnabled && !indicShaper &&
+        if (!hasGposKerning && kernEnabled && !indicShaper &&
             direction is ShapingDirection.LeftToRight or ShapingDirection.RightToLeft)
         {
             positions.ApplyLegacyKern(font);
@@ -1968,7 +1969,7 @@ public static class OpenTypeTextShaper
     private static uint ReadU32(ReadOnlySpan<byte> data, int offset) =>
         (uint)(data[offset] << 24 | data[offset + 1] << 16 | data[offset + 2] << 8 | data[offset + 3]);
 
-    private static void ApplyPositions(
+    private static bool ApplyPositions(
         TtfFont font,
         GPOS? table,
         GlyphPositionBuffer glyphs,
@@ -1989,18 +1990,21 @@ public static class OpenTypeTextShaper
                 ApplyRawPositionLookup(rawTable.Span, glyphs, enabled.LookupIndex);
                 ApplyPositionVariations(font, glyphs, enabled.LookupIndex);
             }
-            return;
+            return rawLookups.Any(static lookup => lookup.Tag is "kern" or "dist");
         }
 
-        if (table?.FeatureList?.featureTables is not { Length: > 0 } features) return;
+        if (table?.FeatureList?.featureTables is not { Length: > 0 } features) return false;
+        bool hasKerning = false;
         foreach (EnabledLookup enabled in GetEnabledLookupIndices(table, features, options, script))
         {
+            hasKerning |= enabled.Tag is "kern" or "dist";
             ushort lookupIndex = enabled.LookupIndex;
             if (lookupIndex < table.LookupList.Count)
             {
                 table.LookupList[lookupIndex].DoGlyphPosition(glyphs, 0, glyphs.Count);
             }
         }
+        return hasKerning;
     }
 
     private static void ApplyRawPositionLookup(
