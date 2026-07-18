@@ -963,6 +963,35 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuArabicStretchExpandsRepeatingComponentsWithinWordWidth()
+    {
+        var face = new ArabicStretchFontFace();
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
+        var request = new ShapingRequest(ShapingDirection.RightToLeft, new OpenTypeTag("arab"));
+        GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
+        Assert.Contains(commands, static command => command.FeatureTag == new OpenTypeTag("stch").Value);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        using var fontData = new GpuOpenTypeFontData(context, plan);
+        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        using var actual = new ShapingBuffer();
+
+        pipeline.ExecuteRun(
+            [new GpuShapingScalar(0x0640, 0), new GpuShapingScalar(0x0627, 1)],
+            fontData,
+            request,
+            commands,
+            actual);
+
+        Assert.Equal(11, actual.Count);
+        Assert.Equal(1, actual.Glyphs.ToArray().Count(static glyph => glyph.GlyphId == 1));
+        Assert.Equal(1, actual.Glyphs.ToArray().Count(static glyph => glyph.GlyphId == 3));
+        Assert.Equal(9, actual.Glyphs.ToArray().Count(static glyph => glyph.GlyphId == 4));
+        Assert.All(actual.Glyphs.ToArray().Where(static glyph => glyph.GlyphId is 3 or 4),
+            static glyph => Assert.Equal(0, glyph.AdvanceX));
+    }
+
+    [Fact]
     public void GpuPositioningMatchesVariableInterInstance()
     {
         const string text = "AVATAR";
@@ -1550,6 +1579,75 @@ public sealed class ShapingContractsTests
             return false;
         }
         public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
+    }
+
+    private sealed class ArabicStretchFontFace : IShapingFontFace
+    {
+        private static readonly byte[] s_gsub = CreateGsub();
+        public int FaceIndex => 0;
+        public ushort UnitsPerEm => 1000;
+        public uint GlyphCount => 5;
+        public uint VariationAxisCount => 0;
+        public bool HasActiveVariations => false;
+        public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table)
+        {
+            table = tag == new OpenTypeTag("GSUB") ? s_gsub : ReadOnlyMemory<byte>.Empty;
+            return !table.IsEmpty;
+        }
+        public uint GetNominalGlyph(uint codePoint) => codePoint switch
+        {
+            0x0627 => 1,
+            0x0640 => 2,
+            _ => 0
+        };
+        public bool TryGetVariationGlyph(uint codePoint, uint variationSelector, out uint glyphId)
+        {
+            glyphId = 0;
+            return false;
+        }
+        public int GetHorizontalAdvance(uint glyphId) => glyphId switch
+        {
+            1 => 1000,
+            2 => 200,
+            3 or 4 => 100,
+            _ => 0
+        };
+        public int GetVerticalAdvance(uint glyphId) => 1000;
+        public int GetHorizontalOrigin(uint glyphId) => GetHorizontalAdvance(glyphId) / 2;
+        public int GetVerticalOrigin(uint glyphId) => 800;
+        public bool TryGetNormalizedVariationCoordinate(uint axisIndex, out short coordinate)
+        {
+            coordinate = 0;
+            return false;
+        }
+        public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
+
+        private static byte[] CreateGsub()
+        {
+            var data = new byte[76];
+            U16(0, 1); U16(2, 0); U16(4, 10); U16(6, 30); U16(8, 44);
+            U16(10, 1); Tag(12, "arab"); U16(16, 8);
+            U16(18, 4); U16(20, 0);
+            U16(22, 0); U16(24, ushort.MaxValue); U16(26, 1); U16(28, 0);
+            U16(30, 1); Tag(32, "stch"); U16(36, 8);
+            U16(38, 0); U16(40, 1); U16(42, 0);
+            U16(44, 1); U16(46, 4);
+            U16(48, 2); U16(50, 0); U16(52, 1); U16(54, 8);
+            U16(56, 1); U16(58, 14); U16(60, 1); U16(62, 8);
+            U16(64, 2); U16(66, 3); U16(68, 4);
+            U16(70, 1); U16(72, 1); U16(74, 2);
+            return data;
+
+            void U16(int offset, ushort value)
+            {
+                data[offset] = (byte)(value >> 8);
+                data[offset + 1] = (byte)value;
+            }
+            void Tag(int offset, string value)
+            {
+                for (var index = 0; index < 4; index++) data[offset + index] = (byte)value[index];
+            }
+        }
     }
 
     private sealed class VariationSelectorFontFace : IShapingFontFace

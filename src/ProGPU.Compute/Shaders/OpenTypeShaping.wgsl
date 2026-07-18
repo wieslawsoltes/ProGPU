@@ -1,7 +1,7 @@
 // Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering, load metrics, execute GPOS or extent-based fallback mark positioning, then finalize output order.
 // Time complexity: O(N*(log R + log V + log U + log D + log Q + log K) + S*N + L*N*log C) for typical bounded combining runs, and O(N^2 + S*N + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, K invalid-vowel constraints, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
 // Space complexity: O(N + R + V + U + D + Q + K + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization and vowel-constraint data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics and optional extents, and lookup commands; each invocation uses O(1) private storage and no textures.
-// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup VM use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state); the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
+// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup/position VMs use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state), and each stch run is capped at 256 generated components inside the preallocated run capacity; the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
 struct Params {
     input_count: u32,
@@ -165,6 +165,8 @@ const ARABIC_MEDIAL: u32 = 4u;
 const ARABIC_MEDIAL2: u32 = 5u;
 const ARABIC_INITIAL: u32 = 6u;
 const ARABIC_NONE: u32 = 7u;
+const ARABIC_STRETCH_FIXED: u32 = 1u << 20u;
+const ARABIC_STRETCH_REPEATING: u32 = 1u << 21u;
 const HANGUL_LJMO: u32 = 1u << 16u;
 const HANGUL_VJMO: u32 = 1u << 17u;
 const HANGUL_TJMO: u32 = 1u << 18u;
@@ -1616,6 +1618,14 @@ fn final_reorder_indic() {
 
 fn handle_substitution_stage_transition(previous: u32, next: u32) {
     let myanmar = params.script_tag == 0x6d796d72u || params.script_tag == 0x6d796d32u;
+    if (uses_arabic_joining() && previous <= 10u && next > 10u) {
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if ((glyph_states[position].internal_flags & GLYPH_MULTIPLIED) == 0u) { continue; }
+            glyph_states[position].feature_mask |= select(
+                ARABIC_STRETCH_FIXED, ARABIC_STRETCH_REPEATING,
+                (glyph_states[position].ligature_component & 1u) != 0u);
+        }
+    }
     if (myanmar && previous <= 10u && next > 10u) { reorder_myanmar(); }
     if (myanmar && previous <= 50u && next > 50u) { clear_syllables(); }
     if (is_use_syllable_script() && previous <= 10u && next > 10u) { clear_substitution_flags(); }
@@ -2959,6 +2969,7 @@ fn replace_multiple(subtable: u32, position: u32) -> bool {
         glyphs[position + replacement].glyph_id = table_u16(sequence + 2u + replacement * 2u);
         glyph_states[position + replacement] = source_state;
         glyph_states[position + replacement].internal_flags |= GLYPH_SUBSTITUTED | GLYPH_MULTIPLIED;
+        glyph_states[position + replacement].ligature_component = replacement;
         if (replacement != 0u) {
             glyph_states[position + replacement].internal_flags |= GLYPH_MULTIPLE_COMPONENT;
             glyph_states[position + replacement].serial = run_state.next_serial;
@@ -3543,6 +3554,141 @@ fn apply_fallback_mark_positioning() {
     }
 }
 
+fn is_stretch_action(position: u32) -> bool {
+    return (glyph_states[position].feature_mask &
+        (ARABIC_STRETCH_FIXED | ARABIC_STRETCH_REPEATING)) != 0u;
+}
+
+fn is_arabic_stretch_word_character(codepoint: u32) -> bool {
+    let category = (unicode_properties_b(codepoint) >> 9u) & 0x1fu;
+    return category == 29u || category == 17u || category == 3u || category == 4u ||
+        category == 6u || category == 7u || category == 5u || category == 8u ||
+        category == 9u || category == 10u || category == 26u || category == 27u ||
+        category == 25u || category == 28u;
+}
+
+fn reverse_shaping_records() {
+    let middle = run_state.glyph_count >> 1u;
+    for (var left = 0u; left < middle; left++) {
+        let right = run_state.glyph_count - 1u - left;
+        let glyph = glyphs[left];
+        let state = glyph_states[left];
+        glyphs[left] = glyphs[right];
+        glyph_states[left] = glyph_states[right];
+        glyphs[right] = glyph;
+        glyph_states[right] = state;
+    }
+}
+
+fn apply_arabic_stretch_core() {
+    var scan = run_state.glyph_count;
+    while (scan > 0u) {
+        if (!is_stretch_action(scan - 1u)) { scan -= 1u; continue; }
+        let end = scan;
+        var fixed_width = 0;
+        var repeating_width = 0;
+        var fixed_count = 0u;
+        var repeating_count = 0u;
+        while (scan > 0u && is_stretch_action(scan - 1u)) {
+            scan -= 1u;
+            let glyph_id = glyphs[scan].glyph_id;
+            var width = 0;
+            if (glyph_id < params.metric_count) { width = glyph_metrics[glyph_id].advance_x; }
+            if ((glyph_states[scan].feature_mask & ARABIC_STRETCH_FIXED) != 0u) {
+                fixed_width += width;
+                fixed_count += 1u;
+            } else {
+                repeating_width += width;
+                repeating_count += 1u;
+            }
+        }
+        let start = scan;
+        var context = start;
+        var total_width = 0;
+        while (context > 0u && !is_stretch_action(context - 1u) &&
+                (is_default_ignorable(glyphs[context - 1u].codepoint) ||
+                 is_arabic_stretch_word_character(glyphs[context - 1u].codepoint))) {
+            context -= 1u;
+            total_width += glyphs[context].advance_x;
+        }
+        var remaining = total_width - fixed_width;
+        var copies = 0u;
+        if (remaining > repeating_width && repeating_width > 0) {
+            copies = u32(remaining / repeating_width - 1);
+        }
+        var overlap = 0;
+        let shortfall = remaining - repeating_width * i32(copies + 1u);
+        if (shortfall > 0 && repeating_count > 0u) {
+            copies += 1u;
+            let excess = i32(copies + 1u) * repeating_width - remaining;
+            if (excess > 0) {
+                overlap = excess / i32(copies * repeating_count);
+                remaining = 0;
+            }
+        }
+        let base_count = fixed_count + repeating_count;
+        var maximum_copies = 0u;
+        if (repeating_count > 0u && base_count < 256u) {
+            maximum_copies = (256u - base_count) / repeating_count;
+        }
+        copies = min(copies, maximum_copies);
+        let added = copies * repeating_count;
+        if (run_state.glyph_count + added > params.capacity) {
+            run_state.status = 1u;
+            return;
+        }
+        if (added > 0u) {
+            var move_index = run_state.glyph_count;
+            while (move_index > end) {
+                move_index -= 1u;
+                glyphs[move_index + added] = glyphs[move_index];
+                glyph_states[move_index + added] = glyph_states[move_index];
+            }
+        }
+        var write = end + added;
+        var x_offset = remaining / 2;
+        var source = end;
+        while (source > start) {
+            source -= 1u;
+            var glyph = glyphs[source];
+            let state = glyph_states[source];
+            let glyph_id = glyph.glyph_id;
+            var width = 0;
+            if (glyph_id < params.metric_count) { width = glyph_metrics[glyph_id].advance_x; }
+            let repeat = select(1u, copies + 1u,
+                (state.feature_mask & ARABIC_STRETCH_REPEATING) != 0u);
+            glyph.advance_x = 0;
+            for (var copy = 0u; copy < repeat; copy++) {
+                if (params.direction == 2u) {
+                    x_offset -= width;
+                    if (copy > 0u) { x_offset += overlap; }
+                }
+                glyph.offset_x = x_offset;
+                write -= 1u;
+                glyphs[write] = glyph;
+                glyph_states[write] = state;
+                if (params.direction != 2u) {
+                    x_offset += width;
+                    if (copy > 0u) { x_offset -= overlap; }
+                }
+            }
+        }
+        run_state.glyph_count += added;
+        scan = start;
+    }
+}
+
+fn apply_arabic_stretch() {
+    var found = false;
+    for (var position = 0u; position < run_state.glyph_count; position++) {
+        if (is_stretch_action(position)) { found = true; break; }
+    }
+    if (!found) { return; }
+    reverse_shaping_records();
+    apply_arabic_stretch_core();
+    reverse_shaping_records();
+}
+
 @compute @workgroup_size(1)
 fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x != 0u) { return; }
@@ -3589,6 +3735,7 @@ fn execute_positions(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     resolve_attachments();
     if (!has_gpos && fallback_marks) { apply_fallback_mark_positioning(); }
+    if (uses_arabic_joining()) { apply_arabic_stretch(); }
     run_state.reserved2 = 0u;
 }
 
