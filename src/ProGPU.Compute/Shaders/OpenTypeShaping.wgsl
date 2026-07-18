@@ -1,7 +1,7 @@
 // Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering plus bounded Arabic presentation fallback/stretch, load metrics, execute GPOS or extent-based fallback mark positioning, then finalize output order.
 // Time complexity: O(N*(log R + log V + log U + log D + log Q + log K) + S*N + L*N*log C) for typical bounded combining runs, and O(N^2 + S*N + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, K invalid-vowel constraints, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
 // Space complexity: O(N + R + V + U + D + Q + K + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization and vowel-constraint data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics and optional extents, and lookup commands; each invocation uses O(1) private storage and no textures.
-// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup/position VMs use one invocation because they mutate shared order. The Arabic joining machine has 42 fixed transitions (168 bytes of private state), and each stch run is capped at 256 generated components inside the preallocated run capacity; the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
+// Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup/position VMs use one invocation because they mutate shared order. Substitution stage transitions, consecutive same-type command groups, and single/multiple/alternate/ligature/contextual GSUB execution use separate compute passes so Metal/WebGPU compilers do not have to inline unrelated lookup graphs. Command grouping preserves lookup order while bounding dispatches by O(min(L, type runs)). The Arabic joining machine has 42 fixed transitions (168 bytes of private state), and each stch run is capped at 256 generated components inside the preallocated run capacity; the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
 struct Params {
     input_count: u32,
@@ -105,6 +105,15 @@ struct RunState {
     reserved0: u32,
     reserved1: u32,
     reserved2: u32,
+    command_cursor: u32,
+    stage_start: u32,
+    stage_end: u32,
+    active_stage: u32,
+    next_stage: u32,
+    lookup_state: u32,
+    stage_command_cursor: u32,
+    active_command: u32,
+    active_command_end: u32,
 };
 
 struct LookupCommand {
@@ -1677,32 +1686,6 @@ fn should_reverse_arabic_context() -> bool {
                 command.feature_tag == 0x696e6974u) { return true; }
     }
     return false;
-}
-
-fn handle_substitution_stage_transition(previous: u32, next: u32) {
-    let myanmar = params.script_tag == 0x6d796d72u || params.script_tag == 0x6d796d32u;
-    if (uses_arabic_joining() && previous <= 10u && next > 10u) {
-        for (var position = 0u; position < run_state.glyph_count; position++) {
-            if ((glyph_states[position].internal_flags & GLYPH_MULTIPLIED) == 0u) { continue; }
-            glyph_states[position].feature_mask |= select(
-                ARABIC_STRETCH_FIXED, ARABIC_STRETCH_REPEATING,
-                (multiple_substitution_component(position) & 1u) != 0u);
-        }
-    }
-    if (params.script_tag == 0x61726162u && previous <= 150u && next > 150u) {
-        apply_arabic_fallback();
-    }
-    if (myanmar && previous <= 10u && next > 10u) { reorder_myanmar(); }
-    if (myanmar && previous <= 50u && next > 50u) { clear_syllables(); }
-    if (is_use_syllable_script() && previous <= 10u && next > 10u) { clear_substitution_flags(); }
-    if (is_use_syllable_script() && previous <= 20u && next > 20u) {
-        record_use_repha();
-        clear_substitution_flags();
-    }
-    if (is_use_syllable_script() && previous <= 30u && next > 30u) { record_use_prebase(); }
-    if (is_use_syllable_script() && previous <= 40u && next > 40u) { reorder_use(); }
-    if (is_indic_syllable_script() && previous <= 60u && next > 60u) { initial_reorder_indic(); }
-    if (is_indic_syllable_script() && previous <= 170u && next > 170u) { final_reorder_indic(); }
 }
 
 fn directional_mapping(codepoint: u32, vertical: bool) -> u32 {
@@ -3383,6 +3366,74 @@ fn apply_lookup_at(lookup_offset: u32, position: u32, feature_value: u32, featur
     return false;
 }
 
+fn effective_gsub_subtable(lookup_offset: u32, subtable_index: u32,
+    expected_type: u32) -> u32 {
+    if (lookup_offset == 0u) { return 0u; }
+    let lookup_type = table_u16(lookup_offset);
+    let subtable_count = table_u16(lookup_offset + 4u);
+    if (subtable_index >= subtable_count) { return 0u; }
+    let subtable = lookup_offset + table_u16(lookup_offset + 6u + subtable_index * 2u);
+    if (lookup_type == expected_type) { return subtable; }
+    if (lookup_type == 7u && table_u16(subtable) == 1u &&
+            table_u16(subtable + 2u) == expected_type) {
+        return subtable + table_u32(subtable + 4u);
+    }
+    return 0u;
+}
+
+fn apply_single_lookup_at(lookup_offset: u32, position: u32) -> bool {
+    let count = table_u16(lookup_offset + 4u);
+    for (var index = 0u; index < count; index++) {
+        let subtable = effective_gsub_subtable(lookup_offset, index, 1u);
+        if (subtable != 0u && apply_single_substitution(subtable, position)) { return true; }
+    }
+    return false;
+}
+
+fn apply_multiple_lookup_at(lookup_offset: u32, position: u32) -> bool {
+    let count = table_u16(lookup_offset + 4u);
+    for (var index = 0u; index < count; index++) {
+        let subtable = effective_gsub_subtable(lookup_offset, index, 2u);
+        if (subtable != 0u && table_u16(subtable) == 1u && replace_multiple(subtable, position)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn apply_alternate_lookup_at(lookup_offset: u32, position: u32,
+    feature_value: u32, feature_tag: u32) -> bool {
+    let count = table_u16(lookup_offset + 4u);
+    for (var index = 0u; index < count; index++) {
+        let subtable = effective_gsub_subtable(lookup_offset, index, 3u);
+        if (subtable != 0u && table_u16(subtable) == 1u &&
+                apply_alternate(subtable, position, feature_value, feature_tag)) { return true; }
+    }
+    return false;
+}
+
+fn apply_ligature_lookup_at(lookup_offset: u32, position: u32) -> bool {
+    let count = table_u16(lookup_offset + 4u);
+    let flags = table_u16(lookup_offset + 2u);
+    for (var index = 0u; index < count; index++) {
+        let subtable = effective_gsub_subtable(lookup_offset, index, 4u);
+        if (subtable != 0u && table_u16(subtable) == 1u &&
+                apply_ligature(subtable, position, lookup_offset, flags)) { return true; }
+    }
+    return false;
+}
+
+fn touch_lookup_bindings() {
+    // Both substitution kernels intentionally share one retained bind group. Keep
+    // their automatic layouts identical even when a backend prunes an indirect
+    // script-specific dependency from one entry point's call graph.
+    if (params.lookup_count == 0xffffffffu) {
+        run_state.status ^= cmap_ranges[0].start ^ glyphs[0].glyph_id ^
+            table_directory.gsub_offset ^ table_words[0] ^ lookup_commands[0].lookup_offset ^
+            glyph_states[0].serial ^ unicode_data[0];
+    }
+}
+
 @compute @workgroup_size(1)
 fn preprocess_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x != 0u) { return; }
@@ -3429,27 +3480,266 @@ fn preprocess_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 @compute @workgroup_size(1)
-fn execute_lookups(@builtin(global_invocation_id) id: vec3<u32>) {
+fn select_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x != 0u) { return; }
-    prepare_fraction_masks();
-    var tasks: array<LookupTask, 64>;
-    var task_count = 0u;
-    var active_stage = 0u;
-    let reverse_arabic_context = should_reverse_arabic_context();
-    var arabic_context_reversed = false;
-    for (var command_index = 0u; command_index < params.lookup_count; command_index++) {
+    touch_lookup_bindings();
+    if ((run_state.lookup_state & 8u) == 0u) {
+        prepare_fraction_masks();
+        run_state.command_cursor = 0u;
+        run_state.stage_start = 0u;
+        run_state.stage_end = 0u;
+        run_state.active_stage = 0u;
+        run_state.next_stage = 0u;
+        run_state.lookup_state = select(8u, 9u, should_reverse_arabic_context());
+    }
+    if ((run_state.lookup_state & 20u) != 0u) { return; }
+
+    var cursor = run_state.command_cursor;
+    loop {
+        if (cursor >= params.lookup_count) {
+            run_state.stage_start = cursor;
+            run_state.stage_end = cursor;
+            run_state.command_cursor = cursor;
+            run_state.next_stage = 0xffffffffu;
+            run_state.lookup_state |= 16u;
+            return;
+        }
+        let candidate = lookup_commands[cursor];
+        if (candidate.table_kind == 1u && candidate.feature_value != 0u) { break; }
+        cursor += 1u;
+    }
+
+    let next_stage = lookup_commands[cursor].stage;
+    let start = cursor;
+    cursor += 1u;
+    loop {
+        if (cursor >= params.lookup_count) { break; }
+        let candidate = lookup_commands[cursor];
+        if (candidate.table_kind == 1u && candidate.feature_value != 0u && candidate.stage != next_stage) {
+            break;
+        }
+        cursor += 1u;
+    }
+    run_state.stage_start = start;
+    run_state.stage_end = cursor;
+    run_state.stage_command_cursor = start;
+    run_state.active_command = 0xffffffffu;
+    run_state.active_command_end = start;
+    run_state.command_cursor = cursor;
+    run_state.next_stage = next_stage;
+    run_state.lookup_state |= 16u;
+}
+
+@compute @workgroup_size(1)
+fn select_lookup_command(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u) { return; }
+    touch_lookup_bindings();
+    var cursor = run_state.stage_command_cursor;
+    loop {
+        if (cursor >= run_state.stage_end) {
+            run_state.stage_command_cursor = cursor;
+            run_state.active_command = 0xffffffffu;
+            run_state.active_command_end = cursor;
+            return;
+        }
+        let command = lookup_commands[cursor];
+        if (command.table_kind == 1u && command.feature_value != 0u) { break; }
+        cursor += 1u;
+    }
+    let start = cursor;
+    let lookup_type = lookup_commands[cursor].lookup_type;
+    cursor += 1u;
+    loop {
+        if (cursor >= run_state.stage_end) { break; }
+        let candidate = lookup_commands[cursor];
+        if (candidate.table_kind == 1u && candidate.feature_value != 0u &&
+                candidate.lookup_type != lookup_type) { break; }
+        cursor += 1u;
+    }
+    run_state.active_command = start;
+    run_state.active_command_end = cursor;
+    run_state.stage_command_cursor = cursor;
+}
+
+fn complete_lookup_stage_transition() {
+    if (run_state.next_stage == 0xffffffffu) {
+        run_state.lookup_state = (run_state.lookup_state | 4u) & ~16u;
+        run_state.reserved1 = 0u;
+        run_state.reserved2 = 0u;
+    } else {
+        run_state.active_stage = run_state.next_stage;
+        run_state.lookup_state &= ~16u;
+    }
+}
+
+fn apply_arabic_lookup_stage_transition() {
+    let previous = run_state.active_stage;
+    let next = run_state.next_stage;
+    if (uses_arabic_joining() && previous <= 10u && next > 10u) {
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if ((glyph_states[position].internal_flags & GLYPH_MULTIPLIED) == 0u) { continue; }
+            glyph_states[position].feature_mask |= select(
+                ARABIC_STRETCH_FIXED, ARABIC_STRETCH_REPEATING,
+                (multiple_substitution_component(position) & 1u) != 0u);
+        }
+    }
+    if (params.script_tag == 0x61726162u && previous <= 150u && next > 150u) {
+        apply_arabic_fallback();
+    }
+    if ((run_state.lookup_state & 2u) == 0u && (run_state.lookup_state & 1u) != 0u &&
+            previous <= 150u && next > 150u) {
+        reverse_shaping_records();
+        run_state.lookup_state |= 2u;
+    }
+    if (next == 0xffffffffu && (run_state.lookup_state & 2u) != 0u) {
+        reverse_shaping_records();
+    }
+}
+
+@compute @workgroup_size(1)
+fn transition_generic_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 16u) == 0u) { return; }
+    touch_lookup_bindings();
+    complete_lookup_stage_transition();
+}
+
+@compute @workgroup_size(1)
+fn transition_arabic_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 16u) == 0u) { return; }
+    touch_lookup_bindings();
+    apply_arabic_lookup_stage_transition();
+    complete_lookup_stage_transition();
+}
+
+@compute @workgroup_size(1)
+fn transition_myanmar_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 16u) == 0u) { return; }
+    touch_lookup_bindings();
+    let previous = run_state.active_stage;
+    let next = run_state.next_stage;
+    if (previous <= 10u && next > 10u) { reorder_myanmar(); }
+    if (previous <= 50u && next > 50u) { clear_syllables(); }
+    complete_lookup_stage_transition();
+}
+
+@compute @workgroup_size(1)
+fn transition_use_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 16u) == 0u) { return; }
+    touch_lookup_bindings();
+    let previous = run_state.active_stage;
+    let next = run_state.next_stage;
+    apply_arabic_lookup_stage_transition();
+    if (previous <= 10u && next > 10u) { clear_substitution_flags(); }
+    if (previous <= 20u && next > 20u) {
+        record_use_repha();
+        clear_substitution_flags();
+    }
+    if (previous <= 30u && next > 30u) { record_use_prebase(); }
+    if (previous <= 40u && next > 40u) { reorder_use(); }
+    complete_lookup_stage_transition();
+}
+
+@compute @workgroup_size(1)
+fn transition_indic_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 16u) == 0u) { return; }
+    touch_lookup_bindings();
+    let previous = run_state.active_stage;
+    let next = run_state.next_stage;
+    if (previous <= 60u && next > 60u) { initial_reorder_indic(); }
+    if (previous <= 170u && next > 170u) { final_reorder_indic(); }
+    complete_lookup_stage_transition();
+}
+
+fn lookup_command_applies(command: LookupCommand, position: u32) -> bool {
+    let cluster = u32(max(glyphs[position].cluster, 0));
+    if (cluster < command.range_start || cluster >= command.range_end ||
+            !feature_allowed(command, position)) { return false; }
+    run_state.skip_count = 0u;
+    run_state.reserved1 = glyph_states[position].syllable;
+    run_state.reserved2 = command.command_flags;
+    return true;
+}
+
+@compute @workgroup_size(1)
+fn execute_single_substitution_lookup(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || run_state.active_command == 0xffffffffu) { return; }
+    touch_lookup_bindings();
+    for (var command_index = run_state.active_command;
+            command_index < run_state.active_command_end; command_index++) {
         let command = lookup_commands[command_index];
         if (command.table_kind != 1u || command.feature_value == 0u) { continue; }
-        if (command.stage != active_stage) {
-            handle_substitution_stage_transition(active_stage, command.stage);
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if (!lookup_command_applies(command, position)) { continue; }
+            _ = apply_single_lookup_at(command.lookup_offset, position);
             if (run_state.status != 0u) { return; }
-            if (!arabic_context_reversed && reverse_arabic_context &&
-                    active_stage <= 150u && command.stage > 150u) {
-                reverse_shaping_records();
-                arabic_context_reversed = true;
-            }
-            active_stage = command.stage;
+            position += run_state.skip_count;
         }
+    }
+}
+
+@compute @workgroup_size(1)
+fn execute_multiple_substitution_lookup(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || run_state.active_command == 0xffffffffu) { return; }
+    touch_lookup_bindings();
+    for (var command_index = run_state.active_command;
+            command_index < run_state.active_command_end; command_index++) {
+        let command = lookup_commands[command_index];
+        if (command.table_kind != 1u || command.feature_value == 0u) { continue; }
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if (!lookup_command_applies(command, position)) { continue; }
+            _ = apply_multiple_lookup_at(command.lookup_offset, position);
+            if (run_state.status != 0u) { return; }
+            position += run_state.skip_count;
+        }
+    }
+}
+
+@compute @workgroup_size(1)
+fn execute_alternate_substitution_lookup(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || run_state.active_command == 0xffffffffu) { return; }
+    touch_lookup_bindings();
+    for (var command_index = run_state.active_command;
+            command_index < run_state.active_command_end; command_index++) {
+        let command = lookup_commands[command_index];
+        if (command.table_kind != 1u || command.feature_value == 0u) { continue; }
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if (!lookup_command_applies(command, position)) { continue; }
+            _ = apply_alternate_lookup_at(
+                command.lookup_offset, position, command.feature_value, command.feature_tag);
+            if (run_state.status != 0u) { return; }
+            position += run_state.skip_count;
+        }
+    }
+}
+
+@compute @workgroup_size(1)
+fn execute_ligature_substitution_lookup(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || run_state.active_command == 0xffffffffu) { return; }
+    touch_lookup_bindings();
+    for (var command_index = run_state.active_command;
+            command_index < run_state.active_command_end; command_index++) {
+        let command = lookup_commands[command_index];
+        if (command.table_kind != 1u || command.feature_value == 0u) { continue; }
+        for (var position = 0u; position < run_state.glyph_count; position++) {
+            if (!lookup_command_applies(command, position)) { continue; }
+            _ = apply_ligature_lookup_at(command.lookup_offset, position);
+            if (run_state.status != 0u) { return; }
+            position += run_state.skip_count;
+        }
+    }
+}
+
+@compute @workgroup_size(1)
+fn execute_contextual_substitution_lookup_stage(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x != 0u || (run_state.lookup_state & 4u) != 0u ||
+            run_state.active_command == 0xffffffffu) { return; }
+    touch_lookup_bindings();
+    var tasks: array<LookupTask, 64>;
+    var task_count = 0u;
+    for (var command_index = run_state.active_command;
+            command_index < run_state.active_command_end; command_index++) {
+        let command = lookup_commands[command_index];
+        if (command.table_kind != 1u || command.feature_value == 0u) { continue; }
         if (is_reverse_lookup(command.lookup_offset, command.lookup_type)) {
             var reverse_position = run_state.glyph_count;
             loop {
@@ -3493,12 +3783,6 @@ fn execute_lookups(@builtin(global_invocation_id) id: vec3<u32>) {
             position += run_state.skip_count;
         }
     }
-    handle_substitution_stage_transition(active_stage, 0xffffffffu);
-    if (!arabic_context_reversed && reverse_arabic_context && active_stage <= 150u) {
-        reverse_shaping_records();
-        arabic_context_reversed = true;
-    }
-    if (arabic_context_reversed) { reverse_shaping_records(); }
     run_state.reserved1 = 0u;
     run_state.reserved2 = 0u;
 }
@@ -4496,7 +4780,9 @@ fn initialize_glyphs(@builtin(global_invocation_id) id: vec3<u32>) {
     let index = id.x;
     if (index >= params.input_count) { return; }
     if (index == 0u) {
-        run_state = RunState(params.input_count, 0u, 0u, params.input_count + 1u, 1u, 0u, 0u, 0u);
+        run_state = RunState(
+            params.input_count, 0u, 0u, params.input_count + 1u, 1u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
     }
     let input = input_scalars[index];
     var glyph_id = nominal_glyph(input.codepoint);

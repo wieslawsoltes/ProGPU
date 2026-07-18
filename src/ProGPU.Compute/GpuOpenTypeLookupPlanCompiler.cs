@@ -492,14 +492,32 @@ public static class GpuOpenTypeLookupPlanCompiler
             command = default;
             return false;
         }
+        ushort lookupType = ReadU16(data, lookup);
+        ushort effectiveLookupType = ResolveEffectiveLookupType(data, lookup, lookupType, tableKind);
         command = new GpuOpenTypeLookupCommand(
             tableKind,
             checked((uint)lookup),
-            ReadU16(data, lookup),
+            effectiveLookupType,
             ReadU16(data, lookup + 2),
             featureTag,
             featureValue);
         return true;
+    }
+
+    private static ushort ResolveEffectiveLookupType(
+        ReadOnlySpan<byte> data,
+        int lookup,
+        ushort lookupType,
+        uint tableKind)
+    {
+        ushort extensionType = tableKind == 1 ? (ushort)7 : tableKind == 2 ? (ushort)9 : (ushort)0;
+        if (lookupType != extensionType || ReadU16(data, lookup + 4) == 0 || !CanRead(data, lookup + 6, 2))
+            return lookupType;
+
+        int subtable = lookup + ReadU16(data, lookup + 6);
+        return CanRead(data, subtable, 8) && ReadU16(data, subtable) == 1
+            ? ReadU16(data, subtable + 2)
+            : lookupType;
     }
 
     private static int GetSubstitutionStage(OpenTypeTag scriptTag, uint tag)
