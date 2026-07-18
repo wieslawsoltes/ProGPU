@@ -700,6 +700,20 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuLookupPlanUsesUseStagesForArabicJoiningUseScripts()
+    {
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(
+            new IndicShapingFontFace("calt", "mong"));
+        var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("mong"));
+
+        GpuOpenTypeLookupCommand command = Assert.Single(
+            GpuOpenTypeLookupPlanCompiler.Compile(plan, request),
+            static value => value.FeatureTag == new OpenTypeTag("calt").Value);
+
+        Assert.Equal(60u, command.Stage);
+    }
+
+    [Fact]
     public void GpuIndicTwoPassReorderingMatchesManagedRules()
     {
         var face = new IndicShapingFontFace();
@@ -1499,9 +1513,9 @@ public sealed class ShapingContractsTests
         public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
     }
 
-    private sealed class IndicShapingFontFace(string? featureTag = null) : IShapingFontFace
+    private sealed class IndicShapingFontFace(string? featureTag = null, string scriptTag = "dev2") : IShapingFontFace
     {
-        private readonly byte[]? _gsub = featureTag is null ? null : CreateGsub(featureTag);
+        private readonly byte[]? _gsub = featureTag is null ? null : CreateGsub(featureTag, scriptTag);
 
         public int FaceIndex => 0;
         public ushort UnitsPerEm => 1000;
@@ -1540,11 +1554,11 @@ public sealed class ShapingContractsTests
         }
         public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
 
-        private static byte[] CreateGsub(string featureTag)
+        private static byte[] CreateGsub(string featureTag, string scriptTag)
         {
             var data = new byte[80];
             U16(0, 1); U16(2, 0); U16(4, 10); U16(6, 30); U16(8, 44);
-            U16(10, 1); Tag(12, "dev2"); U16(16, 8);
+            U16(10, 1); Tag(12, scriptTag); U16(16, 8);
             U16(18, 4); U16(20, 0);
             U16(22, 0); U16(24, ushort.MaxValue); U16(26, 1); U16(28, 0);
             U16(30, 1); Tag(32, featureTag); U16(36, 8);

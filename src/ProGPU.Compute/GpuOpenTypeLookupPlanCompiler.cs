@@ -491,13 +491,6 @@ public static class GpuOpenTypeLookupPlanCompiler
         string script = scriptTag.ToString().ToLowerInvariant();
         string feature = new OpenTypeTag(tag).ToString();
         if (feature is "ltra" or "ltrm" or "rtla" or "rtlm") return 0;
-        if (IsArabicScript(script))
-        {
-            string[] order = ["stch", "rvrn", "frac", "numr", "dnom", "ccmp", "locl", "isol", "fina",
-                "fin2", "fin3", "medi", "med2", "init", "rlig", "calt", "rclt", "liga", "clig", "mset"];
-            int index = Array.IndexOf(order, feature);
-            return index < 0 ? 190 : 10 + index * 10;
-        }
         if (IsIndicScript(script))
         {
             string[] order = ["rvrn", "frac", "numr", "dnom", "locl", "ccmp", "nukt", "akhn", "rphf",
@@ -516,6 +509,13 @@ public static class GpuOpenTypeLookupPlanCompiler
                 "isol" or "init" or "medi" or "fina" => 50,
                 _ => 60
             };
+        }
+        if (IsArabicScript(script))
+        {
+            string[] order = ["stch", "rvrn", "frac", "numr", "dnom", "ccmp", "locl", "isol", "fina",
+                "fin2", "fin3", "medi", "med2", "init", "rlig", "calt", "rclt", "liga", "clig", "mset"];
+            int index = Array.IndexOf(order, feature);
+            return index < 0 ? 190 : 10 + index * 10;
         }
         if (script == "khmr")
         {
