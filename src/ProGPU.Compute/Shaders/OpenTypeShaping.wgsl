@@ -3354,7 +3354,6 @@ fn apply_lookup_at(lookup_offset: u32, position: u32, feature_value: u32, featur
     if (lookup_offset == 0u || position >= run_state.glyph_count) { return false; }
     let lookup_type = table_u16(lookup_offset);
     let lookup_flags = table_u16(lookup_offset + 2u);
-    if (lookup_ignored(position, lookup_offset, lookup_flags)) { return false; }
     let subtable_count = table_u16(lookup_offset + 4u);
     for (var subtable_index = 0u; subtable_index < subtable_count; subtable_index++) {
         let subtable = lookup_offset + table_u16(lookup_offset + 6u + subtable_index * 2u);

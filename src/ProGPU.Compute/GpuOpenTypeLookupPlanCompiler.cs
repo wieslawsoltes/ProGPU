@@ -582,6 +582,13 @@ public static class GpuOpenTypeLookupPlanCompiler
                 "pres" or "abvs" or "blws" or "psts")
                 flags |= FeatureManualZwj;
         }
+        else if (IsArabicScript(script) && feature is
+                 "ccmp" or "locl" or "isol" or "fina" or "fin2" or "fin3" or
+                 "medi" or "med2" or "init" or "rlig" or "calt" or "liga" or
+                 "clig" or "mset")
+        {
+            flags |= FeatureManualZwj;
+        }
         return flags;
     }
 

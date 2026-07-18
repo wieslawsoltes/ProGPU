@@ -875,6 +875,23 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
+    public void GpuArabicLigatingFeaturesMatchZwjAsExplicitInput()
+    {
+        GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(
+            new IndicShapingFontFace("rlig", "arab"));
+        var request = new ShapingRequest(
+            ShapingDirection.RightToLeft,
+            new OpenTypeTag("arab"));
+
+        GpuOpenTypeLookupCommand command = Assert.Single(
+            GpuOpenTypeLookupPlanCompiler.Compile(plan, request),
+            static value => value.TableKind == 1 &&
+                value.FeatureTag == new OpenTypeTag("rlig").Value);
+
+        Assert.Equal(8u, command.CommandFlags & 8u);
+    }
+
+    [Fact]
     public void GpuLookupPlanPreservesHalfOpenFeatureRanges()
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
