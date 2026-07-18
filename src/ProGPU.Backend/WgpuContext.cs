@@ -55,6 +55,7 @@ public unsafe class WgpuContext : IDisposable
     private long _queueBufferBytes;
     private long _queueTextureWriteCount;
     private long _queueTextureBytes;
+    private long _blockingDeviceWaitCount;
     public WebGPU Wgpu { get; private set; } = null!;
     public IWebGpuApi Api { get; private set; } = null!;
     public WgpuBackendKind BackendKind { get; private set; } = WgpuBackendKind.SilkNative;
@@ -127,6 +128,12 @@ public unsafe class WgpuContext : IDisposable
         Interlocked.Read(ref _queueBufferBytes),
         Interlocked.Read(ref _queueTextureWriteCount),
         Interlocked.Read(ref _queueTextureBytes));
+
+    /// <summary>
+    /// Number of explicit device-wide idle waits. Normal frame rendering and resource retirement
+    /// must not advance this counter; it is reserved for disposal and synchronous readback seams.
+    /// </summary>
+    public long BlockingDeviceWaitCount => Interlocked.Read(ref _blockingDeviceWaitCount);
 
     internal void RecordQueueBufferWrite(uint byteCount)
     {
@@ -323,13 +330,10 @@ public unsafe class WgpuContext : IDisposable
                     PendingShaderModules.Clear();
                 }
 
-                if (views.Length > 0 || textures.Length > 0 || buffers.Length > 0 || bindGroups.Length > 0 ||
-                    layouts.Length > 0 || pipeLayouts.Length > 0 || renderPipes.Length > 0 ||
-                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0)
-                {
-                    WaitIdle();
-                }
-
+                // WebGPU resources may be destroyed/released after their final commands have
+                // been submitted. The implementation retains the allocation until previously
+                // submitted operations complete. A device-wide wait here serialized unrelated
+                // frames and produced five-second wgpu-native cleanup stalls.
                 ReleaseBindGroups(bindGroups.Span);
                 ReleaseTextureViews(views.Span);
                 ReleaseTextures(textures.Span);
@@ -1135,6 +1139,7 @@ public unsafe class WgpuContext : IDisposable
 
     public void WaitIdle()
     {
+        Interlocked.Increment(ref _blockingDeviceWaitCount);
         PollDevice(wait: true);
     }
 

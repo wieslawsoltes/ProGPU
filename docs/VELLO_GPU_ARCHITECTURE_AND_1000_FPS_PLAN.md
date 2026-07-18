@@ -64,6 +64,34 @@ eng/progpu-benchmark-pages.sh --all
 
 It reads `eng/performance/sample-pages.txt`, launches every page in its own Release process, and writes complete logs plus JSONL and CSV artifacts. A source test requires the manifest order to match the actual navigation declarations so newly added pages cannot silently escape the performance sweep.
 
+### Implementation checkpoint: retained fragments and non-blocking retirement
+
+The first retained-scene milestone is implemented on the working branch:
+
+- `Visual.LocalChangeVersion` distinguishes a visual's own command changes from descendant invalidation while `ChangeVersion` still protects whole-scene correctness.
+- `SceneFragmentHandle` provides stable retained identity and versioned picture replacement.
+- `GpuSceneFragmentArena` owns grow-only persistent vector, index, text, brush, and gradient storage and updates only changed fragment ranges.
+- Translation-only placement uses shared `SceneTransformHandle` uniforms instead of rewriting glyph instances.
+- Text-only visuals can be promoted automatically when GPU hit testing, cached layers, effects, and unsupported transforms are absent.
+- DataGrid recycles a fixed fragment-handle ring, changes about 1.43 row fragments per 40-pixel scroll frame, and reuses about 28.43 row fragments.
+
+On Data Virtualization, the detailed-instrumentation baseline completed 343.68 GPU frames/s, compiled for 1.8168 ms/frame, and uploaded 157,627 bytes/frame. The retained-fragment implementation has produced process-isolated runs between 375 and 638 completed frames/s, with the best repeat compiling for 0.8047 ms/frame and uploading 38,605 bytes/frame. The variation is material and means the 638 result is not yet a sustained-performance claim. Ten-second gates and tail latency remain required.
+
+The first canonical 46-page sweep also exposed an independent five-second stall. `WgpuContext.CleanupPendingResources` called `WaitIdle` whenever any deferred resource existed. Eleven otherwise sub-millisecond retained-replay pages recorded a frame near 5,002 ms, and three image/animation pages could not finish the sweep in a reasonable time. This was not Vello-style scene preparation cost; it was a device-wide resource-retirement barrier.
+
+Normal retirement now destroys/releases objects without waiting for the whole device. This follows the WebGPU lifetime contract: buffer destruction can occur after final commands are submitted, while the implementation retains the allocation until previously submitted operations complete. Queue completion remains the explicit ordering primitive when application-visible completion is required. See the [WebGPU buffer destruction and command lifetime specification](https://gpuweb.github.io/gpuweb/#buffer-destruction) and [`GPUQueue.onSubmittedWorkDone`](https://gpuweb.github.io/types/interfaces/GPUQueue.html#onsubmittedworkdone). A `BlockingDeviceWaitCount` metric enforces that normal measured frames perform no device-wide wait.
+
+Post-fix checks removed the five-second outlier:
+
+| Workload | Before worst frame | After result | Blocking waits | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Grid Splitter | 5,002.98 ms | 10.79 ms worst frame | 0 | pathological retirement stall removed |
+| Image Effects | did not complete 480-frame sweep | 562 completed FPS in 10/20 smoke | 0 | page advances normally |
+| Image & Buttons | did not complete 480-frame sweep | 565 completed FPS in 10/20 smoke | 0 | page advances normally |
+| Motion & Animations | did not complete 480-frame sweep | 428 completed FPS in 10/20 smoke | 0 | page advances normally |
+
+The sweep's remaining renderer-bound blockers are Font Glyph Browser (221 completed FPS, 1.431 ms average and 3.763 ms p95 compile), Inter Typeface (258 completed FPS, 1.332/3.362 ms compile), Visual Designer (230 completed FPS, 3.237/5.024 ms compile and 3.3 MB uploaded per frame), Data Virtualization, and LOL/s. These require incremental fragment compilation, retained glyph-run placement, bounded indirection/compaction, and specialized batched primitives. Presentation-bound static pages must be evaluated separately because surface acquisition still has 3-5 ms p95 variance even when compile time is under 0.02 ms.
+
 ### Proposed 1 ms throughput budget
 
 CPU and GPU work can overlap, so the following are parallel budgets rather than values to add naively.

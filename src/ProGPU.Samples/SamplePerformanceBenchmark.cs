@@ -87,6 +87,7 @@ internal static class SamplePerformanceBenchmark
     private static readonly double[] s_uploadedByteSamples = new double[s_measureFrames];
     private static GpuFrameCompletionMetrics s_gpuCompletionAtStart;
     private static GpuTimestampMetrics s_gpuTimestampsAtStart;
+    private static long s_blockingDeviceWaitsAtStart;
 
     public static string? RequestedPage => s_requestedPage;
 
@@ -191,6 +192,7 @@ internal static class SamplePerformanceBenchmark
             s_pathAtlasGenerationAtStart = AppState._screenCompositor?.PathAtlas.Generation ?? 0;
             s_gpuCompletionAtStart = AppState._wgpuContext?.FrameCompletionMetrics ?? default;
             s_gpuTimestampsAtStart = AppState._wgpuContext?.GpuTimestampMetrics ?? default;
+            s_blockingDeviceWaitsAtStart = AppState._wgpuContext?.BlockingDeviceWaitCount ?? 0;
         }
 
         s_deltaSeconds += deltaSeconds;
@@ -285,6 +287,9 @@ internal static class SamplePerformanceBenchmark
         long timestampedGpuFrames = Math.Max(0, finalGpuTimestamps.CompletedSamples - s_gpuTimestampsAtStart.CompletedSamples);
         long failedGpuTimestamps = Math.Max(0, finalGpuTimestamps.FailedSamples - s_gpuTimestampsAtStart.FailedSamples);
         long droppedGpuTimestamps = Math.Max(0, finalGpuTimestamps.DroppedSamples - s_gpuTimestampsAtStart.DroppedSamples);
+        long blockingDeviceWaits = Math.Max(
+            0,
+            (AppState._wgpuContext?.BlockingDeviceWaitCount ?? 0) - s_blockingDeviceWaitsAtStart);
         double intervalP50 = Percentile(s_frameIntervalSamples, measuredFrames, 0.50d);
         double intervalP95 = Percentile(s_frameIntervalSamples, measuredFrames, 0.95d);
         double intervalP99 = Percentile(s_frameIntervalSamples, measuredFrames, 0.99d);
@@ -386,6 +391,7 @@ internal static class SamplePerformanceBenchmark
             $" queueSubmitMs={s_queueSubmitMilliseconds / divisor:F4}" +
             $" queueSubmitP95Ms={queueSubmitP95:F4}" +
             $" cleanupMs={s_cleanupMilliseconds / divisor:F4}" +
+            $" blockingDeviceWaits={blockingDeviceWaits}" +
             $" queueWritesPerFrame={s_queueWriteCount / divisor:F2}" +
             $" uploadedBytesPerFrame={s_uploadedBytes / divisor:F0}" +
             $" uploadedBytesP95={uploadedBytesP95:F0}" +
@@ -445,6 +451,7 @@ internal static class SamplePerformanceBenchmark
             failedGpuTimestamps,
             droppedGpuTimestamps,
             finalGpuTimestamps,
+            blockingDeviceWaits,
             finalFrameMetrics,
             finalMetrics);
 
@@ -521,6 +528,7 @@ internal static class SamplePerformanceBenchmark
         long failedGpuTimestamps,
         long droppedGpuTimestamps,
         GpuTimestampMetrics gpuTimestamps,
+        long blockingDeviceWaits,
         Microsoft.UI.Xaml.WindowFrameMetrics frameMetrics,
         ProGPU.Scene.CompositorMetrics? compositorMetrics)
     {
@@ -528,7 +536,7 @@ internal static class SamplePerformanceBenchmark
         using (var writer = new Utf8JsonWriter(output))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", 2);
+            writer.WriteNumber("schemaVersion", 3);
             writer.WriteString("page", RequestedPage);
             writer.WriteString("platform", OperatingSystem.IsBrowser() ? "browser" : "desktop");
             writer.WriteString("backend", AppState._wgpuContext?.BackendKind.ToString());
@@ -574,6 +582,7 @@ internal static class SamplePerformanceBenchmark
             writer.WriteNumber("queueSubmitAverageMs", s_queueSubmitMilliseconds / Math.Max(1, measuredFrames));
             writer.WriteNumber("queueSubmitP95Ms", Percentile(s_queueSubmitSamples, measuredFrames, 0.95d));
             writer.WriteNumber("cleanupAverageMs", s_cleanupMilliseconds / Math.Max(1, measuredFrames));
+            writer.WriteNumber("blockingDeviceWaits", blockingDeviceWaits);
             writer.WriteNumber("queueWritesPerFrame", (double)s_queueWriteCount / Math.Max(1, measuredFrames));
             writer.WriteNumber("uploadedBytesPerFrame", (double)s_uploadedBytes / Math.Max(1, measuredFrames));
             writer.WriteNumber("uploadedBytesP95", Percentile(s_uploadedByteSamples, measuredFrames, 0.95d));

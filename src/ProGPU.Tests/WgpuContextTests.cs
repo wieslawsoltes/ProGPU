@@ -158,6 +158,25 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void PendingResourceCleanupDoesNotWaitForTheWholeDevice()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        var buffer = new GpuBuffer(
+            context,
+            256,
+            BufferUsage.CopyDst,
+            "Non-blocking retirement test");
+        buffer.Dispose();
+        long waitsBeforeCleanup = context.BlockingDeviceWaitCount;
+
+        context.CleanupPendingResources();
+
+        Assert.Equal(waitsBeforeCleanup, context.BlockingDeviceWaitCount);
+        Assert.Empty(context.PendingBuffers);
+    }
+
+    [Fact]
     public void GpuTextureFinalizerToleratesPartiallyConstructedInstance()
     {
         var texture = (GpuTexture)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
