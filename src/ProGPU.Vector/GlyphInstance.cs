@@ -14,5 +14,5 @@ public struct GlyphInstance
     public Vector4 Color;                   // 16 bytes (Location 5) - RGBA color
     public Vector4 ScaleBoldItalicUseMvp;   // 16 bytes (Location 6) - ScaleRatio, BoldOffset, ItalicSkew, UseMvp (1.0 or 0.0)
     public float BrushIndex;                // 4 bytes (Location 7) - Brush index
-    public uint PlacementIndex;             // 4 bytes (Location 8) - retained placement record; zero is identity
+    public float Padding;                   // 4 bytes - pad to 96 bytes for GPU alignment
 }

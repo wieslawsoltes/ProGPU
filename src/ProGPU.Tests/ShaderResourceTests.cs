@@ -24,24 +24,6 @@ public class ShaderResourceTests
     }
 
     [Fact]
-    public void RetainedPlacementAbiPreservesHotVertexStridesAndIdentityFastPath()
-    {
-        Assert.Equal(56, System.Runtime.InteropServices.Marshal.SizeOf<VectorVertex>());
-        Assert.Equal(96, System.Runtime.InteropServices.Marshal.SizeOf<GlyphInstance>());
-        Assert.Equal(64, System.Runtime.InteropServices.Marshal.SizeOf<GpuPlacement>());
-
-        GpuPlacement identity = GpuPlacement.Identity;
-        Assert.Equal(new System.Numerics.Vector4(1f, 0f, 0f, 0f), identity.TransformRow0);
-        Assert.Equal(new System.Numerics.Vector4(0f, 1f, 0f, 0f), identity.TransformRow1);
-        Assert.Equal(1f, identity.Opacity);
-
-        Assert.Contains("@builtin(instance_index) placementIndex: u32", Shaders.VectorShader, StringComparison.Ordinal);
-        Assert.Contains("if (placementIndex == 0u)", Shaders.VectorShader, StringComparison.Ordinal);
-        Assert.Contains("@location(8) placementIndex: u32", Shaders.TextShader, StringComparison.Ordinal);
-        Assert.Contains("if (input.placementIndex != 0u)", Shaders.TextShader, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void TextureShaderSupportsBatchedFixedColorLatticeCells()
     {
         Assert.Contains("@location(3) patchKind: f32", Shaders.TextureShader, StringComparison.Ordinal);

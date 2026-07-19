@@ -1,6 +1,6 @@
 // Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves and arcs, then shade fills, strokes, gradients, vertex-color blends, and anti-aliased edges.
 // Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits.
-// Space complexity: O(1) local storage and a bounded number of uniform/storage reads, including one placement read only for retained non-identity draws.
+// Space complexity: O(1) local storage and a bounded number of uniform/storage reads.
 struct Brush {
     brushType: u32,
     opacity: f32,
@@ -39,21 +39,10 @@ struct Uniforms {
     canvasSize: vec2<f32>,
 };
 
-struct Placement {
-    transformRow0: vec4<f32>,
-    transformRow1: vec4<f32>,
-    clipRect: vec4<f32>,
-    opacity: f32,
-    flags: u32,
-    generation: u32,
-    padding: u32,
-};
-
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> brushes: array<Brush>;
 @group(0) @binding(2) var<storage, read> gradientStops: array<GradientStop>;
-@group(0) @binding(3) var<storage, read> placements: array<Placement>;
 @group(1) @binding(0) var pathAtlasSampler: sampler;
 @group(1) @binding(1) var pathAtlasTexture: texture_2d<f32>;
 @group(2) @binding(0) var maskSampler: sampler;
@@ -482,23 +471,8 @@ fn is_angle_inside_arc(theta: f32, theta1: f32, deltaTheta: f32) -> bool {
     return along <= span + 0.001;
 }
 
-fn apply_placement(position: vec2<f32>, placementIndex: u32) -> vec2<f32> {
-    if (placementIndex == 0u) {
-        return position;
-    }
-
-    let placement = placements[placementIndex];
-    let homogeneous = vec3<f32>(position, 1.0);
-    return vec2<f32>(
-        dot(homogeneous, placement.transformRow0.xyz),
-        dot(homogeneous, placement.transformRow1.xyz));
-}
-
 @vertex
-fn vs_main(
-    input: VertexInput,
-    @builtin(vertex_index) vertexIndex: u32,
-    @builtin(instance_index) placementIndex: u32) -> VertexOutput {
+fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var output: VertexOutput;
 
     var encodedShapeType = input.shapeType;
@@ -717,7 +691,6 @@ fn vs_main(
             // worldPos is already in screen-space. Do not transform it again!
             pos = worldPos;
         }
-        pos = apply_placement(pos, placementIndex);
         output.position = uniforms.projection * vec4<f32>(pos, 0.0, 1.0);
     }
     output.color = inColor;

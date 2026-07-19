@@ -211,8 +211,7 @@ public unsafe class DxfStaticBuffer : IDisposable
         BindGroupLayout* layoutOffscreen,
         BindGroupLayout* textLayout,
         BindGroupLayout* textLayoutOffscreen,
-        BindGroupLayout* retainedGlyphLayout,
-        GpuBuffer placementBuffer)
+        BindGroupLayout* retainedGlyphLayout)
     {
         if (UniformBuffer == null) return;
         
@@ -241,24 +240,15 @@ public unsafe class DxfStaticBuffer : IDisposable
             Size = GradientStopsBuffer.Size
         };
 
-        var placementEntry = new BindGroupEntry
-        {
-            Binding = 3,
-            Buffer = placementBuffer.BufferPtr,
-            Offset = 0,
-            Size = placementBuffer.Size
-        };
-
-        var vectorEntries = stackalloc BindGroupEntry[4];
+        var vectorEntries = stackalloc BindGroupEntry[3];
         vectorEntries[0] = uBufferEntryVector;
         vectorEntries[1] = brushesEntry;
         vectorEntries[2] = gradientStopsEntry;
-        vectorEntries[3] = placementEntry;
 
         var uDescVector = new BindGroupDescriptor
         {
             Layout = layout,
-            EntryCount = 4,
+            EntryCount = 3,
             Entries = vectorEntries
         };
         UniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVector);
@@ -266,7 +256,7 @@ public unsafe class DxfStaticBuffer : IDisposable
         var uDescVectorOffscreen = new BindGroupDescriptor
         {
             Layout = layoutOffscreen,
-            EntryCount = 4,
+            EntryCount = 3,
             Entries = vectorEntries
         };
         UniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
@@ -280,24 +270,19 @@ public unsafe class DxfStaticBuffer : IDisposable
             Size = UniformBuffer.Size
         };
 
-        placementEntry.Binding = 1;
-        var textEntries = stackalloc BindGroupEntry[2];
-        textEntries[0] = uBufferEntryText;
-        textEntries[1] = placementEntry;
-
         var uDescText = new BindGroupDescriptor
         {
             Layout = textLayout,
-            EntryCount = 2,
-            Entries = textEntries
+            EntryCount = 1,
+            Entries = &uBufferEntryText
         };
         TextUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescText);
 
         var uDescTextOffscreen = new BindGroupDescriptor
         {
             Layout = textLayoutOffscreen,
-            EntryCount = 2,
-            Entries = textEntries
+            EntryCount = 1,
+            Entries = &uBufferEntryText
         };
         TextUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
 

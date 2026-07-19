@@ -1,6 +1,6 @@
 // Algorithm: Transform glyph quads and modulate premultiplied text color by glyph-atlas coverage.
 // Time complexity: O(1) per vertex and fragment.
-// Space complexity: O(1) local storage with one atlas sample per fragment and one placement read only for retained non-identity glyphs.
+// Space complexity: O(1) local storage with one atlas sample per fragment.
 struct VertexInput {
     @builtin(vertex_index) vertexIndex: u32,
     @location(0) snappedLogicalPos: vec2<f32>,
@@ -11,7 +11,6 @@ struct VertexInput {
     @location(5) color: vec4<f32>,
     @location(6) scaleBoldItalicUseMvp: vec4<f32>,
     @location(7) brushIndex: f32,
-    @location(8) placementIndex: u32,
 };
 
 struct VertexOutput {
@@ -32,18 +31,7 @@ struct Uniforms {
     pad0: f32,
 };
 
-struct Placement {
-    transformRow0: vec4<f32>,
-    transformRow1: vec4<f32>,
-    clipRect: vec4<f32>,
-    opacity: f32,
-    flags: u32,
-    generation: u32,
-    padding: u32,
-};
-
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> placements: array<Placement>;
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
@@ -109,14 +97,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
     if (useMvp > 0.5) {
         finalPosLogical = (uniforms.mvp * vec4<f32>(finalPosLogical, 0.0, 1.0)).xy;
-    }
-
-    if (input.placementIndex != 0u) {
-        let placement = placements[input.placementIndex];
-        let homogeneous = vec3<f32>(finalPosLogical, 1.0);
-        finalPosLogical = vec2<f32>(
-            dot(homogeneous, placement.transformRow0.xyz),
-            dot(homogeneous, placement.transformRow1.xyz));
     }
 
     output.position = uniforms.projection * vec4<f32>(finalPosLogical, 0.0, 1.0);
