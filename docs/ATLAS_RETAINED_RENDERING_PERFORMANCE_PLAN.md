@@ -194,14 +194,12 @@ The initial portable record is 64 bytes and naturally aligned:
 - one `vec4<f32>` effective clip rectangle in physical target coordinates;
 - opacity, flags, generation, and padding.
 
-Index zero is immutable identity/no-clip/full-opacity. Vector draws pass their
-placement index through WebGPU's existing `firstInstance` value and read it as
-`instance_index`; this avoids enlarging the 56-byte `VectorVertex` or increasing
-steady vector upload bandwidth. `GlyphInstance` reuses its existing final 4-byte
-padding for the placement index, preserving its 96-byte stride. The vertex
-shaders fetch a record only for a nonzero index and apply it before the unchanged
-projection, coverage, texture, gamma, and blend logic. Texture/effect commands
-remain on the existing path until they receive equivalent typed support.
+Index zero is immutable identity/no-clip/full-opacity. Existing vertices default
+to zero so the first shader/ABI stage is behavior-neutral. `VectorVertex` gains a
+32-bit placement index; `GlyphInstance` reuses its existing final 4-byte padding.
+The vertex shaders fetch one record and apply it before the unchanged projection,
+coverage, texture, gamma, and blend logic. Texture/effect commands remain on the
+existing path until they receive equivalent typed support.
 
 ### Persistent arenas and fixed virtualized slots
 
