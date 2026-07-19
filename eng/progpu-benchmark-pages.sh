@@ -8,6 +8,7 @@ configuration="Release"
 warmup_frames=180
 measure_frames=600
 scroll_step=40
+vector_engine="atlas"
 output_dir="$repo_root/artifacts/performance/$(date -u +%Y%m%dT%H%M%SZ)"
 build=true
 pages=()
@@ -24,6 +25,7 @@ usage() {
 #   --warmup N        Warmup frames per process (default: 180).
 #   --frames N        Measured frames per process (default: 600).
 #   --scroll-step N   Per-frame scroll delta for scroll-enabled pages (default: 40).
+#   --vector-engine E Select atlas or wavefront rendering (default: atlas).
 #   --output DIR      Result directory (default: artifacts/performance/<UTC stamp>).
 #   --no-build        Reuse an existing Release build.
 #   --help            Show this help.
@@ -55,6 +57,10 @@ while (($#)); do
       scroll_step="${2:?--scroll-step requires a value}"
       shift 2
       ;;
+    --vector-engine)
+      vector_engine="${2:?--vector-engine requires atlas or wavefront}"
+      shift 2
+      ;;
     --output)
       output_dir="${2:?--output requires a directory}"
       shift 2
@@ -74,6 +80,15 @@ while (($#)); do
       ;;
   esac
 done
+
+case "$(printf '%s' "$vector_engine" | tr '[:upper:]' '[:lower:]')" in
+  atlas) vector_engine="Atlas" ;;
+  wavefront) vector_engine="Wavefront" ;;
+  *)
+    echo "Vector engine must be atlas or wavefront: $vector_engine" >&2
+    exit 2
+    ;;
+esac
 
 for value in "$warmup_frames" "$measure_frames"; do
   if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
@@ -111,6 +126,7 @@ for page in "${pages[@]}"; do
       PROGPU_SAMPLE_BENCHMARK_VSYNC=false \
       PROGPU_SAMPLE_BENCHMARK_SCROLL=true \
       PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP="$scroll_step" \
+      PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE="$vector_engine" \
       dotnet run --project "$project" --configuration "$configuration" --no-build \
         >"$log" 2>&1; then
     failed=$((failed + 1))

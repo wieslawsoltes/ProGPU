@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ProGPU.Backend;
+using ProGPU.Scene;
 
 namespace ProGPU.Samples;
 
@@ -16,6 +17,7 @@ internal static class SamplePerformanceBenchmark
     private const string ScrollVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL";
     private const string ScrollStepVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP";
     private const string GpuCompletionVariable = "PROGPU_SAMPLE_BENCHMARK_GPU_COMPLETION";
+    private const string VectorEngineVariable = "PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE";
 
     private static readonly int s_warmupFrames = ReadPositiveInt(WarmupFramesVariable, 180);
     private static readonly int s_measureFrames = ReadPositiveInt(MeasureFramesVariable, 600);
@@ -75,6 +77,7 @@ internal static class SamplePerformanceBenchmark
     private static readonly bool s_scrollWorkload = ReadOptionalBool(ScrollVariable) == true;
     private static readonly bool s_scriptedScrollWorkload = s_scrollWorkload && IsScriptedScrollPage(RequestedPage);
     private static readonly bool s_gpuCompletionTracking = ReadOptionalBool(GpuCompletionVariable) != false;
+    private static readonly Compositor.VectorRenderingEngine? s_requestedVectorEngine = ReadVectorEngine();
     private static readonly float s_scrollStep = ReadPositiveFloat(ScrollStepVariable, 40f);
     private static readonly double[] s_frameIntervalSamples = new double[s_measureFrames];
     private static readonly double[] s_totalFrameSamples = new double[s_measureFrames];
@@ -113,6 +116,19 @@ internal static class SamplePerformanceBenchmark
             }
         }
 
+        if (s_requestedVectorEngine is { } vectorEngine)
+        {
+            AppState.VectorEngine = vectorEngine;
+            if (AppState._screenCompositor != null)
+            {
+                AppState._screenCompositor.VectorEngine = vectorEngine;
+            }
+            if (AppState._offscreenCompositor != null)
+            {
+                AppState._offscreenCompositor.VectorEngine = vectorEngine;
+            }
+        }
+
         if (s_gpuCompletionTracking && AppState._wgpuContext is { } benchmarkContext)
         {
             benchmarkContext.EnableFrameCompletionTracking = true;
@@ -125,7 +141,8 @@ internal static class SamplePerformanceBenchmark
             $"[SampleBenchmark] page={selectedPage} warmupFrames={s_warmupFrames}" +
             $" measureFrames={s_measureFrames} vsync={AppState._wgpuContext?.VSync}" +
             $" workload={(s_scriptedScrollWorkload ? "scroll" : "retained-replay")}" +
-            $" scrollStep={s_scrollStep:F0} gpuCompletion={s_gpuCompletionTracking}");
+            $" scrollStep={s_scrollStep:F0} gpuCompletion={s_gpuCompletionTracking}" +
+            $" vectorEngine={AppState.VectorEngine}");
     }
 
     public static void ObserveFrame(double deltaSeconds)
@@ -459,6 +476,9 @@ internal static class SamplePerformanceBenchmark
             $" wavefrontCacheHits={finalMetrics?.WavefrontGeometryCacheHits ?? 0}" +
             $" wavefrontCacheMisses={finalMetrics?.WavefrontGeometryCacheMisses ?? 0}" +
             $" wavefrontRetainedLines={finalMetrics?.WavefrontRetainedLineSegmentCount ?? 0}" +
+            $" wavefrontRetainedTransforms={finalMetrics?.WavefrontRetainedTransformCount ?? 0}" +
+            $" wavefrontUploadedInstances={finalMetrics?.WavefrontUploadedInstanceCount ?? 0}" +
+            $" wavefrontUploadedTransforms={finalMetrics?.WavefrontUploadedTransformCount ?? 0}" +
             $" gpuTimestampFailures={failedGpuTimestamps}" +
             $" gpuTimestampDrops={droppedGpuTimestamps}" +
             $" allocatedBytesPerFrame={allocatedBytes / divisor:F0}" +
@@ -597,12 +617,13 @@ internal static class SamplePerformanceBenchmark
         using (var writer = new Utf8JsonWriter(output))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", 4);
+            writer.WriteNumber("schemaVersion", 5);
             writer.WriteString("page", RequestedPage);
             writer.WriteString("platform", OperatingSystem.IsBrowser() ? "browser" : "desktop");
             writer.WriteString("backend", AppState._wgpuContext?.BackendKind.ToString());
             writer.WriteString("colorFormat", AppState._wgpuContext?.SwapChainFormat.ToString());
             writer.WriteString("workload", s_scriptedScrollWorkload ? "scroll" : "retained-replay");
+            writer.WriteString("vectorEngine", AppState.VectorEngine.ToString());
             writer.WriteBoolean("vsync", AppState._wgpuContext?.VSync ?? false);
             writer.WriteBoolean("scroll", s_scriptedScrollWorkload);
             writer.WriteBoolean("gpuCompletionTracking", s_gpuCompletionTracking);
@@ -692,6 +713,9 @@ internal static class SamplePerformanceBenchmark
             writer.WriteNumber("wavefrontGeometryCacheHits", compositorMetrics?.WavefrontGeometryCacheHits ?? 0);
             writer.WriteNumber("wavefrontGeometryCacheMisses", compositorMetrics?.WavefrontGeometryCacheMisses ?? 0);
             writer.WriteNumber("wavefrontRetainedLineSegments", compositorMetrics?.WavefrontRetainedLineSegmentCount ?? 0);
+            writer.WriteNumber("wavefrontRetainedTransforms", compositorMetrics?.WavefrontRetainedTransformCount ?? 0);
+            writer.WriteNumber("wavefrontUploadedInstances", compositorMetrics?.WavefrontUploadedInstanceCount ?? 0);
+            writer.WriteNumber("wavefrontUploadedTransforms", compositorMetrics?.WavefrontUploadedTransformCount ?? 0);
             writer.WriteNumber("sceneCacheHits", s_sceneCacheHitFrames);
             writer.WriteString("sceneCacheMiss", compositorMetrics?.SceneCacheMissReason ?? "none");
             writer.WriteNumber("draws", compositorMetrics?.DrawCallsCount ?? 0);
@@ -757,6 +781,21 @@ internal static class SamplePerformanceBenchmark
     {
         string? value = Environment.GetEnvironmentVariable(PageVariable);
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static Compositor.VectorRenderingEngine? ReadVectorEngine()
+    {
+        string? value = Environment.GetEnvironmentVariable(VectorEngineVariable);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        if (Enum.TryParse(value.Trim(), ignoreCase: true, out Compositor.VectorRenderingEngine parsed))
+        {
+            return parsed;
+        }
+        throw new InvalidOperationException(
+            $"{VectorEngineVariable} must be Atlas or Wavefront; received '{value}'.");
     }
 
     private static bool IsScriptedScrollPage(string? page) => page is not null &&

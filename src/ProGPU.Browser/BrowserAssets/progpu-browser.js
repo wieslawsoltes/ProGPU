@@ -1226,8 +1226,11 @@ function dispatchUpload(address, length) {
   const heap = runtime.localHeapViewU8();
   if (address < 0 || length < 0 || address + length > heap.byteLength) throw new RangeError('Upload is outside WASM memory.');
   if (state.worker) {
-    const upload = heap.slice(address, address + length).buffer;
-    state.worker.postMessage({ type: 'upload', upload }, [upload]);
+    // Preserve command/upload ordering: a queued packet may still reference the previous upload.
+    flushWorkerPackets();
+    const upload = acquireWorkerPacketBuffer(length);
+    new Uint8Array(upload, 0, length).set(heap.subarray(address, address + length));
+    state.worker.postMessage({ type: 'upload', upload, length }, [upload]);
     return;
   }
   state.uploads = heap.subarray(address, address + length);
@@ -1399,9 +1402,14 @@ async function handleDispatcherWorkerMessage(event) {
         await state.device.queue.onSubmittedWorkDone();
         globalThis.postMessage({ type: 'response', id: message.id, completed: true });
         break;
-      case 'upload':
-        state.uploads = new Uint8Array(message.upload);
+      case 'upload': {
+        const previousUpload = state.uploads?.buffer;
+        state.uploads = new Uint8Array(message.upload, 0, message.length);
+        if (previousUpload instanceof ArrayBuffer && previousUpload.byteLength > 0) {
+          globalThis.postMessage({ type: 'recycle-packets', buffers: [previousUpload] }, [previousUpload]);
+        }
         break;
+      }
       case 'map-buffer': {
         await mapBuffer(message.handle, message.mode, message.offset, message.size);
         const mapped = state.mappedBuffers.get(message.handle);

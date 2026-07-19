@@ -59,10 +59,13 @@ The first Phase 0 instrumentation pass added explicit queue-completion accountin
 The canonical process-isolated desktop sweep is:
 
 ```bash
-eng/progpu-benchmark-pages.sh --all
+eng/progpu-benchmark-pages.sh --all --vector-engine atlas
+eng/progpu-benchmark-pages.sh --all --vector-engine wavefront
 ```
 
 It reads `eng/performance/sample-pages.txt`, launches every page in its own Release process, and writes complete logs plus JSONL and CSV artifacts. A source test requires the manifest order to match the actual navigation declarations so newly added pages cannot silently escape the performance sweep.
+The vector engine is now an explicit process input and schema-v5 JSON field, preventing Atlas and
+Wavefront results from being merged or compared without their renderer identity.
 
 ### Implementation checkpoint: retained fragments and non-blocking retirement
 
@@ -866,9 +869,25 @@ are implemented and CPU-qualified.
 - Wavefront no longer disables the whole-scene cache unconditionally. A compatible static cache hit
   retains the instance list and replays it without visual-tree traversal or geometry discovery;
   accepted path/glyph, fallback, cache hit/miss, and retained-line counters make that route visible.
-  A scene containing shared mutable retained-transform nodes remains on the full correctness path
-  because Wavefront instances do not yet index the compositor transform table. The native path test
-  now requires a second-frame scene-cache hit and identical center coverage.
+  The native path test now requires a second-frame scene-cache hit and identical center coverage.
+- The 2026-07-19 retained-spatial checkpoint removes the remaining scroll-transform replay gap.
+  Each 192-byte immutable shape instance uses its former padding word as a stable transform-table
+  index, so the instance ABI does not grow. A separate 128-byte record stores the retained transform
+  and inverse. The WGSL binner, coarse classifier, and fine rasterizer compose that record with the
+  local instance transform; their inverse order is explicit for the C# row-vector/WGSL column-vector
+  boundary. Translation-only transform slots are allocated lazily, recycled after the owning scene
+  resource expires, and patched independently. A compiled scroll replay therefore uploads one
+  transform record and zero shape instances instead of rebuilding the visual tree and rewriting the
+  instance stream. Identity slot zero remains immutable, arbitrary camera/MVP commands stay on the
+  established renderer, and scale-changing spatial transforms remain rejected so the adaptive
+  flattening tolerance cannot become stale.
+- CPU-qualified regressions protect the 192-byte instance and 128-byte transform ABI, the transform
+  index offset, composed coverage-cell bounds, shader transform-table consumption, and the unchanged
+  instance matrix after a retained move. A native pixel regression additionally requires a moved
+  Wavefront path to hit the compiled-scene cache, upload zero instances and one transform, and clear
+  the old pixels. Managed compilation succeeds, but this sandbox currently exposes no suitable
+  WebGPU adapter, so that pixel test remains an explicit external runtime gate rather than a claimed
+  executed result.
 - The former cell-centric `for every instance` shader and fixed 64-index slab are removed. One invocation per instance transforms its four bounds corners and atomically ORs its painter-index bit into each covered 16 x 16 cell. This performs `O(I + O)` invocation/overlap work for `I` instances and `O` actual overlaps.
 - Coverage words are cell-major and instance-word-minor. A popcount pass writes exact word counts into the reusable hierarchical `GpuPrefixScan`; deterministic scatter enumerates words and set bits in increasing order. Each cell receives one exact contiguous range with source painter order preserved. Atomic scheduling cannot reorder output.
 - The CPU computes only the exact overlap capacity in `O(I)` from transformed rectangles, with no GPU readback. A count beyond the backend's 32-bit buffer addressability rejects the frame explicitly before encoding; it cannot truncate or silently drop shapes.
@@ -1127,6 +1146,14 @@ for deployments without shared WASM memory or cross-origin isolation. JavaScript
 the dependency build, and a source regression protecting transfer, length, return, bounds, and the
 absence of `heap.slice` pass; browser runtime allocation measurement remains part of the AOT gate.
 
+The same pool now covers worker upload payloads. Before replacing the upload view, the main thread
+flushes its pending command batch so commands cannot observe the next upload prematurely. The worker
+recycles the previous transferable only after all earlier messages have been decoded in sender order;
+WebGPU queue write calls have synchronously consumed their JavaScript source bytes by that boundary.
+The final active upload stays owned by the worker, large uploads remain unpooled, and no
+`heap.slice(address, address + length).buffer` path remains. The focused source regression caught and
+closed this allocation after the original command-packet pool checkpoint.
+
 The browser, sample, and test dependency graphs compile on .NET 10 Release. Earlier working-tree AOT
 publishes closed the retained-transform, scan, stable-binner, browser-indirect, and multi-page-atlas
 managed call graph. A final republish after the sample-only Phase 6 cleanup could not complete in this
@@ -1142,6 +1169,13 @@ The post-transfer-pool retry produced every Release dependency through `ProGPU.S
 stalled silently at the AOT/ILLink tool-host boundary for more than one minute. It was cancelled and
 the build servers were shut down. This third reproduction narrows the gap to sandboxed tool-host IPC;
 it does not change the mandatory clean AOT and browser-runtime gate.
+
+The retained-transform checkpoint repeated the Release publish after the managed and shader-source
+tests passed. It again built every dependency through `ProGPU.Samples` and produced no AOT/ILLink
+progress before cancellation; build servers were shut down. A desktop Wavefront smoke benchmark was
+also attempted with the new explicit engine selector, but the sandbox could not connect to macOS
+LaunchServices/GUI services and produced no benchmark record. These are validation gaps: neither an
+AOT success nor a throughput result is inferred from them.
 
 Deliverables:
 

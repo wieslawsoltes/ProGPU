@@ -142,7 +142,23 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("packets.map(packet => packet.buffer)", browserAsset, StringComparison.Ordinal);
         Assert.Contains("type: 'recycle-packets'", browserAsset, StringComparison.Ordinal);
         Assert.Contains("new Uint8Array(packetRecord.buffer, 0, packetRecord.length)", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("flushWorkerPackets();\n    const upload = acquireWorkerPacketBuffer(length);", browserAsset.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("new Uint8Array(message.upload, 0, message.length)", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("previousUpload.byteLength > 0", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain("heap.slice(address, address + length).buffer", browserAsset, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PerformanceSweepSelectsAndRecordsVectorEngineExplicitly()
+    {
+        var benchmark = Read("src", "ProGPU.Samples", "SamplePerformanceBenchmark.cs");
+        var sweep = Read("eng", "progpu-benchmark-pages.sh");
+
+        Assert.Contains("PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE", benchmark, StringComparison.Ordinal);
+        Assert.Contains("writer.WriteString(\"vectorEngine\"", benchmark, StringComparison.Ordinal);
+        Assert.Contains("writer.WriteNumber(\"schemaVersion\", 5)", benchmark, StringComparison.Ordinal);
+        Assert.Contains("--vector-engine", sweep, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE=\"$vector_engine\"", sweep, StringComparison.Ordinal);
     }
 
     [Fact]
