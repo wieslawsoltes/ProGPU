@@ -302,8 +302,11 @@ public unsafe class GlyphAtlas : IDisposable
             if (!cached.IsCapacityFallback ||
                 !preferGlyphAtlas || cached.LastUsedFrame == _frameNumber)
             {
-                cached.LastUsedFrame = _frameNumber;
-                _glyphs[key] = cached;
+                if (cached.LastUsedFrame != _frameNumber)
+                {
+                    cached.LastUsedFrame = _frameNumber;
+                    _glyphs[key] = cached;
+                }
                 return cached.Info;
             }
 
