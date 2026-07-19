@@ -144,8 +144,8 @@ rendering, completion tracking, and a maximum queue depth of two.
 
 | Browser AOT page | GPU-completed FPS | Compile avg / p95 | Allocation/frame | Upload/frame | Cache behavior |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Data Virtualization | 238.21 | 2.685 / 3.600 ms | 27,499 B | 80,533 B | 0 hits; 18.57 fragment reuses and 1.43 updates/frame |
-| Font Glyph Browser | 223.97 | 2.155 / 4.400 ms | 68,435 B | 103,148 B | 236 hits; range-boundary misses dominate |
+| Data Virtualization | 229.56-238.21 | 2.685-2.706 / 3.600 ms | 27,398-27,499 B | 80,533-80,534 B | 0 hits; 18.57 fragment reuses and 1.43 updates/frame |
+| Font Glyph Browser | 216.14 | 2.184 / 4.400 ms | 68,638 B | 102,595 B | 238 hits; range-boundary misses dominate |
 | Inter Typeface | 470.27 | 0.463 / 3.400 ms | 26,221 B | 55,395 B | 520 hits |
 | Markdown | 464.00 | 0.206 / 0.100 ms | recorded in benchmark artifact | retained replay | 573 hits in the reference run |
 
@@ -160,10 +160,10 @@ Transform-only control runs with a one-pixel scroll step isolate the mutation-bo
 
 | Page | 40 px step | 1 px transform-only step | Interpretation |
 | --- | ---: | ---: | --- |
-| Data Virtualization | 238 completed FPS | 552 completed FPS | row entry/rebind/compile is the dominant 40 px cost |
-| Font Glyph Browser | 224 completed FPS | 534 completed FPS | realized-range turnover dominates; atlas work is small |
+| Data Virtualization | 230-238 completed FPS | 552 completed FPS | row entry/rebind/compile is the dominant 40 px cost |
+| Font Glyph Browser | 216 completed FPS | 478 completed FPS | realized-range turnover dominates; atlas work is small |
 
-Even transform-only replay tops out near 530-550 completed FPS at this physical target. Therefore the
+Correct transform-only replay tops out near 478-552 completed FPS at this physical target. Therefore the
 1000 FPS target cannot be reached on this browser/GPU by control changes alone. The remaining path
 must reduce both presentation/fill cost and command replay: dirty-rectangle or preserved-tile
 scrolling, partial target updates where the swapchain permits them, fewer full-frame color writes,
@@ -182,12 +182,13 @@ Quality and interaction qualification on this AOT output found:
   cursor, drag pan matched the pointer delta, and the fit command restored the original bounds.
 - Data Virtualization, Inter, Markdown, navigation icons, and ordinary text rendered sharply with no
   browser errors in the sampled pages.
-- Font Glyph Browser is a correctness blocker: benchmark diagnostics report 28 realized cells and
-  28 emitted glyph commands, but the cell surface is visually empty and pointer hit testing reaches
-  the ItemsControl rather than a cell. Font parsing, metrics, the large glyph preview, and atlas
-  generation are working, so this is currently classified as retained virtualized-child
-  placement/hit-test replay, not missing glyph data. The 224 FPS number is retained for diagnosis
-  only and is not an acceptable performance success until every realized cell is visible.
+- Font Glyph Browser exposed a repeated-arrange correctness defect in both virtualizing panels. The
+  generic base arrange stretched realized cells to the complete 42,000-pixel virtual extent, then a
+  cached-range early return skipped restoring item rectangles, placing cells around Y=21,000. Grid
+  and stack panels now restore O(V) active item geometry after an actual arrange without recycling,
+  rebinding, or advancing the reconciliation counter. Focused repeated-arrange tests pass, and the
+  republished AOT page visibly renders cards, labels, outlines, and the scrolled glyph range. Its
+  corrected 40-pixel and one-pixel results are 216.14 and 477.60 completed FPS respectively.
 - The local DXF picker reaches the browser file-input path, but the in-app browser automation surface
   does not support assigning a file to a chooser. Source and focused tests verify cancellation-safe
   direct byte transfer into the WASM filesystem; an interactive Chrome/native chooser run remains a
