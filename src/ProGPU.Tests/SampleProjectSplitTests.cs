@@ -118,7 +118,7 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("if (vsync) return new Promise(resolve => requestAnimationFrame(resolve));", browserAsset, StringComparison.Ordinal);
         Assert.Contains("const uncappedFrameChannel = new MessageChannel();", browserAsset, StringComparison.Ordinal);
         Assert.Contains("uncappedFrameChannel.port2.postMessage(0);", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 2;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 3;", browserAsset, StringComparison.Ordinal);
         Assert.Contains("state.device.queue.onSubmittedWorkDone()", browserAsset, StringComparison.Ordinal);
         Assert.Contains("type: 'uncapped-frame-fence'", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain(

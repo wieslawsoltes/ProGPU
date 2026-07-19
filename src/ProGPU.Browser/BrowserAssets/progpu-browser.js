@@ -50,7 +50,11 @@ const BENCHMARK_QUERY_VARIABLES = Object.freeze({
 });
 const uncappedFrameResolvers = [];
 const uncappedGpuFenceResolvers = [];
-const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 2;
+// Keep enough queued work to overlap WASM scene preparation, browser IPC, and
+// GPU execution without turning uncapped mode into an unbounded producer. A
+// three-frame window adds one overlap slot while retaining an explicit, small
+// latency bound instead of forcing full queue completion every other frame.
+const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 3;
 let uncappedFramesSinceFence = 0;
 const uncappedFrameChannel = new MessageChannel();
 uncappedFrameChannel.port1.onmessage = async () => {
@@ -63,9 +67,9 @@ uncappedFrameChannel.port1.onmessage = async () => {
     return;
   }
 
-  // Bound producer/consumer latency instead of flooding the WebGPU queue. Two
-  // frames remain available for CPU/GPU overlap, then the oldest submitted work
-  // must finish before the next frame is admitted.
+  // Bound producer/consumer latency instead of flooding the WebGPU queue. Three
+  // frames remain available for CPU/browser/GPU overlap, then all work submitted
+  // before this fence must finish before the next frame is admitted.
   if (state.worker) {
     uncappedGpuFenceResolvers.push(() => {
       uncappedFramesSinceFence = 1;
