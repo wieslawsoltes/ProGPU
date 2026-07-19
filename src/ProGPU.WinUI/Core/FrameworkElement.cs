@@ -11,6 +11,8 @@ using System.Runtime.CompilerServices;
 using Silk.NET.Input;
 using ProGPU.Layout;
 using ProGPU.Scene;
+using Microsoft.UI.Input;
+using Windows.Devices.Input;
 
 namespace Microsoft.UI.Xaml;
 
@@ -38,6 +40,62 @@ public class PointerRoutedEventArgs : RoutedEventArgs
     public bool IsMiddleButtonPressed { get; set; }
     public bool IsRightButtonPressed { get; set; }
     public float WheelDelta { get; set; }
+    public Pointer Pointer { get; set; } = new(1, PointerDeviceType.Mouse, false);
+    public ulong Timestamp { get; set; }
+    public bool IsPrimary { get; set; } = true;
+    public float Pressure { get; set; }
+    public Rect ContactRect { get; set; }
+    public VirtualKeyModifiers KeyModifiers { get; set; }
+    public bool IsCanceled { get; set; }
+    internal IReadOnlyList<PointerPoint>? IntermediatePoints { get; set; }
+
+    public PointerPoint GetCurrentPoint(FrameworkElement? relativeTo)
+    {
+        var position = InputSystem.GetLocalPosition(relativeTo, ScreenPosition);
+        return CreatePoint(position);
+    }
+
+    public IReadOnlyList<PointerPoint> GetIntermediatePoints(FrameworkElement? relativeTo)
+    {
+        if (IntermediatePoints == null || IntermediatePoints.Count == 0)
+        {
+            return new[] { GetCurrentPoint(relativeTo) };
+        }
+
+        var result = new PointerPoint[IntermediatePoints.Count];
+        for (var index = 0; index < result.Length; index++)
+        {
+            var point = IntermediatePoints[index];
+            result[index] = new PointerPoint(
+                point.PointerId,
+                point.Timestamp,
+                InputSystem.GetLocalPosition(relativeTo, point.RawPosition),
+                point.RawPosition,
+                point.PointerDevice.PointerDeviceType,
+                point.IsInContact,
+                point.Properties);
+        }
+        return result;
+    }
+
+    private PointerPoint CreatePoint(Vector2 position) => new(
+        Pointer.PointerId,
+        Timestamp,
+        position,
+        ScreenPosition,
+        Pointer.PointerDeviceType,
+        Pointer.IsInContact,
+        new PointerPointProperties
+        {
+            IsLeftButtonPressed = IsLeftButtonPressed,
+            IsMiddleButtonPressed = IsMiddleButtonPressed,
+            IsRightButtonPressed = IsRightButtonPressed,
+            IsPrimary = IsPrimary,
+            IsCanceled = IsCanceled,
+            Pressure = Pressure,
+            ContactRect = ContactRect,
+            MouseWheelDelta = (int)WheelDelta
+        });
 }
 
 public partial class FrameworkElement
@@ -643,10 +701,45 @@ public partial class FrameworkElement
     public event EventHandler<PointerRoutedEventArgs>? PointerEntered;
     public event EventHandler<PointerRoutedEventArgs>? PointerExited;
     public event EventHandler<PointerRoutedEventArgs>? PointerWheelChanged;
+    public event EventHandler<PointerRoutedEventArgs>? PointerCanceled;
+    public event EventHandler<PointerRoutedEventArgs>? PointerCaptureLost;
+
+    public event EventHandler<TappedRoutedEventArgs>? Tapped;
+    public event EventHandler<DoubleTappedRoutedEventArgs>? DoubleTapped;
+    public event EventHandler<RightTappedRoutedEventArgs>? RightTapped;
+    public event EventHandler<HoldingRoutedEventArgs>? Holding;
+    public event EventHandler<ManipulationStartingRoutedEventArgs>? ManipulationStarting;
+    public event EventHandler<ManipulationStartedRoutedEventArgs>? ManipulationStarted;
+    public event EventHandler<ManipulationDeltaRoutedEventArgs>? ManipulationDelta;
+    public event EventHandler<ManipulationInertiaStartingRoutedEventArgs>? ManipulationInertiaStarting;
+    public event EventHandler<ManipulationCompletedRoutedEventArgs>? ManipulationCompleted;
 
     public event EventHandler<KeyRoutedEventArgs>? KeyDown;
     public event EventHandler<KeyRoutedEventArgs>? KeyUp;
     public event EventHandler<CharacterReceivedRoutedEventArgs>? CharacterReceived;
+    public event EventHandler<TextInputRoutedEventArgs>? TextInput;
+
+    public static readonly DependencyProperty ManipulationModeProperty =
+        DependencyProperty.Register(
+            nameof(ManipulationMode),
+            typeof(ManipulationModes),
+            typeof(FrameworkElement),
+            new PropertyMetadata(ManipulationModes.System));
+
+    public ManipulationModes ManipulationMode
+    {
+        get => (ManipulationModes)(GetValue(ManipulationModeProperty) ?? ManipulationModes.System);
+        set => SetValue(ManipulationModeProperty, value);
+    }
+
+    public bool IsTapEnabled { get; set; } = true;
+    public bool IsDoubleTapEnabled { get; set; } = true;
+    public bool IsRightTapEnabled { get; set; } = true;
+    public bool IsHoldingEnabled { get; set; } = true;
+
+    public bool CapturePointer(Pointer pointer) => InputSystem.CapturePointer(this, pointer);
+    public void ReleasePointerCapture(Pointer pointer) => InputSystem.ReleasePointerCapture(this, pointer);
+    public void ReleasePointerCaptures() => InputSystem.ReleasePointerCaptures(this);
 
     // Drag & Drop Events
     public event EventHandler<DragEventArgs>? DragEnter;
@@ -722,6 +815,49 @@ public partial class FrameworkElement
         {
             parentFe.OnPointerWheelChanged(e);
         }
+    }
+
+    public virtual void OnPointerCanceled(PointerRoutedEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        IsPointerPressed = false;
+        PointerCanceled?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe) parentFe.OnPointerCanceled(e);
+    }
+
+    public virtual void OnPointerCaptureLost(PointerRoutedEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        IsPointerPressed = false;
+        PointerCaptureLost?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe) parentFe.OnPointerCaptureLost(e);
+    }
+
+    public virtual void OnTapped(TappedRoutedEventArgs e) => RaiseGesture(e, Tapped, static (p, a) => p.OnTapped(a));
+    public virtual void OnDoubleTapped(DoubleTappedRoutedEventArgs e) => RaiseGesture(e, DoubleTapped, static (p, a) => p.OnDoubleTapped(a));
+    public virtual void OnRightTapped(RightTappedRoutedEventArgs e) => RaiseGesture(e, RightTapped, static (p, a) => p.OnRightTapped(a));
+    public virtual void OnHolding(HoldingRoutedEventArgs e) => RaiseGesture(e, Holding, static (p, a) => p.OnHolding(a));
+
+    public virtual void OnManipulationStarting(ManipulationStartingRoutedEventArgs e) => RaiseGesture(e, ManipulationStarting, static (p, a) => p.OnManipulationStarting(a));
+    public virtual void OnManipulationStarted(ManipulationStartedRoutedEventArgs e) => RaiseGesture(e, ManipulationStarted, static (p, a) => p.OnManipulationStarted(a));
+    public virtual void OnManipulationDelta(ManipulationDeltaRoutedEventArgs e) => RaiseGesture(e, ManipulationDelta, static (p, a) => p.OnManipulationDelta(a));
+    public virtual void OnManipulationInertiaStarting(ManipulationInertiaStartingRoutedEventArgs e) => RaiseGesture(e, ManipulationInertiaStarting, static (p, a) => p.OnManipulationInertiaStarting(a));
+    public virtual void OnManipulationCompleted(ManipulationCompletedRoutedEventArgs e) => RaiseGesture(e, ManipulationCompleted, static (p, a) => p.OnManipulationCompleted(a));
+
+    public virtual void OnTextInput(TextInputRoutedEventArgs e)
+    {
+        e.OriginalSource ??= this;
+        TextInput?.Invoke(this, e);
+        if (this is ITextInputClient client && !e.Handled) client.OnTextInput(e);
+        if (!e.Handled && Parent is FrameworkElement parentFe) parentFe.OnTextInput(e);
+    }
+
+    private void RaiseGesture<T>(T e, EventHandler<T>? handler, Action<FrameworkElement, T> bubble)
+        where T : RoutedEventArgs
+    {
+        e.OriginalSource ??= this;
+        handler?.Invoke(this, e);
+        if (!e.Handled && Parent is FrameworkElement parentFe) bubble(parentFe, e);
     }
 
     public virtual void OnKeyDown(KeyRoutedEventArgs e)

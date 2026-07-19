@@ -403,6 +403,7 @@ public class Visual
 
     public void UpdateAnimations(float elapsedSeconds)
     {
+        OnUpdateAnimations(elapsedSeconds);
         TickAnimations(elapsedSeconds);
 
         if (this is ContainerVisual container)
@@ -413,6 +414,10 @@ public class Visual
                 children[i].UpdateAnimations(elapsedSeconds);
             }
         }
+    }
+
+    protected virtual void OnUpdateAnimations(float elapsedSeconds)
+    {
     }
 
     public void TickAnimations(float elapsedSeconds)

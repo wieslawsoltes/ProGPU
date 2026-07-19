@@ -6,9 +6,11 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Diagnostics;
 using Silk.NET.Input;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using Windows.Devices.Input;
 
 namespace Microsoft.UI.Xaml.Input;
 
@@ -32,6 +34,46 @@ public class WindowInputState
     public bool IsMiddleButtonPressed;
     public bool IsRightButtonPressed;
     public Action<StandardCursor>? CursorChanged;
+    internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
+    internal Dictionary<uint, FrameworkElement> CapturedElements { get; } = new();
+    internal Dictionary<FrameworkElement, ManipulationSession> Manipulations { get; } = new();
+    internal uint CurrentDispatchPointerId;
+    internal FrameworkElement? LastTappedElement;
+    internal Vector2 LastTapPosition;
+    internal ulong LastTapTimestamp;
+    public Action<FrameworkElement?>? FocusChanged;
+}
+
+internal sealed class PointerContactState
+{
+    public required Pointer Pointer { get; init; }
+    public required FrameworkElement? Target { get; init; }
+    public required PointerInputEvent LastEvent { get; set; }
+    public Vector2 DownPosition { get; init; }
+    public ulong DownTimestamp { get; init; }
+    public Vector2 Velocity { get; set; }
+    public bool ExceededTapThreshold { get; set; }
+    public bool HoldingStarted { get; set; }
+    public CancellationTokenSource? HoldingCancellation { get; set; }
+    public FrameworkElement? ManipulationTarget { get; set; }
+    public bool StartedWithRightButton { get; init; }
+}
+
+internal sealed class ManipulationSession
+{
+    public required FrameworkElement Target { get; init; }
+    public required ManipulationModes Mode { get; set; }
+    public HashSet<uint> PointerIds { get; } = new();
+    public Vector2 PreviousCentroid { get; set; }
+    public float PreviousDistance { get; set; }
+    public float PreviousAngle { get; set; }
+    public Vector2 CumulativeTranslation { get; set; }
+    public float CumulativeScale { get; set; } = 1f;
+    public float CumulativeRotation { get; set; }
+    public float CumulativeExpansion { get; set; }
+    public ManipulationVelocities Velocities { get; set; }
+    public ulong PreviousTimestamp { get; set; }
+    public bool Started { get; set; }
 }
 
 public static class InputSystem
@@ -47,13 +89,30 @@ public static class InputSystem
 
     // Public event injection entry points for external host containers (e.g. Avalonia)
     public static void InjectMouseMove(Vector2 screenPos) => OnMouseMove(screenPos);
-    public static void InjectMouseDown(MouseButton button) => OnMouseDown(button);
-    public static void InjectMouseUp(MouseButton button) => OnMouseUp(button);
-    public static void InjectMouseScroll(Vector2 scroll) => OnMouseScroll(scroll);
+    public static void InjectMouseDown(MouseButton button) => InjectPointer(CreateMouseButtonEvent(PointerInputKind.Pressed, button));
+    public static void InjectMouseUp(MouseButton button)
+    {
+        InjectPointer(CreateMouseButtonEvent(PointerInputKind.Released, button));
+        // Designer/toolbox drags can begin without a preceding press in this input state.
+        // Preserve the legacy release-to-drop contract even when no pointer contact exists.
+        if (button == MouseButton.Left && DragDropManager.IsDragging) DragDropManager.CompleteDrop(_lastMousePos);
+    }
+    public static void InjectMouseScroll(Vector2 scroll) => InjectPointer(CreateMouseEvent(PointerInputKind.Wheel, _lastMousePos) with { WheelDeltaX = scroll.X, WheelDeltaY = scroll.Y });
     public static void InjectKeyDown(Key key) => OnKeyDown(key);
     public static void InjectKeyUp(Key key) => OnKeyUp(key);
     public static void InjectKeyChar(char c) => OnKeyChar(c);
     public static void InjectFocusLost() => OnFocusLost();
+    public static void InjectPointer(PointerInputEvent pointerEvent) => OnPointer(pointerEvent);
+    public static void InjectTextInput(TextInputEventKind kind, string? text = null, bool isComposing = false)
+    {
+        if (_focusedElement == null) return;
+        _focusedElement.OnTextInput(new TextInputRoutedEventArgs
+        {
+            Kind = kind,
+            Text = text ?? string.Empty,
+            IsComposing = isComposing
+        });
+    }
 
     public static Action<Action>? DispatcherQueue { get; set; }
 
@@ -171,13 +230,57 @@ public static class InputSystem
             DevToolsInputSystem.CapturePointer(element);
             return;
         }
+        var pointerId = Current.CurrentDispatchPointerId;
+        if (pointerId != 0 && Current.PointerContacts.TryGetValue(pointerId, out var contact))
+        {
+            CapturePointer(element!, contact.Pointer);
+            return;
+        }
         _capturedElement = element;
+    }
+
+    public static bool CapturePointer(FrameworkElement element, Pointer pointer)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ArgumentNullException.ThrowIfNull(pointer);
+        if (!pointer.IsInContact || !Current.PointerContacts.ContainsKey(pointer.PointerId)) return false;
+        if (Current.CapturedElements.ContainsKey(pointer.PointerId)) return false;
+        Current.CapturedElements[pointer.PointerId] = element;
+        if (pointer.PointerId == 1) _capturedElement = element;
+        return true;
     }
 
     public static void ReleasePointerCapture()
     {
+        var pointerId = Current.CurrentDispatchPointerId;
+        if (pointerId != 0 && Current.CapturedElements.TryGetValue(pointerId, out var element) &&
+            Current.PointerContacts.TryGetValue(pointerId, out var contact))
+        {
+            ReleasePointerCapture(element, contact.Pointer);
+            return;
+        }
         _capturedElement = null;
         DevToolsInputSystem.ReleasePointerCapture();
+    }
+
+    public static void ReleasePointerCapture(FrameworkElement element, Pointer pointer)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ArgumentNullException.ThrowIfNull(pointer);
+        if (!Current.CapturedElements.TryGetValue(pointer.PointerId, out var captured) || !ReferenceEquals(captured, element)) return;
+        Current.CapturedElements.Remove(pointer.PointerId);
+        if (pointer.PointerId == 1) _capturedElement = null;
+        RaiseCaptureLost(element, Current.PointerContacts.TryGetValue(pointer.PointerId, out var contact) ? contact.LastEvent : default, pointer);
+    }
+
+    public static void ReleasePointerCaptures(FrameworkElement element)
+    {
+        var ids = Current.CapturedElements.Where(pair => ReferenceEquals(pair.Value, element)).Select(pair => pair.Key).ToArray();
+        foreach (var pointerId in ids)
+        {
+            if (Current.PointerContacts.TryGetValue(pointerId, out var contact)) ReleasePointerCapture(element, contact.Pointer);
+            else Current.CapturedElements.Remove(pointerId);
+        }
     }
 
     public static void SetMouseCursor(StandardCursor cursor)
@@ -235,15 +338,15 @@ public static class InputSystem
             };
             mouse.MouseDown += (m, btn) => {
                 _currentState = state;
-                OnMouseDown(btn);
+                InjectMouseDown(btn);
             };
             mouse.MouseUp += (m, btn) => {
                 _currentState = state;
-                OnMouseUp(btn);
+                InjectMouseUp(btn);
             };
             mouse.Scroll += (m, scroll) => {
                 _currentState = state;
-                OnMouseScroll(new Vector2(scroll.X, scroll.Y));
+                InjectMouseScroll(new Vector2(scroll.X, scroll.Y));
             };
         }
 
@@ -277,6 +380,575 @@ public static class InputSystem
         return state.PointerPositionTransform?.Invoke(pointerPosition) ?? pointerPosition;
     }
 
+    private static ulong GetTimestamp() => (ulong)(Stopwatch.GetTimestamp() * 1_000_000L / Stopwatch.Frequency);
+
+    private static PointerInputEvent CreateMouseEvent(PointerInputKind kind, Vector2 position) => new(
+        kind,
+        1,
+        PointerDeviceType.Mouse,
+        position,
+        GetTimestamp(),
+        IsPrimary: true,
+        IsInContact: Current.IsLeftButtonPressed || Current.IsMiddleButtonPressed || Current.IsRightButtonPressed,
+        IsLeftButtonPressed: Current.IsLeftButtonPressed,
+        IsMiddleButtonPressed: Current.IsMiddleButtonPressed,
+        IsRightButtonPressed: Current.IsRightButtonPressed,
+        Pressure: Current.IsLeftButtonPressed ? 0.5f : 0f,
+        Modifiers: GetCurrentModifiers());
+
+    private static PointerInputEvent CreateMouseButtonEvent(PointerInputKind kind, MouseButton button)
+    {
+        var left = Current.IsLeftButtonPressed;
+        var middle = Current.IsMiddleButtonPressed;
+        var right = Current.IsRightButtonPressed;
+        var pressed = kind == PointerInputKind.Pressed;
+        if (button == MouseButton.Left) left = pressed;
+        else if (button == MouseButton.Middle) middle = pressed;
+        else if (button == MouseButton.Right) right = pressed;
+        return CreateMouseEvent(kind, _lastMousePos) with
+        {
+            IsInContact = left || middle || right,
+            IsLeftButtonPressed = left,
+            IsMiddleButtonPressed = middle,
+            IsRightButtonPressed = right,
+            Pressure = left ? 0.5f : 0f
+        };
+    }
+
+    private static VirtualKeyModifiers GetCurrentModifiers()
+    {
+        var modifiers = VirtualKeyModifiers.None;
+        if (IsShiftPressedDynamic()) modifiers |= VirtualKeyModifiers.Shift;
+        if (IsControlPressedDynamic()) modifiers |= VirtualKeyModifiers.Control;
+        if (IsAltPressedDynamic()) modifiers |= VirtualKeyModifiers.Menu;
+        return modifiers;
+    }
+
+    private static void OnPointer(PointerInputEvent input)
+    {
+        _lastMousePos = input.Position;
+        Current.IsShiftPressed = input.Modifiers.HasFlag(VirtualKeyModifiers.Shift);
+        Current.IsControlPressed = input.Modifiers.HasFlag(VirtualKeyModifiers.Control);
+        Current.IsAltPressed = input.Modifiers.HasFlag(VirtualKeyModifiers.Menu);
+        Current.IsLeftButtonPressed = input.IsLeftButtonPressed;
+        Current.IsMiddleButtonPressed = input.IsMiddleButtonPressed;
+        Current.IsRightButtonPressed = input.IsRightButtonPressed;
+        Current.CurrentDispatchPointerId = input.PointerId;
+
+        try
+        {
+            switch (input.Kind)
+            {
+                case PointerInputKind.Pressed:
+                    OnPointerPressedCore(input);
+                    break;
+                case PointerInputKind.Moved:
+                    OnPointerMovedCore(input);
+                    break;
+                case PointerInputKind.Released:
+                    OnPointerReleasedCore(input, canceled: false);
+                    break;
+                case PointerInputKind.Canceled:
+                    OnPointerReleasedCore(input, canceled: true);
+                    break;
+                case PointerInputKind.Wheel:
+                    OnPointerWheelCore(input);
+                    break;
+            }
+        }
+        finally
+        {
+            Current.CurrentDispatchPointerId = 0;
+        }
+    }
+
+    private static void OnPointerPressedCore(PointerInputEvent input)
+    {
+        if (Current.PointerContacts.TryGetValue(input.PointerId, out var previousContact))
+        {
+            OnPointerReleasedCore(previousContact.LastEvent with
+            {
+                Kind = PointerInputKind.Canceled,
+                IsInContact = false,
+                Timestamp = input.Timestamp
+            }, canceled: true);
+        }
+        IsKeyboardFocusActive = false;
+        DismissToolTip();
+        var target = HitTest(input.Position);
+        ProGpuWinUiDiagnostics.WriteLine($"[InputSystem] PointerDown {input.PointerId} ({input.DeviceType}) at {input.Position}. Hit: {target?.GetType().Name} (Name: {target?.Name})");
+
+        if (DevToolsService.IsInspectModeActive || (IsControlPressedDynamic() && IsShiftPressedDynamic()))
+        {
+            if (!IsDescendantOf(target, "DevToolsPanel"))
+            {
+                if (target != null)
+                {
+                    if (!DevToolsService.IsDevToolsActive) DevToolsService.IsDevToolsActive = true;
+                    DevToolsService.InspectedElement = target;
+                    DevToolsService.IsInspectModeActive = false;
+                }
+                return;
+            }
+        }
+
+        if (PopupService.ActivePopups.Count > 0)
+        {
+            var topmostPopup = PopupService.ActivePopups[^1];
+            if (!IsDescendantOf(target, topmostPopup) && topmostPopup is not ContentDialog)
+            {
+                var owner = PopupService.GetOwner(topmostPopup);
+                PopupService.HidePopup(topmostPopup);
+                target = HitTest(input.Position);
+                if (target != null && owner != null && IsDescendantOf(target, owner))
+                {
+                    SetFocus(target);
+                    return;
+                }
+            }
+        }
+        var pointer = new Pointer(input.PointerId, input.DeviceType, true);
+        var contact = new PointerContactState
+        {
+            Pointer = pointer,
+            Target = target,
+            LastEvent = input,
+            DownPosition = input.Position,
+            DownTimestamp = input.Timestamp,
+            StartedWithRightButton = input.IsRightButtonPressed
+        };
+        Current.PointerContacts[input.PointerId] = contact;
+
+        if (target != null)
+        {
+            if (input.DeviceType == PointerDeviceType.Touch)
+            {
+                target.OnPointerEntered(CreatePointerArgs(target, input, pointer));
+            }
+            target.OnPointerPressed(CreatePointerArgs(target, input, pointer));
+            BeginHolding(contact);
+            BeginManipulation(contact);
+        }
+        else
+        {
+            SetFocus(null);
+        }
+    }
+
+    private static void OnPointerMovedCore(PointerInputEvent input)
+    {
+        if (input.DeviceType == PointerDeviceType.Mouse && DragDropManager.IsDragging)
+        {
+            if (Current.PointerContacts.TryGetValue(input.PointerId, out var dragContact)) dragContact.LastEvent = input;
+            DragDropManager.UpdateDrag(input.Position);
+            return;
+        }
+
+        if (input.DeviceType == PointerDeviceType.Mouse &&
+            (DevToolsService.IsInspectModeActive || (IsControlPressedDynamic() && IsShiftPressedDynamic())))
+        {
+            var inspectHit = HitTest(input.Position);
+            var insideDevTools = IsDescendantOf(inspectHit, "DevToolsPanel");
+            DevToolsService.HoveredElement = insideDevTools ? null : inspectHit;
+            if (!insideDevTools) return;
+        }
+
+        if (!Current.PointerContacts.TryGetValue(input.PointerId, out var contact))
+        {
+            if (input.DeviceType is PointerDeviceType.Mouse or PointerDeviceType.Pen) UpdateHover(input);
+            var hoverTarget = HitTest(input.Position);
+            hoverTarget?.OnPointerMoved(CreatePointerArgs(hoverTarget, input, new Pointer(input.PointerId, input.DeviceType, input.IsInContact)));
+            return;
+        }
+
+        var elapsedMicros = input.Timestamp > contact.LastEvent.Timestamp
+            ? input.Timestamp - contact.LastEvent.Timestamp
+            : 1UL;
+        contact.Velocity = (input.Position - contact.LastEvent.Position) * (1_000_000f / elapsedMicros);
+        contact.LastEvent = input;
+        var threshold = input.DeviceType == PointerDeviceType.Touch ? 12f : 4f;
+        if (Vector2.DistanceSquared(contact.DownPosition, input.Position) > threshold * threshold)
+        {
+            contact.ExceededTapThreshold = true;
+            CancelHolding(contact, raiseCanceled: true);
+        }
+
+        var target = Current.CapturedElements.GetValueOrDefault(input.PointerId) ?? contact.Target ?? HitTest(input.Position);
+        target?.OnPointerMoved(CreatePointerArgs(target, input, contact.Pointer));
+        UpdateManipulation(contact);
+    }
+
+    private static void OnPointerReleasedCore(PointerInputEvent input, bool canceled)
+    {
+        if (!Current.PointerContacts.TryGetValue(input.PointerId, out var contact))
+        {
+            return;
+        }
+
+        var completesDrag = input.DeviceType == PointerDeviceType.Mouse &&
+            DragDropManager.IsDragging && contact.LastEvent.IsLeftButtonPressed && !input.IsLeftButtonPressed;
+        contact.LastEvent = input;
+        contact.Pointer.IsInContact = false;
+        var target = Current.CapturedElements.GetValueOrDefault(input.PointerId) ?? contact.Target ?? HitTest(input.Position);
+        var args = CreatePointerArgs(target, input, contact.Pointer, canceled);
+        if (completesDrag)
+        {
+            DragDropManager.CompleteDrop(input.Position);
+            target?.OnPointerCanceled(args);
+        }
+        else if (canceled) target?.OnPointerCanceled(args);
+        else target?.OnPointerReleased(args);
+
+        EndManipulation(contact, canceled || completesDrag);
+        if (!canceled && !completesDrag) CompleteGesture(contact, input);
+        else CancelHolding(contact, raiseCanceled: true);
+
+        if (Current.CapturedElements.Remove(input.PointerId, out var captured)) RaiseCaptureLost(captured, input, contact.Pointer);
+        if (input.PointerId == 1) _capturedElement = null;
+        contact.HoldingCancellation?.Cancel();
+        Current.PointerContacts.Remove(input.PointerId);
+
+        if (input.DeviceType is PointerDeviceType.Mouse or PointerDeviceType.Pen) UpdateHover(input);
+        else target?.OnPointerExited(CreatePointerArgs(target, input, contact.Pointer, canceled));
+    }
+
+    private static void OnPointerWheelCore(PointerInputEvent input)
+    {
+        DismissToolTip();
+        var target = HitTest(input.Position);
+        if (target == null) return;
+        var pointer = new Pointer(input.PointerId, input.DeviceType, false);
+        target.OnPointerWheelChanged(CreatePointerArgs(target, input, pointer));
+    }
+
+    private static PointerRoutedEventArgs CreatePointerArgs(
+        FrameworkElement? target,
+        PointerInputEvent input,
+        Pointer pointer,
+        bool canceled = false) => new()
+    {
+        Position = GetLocalPosition(target, input.Position),
+        ScreenPosition = input.Position,
+        Pointer = pointer,
+        Timestamp = input.Timestamp,
+        IsPrimary = input.IsPrimary,
+        IsLeftButtonPressed = input.IsLeftButtonPressed,
+        IsMiddleButtonPressed = input.IsMiddleButtonPressed,
+        IsRightButtonPressed = input.IsRightButtonPressed,
+        Pressure = input.Pressure,
+        ContactRect = input.ContactRect,
+        WheelDelta = input.WheelDeltaY,
+        KeyModifiers = input.Modifiers,
+        IsCanceled = canceled
+    };
+
+    private static void RaiseCaptureLost(FrameworkElement element, PointerInputEvent input, Pointer pointer)
+    {
+        element.OnPointerCaptureLost(CreatePointerArgs(element, input, pointer, input.Kind == PointerInputKind.Canceled));
+    }
+
+    private static void UpdateHover(PointerInputEvent input)
+    {
+        var hit = HitTest(input.Position);
+        if (ReferenceEquals(hit, _hoveredElement)) return;
+        var oldPath = GetVisualPath(_hoveredElement);
+        var newPath = GetVisualPath(hit);
+        var common = -1;
+        for (var index = 0; index < Math.Min(oldPath.Count, newPath.Count) && ReferenceEquals(oldPath[index], newPath[index]); index++) common = index;
+        var pointer = new Pointer(input.PointerId, input.DeviceType, input.IsInContact);
+        for (var index = oldPath.Count - 1; index > common; index--) oldPath[index].OnPointerExited(CreatePointerArgs(oldPath[index], input, pointer));
+        for (var index = common + 1; index < newPath.Count; index++) newPath[index].OnPointerEntered(CreatePointerArgs(newPath[index], input, pointer));
+        _hoveredElement = hit;
+        ResetHoverTimer(hit);
+    }
+
+    private static bool IsDescendantOf(FrameworkElement? element, FrameworkElement ancestor)
+    {
+        for (var current = element; current != null; current = current.Parent as FrameworkElement)
+            if (ReferenceEquals(current, ancestor)) return true;
+        return false;
+    }
+
+    private static bool IsDescendantOf(FrameworkElement? element, string ancestorName)
+    {
+        for (var current = element; current != null; current = current.Parent as FrameworkElement)
+            if (string.Equals(current.Name, ancestorName, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private static void BeginHolding(PointerContactState contact)
+    {
+        if (contact.Target == null || !contact.Target.IsHoldingEnabled || contact.Pointer.PointerDeviceType == PointerDeviceType.Mouse) return;
+        var cancellation = new CancellationTokenSource();
+        contact.HoldingCancellation = cancellation;
+        var state = Current;
+        Task.Delay(TimeSpan.FromMilliseconds(800), cancellation.Token).ContinueWith(task =>
+        {
+            if (!task.IsCompletedSuccessfully || cancellation.IsCancellationRequested) return;
+            void Raise()
+            {
+                InputSystem.Current = state;
+                if (!state.PointerContacts.TryGetValue(contact.Pointer.PointerId, out var active) || active.ExceededTapThreshold) return;
+                active.HoldingStarted = true;
+                active.Target?.OnHolding(new HoldingRoutedEventArgs
+                {
+                    PointerDeviceType = active.Pointer.PointerDeviceType,
+                    ScreenPosition = active.LastEvent.Position,
+                    HoldingState = HoldingState.Started
+                });
+            }
+            if (DispatcherQueue != null) DispatcherQueue(Raise); else Raise();
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    private static void CancelHolding(PointerContactState contact, bool raiseCanceled)
+    {
+        contact.HoldingCancellation?.Cancel();
+        if (!contact.HoldingStarted || !raiseCanceled || contact.Target == null) return;
+        contact.HoldingStarted = false;
+        contact.Target.OnHolding(new HoldingRoutedEventArgs
+        {
+            PointerDeviceType = contact.Pointer.PointerDeviceType,
+            ScreenPosition = contact.LastEvent.Position,
+            HoldingState = HoldingState.Canceled
+        });
+    }
+
+    private static void CompleteGesture(PointerContactState contact, PointerInputEvent input)
+    {
+        contact.HoldingCancellation?.Cancel();
+        if (contact.Target == null) return;
+        if (contact.HoldingStarted)
+        {
+            contact.Target.OnHolding(new HoldingRoutedEventArgs
+            {
+                PointerDeviceType = contact.Pointer.PointerDeviceType,
+                ScreenPosition = input.Position,
+                HoldingState = HoldingState.Completed
+            });
+            return;
+        }
+
+        var contactDuration = input.Timestamp >= contact.DownTimestamp
+            ? input.Timestamp - contact.DownTimestamp
+            : ulong.MaxValue;
+        if (contact.ExceededTapThreshold || contactDuration > 800_000UL) return;
+        if (input.DeviceType == PointerDeviceType.Mouse && contact.StartedWithRightButton)
+        {
+            if (contact.Target.IsRightTapEnabled)
+            {
+                contact.Target.OnRightTapped(new RightTappedRoutedEventArgs
+                {
+                    PointerId = input.PointerId,
+                    PointerDeviceType = input.DeviceType,
+                    ScreenPosition = input.Position
+                });
+            }
+            return;
+        }
+
+        if (!contact.Target.IsTapEnabled) return;
+        var tapped = new TappedRoutedEventArgs
+        {
+            PointerId = input.PointerId,
+            PointerDeviceType = input.DeviceType,
+            ScreenPosition = input.Position
+        };
+        contact.Target.OnTapped(tapped);
+
+        var isDouble = contact.Target.IsDoubleTapEnabled &&
+            ReferenceEquals(Current.LastTappedElement, contact.Target) &&
+            input.Timestamp >= Current.LastTapTimestamp &&
+            input.Timestamp - Current.LastTapTimestamp <= 500_000UL &&
+            Vector2.DistanceSquared(Current.LastTapPosition, input.Position) <= 24f * 24f;
+        if (isDouble)
+        {
+            contact.Target.OnDoubleTapped(new DoubleTappedRoutedEventArgs
+            {
+                PointerId = input.PointerId,
+                PointerDeviceType = input.DeviceType,
+                ScreenPosition = input.Position
+            });
+            Current.LastTappedElement = null;
+            Current.LastTapTimestamp = 0;
+        }
+        else
+        {
+            Current.LastTappedElement = contact.Target;
+            Current.LastTapPosition = input.Position;
+            Current.LastTapTimestamp = input.Timestamp;
+        }
+    }
+
+    private static FrameworkElement? FindManipulationTarget(FrameworkElement? element)
+    {
+        var current = element;
+        while (current != null)
+        {
+            if (current.ManipulationMode is not (ManipulationModes.None or ManipulationModes.System)) return current;
+            current = current.Parent as FrameworkElement;
+        }
+        return null;
+    }
+
+    private static void BeginManipulation(PointerContactState contact)
+    {
+        var target = FindManipulationTarget(contact.Target);
+        if (target == null) return;
+        contact.ManipulationTarget = target;
+        if (!Current.Manipulations.TryGetValue(target, out var session))
+        {
+            var starting = new ManipulationStartingRoutedEventArgs
+            {
+                OriginalSource = target,
+                Mode = target.ManipulationMode,
+                Container = target,
+                PivotCenter = contact.LastEvent.Position
+            };
+            target.OnManipulationStarting(starting);
+            if (starting.Mode == ManipulationModes.None) return;
+            session = new ManipulationSession
+            {
+                Target = target,
+                Mode = starting.Mode,
+                PreviousTimestamp = contact.LastEvent.Timestamp
+            };
+            Current.Manipulations[target] = session;
+        }
+        session.PointerIds.Add(contact.Pointer.PointerId);
+        ResetManipulationBaseline(session);
+    }
+
+    private static void ResetManipulationBaseline(ManipulationSession session)
+    {
+        var points = session.PointerIds
+            .Select(id => Current.PointerContacts.TryGetValue(id, out var state) ? state.LastEvent.Position : (Vector2?)null)
+            .Where(point => point.HasValue)
+            .Select(point => point!.Value)
+            .ToArray();
+        if (points.Length == 0) return;
+        session.PreviousCentroid = points.Aggregate(Vector2.Zero, static (sum, point) => sum + point) / points.Length;
+        if (points.Length >= 2)
+        {
+            var vector = points[1] - points[0];
+            session.PreviousDistance = Math.Max(0.0001f, vector.Length());
+            session.PreviousAngle = MathF.Atan2(vector.Y, vector.X);
+        }
+    }
+
+    private static void UpdateManipulation(PointerContactState contact)
+    {
+        if (contact.ManipulationTarget == null || !Current.Manipulations.TryGetValue(contact.ManipulationTarget, out var session)) return;
+        var points = session.PointerIds
+            .Select(id => Current.PointerContacts.TryGetValue(id, out var state) ? state.LastEvent.Position : (Vector2?)null)
+            .Where(point => point.HasValue)
+            .Select(point => point!.Value)
+            .ToArray();
+        if (points.Length == 0) return;
+
+        var centroid = points.Aggregate(Vector2.Zero, static (sum, point) => sum + point) / points.Length;
+        var translation = centroid - session.PreviousCentroid;
+        if (!session.Mode.HasFlag(ManipulationModes.TranslateX) && !session.Mode.HasFlag(ManipulationModes.TranslateRailsX)) translation.X = 0;
+        if (!session.Mode.HasFlag(ManipulationModes.TranslateY) && !session.Mode.HasFlag(ManipulationModes.TranslateRailsY)) translation.Y = 0;
+
+        var scale = 1f;
+        var rotation = 0f;
+        var expansion = 0f;
+        if (points.Length >= 2)
+        {
+            var vector = points[1] - points[0];
+            var distance = Math.Max(0.0001f, vector.Length());
+            var angle = MathF.Atan2(vector.Y, vector.X);
+            if (session.Mode.HasFlag(ManipulationModes.Scale))
+            {
+                scale = distance / Math.Max(0.0001f, session.PreviousDistance);
+                expansion = distance - session.PreviousDistance;
+            }
+            if (session.Mode.HasFlag(ManipulationModes.Rotate)) rotation = (angle - session.PreviousAngle) * (180f / MathF.PI);
+            session.PreviousDistance = distance;
+            session.PreviousAngle = angle;
+        }
+
+        var meaningful = translation.LengthSquared() > 0.01f || MathF.Abs(scale - 1f) > 0.001f || MathF.Abs(rotation) > 0.01f;
+        if (!session.Started && !meaningful) return;
+        if (!session.Started)
+        {
+            session.Started = true;
+            foreach (var id in session.PointerIds)
+            {
+                if (!Current.PointerContacts.TryGetValue(id, out var state)) continue;
+                state.ExceededTapThreshold = true;
+                state.Target?.OnPointerCanceled(CreatePointerArgs(state.Target, state.LastEvent, state.Pointer, canceled: true));
+            }
+            session.Target.OnManipulationStarted(new ManipulationStartedRoutedEventArgs
+            {
+                OriginalSource = session.Target,
+                Position = centroid
+            });
+        }
+
+        session.CumulativeTranslation += translation;
+        session.CumulativeScale *= scale;
+        session.CumulativeRotation += rotation;
+        session.CumulativeExpansion += expansion;
+        var elapsedMicros = contact.LastEvent.Timestamp > session.PreviousTimestamp
+            ? contact.LastEvent.Timestamp - session.PreviousTimestamp
+            : 1UL;
+        var seconds = elapsedMicros / 1_000_000f;
+        session.Velocities = new ManipulationVelocities(translation / seconds, rotation / seconds, expansion / seconds);
+        session.PreviousTimestamp = contact.LastEvent.Timestamp;
+        session.PreviousCentroid = centroid;
+        var delta = new ManipulationDelta(translation, scale, rotation, expansion);
+        var cumulative = new ManipulationDelta(session.CumulativeTranslation, session.CumulativeScale, session.CumulativeRotation, session.CumulativeExpansion);
+        var args = new ManipulationDeltaRoutedEventArgs
+        {
+            OriginalSource = session.Target,
+            Delta = delta,
+            Cumulative = cumulative,
+            Velocities = session.Velocities
+        };
+        session.Target.OnManipulationDelta(args);
+        if (args.Complete) CompleteManipulation(session, inertial: false);
+    }
+
+    private static void EndManipulation(PointerContactState contact, bool canceled)
+    {
+        if (contact.ManipulationTarget == null || !Current.Manipulations.TryGetValue(contact.ManipulationTarget, out var session)) return;
+        session.PointerIds.Remove(contact.Pointer.PointerId);
+        if (session.PointerIds.Count != 0)
+        {
+            ResetManipulationBaseline(session);
+            return;
+        }
+        CompleteManipulation(session, inertial: !canceled &&
+            (session.Mode.HasFlag(ManipulationModes.TranslateInertia) || session.Mode.HasFlag(ManipulationModes.RotateInertia) || session.Mode.HasFlag(ManipulationModes.ScaleInertia)));
+    }
+
+    private static void CompleteManipulation(ManipulationSession session, bool inertial)
+    {
+        var cumulative = new ManipulationDelta(session.CumulativeTranslation, session.CumulativeScale, session.CumulativeRotation, session.CumulativeExpansion);
+        if (session.Started && inertial)
+        {
+            session.Target.OnManipulationInertiaStarting(new ManipulationInertiaStartingRoutedEventArgs
+            {
+                OriginalSource = session.Target,
+                Cumulative = cumulative,
+                Velocities = session.Velocities
+            });
+        }
+        if (session.Started)
+        {
+            session.Target.OnManipulationCompleted(new ManipulationCompletedRoutedEventArgs
+            {
+                OriginalSource = session.Target,
+                Cumulative = cumulative,
+                Velocities = session.Velocities,
+                IsInertial = inertial
+            });
+        }
+        Current.Manipulations.Remove(session.Target);
+    }
+
     public static void SetFocus(FrameworkElement? element)
     {
         if (element != null && IsInsideDevTools(element))
@@ -299,6 +971,7 @@ public static class InputSystem
         {
             newControl.IsFocused = true;
         }
+        Current.FocusChanged?.Invoke(_focusedElement);
     }
 
     public static FrameworkElement? HitTest(Vector2 screenPoint)
@@ -415,7 +1088,10 @@ public static class InputSystem
         return path;
     }
 
-    private static void OnMouseMove(Vector2 screenPos)
+    private static void OnMouseMove(Vector2 screenPos) =>
+        InjectPointer(CreateMouseEvent(PointerInputKind.Moved, screenPos));
+
+    private static void OnMouseMoveLegacy(Vector2 screenPos)
     {
         _lastMousePos = screenPos;
 
@@ -857,6 +1533,18 @@ public static class InputSystem
 
     private static void OnFocusLost()
     {
+        foreach (var contact in Current.PointerContacts.Values.ToArray())
+        {
+            InjectPointer(contact.LastEvent with
+            {
+                Kind = PointerInputKind.Canceled,
+                IsInContact = false,
+                IsLeftButtonPressed = false,
+                IsMiddleButtonPressed = false,
+                IsRightButtonPressed = false,
+                Timestamp = GetTimestamp()
+            });
+        }
         if (Current.IsLeftButtonPressed) OnMouseUp(MouseButton.Left);
         if (Current.IsMiddleButtonPressed) OnMouseUp(MouseButton.Middle);
         if (Current.IsRightButtonPressed) OnMouseUp(MouseButton.Right);
