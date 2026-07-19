@@ -33,13 +33,26 @@ public struct GpuShapeInstance
     public Vector2 MaxBounds;
     public uint BvhRootIdx;
     public uint ShapeId;
-    public uint StructPad0;
+    public uint TransformIndex;
     public uint StructPad1;
     public Vector4 Color;
     public uint IsText;
     public uint Pad0;
     public uint Pad1;
     public uint Pad2;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 16)]
+public struct GpuShapeTransform
+{
+    public Matrix4x4 Transform;
+    public Matrix4x4 InvTransform;
+
+    public GpuShapeTransform(Matrix4x4 transform, Matrix4x4 inverse)
+    {
+        Transform = transform;
+        InvTransform = inverse;
+    }
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -150,6 +163,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
     private GpuBuffer? _rawCurvesBuffer;
     private GpuBuffer? _linesBuffer;
     private GpuBuffer? _instancesBuffer;
+    private GpuBuffer? _shapeTransformsBuffer;
     private GpuBuffer? _gridCellsBuffer;
     private GpuBuffer? _gridIndicesBuffer;
     private GpuBuffer? _coverageWordsBuffer;
@@ -177,9 +191,17 @@ public unsafe class WavefrontVectorEngine : IDisposable
     private GpuTexture? _sparseOutputTexture;
 
     private readonly List<GpuShapeInstance> _frameInstances = new();
+    private readonly List<GpuShapeTransform> _shapeTransforms =
+    [
+        new GpuShapeTransform(Matrix4x4.Identity, Matrix4x4.Identity)
+    ];
+    private readonly List<uint> _dirtyShapeTransformIndices = [0u];
+    private readonly Stack<uint> _freeShapeTransformIndices = new();
+    private readonly HashSet<uint> _freeShapeTransformSet = new();
     private uint _frameNumber = 0;
     private float _frameDpiScale = 1f;
     private bool _hasSparseFrameWork;
+    private bool _reuseRetainedInstances;
     private int _retainedPathCount;
     private int _retainedGlyphCount;
     private int _retainedFallbackCount;
@@ -192,6 +214,10 @@ public unsafe class WavefrontVectorEngine : IDisposable
     public uint LastUploadedRawCurveCount { get; private set; }
 
     public uint LastFlattenedCurveCount { get; private set; }
+
+    public uint LastUploadedInstanceCount { get; private set; }
+
+    public uint LastUploadedTransformCount { get; private set; }
 
     public bool LastGeometryArenaReplay { get; private set; }
 
@@ -206,6 +232,8 @@ public unsafe class WavefrontVectorEngine : IDisposable
     public int FrameGeometryCacheMisses { get; private set; }
 
     public uint RetainedLineSegmentCount => _totalLineSegmentsCount;
+
+    public uint RetainedTransformCount => checked((uint)_shapeTransforms.Count - (uint)_freeShapeTransformIndices.Count);
 
     public WavefrontVectorEngine(WgpuContext context)
     {
@@ -430,10 +458,13 @@ public unsafe class WavefrontVectorEngine : IDisposable
         }
         _frameNumber++;
         _frameDpiScale = NormalizeDpiScale(dpiScale);
+        _reuseRetainedInstances = reuseRetainedInstances;
         _hasSparseFrameWork = false;
         LastUploadedBvhNodeCount = 0;
         LastUploadedRawCurveCount = 0;
         LastFlattenedCurveCount = 0;
+        LastUploadedInstanceCount = 0;
+        LastUploadedTransformCount = 0;
         LastGeometryArenaReplay = false;
         FramePathCount = reuseRetainedInstances ? _retainedPathCount : 0;
         FrameGlyphCount = reuseRetainedInstances ? _retainedGlyphCount : 0;
@@ -442,9 +473,98 @@ public unsafe class WavefrontVectorEngine : IDisposable
         FrameGeometryCacheMisses = 0;
     }
 
-    public bool TryDrawPath(PathGeometry path, in Matrix4x4 transform, Brush brush)
+    /// <summary>
+    /// Allocates a stable transform-table slot for retained scene placement. Slot zero is the
+    /// permanent identity transform used by ordinary instances.
+    /// </summary>
+    public uint AllocateTransform()
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        uint index;
+        if (_freeShapeTransformIndices.TryPop(out uint recycled))
+        {
+            index = recycled;
+            _freeShapeTransformSet.Remove(index);
+            _shapeTransforms[(int)index] = new GpuShapeTransform(Matrix4x4.Identity, Matrix4x4.Identity);
+        }
+        else
+        {
+            index = checked((uint)_shapeTransforms.Count);
+            _shapeTransforms.Add(new GpuShapeTransform(Matrix4x4.Identity, Matrix4x4.Identity));
+        }
+        MarkShapeTransformDirty(index);
+        return index;
+    }
+
+    public void ReleaseTransform(uint transformIndex)
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (transformIndex == 0 || transformIndex >= (uint)_shapeTransforms.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(transformIndex));
+        }
+        if (_freeShapeTransformSet.Contains(transformIndex))
+        {
+            throw new InvalidOperationException("Wavefront retained transform was already released.");
+        }
+
+        _shapeTransforms[(int)transformIndex] = new GpuShapeTransform(Matrix4x4.Identity, Matrix4x4.Identity);
+        MarkShapeTransformDirty(transformIndex);
+        _freeShapeTransformIndices.Push(transformIndex);
+        _freeShapeTransformSet.Add(transformIndex);
+    }
+
+    public bool UpdateTransform(uint transformIndex, in Matrix4x4 transform)
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (transformIndex >= (uint)_shapeTransforms.Count ||
+            _freeShapeTransformSet.Contains(transformIndex))
+        {
+            throw new ArgumentOutOfRangeException(nameof(transformIndex));
+        }
+        if (transformIndex == 0)
+        {
+            return transform == Matrix4x4.Identity;
+        }
+        if (!IsFinite(transform) ||
+            !IsTranslationOnly2D(transform))
+        {
+            return false;
+        }
+
+        var current = _shapeTransforms[(int)transformIndex];
+        if (current.Transform == transform)
+        {
+            return true;
+        }
+
+        Matrix4x4 inverse = Matrix4x4.CreateTranslation(-transform.M41, -transform.M42, 0f);
+        _shapeTransforms[(int)transformIndex] = new GpuShapeTransform(transform, inverse);
+        MarkShapeTransformDirty(transformIndex);
+        return true;
+    }
+
+    private void MarkShapeTransformDirty(uint transformIndex)
+    {
+        for (int index = 0; index < _dirtyShapeTransformIndices.Count; index++)
+        {
+            if (_dirtyShapeTransformIndices[index] == transformIndex)
+            {
+                return;
+            }
+        }
+        _dirtyShapeTransformIndices.Add(transformIndex);
+    }
+
+    public bool TryDrawPath(
+        PathGeometry path,
+        in Matrix4x4 transform,
+        Brush brush,
+        uint transformIndex = 0)
     {
         if (brush is not SolidColorBrush solid ||
+            transformIndex >= (uint)_shapeTransforms.Count ||
+            _freeShapeTransformSet.Contains(transformIndex) ||
             !Matrix4x4.Invert(transform, out var inv) ||
             !TryGetOrAddPathGeometry(path, transform, out var geom))
         {
@@ -460,6 +580,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
             MaxBounds = geom.Max,
             BvhRootIdx = geom.BvhOffset,
             ShapeId = (uint)_frameInstances.Count,
+            TransformIndex = transformIndex,
             Color = solid.Color,
             IsText = 0
         });
@@ -483,9 +604,17 @@ public unsafe class WavefrontVectorEngine : IDisposable
         _retainedFallbackCount++;
     }
 
-    public bool TryDrawGlyph(TtfFont font, ushort glyphId, float fontSize, in Matrix4x4 transform, Brush brush)
+    public bool TryDrawGlyph(
+        TtfFont font,
+        ushort glyphId,
+        float fontSize,
+        in Matrix4x4 transform,
+        Brush brush,
+        uint transformIndex = 0)
     {
-        if (brush is not SolidColorBrush solid)
+        if (brush is not SolidColorBrush solid ||
+            transformIndex >= (uint)_shapeTransforms.Count ||
+            _freeShapeTransformSet.Contains(transformIndex))
         {
             RecordFallback();
             return false;
@@ -509,6 +638,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
             MaxBounds = geom.Max,
             BvhRootIdx = geom.BvhOffset,
             ShapeId = (uint)_frameInstances.Count,
+            TransformIndex = transformIndex,
             Color = solid.Color,
             IsText = 1
         });
@@ -558,7 +688,9 @@ public unsafe class WavefrontVectorEngine : IDisposable
             cellCount,
             coverageWordCount,
             Math.Max(1u, pairCount),
-            destination);
+            destination,
+            out bool instancesReallocated,
+            out bool transformsReallocated);
 
         uint curveStart = _uploadedRawCurveCount;
         uint pendingCurveCount = checked((uint)_rawCurves.Count - curveStart);
@@ -585,7 +717,30 @@ public unsafe class WavefrontVectorEngine : IDisposable
                     checked(curveStart * (uint)sizeof(GpuBezierCurve)));
             }
         }
-        _instancesBuffer!.Write(CollectionsMarshal.AsSpan(_frameInstances));
+        if (!_reuseRetainedInstances || instancesReallocated)
+        {
+            _instancesBuffer!.Write(CollectionsMarshal.AsSpan(_frameInstances));
+            LastUploadedInstanceCount = checked((uint)_frameInstances.Count);
+        }
+
+        if (transformsReallocated)
+        {
+            _shapeTransformsBuffer!.Write(CollectionsMarshal.AsSpan(_shapeTransforms));
+            LastUploadedTransformCount = checked((uint)_shapeTransforms.Count);
+            _dirtyShapeTransformIndices.Clear();
+        }
+        else if (_dirtyShapeTransformIndices.Count != 0)
+        {
+            for (int index = 0; index < _dirtyShapeTransformIndices.Count; index++)
+            {
+                uint transformIndex = _dirtyShapeTransformIndices[index];
+                _shapeTransformsBuffer!.WriteSingle(
+                    _shapeTransforms[(int)transformIndex],
+                    checked(transformIndex * (uint)sizeof(GpuShapeTransform)));
+            }
+            LastUploadedTransformCount = checked((uint)_dirtyShapeTransformIndices.Count);
+            _dirtyShapeTransformIndices.Clear();
+        }
 
         var uniforms = new GpuWavefrontUniforms
         {
@@ -731,6 +886,12 @@ public unsafe class WavefrontVectorEngine : IDisposable
     private static float NormalizeDpiScale(float dpiScale) =>
         float.IsFinite(dpiScale) && dpiScale > 0f ? dpiScale : 1f;
 
+    private static bool IsTranslationOnly2D(in Matrix4x4 value) =>
+        value.M11 == 1f && value.M12 == 0f && value.M13 == 0f && value.M14 == 0f &&
+        value.M21 == 0f && value.M22 == 1f && value.M23 == 0f && value.M24 == 0f &&
+        value.M31 == 0f && value.M32 == 0f && value.M33 == 1f && value.M34 == 0f &&
+        float.IsFinite(value.M41) && float.IsFinite(value.M42) && value.M43 == 0f && value.M44 == 1f;
+
     /// <summary>
     /// Replaces only compacted active tiles with the exact pixels produced by the compute stage.
     /// The caller first draws the unchanged base texture, then records this indirect draw in the
@@ -754,7 +915,9 @@ public unsafe class WavefrontVectorEngine : IDisposable
         uint cellCount,
         uint coverageWordCount,
         uint indexCount,
-        GpuTexture destination)
+        GpuTexture destination,
+        out bool instancesReallocated,
+        out bool transformsReallocated)
     {
         bool bindingsDirty = false;
         bool bvhArenaReallocated = EnsureBuffer(ref _bvhBuffer, ByteSize(_bvhNodes.Count, sizeof(GpuBvhNode)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront BVH Nodes Buffer");
@@ -769,7 +932,9 @@ public unsafe class WavefrontVectorEngine : IDisposable
             _uploadedRawCurveCount = 0;
             LastGeometryArenaReplay = true;
         }
-        bindingsDirty |= EnsureBuffer(ref _instancesBuffer, ByteSize(_frameInstances.Count, sizeof(GpuShapeInstance)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Instances Buffer");
+        instancesReallocated = EnsureBuffer(ref _instancesBuffer, ByteSize(_frameInstances.Count, sizeof(GpuShapeInstance)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Instances Buffer");
+        transformsReallocated = EnsureBuffer(ref _shapeTransformsBuffer, ByteSize(_shapeTransforms.Count, sizeof(GpuShapeTransform)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Shape Transforms Buffer");
+        bindingsDirty |= instancesReallocated | transformsReallocated;
         bindingsDirty |= EnsureBuffer(ref _gridCellsBuffer, ByteSize(cellCount, sizeof(GpuGridCell)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Grid Cells Buffer");
         bindingsDirty |= EnsureBuffer(ref _gridIndicesBuffer, ByteSize(indexCount, sizeof(uint)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Grid Indices Buffer");
         bindingsDirty |= EnsureBuffer(ref _coverageWordsBuffer, ByteSize(coverageWordCount, sizeof(uint)), BufferUsage.Storage | BufferUsage.CopyDst, "Wavefront Coverage Words Buffer");
@@ -834,7 +999,22 @@ public unsafe class WavefrontVectorEngine : IDisposable
         ulong count = 0;
         foreach (var instance in _frameInstances)
         {
-            if (!TryGetCoveredCellRange(instance, width, height, dpiScale, gridStride, gridRows, out var min, out var max))
+            if (instance.TransformIndex >= (uint)_shapeTransforms.Count ||
+                _freeShapeTransformSet.Contains(instance.TransformIndex))
+            {
+                throw new InvalidOperationException(
+                    "Wavefront instance references a released retained-transform slot.");
+            }
+            if (!TryGetCoveredCellRange(
+                    instance,
+                    _shapeTransforms[(int)instance.TransformIndex],
+                    width,
+                    height,
+                    dpiScale,
+                    gridStride,
+                    gridRows,
+                    out var min,
+                    out var max))
             {
                 continue;
             }
@@ -850,8 +1030,32 @@ public unsafe class WavefrontVectorEngine : IDisposable
         return (uint)count;
     }
 
-    internal static bool TryGetCoveredCellRange(
+    public static bool TryGetCoveredCellRange(
         in GpuShapeInstance instance,
+        uint width,
+        uint height,
+        float dpiScale,
+        uint gridStride,
+        uint gridRows,
+        out (uint X, uint Y) minCell,
+        out (uint X, uint Y) maxCell)
+    {
+        var identity = new GpuShapeTransform(Matrix4x4.Identity, Matrix4x4.Identity);
+        return TryGetCoveredCellRange(
+            instance,
+            identity,
+            width,
+            height,
+            dpiScale,
+            gridStride,
+            gridRows,
+            out minCell,
+            out maxCell);
+    }
+
+    public static bool TryGetCoveredCellRange(
+        in GpuShapeInstance instance,
+        in GpuShapeTransform retainedTransform,
         uint width,
         uint height,
         float dpiScale,
@@ -867,10 +1071,11 @@ public unsafe class WavefrontVectorEngine : IDisposable
             return false;
         }
 
-        Vector4 p0 = Vector4.Transform(new Vector4(instance.MinBounds, 0f, 1f), instance.Transform) * dpiScale;
-        Vector4 p1 = Vector4.Transform(new Vector4(instance.MaxBounds.X, instance.MinBounds.Y, 0f, 1f), instance.Transform) * dpiScale;
-        Vector4 p2 = Vector4.Transform(new Vector4(instance.MinBounds.X, instance.MaxBounds.Y, 0f, 1f), instance.Transform) * dpiScale;
-        Vector4 p3 = Vector4.Transform(new Vector4(instance.MaxBounds, 0f, 1f), instance.Transform) * dpiScale;
+        Matrix4x4 transform = instance.Transform * retainedTransform.Transform;
+        Vector4 p0 = Vector4.Transform(new Vector4(instance.MinBounds, 0f, 1f), transform) * dpiScale;
+        Vector4 p1 = Vector4.Transform(new Vector4(instance.MaxBounds.X, instance.MinBounds.Y, 0f, 1f), transform) * dpiScale;
+        Vector4 p2 = Vector4.Transform(new Vector4(instance.MinBounds.X, instance.MaxBounds.Y, 0f, 1f), transform) * dpiScale;
+        Vector4 p3 = Vector4.Transform(new Vector4(instance.MaxBounds, 0f, 1f), transform) * dpiScale;
         if (!IsFinite(p0) || !IsFinite(p1) || !IsFinite(p2) || !IsFinite(p3))
         {
             return false;
@@ -1032,6 +1237,12 @@ public unsafe class WavefrontVectorEngine : IDisposable
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&
         float.IsFinite(value.Z) && float.IsFinite(value.W);
 
+    private static bool IsFinite(in Matrix4x4 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) && float.IsFinite(value.M13) && float.IsFinite(value.M14) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) && float.IsFinite(value.M23) && float.IsFinite(value.M24) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32) && float.IsFinite(value.M33) && float.IsFinite(value.M34) &&
+        float.IsFinite(value.M41) && float.IsFinite(value.M42) && float.IsFinite(value.M43) && float.IsFinite(value.M44);
+
     private static uint ByteSize(int count, int elementSize) =>
         ByteSize(checked((uint)Math.Max(1, count)), elementSize);
 
@@ -1084,11 +1295,12 @@ public unsafe class WavefrontVectorEngine : IDisposable
         clearEntries[1] = BufferEntry(7, _coverageWordsBuffer!);
         _clearBinWordsBindGroup = CreateBindGroup(_clearBinWordsLayout, clearEntries, 2, "wavefront bin clear");
 
-        var buildEntries = stackalloc BindGroupEntry[3];
+        var buildEntries = stackalloc BindGroupEntry[4];
         buildEntries[0] = BufferEntry(0, _uniformsBuffer!);
         buildEntries[1] = BufferEntry(4, _instancesBuffer!);
         buildEntries[2] = BufferEntry(7, _coverageWordsBuffer!);
-        _buildBinCoverageBindGroup = CreateBindGroup(_buildBinCoverageLayout, buildEntries, 3, "wavefront bin coverage");
+        buildEntries[3] = BufferEntry(21, _shapeTransformsBuffer!);
+        _buildBinCoverageBindGroup = CreateBindGroup(_buildBinCoverageLayout, buildEntries, 4, "wavefront bin coverage");
 
         var countEntries = stackalloc BindGroupEntry[3];
         countEntries[0] = BufferEntry(0, _uniformsBuffer!);
@@ -1126,7 +1338,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
         finalizeActiveEntries[5] = BufferEntry(20, _activeDrawBuffer!);
         _finalizeActiveDispatchBindGroup = CreateBindGroup(_finalizeActiveDispatchLayout, finalizeActiveEntries, 6, "wavefront active-cell indirect finalize");
 
-        var classifyEntries = stackalloc BindGroupEntry[8];
+        var classifyEntries = stackalloc BindGroupEntry[9];
         classifyEntries[0] = BufferEntry(0, _uniformsBuffer!);
         classifyEntries[1] = BufferEntry(3, _bvhBuffer!);
         classifyEntries[2] = BufferEntry(4, _instancesBuffer!);
@@ -1135,9 +1347,10 @@ public unsafe class WavefrontVectorEngine : IDisposable
         classifyEntries[5] = BufferEntry(9, _linesBuffer!);
         classifyEntries[6] = BufferEntry(17, _activeCellIndicesBuffer!);
         classifyEntries[7] = BufferEntry(19, _cellShapeClassesBuffer!);
-        _classifyCellShapesBindGroup = CreateBindGroup(_classifyCellShapesLayout, classifyEntries, 8, "wavefront cell-shape classify");
+        classifyEntries[8] = BufferEntry(21, _shapeTransformsBuffer!);
+        _classifyCellShapesBindGroup = CreateBindGroup(_classifyCellShapesLayout, classifyEntries, 9, "wavefront cell-shape classify");
 
-        var renderEntries = stackalloc BindGroupEntry[10];
+        var renderEntries = stackalloc BindGroupEntry[11];
         renderEntries[0] = BufferEntry(0, _uniformsBuffer!);
         renderEntries[1] = BufferEntry(3, _bvhBuffer!);
         renderEntries[2] = BufferEntry(4, _instancesBuffer!);
@@ -1148,7 +1361,8 @@ public unsafe class WavefrontVectorEngine : IDisposable
         renderEntries[7] = new BindGroupEntry { Binding = 11, TextureView = _sparseOutputTexture!.ViewPtr };
         renderEntries[8] = BufferEntry(17, _activeCellIndicesBuffer!);
         renderEntries[9] = BufferEntry(19, _cellShapeClassesBuffer!);
-        _renderBindGroup = CreateBindGroup(_renderLayout, renderEntries, 10, "wavefront render");
+        renderEntries[10] = BufferEntry(21, _shapeTransformsBuffer!);
+        _renderBindGroup = CreateBindGroup(_renderLayout, renderEntries, 11, "wavefront render");
 
         var compositeEntries = stackalloc BindGroupEntry[3];
         compositeEntries[0] = BufferEntry(0, _uniformsBuffer!);
@@ -1217,6 +1431,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
         _rawCurvesBuffer?.Dispose();
         _linesBuffer?.Dispose();
         _instancesBuffer?.Dispose();
+        _shapeTransformsBuffer?.Dispose();
         _gridCellsBuffer?.Dispose();
         _gridIndicesBuffer?.Dispose();
         _coverageWordsBuffer?.Dispose();

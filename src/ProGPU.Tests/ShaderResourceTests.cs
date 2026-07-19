@@ -47,7 +47,9 @@ public class ShaderResourceTests
         Assert.Contains("active_cell_indices[uniforms.cellCount] = active_count", source, StringComparison.Ordinal);
         Assert.Contains("active_cell_indices[active_idx]", source, StringComparison.Ordinal);
         Assert.Contains("fn classify_cell_shapes(", source, StringComparison.Ordinal);
-        Assert.Contains("minimum_device_scale(instance.transform)", source, StringComparison.Ordinal);
+        Assert.Contains("@binding(21) var<storage, read> shape_transforms", source, StringComparison.Ordinal);
+        Assert.Contains("fn instance_transform(", source, StringComparison.Ordinal);
+        Assert.Contains("minimum_device_scale(transform)", source, StringComparison.Ordinal);
         Assert.Contains("cell_shape_classes[pair_idx]", source, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "let cell_idx = (pixel_coord.y / 16u)",

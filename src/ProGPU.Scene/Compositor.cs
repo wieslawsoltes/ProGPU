@@ -139,6 +139,9 @@ public struct CompositorMetrics
     public int WavefrontGeometryCacheHits;
     public int WavefrontGeometryCacheMisses;
     public uint WavefrontRetainedLineSegmentCount;
+    public uint WavefrontRetainedTransformCount;
+    public uint WavefrontUploadedInstanceCount;
+    public uint WavefrontUploadedTransformCount;
     public int DrawCallsCount;
     public int VectorVerticesCount;
     public int TextVerticesCount;
@@ -976,6 +979,7 @@ public unsafe class Compositor : IDisposable
         public ulong FragmentBindGroupGeneration { get; set; }
         public nint FragmentVectorBindGroup { get; set; }
         public nint FragmentVectorBindGroupOffscreen { get; set; }
+        public uint WavefrontTransformIndex { get; set; } = uint.MaxValue;
     }
     public readonly struct TextureCacheKey : IEquatable<TextureCacheKey>
     {
@@ -2237,17 +2241,17 @@ public unsafe class Compositor : IDisposable
         );
         _currentProjection = projection;
 
-        bool wavefrontRetainedReplayCompatible = !wavefrontEnabled || !_compiledSceneHasGpuTransforms;
-        bool reuseCompiledScene = wavefrontRetainedReplayCompatible && CanReuseCompiledScene(
+        bool wavefrontCameraReplayCompatible = !wavefrontEnabled || !_compiledSceneHasGpuTransforms;
+        bool reuseCompiledScene = wavefrontCameraReplayCompatible && CanReuseCompiledScene(
             root,
             width,
             height,
             externalLayers,
             activeToolTip,
             hasDynamicDiagnostics);
-        if (!wavefrontRetainedReplayCompatible)
+        if (!wavefrontCameraReplayCompatible)
         {
-            _currentSceneCacheMissReason = "Wavefront retained transform fallback";
+            _currentSceneCacheMissReason = "Wavefront camera transform fallback";
         }
         if (wavefrontEnabled)
         {
@@ -3147,6 +3151,9 @@ SceneStateUploadComplete:
             WavefrontGeometryCacheHits = _wavefrontEngine?.FrameGeometryCacheHits ?? 0,
             WavefrontGeometryCacheMisses = _wavefrontEngine?.FrameGeometryCacheMisses ?? 0,
             WavefrontRetainedLineSegmentCount = _wavefrontEngine?.RetainedLineSegmentCount ?? 0,
+            WavefrontRetainedTransformCount = _wavefrontEngine?.RetainedTransformCount ?? 0,
+            WavefrontUploadedInstanceCount = _wavefrontEngine?.LastUploadedInstanceCount ?? 0,
+            WavefrontUploadedTransformCount = _wavefrontEngine?.LastUploadedTransformCount ?? 0,
             DrawCallsCount = _drawCalls.Count,
             VectorVerticesCount = _vectorVerticesList.Count,
             TextVerticesCount = _textVerticesList.Count,
@@ -4998,11 +5005,6 @@ SceneStateUploadComplete:
             throw new InvalidOperationException(
                 "Retained scene transforms currently require a translation-only visual ancestry.");
         }
-        if (VectorEngine == VectorRenderingEngine.Wavefront)
-        {
-            throw new InvalidOperationException(
-                "Retained scene transforms require the instanced vector engine.");
-        }
         if (_elementsRenderingLayers.Count > 0 || _elementsRenderingEffects.Count > 0)
         {
             throw new InvalidOperationException(
@@ -6363,6 +6365,32 @@ SceneStateUploadComplete:
         return roundedCornerCount is > 0 and < 4;
     }
 
+    private bool TryGetWavefrontTransformIndex(out uint transformIndex)
+    {
+        transformIndex = 0;
+        if (_activeSceneTransform == null)
+        {
+            // General camera/MVP commands can carry arbitrary matrices and are intentionally
+            // left on the established instanced renderer. Wavefront's retained table currently
+            // guarantees translation-only spatial handles so flattening scale remains invariant.
+            return !_useGpuTransformsActive;
+        }
+
+        var key = new SceneTransformKey(_activeSceneTransform, _activeSceneTransformBase);
+        if (!_sceneTransformResources.TryGetValue(key, out var resources))
+        {
+            return false;
+        }
+
+        var wavefront = _wavefrontEngine ??= new WavefrontVectorEngine(_context);
+        if (resources.WavefrontTransformIndex == uint.MaxValue)
+        {
+            resources.WavefrontTransformIndex = wavefront.AllocateTransform();
+        }
+        transformIndex = resources.WavefrontTransformIndex;
+        return true;
+    }
+
     private void CompilePathCommand(
         RenderCommand cmd,
         Matrix4x4 transform,
@@ -6376,9 +6404,15 @@ SceneStateUploadComplete:
         {
             var activeTransform = cmd.Transform == default ? transform : cmd.Transform * transform;
             var wavefrontEngine = _wavefrontEngine ??= new WavefrontVectorEngine(_context);
-            if (cmd.Pen == null && cmd.Brush != null)
+            if (cmd.Pen == null &&
+                cmd.Brush != null &&
+                TryGetWavefrontTransformIndex(out uint transformIndex))
             {
-                if (wavefrontEngine.TryDrawPath(cmd.Path, activeTransform, cmd.Brush))
+                if (wavefrontEngine.TryDrawPath(
+                        cmd.Path,
+                        activeTransform,
+                        cmd.Brush,
+                        transformIndex))
                 {
                     return;
                 }
@@ -10223,14 +10257,16 @@ SceneStateUploadComplete:
                     glyphBaselinePosition.Y,
                     0f) * activeTransform;
                 var wavefrontEngine = _wavefrontEngine ??= new WavefrontVectorEngine(_context);
-                if (cmd.Brush != null)
+                if (cmd.Brush != null &&
+                    TryGetWavefrontTransformIndex(out uint transformIndex))
                 {
                     if (wavefrontEngine.TryDrawGlyph(
                             glyphFont,
                             glyphIdx,
                             cmd.FontSize,
                             glyphTransform,
-                            cmd.Brush))
+                            cmd.Brush,
+                            transformIndex))
                     {
                         continue;
                     }
@@ -11396,6 +11432,18 @@ SceneStateUploadComplete:
 
             resources.LastUsedFrame = _frameNumber;
             long version = key.Handle.Version;
+            var view = key.Handle.Matrix * key.BaseTransform;
+            float dpiScale = MathF.Max(_currentDpiScale, 0.0001f);
+            view.M41 = MathF.Round(view.M41 * dpiScale) / dpiScale;
+            view.M42 = MathF.Round(view.M42 * dpiScale) / dpiScale;
+
+            if (resources.WavefrontTransformIndex != uint.MaxValue &&
+                !(_wavefrontEngine?.UpdateTransform(resources.WavefrontTransformIndex, view) ?? false))
+            {
+                throw new InvalidOperationException(
+                    "Wavefront retained scene transforms require a finite translation-only matrix.");
+            }
+
             if (resources.UploadedVersion == version &&
                 resources.UploadedBaseTransform == key.BaseTransform &&
                 resources.UploadedWidth == renderWidth &&
@@ -11405,10 +11453,6 @@ SceneStateUploadComplete:
                 continue;
             }
 
-            var view = key.Handle.Matrix * key.BaseTransform;
-            float dpiScale = MathF.Max(_currentDpiScale, 0.0001f);
-            view.M41 = MathF.Round(view.M41 * dpiScale) / dpiScale;
-            view.M42 = MathF.Round(view.M42 * dpiScale) / dpiScale;
             _sceneFragmentArena.UpdateTransform(resources.TransformIndex, view);
 
             resources.UniformBuffer.WriteSingle(new GpuUniforms
@@ -11516,6 +11560,10 @@ SceneStateUploadComplete:
             var key = expired[index];
             var resources = _sceneTransformResources[key];
             _sceneFragmentArena.ReleaseTransform(resources.TransformIndex);
+            if (resources.WavefrontTransformIndex != uint.MaxValue)
+            {
+                _wavefrontEngine?.ReleaseTransform(resources.WavefrontTransformIndex);
+            }
             resources.UniformBuffer.Dispose();
             QueueBindGroupRelease(resources.VectorBindGroup);
             QueueBindGroupRelease(resources.VectorBindGroupOffscreen);

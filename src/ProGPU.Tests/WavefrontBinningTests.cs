@@ -1,6 +1,7 @@
 using ProGPU.Compute;
 using ProGPU.Vector;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -209,6 +210,46 @@ public class WavefrontBinningTests
 
         Assert.False(BvhBuilder.TryGetPathCurves(path, out var curves));
         Assert.Empty(curves);
+    }
+
+    [Fact]
+    public void WavefrontInstanceLayoutCarriesTransformIndexWithoutGrowingGpuRecord()
+    {
+        Assert.Equal(192, Marshal.SizeOf<GpuShapeInstance>());
+        Assert.Equal(152, Marshal.OffsetOf<GpuShapeInstance>(nameof(GpuShapeInstance.TransformIndex)).ToInt32());
+        Assert.Equal(160, Marshal.OffsetOf<GpuShapeInstance>(nameof(GpuShapeInstance.Color)).ToInt32());
+        Assert.Equal(128, Marshal.SizeOf<GpuShapeTransform>());
+    }
+
+    [Fact]
+    public void RetainedTransformMovesCpuCoverageRangeWithoutRewritingInstance()
+    {
+        var instance = new GpuShapeInstance
+        {
+            Transform = Matrix4x4.CreateTranslation(2f, 0f, 0f),
+            InvTransform = Matrix4x4.CreateTranslation(-2f, 0f, 0f),
+            MinBounds = Vector2.Zero,
+            MaxBounds = new Vector2(8f, 8f),
+            TransformIndex = 1
+        };
+        var retained = new GpuShapeTransform(
+            Matrix4x4.CreateTranslation(30f, 0f, 0f),
+            Matrix4x4.CreateTranslation(-30f, 0f, 0f));
+
+        Assert.True(WavefrontVectorEngine.TryGetCoveredCellRange(
+            instance,
+            retained,
+            width: 64,
+            height: 32,
+            dpiScale: 1f,
+            gridStride: 4,
+            gridRows: 2,
+            out var min,
+            out var max));
+
+        Assert.Equal((2u, 0u), min);
+        Assert.Equal((2u, 0u), max);
+        Assert.Equal(2f, instance.Transform.M41);
     }
 
     private static float MaximumMatchedParameterChordError(in GpuBezierCurve curve, uint subdivisions)

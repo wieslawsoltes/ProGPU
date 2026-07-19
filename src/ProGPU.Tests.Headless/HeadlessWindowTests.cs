@@ -598,6 +598,57 @@ public class HeadlessWindowTests : IDisposable
     }
 
     [Fact]
+    public void Test_Wavefront_RetainedTransformPatchesWithoutInstanceUpload()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            32,
+            renderFormat: TextureFormat.Bgra8Unorm);
+        window.Compositor.VectorEngine = ProGPU.Scene.Compositor.VectorRenderingEngine.Wavefront;
+        var visual = new RetainedWavefrontPathVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1u, window.Compositor.Metrics.WavefrontUploadedInstanceCount);
+            Assert.Equal(1, window.Compositor.Metrics.WavefrontPathCount);
+            byte[] initialPixels = window.ReadPixels();
+            int initialPath = (6 * 64 + 6) * 4;
+            Assert.Equal(255, initialPixels[initialPath]);
+            Assert.Equal(0, initialPixels[initialPath + 1]);
+            Assert.Equal(0, initialPixels[initialPath + 2]);
+
+            visual.TransformHandle.Translation = new Vector2(36f, 0f);
+            visual.InvalidateRetainedTransform();
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, visual.RenderCount);
+            Assert.Equal(1, window.Compositor.Metrics.WavefrontPathCount);
+            Assert.Equal(0u, window.Compositor.Metrics.WavefrontUploadedInstanceCount);
+            Assert.Equal(1u, window.Compositor.Metrics.WavefrontUploadedTransformCount);
+            Assert.True(window.Compositor.Metrics.WavefrontRetainedTransformCount >= 2u);
+
+            byte[] pixels = window.ReadPixels();
+            int background = (20 * 64) * 4;
+            int oldPath = (6 * 64 + 6) * 4;
+            int movedPath = (6 * 64 + 38) * 4;
+            Assert.Equal(pixels[background], pixels[oldPath]);
+            Assert.Equal(pixels[background + 1], pixels[oldPath + 1]);
+            Assert.Equal(pixels[background + 2], pixels[oldPath + 2]);
+            Assert.Equal(255, pixels[movedPath]);
+            Assert.Equal(0, pixels[movedPath + 1]);
+            Assert.Equal(0, pixels[movedPath + 2]);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void Test_Wavefront_Render_Text()
     {
         uint width = 256;
@@ -844,6 +895,35 @@ public class HeadlessWindowTests : IDisposable
                 context.Wgpu.BufferDestroy(readbackBuffer);
                 context.Wgpu.BufferRelease(readbackBuffer);
             }
+        }
+    }
+
+    private sealed class RetainedWavefrontPathVisual : FrameworkElement
+    {
+        private readonly PathGeometry _path;
+        private readonly SolidColorBrush _brush = new(new Vector4(1f, 0f, 0f, 1f));
+
+        public RetainedWavefrontPathVisual()
+        {
+            Width = 64f;
+            Height = 32f;
+            TransformHandle.Translation = new Vector2(4f, 0f);
+            RetainedTransform = TransformHandle;
+            _path = new PathGeometry();
+            var figure = new PathFigure(Vector2.Zero, isClosed: true);
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(8f, 0f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(8f, 8f)));
+            figure.Segments.Add(new ProGPU.Vector.LineSegment(new Vector2(0f, 8f)));
+            _path.Figures.Add(figure);
+        }
+
+        public ProGPU.Scene.SceneTransformHandle TransformHandle { get; } = new();
+        public int RenderCount { get; private set; }
+
+        public override void OnRender(ProGPU.Scene.DrawingContext context)
+        {
+            RenderCount++;
+            context.DrawPath(_brush, null, _path);
         }
     }
 }

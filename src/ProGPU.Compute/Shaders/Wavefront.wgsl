@@ -1,6 +1,6 @@
-// Algorithm: Retain flattened vector curves, build deterministic 16x16-cell coverage bitmaps instance-first, count/scan/scatter exact painter-ordered cell lists, compact non-empty cells stably, conservatively classify solid/outside cell-shape pairs, and indirectly dispatch only active cells to a sparse output texture.
-// Time complexity: O(dC*S) for newly appended curves (O(C*S) only after an arena grow replay), O(O + G*ceil(I/32) + G + O*log L) for sparse binning/active-cell compaction/coarse classification, and O(Pa*Ke*log L + Pa*Ks) for the fine path, where dC is new curves, C retained curves, S is the CPU-selected adaptive subdivision count bounded by 256, O instance/cell overlaps, G cells, I instances, Pa pixels in active cells, Ke edge candidates, Ks solid candidates, and L primitives per shape.
-// Space complexity: O(C*S + I + G*ceil(I/32) + O + G + W*H), for retained geometry/bin arenas and one sparse ping-pong texture; there is no fixed per-cell overlap cap and no full-window texture copy.
+// Algorithm: Retain flattened vector curves and transform-indexed shape instances, patch stable spatial transforms independently, build deterministic 16x16-cell coverage bitmaps instance-first, count/scan/scatter exact painter-ordered cell lists, compact non-empty cells stably, conservatively classify solid/outside cell-shape pairs, and indirectly dispatch only active cells to a sparse output texture.
+// Time complexity: O(dC*S) for newly appended curves (O(C*S) only after an arena grow replay), O(dT) CPU upload for changed retained transforms, O(O + G*ceil(I/32) + G + O*log L) for sparse binning/active-cell compaction/coarse classification, and O(Pa*Ke*log L + Pa*Ks) for the fine path, where dC is new curves, C retained curves, S is the CPU-selected adaptive subdivision count bounded by 256, dT changed transforms, O instance/cell overlaps, G cells, I instances, Pa pixels in active cells, Ke edge candidates, Ks solid candidates, and L primitives per shape.
+// Space complexity: O(C*S + I + T + G*ceil(I/32) + O + G + W*H), for retained geometry/transform/bin arenas and one sparse ping-pong texture; there is no fixed per-cell overlap cap and no full-window texture copy.
 struct BvhNode {
     min_bounds: vec2<f32>,
     max_bounds: vec2<f32>,
@@ -17,11 +17,18 @@ struct ShapeInstance {
     max_bounds: vec2<f32>,
     bvh_root_idx: u32,
     shape_id: u32,
+    transform_index: u32,
+    transform_pad: u32,
     color: vec4<f32>,
     is_text: u32,
     pad0: u32,
     pad1: u32,
     pad2: u32,
+};
+
+struct ShapeTransform {
+    transform: mat4x4<f32>,
+    inv_transform: mat4x4<f32>,
 };
 
 struct GridCell {
@@ -95,6 +102,7 @@ struct DrawIndirectArgs {
 @group(0) @binding(18) var<storage, read_write> active_dispatch_args: array<DispatchIndirectArgs>;
 @group(0) @binding(19) var<storage, read_write> cell_shape_classes: array<u32>;
 @group(0) @binding(20) var<storage, read_write> active_draw_args: array<DrawIndirectArgs>;
+@group(0) @binding(21) var<storage, read> shape_transforms: array<ShapeTransform>;
 
 
 fn evaluate_curve(curve: BezierCurve, t: f32) -> vec2<f32> {
@@ -252,6 +260,16 @@ fn minimum_device_scale(transform: mat4x4<f32>) -> f32 {
     return sqrt(max(0.0, 0.5 * (a + d - discriminant)));
 }
 
+fn instance_transform(inst: ShapeInstance) -> mat4x4<f32> {
+    // C# composes row-vector transforms as local * retained. The uploaded matrices are consumed
+    // as WGSL column-vector matrices, so the equivalent order is retained * local here.
+    return shape_transforms[inst.transform_index].transform * inst.transform;
+}
+
+fn instance_inverse_transform(inst: ShapeInstance) -> mat4x4<f32> {
+    return inst.inv_transform * shape_transforms[inst.transform_index].inv_transform;
+}
+
 // Fixed workgroup size: 256. One invocation clears one 32-instance coverage word.
 // Bandwidth: one 32-bit store per coverage word; no scene reads.
 @compute @workgroup_size(256)
@@ -264,10 +282,11 @@ fn clear_bin_words(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 fn transformed_device_bounds(inst: ShapeInstance) -> vec4<f32> {
-    let p0 = (inst.transform * vec4<f32>(inst.min_bounds, 0.0, 1.0)).xy * uniforms.dpiScale;
-    let p1 = (inst.transform * vec4<f32>(inst.max_bounds.x, inst.min_bounds.y, 0.0, 1.0)).xy * uniforms.dpiScale;
-    let p2 = (inst.transform * vec4<f32>(inst.min_bounds.x, inst.max_bounds.y, 0.0, 1.0)).xy * uniforms.dpiScale;
-    let p3 = (inst.transform * vec4<f32>(inst.max_bounds, 0.0, 1.0)).xy * uniforms.dpiScale;
+    let transform = instance_transform(inst);
+    let p0 = (transform * vec4<f32>(inst.min_bounds, 0.0, 1.0)).xy * uniforms.dpiScale;
+    let p1 = (transform * vec4<f32>(inst.max_bounds.x, inst.min_bounds.y, 0.0, 1.0)).xy * uniforms.dpiScale;
+    let p2 = (transform * vec4<f32>(inst.min_bounds.x, inst.max_bounds.y, 0.0, 1.0)).xy * uniforms.dpiScale;
+    let p3 = (transform * vec4<f32>(inst.max_bounds, 0.0, 1.0)).xy * uniforms.dpiScale;
     let bounds_min = min(min(p0, p1), min(p2, p3));
     let bounds_max = max(max(p0, p1), max(p2, p3));
     return vec4<f32>(bounds_min, bounds_max);
@@ -422,10 +441,12 @@ fn classify_cell_shapes(
     for (var candidate = local_id.x; candidate < cell.shape_count; candidate = candidate + 64u) {
         let pair_idx = cell.shape_start_offset + candidate;
         let instance = shape_instances[cell_shape_indices[pair_idx]];
-        let local_center = (instance.inv_transform * vec4<f32>(logical_center, 0.0, 1.0)).xy;
+        let inverse_transform = instance_inverse_transform(instance);
+        let transform = instance_transform(instance);
+        let local_center = (inverse_transform * vec4<f32>(logical_center, 0.0, 1.0)).xy;
         let evaluation = evaluate_shape(local_center, instance.bvh_root_idx);
         let lower_device_distance = evaluation.min_distance *
-            minimum_device_scale(instance.transform) * uniforms.dpiScale;
+            minimum_device_scale(transform) * uniforms.dpiScale;
 
         var cell_class = 0u; // edge/uncertain
         if (lower_device_distance > safe_radius) {
@@ -465,8 +486,10 @@ fn wavefront_render(
         }
         let instance_idx = cell_shape_indices[pair_idx];
         let instance = shape_instances[instance_idx];
+        let inverse_transform = instance_inverse_transform(instance);
+        let transform = instance_transform(instance);
 
-        let local_pos_3d = instance.inv_transform * vec4<f32>(logical_pos, 0.0, 1.0);
+        let local_pos_3d = inverse_transform * vec4<f32>(logical_pos, 0.0, 1.0);
         let local_pos = local_pos_3d.xy;
 
         if (cell_class == 2u || point_in_aabb(local_pos, instance.min_bounds, instance.max_bounds)) {
@@ -478,7 +501,7 @@ fn wavefront_render(
                     sd = -evaluation.min_distance;
                 }
 
-                let scale_factor = length(instance.transform[0].xy);
+                let scale_factor = length(transform[0].xy);
                 let screen_dist = sd * scale_factor;
                 let physical_dist = screen_dist * uniforms.dpiScale;
 
