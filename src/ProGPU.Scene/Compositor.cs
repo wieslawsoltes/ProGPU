@@ -215,6 +215,7 @@ public unsafe class Compositor : IDisposable
     internal const int MaxGradientStops = 65536;
     private const int PerlinNoiseTableEntryCount = 512;
     private const int MaxCachedPerlinNoiseTables = 16;
+    private const int MaxCachedTextLayouts = 1000;
     private const float StrokeEpsilon = 0.0001f;
     private const float AliasedShapeTypeOffset = 1000f;
     private const float ArcSdfShapeType = 12f;
@@ -944,7 +945,8 @@ public unsafe class Compositor : IDisposable
     private readonly object _offscreenRenderLock = new();
     private int _offscreenRenderDepth;
     private float _totalTime = 0f;
-    private readonly Dictionary<(string Text, TtfFont Font, float Size, float MaxWidth, TextAlignment Align, TextShapingOptions? Shaping), TextLayout> _layoutCache = new();
+    private readonly Dictionary<TextLayoutCacheKey, TextLayoutCacheEntry> _layoutCache = new();
+    private readonly LinkedList<TextLayoutCacheKey> _layoutCacheLru = new();
     private readonly Dictionary<VectorGlyphPathCacheKey, PathGeometry> _vectorGlyphPathCache = new();
     private enum BatchType
     {
@@ -955,6 +957,17 @@ public unsafe class Compositor : IDisposable
 
     private readonly record struct CompiledVisualVersion(Visual Visual, long ChangeVersion);
     private readonly record struct CompiledLayerVersion(Visual Visual, GpuTexture Texture);
+    private readonly record struct TextLayoutCacheKey(
+        string Text,
+        TtfFont Font,
+        float Size,
+        float MaxWidth,
+        TextAlignment Alignment,
+        TextShapingOptions? Shaping);
+
+    private readonly record struct TextLayoutCacheEntry(
+        TextLayout Layout,
+        LinkedListNode<TextLayoutCacheKey> LruNode);
 
     [Flags]
     private enum VisualCompositeScope
@@ -2117,11 +2130,6 @@ public unsafe class Compositor : IDisposable
             _drawCalls.Clear();
             _hitTestCacheBuilder.Clear();
             ClearLastHitTestIndex();
-
-            if (_layoutCache.Count > 1000)
-            {
-                _layoutCache.Clear();
-            }
 
             _clipStack.Clear();
             _clipScopeIsGeometryMask.Clear();
@@ -9071,6 +9079,36 @@ SceneStateUploadComplete:
         gpuBrush.Offsets1 = new Vector4(o4, o5, o6, o7);
     }
 
+    private bool TryGetCachedTextLayout(TextLayoutCacheKey key, out TextLayout? layout)
+    {
+        if (!_layoutCache.TryGetValue(key, out var entry))
+        {
+            layout = null;
+            return false;
+        }
+
+        if (!ReferenceEquals(_layoutCacheLru.First, entry.LruNode))
+        {
+            _layoutCacheLru.Remove(entry.LruNode);
+            _layoutCacheLru.AddFirst(entry.LruNode);
+        }
+
+        layout = entry.Layout;
+        return true;
+    }
+
+    private void AddCachedTextLayout(TextLayoutCacheKey key, TextLayout layout)
+    {
+        if (_layoutCache.Count >= MaxCachedTextLayouts && _layoutCacheLru.Last is { } leastRecentlyUsed)
+        {
+            _layoutCache.Remove(leastRecentlyUsed.Value);
+            _layoutCacheLru.RemoveLast();
+        }
+
+        var node = _layoutCacheLru.AddFirst(key);
+        _layoutCache.Add(key, new TextLayoutCacheEntry(layout, node));
+    }
+
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
         if (ActiveCompilationContext != null &&
@@ -9102,8 +9140,14 @@ SceneStateUploadComplete:
             float maxWidth = cmd.Rect.Width > 0f && float.IsFinite(cmd.Rect.Width)
                 ? cmd.Rect.Width
                 : 10000f;
-            var key = (cmd.Text, font, cmd.FontSize, maxWidth, TextAlignment.Left, cmd.TextShapingOptions);
-            if (!_layoutCache.TryGetValue(key, out layout))
+            var key = new TextLayoutCacheKey(
+                cmd.Text,
+                font,
+                cmd.FontSize,
+                maxWidth,
+                TextAlignment.Left,
+                cmd.TextShapingOptions);
+            if (!TryGetCachedTextLayout(key, out layout))
             {
                 layout = new TextLayout(
                     cmd.Text,
@@ -9113,7 +9157,7 @@ SceneStateUploadComplete:
                     TextAlignment.Left,
                     null,
                     cmd.TextShapingOptions);
-                _layoutCache[key] = layout;
+                AddCachedTextLayout(key, layout);
             }
         }
 
