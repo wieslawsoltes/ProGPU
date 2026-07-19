@@ -292,6 +292,33 @@ the former 365 measured range-boundary misses into 596/600 cache hits. The AOT s
 scrolled cards, icon outlines, decimal/hex labels, selected-glyph preview, theme colors, clips, and
 scrollbar with no browser or WebGPU errors.
 
+##### Rejected cross-fragment batching experiment
+
+Three Release AOT implementations tested whether command reordering alone could remove the 110
+cell-local draws. All used the same 2560 x 1440, DPI 2, 120/600-frame, 40-pixel, VSync-off benchmark
+and retained the same card/glyph/label output. None met the no-regression gate, so their production
+code was reverted:
+
+| Experimental design | GPU-completed FPS | Compile avg / p95 | Upload/frame | Allocation/frame | Queue writes/frame | Draws |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| One rebuilt visible-set fragment, layer ordered | 243.22 | 0.188 / 0.500 ms | 56,150 B | 38,765 B | 15.44 | 42 |
+| Stable per-slot layer fragments | 251.83 | 0.151 / 0.400 ms | 22,333 B | 33,941 B | 27.85 | 42 |
+| Per-slot layers plus one dirty-span write per arena stream | 249.96 | 0.144 / 0.400 ms | 27,904 B | 34,174 B | 15.41 | 42 |
+
+The first version reduced draw replay but replaced and uploaded the complete visible batch whenever
+a row entered. The second preserved delta-only bytes but doubled picture/handle churn and emitted
+many small queue writes. The third reduced write count by uploading the min/max union of dirty arena
+spans; disjoint layer allocations widened that union and increased bytes. These results reject both
+whole-visible-set rebuilding and coarse min/max upload coalescing. The accepted 302.43-FPS stable
+slot baseline remains the production path.
+
+The next batching implementation must therefore operate below `GpuPicture`: keep fixed instance
+slices for every slot, patch only the entering slices, keep separate compact dirty intervals per
+stream, and replay stable batch descriptors or indirect draws over those slices. This is the same
+separation used by Vello/WebRender-style retained encodings: scene identity and dirty records stay
+fine grained while GPU submission is compact. Reducing draw count is not a success metric when it
+raises allocation, upload traffic, frame-interval tails, or completed-frame latency.
+
 This measurement also sharpens the remaining 1000-FPS plan. The one-pixel workload performs only
 0.242 ms of compositor work yet has a 3.300 ms median submitted-frame interval. Its 110 draw calls
 and approximately 14 KiB of managed allocation remain waste, but eliminating them cannot by itself
