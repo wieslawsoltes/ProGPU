@@ -1299,6 +1299,12 @@ window and was cancelled. The same shader module did compile and execute through
 16,384-pair painter-order regression, but browser AOT publication and browser runtime performance
 remain unqualified; native success is not substituted for that gate.
 
+The edge/backdrop checkpoint repeated that clean Release AOT publish into a fresh isolated output
+after Debug and Release native WebGPU qualification. Every managed dependency again completed through
+`ProGPU.Samples`; ILLink/AOT then emitted no progress for a full bounded minute and the build was
+cancelled. This fifth identical boundary confirms that the new shader and managed call graph build,
+but it is still not a published AOT site or browser runtime result.
+
 Deliverables:
 
 1. Keep the browser worker path in Release AOT and measure JS, WASM, worker, and WebGPU API time separately.
