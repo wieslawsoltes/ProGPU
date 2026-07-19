@@ -235,6 +235,45 @@ public sealed class TouchGestureResponsiveTests
     }
 
     [Fact]
+    public void TouchDragDropTracksAndCompletesTheOwningPointer()
+    {
+        var source = new TouchDragSource
+        {
+            Width = 100,
+            Height = 80,
+            Background = new ProGPU.Vector.ThemeResourceBrush("ControlBackground")
+        };
+        var target = new Border
+        {
+            Width = 100,
+            Height = 80,
+            AllowDrop = true,
+            Background = new ProGPU.Vector.ThemeResourceBrush("ControlBackground")
+        };
+        var root = new StackPanel { Orientation = Orientation.Horizontal };
+        root.Children.Add(source);
+        root.Children.Add(target);
+        ArrangeRoot(root, new Vector2(200, 80));
+        UseInputRoot(root);
+        var drops = 0;
+        target.Drop += (_, e) =>
+        {
+            Assert.Equal("Button", e.Data.GetData("Tool"));
+            drops++;
+        };
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 50, 20, 30, 1_000, true));
+        Assert.True(DragDropManager.IsDragging);
+        Assert.Equal((uint)50, DragDropManager.ActivePointerId);
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 50, 150, 30, 20_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 50, 150, 30, 30_000, false));
+
+        Assert.Equal(1, drops);
+        Assert.False(DragDropManager.IsDragging);
+        Assert.Equal(0u, DragDropManager.ActivePointerId);
+    }
+
+    [Fact]
     public void VisualStatesRestoreSettersAndNavigationViewUsesWinUiBreakpoints()
     {
         var control = new Button();
@@ -372,6 +411,18 @@ public sealed class TouchGestureResponsiveTests
         {
             ManipulationCompletedCount++;
             base.OnManipulationCompleted(e);
+        }
+    }
+
+    private sealed class TouchDragSource : Border
+    {
+        public override void OnPointerPressed(PointerRoutedEventArgs e)
+        {
+            var data = new DataPackage();
+            data.SetData("Tool", "Button");
+            DragDropManager.StartDrag(this, data, DragDropEffects.Copy);
+            e.Handled = true;
+            base.OnPointerPressed(e);
         }
     }
 }
