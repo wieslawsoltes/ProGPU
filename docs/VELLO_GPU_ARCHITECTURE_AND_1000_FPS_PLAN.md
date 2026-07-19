@@ -12,7 +12,7 @@ ProGPU should not replace its renderer wholesale with Vello's classic compute pi
 Vello provides two useful but different reference designs:
 
 1. Classic Vello encodes an immediate scene into compact streams and processes the whole scene through GPU reductions, prefix scans, curve flattening, clipping, binning, tile allocation, path tiling, coarse command generation, and fine compute rasterization.
-2. The newer Vello sparse-strip/hybrid renderer deliberately moves curve flattening, tiling, sorting, and analytic coverage generation to SIMD CPU code, uploads only sparse 4-pixel-high coverage strips, and uses conventional instanced vertex/fragment rendering and texture atlases. This work is still marked as under active development and not production-ready in Vello's own repository.
+2. The newer Vello sparse-strip/hybrid renderer deliberately moves curve flattening, tiling, sorting, and analytic coverage generation to SIMD CPU code, uploads only sparse 4-pixel-high coverage strips, and uses conventional instanced vertex/fragment rendering and texture atlases. The pinned repository snapshot still marks the `sparse_strips` packages as under active development and unsuitable for production, while Linebender's April 2026 status report describes Vello Hybrid as roughly beta-quality and usable with remaining rough edges. The architecture is relevant, but its maturity must not be overstated in either direction.
 
 ProGPU should adopt the transferable ideas from both:
 
@@ -371,6 +371,229 @@ The next implementation slices are therefore concrete and ordered:
    worker modes. Tune the maximum in-flight bound only from latency and completion evidence; add an
    offscreen throughput diagnostic mode solely to distinguish raster cost from swapchain pacing,
    never as the public scrolling result.
+
+#### Detailed implementation: fixed retained instance slices
+
+This is the next production implementation, replacing the rejected picture-level batching trials.
+It applies Vello's separation between compact input records and compact GPU submission without
+re-encoding an unchanged scene. The first consumer is Font Glyph Browser; the storage and replay
+types must be reusable by DataGrid and Inter rather than page-specific compositor branches.
+
+##### API and ownership
+
+Add a typed `RetainedInstanceBatchHandle` owned by a visual or virtualizing panel. It is generation
+safe, disposable, and contains stable handles for these independent streams:
+
+```text
+RetainedInstanceBatchHandle
+  BatchDescriptor[]       stable painter-ordered replay groups
+  FixedSlice[]            one slot x stream reservation per recycled item
+  VectorVertex[]          card/background/chrome shadow storage
+  uint[]                  immutable or rarely changed indices
+  GlyphInstance[]         atlas glyph shadow storage
+  Matrix4x4[]             shared and per-slot transform table
+  DirtyIntervalSet[]      vectors, indices, glyphs, transforms, optional paints
+  GpuBuffer[]             grow-only device arenas with bind generation
+```
+
+The proposed public/control-facing contract is intentionally typed and does not expose compositor
+internals:
+
+```csharp
+public interface IRetainedVirtualizedItemBatch
+{
+    RetainedInstanceBatchHandle Batch { get; }
+    RetainedInstanceSlice Slice { get; }
+    bool UpdateRetainedInstanceSlice(Rect absoluteBounds);
+}
+```
+
+`RetainedInstanceSlice` contains fixed start/capacity pairs, not arrays or `GpuPicture` objects.
+Updates write into caller-provided spans or a stack-only writer. The writer validates capacity and
+commits atomically; an overflow requests one cold grow/repack before rendering, or selects the
+existing fragment fallback for that frame. It must never truncate glyphs or geometry.
+
+The compositor-side owner should be a new `GpuRetainedInstanceArena`, not another mode on
+`GpuSceneFragmentArena.Allocation`. The current arena associates one allocation and draw-range list
+with one `SceneFragmentHandle`, clears an allocation's complete text capacity on update, and writes
+each changed allocation immediately. Those semantics are correct for generic pictures but conflict
+with multi-slot batching and compact interval upload. The new arena can reuse its grow-only buffer,
+bind-generation, transform-index recycling, and shadow-storage patterns without weakening the
+generic fragment path.
+
+##### Fixed layouts for the glyph page
+
+The glyph page has non-overlapping cells, so its painter order can be factored safely into a small
+number of page-wide layers:
+
+1. card fills and ordinary borders;
+2. raw glyph atlas instances;
+3. decimal label atlas instances;
+4. hexadecimal label atlas instances;
+5. hover/selection accent and focus overlays.
+
+Batching across these layers is safe because cards do not overlap and each later layer preserves
+the same within-cell order. General overlapping content must retain its original interleaving; it
+may use multiple descriptors and is not eligible merely because material keys match. Alpha
+blending is order-sensitive, so depth sorting or an unordered atomic append is not a substitute.
+
+Reserve one fixed slice per modulo slot:
+
+- card vector slice: fixed topology, normally four vertices and six indices for an analytic rounded
+  rectangle, plus a bounded border representation;
+- raw glyph slice: one atlas `GlyphInstance`, with the existing vector/color fallback recorded in a
+  separate bounded descriptor when required;
+- decimal and hexadecimal slices: capacity derived from the maximum representable glyph index and
+  fixed prefixes, not the current string length;
+- overlay slice: one fixed analytic instance, made inactive when the slot is not hovered or
+  selected.
+
+Indices for fixed card topology are generated once when capacity grows and are not uploaded on a
+row transition. Glyph tails use a canonical inactive record with zero area and zero alpha in the
+first implementation. This allows one direct instanced draw with no compaction dispatch for the
+roughly 42-slot workload. If tail vertex work becomes measurable, add a stable source-index stream;
+do not introduce cull/scan/scatter until calibration shows its dispatch cost is lower than direct
+replay.
+
+##### Dirty interval algorithm
+
+Each stream owns a preallocated interval set. Committing slot `s` marks exactly its fixed slice
+`[start, start + active-or-required-capacity)`. At the end of scene patching:
+
+1. sort by start only when producers did not commit in slot order;
+2. merge overlapping or directly adjacent intervals;
+3. never merge across a positive gap merely to reduce write count;
+4. upload each resulting interval from the shadow array;
+5. clear interval count without releasing its backing storage.
+
+For `D` dirty slots and `R` resulting adjacent runs, ordered slot production is `O(D)` work and
+`O(R)` queue writes. Unordered production is `O(D log D)` only for the dirty records, not the full
+arena. Storage is `O(S + D)` for `S` retained instances plus bounded dirty metadata. The accepted
+glyph row boundary changes `ColumnsCount` adjacent modulo slices, so each stream should normally
+collapse to one or two exact writes. This specifically avoids the rejected min/max-union design,
+which uploaded unchanged gaps between disjoint allocations.
+
+The upload scheduler must report per stream: dirty slice count, interval count, bytes requested,
+bytes actually written, unchanged bytes covered by merging, and buffer growth. A debug invariant
+requires `unchanged bytes covered == 0` except alignment padding explicitly required by WebGPU.
+
+##### Replay descriptors and shader changes
+
+`BatchDescriptor` is immutable between topology changes and contains pipeline kind, blend mode,
+mask/clip identity, buffer ranges, maximum/active instance count, and painter sequence. The
+compositor records the descriptor array once in the compiled scene and only refreshes its resource
+generation after arena growth or device loss.
+
+The initial glyph-page path should reuse existing shaders:
+
+- atlas glyphs already encode a stable transform-table index in `GlyphInstance.Padding`, and
+  `Text.wgsl::fragment_vs_main` resolves it from `fragmentTransforms`;
+- analytic card vertices can use one shared scroll transform per page-wide vector descriptor;
+- the current mask, atlas-page, DPI, ClearType/aliased/color-glyph, bold, italic, and brush behavior
+  remains unchanged.
+
+Only add a storage-indexed glyph vertex entry if inactive fixed tails or non-contiguous visibility
+prove material. That entry can reuse `GpuSceneVisibility.VisibleSourceBuffer` and the indirect draw
+layout already exercised by `RetainedGlyph.wgsl` and static DXF. For small batches, populate source
+indices on the CPU or draw fixed capacity directly. For thousands of instances, route through the
+existing count/scan/scatter compute pipeline. This size-based routing mirrors Vello Hybrid's direct
+fast path versus coarse path and avoids paying three compute stages for a few dozen cells.
+
+Any new shader remains an embedded file under the owning `Shaders/` directory with the repository's
+algorithm/time/space contract. Fixed WGSL must not be emitted as a C# string. Browser AOT startup
+must prewarm the selected pipeline variant before the benchmark interval.
+
+##### Virtualization and hit testing
+
+`UniformVirtualizingGridPanel` keeps its fixed modulo array but stops calling
+`UpdateRetainedFragment` for batched children. On a range transition it computes the entering
+columns directly, binds those slots, and commits only their batch slices. Transform-only scrolling
+updates `_scrollTranslation` and no content stream. Hit testing computes the content index from the
+pointer plus scroll offset, then verifies the modulo slot's generation/index; it does not rebuild an
+active dictionary.
+
+The existing `IRetainedVirtualizedItemFragment` path remains the fallback for arbitrary templates.
+The new batch contract is opt-in and selected only when every probed slot returns the same layout
+signature. A theme, font manager generation, DPI, item-size, column-count, or text-quality policy
+change invalidates the relevant batch streams or rebuilds topology. Hover/selection changes patch
+only the overlay or color record for the affected slot.
+
+##### DataGrid and Inter reuse
+
+After the glyph page meets its no-regression gate:
+
+- DataGrid allocates one fixed atlas-glyph slice per recycled row/cell text run. Shaping results stay
+  CPU-cached; entering data copies positioned glyph instances into the slice. Existing row chrome
+  remains a page-wide batch and painter ordering stays equivalent to the accepted 35-draw design.
+- Inter uses vertical tile slots rather than per-cell slots. Each tile owns bounded vector/text
+  slices and a publication generation. Background preparation shapes and lays out only the next
+  tile, then publishes a complete CPU record on the UI thread; GPU interval upload occurs in the
+  next compositor frame. Font fallback, variable axes, OpenType features, line breaks, clusters,
+  and selection geometry never move into a partial GPU shaper.
+- Generic `ItemsControl` adopts the API only after the fixed-layout signature, fallback, theme,
+  device-loss, and capacity behavior is proven by those two consumers.
+
+##### Failure, device-loss, and quality behavior
+
+- Arena growth increments its bind generation and rebuilds descriptors once; it does not invalidate
+  glyph/path atlas UV generations.
+- Device loss discards GPU buffers and bind groups but retains CPU shadow storage and stable logical
+  slot identity. Recreation uploads the used high-water ranges once before replay.
+- Glyph-atlas reset/repack still invalidates UV-bearing glyph instances. Rebuild only glyph streams;
+  card vectors and slot bookkeeping remain valid.
+- A slice-capacity miss is explicit. One bounded grow/repack is allowed before the frame; if it
+  cannot fit, use the ordinary fragment compiler in the same frame and record the fallback metric.
+- Complex masks, effects, non-source-over blends, overlapping template content, mutable drawing
+  commands, or incompatible transforms stay on generic painter-ordered fragments until a typed
+  descriptor represents them exactly.
+- No route changes physical framebuffer size, DPI scale, phase lattice, gamma/contrast, hinting,
+  sampling, fill rule, clip, or premultiplied-alpha behavior.
+
+##### Implementation commits and tests
+
+Implement in independently reversible commits:
+
+1. `GpuRetainedInstanceArena`, fixed slices, interval merging, metrics, and CPU-only tests.
+2. Compositor batch descriptors and direct vector/text replay, with native pixel-order tests.
+3. `IRetainedVirtualizedItemBatch` and glyph-page integration behind an option, with pointer/theme/
+   repeated-arrange tests.
+4. Browser AOT qualification and default enablement only after the acceptance gates pass.
+5. DataGrid row slices, then Inter tile slices, each with its own before/after evidence.
+6. Optional indexed/indirect glyph replay only if direct fixed-capacity replay is measured as the
+   remaining bottleneck.
+
+Required focused tests:
+
+- interval merge: empty, one, adjacent, overlapping, disjoint, reverse order, capacity boundary;
+- atomic slice commit and explicit overflow without partial shadow mutation;
+- stable painter output for overlapping controls and factored non-overlapping glyph cards;
+- transform-only scroll performs zero vector/text writes;
+- one-row transition updates exactly the entering column slices;
+- hover, selection, theme, DPI, atlas generation, resize, column change, and device recreation;
+- randomized pixel comparison against the existing picture path at 1000 scroll positions;
+- browser AOT screenshot and interaction checks with zero uncaptured WebGPU errors.
+
+##### Acceptance budget for this slice
+
+Font Glyph Browser at the existing 2560 x 1440 browser-AOT target must meet all of these before the
+new path becomes default:
+
+| Metric | Required result |
+| --- | ---: |
+| Page-content draws | at most 8 |
+| Transform-only content writes | 0 |
+| Normal row-boundary queue writes | at most 4 |
+| Normal row-boundary upload | at most 12 KiB |
+| Compositor CPU average / p95 | at most 0.150 / 0.300 ms |
+| Managed allocation after warmup | at most 2 KiB/frame |
+| GPU-completed FPS | no lower than the accepted 302.43 baseline in controlled A/B runs |
+| Pixel/interaction regressions | 0 |
+
+The FPS gate is deliberately relative for this slice because the accepted browser run also proves
+that swapchain/scheduler pacing can dominate after compositor work falls below 0.25 ms. The final
+1000-FPS goal additionally needs preserved-scroll damage rendering and browser pacing work; fixed
+slices are necessary to remove submission and allocation waste, but they are not presented as a
+standalone 3.3x solution.
 
 The 1000-FPS gate remains unchanged: every measured frame must advance validated scroll content,
 remain within a two-frame queue, use the same physical target and quality policy, and complete on the
@@ -1730,6 +1953,7 @@ Primary source snapshot:
 - [Current Vello Hybrid glyph atlas integration](https://github.com/linebender/vello/blob/8ecea46dc79bbb10315c101f9dbd0955c627dab8/sparse_strips/vello_hybrid/src/text.rs)
 - [GPU-friendly stroke expansion paper](https://arxiv.org/abs/2405.00127)
 - [Linebender sparse-strip and Vello Hybrid progress report](https://linebender.org/blog/tmil-15/)
+- [Linebender 2026 Q1 Vello and Vello Hybrid status](https://linebender.org/blog/tmil-25/)
 - [Parley source and architecture entry point](https://github.com/linebender/parley)
 - [Skia shaped-text staged result design](https://skia.org/docs/dev/design/text_shaper/)
 - [Skia Canvas/GPU context and resource-cache ownership](https://skia.org/docs/user/api/skcanvas_creation/)
@@ -1752,6 +1976,10 @@ Local ProGPU evidence inspected:
 - `src/ProGPU.Compute/Shaders/Wavefront.wgsl`
 - `src/ProGPU.Samples/SamplePerformanceBenchmark.cs`
 - `src/ProGPU.Scene/GpuSceneFragmentArena.cs`
+- `src/ProGPU.Compute/GpuSceneVisibility.cs`
+- `src/ProGPU.Scene/RetainedGlyphGeometry.cs`
+- `src/ProGPU.Scene/Shaders/RetainedGlyph.wgsl`
+- `src/ProGPU.Scene/DxfStaticBuffer.cs`
 - `src/ProGPU.Scene/SceneTransformHandle.cs`
 - `src/ProGPU.Scene/Visual.cs`
 - `src/ProGPU.Backend/Shaders/Text.wgsl`
