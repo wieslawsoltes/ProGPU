@@ -13,7 +13,7 @@ public sealed class TouchGestureResponsiveTests
     [Fact]
     public void TouchPointerPreservesIdentityCaptureAndCancellation()
     {
-        var target = new TrackingControl { Width = 120, Height = 120 };
+        var target = new TrackingControl { Width = 120, Height = 120, CaptureOnPress = true };
         ArrangeRoot(target, new Vector2(240, 240));
         UseInputRoot(target);
 
@@ -108,6 +108,133 @@ public sealed class TouchGestureResponsiveTests
     }
 
     [Fact]
+    public void TouchTapActivatesButtonsTogglesCheckBoxesAndDropDowns()
+    {
+        var button = new Button
+        {
+            Width = 120,
+            Height = 48,
+            Content = new Border()
+        };
+        var clicks = 0;
+        button.Click += (_, _) => clicks++;
+        Tap(button, 1, 20, 20);
+        Assert.Equal(1, clicks);
+
+        var checkBox = new CheckBox { Width = 120, Height = 48, Content = new Border() };
+        Tap(checkBox, 2, 20, 20);
+        Assert.True(checkBox.IsChecked);
+
+        var toggleButton = new ToggleButton { Width = 120, Height = 48, Content = new Border() };
+        Tap(toggleButton, 3, 20, 20);
+        Assert.True(toggleButton.IsChecked);
+
+        var toggleSwitch = new ToggleSwitch { Width = 120, Height = 48, Content = new Border() };
+        Tap(toggleSwitch, 4, 20, 20);
+        Assert.True(toggleSwitch.IsOn);
+
+        var comboBox = new ComboBox { Width = 160, Height = 40 };
+        comboBox.Items.Add(new ComboBoxItem("One"));
+        Tap(comboBox, 5, 20, 20);
+        Assert.True(comboBox.IsDropDownOpen);
+    }
+
+    [Fact]
+    public void TouchScrollCancelsNavigationSelectionAndScrollsPane()
+    {
+        var navigation = new NavigationView
+        {
+            PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            IsPaneOpen = true
+        };
+        for (var index = 0; index < 20; index++)
+        {
+            navigation.MenuItems.Add(new NavigationViewItem($"Item {index}", string.Empty));
+        }
+        ArrangeRoot(navigation, new Vector2(500, 220));
+        UseInputRoot(navigation);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 20, 80, 190, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 20, 80, 50, 30_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 20, 80, 50, 40_000, false));
+
+        Assert.Null(navigation.SelectedItem);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 21, 80, 30, 100_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 21, 80, 30, 140_000, false));
+        Assert.NotNull(navigation.SelectedItem);
+    }
+
+    [Fact]
+    public void DataGridTouchDragScrollsWithoutSelectingAndTapStillSelects()
+    {
+        var dataGrid = new DataGrid { Width = 320, Height = 180 };
+        dataGrid.Columns.Add(new DataGridColumn("Value", 280f, "Value"));
+        for (var index = 0; index < 100; index++) dataGrid.ItemsSource.Add($"Row {index}");
+        ArrangeRoot(dataGrid, new Vector2(320, 180));
+        UseInputRoot(dataGrid);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 30, 80, 150, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 30, 80, 60, 30_000, true));
+        Assert.True(dataGrid.ScrollOffset > 0f);
+        Assert.Equal(-1, dataGrid.SelectedIndex);
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 30, 80, 60, 40_000, false));
+        Assert.Equal(-1, dataGrid.SelectedIndex);
+
+        var tapY = 48f;
+        var expectedRow = (int)((tapY - 32f + dataGrid.ScrollOffset) / dataGrid.RowHeight);
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 31, 80, tapY, 100_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 31, 80, tapY, 140_000, false));
+        Assert.Equal(expectedRow, dataGrid.SelectedIndex);
+    }
+
+    [Fact]
+    public void ChartTouchCaptureKeepsPanInteractionOwnedByChart()
+    {
+        var chart = new ChartControl { Width = 280, Height = 180, ZoomStart = 20, ZoomEnd = 80 };
+        var viewer = new ScrollViewer { Content = chart, Width = 280, Height = 140 };
+        ArrangeRoot(viewer, new Vector2(280, 140));
+        var plotArea = typeof(ChartControl).GetField("_plotArea", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(plotArea);
+        plotArea.SetValue(chart, new Rect(10, 10, 250, 110));
+        UseInputRoot(viewer);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 40, 100, 60, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 40, 140, 60, 30_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 40, 140, 60, 40_000, false));
+
+        Assert.NotEqual(20d, chart.ZoomStart);
+        Assert.Equal(0f, viewer.VerticalOffset);
+    }
+
+    [Fact]
+    public void UncapturedMouseReleaseUsesCurrentHitAndMouseJitterDoesNotStartManipulation()
+    {
+        var button = new Button { Width = 100, Height = 60, Content = new Border() };
+        var filler = new Border { Width = 100, Height = 60 };
+        var root = new StackPanel { Orientation = Orientation.Horizontal };
+        root.Children.Add(button);
+        root.Children.Add(filler);
+        var viewer = new ScrollViewer { Content = root, Width = 200, Height = 60 };
+        ArrangeRoot(viewer, new Vector2(200, 60));
+        UseInputRoot(viewer);
+        var clicks = 0;
+        button.Click += (_, _) => clicks++;
+
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 20, 20, 1_000, false));
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Pressed, 20, 20, 2_000, true));
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 20.5f, 20, 3_000, true));
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Released, 20.5f, 20, 4_000, false));
+        Assert.Equal(1, clicks);
+
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Pressed, 20, 20, 10_000, true));
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 150, 20, 20_000, true));
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Released, 150, 20, 30_000, false));
+        Assert.Equal(1, clicks);
+        Assert.False(button.IsPointerOver);
+    }
+
+    [Fact]
     public void VisualStatesRestoreSettersAndNavigationViewUsesWinUiBreakpoints()
     {
         var control = new Button();
@@ -145,6 +272,25 @@ public sealed class TouchGestureResponsiveTests
         Pressure: contact ? 0.6f : 0f,
         ContactRect: new Rect(x - 5, y - 5, 10, 10));
 
+    private static PointerInputEvent Mouse(PointerInputKind kind, float x, float y, ulong timestamp, bool contact) => new(
+        kind,
+        1,
+        PointerDeviceType.Mouse,
+        new Vector2(x, y),
+        timestamp,
+        IsPrimary: true,
+        IsInContact: contact,
+        IsLeftButtonPressed: contact,
+        Pressure: contact ? 0.5f : 0f);
+
+    private static void Tap(FrameworkElement root, uint id, float x, float y)
+    {
+        ArrangeRoot(root, new Vector2(root.Width > 0f ? root.Width : 200f, root.Height > 0f ? root.Height : 80f));
+        UseInputRoot(root);
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, id, x, y, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, id, x, y, 40_000, false));
+    }
+
     private static void ArrangeRoot(FrameworkElement root, Vector2 size)
     {
         root.Measure(size);
@@ -163,6 +309,7 @@ public sealed class TouchGestureResponsiveTests
         public PointerDeviceType LastDeviceType { get; private set; }
         public Vector2 LastScreenPosition { get; private set; }
         public bool CaptureSucceeded { get; private set; }
+        public bool CaptureOnPress { get; init; }
         public int CanceledCount { get; private set; }
         public int CaptureLostCount { get; private set; }
         public int TappedCount { get; private set; }
@@ -175,7 +322,7 @@ public sealed class TouchGestureResponsiveTests
         {
             LastPointerId = e.Pointer.PointerId;
             LastDeviceType = e.Pointer.PointerDeviceType;
-            CaptureSucceeded = CapturePointer(e.Pointer);
+            CaptureSucceeded = !CaptureOnPress || CapturePointer(e.Pointer);
             base.OnPointerPressed(e);
         }
 
