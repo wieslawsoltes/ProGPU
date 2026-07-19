@@ -848,6 +848,7 @@ public unsafe class Compositor : IDisposable
         public DrawCallType Type;
         public uint IndexStart;
         public uint IndexCount;
+        public uint PlacementIndex;
         public GpuTexture? Texture;
         public object? StaticBuffer;
 
@@ -948,6 +949,15 @@ public unsafe class Compositor : IDisposable
     private string? _currentSceneCacheMissReason;
     private Visual? _compiledSceneRoot;
     private long _compiledSceneRootVersion;
+    private long _compiledSceneRootContentVersion;
+    private long _compiledSceneRootDescendantPlacementVersion;
+    private Matrix4x4 _compiledSceneRootTransform;
+    private float _compiledSceneRootOpacity;
+    private bool _compiledSceneRootPlacementEligible;
+    private bool _compiledSceneRootPlacementArmed;
+    private bool _compiledScenePlacementUploadPending;
+    private bool _compiledSceneTextPlacementActivationPending;
+    private GpuPlacement _compiledScenePlacement = GpuPlacement.Identity;
     private uint _compiledSceneWidth;
     private uint _compiledSceneHeight;
     private uint? _compiledSceneRenderTargetWidth;
@@ -1143,7 +1153,10 @@ public unsafe class Compositor : IDisposable
             BufferUsage.Storage | BufferUsage.CopyDst,
             "Compositor Placement Storage Buffer"
         );
-        _placementStorageBuffer.WriteSingle(GpuPlacement.Identity);
+        Span<GpuPlacement> initialPlacements = stackalloc GpuPlacement[2];
+        initialPlacements[0] = GpuPlacement.Identity;
+        initialPlacements[1] = GpuPlacement.Identity;
+        _placementStorageBuffer.Write(initialPlacements);
 
         // Allocate brushes storage buffer for the fixed GPU brush ABI.
         _brushesStorageBuffer = new GpuBuffer(
@@ -2145,6 +2158,9 @@ public unsafe class Compositor : IDisposable
             _hasGpuTransformsInFrame = false;
             _gpuTransformsCameraView = Matrix4x4.Identity;
             _compiledSceneContainsDrawingVisual = false;
+            _compiledSceneRootPlacementArmed = false;
+            _compiledScenePlacementUploadPending = false;
+            _compiledSceneTextPlacementActivationPending = false;
         }
 
         // 2. Clear CPU collection batch lists and active brushes
@@ -2451,6 +2467,18 @@ SceneCompilationComplete:
         // Upload CPU batches to dynamic GPU buffers
         if (reuseCompiledScene)
         {
+            if (_compiledSceneTextPlacementActivationPending)
+            {
+                _textVertexBuffer.Write(CollectionsMarshal.AsSpan(_textVerticesList));
+                _compiledSceneTextPlacementActivationPending = false;
+            }
+            if (_compiledScenePlacementUploadPending)
+            {
+                _placementStorageBuffer.WriteSingle(
+                    _compiledScenePlacement,
+                    (uint)Marshal.SizeOf<GpuPlacement>());
+                _compiledScenePlacementUploadPending = false;
+            }
             goto DynamicBufferUploadComplete;
         }
 
@@ -2618,7 +2646,7 @@ SceneStateUploadComplete:
                 var buffer = _vectorVertexBuffer.BufferPtr;
                 _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
                 _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
-                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -2711,7 +2739,7 @@ SceneStateUploadComplete:
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
@@ -2914,7 +2942,7 @@ SceneStateUploadComplete:
         if (!_compiledSceneReusable) return MissCompiledSceneCache(_compiledSceneCacheStateReason);
         if (hasDynamicDiagnostics) return MissCompiledSceneCache("Dynamic diagnostics active");
         if (!ReferenceEquals(_compiledSceneRoot, root)) return MissCompiledSceneCache("Root changed");
-        if (_compiledSceneRootVersion != root.ChangeVersion) return MissCompiledSceneCache("Root version changed");
+        bool rootVersionMatches = _compiledSceneRootVersion == root.ChangeVersion;
         if (_compiledSceneWidth != width || _compiledSceneHeight != height)
             return MissCompiledSceneCache("Logical target changed");
         if (_compiledSceneRenderTargetWidth != _explicitRenderTargetWidth ||
@@ -2959,7 +2987,99 @@ SceneStateUploadComplete:
             }
         }
 
+        if (!rootVersionMatches && !TryPatchCompiledRootPlacement(root))
+        {
+            return MissCompiledSceneCache("Root version changed");
+        }
+
         return true;
+    }
+
+    private bool TryPatchCompiledRootPlacement(Visual root)
+    {
+        if (!_compiledSceneRootPlacementEligible ||
+            root.ContentVersion != _compiledSceneRootContentVersion ||
+            root.DescendantPlacementVersion != _compiledSceneRootDescendantPlacementVersion ||
+            root.Opacity != _compiledSceneRootOpacity)
+        {
+            return false;
+        }
+
+        Matrix4x4 currentTransform = root.GetLocalTransform();
+        if (!Matrix4x4.Invert(_compiledSceneRootTransform, out Matrix4x4 inverseCaptured))
+        {
+            return false;
+        }
+
+        Matrix4x4 delta = inverseCaptured * currentTransform;
+        if (!TryGetRetainedTranslation(delta, _currentDpiScale, out Vector2 translation))
+        {
+            return false;
+        }
+
+        if (!_compiledSceneRootPlacementArmed)
+        {
+            for (int i = 0; i < _drawCalls.Count; i++)
+            {
+                CompositorDrawCall drawCall = _drawCalls[i];
+                if (drawCall.Type == DrawCallType.Vector)
+                {
+                    drawCall.PlacementIndex = 1u;
+                    _drawCalls[i] = drawCall;
+                }
+            }
+
+            for (int i = 0; i < _textVerticesList.Count; i++)
+            {
+                GlyphInstance glyph = _textVerticesList[i];
+                glyph.PlacementIndex = 1u;
+                _textVerticesList[i] = glyph;
+            }
+
+            _compiledSceneRootPlacementArmed = true;
+            _compiledSceneTextPlacementActivationPending = _textVerticesList.Count != 0;
+        }
+
+        _compiledScenePlacement = GpuPlacement.Identity;
+        _compiledScenePlacement.TransformRow0.Z = translation.X;
+        _compiledScenePlacement.TransformRow1.Z = translation.Y;
+        _compiledScenePlacementUploadPending = true;
+        _compiledSceneRootVersion = root.ChangeVersion;
+        root.IsDirty = false;
+        return true;
+    }
+
+    private static bool TryGetRetainedTranslation(
+        in Matrix4x4 transform,
+        float dpiScale,
+        out Vector2 translation)
+    {
+        const float matrixEpsilon = 0.00001f;
+        translation = new Vector2(transform.M41, transform.M42);
+        if (!float.IsFinite(translation.X) ||
+            !float.IsFinite(translation.Y) ||
+            MathF.Abs(transform.M11 - 1f) > matrixEpsilon ||
+            MathF.Abs(transform.M22 - 1f) > matrixEpsilon ||
+            MathF.Abs(transform.M33 - 1f) > matrixEpsilon ||
+            MathF.Abs(transform.M44 - 1f) > matrixEpsilon ||
+            MathF.Abs(transform.M12) > matrixEpsilon ||
+            MathF.Abs(transform.M13) > matrixEpsilon ||
+            MathF.Abs(transform.M14) > matrixEpsilon ||
+            MathF.Abs(transform.M21) > matrixEpsilon ||
+            MathF.Abs(transform.M23) > matrixEpsilon ||
+            MathF.Abs(transform.M24) > matrixEpsilon ||
+            MathF.Abs(transform.M31) > matrixEpsilon ||
+            MathF.Abs(transform.M32) > matrixEpsilon ||
+            MathF.Abs(transform.M34) > matrixEpsilon ||
+            MathF.Abs(transform.M43) > matrixEpsilon)
+        {
+            return false;
+        }
+
+        float physicalQuarterX = translation.X * dpiScale * 4f;
+        float physicalQuarterY = translation.Y * dpiScale * 4f;
+        return MathF.Abs(physicalQuarterX - MathF.Round(physicalQuarterX)) <= 0.001f &&
+               MathF.Abs(physicalQuarterY - MathF.Round(physicalQuarterY)) <= 0.001f;
     }
 
     private bool MissCompiledSceneCache(string reason)
@@ -2994,6 +3114,14 @@ SceneStateUploadComplete:
 
         _compiledSceneRoot = root;
         _compiledSceneRootVersion = root.ChangeVersion;
+        _compiledSceneRootContentVersion = root.ContentVersion;
+        _compiledSceneRootDescendantPlacementVersion = root.DescendantPlacementVersion;
+        _compiledSceneRootTransform = root.GetLocalTransform();
+        _compiledSceneRootOpacity = root.Opacity;
+        _compiledSceneRootPlacementEligible = IsCompiledRootPlacementEligible(
+            externalLayers,
+            activeToolTip,
+            hasDynamicDiagnostics);
         _compiledSceneWidth = width;
         _compiledSceneHeight = height;
         _compiledSceneRenderTargetWidth = _explicitRenderTargetWidth;
@@ -3024,6 +3152,69 @@ SceneStateUploadComplete:
                 _compiledLayerOwners.Add(new CompiledLayerVersion(owner, texture));
             }
         }
+    }
+
+    private bool IsCompiledRootPlacementEligible(
+        IReadOnlyList<Visual>? externalLayers,
+        Visual? activeToolTip,
+        bool hasDynamicDiagnostics)
+    {
+        if (Options.EnableGpuHitTesting ||
+            hasDynamicDiagnostics ||
+            activeToolTip != null ||
+            (externalLayers?.Count ?? 0) != 0 ||
+            _textureVerticesList.Count != 0 ||
+            _maskRenderPasses.Count != 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _activeBrushes.Count; i++)
+        {
+            if (_activeBrushes[i].Type != 0u)
+            {
+                return false;
+            }
+        }
+
+        for (int i = 0; i < _drawCalls.Count; i++)
+        {
+            CompositorDrawCall drawCall = _drawCalls[i];
+            if ((drawCall.Type != DrawCallType.Vector && drawCall.Type != DrawCallType.Text) ||
+                drawCall.ClipRect.HasValue ||
+                drawCall.MaskTexture != null)
+            {
+                return false;
+            }
+        }
+
+        for (int i = 0; i < _vectorVerticesList.Count; i++)
+        {
+            int shapeType = DecodeVectorShapeType(_vectorVerticesList[i].ShapeType);
+            if (shapeType is not (0 or 1 or 2 or 4 or 18))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int DecodeVectorShapeType(float encodedShapeType)
+    {
+        if (encodedShapeType >= AliasedShapeTypeOffset)
+        {
+            encodedShapeType -= AliasedShapeTypeOffset;
+        }
+        if (encodedShapeType >= 195f)
+        {
+            encodedShapeType -= 200f;
+        }
+        else if (encodedShapeType >= 95f)
+        {
+            encodedShapeType -= 100f;
+        }
+        return (int)MathF.Round(encodedShapeType);
     }
 
     private void MarkCompiledSceneResourcesUsed()
@@ -11925,7 +12116,7 @@ SceneStateUploadComplete:
                 var buffer = _vectorVertexBuffer.BufferPtr;
                 _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _vectorVertexBuffer.Size);
                 _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
-                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -12018,7 +12209,7 @@ SceneStateUploadComplete:
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
             }
             else if (dc.Type == DrawCallType.StaticDxf && dc.StaticBuffer != null)
             {
@@ -13232,7 +13423,7 @@ SceneStateUploadComplete:
                     }
                     currentType = DrawCallType.Vector;
                 }
-                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
             }
             else if (dc.Type == DrawCallType.Text)
             {
@@ -14314,7 +14505,7 @@ SceneStateUploadComplete:
                         _context.Api.RenderPassEncoderSetIndexBuffer(pass, _vectorIndexBuffer.BufferPtr, IndexFormat.Uint32, 0, _vectorIndexBuffer.Size);
                         currentType = DrawCallType.Vector;
                     }
-                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
                 }
                 else if (dc.Type == DrawCallType.Text)
                 {
@@ -14392,7 +14583,7 @@ SceneStateUploadComplete:
 
                     var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
-                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, 0);
+                    _context.Api.RenderPassEncoderDrawIndexed(pass, dc.IndexCount, 1, dc.IndexStart, 0, dc.PlacementIndex);
                 }
             }
 

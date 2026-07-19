@@ -77,6 +77,8 @@ public sealed class VisualChangeVersionTests
         long parentPlacement = parent.PlacementVersion;
         long childContent = child.ContentVersion;
         long childPlacement = child.PlacementVersion;
+        long parentLocalPlacement = parent.LocalPlacementVersion;
+        long parentDescendantPlacement = parent.DescendantPlacementVersion;
 
         child.Offset = new Vector2(14f, 27f);
 
@@ -84,6 +86,8 @@ public sealed class VisualChangeVersionTests
         Assert.True(child.PlacementVersion > childPlacement);
         Assert.Equal(parentContent, parent.ContentVersion);
         Assert.True(parent.PlacementVersion > parentPlacement);
+        Assert.Equal(parentLocalPlacement, parent.LocalPlacementVersion);
+        Assert.True(parent.DescendantPlacementVersion > parentDescendantPlacement);
     }
 
     [Fact]

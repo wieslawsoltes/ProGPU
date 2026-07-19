@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Numerics;
 using Microsoft.UI.Xaml;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
@@ -28,6 +29,144 @@ public sealed class LayerRenderTests
             Assert.True(window.Compositor.Metrics.SceneCacheHit);
             Assert.Equal(1, visual.RenderCount);
             AssertRed(ReadPixel(window.ReadPixels(), window.Width, 20, 20));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void RootQuarterPixelTranslationPatchesOnePlacementWithoutRecompiling()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            64,
+            new CompositorOptions
+            {
+                EnableGpuHitTesting = false,
+                PrimarySampleCount = 1
+            });
+        var visual = new TranslatedSceneCacheVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            RgbaPixel background = ReadPixel(window.ReadPixels(), window.Width, 40, 40);
+
+            visual.Transform = Matrix4x4.CreateTranslation(12f, 0f, 0f);
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, visual.RenderCount);
+            byte[] pixels = window.ReadPixels();
+            AssertColorNear(background, ReadPixel(pixels, window.Width, 8, 10), tolerance: 1);
+            AssertRed(ReadPixel(pixels, window.Width, 20, 10));
+
+            visual.Transform = Matrix4x4.CreateTranslation(16f, 0f, 0f);
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, visual.RenderCount);
+            AssertRed(ReadPixel(window.ReadPixels(), window.Width, 24, 10));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void RootTextTranslationActivatesRetainedGlyphPlacement()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            64,
+            new CompositorOptions { EnableGpuHitTesting = false, PrimarySampleCount = 1 });
+        var text = new RetainedGlyphVisual();
+        window.Content = text;
+
+        try
+        {
+            window.Render();
+            byte[] before = window.ReadPixels();
+
+            text.Transform = Matrix4x4.CreateTranslation(8f, 0f, 0f);
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            byte[] after = window.ReadPixels();
+            int redPixels = 0;
+            for (int y = 0; y < 64; y++)
+            {
+                for (int x = 0; x < 56; x++)
+                {
+                    RgbaPixel source = ReadPixel(before, window.Width, x, y);
+                    if (source.R > source.G + 32 && source.R > source.B + 32 && source.A > 32)
+                    {
+                        redPixels++;
+                        AssertColorNear(
+                            source,
+                            ReadPixel(after, window.Width, x + 8, y),
+                            tolerance: 2);
+                    }
+                }
+            }
+            Assert.True(redPixels > 0);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void FractionalRootTranslationFallsBackToFullCompilation()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            64,
+            new CompositorOptions { EnableGpuHitTesting = false, PrimarySampleCount = 1 });
+        var visual = new TranslatedSceneCacheVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+            visual.Transform = Matrix4x4.CreateTranslation(0.1f, 0f, 0f);
+            window.Render();
+
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal("Root version changed", window.Compositor.Metrics.SceneCacheMissReason);
+            Assert.Equal(2, visual.RenderCount);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void DescendantTranslationFallsBackToFullCompilation()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            64,
+            new CompositorOptions { EnableGpuHitTesting = false, PrimarySampleCount = 1 });
+        var visual = new PlacementHostVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+            visual.Child.Transform = Matrix4x4.CreateTranslation(12f, 0f, 0f);
+            window.Render();
+
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal("Root version changed", window.Compositor.Metrics.SceneCacheMissReason);
+            Assert.Equal(2, visual.Child.RenderCount);
         }
         finally
         {
@@ -333,6 +472,73 @@ public sealed class LayerRenderTests
         {
             RenderCount++;
             context.DrawRectangle(_brush, null, new Rect(0f, 0f, 64f, 64f));
+        }
+    }
+
+    private sealed class TranslatedSceneCacheVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _brush = new(new Vector4(1f, 0f, 0f, 1f));
+
+        public int RenderCount { get; private set; }
+
+        public TranslatedSceneCacheVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            RenderCount++;
+            context.DrawRectangle(_brush, null, new Rect(4f, 4f, 16f, 16f));
+        }
+    }
+
+    private sealed class RetainedGlyphVisual : FrameworkElement
+    {
+        private readonly ushort[] _glyphIndices = { InterFontFamily.Regular.GetGlyphIndex('A') };
+        private readonly Vector2[] _glyphPositions = { new(4f, 32f) };
+        private readonly SolidColorBrush _brush = new(new Vector4(1f, 0f, 0f, 1f));
+
+        public RetainedGlyphVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawGlyphRun(
+                _glyphIndices,
+                _glyphPositions,
+                InterFontFamily.Regular,
+                28f,
+                _brush,
+                Vector2.Zero,
+                preferGlyphAtlas: true);
+        }
+    }
+
+    private sealed class PlacementHostVisual : FrameworkElement
+    {
+        public TranslatedSceneCacheVisual Child { get; } = new();
+
+        public PlacementHostVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+            AddChild(Child);
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            Child.Measure(availableSize);
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            Child.Arrange(new Rect(0f, 0f, 64f, 64f));
         }
     }
 
