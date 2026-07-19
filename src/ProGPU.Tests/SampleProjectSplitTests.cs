@@ -228,6 +228,49 @@ public sealed class SampleProjectSplitTests
         Assert.DoesNotContain("checked((int)handle.Value)", browserApi, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AnimatedSampleRenderCallbacksReusePaintGeometryAndTimingState()
+    {
+        var gradient = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Views", "GradientArtVisual.cs"),
+            "public override void OnRender");
+        var texture = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Views", "GpuTextureCanvas.cs"),
+            "public override void OnRender");
+        var gear = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Views", "GearVisual.cs"),
+            "public override void OnRender");
+        var picture = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Pages", "PictureShowcasePage.cs"),
+            "public override void OnRender");
+        var glyphRun = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Pages", "GlyphRunShowcasePage.cs"),
+            "public override void OnRender");
+        var keyframes = ExtractMethodBody(
+            Read("src", "ProGPU.Samples", "Views", "ShowcaseCards.cs"),
+            "public void Update(float delta)");
+
+        Assert.DoesNotContain("new SolidColorBrush", gradient, StringComparison.Ordinal);
+        Assert.DoesNotContain("new GradientStop", gradient, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Pen", gradient, StringComparison.Ordinal);
+        Assert.DoesNotContain("new SolidColorBrush", texture, StringComparison.Ordinal);
+        Assert.Contains("_displayedBlurRadius != blurRadius", texture, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateGearPathWithRotation", gear, StringComparison.Ordinal);
+        Assert.Contains("_gearGeometryCache", gear, StringComparison.Ordinal);
+        Assert.DoesNotContain("Stopwatch.StartNew", picture, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ThemeResourceBrush", picture, StringComparison.Ordinal);
+        Assert.Contains("Stopwatch.GetTimestamp", picture, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ushort", glyphRun, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Vector2[", glyphRun, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetGlyphIndex", glyphRun, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetAdvanceWidth", glyphRun, StringComparison.Ordinal);
+        Assert.Contains("EnsureGlyphLayout();", glyphRun, StringComparison.Ordinal);
+        Assert.DoesNotContain("Canvas.SetLeft", keyframes, StringComparison.Ordinal);
+        Assert.DoesNotContain("Canvas.SetTop", keyframes, StringComparison.Ordinal);
+        Assert.DoesNotContain("Invalidate();", keyframes, StringComparison.Ordinal);
+        Assert.Contains("_slidingCard.Transform", keyframes, StringComparison.Ordinal);
+    }
+
     private static FrameworkElement? FindByName(FrameworkElement element, string name)
     {
         if (element.Name == name) return element;
@@ -242,6 +285,27 @@ public sealed class SampleProjectSplitTests
         if (element is ContentControl { Content: FrameworkElement content })
             return FindByName(content, name);
         return null;
+    }
+
+    private static string ExtractMethodBody(string source, string signature)
+    {
+        int signatureIndex = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(signatureIndex >= 0, $"Method signature '{signature}' was not found.");
+        int start = source.IndexOf('{', signatureIndex);
+        Assert.True(start >= 0, $"Method body for '{signature}' was not found.");
+
+        int depth = 0;
+        for (int index = start; index < source.Length; index++)
+        {
+            if (source[index] == '{') depth++;
+            if (source[index] != '}') continue;
+            depth--;
+            if (depth == 0)
+            {
+                return source[start..(index + 1)];
+            }
+        }
+        throw new InvalidDataException($"Method body for '{signature}' is unbalanced.");
     }
 
     private static string Read(params string[] parts)

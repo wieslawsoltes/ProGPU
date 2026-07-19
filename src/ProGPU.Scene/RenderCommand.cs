@@ -1138,6 +1138,36 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    /// <summary>
+    /// Records a transformed retained path without allocating a replacement geometry cache.
+    /// Animated callers patch only the command transform while preserving immutable topology.
+    /// </summary>
+    public void DrawPath(
+        Brush? brush,
+        Pen? pen,
+        PathGeometry path,
+        Matrix4x4 transform,
+        RenderCommandGeometryCache geometryCache)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(geometryCache);
+        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
+            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
+        {
+            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            Transform = transform,
+            GeometryCache = geometryCache
+        });
+    }
+
     public void DrawText(
         string text,
         TtfFont font,

@@ -137,16 +137,13 @@ public class KeyframeShowcaseCard : Border, IAnimatedElement
         _rotationAnimation.Update(delta);
 
         Vector2 currentOffset = _offsetAnimation.Evaluate((a, b, t) => Vector2.Lerp(a, b, t));
-        Canvas.SetLeft(_slidingCard, currentOffset.X);
-        Canvas.SetTop(_slidingCard, currentOffset.Y);
+        _slidingCard.Transform = Matrix4x4.CreateTranslation(currentOffset.X, currentOffset.Y, 0f);
 
         float currentOpacity = _opacityAnimation.Evaluate((a, b, t) => a + (b - a) * t);
         _fadingText.Opacity = currentOpacity;
 
         float currentRotation = _rotationAnimation.Evaluate((a, b, t) => a + (b - a) * t);
         _gearVisual.GearRotation = currentRotation;
-
-        Invalidate();
     }
 }
 

@@ -1123,6 +1123,20 @@ Implementation checkpoint (2026-07-18): the first sample-level mutation cleanup 
   sub-item scrolling is O(1). Standalone panels retain their own clip unchanged.
 - Repeated pointer movement that does not cross scrollbar hover state no longer invalidates
   `ScrollViewer`; `DataGrid` likewise invalidates only when hover/drag state actually changes.
+- Animated sample callbacks now retain their paint and geometry inputs. `GradientArtVisual` mutates
+  only gradient endpoints/origins; `GpuTextureCanvas` reuses all brushes and formats radius labels
+  only when the corresponding control value changes; the cached `GpuPicture` showcase uses
+  allocation-free timestamp sampling; and the hamburger icon reuses one dynamic theme brush.
+- The animation-card gear records one immutable origin-centered path and one
+  `RenderCommandGeometryCache`; rotation is a command matrix, not per-frame path construction. A new
+  public `DrawPath` overload accepts both a transform and the caller's retained geometry cache, with
+  a focused command-recording regression protecting cache identity.
+- The Glyph Run showcase no longer allocates full glyph/position/advance arrays every animation
+  frame or one pair of arrays per circular glyph. Character mapping and advances rebuild only when
+  text, font, size or tracking changes. Wave animation updates one retained position array, while
+  circular animation reuses bounded per-glyph index records and the same zero-position array.
+  Source regressions audit these `OnRender` methods so brush, gradient, path, timing and glyph lookup
+  allocations cannot silently return.
 
 The Release sample project compiles with zero warnings after this slice. Sustained completed-GPU
 measurements remain pending because the managed environment cannot launch a WebGPU browser or bind a

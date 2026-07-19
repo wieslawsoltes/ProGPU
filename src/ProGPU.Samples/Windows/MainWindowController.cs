@@ -749,6 +749,8 @@ public static unsafe class MainWindowController
 
 public class HamburgerIconVisual : FrameworkElement
 {
+    private readonly ThemeResourceBrush _brush = new("TextPrimary");
+
     public HamburgerIconVisual()
     {
         WidthConstraint = 18f;
@@ -759,12 +761,11 @@ public class HamburgerIconVisual : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
-        var brush = ThemeManager.GetBrush("TextPrimary");
         float startX = (Size.X - 18f) / 2f;
         float startY = (Size.Y - 12f) / 2f;
-        context.DrawRectangle(brush, null, new Rect(startX, startY, 18f, 2f));
-        context.DrawRectangle(brush, null, new Rect(startX, startY + 5f, 18f, 2f));
-        context.DrawRectangle(brush, null, new Rect(startX, startY + 10f, 18f, 2f));
+        context.DrawRectangle(_brush, null, new Rect(startX, startY, 18f, 2f));
+        context.DrawRectangle(_brush, null, new Rect(startX, startY + 5f, 18f, 2f));
+        context.DrawRectangle(_brush, null, new Rect(startX, startY + 10f, 18f, 2f));
         base.OnRender(context);
     }
 }
