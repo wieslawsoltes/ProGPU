@@ -205,6 +205,34 @@ public sealed class OpenTypeTextShaperTests
         Assert.Equal(new[] { 2, 1, 0 }, rightToLeft.Select(static glyph => glyph.Cluster));
     }
 
+    [Theory]
+    [InlineData("Dispatcher.QueueEvent #428", null)]
+    [InlineData("AVATAR To Wa Yo", "kern")]
+    [InlineData("1/2 12/25", "frac")]
+    public void SingleLineLayoutFastPathPreservesOpenTypeShaping(string text, string? feature)
+    {
+        TextShapingOptions options = feature is null
+            ? TextShapingOptions.Default
+            : TextShapingOptions.WithFeatures(new OpenTypeFeatureSetting(feature));
+        TtfFont font = InterFontFamily.Regular;
+        IReadOnlyList<ShapedGlyph> shaped = OpenTypeTextShaper.Shape(text, font, 32f, options);
+        var layout = new TextLayout(text, font, 32f, 10_000f, TextAlignment.Left, shapingOptions: options);
+
+        Assert.Equal(shaped.Count, layout.Glyphs.Count);
+        float cursorX = 0f;
+        for (int index = 0; index < shaped.Count; index++)
+        {
+            ShapedGlyph expected = shaped[index];
+            TextRunGlyph actual = layout.Glyphs[index];
+            Assert.Equal(expected.GlyphIndex, actual.GlyphIndex);
+            Assert.Equal(expected.Cluster, actual.Cluster);
+            Assert.Equal(expected.CodePoint, actual.CodePoint);
+            Assert.InRange(actual.Position.X, cursorX + expected.OffsetX - 0.001f, cursorX + expected.OffsetX + 0.001f);
+            cursorX += expected.AdvanceX;
+        }
+        Assert.InRange(layout.ContentSize.X, cursorX - 0.001f, cursorX + 0.001f);
+    }
+
     [Fact]
     public void InferredNkoDirectionIsRightToLeft()
     {
