@@ -319,6 +319,15 @@ separation used by Vello/WebRender-style retained encodings: scene identity and 
 fine grained while GPU submission is compact. Reducing draw count is not a success metric when it
 raises allocation, upload traffic, frame-interval tails, or completed-frame latency.
 
+A follow-up delta-only dictionary reconciliation trial was also reverted. In the same externally
+pacing-limited browser window, the unchanged baseline measured 104.02 completed FPS with 0.186 ms
+compile, 0.489 ms compositor time, 37,650 B allocation, and 21,843 B upload per frame. Avoiding the
+active-map clear/reinsert measured 98.12 FPS, 0.195 ms compile, 0.506 ms compositor time, 36,934 B
+allocation, and 22,004 B upload. The 716-byte allocation reduction did not offset the added range
+diff work, while fragment updates, draw count, and uploaded content were unchanged. Future slot
+bookkeeping work must use direct modulo lookup and fixed dirty instance records end to end; adding a
+dictionary delta pass around the existing picture compiler is not sufficient.
+
 This measurement also sharpens the remaining 1000-FPS plan. The one-pixel workload performs only
 0.242 ms of compositor work yet has a 3.300 ms median submitted-frame interval. Its 110 draw calls
 and approximately 14 KiB of managed allocation remain waste, but eliminating them cannot by itself
