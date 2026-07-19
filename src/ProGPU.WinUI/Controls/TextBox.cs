@@ -14,7 +14,7 @@ using ProGPU.Text;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class TextBox : Control
+public class TextBox : Control, ITextInputClient
 {
     private string _text = string.Empty;
     private string _placeholderText = "Enter text...";
@@ -27,6 +27,15 @@ public class TextBox : Control
     private int _selectionAnchor = 0;
     private bool _isDraggingSelection = false;
     private readonly HashSet<Key> _pressedKeys = new();
+    private int _compositionStart = -1;
+    private int _compositionLength;
+    private string _compositionOriginalText = string.Empty;
+
+    public InputScope InputScope { get; set; } = new();
+    public string EnterKeyHint { get; set; } = "enter";
+    public string AutoCapitalization { get; set; } = "sentences";
+    public bool IsSpellCheckEnabled { get; set; } = true;
+    public bool AcceptsReturn { get; set; }
 
     // Premium multi-step undo/redo state
     private class UndoState
@@ -225,6 +234,121 @@ public class TextBox : Control
         CaretIndex += insert.Length;
         SelectionStart = CaretIndex;
         SelectionLength = 0;
+    }
+
+    TextInputOptions ITextInputClient.GetTextInputOptions()
+    {
+        var scope = InputScope.Names.Count == 0 ? InputScopeNameValue.Default : InputScope.Names[0].NameValue;
+        var matrix = GetGlobalTransformMatrix();
+        var origin = Vector2.Transform(Vector2.Zero, matrix);
+        var end = Vector2.Transform(Size, matrix);
+        return new TextInputOptions(
+            scope,
+            EnterKeyHint,
+            AutoCapitalization,
+            IsSpellCheckEnabled,
+            false,
+            AcceptsReturn,
+            Text,
+            SelectionStart,
+            SelectionLength,
+            new Rect(origin.X, origin.Y, Math.Max(1f, end.X - origin.X), Math.Max(1f, end.Y - origin.Y)));
+    }
+
+    void ITextInputClient.OnTextInput(TextInputRoutedEventArgs args)
+    {
+        if (!IsEnabled || !IsFocused) return;
+        switch (args.Kind)
+        {
+            case TextInputEventKind.InsertText:
+                if (string.IsNullOrEmpty(args.Text)) break;
+                SaveUndoState();
+                InsertText(args.Text);
+                break;
+            case TextInputEventKind.DeleteContentBackward:
+                DeleteFromSoftwareKeyboard(backward: true);
+                break;
+            case TextInputEventKind.DeleteContentForward:
+                DeleteFromSoftwareKeyboard(backward: false);
+                break;
+            case TextInputEventKind.InsertLineBreak:
+                if (AcceptsReturn)
+                {
+                    SaveUndoState();
+                    InsertText(Environment.NewLine);
+                }
+                break;
+            case TextInputEventKind.CompositionStarted:
+                _compositionStart = Math.Min(SelectionStart, SelectionStart + SelectionLength);
+                _compositionLength = Math.Abs(SelectionLength);
+                _compositionOriginalText = SelectedText;
+                SaveUndoState();
+                break;
+            case TextInputEventKind.CompositionUpdated:
+            case TextInputEventKind.CompositionCompleted:
+                UpdateComposition(args.Text, args.Kind == TextInputEventKind.CompositionCompleted);
+                break;
+            case TextInputEventKind.CompositionCanceled:
+                if (_compositionStart >= 0)
+                {
+                    SelectionStart = _compositionStart;
+                    SelectionLength = _compositionLength;
+                    DeleteSelection();
+                    CaretIndex = _compositionStart;
+                    if (!string.IsNullOrEmpty(_compositionOriginalText)) InsertText(_compositionOriginalText);
+                    _compositionStart = -1;
+                    _compositionLength = 0;
+                    _compositionOriginalText = string.Empty;
+                }
+                break;
+        }
+        args.Handled = true;
+    }
+
+    private void DeleteFromSoftwareKeyboard(bool backward)
+    {
+        if (SelectionLength != 0)
+        {
+            SaveUndoState();
+            DeleteSelection();
+            return;
+        }
+        if (backward && CaretIndex > 0)
+        {
+            SaveUndoState();
+            var length = CaretIndex >= 2 && char.IsLowSurrogate(Text[CaretIndex - 1]) && char.IsHighSurrogate(Text[CaretIndex - 2]) ? 2 : 1;
+            SelectionStart = CaretIndex - length;
+            SelectionLength = length;
+            DeleteSelection();
+        }
+        else if (!backward && CaretIndex < Text.Length)
+        {
+            SaveUndoState();
+            SelectionStart = CaretIndex;
+            SelectionLength = CaretIndex + 1 < Text.Length && char.IsHighSurrogate(Text[CaretIndex]) && char.IsLowSurrogate(Text[CaretIndex + 1]) ? 2 : 1;
+            DeleteSelection();
+        }
+    }
+
+    private void UpdateComposition(string text, bool completed)
+    {
+        if (_compositionStart < 0)
+        {
+            _compositionStart = Math.Min(SelectionStart, SelectionStart + SelectionLength);
+            _compositionLength = Math.Abs(SelectionLength);
+        }
+        SelectionStart = _compositionStart;
+        SelectionLength = _compositionLength;
+        DeleteSelection();
+        CaretIndex = _compositionStart;
+        InsertText(text);
+        _compositionLength = text.Length;
+        if (completed)
+        {
+            _compositionStart = -1;
+            _compositionLength = 0;
+            _compositionOriginalText = string.Empty;
+        }
     }
 
     public override void OnVisualStateChanged()
@@ -668,4 +792,3 @@ public class TextBox : Control
         base.OnRender(context);
     }
 }
-

@@ -29,6 +29,7 @@ using WinuiCompositor = ProGPU.Scene.Compositor;
 using AvaloniaDrawingContext = Avalonia.Media.DrawingContext;
 using GpuBuffer = Silk.NET.WebGPU.Buffer;
 using AvaloniaVector = Avalonia.Vector;
+using PointerDeviceType = Windows.Devices.Input.PointerDeviceType;
 
 namespace ProGPU.Avalonia;
 
@@ -1136,8 +1137,9 @@ public class ProGpuHostControl : Control
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        SyncInputState(e.GetPosition(this));
-        InputSystem.InjectMouseMove(new Vector2((float)e.GetPosition(this).X, (float)e.GetPosition(this).Y));
+        var position = e.GetPosition(this);
+        SyncInputState(position);
+        InputSystem.InjectPointer(CreatePointerInput(e, PointerInputKind.Moved));
         
         QueueRenderUpdate();
         e.Handled = true;
@@ -1147,13 +1149,7 @@ public class ProGpuHostControl : Control
     {
         SyncInputState(e.GetPosition(this));
         
-        var props = e.GetCurrentPoint(this).Properties;
-        var button = SilkInput.MouseButton.Left;
-        if (props.IsLeftButtonPressed) button = SilkInput.MouseButton.Left;
-        else if (props.IsRightButtonPressed) button = SilkInput.MouseButton.Right;
-        else if (props.IsMiddleButtonPressed) button = SilkInput.MouseButton.Middle;
-        
-        InputSystem.InjectMouseDown(button);
+        InputSystem.InjectPointer(CreatePointerInput(e, PointerInputKind.Pressed));
         Focus();
 
         QueueRenderUpdate();
@@ -1164,14 +1160,7 @@ public class ProGpuHostControl : Control
     {
         SyncInputState(e.GetPosition(this));
         
-        var props = e.GetCurrentPoint(this).Properties;
-        var button = SilkInput.MouseButton.Left;
-        var updateKind = props.PointerUpdateKind;
-        if (updateKind == PointerUpdateKind.LeftButtonReleased) button = SilkInput.MouseButton.Left;
-        else if (updateKind == PointerUpdateKind.RightButtonReleased) button = SilkInput.MouseButton.Right;
-        else if (updateKind == PointerUpdateKind.MiddleButtonReleased) button = SilkInput.MouseButton.Middle;
-        
-        InputSystem.InjectMouseUp(button);
+        InputSystem.InjectPointer(CreatePointerInput(e, PointerInputKind.Released));
         
         QueueRenderUpdate();
         e.Handled = true;
@@ -1198,6 +1187,63 @@ public class ProGpuHostControl : Control
         InputSystem.InjectMouseMove(new Vector2(-1f, -1f));
         QueueRenderUpdate();
         base.OnPointerExited(e);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        if (_winuiInputState != null)
+        {
+            InputSystem.Current = _winuiInputState;
+            var deviceType = e.Pointer.Type switch
+            {
+                PointerType.Touch => PointerDeviceType.Touch,
+                PointerType.Pen => PointerDeviceType.Pen,
+                _ => PointerDeviceType.Mouse
+            };
+            InputSystem.InjectPointer(new PointerInputEvent(
+                PointerInputKind.Canceled,
+                unchecked((uint)Math.Max(1, e.Pointer.Id)),
+                deviceType,
+                _winuiInputState.LastMousePos,
+                (ulong)(Stopwatch.GetTimestamp() * 1_000_000L / Stopwatch.Frequency),
+                IsPrimary: true));
+        }
+        QueueRenderUpdate();
+        base.OnPointerCaptureLost(e);
+    }
+
+    private PointerInputEvent CreatePointerInput(PointerEventArgs e, PointerInputKind kind)
+    {
+        var point = e.GetCurrentPoint(this);
+        var position = point.Position;
+        var properties = point.Properties;
+        var deviceType = e.Pointer.Type switch
+        {
+            PointerType.Touch => PointerDeviceType.Touch,
+            PointerType.Pen => PointerDeviceType.Pen,
+            _ => PointerDeviceType.Mouse
+        };
+        var modifiers = VirtualKeyModifiers.None;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) modifiers |= VirtualKeyModifiers.Shift;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control)) modifiers |= VirtualKeyModifiers.Control;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt)) modifiers |= VirtualKeyModifiers.Menu;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Meta)) modifiers |= VirtualKeyModifiers.Windows;
+        var inContact = kind == PointerInputKind.Pressed ||
+            (kind == PointerInputKind.Moved &&
+             (deviceType != PointerDeviceType.Mouse || properties.IsLeftButtonPressed || properties.IsMiddleButtonPressed || properties.IsRightButtonPressed));
+        return new PointerInputEvent(
+            kind,
+            unchecked((uint)Math.Max(1, e.Pointer.Id)),
+            deviceType,
+            new Vector2((float)position.X, (float)position.Y),
+            e.Timestamp,
+            IsPrimary: true,
+            IsInContact: inContact,
+            IsLeftButtonPressed: properties.IsLeftButtonPressed || (kind == PointerInputKind.Pressed && deviceType != PointerDeviceType.Mouse),
+            IsMiddleButtonPressed: properties.IsMiddleButtonPressed,
+            IsRightButtonPressed: properties.IsRightButtonPressed,
+            Pressure: deviceType == PointerDeviceType.Mouse ? (properties.IsLeftButtonPressed ? 0.5f : 0f) : 1f,
+            Modifiers: modifiers);
     }
 
     protected override void OnKeyDown(KeyEventArgs e)

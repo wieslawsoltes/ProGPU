@@ -2,7 +2,10 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml;
 using Silk.NET.Input;
+using Windows.Devices.Input;
+using ProGPU.Scene;
 
 namespace ProGPU.Browser;
 
@@ -14,7 +17,7 @@ namespace ProGPU.Browser;
 /// </summary>
 public static partial class BrowserInputDispatcher
 {
-    private const int EventSize = 32;
+    private const int EventSize = 64;
     private const int EventsPerBatch = 256;
     private const int MaximumBatchesPerFrame = 4;
     private static WindowInputState? s_attachedState;
@@ -24,6 +27,7 @@ public static partial class BrowserInputDispatcher
         ArgumentNullException.ThrowIfNull(state);
         s_attachedState = state;
         state.CursorChanged = cursor => SetCanvasCursor(ToCssCursor(cursor));
+        state.FocusChanged = OnFocusChanged;
     }
 
     public static void Detach(WindowInputState state)
@@ -31,18 +35,55 @@ public static partial class BrowserInputDispatcher
         ArgumentNullException.ThrowIfNull(state);
         if (!ReferenceEquals(s_attachedState, state)) return;
         state.CursorChanged = null;
+        state.FocusChanged = null;
+        HideTextInput();
         s_attachedState = null;
     }
 
     [JSExport]
-    public static bool DispatchImmediatePointer(int kind, double x, double y, int button)
+    public static bool DispatchTextInput(int kind, string? text, bool isComposing)
     {
         var state = s_attachedState;
-        if (state == null || (kind != (int)BrowserInputKind.PointerDown && kind != (int)BrowserInputKind.PointerUp))
+        if (state == null || !Enum.IsDefined(typeof(TextInputEventKind), kind)) return false;
+        InputSystem.Current = state;
+        InputSystem.InjectTextInput((TextInputEventKind)kind, text, isComposing);
+        return true;
+    }
+
+    [JSExport]
+    public static bool DispatchImmediatePointer(
+        int kind,
+        double x,
+        double y,
+        int button,
+        int buttons,
+        int pointerId,
+        int pointerType,
+        double pressure,
+        double width,
+        double height,
+        bool isPrimary,
+        double timestamp,
+        int modifiers)
+    {
+        var state = s_attachedState;
+        if (state == null || (kind != (int)BrowserInputKind.PointerDown && kind != (int)BrowserInputKind.PointerUp && kind != (int)BrowserInputKind.PointerCancel))
             return false;
 
         InputSystem.Current = state;
-        DispatchPointer((BrowserInputKind)kind, new Vector2((float)x, (float)y), unchecked((uint)button));
+        InputSystem.InjectPointer(CreatePointerEvent(
+            (BrowserInputKind)kind,
+            new Vector2((float)x, (float)y),
+            button,
+            buttons,
+            pointerId,
+            pointerType,
+            (float)pressure,
+            (float)width,
+            (float)height,
+            isPrimary,
+            timestamp,
+            modifiers));
         return true;
     }
 
@@ -75,15 +116,33 @@ public static partial class BrowserInputDispatcher
         switch (kind)
         {
             case BrowserInputKind.PointerMove:
-                InputSystem.InjectMouseMove(position);
-                break;
             case BrowserInputKind.PointerDown:
             case BrowserInputKind.PointerUp:
-                DispatchPointer(kind, position, ReadUInt32(record, 20));
+            case BrowserInputKind.PointerCancel:
+                InputSystem.InjectPointer(CreatePointerEvent(
+                    kind,
+                    position,
+                    ReadInt32(record, 56),
+                    ReadInt32(record, 28),
+                    ReadInt32(record, 20),
+                    ReadInt32(record, 52),
+                    ReadSingle(record, 40),
+                    ReadSingle(record, 44),
+                    ReadSingle(record, 48),
+                    (ReadUInt32(record, 28) & 0x10000u) != 0,
+                    ReadDouble(record, 32),
+                    ReadInt32(record, 24)));
                 break;
             case BrowserInputKind.Wheel:
-                InputSystem.InjectMouseMove(position);
-                InputSystem.InjectMouseScroll(new Vector2(ReadSingle(record, 12), ReadSingle(record, 16)));
+                InputSystem.InjectPointer(new PointerInputEvent(
+                    PointerInputKind.Wheel,
+                    1,
+                    PointerDeviceType.Mouse,
+                    position,
+                    ToMicroseconds(ReadDouble(record, 32)),
+                    WheelDeltaX: ReadSingle(record, 12),
+                    WheelDeltaY: ReadSingle(record, 16),
+                    Modifiers: ReadModifiers(ReadUInt32(record, 24))));
                 break;
             case BrowserInputKind.KeyDown:
                 if (TryMapKey((BrowserKey)ReadUInt32(record, 20), out var downKey)) InputSystem.InjectKeyDown(downKey);
@@ -104,12 +163,66 @@ public static partial class BrowserInputDispatcher
         }
     }
 
-    private static void DispatchPointer(BrowserInputKind kind, Vector2 position, uint button)
+    private static PointerInputEvent CreatePointerEvent(
+        BrowserInputKind kind,
+        Vector2 position,
+        int button,
+        int buttons,
+        int pointerId,
+        int pointerType,
+        float pressure,
+        float width,
+        float height,
+        bool isPrimary,
+        double timestamp,
+        int modifiers)
     {
-        InputSystem.InjectMouseMove(position);
-        if (!TryMapButton(button, out var mappedButton)) return;
-        if (kind == BrowserInputKind.PointerDown) InputSystem.InjectMouseDown(mappedButton);
-        else InputSystem.InjectMouseUp(mappedButton);
+        var inputKind = kind switch
+        {
+            BrowserInputKind.PointerDown => PointerInputKind.Pressed,
+            BrowserInputKind.PointerUp => PointerInputKind.Released,
+            BrowserInputKind.PointerCancel => PointerInputKind.Canceled,
+            _ => PointerInputKind.Moved
+        };
+        var deviceType = pointerType switch
+        {
+            1 => PointerDeviceType.Touch,
+            2 => PointerDeviceType.Pen,
+            _ => PointerDeviceType.Mouse
+        };
+        var buttonMask = buttons & 0xffff;
+        var left = (buttonMask & 1) != 0 || (inputKind == PointerInputKind.Pressed && button == 0);
+        var right = (buttonMask & 2) != 0 || (inputKind == PointerInputKind.Pressed && button == 2);
+        var middle = (buttonMask & 4) != 0 || (inputKind == PointerInputKind.Pressed && button == 1);
+        var isInContact = inputKind == PointerInputKind.Pressed ||
+            (inputKind == PointerInputKind.Moved && (deviceType != PointerDeviceType.Mouse || buttonMask != 0));
+        return new PointerInputEvent(
+            inputKind,
+            unchecked((uint)Math.Max(1, pointerId)),
+            deviceType,
+            position,
+            ToMicroseconds(timestamp),
+            isPrimary,
+            isInContact,
+            left,
+            middle,
+            right,
+            pressure,
+            new Rect(position.X - width * 0.5f, position.Y - height * 0.5f, Math.Max(0, width), Math.Max(0, height)),
+            Modifiers: ReadModifiers(unchecked((uint)modifiers)));
+    }
+
+    private static ulong ToMicroseconds(double timestampMilliseconds) =>
+        (ulong)Math.Max(0d, timestampMilliseconds * 1000d);
+
+    private static VirtualKeyModifiers ReadModifiers(uint value)
+    {
+        var result = VirtualKeyModifiers.None;
+        if ((value & 1) != 0) result |= VirtualKeyModifiers.Shift;
+        if ((value & 2) != 0) result |= VirtualKeyModifiers.Control;
+        if ((value & 4) != 0) result |= VirtualKeyModifiers.Menu;
+        if ((value & 8) != 0) result |= VirtualKeyModifiers.Windows;
+        return result;
     }
 
     private static bool TryMapButton(uint button, out MouseButton result)
@@ -189,17 +302,72 @@ public static partial class BrowserInputDispatcher
         _ => "default"
     };
 
+    private static void OnFocusChanged(FrameworkElement? element)
+    {
+        if (element is not ITextInputClient client)
+        {
+            HideTextInput();
+            return;
+        }
+
+        var options = client.GetTextInputOptions();
+        ConfigureTextInput(
+            ToInputMode(options.InputScope),
+            options.EnterKeyHint,
+            options.AutoCapitalize,
+            options.IsSpellCheckEnabled,
+            options.IsPassword,
+            options.AcceptsReturn,
+            options.Bounds.X,
+            options.Bounds.Y,
+            options.Bounds.Width,
+            options.Bounds.Height);
+    }
+
+    private static string ToInputMode(InputScopeNameValue scope) => scope switch
+    {
+        InputScopeNameValue.Url => "url",
+        InputScopeNameValue.EmailSmtpAddress => "email",
+        InputScopeNameValue.Number => "decimal",
+        InputScopeNameValue.NumericPin => "numeric",
+        InputScopeNameValue.TelephoneNumber => "tel",
+        InputScopeNameValue.Search => "search",
+        _ => "text"
+    };
+
     private static uint ReadUInt32(ReadOnlySpan<byte> bytes, int offset) =>
         BinaryPrimitives.ReadUInt32LittleEndian(bytes[offset..]);
 
     private static float ReadSingle(ReadOnlySpan<byte> bytes, int offset) =>
         BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes[offset..]));
 
+    private static int ReadInt32(ReadOnlySpan<byte> bytes, int offset) =>
+        BinaryPrimitives.ReadInt32LittleEndian(bytes[offset..]);
+
+    private static double ReadDouble(ReadOnlySpan<byte> bytes, int offset) =>
+        BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes[offset..]));
+
     [JSImport("drainInputEvents", "progpu-browser")]
     private static partial int DrainInputEvents(nint destination, int capacity);
 
     [JSImport("setCanvasCursor", "progpu-browser")]
     private static partial void SetCanvasCursor(string cursor);
+
+    [JSImport("configureTextInput", "progpu-browser")]
+    private static partial void ConfigureTextInput(
+        string inputMode,
+        string enterKeyHint,
+        string autoCapitalize,
+        bool spellCheck,
+        bool isPassword,
+        bool acceptsReturn,
+        float x,
+        float y,
+        float width,
+        float height);
+
+    [JSImport("hideTextInput", "progpu-browser")]
+    private static partial void HideTextInput();
 
     private enum BrowserInputKind : uint
     {
@@ -210,7 +378,8 @@ public static partial class BrowserInputDispatcher
         KeyDown = 5,
         KeyUp = 6,
         Text = 7,
-        FocusLost = 8
+        FocusLost = 8,
+        PointerCancel = 9
     }
 
     private enum BrowserKey : uint

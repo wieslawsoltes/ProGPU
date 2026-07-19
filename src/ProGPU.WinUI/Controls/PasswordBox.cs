@@ -15,7 +15,7 @@ using static System.FormattableString;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class PasswordBox : Control
+public class PasswordBox : Control, ITextInputClient
 {
     public static readonly DependencyProperty PasswordProperty =
         DependencyProperty.Register(
@@ -92,6 +92,7 @@ public class PasswordBox : Control
     private int _selectionAnchor;
     private bool _isDraggingSelection;
     private readonly HashSet<Key> _pressedKeys = new();
+    private string _pendingComposition = string.Empty;
 
     // Multi-step Undo/Redo stack for security-minded editing
     private class UndoState
@@ -263,6 +264,81 @@ public class PasswordBox : Control
         CaretIndex += insert.Length;
         SelectionStart = CaretIndex;
         SelectionLength = 0;
+    }
+
+    TextInputOptions ITextInputClient.GetTextInputOptions()
+    {
+        var matrix = GetGlobalTransformMatrix();
+        var origin = Vector2.Transform(Vector2.Zero, matrix);
+        var end = Vector2.Transform(Size, matrix);
+        return new TextInputOptions(
+            InputScopeNameValue.Password,
+            "done",
+            "off",
+            false,
+            true,
+            false,
+            string.Empty,
+            0,
+            0,
+            new Rect(origin.X, origin.Y, Math.Max(1f, end.X - origin.X), Math.Max(1f, end.Y - origin.Y)));
+    }
+
+    void ITextInputClient.OnTextInput(TextInputRoutedEventArgs args)
+    {
+        if (!IsEnabled || !IsFocused) return;
+        switch (args.Kind)
+        {
+            case TextInputEventKind.InsertText:
+                if (!string.IsNullOrEmpty(args.Text))
+                {
+                    SaveUndoState();
+                    InsertText(args.Text);
+                }
+                break;
+            case TextInputEventKind.DeleteContentBackward:
+            case TextInputEventKind.DeleteContentForward:
+                if (SelectionLength != 0)
+                {
+                    SaveUndoState();
+                    DeleteSelection();
+                }
+                else if (args.Kind == TextInputEventKind.DeleteContentBackward && CaretIndex > 0)
+                {
+                    SaveUndoState();
+                    var length = CaretIndex >= 2 && char.IsLowSurrogate(Password[CaretIndex - 1]) && char.IsHighSurrogate(Password[CaretIndex - 2]) ? 2 : 1;
+                    SelectionStart = CaretIndex - length;
+                    SelectionLength = length;
+                    DeleteSelection();
+                }
+                else if (args.Kind == TextInputEventKind.DeleteContentForward && CaretIndex < Password.Length)
+                {
+                    SaveUndoState();
+                    SelectionStart = CaretIndex;
+                    SelectionLength = CaretIndex + 1 < Password.Length && char.IsHighSurrogate(Password[CaretIndex]) && char.IsLowSurrogate(Password[CaretIndex + 1]) ? 2 : 1;
+                    DeleteSelection();
+                }
+                break;
+            case TextInputEventKind.CompositionStarted:
+                _pendingComposition = string.Empty;
+                break;
+            case TextInputEventKind.CompositionUpdated:
+                _pendingComposition = args.Text;
+                break;
+            case TextInputEventKind.CompositionCompleted:
+                var committed = string.IsNullOrEmpty(args.Text) ? _pendingComposition : args.Text;
+                if (!string.IsNullOrEmpty(committed))
+                {
+                    SaveUndoState();
+                    InsertText(committed);
+                }
+                _pendingComposition = string.Empty;
+                break;
+            case TextInputEventKind.CompositionCanceled:
+                _pendingComposition = string.Empty;
+                break;
+        }
+        args.Handled = true;
     }
 
     public override void OnVisualStateChanged()

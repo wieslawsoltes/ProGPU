@@ -16,17 +16,26 @@ html, body, #progpu-canvas {
 #progpu-canvas {
   display: block;
   position: fixed;
-  inset: 0;
+  left: calc(var(--progpu-viewport-left, 0px) + env(safe-area-inset-left));
+  top: calc(var(--progpu-viewport-top, 0px) + env(safe-area-inset-top));
+  width: calc(var(--progpu-viewport-width, 100vw) - env(safe-area-inset-left) - env(safe-area-inset-right));
+  height: calc(var(--progpu-viewport-height, 100dvh) - var(--progpu-keyboard-inset, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 #progpu-text-input {
   position: fixed;
-  left: -10000px;
+  left: 0;
   top: 0;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  width: 2px;
+  height: 2px;
+  opacity: .01;
   pointer-events: none;
+  border: 0;
+  padding: 0;
+  resize: none;
+  z-index: 1;
 }
 
 #diagnostics {
