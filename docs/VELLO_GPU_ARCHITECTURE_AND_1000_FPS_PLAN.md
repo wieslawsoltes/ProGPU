@@ -1500,6 +1500,65 @@ The Vello-style edge/backdrop checkpoint is also implemented:
   edges remain antialiased. A separate 300-segment single-cell polygon exceeds the 256-line command
   capacity and proves the BVH fallback retains full center coverage.
 
+#### Phase 4 browser validation correction and architecture pivot (2026-07-19)
+
+The first browser-AOT execution invalidates the earlier assumption that the workgroup-local
+edge/backdrop checkpoint was a usable performance baseline:
+
+- Chromium rejected the previous `wavefront_render` module because `workgroupBarrier` occurred in
+  control flow derived from `cell.shape_count`. The reported 401.63 GPU-completed FPS from that
+  artifact is invalid: the Wavefront shader did not compile, even though the benchmark continued.
+  It must not be used in comparisons or acceptance decisions.
+- A trial persistent count/scan/emit command stream removed that invalid barrier and passed Chromium
+  WebGPU validation. On Font Glyph Browser at 2560 x 1440 physical pixels, DPI 2, VSync disabled,
+  queue depth two, and 40-logical-pixel scrolling, it reached only 165.29 GPU-completed FPS over a
+  30/120-frame run. Adding persistent 16-row winding backdrops improved the isolated 120/600-frame
+  run to 172.89 completed FPS, still below the required 200 FPS browser floor and far below the
+  accepted 302.43 FPS Atlas result.
+- Storing transformed 16-byte tile segments instead of 4-byte retained line indices reduced the
+  same isolated result to 160.78 completed FPS. The bandwidth cost exceeded the saved matrix work on
+  this browser/GPU. That variant was rejected.
+- All trial renderer and test changes were reverted before integration. These numbers are negative
+  experimental evidence, not a completed implementation checkpoint.
+
+The cause is architectural rather than a missing micro-optimization. The trial retained ProGPU's
+signed-distance inner loop: every fine pixel still visited every local segment, evaluated distance
+and winding, and repeated linear-light blend conversions. Classic Vello instead builds clipped
+tile segments and backdrop state, emits a typed per-tile command list, and evaluates analytic area
+coverage in its fine stage. Retaining commands around the old SDF evaluator is not equivalent to
+Vello and does not provide Vello's work reduction.
+
+The replacement Phase 4 implementation therefore has these non-negotiable boundaries:
+
+1. Keep WinUI-compatible measure, arrange, virtualization, dependency properties, input, themes,
+   invalidation, and public `DrawingContext` behavior identical to `main`. No page-specific layout
+   API, scroll shortcut, or visual-tree semantic change is part of this phase.
+2. Add a separate GPU scene ABI behind ordinary retained `DrawingContext` commands. Existing Atlas
+   rendering remains the default and same-frame fallback until the new path passes every gate.
+3. Port Vello's actual stage separation: `path_count` produces per-path/tile segment counts and
+   winding deltas; hierarchical scans allocate exact path/tile ranges; `path_tiling` clips and writes
+   tile-local segments once; `backdrop` prefixes winding across tile rows.
+4. Emit a typed coarse PTCL stream in strict painter order for solid fills first. Every allocation
+   has an explicit bump/high-water record and overflow bit. A bounded overflow routes that draw to
+   Atlas in the same frame; it never truncates geometry or waits for an unbounded retry.
+5. Implement fine analytic area coverage from PTCL and tile-local segments. Do not call the current
+   per-pixel BVH/SDF evaluator on the admitted normal path. Preserve direction-aware half-open
+   winding, physical-pixel AA, DPI, subpixel phase, premultiplied alpha, and linear-light blending.
+6. Admit only ordinary source-over solid fills initially. Rect clips, complex clips, opacity layers,
+   gradients, images, effects, non-source-over blends, color glyphs, strokes, and unsupported path
+   kinds remain on their existing exact paths until represented by typed commands and pixel tests.
+7. Validate the isolated core with randomized CPU-oracle winding/coverage tests, Vello-stage buffer
+   invariants, native WebGPU image comparisons, browser shader creation with zero uncaptured errors,
+   overflow/device-loss tests, and a clean AOT artifact before connecting more UI features.
+8. Require a controlled same-binary A/B. Font Glyph Browser must exceed the accepted 302.43
+   GPU-completed FPS Atlas baseline (not merely 200 FPS), while all browser pages remain above the
+   200 FPS minimum and quality comparisons remain exact. A slower result stays experimental and is
+   not enabled by default.
+
+This pivot follows the inspected Vello `path_count.wgsl`, `tile_alloc.wgsl`, `path_tiling.wgsl`,
+`backdrop.wgsl`, `coarse.wgsl`, and `fine.wgsl` stages rather than adapting only their names around
+the existing evaluator. The primary-source links are recorded below.
+
 The router must still be calibrated from sustained desktop and browser AOT timestamps before
 Wavefront can become the default. A Release desktop benchmark binary built successfully in this
 environment, but macOS application startup could not establish its GUI services and emitted no frame
