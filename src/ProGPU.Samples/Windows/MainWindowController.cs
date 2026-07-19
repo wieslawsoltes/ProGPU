@@ -279,6 +279,7 @@ public static unsafe class MainWindowController
         AppState._navigationView = new NavigationView
         {
             Font = AppState._font,
+            IsPaneToggleButtonVisible = false,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };

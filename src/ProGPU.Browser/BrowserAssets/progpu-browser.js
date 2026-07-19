@@ -477,7 +477,9 @@ function installBrowserInput() {
   }, { passive: false });
 
   globalThis.addEventListener('keydown', event => {
-    if (document.activeElement === textSink && (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter')) return;
+    const textSinkOwnsPaste = document.activeElement === textSink && event.code === 'KeyV' && (event.ctrlKey || event.metaKey);
+    if (document.activeElement === textSink &&
+      (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter' || textSinkOwnsPaste)) return;
     const key = browserKeyCodes.get(event.code) || 0;
     if (key !== 0) queueInputEvent(5, 0, 0, 0, 0, key, eventModifiers(event), event.repeat ? 1 : 0);
     if (['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Space'].includes(event.code)) {
@@ -485,7 +487,9 @@ function installBrowserInput() {
     }
   }, true);
   globalThis.addEventListener('keyup', event => {
-    if (document.activeElement === textSink && (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter')) return;
+    const textSinkOwnsPaste = document.activeElement === textSink && event.code === 'KeyV' && (event.ctrlKey || event.metaKey);
+    if (document.activeElement === textSink &&
+      (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter' || textSinkOwnsPaste)) return;
     const key = browserKeyCodes.get(event.code) || 0;
     if (key !== 0) queueInputEvent(6, 0, 0, 0, 0, key, eventModifiers(event));
   }, true);

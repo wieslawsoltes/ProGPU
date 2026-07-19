@@ -1236,7 +1236,7 @@ public class ProGpuHostControl : Control
             unchecked((uint)Math.Max(1, e.Pointer.Id)),
             deviceType,
             new Vector2((float)position.X, (float)position.Y),
-            e.Timestamp,
+            (ulong)e.Timestamp * 1_000UL,
             IsPrimary: true,
             IsInContact: inContact,
             IsLeftButtonPressed: properties.IsLeftButtonPressed || (kind == PointerInputKind.Pressed && deviceType != PointerDeviceType.Mouse),

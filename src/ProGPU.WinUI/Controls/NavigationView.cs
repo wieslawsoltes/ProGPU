@@ -71,7 +71,7 @@ public class NavigationView : FrameworkElement
         protected override Vector2 MeasureOverride(Vector2 availableSize)
         {
             float w = availableSize.X;
-            float h = 10f; // top margin
+            float h = _navigationView.IsPaneToggleButtonVisible ? 58f : 10f;
             
             foreach (var item in _navigationView._flatVisibleItems)
             {
@@ -90,7 +90,7 @@ public class NavigationView : FrameworkElement
 
         protected override void ArrangeOverride(Rect arrangeRect)
         {
-            float cursorY = arrangeRect.Y + 10f;
+            float cursorY = arrangeRect.Y + (_navigationView.IsPaneToggleButtonVisible ? 58f : 10f);
             foreach (var item in _navigationView._flatVisibleItems)
             {
                 item.Arrange(new Rect(arrangeRect.X, cursorY, arrangeRect.Width, 40f));
@@ -127,6 +127,7 @@ public class NavigationView : FrameworkElement
     private bool _hasResolvedDisplayMode;
     private double _openPaneLength = 240d;
     private double _compactPaneLength = 60d;
+    private bool _isPaneToggleButtonVisible = true;
 
     public ObservableCollection<NavigationViewItem> MenuItems { get; }
 
@@ -144,6 +145,19 @@ public class NavigationView : FrameworkElement
     }
 
     public NavigationViewDisplayMode DisplayMode => _displayMode;
+    public bool IsPaneToggleButtonVisible
+    {
+        get => _isPaneToggleButtonVisible;
+        set
+        {
+            if (_isPaneToggleButtonVisible == value) return;
+            _isPaneToggleButtonVisible = value;
+            _hamburgerButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            _panePanel.InvalidateMeasure();
+            InvalidateMeasure();
+            InvalidateArrange();
+        }
+    }
     public double CompactModeThresholdWidth { get; set; } = 641d;
     public double ExpandedModeThresholdWidth { get; set; } = 1008d;
 
@@ -290,6 +304,7 @@ public class NavigationView : FrameworkElement
             VerticalAlignment = VerticalAlignment.Stretch
         };
         AddChild(_splitView);
+        AddChild(_hamburgerButton);
 
         RebuildPaneChildren();
     }
@@ -387,6 +402,7 @@ public class NavigationView : FrameworkElement
     {
         UpdateDisplayMode(availableSize.X);
         _splitView.Measure(availableSize);
+        if (IsPaneToggleButtonVisible) _hamburgerButton.Measure(new Vector2(40f, 40f));
         return availableSize;
     }
 
@@ -394,6 +410,10 @@ public class NavigationView : FrameworkElement
     {
         UpdateDisplayMode(arrangeRect.Width);
         _splitView.Arrange(arrangeRect);
+        if (IsPaneToggleButtonVisible)
+        {
+            _hamburgerButton.Arrange(new Rect(arrangeRect.X + 8f, arrangeRect.Y + 8f, 40f, 40f));
+        }
     }
 
     private void UpdateDisplayMode(float width)
