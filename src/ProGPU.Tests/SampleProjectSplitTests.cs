@@ -109,7 +109,7 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void BrowserFrameSchedulerHonorsVSyncWithoutStarvingTheEventLoop()
+    public void BrowserFrameSchedulerHonorsVSyncAndUsesRollingGpuCompletionWindow()
     {
         var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
         var browserHost = Read("src", "ProGPU.Browser", "BrowserWindowHost.cs");
@@ -118,9 +118,14 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("if (vsync) return new Promise(resolve => requestAnimationFrame(resolve));", browserAsset, StringComparison.Ordinal);
         Assert.Contains("const uncappedFrameChannel = new MessageChannel();", browserAsset, StringComparison.Ordinal);
         Assert.Contains("uncappedFrameChannel.port2.postMessage(0);", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 3;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const UNCAPPED_FRAMES_PER_COMPLETION = 3;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const MAX_UNCAPPED_COMPLETION_GROUPS = 2;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const uncappedGpuFenceResolvers = new Map();", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("uncappedGpuCompletions.push(captureUncappedGpuCompletion());", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("await uncappedGpuCompletions.shift();", browserAsset, StringComparison.Ordinal);
         Assert.Contains("state.device.queue.onSubmittedWorkDone()", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("type: 'uncapped-frame-fence'", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("type: 'uncapped-frame-fence', id", browserAsset, StringComparison.Ordinal);
+        Assert.DoesNotContain("uncappedFramesSinceFence", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "function nextAnimationFrame(vsync) {\n  queueMicrotask",
             browserAsset.Replace("\r\n", "\n", StringComparison.Ordinal),

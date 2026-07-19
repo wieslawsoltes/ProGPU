@@ -49,42 +49,53 @@ const BENCHMARK_QUERY_VARIABLES = Object.freeze({
   benchmarkScrollStep: 'PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP'
 });
 const uncappedFrameResolvers = [];
-const uncappedGpuFenceResolvers = [];
-// Keep enough queued work to overlap WASM scene preparation, browser IPC, and
-// GPU execution without turning uncapped mode into an unbounded producer. A
-// three-frame window adds one overlap slot while retaining an explicit, small
-// latency bound instead of forcing full queue completion every other frame.
-const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 3;
-let uncappedFramesSinceFence = 0;
+const uncappedGpuFenceResolvers = new Map();
+const uncappedGpuCompletions = [];
+// Keep two rolling three-frame completion groups. Each fence snapshots only the
+// work submitted before it, so waiting for the oldest group preserves bounded
+// latency while the newer group remains queued. Capturing once per group also
+// avoids paying WebGPU promise/task-source overhead on every frame. The former
+// single-group scheme drained the entire queue at each checkpoint and serialized
+// WASM scene preparation, browser IPC, and GPU execution.
+const UNCAPPED_FRAMES_PER_COMPLETION = 3;
+const MAX_UNCAPPED_COMPLETION_GROUPS = 2;
+let uncappedFramesStarted = 0;
+let uncappedFramesSinceCompletion = 0;
+let nextUncappedGpuFenceId = 1;
 const uncappedFrameChannel = new MessageChannel();
 uncappedFrameChannel.port1.onmessage = async () => {
   const resolve = uncappedFrameResolvers.shift();
   if (!resolve) return;
 
-  if (uncappedFramesSinceFence < MAX_UNCAPPED_FRAMES_IN_FLIGHT) {
-    uncappedFramesSinceFence++;
-    resolve(performance.now());
-    return;
+  if (uncappedFramesStarted > 0) {
+    uncappedFramesSinceCompletion++;
+    if (uncappedFramesSinceCompletion >= UNCAPPED_FRAMES_PER_COMPLETION) {
+      uncappedFramesSinceCompletion = 0;
+      uncappedGpuCompletions.push(captureUncappedGpuCompletion());
+      if (uncappedGpuCompletions.length >= MAX_UNCAPPED_COMPLETION_GROUPS) {
+        await uncappedGpuCompletions.shift();
+      }
+    }
   }
 
-  // Bound producer/consumer latency instead of flooding the WebGPU queue. Three
-  // frames remain available for CPU/browser/GPU overlap, then all work submitted
-  // before this fence must finish before the next frame is admitted.
-  if (state.worker) {
-    uncappedGpuFenceResolvers.push(() => {
-      uncappedFramesSinceFence = 1;
-      resolve(performance.now());
-    });
-    state.worker.postMessage({ type: 'uncapped-frame-fence' });
-  } else if (state.device) {
-    await state.device.queue.onSubmittedWorkDone();
-    uncappedFramesSinceFence = 1;
-    resolve(performance.now());
-  } else {
-    uncappedFramesSinceFence = 1;
-    resolve(performance.now());
-  }
+  uncappedFramesStarted++;
+  resolve(performance.now());
 };
+
+function captureUncappedGpuCompletion() {
+  if (state.worker) {
+    flushWorkerPackets();
+    const id = nextUncappedGpuFenceId++;
+    return new Promise(resolve => {
+      uncappedGpuFenceResolvers.set(id, resolve);
+      state.worker.postMessage({ type: 'uncapped-frame-fence', id });
+    });
+  }
+
+  return state.device
+    ? state.device.queue.onSubmittedWorkDone()
+    : Promise.resolve();
+}
 
 const textureFormats = [
   undefined,
@@ -625,7 +636,9 @@ function handleWorkerMessage(event) {
   } else if (message.type === 'device-lost') {
     globalThis.setTimeout(() => globalThis.location.reload(), 250);
   } else if (message.type === 'uncapped-frame-ready') {
-    uncappedGpuFenceResolvers.shift()?.();
+    const resolve = uncappedGpuFenceResolvers.get(message.id);
+    uncappedGpuFenceResolvers.delete(message.id);
+    resolve?.();
   } else if (message.type === 'response') {
     const pending = state.workerRequests.get(message.id);
     if (!pending) return;
@@ -1340,7 +1353,7 @@ async function handleDispatcherWorkerMessage(event) {
       }
       case 'uncapped-frame-fence':
         await state.device.queue.onSubmittedWorkDone();
-        globalThis.postMessage({ type: 'uncapped-frame-ready' });
+        globalThis.postMessage({ type: 'uncapped-frame-ready', id: message.id });
         break;
       case 'upload':
         state.uploads = new Uint8Array(message.upload);
