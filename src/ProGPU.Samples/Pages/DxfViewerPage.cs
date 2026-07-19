@@ -23,10 +23,6 @@ namespace ProGPU.Samples;
 
 public class DxfCanvasControl : FrameworkElement
 {
-    private readonly ThemeResourceBrush _cardBackgroundBrush = new("CardBackground");
-    private readonly ThemeResourceBrush _textSecondaryBrush = new("TextSecondary");
-    private readonly Pen _controlBorderPen = new(new ThemeResourceBrush("ControlBorder"), 1f);
-
     public DxfDocument? Document { get; private set; }
     public DxfRenderContext Context { get; }
 
@@ -69,7 +65,7 @@ public class DxfCanvasControl : FrameworkElement
 
         // Initialize DxfRenderContext with ProGPU default font
         Context = new DxfRenderContext(new DrawingContext(), AppState.GetFont()!);
-        Context.BackgroundBrush = _cardBackgroundBrush;
+        Context.BackgroundBrush = ThemeManager.GetBrush("CardBackground");
 
         // Mouse pan and zoom events registration
         PointerPressed += OnPointerPressed;
@@ -178,13 +174,13 @@ public class DxfCanvasControl : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
-        // ThemeResourceBrush resolves dynamically while the retained instances keep
-        // ordinary pan/zoom renders allocation-free.
-        context.DrawRectangle(_cardBackgroundBrush, _controlBorderPen, new Rect(0, 0, Size.X, Size.Y));
+        // Draw CAD charcoal background card using resolved brushes
+        context.DrawRectangle(ThemeManager.GetBrush("CardBackground"), ThemeManager.GetPen("ControlBorder", 1f), new Rect(0, 0, Size.X, Size.Y));
 
         if (Document == null)
         {
-            context.DrawText("No DXF document loaded. Load a file or generate a sample.", AppState.GetFont()!, 13f, _textSecondaryBrush, new Vector2(24, 24));
+            var warningBrush = ThemeManager.GetBrush("TextSecondary");
+            context.DrawText("No DXF document loaded. Load a file or generate a sample.", AppState.GetFont()!, 13f, warningBrush, new Vector2(24, 24));
             return;
         }
 

@@ -265,7 +265,7 @@ namespace ProGPU.Vector
                 _destSegmentsSize = checked((uint)(16 + _maxDestSegments * Unsafe.SizeOf<GpuPathSegment>()));
                 _destSegmentsBuffer = new GpuBuffer(_context, _destSegmentsSize, BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.CopySrc, "Dest Path Segments Buffer");
                 uint zero = 0;
-                _destSegmentsBuffer.WriteSingle(zero);
+                _context.Api.QueueWriteBuffer(_context.Queue, _destSegmentsBuffer.BufferPtr, 0, &zero, 4);
 
                 _cache = new RenderPipelineCache(_context);
                 var geometryModule = _cache.GetOrCreateShader("PathOpGeometry", Shaders.PathOpGeometryShader, "PathOpGeometryShader");

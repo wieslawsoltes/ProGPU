@@ -23,39 +23,9 @@ public enum WgpuBackendKind
     BrowserWebGpu
 }
 
-/// <summary>
-/// Monotonic queue-upload counters. Callers take two snapshots and subtract them so diagnostics
-/// add no locks, allocations, or per-frame reset traffic to rendering hot paths.
-/// </summary>
-public readonly record struct GpuQueueUploadMetrics(
-    long BufferWriteCount,
-    long BufferBytes,
-    long TextureWriteCount,
-    long TextureBytes)
-{
-    public static GpuQueueUploadMetrics operator -(
-        GpuQueueUploadMetrics end,
-        GpuQueueUploadMetrics start) =>
-        new(
-            Math.Max(0, end.BufferWriteCount - start.BufferWriteCount),
-            Math.Max(0, end.BufferBytes - start.BufferBytes),
-            Math.Max(0, end.TextureWriteCount - start.TextureWriteCount),
-            Math.Max(0, end.TextureBytes - start.TextureBytes));
-
-    public long TotalWriteCount => BufferWriteCount + TextureWriteCount;
-    public long TotalBytes => BufferBytes + TextureBytes;
-}
-
 public unsafe class WgpuContext : IDisposable
 {
     private SharedDeviceLifetime? _sharedDeviceLifetime;
-    private GpuFrameCompletionTracker? _frameCompletionTracker;
-    private GpuTimestampRing? _gpuTimestampRing;
-    private long _queueBufferWriteCount;
-    private long _queueBufferBytes;
-    private long _queueTextureWriteCount;
-    private long _queueTextureBytes;
-    private long _blockingDeviceWaitCount;
     public WebGPU Wgpu { get; private set; } = null!;
     public IWebGpuApi Api { get; private set; } = null!;
     public WgpuBackendKind BackendKind { get; private set; } = WgpuBackendKind.SilkNative;
@@ -69,114 +39,6 @@ public unsafe class WgpuContext : IDisposable
     public uint MaxSamplersPerShaderStage { get; private set; } = 16;
     public uint MaxBindGroups { get; private set; } = 4;
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
-    public bool SupportsTimestampQueries { get; private set; }
-
-    /// <summary>
-    /// Enables queue-completion callbacks for compositor frame submissions. This is intentionally
-    /// opt-in because a callback per frame is diagnostic work and is not part of normal rendering.
-    /// </summary>
-    public bool EnableFrameCompletionTracking
-    {
-        get => Volatile.Read(ref _frameCompletionTracker) != null;
-        set
-        {
-            if (value)
-            {
-                if (Volatile.Read(ref _frameCompletionTracker) == null)
-                {
-                    var tracker = new GpuFrameCompletionTracker();
-                    if (Interlocked.CompareExchange(ref _frameCompletionTracker, tracker, null) != null)
-                    {
-                        tracker.Dispose();
-                    }
-                }
-            }
-            else
-            {
-                Interlocked.Exchange(ref _frameCompletionTracker, null)?.Dispose();
-            }
-        }
-    }
-
-    public GpuFrameCompletionMetrics FrameCompletionMetrics =>
-        Volatile.Read(ref _frameCompletionTracker)?.Metrics ?? default;
-
-    /// <summary>
-    /// Enables non-blocking timestamp pairs around the main compositor command buffer. The
-    /// setting remains false when the adapter did not expose the timestamp-query feature.
-    /// </summary>
-    public bool EnableGpuTimestampTracking
-    {
-        get => _gpuTimestampRing != null;
-        set
-        {
-            if (value && SupportsTimestampQueries)
-            {
-                _gpuTimestampRing ??= new GpuTimestampRing(this);
-            }
-            else if (!value)
-            {
-                Interlocked.Exchange(ref _gpuTimestampRing, null)?.Dispose();
-            }
-        }
-    }
-
-    public GpuTimestampMetrics GpuTimestampMetrics => _gpuTimestampRing?.Metrics ?? default;
-
-    public void ResetGpuTimestampMetrics() => _gpuTimestampRing?.ResetMetrics();
-
-    public GpuQueueUploadMetrics QueueUploadMetrics => new(
-        Interlocked.Read(ref _queueBufferWriteCount),
-        Interlocked.Read(ref _queueBufferBytes),
-        Interlocked.Read(ref _queueTextureWriteCount),
-        Interlocked.Read(ref _queueTextureBytes));
-
-    /// <summary>
-    /// Number of explicit device-wide idle waits. Normal frame rendering and resource retirement
-    /// must not advance this counter; it is reserved for disposal and synchronous readback seams.
-    /// </summary>
-    public long BlockingDeviceWaitCount => Interlocked.Read(ref _blockingDeviceWaitCount);
-
-    /// <summary>
-    /// Number of uncaptured WebGPU errors reported by this device. Performance harnesses use this
-    /// counter to reject runs whose command streams or pipelines were invalid instead of treating
-    /// asynchronous queue callbacks as successfully rendered frames.
-    /// </summary>
-    public long UncapturedErrorCount => Interlocked.Read(ref _uncapturedErrorCount);
-
-    internal void RecordQueueBufferWrite(uint byteCount)
-    {
-        Interlocked.Increment(ref _queueBufferWriteCount);
-        Interlocked.Add(ref _queueBufferBytes, byteCount);
-    }
-
-    internal void RecordQueueTextureWrite(uint byteCount)
-    {
-        Interlocked.Increment(ref _queueTextureWriteCount);
-        Interlocked.Add(ref _queueTextureBytes, byteCount);
-    }
-
-    public bool BeginFrameGpuTimestamp(CommandEncoder* encoder) =>
-        _gpuTimestampRing?.BeginFrame(encoder) == true;
-
-    public bool BeginGpuTimestampStage(CommandEncoder* encoder, GpuTimestampStage stage) =>
-        _gpuTimestampRing?.BeginStage(encoder, stage) == true;
-
-    public void EndGpuTimestampStage(CommandEncoder* encoder, GpuTimestampStage stage) =>
-        _gpuTimestampRing?.EndStage(encoder, stage);
-
-    public void EndFrameGpuTimestamp(CommandEncoder* encoder) =>
-        _gpuTimestampRing?.EndFrame(encoder);
-
-    /// <summary>
-    /// Records the main compositor submission. Auxiliary uploads and offscreen utility submits do
-    /// not count as completed frames.
-    /// </summary>
-    public void NotifyFrameSubmitted()
-    {
-        _gpuTimestampRing?.NotifySubmitted();
-        Volatile.Read(ref _frameCompletionTracker)?.RecordSubmission(Api, Queue);
-    }
 
     public static event Action<ErrorType, string>? OnWebGpuError;
 
@@ -186,7 +48,6 @@ public unsafe class WgpuContext : IDisposable
     }
 
     private PfnErrorCallback _errorCallback;
-    private long _uncapturedErrorCount;
 
     public readonly object RenderLock = new();
     public readonly object DisposalLock = new();
@@ -346,10 +207,13 @@ public unsafe class WgpuContext : IDisposable
                     PendingShaderModules.Clear();
                 }
 
-                // WebGPU resources may be destroyed/released after their final commands have
-                // been submitted. The implementation retains the allocation until previously
-                // submitted operations complete. A device-wide wait here serialized unrelated
-                // frames and produced five-second wgpu-native cleanup stalls.
+                if (views.Length > 0 || textures.Length > 0 || buffers.Length > 0 || bindGroups.Length > 0 ||
+                    layouts.Length > 0 || pipeLayouts.Length > 0 || renderPipes.Length > 0 ||
+                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0)
+                {
+                    WaitIdle();
+                }
+
                 ReleaseBindGroups(bindGroups.Span);
                 ReleaseTextureViews(views.Span);
                 ReleaseTextures(textures.Span);
@@ -697,20 +561,14 @@ public unsafe class WgpuContext : IDisposable
         var adapterLimits = new SupportedLimits();
         Wgpu.AdapterGetLimits(Adapter, &adapterLimits);
         var requiredLimits = CreateRequiredLimits(adapterLimits);
-        var requiredFeatures = stackalloc FeatureName[2];
-        int requiredFeatureCount = 0;
-        requiredFeatures[requiredFeatureCount++] = FeatureName.Bgra8UnormStorage;
-        SupportsTimestampQueries = Wgpu.AdapterHasFeature(Adapter, FeatureName.TimestampQuery);
-        if (SupportsTimestampQueries)
-        {
-            requiredFeatures[requiredFeatureCount++] = FeatureName.TimestampQuery;
-        }
+        var requiredFeatures = stackalloc FeatureName[1];
+        requiredFeatures[0] = FeatureName.Bgra8UnormStorage;
 
         var deviceDesc = new DeviceDescriptor
         {
             Label = (byte*)SilkMarshal.StringToPtr("ProGPU Primary Device"),
             RequiredLimits = &requiredLimits,
-            RequiredFeatureCount = (nuint)requiredFeatureCount,
+            RequiredFeatureCount = 1,
             RequiredFeatures = requiredFeatures
         };
 
@@ -757,7 +615,6 @@ public unsafe class WgpuContext : IDisposable
         _errorCallback = PfnErrorCallback.From((type, msg, _) =>
         {
             string errorMsg = (msg != null ? SilkMarshal.PtrToString((nint)msg) : null) ?? "Unknown error";
-            Interlocked.Increment(ref _uncapturedErrorCount);
             Console.WriteLine($"[WebGPU Error] Type: {type}, Message: {errorMsg}");
             OnWebGpuError?.Invoke(type, errorMsg);
         });
@@ -802,8 +659,7 @@ public unsafe class WgpuContext : IDisposable
         uint maxSampledTexturesPerShaderStage = 16,
         uint maxSamplersPerShaderStage = 16,
         uint maxBindGroups = 4,
-        bool supportsReadOnlyAndReadWriteStorageTextures = false,
-        bool supportsTimestampQueries = false)
+        bool supportsReadOnlyAndReadWriteStorageTextures = false)
     {
         ArgumentNullException.ThrowIfNull(api);
         if (Api != null || Device != null || _isDisposed)
@@ -821,7 +677,6 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = Math.Max(16, maxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, maxBindGroups);
         SupportsReadOnlyAndReadWriteStorageTextures = supportsReadOnlyAndReadWriteStorageTextures;
-        SupportsTimestampQueries = supportsTimestampQueries;
         _isSurfaceConfigured = true;
         _lastWidth = 1;
         _lastHeight = 1;
@@ -877,7 +732,6 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
-        SupportsTimestampQueries = deviceOwner.SupportsTimestampQueries;
         _sharedDeviceLifetime = sharedDeviceLifetime;
 
         Surface = window.CreateWebGPUSurface(Wgpu, Instance);
@@ -1156,7 +1010,6 @@ public unsafe class WgpuContext : IDisposable
 
     public void WaitIdle()
     {
-        Interlocked.Increment(ref _blockingDeviceWaitCount);
         PollDevice(wait: true);
     }
 
@@ -1209,12 +1062,9 @@ public unsafe class WgpuContext : IDisposable
 
             Disposing?.Invoke(this);
 
-            WaitIdle();
-
-            Interlocked.Exchange(ref _gpuTimestampRing, null)?.Dispose();
-            Interlocked.Exchange(ref _frameCompletionTracker, null)?.Dispose();
-
             CleanupPendingResources();
+
+            WaitIdle();
 
             if (Current == this)
             {

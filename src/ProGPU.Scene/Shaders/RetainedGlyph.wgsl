@@ -1,6 +1,6 @@
 // Algorithm: Draw retained glyph-outline instances as transformed quads, evaluate analytic non-zero/even-odd winding, and reconstruct a one-device-pixel antialiasing ramp from the nearest contour distance.
 // Time complexity: O(P*S + E*S*K), where P is covered fragments, E is edge-band fragments, S is segments in the referenced unique glyph outline, and K is the fixed curve-distance subdivision bound (8 quadratic, 12 cubic).
-// Space complexity: O(G+S+I+V) retained GPU storage for G glyph records, S analytic line/quadratic/cubic segments, I glyph instances, and at most V=I stable visible-source indices; direct replay does not read the V stream and per-fragment private storage is O(1).
+// Space complexity: O(G+S+I) retained GPU storage for G glyph records, S analytic line/quadratic/cubic segments, and I glyph instances; per-fragment private storage is O(1).
 // Quality: fill boundaries use analytic curves and exact winding at every device pixel; only the bounded nearest-distance estimate used for the one-pixel antialiasing ramp samples curve chords. Aliased text uses the exact center winding.
 // Winding: quadratic and cubic roots use direction-aware half-open endpoint intervals to avoid transition-vertex double counting.
 struct Uniforms {
@@ -46,9 +46,6 @@ struct GlyphInstance {
 @group(0) @binding(1) var<storage, read> pathRecords: array<PathRecord>;
 @group(0) @binding(2) var<storage, read> segments: array<Segment>;
 @group(0) @binding(3) var<storage, read> glyphInstances: array<GlyphInstance>;
-// The compacted vertex entry performs one source-index read per visible instance.
-// The direct entry uses the hardware instance index and does not access this stream.
-@group(0) @binding(4) var<storage, read> visibleInstanceIndices: array<u32>;
 @group(1) @binding(0) var maskSampler: sampler;
 @group(1) @binding(1) var maskTexture: texture_2d<f32>;
 
@@ -61,8 +58,11 @@ struct VertexOutput {
     @location(4) @interpolate(flat) sampleGrid: u32,
 };
 
-fn retained_glyph_vertex(vertexIndex: u32, sourceInstanceIndex: u32) -> VertexOutput {
-    let instance = glyphInstances[sourceInstanceIndex];
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertexIndex: u32,
+    @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
+    let instance = glyphInstances[instanceIndex];
     var corner = vec2<f32>(0.0, 0.0);
     switch vertexIndex {
         case 1u: { corner = vec2<f32>(1.0, 0.0); }
@@ -81,22 +81,6 @@ fn retained_glyph_vertex(vertexIndex: u32, sourceInstanceIndex: u32) -> VertexOu
     output.recordIndex = u32(round(instance.metadata.x));
     output.sampleGrid = u32(round(instance.metadata.z));
     return output;
-}
-
-@vertex
-fn vs_main(
-    @builtin(vertex_index) vertexIndex: u32,
-    @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
-    return retained_glyph_vertex(vertexIndex, instanceIndex);
-}
-
-@vertex
-fn vs_compacted(
-    @builtin(vertex_index) vertexIndex: u32,
-    @builtin(instance_index) compactedInstanceIndex: u32) -> VertexOutput {
-    return retained_glyph_vertex(
-        vertexIndex,
-        visibleInstanceIndices[compactedInstanceIndex]);
 }
 
 fn solve_quadratic(a: f32, b: f32, c: f32, roots: ptr<function, array<f32, 2>>) -> u32 {

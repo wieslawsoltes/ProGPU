@@ -332,7 +332,7 @@ public static class InputSystem
         if (visual is not FrameworkElement fe || !fe.IsHitTestVisible || !fe.IsEnabled)
             return null;
 
-        var localTransform = visual.GetInputLocalTransform();
+        var localTransform = visual.GetLocalTransform();
         var globalTransform = localTransform * parentTransform;
 
         if (Matrix4x4.Invert(globalTransform, out Matrix4x4 invGlobal))
@@ -355,13 +355,7 @@ public static class InputSystem
                 for (int i = container.Children.Count - 1; i >= 0; i--)
                 {
                     var child = container.Children[i];
-                    var childParentTransform = globalTransform;
-                    if (!child.ExcludeFromParentRetainedTransform &&
-                        container.ChildrenRetainedTransform is { } retainedTransform)
-                    {
-                        childParentTransform = retainedTransform.Matrix * childParentTransform;
-                    }
-                    var hit = HitTestInternal(child, screenPoint, childParentTransform);
+                    var hit = HitTestInternal(child, screenPoint, globalTransform);
                     if (hit != null)
                         return hit;
                 }
@@ -382,15 +376,9 @@ public static class InputSystem
 
     private static Matrix4x4 GetGlobalTransform(Visual visual)
     {
-        var local = visual.GetInputLocalTransform();
+        var local = visual.GetLocalTransform();
         if (visual.Parent == null) return local;
-        var parentTransform = GetGlobalTransform(visual.Parent);
-        if (!visual.ExcludeFromParentRetainedTransform &&
-            visual.Parent.ChildrenRetainedTransform is { } retainedTransform)
-        {
-            parentTransform = retainedTransform.Matrix * parentTransform;
-        }
-        return local * parentTransform;
+        return local * GetGlobalTransform(visual.Parent);
     }
 
     public static Vector2 GetLocalPosition(Visual? visual, Vector2 screenPoint)

@@ -17,7 +17,6 @@ public unsafe interface IWebGpuApi
     WgpuBuffer* DeviceCreateBuffer(Device* device, BufferDescriptor* descriptor);
     CommandEncoder* DeviceCreateCommandEncoder(Device* device, CommandEncoderDescriptor* descriptor);
     ComputePipeline* DeviceCreateComputePipeline(Device* device, ComputePipelineDescriptor* descriptor);
-    QuerySet* DeviceCreateQuerySet(Device* device, QuerySetDescriptor* descriptor);
     PipelineLayout* DeviceCreatePipelineLayout(Device* device, PipelineLayoutDescriptor* descriptor);
     RenderPipeline* DeviceCreateRenderPipeline(Device* device, RenderPipelineDescriptor* descriptor);
     Sampler* DeviceCreateSampler(Device* device, SamplerDescriptor* descriptor);
@@ -32,14 +31,11 @@ public unsafe interface IWebGpuApi
     void CommandEncoderCopyBufferToBuffer(CommandEncoder* commandEncoder, WgpuBuffer* source, ulong sourceOffset, WgpuBuffer* destination, ulong destinationOffset, ulong size);
     void CommandEncoderCopyTextureToBuffer(CommandEncoder* commandEncoder, ImageCopyTexture* source, ImageCopyBuffer* destination, Extent3D* copySize);
     void CommandEncoderCopyTextureToTexture(CommandEncoder* commandEncoder, ImageCopyTexture* source, ImageCopyTexture* destination, Extent3D* copySize);
-    void CommandEncoderWriteTimestamp(CommandEncoder* commandEncoder, QuerySet* querySet, uint queryIndex);
-    void CommandEncoderResolveQuerySet(CommandEncoder* commandEncoder, QuerySet* querySet, uint firstQuery, uint queryCount, WgpuBuffer* destination, ulong destinationOffset);
     CommandBuffer* CommandEncoderFinish(CommandEncoder* commandEncoder, CommandBufferDescriptor* descriptor);
 
     void ComputePassEncoderSetPipeline(ComputePassEncoder* pass, ComputePipeline* pipeline);
     void ComputePassEncoderSetBindGroup(ComputePassEncoder* pass, uint groupIndex, BindGroup* group, nuint dynamicOffsetCount, uint* dynamicOffsets);
     void ComputePassEncoderDispatchWorkgroups(ComputePassEncoder* pass, uint x, uint y, uint z);
-    void ComputePassEncoderDispatchWorkgroupsIndirect(ComputePassEncoder* pass, WgpuBuffer* indirectBuffer, ulong indirectOffset);
     void ComputePassEncoderEnd(ComputePassEncoder* pass);
 
     void RenderPassEncoderSetPipeline(RenderPassEncoder* pass, RenderPipeline* pipeline);
@@ -50,14 +46,12 @@ public unsafe interface IWebGpuApi
     void RenderPassEncoderSetStencilReference(RenderPassEncoder* pass, uint reference);
     void RenderPassEncoderSetViewport(RenderPassEncoder* pass, float x, float y, float width, float height, float minDepth, float maxDepth);
     void RenderPassEncoderDraw(RenderPassEncoder* pass, uint vertexCount, uint instanceCount, uint firstVertex, uint firstInstance);
-    void RenderPassEncoderDrawIndirect(RenderPassEncoder* pass, WgpuBuffer* indirectBuffer, ulong indirectOffset);
     void RenderPassEncoderDrawIndexed(RenderPassEncoder* pass, uint indexCount, uint instanceCount, uint firstIndex, int baseVertex, uint firstInstance);
     void RenderPassEncoderEnd(RenderPassEncoder* pass);
 
     void QueueWriteBuffer(Queue* queue, WgpuBuffer* buffer, ulong bufferOffset, void* data, nuint size);
     void QueueWriteTexture(Queue* queue, ImageCopyTexture* destination, void* data, nuint dataSize, TextureDataLayout* dataLayout, Extent3D* writeSize);
     void QueueSubmit(Queue* queue, nuint commandCount, CommandBuffer** commands);
-    void QueueOnSubmittedWorkDone(Queue* queue, PfnQueueWorkDoneCallback callback, void* userData);
 
     void BufferMapAsync(WgpuBuffer* buffer, MapMode mode, nuint offset, nuint size, PfnBufferMapCallback callback, void* userData);
     Task<BufferMapAsyncStatus> BufferMapAsyncTask(WgpuBuffer* buffer, MapMode mode, nuint offset, nuint size);
@@ -76,7 +70,6 @@ public unsafe interface IWebGpuApi
     void CommandEncoderRelease(CommandEncoder* value);
     void ComputePassEncoderRelease(ComputePassEncoder* value);
     void ComputePipelineRelease(ComputePipeline* value);
-    void QuerySetRelease(QuerySet* value);
     void PipelineLayoutRelease(PipelineLayout* value);
     void RenderPassEncoderRelease(RenderPassEncoder* value);
     void RenderPipelineRelease(RenderPipeline* value);
@@ -114,7 +107,6 @@ internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
     public WgpuBuffer* DeviceCreateBuffer(Device* d, BufferDescriptor* x) => api.DeviceCreateBuffer(d, x);
     public CommandEncoder* DeviceCreateCommandEncoder(Device* d, CommandEncoderDescriptor* x) => api.DeviceCreateCommandEncoder(d, x);
     public ComputePipeline* DeviceCreateComputePipeline(Device* d, ComputePipelineDescriptor* x) => api.DeviceCreateComputePipeline(d, x);
-    public QuerySet* DeviceCreateQuerySet(Device* d, QuerySetDescriptor* x) => api.DeviceCreateQuerySet(d, x);
     public PipelineLayout* DeviceCreatePipelineLayout(Device* d, PipelineLayoutDescriptor* x) => api.DeviceCreatePipelineLayout(d, x);
     public RenderPipeline* DeviceCreateRenderPipeline(Device* d, RenderPipelineDescriptor* x) => api.DeviceCreateRenderPipeline(d, x);
     public Sampler* DeviceCreateSampler(Device* d, SamplerDescriptor* x) => api.DeviceCreateSampler(d, x);
@@ -128,13 +120,10 @@ internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
     public void CommandEncoderCopyBufferToBuffer(CommandEncoder* e, WgpuBuffer* s, ulong so, WgpuBuffer* d, ulong @do, ulong z) => api.CommandEncoderCopyBufferToBuffer(e, s, so, d, @do, z);
     public void CommandEncoderCopyTextureToBuffer(CommandEncoder* e, ImageCopyTexture* s, ImageCopyBuffer* d, Extent3D* z) => api.CommandEncoderCopyTextureToBuffer(e, s, d, z);
     public void CommandEncoderCopyTextureToTexture(CommandEncoder* e, ImageCopyTexture* s, ImageCopyTexture* d, Extent3D* z) => api.CommandEncoderCopyTextureToTexture(e, s, d, z);
-    public void CommandEncoderWriteTimestamp(CommandEncoder* e, QuerySet* q, uint i) => api.CommandEncoderWriteTimestamp(e, q, i);
-    public void CommandEncoderResolveQuerySet(CommandEncoder* e, QuerySet* q, uint f, uint c, WgpuBuffer* d, ulong o) => api.CommandEncoderResolveQuerySet(e, q, f, c, d, o);
     public CommandBuffer* CommandEncoderFinish(CommandEncoder* e, CommandBufferDescriptor* x) => api.CommandEncoderFinish(e, x);
     public void ComputePassEncoderSetPipeline(ComputePassEncoder* p, ComputePipeline* x) => api.ComputePassEncoderSetPipeline(p, x);
     public void ComputePassEncoderSetBindGroup(ComputePassEncoder* p, uint i, BindGroup* g, nuint c, uint* o) => api.ComputePassEncoderSetBindGroup(p, i, g, c, o);
     public void ComputePassEncoderDispatchWorkgroups(ComputePassEncoder* p, uint x, uint y, uint z) => api.ComputePassEncoderDispatchWorkgroups(p, x, y, z);
-    public void ComputePassEncoderDispatchWorkgroupsIndirect(ComputePassEncoder* p, WgpuBuffer* b, ulong o) => api.ComputePassEncoderDispatchWorkgroupsIndirect(p, b, o);
     public void ComputePassEncoderEnd(ComputePassEncoder* p) => api.ComputePassEncoderEnd(p);
     public void RenderPassEncoderSetPipeline(RenderPassEncoder* p, RenderPipeline* x) => api.RenderPassEncoderSetPipeline(p, x);
     public void RenderPassEncoderSetBindGroup(RenderPassEncoder* p, uint i, BindGroup* g, nuint c, uint* o) => api.RenderPassEncoderSetBindGroup(p, i, g, c, o);
@@ -144,13 +133,11 @@ internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
     public void RenderPassEncoderSetStencilReference(RenderPassEncoder* p, uint r) => api.RenderPassEncoderSetStencilReference(p, r);
     public void RenderPassEncoderSetViewport(RenderPassEncoder* p, float x, float y, float w, float h, float n, float f) => api.RenderPassEncoderSetViewport(p, x, y, w, h, n, f);
     public void RenderPassEncoderDraw(RenderPassEncoder* p, uint v, uint i, uint fv, uint fi) => api.RenderPassEncoderDraw(p, v, i, fv, fi);
-    public void RenderPassEncoderDrawIndirect(RenderPassEncoder* p, WgpuBuffer* b, ulong o) => api.RenderPassEncoderDrawIndirect(p, b, o);
     public void RenderPassEncoderDrawIndexed(RenderPassEncoder* p, uint i, uint c, uint f, int b, uint fi) => api.RenderPassEncoderDrawIndexed(p, i, c, f, b, fi);
     public void RenderPassEncoderEnd(RenderPassEncoder* p) => api.RenderPassEncoderEnd(p);
     public void QueueWriteBuffer(Queue* q, WgpuBuffer* b, ulong o, void* d, nuint z) => api.QueueWriteBuffer(q, b, o, d, z);
     public void QueueWriteTexture(Queue* q, ImageCopyTexture* d, void* p, nuint z, TextureDataLayout* l, Extent3D* s) => api.QueueWriteTexture(q, d, p, z, l, s);
     public void QueueSubmit(Queue* q, nuint c, CommandBuffer** b) => api.QueueSubmit(q, c, b);
-    public void QueueOnSubmittedWorkDone(Queue* q, PfnQueueWorkDoneCallback c, void* u) => api.QueueOnSubmittedWorkDone(q, c, u);
     public void BufferMapAsync(WgpuBuffer* b, MapMode m, nuint o, nuint z, PfnBufferMapCallback c, void* u) => api.BufferMapAsync(b, m, o, z, c, u);
     public Task<BufferMapAsyncStatus> BufferMapAsyncTask(WgpuBuffer* b, MapMode m, nuint o, nuint z)
     {
@@ -189,7 +176,6 @@ internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
     public void CommandEncoderRelease(CommandEncoder* v) => api.CommandEncoderRelease(v);
     public void ComputePassEncoderRelease(ComputePassEncoder* v) => api.ComputePassEncoderRelease(v);
     public void ComputePipelineRelease(ComputePipeline* v) => api.ComputePipelineRelease(v);
-    public void QuerySetRelease(QuerySet* v) => api.QuerySetRelease(v);
     public void PipelineLayoutRelease(PipelineLayout* v) => api.PipelineLayoutRelease(v);
     public void RenderPassEncoderRelease(RenderPassEncoder* v) => api.RenderPassEncoderRelease(v);
     public void RenderPipelineRelease(RenderPipeline* v) => api.RenderPipelineRelease(v);

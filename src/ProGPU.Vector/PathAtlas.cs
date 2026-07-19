@@ -26,22 +26,6 @@ public struct PathUniforms
     public uint Pad2;
 }
 
-[StructLayout(LayoutKind.Sequential, Pack = 16)]
-public struct GpuPathWorkgroup
-{
-    public uint JobIndex;
-    public uint TileX;
-    public uint TileY;
-    public uint Pad0;
-}
-
-[StructLayout(LayoutKind.Explicit, Size = 16)]
-public struct GpuPathDispatchParams
-{
-    [FieldOffset(0)] public uint WorkgroupCount;
-    [FieldOffset(4)] public uint WorkgroupsPerRow;
-}
-
 [StructLayout(LayoutKind.Sequential)]
 public struct PathOpUniforms
 {
@@ -259,6 +243,7 @@ public unsafe class PathAtlas : IDisposable
 
     private const int MaxCompiledFillPathCount = 4096;
     private const int MaxCompiledHitTestPathCount = 4096;
+    private const int RasterizationStorageOffsetAlignment = 256;
     private const int ExactRecoveryPathLimit = 10;
     private const int ExactRecoveryNodeBudget = 25_000;
     private const int ExactRecoveryCandidateBudget = 250_000;
@@ -296,13 +281,8 @@ public unsafe class PathAtlas : IDisposable
     private readonly Dictionary<PathCacheKey, PathInfo> _paths = new();
     private readonly Dictionary<int, CompiledPathData> _compiledFillPaths = new();
     private readonly Dictionary<int, CompiledPathData> _compiledHitTestPaths = new();
+    private readonly List<GpuBuffer> _tempBuffers = new();
     private readonly List<PathInfo> _pendingPaths = new();
-    private GpuBuffer _rasterUniformBuffer;
-    private GpuBuffer _rasterRecordsBuffer;
-    private GpuBuffer _rasterSegmentsBuffer;
-    private GpuBuffer _rasterWorkgroupBuffer;
-    private readonly GpuBuffer _rasterDispatchParamsBuffer;
-    private BindGroup* _rasterBindGroup;
 
     // MaxRects state exists only after a capacity-triggered retry. The fragmented
     // free list intentionally remains active until the next reset because the
@@ -417,24 +397,11 @@ public unsafe class PathAtlas : IDisposable
             shaderModule,
             "cs_main",
             _computePipelineLayout);
-        _rasterUniformBuffer = CreateRasterBuffer(4096, "Path Rasterization Job Arena");
-        _rasterRecordsBuffer = CreateRasterBuffer(4096, "Path Rasterization Record Arena");
-        _rasterSegmentsBuffer = CreateRasterBuffer(16384, "Path Rasterization Segment Arena");
-        _rasterWorkgroupBuffer = CreateRasterBuffer(4096, "Path Rasterization Workgroup Arena");
-        _rasterDispatchParamsBuffer = new GpuBuffer(
-            _context,
-            16,
-            BufferUsage.Uniform | BufferUsage.CopyDst,
-            "Path Rasterization Dispatch Parameters");
-        RecreateRasterBindGroup();
     }
-
-    private GpuBuffer CreateRasterBuffer(uint size, string label) =>
-        new(_context, size, BufferUsage.Storage | BufferUsage.CopyDst, label);
 
     private BindGroupLayout* CreateRasterizationBindGroupLayout()
     {
-        var entries = stackalloc BindGroupLayoutEntry[6];
+        var entries = stackalloc BindGroupLayoutEntry[4];
         entries[0] = new BindGroupLayoutEntry
         {
             Binding = 0,
@@ -479,32 +446,10 @@ public unsafe class PathAtlas : IDisposable
                 ViewDimension = TextureViewDimension.Dimension2D
             }
         };
-        entries[4] = new BindGroupLayoutEntry
-        {
-            Binding = 4,
-            Visibility = ShaderStage.Compute,
-            Buffer = new BufferBindingLayout
-            {
-                Type = BufferBindingType.ReadOnlyStorage,
-                HasDynamicOffset = false,
-                MinBindingSize = (ulong)Marshal.SizeOf<GpuPathWorkgroup>()
-            }
-        };
-        entries[5] = new BindGroupLayoutEntry
-        {
-            Binding = 5,
-            Visibility = ShaderStage.Compute,
-            Buffer = new BufferBindingLayout
-            {
-                Type = BufferBindingType.Uniform,
-                HasDynamicOffset = false,
-                MinBindingSize = (ulong)Marshal.SizeOf<GpuPathDispatchParams>()
-            }
-        };
 
         var descriptor = new BindGroupLayoutDescriptor
         {
-            EntryCount = 6,
+            EntryCount = 4,
             Entries = entries
         };
         var layout = _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
@@ -537,67 +482,8 @@ public unsafe class PathAtlas : IDisposable
 
     private static uint DivRoundUp(uint value, uint divisor) => (value + divisor - 1) / divisor;
 
-    private bool EnsureRasterBufferCapacity(
-        ref GpuBuffer buffer,
-        uint requiredSize,
-        string label)
-    {
-        if (requiredSize <= buffer.Size)
-        {
-            return false;
-        }
-
-        uint capacity = buffer.Size;
-        while (capacity < requiredSize)
-        {
-            capacity = checked(capacity * 2u);
-        }
-
-        var previous = buffer;
-        buffer = CreateRasterBuffer(capacity, label);
-        previous.Dispose();
-        return true;
-    }
-
-    private void RecreateRasterBindGroup()
-    {
-        if (_rasterBindGroup != null)
-        {
-            _context.Api.BindGroupRelease(_rasterBindGroup);
-            _rasterBindGroup = null;
-        }
-
-        var entries = stackalloc BindGroupEntry[6];
-        entries[0] = RasterBufferEntry(0, _rasterUniformBuffer);
-        entries[1] = RasterBufferEntry(1, _rasterRecordsBuffer);
-        entries[2] = RasterBufferEntry(2, _rasterSegmentsBuffer);
-        entries[3] = new BindGroupEntry
-        {
-            Binding = 3,
-            TextureView = _atlasTexture.ViewPtr
-        };
-        entries[4] = RasterBufferEntry(4, _rasterWorkgroupBuffer);
-        entries[5] = RasterBufferEntry(5, _rasterDispatchParamsBuffer);
-        var descriptor = new BindGroupDescriptor
-        {
-            Layout = _computeBindGroupLayout,
-            EntryCount = 6,
-            Entries = entries
-        };
-        _rasterBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
-        if (_rasterBindGroup == null)
-        {
-            throw new InvalidOperationException("Failed to create the persistent path rasterization bind group.");
-        }
-    }
-
-    private static BindGroupEntry RasterBufferEntry(uint binding, GpuBuffer buffer) => new()
-    {
-        Binding = binding,
-        Buffer = buffer.BufferPtr,
-        Offset = 0,
-        Size = buffer.Size
-    };
+    private static int AlignUp(int value, int alignment) =>
+        checked((value + alignment - 1) / alignment * alignment);
 
     public static int ComputeHash(PathGeometry path)
     {
@@ -1046,6 +932,29 @@ public unsafe class PathAtlas : IDisposable
         GpuPathSegment[] Segments,
         int RecordOffset,
         int SegmentOffset);
+
+    private readonly record struct RasterizationDispatch(
+        int StartIndex,
+        int Count,
+        uint WorkgroupsX,
+        uint WorkgroupsY,
+        int UniformByteOffset,
+        int UniformByteSize);
+
+    private sealed class PendingRasterizationComparer : IComparer<PendingRasterization>
+    {
+        public static readonly PendingRasterizationComparer Instance = new();
+
+        public int Compare(PendingRasterization left, PendingRasterization right)
+        {
+            int xComparison = DivRoundUp(left.Info.Width, 16).CompareTo(
+                DivRoundUp(right.Info.Width, 16));
+            return xComparison != 0
+                ? xComparison
+                : DivRoundUp(left.Info.Height, 16).CompareTo(
+                    DivRoundUp(right.Info.Height, 16));
+        }
+    }
 
     private void RepackActivePaths()
     {
@@ -2247,60 +2156,17 @@ public unsafe class PathAtlas : IDisposable
         if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
         if (_pendingPaths.Count == 0) return;
 
-        var encoderDescriptor = new CommandEncoderDescriptor
-        {
-            Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Encoder")
-        };
-        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
-        SilkMarshal.Free((nint)encoderDescriptor.Label);
-        if (encoder == null)
-        {
-            throw new InvalidOperationException("Failed to create the path rasterization command encoder.");
-        }
-
-        try
-        {
-            RasterizePendingPaths(encoder);
-
-            var commandBufferDescriptor = new CommandBufferDescriptor
-            {
-                Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Command Buffer")
-            };
-            var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
-            SilkMarshal.Free((nint)commandBufferDescriptor.Label);
-            if (commandBuffer == null)
-            {
-                throw new InvalidOperationException("Failed to finish the path rasterization command buffer.");
-            }
-
-            _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
-            _context.Api.CommandBufferRelease(commandBuffer);
-        }
-        finally
-        {
-            _context.Api.CommandEncoderRelease(encoder);
-        }
-    }
-
-    /// <summary>
-    /// Records pending path-atlas rasterization into a caller-owned frame encoder.
-    /// The caller must submit the encoder before sampling the atlas texture.
-    /// </summary>
-    public void RasterizePendingPaths(CommandEncoder* encoder)
-    {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
-        if (encoder == null) throw new ArgumentNullException(nameof(encoder));
-        if (_pendingPaths.Count == 0) return;
-
         PendingRasterization[]? rasterizations = null;
+        RasterizationDispatch[]? dispatches = null;
         GpuPathRecord[]? recordData = null;
         GpuPathSegment[]? segmentData = null;
-        GpuPathWorkgroup[]? workgroupData = null;
         byte[]? uniformData = null;
+        nint[]? bindGroupsToRelease = null;
+        int bindGroupToReleaseCount = 0;
         int rasterizationCount = 0;
+        int dispatchCount = 0;
         int totalRecordCount = 0;
         int totalSegmentCount = 0;
-        int totalWorkgroupCount = 0;
         bool diagnosticsEnabled = ProGpuVectorDiagnostics.IsEnabled;
         ulong totalRasterPixels = 0;
         uint maxRasterWidth = 0;
@@ -2353,19 +2219,65 @@ public unsafe class PathAtlas : IDisposable
                 return;
             }
 
-            int uniformSize = Marshal.SizeOf<PathUniforms>();
-            int totalUniformBytes = checked(rasterizationCount * uniformSize);
-            for (int index = 0; index < rasterizationCount; index++)
+            Array.Sort(
+                rasterizations,
+                0,
+                rasterizationCount,
+                PendingRasterizationComparer.Instance);
+
+            totalRecordCount = 0;
+            totalSegmentCount = 0;
+            for (int i = 0; i < rasterizationCount; i++)
             {
-                var info = rasterizations[index].Info;
-                totalWorkgroupCount = checked(
-                    totalWorkgroupCount +
-                    checked((int)(DivRoundUp(info.Width, 16) * DivRoundUp(info.Height, 16))));
+                var rasterization = rasterizations[i];
+                rasterizations[i] = rasterization with
+                {
+                    RecordOffset = totalRecordCount,
+                    SegmentOffset = totalSegmentCount
+                };
+                totalRecordCount = checked(totalRecordCount + rasterization.Records.Length);
+                totalSegmentCount = checked(totalSegmentCount + rasterization.Segments.Length);
+            }
+
+            int uniformSize = Marshal.SizeOf<PathUniforms>();
+            dispatches = ArrayPool<RasterizationDispatch>.Shared.Rent(rasterizationCount);
+            int totalUniformBytes = 0;
+            int groupStart = 0;
+            while (groupStart < rasterizationCount)
+            {
+                var groupInfo = rasterizations[groupStart].Info;
+                uint workgroupsX = DivRoundUp(groupInfo.Width, 16);
+                uint workgroupsY = DivRoundUp(groupInfo.Height, 16);
+                int groupEnd = groupStart + 1;
+                while (groupEnd < rasterizationCount)
+                {
+                    var candidate = rasterizations[groupEnd].Info;
+                    if (DivRoundUp(candidate.Width, 16) != workgroupsX ||
+                        DivRoundUp(candidate.Height, 16) != workgroupsY)
+                    {
+                        break;
+                    }
+
+                    groupEnd++;
+                }
+
+                int uniformByteOffset = AlignUp(
+                    totalUniformBytes,
+                    RasterizationStorageOffsetAlignment);
+                int uniformByteSize = checked((groupEnd - groupStart) * uniformSize);
+                dispatches[dispatchCount++] = new RasterizationDispatch(
+                    groupStart,
+                    groupEnd - groupStart,
+                    workgroupsX,
+                    workgroupsY,
+                    uniformByteOffset,
+                    uniformByteSize);
+                totalUniformBytes = checked(uniformByteOffset + uniformByteSize);
+                groupStart = groupEnd;
             }
 
             recordData = ArrayPool<GpuPathRecord>.Shared.Rent(totalRecordCount);
             segmentData = ArrayPool<GpuPathSegment>.Shared.Rent(totalSegmentCount);
-            workgroupData = ArrayPool<GpuPathWorkgroup>.Shared.Rent(totalWorkgroupCount);
             uniformData = ArrayPool<byte>.Shared.Rent(totalUniformBytes);
             var uniformSpan = uniformData.AsSpan(0, totalUniformBytes);
 
@@ -2383,110 +2295,167 @@ public unsafe class PathAtlas : IDisposable
                 }
             }
 
-            int workgroupIndex = 0;
-            for (int rasterizationIndex = 0; rasterizationIndex < rasterizationCount; rasterizationIndex++)
+            for (int dispatchIndex = 0; dispatchIndex < dispatchCount; dispatchIndex++)
             {
-                var rasterization = rasterizations[rasterizationIndex];
-                var info = rasterization.Info;
-                const int padding = 4;
-                float scaleX = info.Key.ScaleX;
-                float scaleY = info.Key.ScaleY;
-                int xStart = (int)Math.Floor(info.UnscaledMinX * scaleX) - padding;
-                int yStart = (int)Math.Floor(info.UnscaledMinY * scaleY) - padding;
-                var uniforms = new PathUniforms
+                var dispatch = dispatches[dispatchIndex];
+                for (int localIndex = 0; localIndex < dispatch.Count; localIndex++)
                 {
-                    XStart = xStart - info.Key.SubpixelX,
-                    YStart = yStart - info.Key.SubpixelY,
-                    ScaleX = scaleX,
-                    ScaleY = scaleY,
-                    PathIndex = checked((uint)rasterization.RecordOffset),
-                    AtlasX = info.X,
-                    AtlasY = info.Y,
-                    Width = info.Width,
-                    Height = info.Height,
-                    SampleGrid = info.Key.SampleGrid
-                };
-                MemoryMarshal.Write(
-                    uniformSpan.Slice(rasterizationIndex * uniformSize, uniformSize),
-                    in uniforms);
-
-                uint workgroupsX = DivRoundUp(info.Width, 16);
-                uint workgroupsY = DivRoundUp(info.Height, 16);
-                for (uint tileY = 0; tileY < workgroupsY; tileY++)
-                {
-                    for (uint tileX = 0; tileX < workgroupsX; tileX++)
+                    var rasterization = rasterizations[dispatch.StartIndex + localIndex];
+                    var info = rasterization.Info;
+                    const int padding = 4;
+                    float scaleX = info.Key.ScaleX;
+                    float scaleY = info.Key.ScaleY;
+                    int xStart = (int)Math.Floor(info.UnscaledMinX * scaleX) - padding;
+                    int yStart = (int)Math.Floor(info.UnscaledMinY * scaleY) - padding;
+                    var uniforms = new PathUniforms
                     {
-                        workgroupData[workgroupIndex++] = new GpuPathWorkgroup
-                        {
-                            JobIndex = checked((uint)rasterizationIndex),
-                            TileX = tileX,
-                            TileY = tileY
-                        };
-                    }
+                        XStart = xStart - info.Key.SubpixelX,
+                        YStart = yStart - info.Key.SubpixelY,
+                        ScaleX = scaleX,
+                        ScaleY = scaleY,
+                        PathIndex = checked((uint)rasterization.RecordOffset),
+                        AtlasX = info.X,
+                        AtlasY = info.Y,
+                        Width = info.Width,
+                        Height = info.Height,
+                        SampleGrid = info.Key.SampleGrid
+                    };
+                    MemoryMarshal.Write(
+                        uniformSpan.Slice(
+                            dispatch.UniformByteOffset + localIndex * uniformSize,
+                            uniformSize),
+                        in uniforms);
                 }
             }
 
-            bool buffersGrew = EnsureRasterBufferCapacity(
-                ref _rasterUniformBuffer,
+            var uniformBuffer = new GpuBuffer(
+                _context,
                 checked((uint)totalUniformBytes),
-                "Path Rasterization Job Arena");
-            buffersGrew |= EnsureRasterBufferCapacity(
-                ref _rasterRecordsBuffer,
+                BufferUsage.Storage | BufferUsage.CopyDst,
+                "Path Rasterization Uniforms");
+            uniformBuffer.WriteBytes(uniformSpan);
+            _tempBuffers.Add(uniformBuffer);
+            var recordsBuffer = new GpuBuffer(
+                _context,
                 checked((uint)(totalRecordCount * Marshal.SizeOf<GpuPathRecord>())),
-                "Path Rasterization Record Arena");
-            buffersGrew |= EnsureRasterBufferCapacity(
-                ref _rasterSegmentsBuffer,
+                BufferUsage.Storage | BufferUsage.CopyDst,
+                "Path Rasterization Records");
+            recordsBuffer.Write(recordData.AsSpan(0, totalRecordCount));
+            _tempBuffers.Add(recordsBuffer);
+            var segmentsBuffer = new GpuBuffer(
+                _context,
                 checked((uint)(totalSegmentCount * Marshal.SizeOf<GpuPathSegment>())),
-                "Path Rasterization Segment Arena");
-            buffersGrew |= EnsureRasterBufferCapacity(
-                ref _rasterWorkgroupBuffer,
-                checked((uint)(totalWorkgroupCount * Marshal.SizeOf<GpuPathWorkgroup>())),
-                "Path Rasterization Workgroup Arena");
-            if (buffersGrew)
-            {
-                RecreateRasterBindGroup();
-            }
-            _rasterUniformBuffer.WriteBytes(uniformSpan);
-            _rasterRecordsBuffer.Write(recordData.AsSpan(0, totalRecordCount));
-            _rasterSegmentsBuffer.Write(segmentData.AsSpan(0, totalSegmentCount));
-            _rasterWorkgroupBuffer.Write(workgroupData.AsSpan(0, totalWorkgroupCount));
-            const uint maxWorkgroupsPerDimension = 65_535u;
-            uint workgroupCount = checked((uint)totalWorkgroupCount);
-            uint workgroupsPerRow = Math.Min(workgroupCount, maxWorkgroupsPerDimension);
-            uint workgroupRows = DivRoundUp(workgroupCount, workgroupsPerRow);
-            _rasterDispatchParamsBuffer.WriteSingle(new GpuPathDispatchParams
-            {
-                WorkgroupCount = workgroupCount,
-                WorkgroupsPerRow = workgroupsPerRow
-            });
+                BufferUsage.Storage | BufferUsage.CopyDst,
+                "Path Rasterization Segments");
+            segmentsBuffer.Write(segmentData.AsSpan(0, totalSegmentCount));
+            _tempBuffers.Add(segmentsBuffer);
 
+            var bindGroupEntries = stackalloc BindGroupEntry[4];
+            bindGroupEntries[1] = new BindGroupEntry
+            {
+                Binding = 1,
+                Buffer = recordsBuffer.BufferPtr,
+                Offset = 0,
+                Size = recordsBuffer.Size
+            };
+            bindGroupEntries[2] = new BindGroupEntry
+            {
+                Binding = 2,
+                Buffer = segmentsBuffer.BufferPtr,
+                Offset = 0,
+                Size = segmentsBuffer.Size
+            };
+            bindGroupEntries[3] = new BindGroupEntry
+            {
+                Binding = 3,
+                TextureView = _atlasTexture.ViewPtr
+            };
+            var encoderDescriptor = new CommandEncoderDescriptor
+            {
+                Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Encoder")
+            };
+            var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+            SilkMarshal.Free((nint)encoderDescriptor.Label);
             var passDescriptor = new ComputePassDescriptor();
             var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
             _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
-            _context.Api.ComputePassEncoderSetBindGroup(pass, 0, _rasterBindGroup, 0, null);
-            _context.Api.ComputePassEncoderDispatchWorkgroups(
-                pass,
-                workgroupsPerRow,
-                workgroupRows,
-                1);
+
+            for (int dispatchIndex = 0; dispatchIndex < dispatchCount; dispatchIndex++)
+            {
+                var dispatch = dispatches[dispatchIndex];
+                bindGroupEntries[0] = new BindGroupEntry
+                {
+                    Binding = 0,
+                    Buffer = uniformBuffer.BufferPtr,
+                    Offset = checked((ulong)dispatch.UniformByteOffset),
+                    Size = checked((ulong)dispatch.UniformByteSize)
+                };
+                var bindGroupDescriptor = new BindGroupDescriptor
+                {
+                    Layout = _computeBindGroupLayout,
+                    EntryCount = 4,
+                    Entries = bindGroupEntries
+                };
+                var bindGroup = _context.Api.DeviceCreateBindGroup(
+                    _context.Device,
+                    &bindGroupDescriptor);
+                if (bindGroup == null)
+                {
+                    throw new InvalidOperationException("Failed to create the path rasterization bind group.");
+                }
+
+                PooledRemovalBuffer.Add(
+                    ref bindGroupsToRelease,
+                    ref bindGroupToReleaseCount,
+                    dispatchCount,
+                    (nint)bindGroup);
+                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+                _context.Api.ComputePassEncoderDispatchWorkgroups(
+                    pass,
+                    dispatch.WorkgroupsX,
+                    dispatch.WorkgroupsY,
+                    checked((uint)dispatch.Count));
+            }
 
             _context.Api.ComputePassEncoderEnd(pass);
             _context.Api.ComputePassEncoderRelease(pass);
+
+            var commandBufferDescriptor = new CommandBufferDescriptor
+            {
+                Label = (byte*)SilkMarshal.StringToPtr("Path Batch Rasterizer Command Buffer")
+            };
+            var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
+            SilkMarshal.Free((nint)commandBufferDescriptor.Label);
+            _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+
+            _context.Api.CommandBufferRelease(commandBuffer);
+            _context.Api.CommandEncoderRelease(encoder);
             _pendingPaths.Clear();
 
             if (diagnosticsEnabled)
             {
                 ProGpuVectorDiagnostics.WriteLine(
                     $"[PathAtlas] Rasterized {rasterizationCount} paths ({totalRasterPixels} pixels, " +
-                    $"max {maxRasterWidth}x{maxRasterHeight}) in one flat dispatch over " +
-                    $"{totalWorkgroupCount} workgroups from 4 persistent arena uploads.");
+                    $"max {maxRasterWidth}x{maxRasterHeight}) in {dispatchCount} dispatches " +
+                    "from 3 shared buffer uploads.");
             }
         }
         finally
         {
+            for (int i = 0; i < bindGroupToReleaseCount; i++)
+            {
+                _context.Api.BindGroupRelease((BindGroup*)bindGroupsToRelease![i]);
+            }
+            PooledRemovalBuffer.Return(bindGroupsToRelease, bindGroupToReleaseCount);
+
             if (rasterizations != null)
             {
                 ArrayPool<PendingRasterization>.Shared.Return(rasterizations, clearArray: true);
+            }
+
+            if (dispatches != null)
+            {
+                ArrayPool<RasterizationDispatch>.Shared.Return(dispatches);
             }
 
             if (recordData != null)
@@ -2497,11 +2466,6 @@ public unsafe class PathAtlas : IDisposable
             if (segmentData != null)
             {
                 ArrayPool<GpuPathSegment>.Shared.Return(segmentData);
-            }
-
-            if (workgroupData != null)
-            {
-                ArrayPool<GpuPathWorkgroup>.Shared.Return(workgroupData);
             }
 
             if (uniformData != null)
@@ -2517,6 +2481,11 @@ public unsafe class PathAtlas : IDisposable
         _ = anticipatedHeight;
         TryResetAfterCapacityExceeded();
         _frameNumber++;
+        for (int i = 0; i < _tempBuffers.Count; i++)
+        {
+            _tempBuffers[i].Dispose();
+        }
+        _tempBuffers.Clear();
     }
 
     public void Dispose()
@@ -2524,19 +2493,9 @@ public unsafe class PathAtlas : IDisposable
         if (_isDisposed) return;
 
         CleanupFrame();
-        if (_rasterBindGroup != null)
-        {
-            _context.Api.BindGroupRelease(_rasterBindGroup);
-            _rasterBindGroup = null;
-        }
         _pipelineCache.Dispose();
         _context.Api.PipelineLayoutRelease(_computePipelineLayout);
         _context.Api.BindGroupLayoutRelease(_computeBindGroupLayout);
-        _rasterUniformBuffer.Dispose();
-        _rasterRecordsBuffer.Dispose();
-        _rasterSegmentsBuffer.Dispose();
-        _rasterWorkgroupBuffer.Dispose();
-        _rasterDispatchParamsBuffer.Dispose();
         _atlasTexture.Dispose();
         _paths.Clear();
         _compiledFillPaths.Clear();

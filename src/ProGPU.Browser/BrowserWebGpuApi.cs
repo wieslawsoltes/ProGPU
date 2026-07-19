@@ -145,19 +145,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         return Pointer<ComputePipeline>(handle);
     }
 
-    public QuerySet* DeviceCreateQuerySet(Device* device, QuerySetDescriptor* descriptor)
-    {
-        RequireDescriptor(descriptor);
-        if (descriptor->Type != QueryType.Timestamp)
-            throw new NotSupportedException("The browser backend currently exposes timestamp query sets only.");
-        var handle = Allocate();
-        var payload = _commands.BeginCommand(BrowserGpuOpcode.CreateQuerySet, 8);
-        WriteHandle(payload, 0, handle);
-        WriteUInt32(payload, 4, descriptor->Count);
-        _commands.CompleteCommand();
-        return Pointer<QuerySet>(handle);
-    }
-
     public PipelineLayout* DeviceCreatePipelineLayout(Device* device, PipelineLayoutDescriptor* descriptor)
     {
         RequireDescriptor(descriptor);
@@ -389,33 +376,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         _commands.CompleteCommand();
     }
 
-    public void CommandEncoderWriteTimestamp(CommandEncoder* commandEncoder, QuerySet* querySet, uint queryIndex)
-    {
-        var payload = _commands.BeginCommand(BrowserGpuOpcode.WriteTimestamp, 12);
-        WriteHandle(payload, 0, HandleOf(commandEncoder));
-        WriteHandle(payload, 4, HandleOf(querySet));
-        WriteUInt32(payload, 8, queryIndex);
-        _commands.CompleteCommand();
-    }
-
-    public void CommandEncoderResolveQuerySet(
-        CommandEncoder* commandEncoder,
-        QuerySet* querySet,
-        uint firstQuery,
-        uint queryCount,
-        WgpuBuffer* destination,
-        ulong destinationOffset)
-    {
-        var payload = _commands.BeginCommand(BrowserGpuOpcode.ResolveQuerySet, 28);
-        WriteHandle(payload, 0, HandleOf(commandEncoder));
-        WriteHandle(payload, 4, HandleOf(querySet));
-        WriteUInt32(payload, 8, firstQuery);
-        WriteUInt32(payload, 12, queryCount);
-        WriteHandle(payload, 16, HandleOf(destination));
-        WriteUInt64(payload, 20, destinationOffset);
-        _commands.CompleteCommand();
-    }
-
     public CommandBuffer* CommandEncoderFinish(CommandEncoder* commandEncoder, CommandBufferDescriptor* descriptor)
     {
         var handle = Allocate();
@@ -435,14 +395,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         WriteUInt32(payload, 4, x);
         WriteUInt32(payload, 8, y);
         WriteUInt32(payload, 12, z);
-        _commands.CompleteCommand();
-    }
-    public void ComputePassEncoderDispatchWorkgroupsIndirect(ComputePassEncoder* pass, WgpuBuffer* indirectBuffer, ulong indirectOffset)
-    {
-        var payload = _commands.BeginCommand(BrowserGpuOpcode.DispatchWorkgroupsIndirect, 16);
-        WriteHandle(payload, 0, HandleOf(pass));
-        WriteHandle(payload, 4, HandleOf(indirectBuffer));
-        WriteUInt64(payload, 8, indirectOffset);
         _commands.CompleteCommand();
     }
     public void ComputePassEncoderEnd(ComputePassEncoder* pass) => WriteOneHandle(BrowserGpuOpcode.EndComputePass, HandleOf(pass));
@@ -495,14 +447,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         WriteHandle(payload, 0, HandleOf(pass)); WriteUInt32(payload, 4, vertexCount); WriteUInt32(payload, 8, instanceCount); WriteUInt32(payload, 12, firstVertex); WriteUInt32(payload, 16, firstInstance);
         _commands.CompleteCommand();
     }
-    public void RenderPassEncoderDrawIndirect(RenderPassEncoder* pass, WgpuBuffer* indirectBuffer, ulong indirectOffset)
-    {
-        var payload = _commands.BeginCommand(BrowserGpuOpcode.DrawIndirect, 16);
-        WriteHandle(payload, 0, HandleOf(pass));
-        WriteHandle(payload, 4, HandleOf(indirectBuffer));
-        WriteUInt64(payload, 8, indirectOffset);
-        _commands.CompleteCommand();
-    }
     public void RenderPassEncoderDrawIndexed(RenderPassEncoder* pass, uint indexCount, uint instanceCount, uint firstIndex, int baseVertex, uint firstInstance)
     {
         var payload = _commands.BeginCommand(BrowserGpuOpcode.DrawIndexed, 24);
@@ -552,35 +496,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         _commands.CompleteCommand();
         Flush();
     }
-
-    public void QueueOnSubmittedWorkDone(Queue* queue, PfnQueueWorkDoneCallback callback, void* userData)
-    {
-        if (callback.Handle == null) throw new ArgumentNullException(nameof(callback));
-        Flush();
-        var task = WaitForSubmittedWorkDoneCoreAsync();
-        task.GetAwaiter().OnCompleted(
-            () => CompleteSubmittedWork(task, (nint)callback.Handle, (nint)userData));
-    }
-
-    private static void CompleteSubmittedWork(Task<bool> task, nint callback, nint userData)
-    {
-        QueueWorkDoneStatus status;
-        try
-        {
-            status = task.GetAwaiter().GetResult()
-                ? QueueWorkDoneStatus.Success
-                : QueueWorkDoneStatus.Error;
-        }
-        catch
-        {
-            status = QueueWorkDoneStatus.Error;
-        }
-
-        ((delegate* unmanaged[Cdecl]<QueueWorkDoneStatus, void*, void>)callback)(
-            status,
-            (void*)userData);
-    }
-
     public void BufferMapAsync(WgpuBuffer* buffer, MapMode mode, nuint offset, nuint size, PfnBufferMapCallback callback, void* userData)
     {
         if (callback.Handle == null) throw new ArgumentNullException(nameof(callback));
@@ -727,7 +642,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
     public void CommandEncoderRelease(CommandEncoder* value) => Release(value);
     public void ComputePassEncoderRelease(ComputePassEncoder* value) => Release(value);
     public void ComputePipelineRelease(ComputePipeline* value) => Release(value);
-    public void QuerySetRelease(QuerySet* value) => Release(value);
     public void PipelineLayoutRelease(PipelineLayout* value) => Release(value);
     public void RenderPassEncoderRelease(RenderPassEncoder* value) => Release(value);
     public void RenderPipelineRelease(RenderPipeline* value) => Release(value);
@@ -923,9 +837,6 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
 
     [JSImport("releaseMappedBuffer", "progpu-browser")]
     private static partial void ReleaseMappedBufferCore(double handle);
-
-    [JSImport("waitForSubmittedWorkDone", "progpu-browser")]
-    private static partial Task<bool> WaitForSubmittedWorkDoneCoreAsync();
 
     private sealed class MappedBuffer : IDisposable
     {

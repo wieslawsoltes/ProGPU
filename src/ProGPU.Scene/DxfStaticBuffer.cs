@@ -3,7 +3,6 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
-using ProGPU.Compute;
 using ProGPU.Vector;
 
 namespace ProGPU.Scene;
@@ -50,20 +49,6 @@ public unsafe class DxfStaticBuffer : IDisposable
     public BindGroup* TextUniformBindGroup { get; private set; }
     public BindGroup* TextUniformBindGroupOffscreen { get; private set; }
     public BindGroup* RetainedGlyphBindGroup { get; private set; }
-    public BindGroup* RetainedGlyphIndirectBindGroup { get; private set; }
-
-    private readonly GpuSceneVisibility? _retainedGlyphVisibility;
-    private Matrix4x4 _preparedModelToScreen = Matrix4x4.Identity;
-    private bool _retainedGlyphVisibilityPrepared;
-    private GpuUniforms _lastViewportUniforms;
-    private bool _hasLastViewportUniforms;
-
-    internal bool HasRetainedGlyphVisibility => _retainedGlyphVisibility != null;
-    internal bool IsRetainedGlyphVisibilityPrepared => _retainedGlyphVisibilityPrepared;
-    internal GpuBuffer? RetainedGlyphIndirectBuffer => _retainedGlyphVisibility?.IndirectBuffer;
-    public bool UsesGpuRetainedGlyphVisibility => _retainedGlyphVisibility != null;
-    public ulong GpuVisibilityDispatchCount { get; private set; }
-    public ulong ViewportUniformWriteCount { get; private set; }
     
     // The viewport Uniform buffer for this static buffer's custom MVP matrix
     public GpuBuffer? UniformBuffer { get; private set; }
@@ -99,14 +84,8 @@ public unsafe class DxfStaticBuffer : IDisposable
         RetainedGlyphInstance[] retainedGlyphInstances,
         GpuBrush[] brushes,
         GpuGradientStop[] gradientStops,
-        Compositor.CompositorDrawCall[] drawCalls,
-        bool enableGpuVisibility = true,
-        uint minimumGpuVisibilityInstances = 2048)
+        Compositor.CompositorDrawCall[] drawCalls)
     {
-        if (minimumGpuVisibilityInstances == 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(minimumGpuVisibilityInstances));
-        }
         _context = context;
         VectorVertices = vertices;
         TextVertices = textVertices;
@@ -156,33 +135,6 @@ public unsafe class DxfStaticBuffer : IDisposable
                 BufferUsage.Storage | BufferUsage.CopyDst,
                 "Static DXF Retained Glyph Instances");
             RetainedGlyphInstanceBuffer.Write((ReadOnlySpan<RetainedGlyphInstance>)retainedGlyphInstances);
-
-            if (enableGpuVisibility && retainedGlyphInstances.Length >= minimumGpuVisibilityInstances)
-            {
-                var metadata = new GpuSceneDrawMetadata[retainedGlyphInstances.Length];
-                var transforms = new Matrix4x4[retainedGlyphInstances.Length];
-                for (int instanceIndex = 0; instanceIndex < retainedGlyphInstances.Length; instanceIndex++)
-                {
-                    ref readonly var instance = ref retainedGlyphInstances[instanceIndex];
-                    metadata[instanceIndex] = new GpuSceneDrawMetadata
-                    {
-                        Bounds = new Vector4(
-                            instance.MinBounds.X,
-                            instance.MinBounds.Y,
-                            instance.MaxBounds.X,
-                            instance.MaxBounds.Y),
-                        TransformIndex = checked((uint)instanceIndex),
-                        SourceIndex = checked((uint)instanceIndex)
-                    };
-                    transforms[instanceIndex] = instance.Transform;
-                }
-
-                _retainedGlyphVisibility = new GpuSceneVisibility(
-                    context,
-                    checked((uint)retainedGlyphInstances.Length),
-                    checked((uint)retainedGlyphInstances.Length));
-                _retainedGlyphVisibility.Upload(metadata, transforms);
-            }
         }
         
         // 3. Brushes buffer
@@ -338,7 +290,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             RetainedGlyphSegmentBuffer != null &&
             RetainedGlyphInstanceBuffer != null)
         {
-            var retainedEntries = stackalloc BindGroupEntry[5];
+            var retainedEntries = stackalloc BindGroupEntry[4];
             retainedEntries[0] = uBufferEntryText;
             retainedEntries[1] = new BindGroupEntry
             {
@@ -361,37 +313,13 @@ public unsafe class DxfStaticBuffer : IDisposable
                 Offset = 0,
                 Size = RetainedGlyphInstanceBuffer.Size
             };
-            retainedEntries[4] = new BindGroupEntry
-            {
-                Binding = 4,
-                // The direct vertex entry point does not read binding 4. Reusing the
-                // instance buffer avoids creating an identity-index allocation for the
-                // small-scene fallback while satisfying the shared typed layout.
-                Buffer = RetainedGlyphInstanceBuffer.BufferPtr,
-                Offset = 0,
-                Size = RetainedGlyphInstanceBuffer.Size
-            };
             var retainedDescriptor = new BindGroupDescriptor
             {
                 Layout = retainedGlyphLayout,
-                EntryCount = 5,
+                EntryCount = 4,
                 Entries = retainedEntries
             };
             RetainedGlyphBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &retainedDescriptor);
-
-            if (_retainedGlyphVisibility != null)
-            {
-                retainedEntries[4] = new BindGroupEntry
-                {
-                    Binding = 4,
-                    Buffer = _retainedGlyphVisibility.VisibleSourceBuffer.BufferPtr,
-                    Offset = 0,
-                    Size = _retainedGlyphVisibility.VisibleSourceBuffer.Size
-                };
-                RetainedGlyphIndirectBindGroup = _context.Api.DeviceCreateBindGroup(
-                    _context.Device,
-                    &retainedDescriptor);
-            }
         }
     }
     
@@ -418,33 +346,7 @@ public unsafe class DxfStaticBuffer : IDisposable
         var modelToScreen = _hasExplicitViewport
             ? _explicitModelToScreen * placementTransform
             : placementTransform;
-        _preparedModelToScreen = modelToScreen;
         WriteViewportUniforms(projection, modelToScreen, canvasSize, dpiScale);
-    }
-
-    internal void ResetRetainedGlyphVisibilityForFrame()
-    {
-        _retainedGlyphVisibilityPrepared = false;
-    }
-
-    internal void RecordRetainedGlyphVisibility(
-        CommandEncoder* encoder,
-        Vector4 viewport)
-    {
-        if (_retainedGlyphVisibility == null)
-        {
-            return;
-        }
-
-        _retainedGlyphVisibility.Record(
-            encoder,
-            RetainedGlyphInstanceCount,
-            RetainedGlyphInstanceCount,
-            viewport,
-            _preparedModelToScreen,
-            vertexCount: 6);
-        _retainedGlyphVisibilityPrepared = true;
-        GpuVisibilityDispatchCount++;
     }
 
     internal RenderLease AcquireRenderLease()
@@ -486,24 +388,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             DpiScale = dpiScale
         };
 
-        // The GPU visibility prepass and retained draw replay prepare the same
-        // viewport for a uniquely placed static buffer. Avoid a second queue write,
-        // while exact comparison still uploads every real camera, placement, target,
-        // or DPI mutation.
-        if (_hasLastViewportUniforms &&
-            _lastViewportUniforms.Projection.Equals(uniformsData.Projection) &&
-            _lastViewportUniforms.Mvp.Equals(uniformsData.Mvp) &&
-            _lastViewportUniforms.View.Equals(uniformsData.View) &&
-            _lastViewportUniforms.CanvasSize.Equals(uniformsData.CanvasSize) &&
-            _lastViewportUniforms.DpiScale.Equals(uniformsData.DpiScale))
-        {
-            return;
-        }
-
         UniformBuffer.WriteSingle(uniformsData);
-        _lastViewportUniforms = uniformsData;
-        _hasLastViewportUniforms = true;
-        ViewportUniformWriteCount++;
     }
 
     public void Dispose()
@@ -538,7 +423,6 @@ public unsafe class DxfStaticBuffer : IDisposable
             RetainedGlyphRecordBuffer?.Dispose();
             RetainedGlyphSegmentBuffer?.Dispose();
             RetainedGlyphInstanceBuffer?.Dispose();
-            _retainedGlyphVisibility?.Dispose();
             BrushesBuffer?.Dispose();
             GradientStopsBuffer?.Dispose();
             UniformBuffer?.Dispose();
@@ -561,7 +445,6 @@ public unsafe class DxfStaticBuffer : IDisposable
                 if (TextUniformBindGroup != null) _context.Api.BindGroupRelease(TextUniformBindGroup);
                 if (TextUniformBindGroupOffscreen != null) _context.Api.BindGroupRelease(TextUniformBindGroupOffscreen);
                 if (RetainedGlyphBindGroup != null) _context.Api.BindGroupRelease(RetainedGlyphBindGroup);
-                if (RetainedGlyphIndirectBindGroup != null) _context.Api.BindGroupRelease(RetainedGlyphIndirectBindGroup);
             }
         }
     }

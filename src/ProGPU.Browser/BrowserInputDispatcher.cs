@@ -8,42 +8,19 @@ namespace ProGPU.Browser;
 
 /// <summary>
 /// Drains one fixed-width batch of DOM input records into the neutral WinUI input seam.
-/// High-frequency move and wheel events remain batched. Pointer presses and releases
-/// may enter synchronously so browser APIs that require transient user activation can
-/// be invoked by the resulting control event.
+/// DOM listeners never call managed code directly, which keeps high-frequency pointer
+/// movement bounded to one browser-to-WASM transfer per animation frame.
 /// </summary>
-public static partial class BrowserInputDispatcher
+internal static partial class BrowserInputDispatcher
 {
     private const int EventSize = 32;
     private const int EventsPerBatch = 256;
     private const int MaximumBatchesPerFrame = 4;
-    private static WindowInputState? s_attachedState;
 
     public static void Attach(WindowInputState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        s_attachedState = state;
         state.CursorChanged = cursor => SetCanvasCursor(ToCssCursor(cursor));
-    }
-
-    public static void Detach(WindowInputState state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        if (!ReferenceEquals(s_attachedState, state)) return;
-        state.CursorChanged = null;
-        s_attachedState = null;
-    }
-
-    [JSExport]
-    public static bool DispatchImmediatePointer(int kind, double x, double y, int button)
-    {
-        var state = s_attachedState;
-        if (state == null || (kind != (int)BrowserInputKind.PointerDown && kind != (int)BrowserInputKind.PointerUp))
-            return false;
-
-        InputSystem.Current = state;
-        DispatchPointer((BrowserInputKind)kind, new Vector2((float)x, (float)y), unchecked((uint)button));
-        return true;
     }
 
     public static unsafe void Drain(WindowInputState state)
@@ -78,8 +55,12 @@ public static partial class BrowserInputDispatcher
                 InputSystem.InjectMouseMove(position);
                 break;
             case BrowserInputKind.PointerDown:
+                InputSystem.InjectMouseMove(position);
+                if (TryMapButton(ReadUInt32(record, 20), out var downButton)) InputSystem.InjectMouseDown(downButton);
+                break;
             case BrowserInputKind.PointerUp:
-                DispatchPointer(kind, position, ReadUInt32(record, 20));
+                InputSystem.InjectMouseMove(position);
+                if (TryMapButton(ReadUInt32(record, 20), out var upButton)) InputSystem.InjectMouseUp(upButton);
                 break;
             case BrowserInputKind.Wheel:
                 InputSystem.InjectMouseMove(position);
@@ -102,14 +83,6 @@ public static partial class BrowserInputDispatcher
                 InputSystem.InjectFocusLost();
                 break;
         }
-    }
-
-    private static void DispatchPointer(BrowserInputKind kind, Vector2 position, uint button)
-    {
-        InputSystem.InjectMouseMove(position);
-        if (!TryMapButton(button, out var mappedButton)) return;
-        if (kind == BrowserInputKind.PointerDown) InputSystem.InjectMouseDown(mappedButton);
-        else InputSystem.InjectMouseUp(mappedButton);
     }
 
     private static bool TryMapButton(uint button, out MouseButton result)

@@ -1,6 +1,6 @@
-// Algorithm: Rasterize a z-batched glyph job group with 8x8 supersampling, sharing analytic line, quadratic, and cubic winding intersections across each eight-sample row.
-// Time complexity: O(J*W*H*(R*S + A)) for J equal-dispatch glyph jobs, maximum raster dimensions W by H, R=8 sample rows, A=64 anti-aliasing samples, and S outline segments per glyph.
-// Space complexity: O(J) read-only job storage, O(R) private winding storage per invocation, O(S) read-only segment bandwidth, and one rgba8unorm output write per covered texel.
+// Algorithm: Rasterize glyph coverage with 8x8 supersampling, sharing analytic line, quadratic, and cubic winding intersections across each eight-sample row.
+// Time complexity: O(R*S + A) per texel for R=8 sample rows, A=64 anti-aliasing samples, and S outline segments.
+// Space complexity: O(R) private winding storage plus O(S) read-only segment bandwidth and one rgba8unorm output write per texel.
 struct GlyphUniforms {
     xStart: f32,
     yStart: f32,
@@ -11,7 +11,7 @@ struct GlyphUniforms {
     width: u32,
     height: u32,
     subpixelX: f32,
-    atlasPage: u32,
+    _pad0: f32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -38,10 +38,10 @@ struct Segment {
     _pad2: u32,
 };
 
-@group(0) @binding(0) var<storage, read> glyphJobs: array<GlyphUniforms>;
+@group(0) @binding(0) var<uniform> uniforms: GlyphUniforms;
 @group(0) @binding(1) var<storage, read> glyphRecords: array<GlyphRecord>;
 @group(0) @binding(2) var<storage, read> segments: array<Segment>;
-@group(0) @binding(3) var atlasTexture: texture_storage_2d_array<rgba8unorm, write>;
+@group(0) @binding(3) var atlasTexture: texture_storage_2d<rgba8unorm, write>;
 
 
 fn solve_quadratic(a: f32, b: f32, c: f32, roots: ptr<function, array<f32, 2>>, root_count: ptr<function, u32>) {
@@ -271,9 +271,6 @@ fn accumulate_winding_row(
 
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    // Dispatch z selects one job from an equal-workgroup-dimension batch. Bounds checks
-    // preserve exact per-glyph raster dimensions inside the shared 16x16 footprint.
-    let uniforms = glyphJobs[global_id.z];
     let x = global_id.x;
     let y = global_id.y;
 
@@ -310,5 +307,5 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let coverage = f32(covered_samples) * 0.015625;
     let writeCoord = vec2<u32>(uniforms.atlasX + x, uniforms.atlasY + y);
-    textureStore(atlasTexture, writeCoord, uniforms.atlasPage, vec4<f32>(coverage, 0.0, 0.0, 0.0));
+    textureStore(atlasTexture, writeCoord, vec4<f32>(coverage, 0.0, 0.0, 0.0));
 }

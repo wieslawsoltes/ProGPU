@@ -125,7 +125,6 @@ public unsafe class GpuBuffer : IDisposable
         {
             _context.Api.QueueWriteBuffer(_context.Queue, BufferPtr, offsetBytes, ptr, (uint)data.Length);
         }
-        _context.RecordQueueBufferWrite(checked((uint)data.Length));
     }
 
     private void EnsurePartialWriteShadow()

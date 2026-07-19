@@ -4,18 +4,6 @@ namespace ProGPU.Compute;
 
 public static class ComputeShaders
 {
-    public static readonly string ScanReduce = ShaderResource.Load(typeof(ComputeShaders), "ScanReduce.wgsl");
-
-    public static readonly string ScanAdd = ShaderResource.Load(typeof(ComputeShaders), "ScanAdd.wgsl");
-
-    public static readonly string SceneCull = ShaderResource.Load(typeof(ComputeShaders), "SceneCull.wgsl");
-
-    public static readonly string SceneScatter = ShaderResource.Load(typeof(ComputeShaders), "SceneScatter.wgsl");
-
-    public static readonly string AnalyticTileFine = ShaderResource.Load(typeof(ComputeShaders), "AnalyticTileFine.wgsl");
-
-    public static readonly string WavefrontComposite = ShaderResource.Load(typeof(ComputeShaders), "WavefrontComposite.wgsl");
-
     public static readonly string NonlinearColorFilter = ShaderResource.Load(typeof(ComputeShaders), "NonlinearColorFilter.wgsl");
 
     public static readonly string ImageLighting = ShaderResource.Load(typeof(ComputeShaders), "ImageLighting.wgsl");

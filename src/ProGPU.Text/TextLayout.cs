@@ -31,9 +31,6 @@ public class TextLayout
 {
     private const long SharedFallbackFontFileSizeLimit = 16L * 1024L * 1024L;
 
-    [ThreadStatic]
-    private static ShapingBuffer? s_singleLineShapingBuffer;
-
     private readonly struct LineRange
     {
         public LineRange(int start, int count)
@@ -308,11 +305,6 @@ public class TextLayout
             return;
         }
 
-        if (TryGenerateSingleFontSingleLineLayout())
-        {
-            return;
-        }
-
         float scale = FontSize / Font.UnitsPerEm;
         float lineSpacing = (Font.Ascender - Font.Descender + Font.LineGap) * scale;
         float fontAscent = Font.Ascender * scale;
@@ -444,79 +436,6 @@ public class TextLayout
 
         ContentSize = new Vector2(maxLineWidth, cursorY);
         MeasuredSize = new Vector2(float.IsInfinity(MaxWidth) ? maxLineWidth : MaxWidth, cursorY);
-    }
-
-    private bool TryGenerateSingleFontSingleLineLayout()
-    {
-        if (Alignment != TextAlignment.Left ||
-            Text.IndexOf('\n') >= 0 ||
-            (!float.IsInfinity(MaxWidth) && MaxWidth < 10_000f))
-        {
-            return false;
-        }
-
-        for (int index = 0; index < Text.Length;)
-        {
-            char character = Text[index++];
-            uint codePoint = character;
-            if (char.IsHighSurrogate(character) &&
-                index < Text.Length &&
-                char.IsLowSurrogate(Text[index]))
-            {
-                codePoint = (uint)char.ConvertToUtf32(character, Text[index++]);
-            }
-
-            if (Font.GetGlyphIndex(codePoint) == 0 &&
-                codePoint is not (' ' or '\t') &&
-                !OpenTypeTextShaper.IsDefaultIgnorableCodePoint(codePoint))
-            {
-                return false;
-            }
-        }
-
-        ShapingBuffer shapingBuffer = s_singleLineShapingBuffer ??= new ShapingBuffer(initialCapacity: 64);
-        OpenTypeTextShaper.ShapeDesignUnits(Text, Font, ShapingOptions, shapingBuffer);
-
-        float scale = FontSize / Font.UnitsPerEm;
-        float lineSpacing = (Font.Ascender - Font.Descender + Font.LineGap) * scale;
-        float fontAscent = Font.Ascender * scale;
-        float cursorX = 0f;
-        ReadOnlySpan<ShapingGlyph> shapedGlyphs = shapingBuffer.Glyphs;
-        Glyphs.EnsureCapacity(shapedGlyphs.Length);
-        for (int index = 0; index < shapedGlyphs.Length; index++)
-        {
-            ShapingGlyph shaped = shapedGlyphs[index];
-            float advance = shaped.AdvanceX * scale;
-            int cluster = Math.Clamp(shaped.Cluster, 0, Math.Max(0, Text.Length - 1));
-            Glyphs.Add(new TextRunGlyph
-            {
-                Character = Text[cluster],
-                CodePoint = shaped.CodePoint,
-                GlyphIndex = checked((ushort)shaped.GlyphId),
-                Cluster = shaped.Cluster,
-                Position = new Vector2(
-                    cursorX + shaped.OffsetX * scale,
-                    fontAscent + shaped.OffsetY * scale),
-                Glyph = new GlyphInfo
-                {
-                    X = 0,
-                    Y = 0,
-                    Width = (uint)Math.Max(0f, MathF.Ceiling(advance)),
-                    Height = (uint)Math.Max(0f, MathF.Ceiling(lineSpacing)),
-                    BearX = 0,
-                    BearY = 0,
-                    Advance = advance,
-                    TexCoordMin = Vector2.Zero,
-                    TexCoordMax = Vector2.Zero
-                },
-                Font = Font
-            });
-            cursorX += advance;
-        }
-
-        ContentSize = new Vector2(cursorX, lineSpacing);
-        MeasuredSize = new Vector2(float.IsInfinity(MaxWidth) ? cursorX : MaxWidth, lineSpacing);
-        return true;
     }
 
     private void GenerateVerticalShapedLayout()

@@ -21,18 +21,6 @@ public class ScrollViewer : ContentControl
 {
     private float _verticalOffset;
     private float _horizontalOffset;
-    private readonly SceneTransformHandle _contentTranslation = new();
-    private readonly SceneTransformHandle _scrollbarThumbTranslation = new();
-    private readonly GpuPictureRecorder _scrollbarRecorder = new();
-    private GpuPicture? _scrollbarThumbPicture;
-    private bool _useRetainedContentTranslation;
-    private bool _hasViewportDeferredContent;
-    private int _retainedViewportBandX = int.MinValue;
-    private int _retainedViewportBandY = int.MinValue;
-    private bool _scrollbarChromeDirty = true;
-    private ElementTheme _scrollbarPictureTheme;
-    private VisualThemeFamily _scrollbarPictureThemeFamily;
-    private bool _scrollbarPictureHovered;
     
     private bool _isDraggingVert;
     private float _dragStartOffset;
@@ -47,15 +35,9 @@ public class ScrollViewer : ContentControl
             if (base.Content is FrameworkElement oldContent && !ReferenceEquals(oldContent, value))
             {
                 oldContent.LayoutTranslation = Vector2.Zero;
-                oldContent.RetainedTransform = null;
             }
 
             base.Content = value;
-            _useRetainedContentTranslation = false;
-            _hasViewportDeferredContent = false;
-            _retainedViewportBandX = int.MinValue;
-            _retainedViewportBandY = int.MinValue;
-            ChildrenRetainedTransform = null;
             UpdateContentTranslation();
         }
     }
@@ -82,14 +64,13 @@ public class ScrollViewer : ContentControl
             if (_verticalOffset != clamped)
             {
                 _verticalOffset = clamped;
-                if (PopupService.ActivePopups.Count != 0 && !IsInsidePopup())
+                if (!IsInsidePopup())
                 {
                     PopupService.DismissNonDialogPopups();
                 }
                 NotifyVirtualizingContent();
                 UpdateContentTranslation();
-                UpdateScrollbarThumbTranslation();
-                InvalidateForScroll();
+                Invalidate();
                 OnPropertyChanged();
             }
         }
@@ -105,13 +86,13 @@ public class ScrollViewer : ContentControl
             if (_horizontalOffset != clamped)
             {
                 _horizontalOffset = clamped;
-                if (PopupService.ActivePopups.Count != 0 && !IsInsidePopup())
+                if (!IsInsidePopup())
                 {
                     PopupService.DismissNonDialogPopups();
                 }
                 NotifyVirtualizingContent();
                 UpdateContentTranslation();
-                InvalidateForScroll();
+                Invalidate();
                 OnPropertyChanged();
             }
         }
@@ -195,14 +176,16 @@ public class ScrollViewer : ContentControl
         if (IsEnabled)
         {
             var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
-            UpdateScrollbarHover(localPos.X >= Size.X - 12f);
+            _isPointerOverScrollbar = localPos.X >= Size.X - 12f;
+            Invalidate();
         }
         base.OnPointerEntered(e);
     }
 
     public override void OnPointerExited(PointerRoutedEventArgs e)
     {
-        UpdateScrollbarHover(false);
+        _isPointerOverScrollbar = false;
+        Invalidate();
         base.OnPointerExited(e);
     }
 
@@ -211,7 +194,8 @@ public class ScrollViewer : ContentControl
         if (IsEnabled)
         {
             var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
-            UpdateScrollbarHover(localPos.X >= Size.X - 12f);
+            _isPointerOverScrollbar = localPos.X >= Size.X - 12f;
+            Invalidate();
         }
 
         if (_isDraggingVert && IsEnabled)
@@ -232,18 +216,6 @@ public class ScrollViewer : ContentControl
             return;
         }
         base.OnPointerMoved(e);
-    }
-
-    private void UpdateScrollbarHover(bool isPointerOverScrollbar)
-    {
-        if (_isPointerOverScrollbar == isPointerOverScrollbar)
-        {
-            return;
-        }
-
-        _isPointerOverScrollbar = isPointerOverScrollbar;
-        _scrollbarChromeDirty = true;
-        Invalidate();
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -289,113 +261,18 @@ public class ScrollViewer : ContentControl
                 Math.Max(viewportH, contentH)
             );
             Content.Arrange(childRect);
-            _useRetainedContentTranslation = Content.SupportsRetainedTransformSubtree();
-            _hasViewportDeferredContent = ContainsViewportDeferredContent(Content);
-            UpdateRetainedViewportBand();
-            ChildrenRetainedTransform = _useRetainedContentTranslation ? _contentTranslation : null;
             NotifyVirtualizingContent();
             UpdateContentTranslation();
         }
         ClipBounds = new Rect(0f, 0f, Size.X, Size.Y);
-        _scrollbarChromeDirty = true;
-        UpdateScrollbarThumbTranslation();
     }
 
     private void UpdateContentTranslation()
     {
         if (Content != null)
         {
-            var translation = new Vector2(-_horizontalOffset, -_verticalOffset);
-            if (_useRetainedContentTranslation)
-            {
-                Content.LayoutTranslation = Vector2.Zero;
-                Content.RetainedTransform = null;
-                ChildrenRetainedTransform = _contentTranslation;
-                _contentTranslation.Translation = translation;
-            }
-            else
-            {
-                Content.RetainedTransform = null;
-                ChildrenRetainedTransform = null;
-                Content.LayoutTranslation = translation;
-            }
+            Content.LayoutTranslation = new Vector2(-_horizontalOffset, -_verticalOffset);
         }
-    }
-
-    private void InvalidateForScroll()
-    {
-        if (_useRetainedContentTranslation)
-        {
-            if (_hasViewportDeferredContent && UpdateRetainedViewportBand())
-            {
-                // Deferred content is compiled for the viewport plus one viewport of overscan.
-                // Crossing a half-viewport band refreshes residency before the visible edge can
-                // reach content omitted by the previous compilation.
-                Invalidate();
-            }
-            else
-            {
-                InvalidateRetainedTransform();
-            }
-        }
-        else
-        {
-            Invalidate();
-        }
-    }
-
-    private bool UpdateRetainedViewportBand()
-    {
-        int bandX = GetRetainedViewportBand(_horizontalOffset, Size.X);
-        int bandY = GetRetainedViewportBand(_verticalOffset, Size.Y);
-        bool changed = bandX != _retainedViewportBandX || bandY != _retainedViewportBandY;
-        _retainedViewportBandX = bandX;
-        _retainedViewportBandY = bandY;
-        return changed;
-    }
-
-    private static int GetRetainedViewportBand(float offset, float viewportExtent)
-    {
-        float bandExtent = MathF.Max(1f, viewportExtent * 0.5f);
-        return (int)MathF.Floor(MathF.Max(0f, offset) / bandExtent);
-    }
-
-    private static bool ContainsViewportDeferredContent(Visual visual)
-    {
-        if (visual.IsViewportDeferred)
-        {
-            return true;
-        }
-        if (visual is not ContainerVisual container)
-        {
-            return false;
-        }
-
-        var children = container.Children;
-        for (int index = 0; index < children.Count; index++)
-        {
-            if (ContainsViewportDeferredContent(children[index]))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void UpdateScrollbarThumbTranslation()
-    {
-        float contentHeight = ContentHeight;
-        float viewportHeight = Size.Y;
-        if (contentHeight <= viewportHeight || viewportHeight <= 0f)
-        {
-            _scrollbarThumbTranslation.Translation = Vector2.Zero;
-            return;
-        }
-
-        float thumbHeight = Math.Max(24f, (viewportHeight / contentHeight) * viewportHeight);
-        float scrollableHeight = contentHeight - viewportHeight;
-        float thumbY = (VerticalOffset / scrollableHeight) * (viewportHeight - thumbHeight);
-        _scrollbarThumbTranslation.Translation = new Vector2(0f, thumbY);
     }
 
     private void NotifyVirtualizingContent()
@@ -432,7 +309,11 @@ public class ScrollViewer : ContentControl
             float padding = (_isPointerOverScrollbar || _isDraggingVert) ? 2f : 4f;
 
             float thumbHeight = Math.Max(24f, (viewportHeight / contentHeight) * viewportHeight);
+            float scrollableHeight = contentHeight - viewportHeight;
+            float thumbY = (VerticalOffset / scrollableHeight) * (viewportHeight - thumbHeight);
+
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, viewportHeight);
+            Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingVert) 
@@ -440,31 +321,11 @@ public class ScrollViewer : ContentControl
                 : ThemeManager.GetBrush("ControlBackground");
             context.DrawRectangle(trackBg, null, trackRect);
 
-            bool hovered = _isPointerOverScrollbar || _isDraggingVert;
-            if (_scrollbarThumbPicture == null ||
-                _scrollbarChromeDirty ||
-                _scrollbarPictureTheme != ActualTheme ||
-                _scrollbarPictureThemeFamily != ActualThemeFamily ||
-                _scrollbarPictureHovered != hovered)
-            {
-                _scrollbarThumbPicture?.Dispose();
-                var recorder = _scrollbarRecorder.BeginRecording(
-                    new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, thumbHeight));
-                Brush thumbBg = hovered
-                    ? ThemeManager.GetBrush("ScrollbarThumbHover")
-                    : ThemeManager.GetBrush("ScrollbarThumb");
-                recorder.DrawRoundedRectangle(
-                    thumbBg,
-                    null,
-                    new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, thumbHeight),
-                    scrollbarWidth / 2f);
-                _scrollbarThumbPicture = _scrollbarRecorder.EndRecording();
-                _scrollbarPictureTheme = ActualTheme;
-                _scrollbarPictureThemeFamily = ActualThemeFamily;
-                _scrollbarPictureHovered = hovered;
-                _scrollbarChromeDirty = false;
-            }
-            context.DrawPicture(_scrollbarThumbPicture, _scrollbarThumbTranslation);
+            // Draw thumb (glassmorphic capsule)
+            Brush thumbBg = (_isPointerOverScrollbar || _isDraggingVert)
+                ? ThemeManager.GetBrush("ScrollbarThumbHover")
+                : ThemeManager.GetBrush("ScrollbarThumb");
+            context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }
     }
 }

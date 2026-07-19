@@ -46,9 +46,7 @@ public enum RenderCommandType
     PopBlendMode,
     DrawGlyphRun,
     DrawVertexMesh,
-    DrawPointBatch,
-    DrawSceneFragment,
-    DrawDotGrid
+    DrawPointBatch
 }
 
 public enum VertexMeshTopology
@@ -632,7 +630,6 @@ public struct RenderCommand
     // GPU Transform properties
     public bool UseGpuTransforms;
     public Matrix4x4 CameraView;
-    public SceneTransformHandle? SceneTransform;
 
     // GPU Chart scaling parameters
     public Vector2 Scale;
@@ -659,7 +656,6 @@ public struct RenderCommand
 
     // Picture property
     public GpuPicture? Picture;
-    public SceneFragmentHandle? SceneFragment;
 
     // Glyph run properties (Skia SKTextBlob compatibility)
     public ushort[]? GlyphIndices;
@@ -1138,36 +1134,6 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
-    /// <summary>
-    /// Records a transformed retained path without allocating a replacement geometry cache.
-    /// Animated callers patch only the command transform while preserving immutable topology.
-    /// </summary>
-    public void DrawPath(
-        Brush? brush,
-        Pen? pen,
-        PathGeometry path,
-        Matrix4x4 transform,
-        RenderCommandGeometryCache geometryCache)
-    {
-        ArgumentNullException.ThrowIfNull(path);
-        ArgumentNullException.ThrowIfNull(geometryCache);
-        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
-            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
-        {
-            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
-        }
-
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawPath,
-            Brush = brush,
-            Pen = pen,
-            Path = path,
-            Transform = transform,
-            GeometryCache = geometryCache
-        });
-    }
-
     public void DrawText(
         string text,
         TtfFont font,
@@ -1572,29 +1538,6 @@ public class DrawingContext : IRenderDataProvider
         DrawCircle(brush, null, center, radius);
     }
 
-    /// <summary>
-    /// Draws a periodic antialiased dot grid as one analytic quad. Grid centers are
-    /// snapped independently to quarter physical pixels by the vector shader.
-    /// </summary>
-    public void DrawDotGrid(Brush brush, Rect bounds, float spacing, float radius, Vector2 phase)
-    {
-        ArgumentNullException.ThrowIfNull(brush);
-        if (!float.IsFinite(spacing) || spacing <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(spacing));
-        if (!float.IsFinite(radius) || radius <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(radius));
-
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawDotGrid,
-            Brush = brush,
-            Rect = bounds,
-            Position2 = phase,
-            RadiusX = spacing,
-            RadiusY = radius
-        });
-    }
-
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
     {
         DrawRoundedRectangle(brush, pen, rect, radius, radius);
@@ -1950,18 +1893,6 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
-    public void DrawPicture(GpuPicture picture, SceneTransformHandle transform)
-    {
-        ArgumentNullException.ThrowIfNull(transform);
-        RetainPictureResources(picture);
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawPicture,
-            Picture = picture,
-            SceneTransform = transform
-        });
-    }
-
     public void DrawPictureTransformed(GpuPicture picture, Matrix4x4 transform)
     {
         RetainPictureResources(picture);
@@ -1970,26 +1901,6 @@ public class DrawingContext : IRenderDataProvider
             Type = RenderCommandType.DrawPicture,
             Picture = picture,
             Transform = transform
-        });
-    }
-
-    /// <summary>
-    /// Draws a stable, patchable fragment from shared persistent GPU arenas. The base transform is
-    /// immutable placement for this draw; the mutable transform is updated through one uniform.
-    /// </summary>
-    public void DrawSceneFragment(
-        SceneFragmentHandle fragment,
-        SceneTransformHandle transform,
-        Matrix4x4 baseTransform = default)
-    {
-        ArgumentNullException.ThrowIfNull(fragment);
-        ArgumentNullException.ThrowIfNull(transform);
-        Commands.Add(new RenderCommand
-        {
-            Type = RenderCommandType.DrawSceneFragment,
-            SceneFragment = fragment,
-            SceneTransform = transform,
-            Transform = baseTransform == default ? Matrix4x4.Identity : baseTransform
         });
     }
 

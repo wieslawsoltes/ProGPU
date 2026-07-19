@@ -18,7 +18,6 @@ const state = {
   uploads: null,
   inputEvents: [],
   inputInstalled: false,
-  dispatchImmediatePointer: null,
   textSink: null,
   clipboardText: '',
   pickedStorageBytes: null,
@@ -27,7 +26,6 @@ const state = {
   nextWorkerRequest: 1,
   workerMappedBuffers: new Map(),
   workerPackets: [],
-  workerPacketPool: [],
   workerDispatchScheduled: false,
   diagnosticsVisible: false,
   framebufferWidth: 1,
@@ -41,22 +39,9 @@ const VERSION = 1;
 const HEADER_SIZE = 16;
 const COMMAND_HEADER_SIZE = 8;
 const DIAGNOSTICS_VISIBILITY_KEY = 'progpu.browser.diagnostics.visible';
-const BENCHMARK_QUERY_VARIABLES = Object.freeze({
-  benchmarkPage: 'PROGPU_SAMPLE_BENCHMARK_PAGE',
-  benchmarkWarmupFrames: 'PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES',
-  benchmarkMeasureFrames: 'PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES',
-  benchmarkVsync: 'PROGPU_SAMPLE_BENCHMARK_VSYNC',
-  benchmarkScroll: 'PROGPU_SAMPLE_BENCHMARK_SCROLL',
-  benchmarkScrollStep: 'PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP',
-  benchmarkGpuCompletion: 'PROGPU_SAMPLE_BENCHMARK_GPU_COMPLETION',
-  benchmarkVectorEngine: 'PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE'
-});
 const uncappedFrameResolvers = [];
 const uncappedGpuFenceResolvers = [];
 const MAX_UNCAPPED_FRAMES_IN_FLIGHT = 2;
-const MIN_WORKER_PACKET_CAPACITY = 4096;
-const MAX_POOLED_WORKER_PACKET_CAPACITY = 1024 * 1024;
-const MAX_POOLED_WORKER_PACKETS = 64;
 let uncappedFramesSinceFence = 0;
 const uncappedFrameChannel = new MessageChannel();
 uncappedFrameChannel.port1.onmessage = async () => {
@@ -373,17 +358,6 @@ function eventModifiers(event) {
     (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
 }
 
-function dispatchPointerEvent(kind, event, point) {
-  if (state.dispatchImmediatePointer) {
-    try {
-      if (state.dispatchImmediatePointer(kind, point.x, point.y, event.button)) return;
-    } catch (error) {
-      globalThis.console.error('[ProGPU] Immediate pointer dispatch failed.', error);
-    }
-  }
-  queueInputEvent(kind, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
-}
-
 function installBrowserInput() {
   if (state.inputInstalled) return;
   state.inputInstalled = true;
@@ -405,14 +379,14 @@ function installBrowserInput() {
   });
   state.canvas.addEventListener('pointerdown', event => {
     const point = pointerPosition(event);
-    dispatchPointerEvent(2, event, point);
+    queueInputEvent(2, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
     try { state.canvas.setPointerCapture(event.pointerId); } catch { }
     textSink.focus({ preventScroll: true });
     event.preventDefault();
   });
   state.canvas.addEventListener('pointerup', event => {
     const point = pointerPosition(event);
-    dispatchPointerEvent(3, event, point);
+    queueInputEvent(3, point.x, point.y, 0, 0, event.button, eventModifiers(event), event.buttons);
     try { state.canvas.releasePointerCapture(event.pointerId); } catch { }
     event.preventDefault();
   });
@@ -486,6 +460,17 @@ function getClipboardText() {
   return state.clipboardText;
 }
 
+function filePickerTypes(filters) {
+  const extensions = String(filters || '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(value => /^\.[a-z0-9][a-z0-9._+-]*$/.test(value));
+  return extensions.length === 0 ? undefined : [{
+    description: 'Supported files',
+    accept: { 'application/octet-stream': extensions }
+  }];
+}
+
 async function stagePickedFile(file) {
   state.pickedStorageBytes = new Uint8Array(await file.arrayBuffer());
   return encodeURIComponent(file.name);
@@ -501,6 +486,7 @@ function pickStorageWithInput(filters) {
     document.body.appendChild(input);
 
     const cleanup = () => {
+      globalThis.removeEventListener('focus', onWindowFocus);
       input.remove();
     };
     const finish = async file => {
@@ -511,8 +497,15 @@ function pickStorageWithInput(filters) {
       try { resolve(await stagePickedFile(file)); }
       catch { state.pickedStorageBytes = null; resolve(''); }
     };
+    const onWindowFocus = () => {
+      globalThis.setTimeout(() => {
+        if (!settled && !input.files?.length) finish(null);
+      }, 0);
+    };
+
     input.addEventListener('change', () => finish(input.files?.[0] || null), { once: true });
     input.addEventListener('cancel', () => finish(null), { once: true });
+    globalThis.addEventListener('focus', onWindowFocus, { once: true });
     try { input.click(); }
     catch { finish(null); }
   });
@@ -522,6 +515,22 @@ async function pickStorage(mode, filters, defaultName) {
   if (mode === 1) return Promise.resolve(defaultName || 'untitled.txt');
   if (mode !== 0) return Promise.resolve('');
   state.pickedStorageBytes = null;
+
+  if (typeof globalThis.showOpenFilePicker === 'function') {
+    try {
+      const handles = await globalThis.showOpenFilePicker({
+        multiple: false,
+        types: filePickerTypes(filters),
+        excludeAcceptAllOption: false
+      });
+      if (handles.length === 0) return '';
+      return await stagePickedFile(await handles[0].getFile());
+    } catch (error) {
+      if (error?.name === 'AbortError') return '';
+      // Permission, activation, or option support can vary by browser/origin.
+      // Fall through to the standards-compatible file-input path.
+    }
+  }
 
   return await pickStorageWithInput(filters);
 }
@@ -571,22 +580,15 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
   if (!state.adapter) throw new Error('No WebGPU adapter matched the requested power preference.');
 
   const supportsBgraStorage = state.adapter.features.has('bgra8unorm-storage');
-  const advertisesTimestampQuery = state.adapter.features.has('timestamp-query');
   const requiredFeatures = [];
   let activeProfile = request.gpuProfile === 'Full' ? 1 : 0;
   if (request.gpuProfile === 'Full' && supportsBgraStorage) requiredFeatures.push('bgra8unorm-storage');
-  if (advertisesTimestampQuery) requiredFeatures.push('timestamp-query');
   if (request.gpuProfile === 'Full' && !supportsBgraStorage) {
     activeProfile = 0;
     diagnostics.push('Full profile downgraded: bgra8unorm-storage is unavailable; dependent Wavefront storage output is disabled.');
   }
 
   state.device = await state.adapter.requestDevice({ requiredFeatures });
-  const supportsTimestampQuery = advertisesTimestampQuery &&
-    typeof state.device.createCommandEncoder().writeTimestamp === 'function';
-  if (advertisesTimestampQuery && !supportsTimestampQuery) {
-    diagnostics.push('Timestamp queries are advertised, but command-encoder timestamp writes are unavailable; GPU pass timing is disabled.');
-  }
   state.format = navigator.gpu.getPreferredCanvasFormat();
   state.context.configure({ device: state.device, format: state.format, alphaMode: 'premultiplied' });
   state.device.addEventListener('uncapturederror', event => {
@@ -615,7 +617,6 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
     supportsSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
     supportsOffscreenCanvas: typeof OffscreenCanvas !== 'undefined',
     supportsBgra8UnormStorage: supportsBgraStorage,
-    supportsTimestampQuery,
     features: [...state.adapter.features],
     diagnostics
   };
@@ -636,8 +637,6 @@ function handleWorkerMessage(event) {
     globalThis.setTimeout(() => globalThis.location.reload(), 250);
   } else if (message.type === 'uncapped-frame-ready') {
     uncappedGpuFenceResolvers.shift()?.();
-  } else if (message.type === 'recycle-packets') {
-    for (const buffer of message.buffers) recycleWorkerPacketBuffer(buffer);
   } else if (message.type === 'response') {
     const pending = state.workerRequests.get(message.id);
     if (!pending) return;
@@ -664,31 +663,7 @@ function flushWorkerPackets() {
   const packets = state.workerPackets;
   state.workerPackets = [];
   state.workerDispatchScheduled = false;
-  state.worker.postMessage(
-    { type: 'dispatch-batch', packets },
-    packets.map(packet => packet.buffer));
-}
-
-function acquireWorkerPacketBuffer(length) {
-  for (let index = state.workerPacketPool.length - 1; index >= 0; index--) {
-    const buffer = state.workerPacketPool[index];
-    if (buffer.byteLength < length) continue;
-    state.workerPacketPool.splice(index, 1);
-    return buffer;
-  }
-
-  let capacity = MIN_WORKER_PACKET_CAPACITY;
-  while (capacity < length && capacity < MAX_POOLED_WORKER_PACKET_CAPACITY) capacity *= 2;
-  return new ArrayBuffer(Math.max(length, capacity));
-}
-
-function recycleWorkerPacketBuffer(buffer) {
-  if (!(buffer instanceof ArrayBuffer) ||
-      buffer.byteLength > MAX_POOLED_WORKER_PACKET_CAPACITY ||
-      state.workerPacketPool.length >= MAX_POOLED_WORKER_PACKETS) {
-    return;
-  }
-  state.workerPacketPool.push(buffer);
+  state.worker.postMessage({ type: 'dispatch-batch', packets }, packets);
 }
 
 async function initialize(requestJson) {
@@ -733,9 +708,8 @@ function dispatch(address, length) {
   const heap = runtime.localHeapViewU8();
   if (state.worker) {
     if (address < 0 || length < HEADER_SIZE || address + length > heap.byteLength) throw new RangeError('Command packet is outside WASM memory.');
-    const buffer = acquireWorkerPacketBuffer(length);
-    new Uint8Array(buffer, 0, length).set(heap.subarray(address, address + length));
-    state.workerPackets.push({ buffer, length });
+    const packet = heap.slice(address, address + length).buffer;
+    state.workerPackets.push(packet);
     if (!state.workerDispatchScheduled) {
       state.workerDispatchScheduled = true;
       queueMicrotask(flushWorkerPackets);
@@ -1028,11 +1002,6 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
       state.resourceMetadata.set(handle, { kind: 'texture', dimension: '2d' });
       break;
     }
-    case 27: {
-      const handle = view.getUint32(payload, true);
-      state.resources.set(handle, state.device.createQuerySet({ type: 'timestamp', count: view.getUint32(payload + 4, true) }));
-      break;
-    }
     case 30: {
       const passHandle = view.getUint32(payload, true);
       const encoder = requireResource(view.getUint32(payload + 4, true));
@@ -1149,10 +1118,6 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
         view.getUint32(payload + 4, true), view.getUint32(payload + 8, true),
         view.getUint32(payload + 12, true), view.getInt32(payload + 16, true), view.getUint32(payload + 20, true));
       break;
-    case 42:
-      requireResource(view.getUint32(payload, true)).drawIndirect(
-        requireResource(view.getUint32(payload + 4, true)), Number(view.getBigUint64(payload + 8, true)));
-      break;
     case 50: {
       const handle = view.getUint32(payload, true);
       const encoder = requireResource(view.getUint32(payload + 4, true));
@@ -1170,10 +1135,6 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
       if (payloadLength === 12) state.computePass.dispatchWorkgroups(view.getUint32(payload, true), view.getUint32(payload + 4, true), view.getUint32(payload + 8, true));
       else requireResource(view.getUint32(payload, true)).dispatchWorkgroups(view.getUint32(payload + 4, true), view.getUint32(payload + 8, true), view.getUint32(payload + 12, true));
       break;
-    case 54:
-      requireResource(view.getUint32(payload, true)).dispatchWorkgroupsIndirect(
-        requireResource(view.getUint32(payload + 4, true)), Number(view.getBigUint64(payload + 8, true)));
-      break;
     case 60:
       requireResource(view.getUint32(payload, true)).copyBufferToBuffer(
         requireResource(view.getUint32(payload + 4, true)), Number(view.getBigUint64(payload + 8, true)),
@@ -1185,19 +1146,6 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
       break;
     case 63:
       requireResource(view.getUint32(payload, true)).copyTextureToTexture(imageCopyTexture(view, payload + 4), imageCopyTexture(view, payload + 28), extent3d(view, payload + 52));
-      break;
-    case 65:
-      requireResource(view.getUint32(payload, true)).writeTimestamp(
-        requireResource(view.getUint32(payload + 4, true)),
-        view.getUint32(payload + 8, true));
-      break;
-    case 66:
-      requireResource(view.getUint32(payload, true)).resolveQuerySet(
-        requireResource(view.getUint32(payload + 4, true)),
-        view.getUint32(payload + 8, true),
-        view.getUint32(payload + 12, true),
-        requireResource(view.getUint32(payload + 16, true)),
-        Number(view.getBigUint64(payload + 20, true)));
       break;
     case 70: {
       if (payloadLength === 0) {
@@ -1241,11 +1189,8 @@ function dispatchUpload(address, length) {
   const heap = runtime.localHeapViewU8();
   if (address < 0 || length < 0 || address + length > heap.byteLength) throw new RangeError('Upload is outside WASM memory.');
   if (state.worker) {
-    // Preserve command/upload ordering: a queued packet may still reference the previous upload.
-    flushWorkerPackets();
-    const upload = acquireWorkerPacketBuffer(length);
-    new Uint8Array(upload, 0, length).set(heap.subarray(address, address + length));
-    state.worker.postMessage({ type: 'upload', upload, length }, [upload]);
+    const upload = heap.slice(address, address + length).buffer;
+    state.worker.postMessage({ type: 'upload', upload }, [upload]);
     return;
   }
   state.uploads = heap.subarray(address, address + length);
@@ -1260,16 +1205,6 @@ async function mapBuffer(handle, mode, offset, size) {
   const buffer = requireResource(handle);
   await buffer.mapAsync(mode, offset, size);
   state.mappedBuffers.set(handle, { offset, size });
-  return true;
-}
-
-async function waitForSubmittedWorkDone() {
-  if (state.worker) {
-    await workerRequest('submitted-work-done');
-    return true;
-  }
-  if (!state.device) return false;
-  await state.device.queue.onSubmittedWorkDone();
   return true;
 }
 
@@ -1374,16 +1309,6 @@ function updateCounters(frames, dispatches, commandBytes) {
   document.querySelector('#counter-bytes').textContent = Number(commandBytes).toLocaleString();
 }
 
-function readBenchmarkEnvironment() {
-  const query = new URLSearchParams(globalThis.location.search);
-  const environment = {};
-  for (const [queryName, variableName] of Object.entries(BENCHMARK_QUERY_VARIABLES)) {
-    const value = query.get(queryName)?.trim();
-    if (value) environment[variableName] = value;
-  }
-  return environment;
-}
-
 async function handleDispatcherWorkerMessage(event) {
   const message = event.data;
   try {
@@ -1408,14 +1333,9 @@ async function handleDispatcherWorkerMessage(event) {
         }
         break;
       case 'dispatch-batch': {
-        const recycled = message.packets.map(packet => packet.buffer);
-        try {
-          for (const packetRecord of message.packets) {
-            const packet = new Uint8Array(packetRecord.buffer, 0, packetRecord.length);
-            dispatchPacket(packet, 0, packet.byteLength);
-          }
-        } finally {
-          globalThis.postMessage({ type: 'recycle-packets', buffers: recycled }, recycled);
+        for (const packetBuffer of message.packets) {
+          const packet = new Uint8Array(packetBuffer);
+          dispatchPacket(packet, 0, packet.byteLength);
         }
         break;
       }
@@ -1423,18 +1343,9 @@ async function handleDispatcherWorkerMessage(event) {
         await state.device.queue.onSubmittedWorkDone();
         globalThis.postMessage({ type: 'uncapped-frame-ready' });
         break;
-      case 'submitted-work-done':
-        await state.device.queue.onSubmittedWorkDone();
-        globalThis.postMessage({ type: 'response', id: message.id, completed: true });
+      case 'upload':
+        state.uploads = new Uint8Array(message.upload);
         break;
-      case 'upload': {
-        const previousUpload = state.uploads?.buffer;
-        state.uploads = new Uint8Array(message.upload, 0, message.length);
-        if (previousUpload instanceof ArrayBuffer && previousUpload.byteLength > 0) {
-          globalThis.postMessage({ type: 'recycle-packets', buffers: [previousUpload] }, [previousUpload]);
-        }
-        break;
-      }
       case 'map-buffer': {
         await mapBuffer(message.handle, message.mode, message.offset, message.size);
         const mapped = state.mappedBuffers.get(message.handle);
@@ -1463,9 +1374,7 @@ if (isDispatcherWorker) {
   });
 } else {
   initializeDiagnosticsVisibility();
-  runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, waitForSubmittedWorkDone, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
-  const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
-  state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
+  runtime = await dotnet.create();
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   await runtime.runMain();
 }

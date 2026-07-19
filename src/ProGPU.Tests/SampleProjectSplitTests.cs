@@ -130,80 +130,14 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void BrowserWorkerReusesBoundedTransferPacketBuffers()
-    {
-        var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
-
-        Assert.Contains("workerPacketPool: []", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("const MAX_POOLED_WORKER_PACKETS = 64;", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("function acquireWorkerPacketBuffer(length)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("function recycleWorkerPacketBuffer(buffer)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("new Uint8Array(buffer, 0, length).set(heap.subarray", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("packets.map(packet => packet.buffer)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("type: 'recycle-packets'", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("new Uint8Array(packetRecord.buffer, 0, packetRecord.length)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("flushWorkerPackets();\n    const upload = acquireWorkerPacketBuffer(length);", browserAsset.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
-        Assert.Contains("new Uint8Array(message.upload, 0, message.length)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("previousUpload.byteLength > 0", browserAsset, StringComparison.Ordinal);
-        Assert.DoesNotContain("heap.slice(address, address + length).buffer", browserAsset, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PerformanceSweepSelectsAndRecordsVectorEngineExplicitly()
-    {
-        var benchmark = Read("src", "ProGPU.Samples", "SamplePerformanceBenchmark.cs");
-        var sweep = Read("eng", "progpu-benchmark-pages.sh");
-
-        Assert.Contains("PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteString(\"vectorEngine\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteNumber(\"schemaVersion\", 7)", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteString(\"wavefrontBinningMode\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteBoolean(\"wavefrontBinningReused\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteNumber(\"wavefrontCpuBinningUploadBytes\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteNumber(\"wavefrontGpuPairBufferBytes\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("writer.WriteNumber(\"wavefrontRadixHistogramCount\"", benchmark, StringComparison.Ordinal);
-        Assert.Contains("--vector-engine", sweep, StringComparison.Ordinal);
-        Assert.Contains("PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE=\"$vector_engine\"", sweep, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BrowserBenchmarkQueryUsesTheSharedDeterministicHarness()
-    {
-        var browserMain = Read("src", "ProGPU.Samples.Browser", "wwwroot", "main.js");
-
-        Assert.Contains("benchmarkPage: 'PROGPU_SAMPLE_BENCHMARK_PAGE'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkWarmupFrames: 'PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkMeasureFrames: 'PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkVsync: 'PROGPU_SAMPLE_BENCHMARK_VSYNC'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkScroll: 'PROGPU_SAMPLE_BENCHMARK_SCROLL'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkGpuCompletion: 'PROGPU_SAMPLE_BENCHMARK_GPU_COMPLETION'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("benchmarkVectorEngine: 'PROGPU_SAMPLE_BENCHMARK_VECTOR_ENGINE'", browserMain, StringComparison.Ordinal);
-        Assert.Contains("dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create()", browserMain, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BrowserTimestampCapabilityRequiresUsableEncoderWrites()
-    {
-        var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
-
-        Assert.Contains("const advertisesTimestampQuery = state.adapter.features.has('timestamp-query');", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("typeof state.device.createCommandEncoder().writeTimestamp === 'function'", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("GPU pass timing is disabled", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("supportsTimestampQuery,", browserAsset, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BrowserFilePickerUsesCancellationSafeDirectByteTransfer()
+    public void BrowserFilePickerUsesNativeDialogWithCancellationSafeDirectByteFallback()
     {
         var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
         var storageServices = Read("src", "ProGPU.Browser", "BrowserStorageServices.cs");
-        var browserInput = Read("src", "ProGPU.Browser", "BrowserInputDispatcher.cs");
 
+        Assert.Contains("globalThis.showOpenFilePicker", browserAsset, StringComparison.Ordinal);
         Assert.Contains("input.addEventListener('cancel'", browserAsset, StringComparison.Ordinal);
-        Assert.DoesNotContain("globalThis.addEventListener('focus'", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("runtime.getAssemblyExports('ProGPU.Browser.dll')", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("dispatchPointerEvent(3, event, point)", browserAsset, StringComparison.Ordinal);
-        Assert.Contains("DispatchImmediatePointer", browserInput, StringComparison.Ordinal);
+        Assert.Contains("globalThis.addEventListener('focus', onWindowFocus", browserAsset, StringComparison.Ordinal);
         Assert.Contains("heap.set(bytes, destination);", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain("bytesToBase64", browserAsset, StringComparison.Ordinal);
         Assert.Contains("CopyPickedStorage((nint)destination, length)", storageServices, StringComparison.Ordinal);
@@ -256,67 +190,6 @@ public sealed class SampleProjectSplitTests
         Assert.DoesNotContain("checked((int)handle.Value)", browserApi, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void AnimatedSampleRenderCallbacksReusePaintGeometryAndTimingState()
-    {
-        var gradient = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Views", "GradientArtVisual.cs"),
-            "public override void OnRender");
-        var texture = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Views", "GpuTextureCanvas.cs"),
-            "public override void OnRender");
-        var gear = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Views", "GearVisual.cs"),
-            "public override void OnRender");
-        var picture = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Pages", "PictureShowcasePage.cs"),
-            "public override void OnRender");
-        var glyphRun = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Pages", "GlyphRunShowcasePage.cs"),
-            "public override void OnRender");
-        var keyframes = ExtractMethodBody(
-            Read("src", "ProGPU.Samples", "Views", "ShowcaseCards.cs"),
-            "public void Update(float delta)");
-
-        Assert.DoesNotContain("new SolidColorBrush", gradient, StringComparison.Ordinal);
-        Assert.DoesNotContain("new GradientStop", gradient, StringComparison.Ordinal);
-        Assert.DoesNotContain("new Pen", gradient, StringComparison.Ordinal);
-        Assert.DoesNotContain("new SolidColorBrush", texture, StringComparison.Ordinal);
-        Assert.Contains("_displayedBlurRadius != blurRadius", texture, StringComparison.Ordinal);
-        Assert.DoesNotContain("CreateGearPathWithRotation", gear, StringComparison.Ordinal);
-        Assert.Contains("_gearGeometryCache", gear, StringComparison.Ordinal);
-        Assert.DoesNotContain("Stopwatch.StartNew", picture, StringComparison.Ordinal);
-        Assert.DoesNotContain("new ThemeResourceBrush", picture, StringComparison.Ordinal);
-        Assert.Contains("Stopwatch.GetTimestamp", picture, StringComparison.Ordinal);
-        Assert.DoesNotContain("new ushort", glyphRun, StringComparison.Ordinal);
-        Assert.DoesNotContain("new Vector2[", glyphRun, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetGlyphIndex", glyphRun, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetAdvanceWidth", glyphRun, StringComparison.Ordinal);
-        Assert.Contains("EnsureGlyphLayout();", glyphRun, StringComparison.Ordinal);
-        Assert.DoesNotContain("Canvas.SetLeft", keyframes, StringComparison.Ordinal);
-        Assert.DoesNotContain("Canvas.SetTop", keyframes, StringComparison.Ordinal);
-        Assert.DoesNotContain("Invalidate();", keyframes, StringComparison.Ordinal);
-        Assert.Contains("_slidingCard.Transform", keyframes, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void FrameUpdatesAvoidWholeTreeSampleWalksAndRenderTimeAnimationMutation()
-    {
-        var controller = Read("src", "ProGPU.Samples", "Windows", "MainWindowController.cs");
-        var progressSource = Read("src", "ProGPU.WinUI", "Controls", "ProgressBar.cs");
-        var progressRender = ExtractMethodBody(progressSource, "public override void OnRender");
-        var progressUpdate = ExtractMethodBody(progressSource, "protected override void OnUpdateAnimation");
-
-        Assert.Contains("ActiveSampleAnimations.UpdateSampleAnimations", controller, StringComparison.Ordinal);
-        Assert.Contains("CollectSampleAnimations(ActiveSampleAnimations)", controller, StringComparison.Ordinal);
-        Assert.DoesNotContain("AppState._rootGrid?.UpdateSampleAnimations", controller, StringComparison.Ordinal);
-        Assert.Contains("SetCustomFrameAnimationActive(value)", progressSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("Invalidate();", progressRender, StringComparison.Ordinal);
-        Assert.DoesNotContain("_indeterminateOffset +=", progressRender, StringComparison.Ordinal);
-        Assert.Contains("_indeterminateOffset =", progressUpdate, StringComparison.Ordinal);
-        Assert.Contains("Invalidate();", progressUpdate, StringComparison.Ordinal);
-    }
-
     private static FrameworkElement? FindByName(FrameworkElement element, string name)
     {
         if (element.Name == name) return element;
@@ -331,27 +204,6 @@ public sealed class SampleProjectSplitTests
         if (element is ContentControl { Content: FrameworkElement content })
             return FindByName(content, name);
         return null;
-    }
-
-    private static string ExtractMethodBody(string source, string signature)
-    {
-        int signatureIndex = source.IndexOf(signature, StringComparison.Ordinal);
-        Assert.True(signatureIndex >= 0, $"Method signature '{signature}' was not found.");
-        int start = source.IndexOf('{', signatureIndex);
-        Assert.True(start >= 0, $"Method body for '{signature}' was not found.");
-
-        int depth = 0;
-        for (int index = start; index < source.Length; index++)
-        {
-            if (source[index] == '{') depth++;
-            if (source[index] != '}') continue;
-            depth--;
-            if (depth == 0)
-            {
-                return source[start..(index + 1)];
-            }
-        }
-        throw new InvalidDataException($"Method body for '{signature}' is unbalanced.");
     }
 
     private static string Read(params string[] parts)

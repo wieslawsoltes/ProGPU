@@ -64,28 +64,6 @@ public class DataGrid : Control
 
     private DataGridColumn? _sortingColumn;
     private readonly List<object> _itemsSource = new();
-    private readonly GpuPictureRecorder _rowPictureRecorder = new();
-    private readonly SceneTransformHandle _rowScrollTransform = new();
-    private readonly GpuPictureRecorder _scrollbarPictureRecorder = new();
-    private readonly SceneTransformHandle _scrollbarThumbTransform = new();
-    private GpuPicture? _scrollbarThumbPicture;
-    private Vector2 _scrollbarThumbPictureSize;
-    private float _scrollbarThumbPictureBodyHeight;
-    private float _scrollbarThumbPictureHeaderHeight;
-    private bool _scrollbarThumbPictureHovered;
-    private ElementTheme _scrollbarThumbPictureTheme;
-    private VisualThemeFamily _scrollbarThumbPictureThemeFamily;
-    private SceneFragmentHandle?[] _rowFragmentHandles = [];
-    private int[] _rowFragmentRows = [];
-    private int[] _rowFragmentState = [];
-    private SceneFragmentHandle? _rowChromeFragment;
-    private int _rowChromeStart = -1;
-    private int _rowChromeEnd = -1;
-    private int _rowChromeState;
-    private int _itemsVersion;
-    private int _compiledStartRow = -1;
-    private int _compiledEndRow = -1;
-    private Func<object, string, string>? _cellValueBinding;
 
     private int _editingRow = -1;
     private int _editingCol = -1;
@@ -149,27 +127,12 @@ public class DataGrid : Control
             if (_scrollOffset != clamped)
             {
                 _scrollOffset = clamped;
-                _rowScrollTransform.Translation = new Vector2(0f, -clamped);
-                UpdateScrollbarThumbTransform();
                 if (_editingRow != -1)
                 {
                     UpdateCellEditorLayout();
                 }
-                if (PopupService.ActivePopups.Count != 0)
-                {
-                    PopupService.DismissNonDialogPopups();
-                }
-                if (_editingRow == -1 &&
-                    TryGetVisibleRowRange(clamped, out int startRow, out int endRow) &&
-                    (startRow == _compiledStartRow && endRow == _compiledEndRow ||
-                        TryPrepareRetainedScrollRange(startRow, endRow)))
-                {
-                    InvalidateRetainedTransform();
-                }
-                else
-                {
-                    Invalidate();
-                }
+                PopupService.DismissNonDialogPopups();
+                Invalidate();
             }
         }
     }
@@ -178,20 +141,8 @@ public class DataGrid : Control
     public float ViewportHeight => Size.Y - _headerHeight;
     public int EditingRow => _editingRow;
     public int EditingCol => _editingCol;
-    public int FirstRealizedRow => _compiledStartRow;
-    public int LastRealizedRow => _compiledEndRow;
 
-    public Func<object, string, string>? CellValueBinding
-    {
-        get => _cellValueBinding;
-        set
-        {
-            if (ReferenceEquals(_cellValueBinding, value)) return;
-            _cellValueBinding = value;
-            unchecked { _itemsVersion++; }
-            Invalidate();
-        }
-    }
+    public Func<object, string, string>? CellValueBinding { get; set; }
 
     public event EventHandler? SelectionChanged;
 
@@ -279,7 +230,6 @@ public class DataGrid : Control
     public void AddItem(object item)
     {
         _itemsSource.Add(item);
-        unchecked { _itemsVersion++; }
         Invalidate();
     }
 
@@ -287,7 +237,6 @@ public class DataGrid : Control
     {
         CancelEdit();
         _itemsSource.Clear();
-        unchecked { _itemsVersion++; }
         _selectedIndex = -1;
         _scrollOffset = 0f;
         Invalidate();
@@ -538,7 +487,6 @@ public class DataGrid : Control
             }
             return asc ? string.Compare(valX, valY, StringComparison.Ordinal) : string.Compare(valY, valX, StringComparison.Ordinal);
         });
-        unchecked { _itemsVersion++; }
 
         SortingColumn = column;
         Invalidate();
@@ -671,11 +619,7 @@ public class DataGrid : Control
 
     public override void OnPointerReleased(PointerRoutedEventArgs e)
     {
-        if (_isDraggingScroll)
-        {
-            _isDraggingScroll = false;
-            Invalidate();
-        }
+        _isDraggingScroll = false;
         if (_resizingColumnIndex != -1)
         {
             _resizingColumnIndex = -1;
@@ -686,16 +630,9 @@ public class DataGrid : Control
 
     public override void OnPointerExited(PointerRoutedEventArgs e)
     {
-        bool changed = _hoveredRowIndex != -1 ||
-            _hoveredSeparatorIndex != -1 ||
-            _isPointerOverScrollbar;
         _hoveredRowIndex = -1;
         _hoveredSeparatorIndex = -1;
         _isPointerOverScrollbar = false;
-        if (changed)
-        {
-            Invalidate();
-        }
         base.OnPointerExited(e);
     }
 
@@ -703,12 +640,7 @@ public class DataGrid : Control
     {
         if (IsEnabled)
         {
-            bool isPointerOverScrollbar = e.Position.X >= Size.X - 12f;
-            if (_isPointerOverScrollbar != isPointerOverScrollbar)
-            {
-                _isPointerOverScrollbar = isPointerOverScrollbar;
-                Invalidate();
-            }
+            _isPointerOverScrollbar = e.Position.X >= Size.X - 12f;
 
             if (_resizingColumnIndex != -1)
             {
@@ -902,27 +834,6 @@ public class DataGrid : Control
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
         ResolveColumnWidths(arrangeRect.Width);
         UpdateCellEditorLayout();
-        UpdateScrollbarThumbTransform();
-    }
-
-    private bool TryGetVisibleRowRange(float scrollOffset, out int startRow, out int endRow)
-    {
-        startRow = -1;
-        endRow = -1;
-        if (_itemsSource.Count == 0 || _rowHeight <= 0f || ViewportHeight <= 0f)
-        {
-            return false;
-        }
-
-        startRow = Math.Clamp(
-            (int)Math.Floor(scrollOffset / _rowHeight),
-            0,
-            _itemsSource.Count - 1);
-        endRow = Math.Clamp(
-            (int)Math.Ceiling((scrollOffset + ViewportHeight) / _rowHeight),
-            0,
-            _itemsSource.Count - 1);
-        return true;
     }
 
     public override void OnRender(DrawingContext context)
@@ -978,16 +889,74 @@ public class DataGrid : Control
         }
 
         // 3. Draw Body Row Cells (Virtualized recycling viewport loop)
-        if (TryGetVisibleRowRange(ScrollOffset, out int startRow, out int endRow))
+        if (_itemsSource.Count > 0)
         {
-            _compiledStartRow = startRow;
-            _compiledEndRow = endRow;
-            DrawRetainedRows(context, activeFont, startRow, endRow);
-        }
-        else
-        {
-            _compiledStartRow = -1;
-            _compiledEndRow = -1;
+            int startRow = (int)Math.Floor(ScrollOffset / _rowHeight);
+            int endRow = (int)Math.Ceiling((ScrollOffset + ViewportHeight) / _rowHeight);
+
+            startRow = Math.Clamp(startRow, 0, _itemsSource.Count - 1);
+            endRow = Math.Clamp(endRow, 0, _itemsSource.Count - 1);
+
+            context.PushClip(new Rect(0, _headerHeight, Size.X, ViewportHeight));
+
+            for (int r = startRow; r <= endRow; r++)
+            {
+                float rowY = _headerHeight + r * _rowHeight - ScrollOffset;
+                var item = _itemsSource[r];
+
+                // Alternate, Hover & Selection backgrounds
+                Brush? rowBg = null;
+                if (r == SelectedIndex)
+                {
+                    rowBg = ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
+                }
+                else if (r == _hoveredRowIndex)
+                {
+                    rowBg = ThemeManager.GetBrush("ControlBackgroundHover"); // Hover state row highlight
+                }
+                else if (r % 2 == 1)
+                {
+                    rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
+                }
+
+                Rect rowRect = new Rect(0, rowY, Size.X, _rowHeight);
+                if (rowBg != null)
+                {
+                    context.DrawRectangle(rowBg, null, rowRect);
+                }
+
+                // Draw active selection vertical indicator stripe on far-left
+                if (r == SelectedIndex)
+                {
+                    Rect selectionStripe = new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f);
+                    context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
+                }
+
+                // Draw cell text grid columns
+                float colX = Padding.Left;
+                for (int c = 0; c < Columns.Count; c++)
+                {
+                    var col = Columns[c];
+                    float colWidth = col.ActualWidth;
+
+                    if (r == _editingRow && c == _editingCol)
+                    {
+                        // Do not draw text under editor
+                    }
+                    else
+                    {
+                        string val = GetCellValue(item, col.PropertyName);
+                        float cellTextY = rowY + (_rowHeight - FontSize) / 2f;
+                        context.DrawText(val, activeFont, FontSize, ThemeManager.GetBrush("TextPrimary"), new Vector2(colX + 8f, cellTextY));
+                    }
+                    colX += colWidth;
+                }
+
+                // Draw thin grid lines
+                context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, _rowHeight));
+            }
+
+            context.PopClip();
         }
 
         // 4. Draw Scrollbar track
@@ -997,8 +966,11 @@ public class DataGrid : Control
             float padding = (_isPointerOverScrollbar || _isDraggingScroll) ? 2f : 4f;
             float viewportH = ViewportHeight;
             float thumbHeight = Math.Max(24f, (viewportH / TotalBodyHeight) * viewportH);
+            float scrollableHeight = TotalBodyHeight - viewportH;
+            float thumbY = _headerHeight + (ScrollOffset / scrollableHeight) * (viewportH - thumbHeight);
 
             Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, _headerHeight, scrollbarWidth, viewportH);
+            Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingScroll) 
@@ -1006,264 +978,13 @@ public class DataGrid : Control
                 : ThemeManager.GetBrush("ControlBackground");
             context.DrawRectangle(trackBg, null, trackRect);
 
-            bool hovered = _isPointerOverScrollbar || _isDraggingScroll;
-            if (_scrollbarThumbPicture == null ||
-                _scrollbarThumbPictureSize != Size ||
-                _scrollbarThumbPictureBodyHeight != TotalBodyHeight ||
-                _scrollbarThumbPictureHeaderHeight != _headerHeight ||
-                _scrollbarThumbPictureHovered != hovered ||
-                _scrollbarThumbPictureTheme != ActualTheme ||
-                _scrollbarThumbPictureThemeFamily != ActualThemeFamily)
-            {
-                _scrollbarThumbPicture?.Dispose();
-                var recorder = _scrollbarPictureRecorder.BeginRecording(
-                    new Rect(Size.X - scrollbarWidth - padding, _headerHeight, scrollbarWidth, thumbHeight));
-                Brush thumbBg = (_isPointerOverScrollbar || _isDraggingScroll)
-                    ? ThemeManager.GetBrush("ScrollbarThumbHover")
-                    : ThemeManager.GetBrush("ScrollbarThumb");
-                recorder.DrawRoundedRectangle(
-                    thumbBg,
-                    null,
-                    new Rect(Size.X - scrollbarWidth - padding, _headerHeight, scrollbarWidth, thumbHeight),
-                    scrollbarWidth / 2f);
-                _scrollbarThumbPicture = _scrollbarPictureRecorder.EndRecording();
-                _scrollbarThumbPictureSize = Size;
-                _scrollbarThumbPictureBodyHeight = TotalBodyHeight;
-                _scrollbarThumbPictureHeaderHeight = _headerHeight;
-                _scrollbarThumbPictureHovered = hovered;
-                _scrollbarThumbPictureTheme = ActualTheme;
-                _scrollbarThumbPictureThemeFamily = ActualThemeFamily;
-            }
-            UpdateScrollbarThumbTransform();
-            context.DrawPicture(_scrollbarThumbPicture, _scrollbarThumbTransform);
+            // Draw thumb (glassmorphic capsule)
+            Brush thumbBg = (_isPointerOverScrollbar || _isDraggingScroll)
+                ? ThemeManager.GetBrush("ScrollbarThumbHover")
+                : ThemeManager.GetBrush("ScrollbarThumb");
+            
+            context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }
-    }
-
-    private void UpdateScrollbarThumbTransform()
-    {
-        float viewportHeight = ViewportHeight;
-        if (TotalBodyHeight <= viewportHeight || viewportHeight <= 0f)
-        {
-            _scrollbarThumbTransform.Translation = Vector2.Zero;
-            return;
-        }
-
-        float thumbHeight = Math.Max(24f, (viewportHeight / TotalBodyHeight) * viewportHeight);
-        float scrollableHeight = TotalBodyHeight - viewportHeight;
-        float thumbOffset = (ScrollOffset / scrollableHeight) * (viewportHeight - thumbHeight);
-        _scrollbarThumbTransform.Translation = new Vector2(0f, thumbOffset);
-    }
-
-    private void DrawRetainedRows(DrawingContext context, TtfFont activeFont, int startRow, int endRow)
-    {
-        int visibleCount = endRow - startRow + 1;
-        EnsureRowFragmentCapacity(visibleCount + 2);
-        PrepareRetainedRows(activeFont, startRow);
-        PrepareRetainedRowChrome(startRow, endRow);
-        _rowScrollTransform.Translation = new Vector2(0f, -ScrollOffset);
-
-        context.PushClip(new Rect(0, _headerHeight, Size.X, ViewportHeight));
-        if (_rowChromeFragment is { } chromeFragment)
-        {
-            context.DrawSceneFragment(chromeFragment, _rowScrollTransform);
-        }
-        // Slot commands remain in a stable order across realization boundaries. Rows occupy
-        // disjoint horizontal bands, so modulo-slot order cannot alter painter output. Rebinding
-        // an entering row therefore changes one fragment version while the parent command list
-        // and every other row allocation remain reusable.
-        for (int slot = 0; slot < _rowFragmentHandles.Length; slot++)
-        {
-            if (_rowFragmentHandles[slot] is { } fragment)
-            {
-                context.DrawSceneFragment(fragment, _rowScrollTransform);
-            }
-        }
-        context.PopClip();
-    }
-
-    private bool TryPrepareRetainedScrollRange(int startRow, int endRow)
-    {
-        if (_compiledStartRow < 0 ||
-            _rowFragmentHandles.Length < endRow - startRow + 3 ||
-            GetActiveFont() is not { } activeFont)
-        {
-            return false;
-        }
-
-        PrepareRetainedRows(activeFont, startRow);
-        PrepareRetainedRowChrome(startRow, endRow);
-        _compiledStartRow = startRow;
-        _compiledEndRow = endRow;
-        return true;
-    }
-
-    private void PrepareRetainedRows(TtfFont activeFont, int startRow)
-    {
-        int layoutState = ComputeRowFragmentLayoutState(activeFont);
-        int endRow = (int)Math.Min(_itemsSource.Count, (long)startRow + _rowFragmentHandles.Length);
-        for (int row = startRow; row < endRow; row++)
-        {
-            int slot = row % _rowFragmentHandles.Length;
-            int state = HashCode.Combine(
-                layoutState,
-                _itemsVersion,
-                row == _editingRow ? _editingCol + 1 : 0);
-            if (_rowFragmentHandles[slot] != null &&
-                _rowFragmentRows[slot] == row &&
-                _rowFragmentState[slot] == state)
-            {
-                continue;
-            }
-
-            var picture = RecordRowPicture(activeFont, row);
-            if (_rowFragmentHandles[slot] == null)
-            {
-                _rowFragmentHandles[slot] = new SceneFragmentHandle(picture);
-            }
-            else
-            {
-                _rowFragmentHandles[slot]!.ReplacePicture(picture);
-            }
-            _rowFragmentRows[slot] = row;
-            _rowFragmentState[slot] = state;
-        }
-    }
-
-    private GpuPicture RecordRowPicture(TtfFont activeFont, int row)
-    {
-        float rowY = _headerHeight + row * _rowHeight;
-        var rowContext = _rowPictureRecorder.BeginRecording(new Rect(0f, rowY, Size.X, _rowHeight));
-        var item = _itemsSource[row];
-        float columnX = Padding.Left;
-        float textY = rowY + (_rowHeight - FontSize) / 2f;
-        var textBrush = ThemeManager.GetBrush("TextPrimary");
-        for (int columnIndex = 0; columnIndex < Columns.Count; columnIndex++)
-        {
-            var column = Columns[columnIndex];
-            if (row != _editingRow || columnIndex != _editingCol)
-            {
-                rowContext.DrawText(
-                    GetCellValue(item, column.PropertyName),
-                    activeFont,
-                    FontSize,
-                    textBrush,
-                    new Vector2(columnX + 8f, textY));
-            }
-            columnX += column.ActualWidth;
-        }
-        return _rowPictureRecorder.EndRecording();
-    }
-
-    private void PrepareRetainedRowChrome(int visibleStartRow, int visibleEndRow)
-    {
-        var stateHash = new HashCode();
-        stateHash.Add(Size.X);
-        stateHash.Add(_rowHeight);
-        stateHash.Add(_headerHeight);
-        stateHash.Add(ActualTheme);
-        stateHash.Add(ActualThemeFamily);
-        stateHash.Add(SelectedIndex);
-        stateHash.Add(_hoveredRowIndex);
-        stateHash.Add(_editingRow);
-        stateHash.Add(_itemsSource.Count);
-        int layoutState = stateHash.ToHashCode();
-        int capacity = Math.Max(1, _rowFragmentHandles.Length);
-        int chromeMargin = capacity / 4;
-        bool rangeContainsViewport =
-            _rowChromeStart >= 0 &&
-            (visibleStartRow >= _rowChromeStart + chromeMargin || _rowChromeStart == 0) &&
-            (visibleEndRow <= _rowChromeEnd - chromeMargin || _rowChromeEnd == _itemsSource.Count - 1);
-        if (_rowChromeFragment != null && _rowChromeState == layoutState && rangeContainsViewport)
-        {
-            return;
-        }
-
-        int rowCount = Math.Min(_itemsSource.Count, checked(capacity * 2));
-        int chromeStart = Math.Max(0, visibleStartRow - capacity / 2);
-        if (chromeStart + rowCount > _itemsSource.Count)
-        {
-            chromeStart = Math.Max(0, _itemsSource.Count - rowCount);
-        }
-        int chromeEnd = chromeStart + rowCount - 1;
-        var chromeContext = _rowPictureRecorder.BeginRecording(
-            new Rect(0f, _headerHeight + chromeStart * _rowHeight, Size.X, rowCount * _rowHeight));
-        var selectionBrush = ThemeManager.GetBrush("SelectionHighlight");
-        var hoverBrush = ThemeManager.GetBrush("ControlBackgroundHover");
-        var alternateBrush = ThemeManager.GetBrush("ControlBackground");
-        var accentBrush = ThemeManager.GetBrush("SystemAccentColor");
-        var borderPen = new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f);
-        for (int row = chromeStart; row <= chromeEnd; row++)
-        {
-            float rowY = _headerHeight + row * _rowHeight;
-            Brush? background = row == SelectedIndex
-                ? selectionBrush
-                : row == _hoveredRowIndex
-                    ? hoverBrush
-                    : (row & 1) != 0
-                        ? alternateBrush
-                        : null;
-            if (background != null)
-            {
-                chromeContext.DrawRectangle(background, null, new Rect(0f, rowY, Size.X, _rowHeight));
-            }
-            if (row == SelectedIndex)
-            {
-                chromeContext.DrawRectangle(
-                    accentBrush,
-                    null,
-                    new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f));
-            }
-            chromeContext.DrawRectangle(null, borderPen, new Rect(0f, rowY, Size.X, _rowHeight));
-        }
-        var picture = _rowPictureRecorder.EndRecording();
-        if (_rowChromeFragment == null)
-        {
-            _rowChromeFragment = new SceneFragmentHandle(picture);
-        }
-        else
-        {
-            _rowChromeFragment.ReplacePicture(picture);
-        }
-        _rowChromeStart = chromeStart;
-        _rowChromeEnd = chromeEnd;
-        _rowChromeState = layoutState;
-    }
-
-    private int ComputeRowFragmentLayoutState(TtfFont activeFont)
-    {
-        var hash = new HashCode();
-        hash.Add(activeFont);
-        hash.Add(FontSize);
-        hash.Add(_rowHeight);
-        hash.Add(Size.X);
-        hash.Add(Padding.Left);
-        hash.Add(ActualTheme);
-        hash.Add(ActualThemeFamily);
-        hash.Add(Columns.Count);
-        for (int i = 0; i < Columns.Count; i++)
-        {
-            var column = Columns[i];
-            hash.Add(column.ActualWidth);
-            hash.Add(column.PropertyName, StringComparer.Ordinal);
-        }
-        return hash.ToHashCode();
-    }
-
-    private void EnsureRowFragmentCapacity(int required)
-    {
-        if (_rowFragmentHandles.Length >= required) return;
-        int previousLength = _rowFragmentHandles.Length;
-        // Reserve for the largest fractional-scroll realization on the first layout. Without
-        // this, an exactly row-aligned first frame can allocate one fewer slot and the first
-        // sub-row scroll doubles the retained row/chrome topology, defeating scene reuse.
-        int viewportCapacity = _rowHeight > 0f
-            ? checked((int)MathF.Ceiling(ViewportHeight / _rowHeight) + 4)
-            : required;
-        int capacity = Math.Max(required, Math.Max(8, Math.Max(viewportCapacity, previousLength * 2)));
-        Array.Resize(ref _rowFragmentHandles, capacity);
-        Array.Resize(ref _rowFragmentRows, capacity);
-        Array.Resize(ref _rowFragmentState, capacity);
-        Array.Fill(_rowFragmentRows, -1, previousLength, capacity - previousLength);
     }
 
     public override void OnKeyDown(KeyRoutedEventArgs e)

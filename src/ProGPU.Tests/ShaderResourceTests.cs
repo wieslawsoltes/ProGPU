@@ -24,60 +24,6 @@ public class ShaderResourceTests
     }
 
     [Fact]
-    public void RetainedGlyphShaderSupportsStableCompactedIndirectReplay()
-    {
-        string source = ShaderResource.Load(typeof(Compositor), "RetainedGlyph.wgsl");
-
-        Assert.Contains("@binding(4) var<storage, read> visibleInstanceIndices", source, StringComparison.Ordinal);
-        Assert.Contains("fn vs_compacted(", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "visibleInstanceIndices[compactedInstanceIndex]",
-            source,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void WavefrontShaderCompactsActiveCellsForSparseIndirectFineDispatch()
-    {
-        string source = WavefrontShaders.ShadersSource;
-
-        Assert.Contains("fn mark_active_cells(", source, StringComparison.Ordinal);
-        Assert.Contains("fn scatter_active_cells(", source, StringComparison.Ordinal);
-        Assert.Contains("fn finalize_active_dispatch(", source, StringComparison.Ordinal);
-        Assert.Contains("active_cell_indices[uniforms.cellCount] = active_count", source, StringComparison.Ordinal);
-        Assert.Contains("active_cell_indices[active_idx]", source, StringComparison.Ordinal);
-        Assert.Contains("fn classify_cell_shapes(", source, StringComparison.Ordinal);
-        Assert.Contains("@binding(21) var<storage, read> shape_transforms", source, StringComparison.Ordinal);
-        Assert.Contains("fn instance_transform(", source, StringComparison.Ordinal);
-        Assert.Contains("fn active_grid_cell(", source, StringComparison.Ordinal);
-        Assert.Contains("uniforms.binningMode == 1u", source, StringComparison.Ordinal);
-        Assert.Contains("fn count_instance_pairs(", source, StringComparison.Ordinal);
-        Assert.Contains("fn emit_overlap_pairs(", source, StringComparison.Ordinal);
-        Assert.Contains("fn radix_histogram(", source, StringComparison.Ordinal);
-        Assert.Contains("fn radix_scatter(", source, StringComparison.Ordinal);
-        Assert.Contains("digit * radix_params.block_count + workgroup_id.x", source, StringComparison.Ordinal);
-        Assert.Contains("radix_histogram_offsets[histogram_idx] + local_rank", source, StringComparison.Ordinal);
-        Assert.Contains("fn build_grid_cells_from_pairs(", source, StringComparison.Ordinal);
-        Assert.Contains("minimum_device_scale(transform)", source, StringComparison.Ordinal);
-        Assert.Contains("cell_shape_classes[pair_idx]", source, StringComparison.Ordinal);
-        Assert.Contains("const EDGE_COMMAND_LINE_CAPACITY = 256u", source, StringComparison.Ordinal);
-        Assert.Contains("fn build_edge_command(", source, StringComparison.Ordinal);
-        Assert.Contains("fn evaluate_edge_command(", source, StringComparison.Ordinal);
-        Assert.Contains("edge_command_row_backdrops[row]", source, StringComparison.Ordinal);
-        Assert.Contains("if (edge_command_overflow == 0u)", source, StringComparison.Ordinal);
-        Assert.Contains("evaluation = evaluate_shape(local_pos, instance.bvh_root_idx)", source, StringComparison.Ordinal);
-        Assert.Contains("let pixel_visible =", source, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "if (pixel_coord.x >= uniforms.screenWidth || pixel_coord.y >= uniforms.screenHeight)",
-            source,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "let cell_idx = (pixel_coord.y / 16u)",
-            source,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void TextureShaderSupportsBatchedFixedColorLatticeCells()
     {
         Assert.Contains("@location(3) patchKind: f32", Shaders.TextureShader, StringComparison.Ordinal);
@@ -273,22 +219,14 @@ public class ShaderResourceTests
 
     private static DirectoryInfo FindRepositoryRoot()
     {
-        var starts = new[]
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+             directory != null;
+             directory = directory.Parent)
         {
-            new DirectoryInfo(AppContext.BaseDirectory),
-            new DirectoryInfo(Environment.CurrentDirectory)
-        };
-        for (int startIndex = 0; startIndex < starts.Length; startIndex++)
-        {
-            for (DirectoryInfo? directory = starts[startIndex];
-                 directory != null;
-                 directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
+                Directory.Exists(Path.Combine(directory.FullName, "src", "ProGPU.Backend")))
             {
-                if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
-                    Directory.Exists(Path.Combine(directory.FullName, "src", "ProGPU.Backend")))
-                {
-                    return directory;
-                }
+                return directory;
             }
         }
 

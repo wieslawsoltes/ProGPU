@@ -35,8 +35,7 @@ public unsafe sealed class BrowserGpuContext : IDisposable
             BrowserWebGpuApi.QueueHandle,
             BrowserWebGpuApi.SurfaceHandle,
             ParseTextureFormat(capabilities.CanvasFormat),
-            supportsReadOnlyAndReadWriteStorageTextures: capabilities.ActiveProfile == BrowserGpuProfile.Full,
-            supportsTimestampQueries: capabilities.SupportsTimestampQuery);
+            supportsReadOnlyAndReadWriteStorageTextures: capabilities.ActiveProfile == BrowserGpuProfile.Full);
         return new BrowserGpuContext(api, context);
     }
 

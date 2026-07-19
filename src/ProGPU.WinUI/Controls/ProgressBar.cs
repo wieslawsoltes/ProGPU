@@ -13,8 +13,6 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class ProgressBar : Control
 {
-    private readonly ThemeResourceBrush _defaultTrackBrush = new("ProgressBarBackground");
-    private readonly ThemeResourceBrush _defaultForegroundBrush = new("ProgressBarForeground");
     private float _minimum = 0f;
     private float _maximum = 100f;
     private float _value = 0f;
@@ -59,7 +57,6 @@ public class ProgressBar : Control
                 {
                     _indeterminateOffset = 0f;
                 }
-                SetCustomFrameAnimationActive(value);
                 Invalidate();
             }
         }
@@ -86,7 +83,7 @@ public class ProgressBar : Control
     {
         // 1. Draw flat track background
         var rect = new Rect(Vector2.Zero, Size);
-        context.FillRoundedRectangle(Background ?? _defaultTrackBrush, rect, rect.Height / 2f);
+        context.FillRoundedRectangle(Background ?? ThemeManager.GetBrush("ProgressBarBackground"), rect, rect.Height / 2f);
 
         // 2. Draw progress segment
         if (IsIndeterminate)
@@ -101,8 +98,18 @@ public class ProgressBar : Control
 
             if (renderW > 0f)
             {
-                context.FillRoundedRectangle(BorderBrush ?? _defaultForegroundBrush, new Rect(renderX, rect.Y, renderW, rect.Height), rect.Height / 2f);
+                context.FillRoundedRectangle(BorderBrush ?? ThemeManager.GetBrush("ProgressBarForeground"), new Rect(renderX, rect.Y, renderW, rect.Height), rect.Height / 2f);
             }
+
+            // Animate offset smoothly at 60 FPS
+            _indeterminateOffset += 3f; // Sliding speed
+            if (_indeterminateOffset > Size.X + segmentWidth)
+            {
+                _indeterminateOffset = 0f;
+            }
+
+            // Self-invalidate to trigger recursive smooth frame renders
+            Invalidate();
         }
         else
         {
@@ -113,31 +120,10 @@ public class ProgressBar : Control
 
             if (fillWidth > 0f)
             {
-                context.FillRoundedRectangle(BorderBrush ?? _defaultForegroundBrush, new Rect(rect.X, rect.Y, fillWidth, rect.Height), rect.Height / 2f);
+                context.FillRoundedRectangle(BorderBrush ?? ThemeManager.GetBrush("ProgressBarForeground"), new Rect(rect.X, rect.Y, fillWidth, rect.Height), rect.Height / 2f);
             }
         }
 
         base.OnRender(context);
-    }
-
-    protected override void OnUpdateAnimation(float elapsedSeconds)
-    {
-        if (!_isIndeterminate || !float.IsFinite(elapsedSeconds) || elapsedSeconds <= 0f)
-        {
-            return;
-        }
-
-        float width = Size.X > 0f && float.IsFinite(Size.X) ? Size.X : Width;
-        if (!(width > 0f) || !float.IsFinite(width))
-        {
-            return;
-        }
-
-        // Preserve the former three logical pixels per 60-Hz frame while making motion
-        // elapsed-time based and advancing it before retained-scene compilation.
-        float segmentWidth = width * 0.3f;
-        float cycle = width + segmentWidth;
-        _indeterminateOffset = (_indeterminateOffset + MathF.Min(elapsedSeconds, 0.1f) * 180f) % cycle;
-        Invalidate();
     }
 }

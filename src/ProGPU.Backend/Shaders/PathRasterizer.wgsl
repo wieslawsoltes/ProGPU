@@ -1,6 +1,6 @@
-// Algorithm: Map a flat persistent workgroup queue to arbitrary path-atlas tiles, then rasterize coverage by analytic supersampled non-zero or even-odd winding tests.
-// Time complexity: O(W*A*S) for W scheduled texels, A anti-aliasing samples, and S path segments; queue lookup is O(1) per 16x16 workgroup.
-// Space complexity: O(T) read-only work records for T occupied 16x16 tiles, O(1) local storage, O(S) segment bandwidth, and one atlas write per scheduled texel.
+// Algorithm: Rasterize arbitrary path coverage by supersampling each atlas texel and applying analytic non-zero or even-odd winding tests.
+// Time complexity: O(A*S) per texel for A anti-aliasing samples and S path segments.
+// Space complexity: O(1) local storage plus O(S) read-only segment bandwidth.
 struct PathUniforms {
     xStart: f32,
     yStart: f32,
@@ -38,26 +38,10 @@ struct Segment {
     _pad2: u32,
 };
 
-struct PathWorkgroup {
-    jobIndex: u32,
-    tileX: u32,
-    tileY: u32,
-    _pad0: u32,
-};
-
-struct DispatchParams {
-    workgroupCount: u32,
-    workgroupsPerRow: u32,
-    _pad0: u32,
-    _pad1: u32,
-};
-
 @group(0) @binding(0) var<storage, read> pathUniforms: array<PathUniforms>;
 @group(0) @binding(1) var<storage, read> pathRecords: array<PathRecord>;
 @group(0) @binding(2) var<storage, read> segments: array<Segment>;
 @group(0) @binding(3) var atlasTexture: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(4) var<storage, read> pathWorkgroups: array<PathWorkgroup>;
-@group(0) @binding(5) var<uniform> dispatchParams: DispatchParams;
 
 
 fn solve_quadratic(a: f32, b: f32, c: f32, roots: ptr<function, array<f32, 2>>, root_count: ptr<function, u32>) {
@@ -358,17 +342,10 @@ fn count_row_coverage(
 }
 
 @compute @workgroup_size(16, 16)
-fn cs_main(
-    @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) workgroup_id: vec3<u32>) {
-    let workIndex = workgroup_id.x + workgroup_id.y * dispatchParams.workgroupsPerRow;
-    if (workIndex >= dispatchParams.workgroupCount) {
-        return;
-    }
-    let work = pathWorkgroups[workIndex];
-    let uniforms = pathUniforms[work.jobIndex];
-    let x = work.tileX * 16u + local_id.x;
-    let y = work.tileY * 16u + local_id.y;
+fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let x = global_id.x;
+    let y = global_id.y;
 
     if (x >= uniforms.width || y >= uniforms.height) {
         return;

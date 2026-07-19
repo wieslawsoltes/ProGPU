@@ -9,23 +9,6 @@ using Microsoft.UI.Xaml.Input;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-/// <summary>
-/// Optional high-throughput contract for leaf virtualization containers. The panel keeps each
-/// fragment handle attached to one stable modulo slot and changes only its recorded content when
-/// that slot is rebound. Implementations record in absolute content coordinates so one shared
-/// scroll transform moves the complete retained surface.
-/// </summary>
-public interface IRetainedVirtualizedItemFragment
-{
-    SceneFragmentHandle RetainedFragment { get; }
-
-    /// <summary>
-    /// Updates the immutable picture for the current item and absolute content bounds. Returns
-    /// true only when the fragment version changed.
-    /// </summary>
-    bool UpdateRetainedFragment(Rect bounds);
-}
-
 public class VirtualizingPanel : Panel, IScrollViewportAware
 {
     private float _scrollOffset = 0f;
@@ -66,16 +49,7 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                 {
                     _scrollOffset = clamped;
                     OnScrollOffsetChanged(clamped);
-                    _scrollbar.UpdateScrollTransform();
-                    _scrollbar.InvalidateRetainedTransform();
-                    if (UsesRetainedChildTranslation)
-                    {
-                        InvalidateRetainedTransform();
-                    }
-                    else
-                    {
-                        Invalidate();
-                    }
+                    Invalidate();
                 }
             }
         }
@@ -84,7 +58,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
     public virtual float TotalVirtualHeight => 0f;
     public virtual float TotalVirtualWidth => 0f;
     public virtual bool IsHorizontal => false;
-    protected virtual bool UsesRetainedChildTranslation => false;
 
     public ScrollViewer? ScrollViewerOwner
     {
@@ -133,7 +106,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
     public VirtualizingPanel()
     {
         _scrollbar = new ScrollBarOverlay(this);
-        _scrollbar.ExcludeFromParentRetainedTransform = true;
     }
 
     protected virtual void OnScrollOffsetChanged(float newOffset)
@@ -205,12 +177,8 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
-        // A standalone panel owns its viewport clip. When hosted by ScrollViewer, the owner
-        // already clips the viewport; retaining a second equivalent clip here prevents the
-        // owner from representing scrolling with one transform-table update.
-        ClipBounds = ScrollViewerOwner == null
-            ? new Rect(0f, 0f, arrangeRect.Width, arrangeRect.Height)
-            : null;
+        // Enforce boundary clipping to prevent scrolled-out items from leaking
+        ClipBounds = new Rect(0f, 0f, arrangeRect.Width, arrangeRect.Height);
         base.ArrangeOverride(arrangeRect);
 
         // Notify of scroll offset change to update viewport during layout arrange pass
@@ -268,34 +236,10 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
         private bool _isHovered = false;
         private float _dragStartOffset = 0f;
         private float _dragStartMouse = 0f;
-        private readonly SceneTransformHandle _thumbTranslation = new();
-        private readonly GpuPictureRecorder _recorder = new();
-        private GpuPicture? _thumbPicture;
-        private bool _chromeDirty = true;
-        private ElementTheme _pictureTheme;
-        private VisualThemeFamily _pictureThemeFamily;
-        private bool _pictureHovered;
 
         public ScrollBarOverlay(VirtualizingPanel panel)
         {
             _panel = panel;
-        }
-
-        public void UpdateScrollTransform()
-        {
-            float contentSize = _panel.IsHorizontal ? _panel.TotalVirtualWidth : _panel.TotalVirtualHeight;
-            float viewportSize = _panel.IsHorizontal ? Size.X : Size.Y;
-            if (contentSize <= viewportSize || viewportSize <= 0f)
-            {
-                _thumbTranslation.Translation = Vector2.Zero;
-                return;
-            }
-            float thumbSize = Math.Max(24f, (viewportSize / contentSize) * viewportSize);
-            float thumbPosition = (_panel.ScrollOffset / (contentSize - viewportSize)) *
-                (viewportSize - thumbSize);
-            _thumbTranslation.Translation = _panel.IsHorizontal
-                ? new Vector2(thumbPosition, 0f)
-                : new Vector2(0f, thumbPosition);
         }
 
         public override void OnPointerPressed(PointerRoutedEventArgs e)
@@ -324,7 +268,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                                 _dragStartMouse = localPos.X;
                                 InputSystem.CapturePointer(this);
                                 e.Handled = true;
-                                _chromeDirty = true;
                                 Invalidate();
                                 return;
                             }
@@ -342,7 +285,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                                 _dragStartMouse = localPos.Y;
                                 InputSystem.CapturePointer(this);
                                 e.Handled = true;
-                                _chromeDirty = true;
                                 Invalidate();
                                 return;
                             }
@@ -359,7 +301,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
             {
                 _isDragging = false;
                 InputSystem.ReleasePointerCapture();
-                _chromeDirty = true;
                 Invalidate();
             }
             base.OnPointerReleased(e);
@@ -370,7 +311,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
             if (IsEnabled)
             {
                 _isHovered = true;
-                _chromeDirty = true;
                 Invalidate();
             }
             base.OnPointerEntered(e);
@@ -379,7 +319,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
         public override void OnPointerExited(PointerRoutedEventArgs e)
         {
             _isHovered = false;
-            _chromeDirty = true;
             Invalidate();
             base.OnPointerExited(e);
         }
@@ -395,7 +334,6 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                 if (_isHovered != over)
                 {
                     _isHovered = over;
-                    _chromeDirty = true;
                     Invalidate();
                 }
             }
@@ -432,17 +370,19 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                 float padding = (_isHovered || _isDragging) ? 2f : 4f;
 
                 float thumbSize = Math.Max(24f, (viewportSize / contentSize) * viewportSize);
-                Rect trackRect;
-                Rect thumbRectAtOrigin;
+                float scrollableSize = contentSize - viewportSize;
+                float thumbPos = (_panel.ScrollOffset / scrollableSize) * (viewportSize - thumbSize);
+
+                Rect trackRect, thumbRect;
                 if (_panel.IsHorizontal)
                 {
                     trackRect = new Rect(0f, Size.Y - scrollbarThickness - padding, viewportSize, scrollbarThickness);
-                    thumbRectAtOrigin = new Rect(0f, Size.Y - scrollbarThickness - padding, thumbSize, scrollbarThickness);
+                    thumbRect = new Rect(thumbPos, Size.Y - scrollbarThickness - padding, thumbSize, scrollbarThickness);
                 }
                 else
                 {
                     trackRect = new Rect(Size.X - scrollbarThickness - padding, 0f, scrollbarThickness, viewportSize);
-                    thumbRectAtOrigin = new Rect(Size.X - scrollbarThickness - padding, 0f, scrollbarThickness, thumbSize);
+                    thumbRect = new Rect(Size.X - scrollbarThickness - padding, thumbPos, scrollbarThickness, thumbSize);
                 }
 
                 // Draw track (subtle translucent backdrop line)
@@ -451,30 +391,11 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                     : ThemeManager.GetBrush("ControlBackground");
                 context.DrawRectangle(trackBg, null, trackRect);
 
-                bool hovered = _isHovered || _isDragging;
-                if (_thumbPicture == null || _chromeDirty ||
-                    _pictureTheme != ActualTheme ||
-                    _pictureThemeFamily != ActualThemeFamily ||
-                    _pictureHovered != hovered)
-                {
-                    _thumbPicture?.Dispose();
-                    var recorder = _recorder.BeginRecording(thumbRectAtOrigin);
-                    Brush thumbBg = hovered
-                        ? ThemeManager.GetBrush("ScrollbarThumbHover")
-                        : ThemeManager.GetBrush("ScrollbarThumb");
-                    recorder.DrawRoundedRectangle(
-                        thumbBg,
-                        null,
-                        thumbRectAtOrigin,
-                        scrollbarThickness / 2f);
-                    _thumbPicture = _recorder.EndRecording();
-                    _pictureTheme = ActualTheme;
-                    _pictureThemeFamily = ActualThemeFamily;
-                    _pictureHovered = hovered;
-                    _chromeDirty = false;
-                }
-                UpdateScrollTransform();
-                context.DrawPicture(_thumbPicture, _thumbTranslation);
+                // Draw thumb (glassmorphic capsule)
+                Brush thumbBg = (_isHovered || _isDragging)
+                    ? ThemeManager.GetBrush("ScrollbarThumbHover")
+                    : ThemeManager.GetBrush("ScrollbarThumb");
+                context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarThickness / 2f);
             }
         }
     }

@@ -105,20 +105,6 @@ public class DataGridValueProviderTests
         Assert.DoesNotContain("System.Reflection", source);
     }
 
-    [Fact]
-    public void DataGridScrollingUsesRecycledRetainedRowFragments()
-    {
-        string source = File.ReadAllText(FindRepoFile("src/ProGPU.WinUI/Controls/DataGrid.cs"));
-
-        Assert.Contains("SceneFragmentHandle?[] _rowFragmentHandles", source);
-        Assert.Contains("SceneTransformHandle _rowScrollTransform", source);
-        Assert.Contains("row % _rowFragmentHandles.Length", source);
-        Assert.Contains("context.DrawSceneFragment(", source);
-        Assert.Contains("_rowScrollTransform.Translation", source);
-        Assert.DoesNotContain("_itemsSource.ToArray", source);
-        Assert.DoesNotContain("_itemsSource.ToList", source);
-    }
-
     private sealed class ProviderRow : IDataGridValueProvider
     {
         public ProviderRow(string value)

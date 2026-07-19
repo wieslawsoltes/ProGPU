@@ -130,28 +130,6 @@ public class DesignerCanvasTests
     }
 
     [Fact]
-    public void Test_SelectionAdorner_Stable_Bounds_Do_Not_Invalidate_Designer_Tree()
-    {
-        var canvas = new DesignerCanvas { Width = 800f, Height = 600f };
-        var button = new Button { Width = 120f, Height = 40f };
-        Canvas.SetLeft(button, 150f);
-        Canvas.SetTop(button, 120f);
-        canvas.DesignSurface.Children.Add(button);
-        canvas.SelectElement(button);
-
-        canvas.Measure(new Vector2(800f, 600f));
-        canvas.Arrange(new ProGPU.Scene.Rect(0f, 0f, 800f, 600f));
-        var adorner = Assert.IsType<SelectionAdorner>(canvas.AdornerSurface.Children[0]);
-        long canvasVersion = canvas.ChangeVersion;
-        long adornerVersion = adorner.ChangeVersion;
-
-        adorner.UpdatePositionAndSize();
-
-        Assert.Equal(canvasVersion, canvas.ChangeVersion);
-        Assert.Equal(adornerVersion, adorner.ChangeVersion);
-    }
-
-    [Fact]
     public void Test_DesignerHost_Measure_Arrange_Hang()
     {
         var designerHost = new DesignerHost

@@ -52,7 +52,7 @@ public struct GlyphUniforms
     public uint Height;
     
     public float SubpixelX;
-    public uint AtlasPage;
+    public float Pad0;
     public float Pad1;
     public float Pad2;
 }

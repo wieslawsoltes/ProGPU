@@ -1,4 +1,4 @@
-// Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids, then shade fills, strokes, gradients, vertex-color blends, and anti-aliased edges.
+// Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves and arcs, then shade fills, strokes, gradients, vertex-color blends, and anti-aliased edges.
 // Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits.
 // Space complexity: O(1) local storage and a bounded number of uniform/storage reads.
 struct Brush {
@@ -1185,45 +1185,6 @@ fn vector_fs_main(input: VertexOutput) -> vec4<f32> {
     } else if (sType == 7u) {
         // Direct solid fill
         shapeAlpha = 1.0;
-    } else if (sType == 21u) {
-        // One quad represents an arbitrary periodic dot grid. shapeSize carries
-        // spacing/radius, cornerRadius/strokeThickness carry the screen-space
-        // phase, and texCoord is the control-local screen position. Each nearest
-        // dot center is snapped exactly like the former CPU loop: in physical
-        // coordinates to the 1/4-pixel lattice, then divided back by DPI. There
-        // are no grid-size-dependent loops or auxiliary reads; work/storage are
-        // fixed O(1) per covered fragment.
-        let spacing = max(input.shapeSize.x, 0.0001);
-        let radius = max(input.shapeSize.y, 0.0001);
-        let phase = vec2<f32>(input.cornerRadius, input.strokeThickness);
-        let cellIndex = round((input.texCoord - phase) / spacing);
-        let unsnappedCenter = cellIndex * spacing + phase;
-        // Fragment derivatives express how much each local coordinate changes
-        // across one physical pixel. One quarter of that value is therefore the
-        // local-space equivalent of the required quarter-physical-pixel lattice,
-        // including DPI and axis-preserving parent transforms.
-        let localUnitsPerPhysicalPixel = vec2<f32>(
-            length(vec2<f32>(atlasCoordDx.x, atlasCoordDy.x)),
-            length(vec2<f32>(atlasCoordDx.y, atlasCoordDy.y)));
-        let quarterPhysicalStep = max(
-            localUnitsPerPhysicalPixel * 0.25,
-            vec2<f32>(0.0001));
-        let snappedCenter = round(unsnappedCenter / quarterPhysicalStep) *
-            quarterPhysicalStep;
-        let dotDelta = input.texCoord - snappedCenter;
-        let dotDeltaLength = length(dotDelta);
-        let dotDistance = dotDeltaLength - radius;
-        // WGSL derivatives must execute in uniform control flow. Reuse the
-        // coordinate derivatives evaluated at fragment entry and project them
-        // onto the circle SDF normal instead of calling fwidth in this
-        // primitive-type branch. This is the same first-order screen-space
-        // filter width without violating WebGPU derivative uniformity.
-        let dotNormal = dotDelta / max(dotDeltaLength, 0.0001);
-        let filterWidth = max(
-            abs(dot(dotNormal, atlasCoordDx)) +
-                abs(dot(dotNormal, atlasCoordDy)),
-            0.0001);
-        shapeAlpha = 1.0 - smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
     }
 
     if (shapeAlpha <= 0.0) {

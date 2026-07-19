@@ -19,50 +19,14 @@ namespace ProGPU.Samples;
 
 public static class FontGlyphBrowserPage
 {
-    private sealed class GlyphBrowserItem : Border, IRetainedVirtualizedItemFragment
+    private sealed class GlyphBrowserItem : Border
     {
-        private static readonly DependencyProperty SelectedBorderBrushProperty = DependencyProperty.Register(
-            "SelectedBorderBrush",
-            typeof(Brush),
-            typeof(GlyphBrowserItem),
-            new PropertyMetadata(null));
-        private static readonly DependencyProperty HoverBorderBrushProperty = DependencyProperty.Register(
-            "HoverBorderBrush",
-            typeof(Brush),
-            typeof(GlyphBrowserItem),
-            new PropertyMetadata(null));
-        private static readonly DependencyProperty HoverBackgroundBrushProperty = DependencyProperty.Register(
-            "HoverBackgroundBrush",
-            typeof(Brush),
-            typeof(GlyphBrowserItem),
-            new PropertyMetadata(null));
-        private static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
-            "TextBrush",
-            typeof(Brush),
-            typeof(GlyphBrowserItem),
-            new PropertyMetadata(null));
-        private static readonly DependencyProperty AccentBrushProperty = DependencyProperty.Register(
-            "AccentBrush",
-            typeof(Brush),
-            typeof(GlyphBrowserItem),
-            new PropertyMetadata(null));
-        private readonly GpuPictureRecorder _recorder = new();
-        private readonly ushort[] _iconGlyph = new ushort[1];
-        private readonly Vector2[] _iconPosition = new Vector2[1];
-        private ushort[] _indexGlyphs = [];
-        private Vector2[] _indexPositions = [];
-        private ushort[] _hexGlyphs = [];
-        private Vector2[] _hexPositions = [];
-        private TtfFont? _font;
-        private Rect _retainedBounds;
-        private bool _fragmentDirty = true;
-        private bool _hasGlyphCommand;
-        private int _boundGlyphIndex = -1;
+        private readonly FontIcon _icon;
+        private readonly RichTextBlock _label;
+        private readonly Run _indexRun;
+        private readonly Run _hexRun;
         private bool _isSelected;
         private bool _isHovered;
-        private Pen? _defaultBorderPen;
-        private Pen? _hoverBorderPen;
-        private Pen? _selectedBorderPen;
 
         public GlyphBrowserItem()
         {
@@ -70,18 +34,44 @@ public static class FontGlyphBrowserPage
             Padding = new Thickness(6);
             Background = new ThemeResourceBrush("PageBackground");
             BorderBrush = new ThemeResourceBrush("ControlBorder");
-            SetValue(SelectedBorderBrushProperty, new ThemeResourceBrush("SystemAccentColor"));
-            SetValue(HoverBorderBrushProperty, new ThemeResourceBrush("ControlBorderHover"));
-            SetValue(HoverBackgroundBrushProperty, new ThemeResourceBrush("ControlBackgroundHover"));
-            SetValue(TextBrushProperty, new ThemeResourceBrush("TextPrimary"));
-            SetValue(AccentBrushProperty, new ThemeResourceBrush("SystemAccentColor"));
             BorderThickness = new Thickness(1f);
             HorizontalAlignment = HorizontalAlignment.Center;
             VerticalAlignment = VerticalAlignment.Center;
             WidthConstraint = 84f;
             HeightConstraint = 92f;
-            RetainedFragment = new SceneFragmentHandle(CreateEmptyPicture());
-            RebuildThemePens();
+
+            var itemStack = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            Child = itemStack;
+
+            _icon = new FontIcon
+            {
+                Name = "GlyphItemIcon",
+                FontSize = 36f,
+                WidthConstraint = 40f,
+                HeightConstraint = 40f,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            itemStack.AddChild(_icon);
+
+            _label = new RichTextBlock
+            {
+                Name = "GlyphItemLabel",
+                FontSize = 9f,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            _indexRun = new Run();
+            _hexRun = new Run();
+            _label.Inlines.Add(_indexRun);
+            _label.Inlines.Add(new Bold(_hexRun)
+            {
+                Foreground = new ThemeResourceBrush("SystemAccentColor")
+            });
+            itemStack.AddChild(_label);
 
             PointerPressed += OnItemClick;
             PointerEntered += OnItemHover;
@@ -90,19 +80,21 @@ public static class FontGlyphBrowserPage
 
         public void Bind(TtfFont? font, int index, bool isSelected)
         {
-            if (!ReferenceEquals(_font, font))
+            Tag = index;
+
+            if (!ReferenceEquals(_icon.Font, font))
             {
-                _font = font;
-                _fragmentDirty = true;
+                _icon.Font = font;
             }
 
-            if (_boundGlyphIndex != index)
+            var glyphIndex = (ushort)index;
+            if (_icon.GlyphIndex != glyphIndex)
             {
-                _boundGlyphIndex = index;
-                Tag = index;
-                _fragmentDirty = true;
+                _icon.GlyphIndex = glyphIndex;
             }
 
+            _indexRun.Text = $"Idx: {index}\n";
+            _hexRun.Text = $"0x{index:X3}";
             SetSelected(isSelected);
         }
 
@@ -115,17 +107,17 @@ public static class FontGlyphBrowserPage
 
             _isHovered = isHovered;
             UpdateChrome();
-            if (UpdateRetainedFragment(_retainedBounds))
-            {
-                InvalidateRetainedTransform();
-            }
         }
 
         public int BoundGlyphIndex => Tag is int index ? index : -1;
 
         public bool EmitsGlyphCommand()
         {
-            return _hasGlyphCommand;
+            var context = new DrawingContext();
+            _icon.OnRender(context);
+            return context.Commands.Exists(static command =>
+                command.Type == RenderCommandType.DrawGlyphRun &&
+                command.GlyphIndices is { Length: > 0 });
         }
 
         private void SetSelected(bool isSelected)
@@ -141,238 +133,24 @@ public static class FontGlyphBrowserPage
 
         private void UpdateChrome()
         {
-            _fragmentDirty = true;
-        }
-
-        public SceneFragmentHandle RetainedFragment { get; }
-
-        public bool UpdateRetainedFragment(Rect bounds)
-        {
-            if (!_fragmentDirty && _retainedBounds == bounds)
+            if (_isSelected)
             {
-                return false;
+                BorderBrush = new ThemeResourceBrush("SystemAccentColor");
+                BorderThickness = new Thickness(1.5f);
+                Background = new ThemeResourceBrush("ControlBackgroundHover");
             }
-
-            _retainedBounds = bounds;
-            _fragmentDirty = false;
-            var font = _font;
-            var labelFont = PopupService.DefaultFont ?? font;
-            var context = _recorder.BeginRecording(bounds);
-            var card = new Rect(bounds.X + 4f, bounds.Y + 4f, 84f, 92f);
-            Brush textBrush = GetValue(TextBrushProperty) as Brush
-                ?? Background
-                ?? throw new InvalidOperationException("The glyph item text brush resource is unavailable.");
-            Brush accentBrush = GetValue(AccentBrushProperty) as Brush ?? textBrush;
-            Brush background = _isSelected || _isHovered
-                ? GetValue(HoverBackgroundBrushProperty) as Brush ?? Background ?? textBrush
-                : Background ?? textBrush;
-            Pen borderPen = _isSelected
-                ? _selectedBorderPen!
-                : _isHovered ? _hoverBorderPen! : _defaultBorderPen!;
-            context.DrawRoundedRectangle(
-                background,
-                borderPen,
-                card,
-                6f);
-
-            _hasGlyphCommand = false;
-            if (font != null && _boundGlyphIndex >= 0)
+            else if (_isHovered)
             {
-                ushort glyph = (ushort)_boundGlyphIndex;
-                _iconGlyph[0] = glyph;
-                float iconSize = 36f;
-                float iconWidth = 40f;
-                float iconX = card.X + (card.Width - iconWidth) * 0.5f;
-                float unitsPerEm = font.UnitsPerEm > 0 ? font.UnitsPerEm : 2048f;
-                float advance = font.GetAdvanceWidth(glyph, iconSize);
-                float baseline = card.Y + 6f + font.Ascender * (iconSize / unitsPerEm);
-                context.DrawGlyphRun(
-                    _iconGlyph,
-                    _iconPosition,
-                    font,
-                    iconSize,
-                    textBrush,
-                    new Vector2(iconX + (iconWidth - advance) * 0.5f, baseline),
-                    preferGlyphAtlas: true,
-                    useLogicalGlyphAtlasResolution: false);
-                _hasGlyphCommand = true;
+                BorderBrush = new ThemeResourceBrush("ControlBorderHover");
+                BorderThickness = new Thickness(1f);
+                Background = new ThemeResourceBrush("ControlBackgroundHover");
             }
-
-            if (labelFont != null && _boundGlyphIndex >= 0)
+            else
             {
-                const float labelSize = 9f;
-                float firstWidth = BuildIndexGlyphRun(labelFont, labelSize, _boundGlyphIndex);
-                float secondWidth = BuildHexGlyphRun(labelFont, labelSize, _boundGlyphIndex);
-                float labelUnits = labelFont.UnitsPerEm > 0 ? labelFont.UnitsPerEm : 2048f;
-                float labelAscent = labelFont.Ascender * (labelSize / labelUnits);
-                context.DrawGlyphRun(
-                    _indexGlyphs,
-                    _indexPositions,
-                    labelFont,
-                    labelSize,
-                    textBrush,
-                    new Vector2(card.X + (card.Width - firstWidth) * 0.5f, card.Y + 57f + labelAscent),
-                    preferGlyphAtlas: true);
-                context.DrawGlyphRun(
-                    _hexGlyphs,
-                    _hexPositions,
-                    labelFont,
-                    labelSize,
-                    accentBrush,
-                    new Vector2(card.X + (card.Width - secondWidth) * 0.5f, card.Y + 70f + labelAscent),
-                    isBold: true,
-                    preferGlyphAtlas: true);
+                BorderBrush = new ThemeResourceBrush("ControlBorder");
+                BorderThickness = new Thickness(1f);
+                Background = new ThemeResourceBrush("PageBackground");
             }
-
-            RetainedFragment.ReplacePicture(_recorder.EndRecording());
-            return true;
-        }
-
-        public override void OnRender(DrawingContext context)
-        {
-            // The owning virtualizing panel records RetainedFragment in stable slot order.
-        }
-
-        protected override void OnThemeChanged()
-        {
-            _fragmentDirty = true;
-            RebuildThemePens();
-            if (_retainedBounds.Width > 0f && _retainedBounds.Height > 0f)
-            {
-                UpdateRetainedFragment(_retainedBounds);
-            }
-            base.OnThemeChanged();
-        }
-
-        private void RebuildThemePens()
-        {
-            Brush fallback = GetValue(TextBrushProperty) as Brush
-                ?? Background
-                ?? throw new InvalidOperationException("The glyph item theme resources are unavailable.");
-            _defaultBorderPen = new Pen(BorderBrush ?? fallback, 1f);
-            _hoverBorderPen = new Pen(GetValue(HoverBorderBrushProperty) as Brush ?? fallback, 1f);
-            _selectedBorderPen = new Pen(GetValue(SelectedBorderBrushProperty) as Brush ?? fallback, 1.5f);
-        }
-
-        private float BuildIndexGlyphRun(TtfFont font, float size, int value)
-        {
-            int digits = CountDecimalDigits(value);
-            int length = 5 + digits;
-            EnsureGlyphRunCapacity(ref _indexGlyphs, ref _indexPositions, length);
-            int cursor = 0;
-            cursor = AppendGlyph(font, size, _indexGlyphs, _indexPositions, cursor, 'I');
-            cursor = AppendGlyph(font, size, _indexGlyphs, _indexPositions, cursor, 'd');
-            cursor = AppendGlyph(font, size, _indexGlyphs, _indexPositions, cursor, 'x');
-            cursor = AppendGlyph(font, size, _indexGlyphs, _indexPositions, cursor, ':');
-            cursor = AppendGlyph(font, size, _indexGlyphs, _indexPositions, cursor, ' ');
-            int divisor = Pow10(digits - 1);
-            while (divisor > 0)
-            {
-                cursor = AppendGlyph(
-                    font,
-                    size,
-                    _indexGlyphs,
-                    _indexPositions,
-                    cursor,
-                    (char)('0' + value / divisor % 10));
-                divisor /= 10;
-            }
-            return GetGlyphRunWidth(font, size, _indexGlyphs, _indexPositions);
-        }
-
-        private float BuildHexGlyphRun(TtfFont font, float size, int value)
-        {
-            int digits = Math.Max(3, CountHexDigits(value));
-            int length = 2 + digits;
-            EnsureGlyphRunCapacity(ref _hexGlyphs, ref _hexPositions, length);
-            int cursor = 0;
-            cursor = AppendGlyph(font, size, _hexGlyphs, _hexPositions, cursor, '0');
-            cursor = AppendGlyph(font, size, _hexGlyphs, _hexPositions, cursor, 'x');
-            for (int shift = (digits - 1) * 4; shift >= 0; shift -= 4)
-            {
-                int digit = value >> shift & 0xF;
-                cursor = AppendGlyph(
-                    font,
-                    size,
-                    _hexGlyphs,
-                    _hexPositions,
-                    cursor,
-                    (char)(digit < 10 ? '0' + digit : 'A' + digit - 10));
-            }
-            return GetGlyphRunWidth(font, size, _hexGlyphs, _hexPositions);
-        }
-
-        private static int AppendGlyph(
-            TtfFont font,
-            float size,
-            ushort[] glyphs,
-            Vector2[] positions,
-            int cursor,
-            char character)
-        {
-            ushort glyph = font.GetGlyphIndex(character);
-            glyphs[cursor] = glyph;
-            positions[cursor] = cursor == 0
-                ? Vector2.Zero
-                : new Vector2(
-                    positions[cursor - 1].X + font.GetAdvanceWidth(glyphs[cursor - 1], size),
-                    0f);
-            return cursor + 1;
-        }
-
-        private static float GetGlyphRunWidth(
-            TtfFont font,
-            float size,
-            ushort[] glyphs,
-            Vector2[] positions) => glyphs.Length == 0
-                ? 0f
-                : positions[^1].X + font.GetAdvanceWidth(glyphs[^1], size);
-
-        private static void EnsureGlyphRunCapacity(
-            ref ushort[] glyphs,
-            ref Vector2[] positions,
-            int length)
-        {
-            if (glyphs.Length == length)
-            {
-                return;
-            }
-            glyphs = new ushort[length];
-            positions = new Vector2[length];
-        }
-
-        private static int CountDecimalDigits(int value) => value switch
-        {
-            >= 10000 => 5,
-            >= 1000 => 4,
-            >= 100 => 3,
-            >= 10 => 2,
-            _ => 1
-        };
-
-        private static int CountHexDigits(int value) => value switch
-        {
-            >= 0x10000 => 5,
-            >= 0x1000 => 4,
-            >= 0x100 => 3,
-            >= 0x10 => 2,
-            _ => 1
-        };
-
-        private static int Pow10(int exponent) => exponent switch
-        {
-            4 => 10000,
-            3 => 1000,
-            2 => 100,
-            1 => 10,
-            _ => 1
-        };
-
-        private static GpuPicture CreateEmptyPicture()
-        {
-            var recorder = new GpuPictureRecorder();
-            recorder.BeginRecording(new Rect(0f, 0f, 1f, 1f));
-            return recorder.EndRecording();
         }
     }
 
@@ -1072,32 +850,31 @@ public static class FontGlyphBrowserPage
 /// </summary>
 public class TypographicPreviewBox : Border
 {
-    private readonly ThemeResourceBrush _pageBackgroundBrush = new("PageBackground");
-    private readonly Pen _gridPen = new(new ThemeResourceBrush("ControlBorder"), 0.5f);
-    private readonly Pen _axisPen = new(new ThemeResourceBrush("SystemAccentColor"), 1f);
-
     public override void OnRender(DrawingContext context)
     {
         // 1. Draw page background
-        var bg = Background ?? _pageBackgroundBrush;
+        var bg = Background ?? ThemeManager.GetBrush("PageBackground");
         context.DrawRectangle(bg, null, new Rect(Vector2.Zero, Size));
 
         // 2. Draw blueprint grid lines (thin, translucent lines)
+        var gridPen = new Pen(ThemeManager.GetBrush("ControlBorder") ?? new SolidColorBrush(new Vector4(0.2f, 0.2f, 0.2f, 0.3f)), 0.5f);
+        
         float step = 20f;
         for (float y = step; y < Size.Y; y += step)
         {
-            context.DrawLine(_gridPen, new Vector2(0, y), new Vector2(Size.X, y));
+            context.DrawLine(gridPen, new Vector2(0, y), new Vector2(Size.X, y));
         }
         for (float x = step; x < Size.X; x += step)
         {
-            context.DrawLine(_gridPen, new Vector2(x, 0), new Vector2(x, Size.Y));
+            context.DrawLine(gridPen, new Vector2(x, 0), new Vector2(x, Size.Y));
         }
 
         // Draw bold center baseline/midline axes (using theme accent color)
+        var axisPen = new Pen(ThemeManager.GetBrush("SystemAccentColor") ?? new SolidColorBrush(new Vector4(0f, 0.478f, 1f, 1f)), 1f);
         float centerX = Size.X / 2f;
         float centerY = Size.Y / 2f;
-        context.DrawLine(_axisPen, new Vector2(0, centerY), new Vector2(Size.X, centerY));
-        context.DrawLine(_axisPen, new Vector2(centerX, 0), new Vector2(centerX, Size.Y));
+        context.DrawLine(axisPen, new Vector2(0, centerY), new Vector2(Size.X, centerY));
+        context.DrawLine(axisPen, new Vector2(centerX, 0), new Vector2(centerX, Size.Y));
 
         // 3. Draw child visual elements (large FontIcon glyph)
         base.OnRender(context);

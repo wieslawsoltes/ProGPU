@@ -44,7 +44,6 @@ public sealed record BrowserGpuCapabilities
     public bool SupportsSharedArrayBuffer { get; init; }
     public bool SupportsOffscreenCanvas { get; init; }
     public bool SupportsBgra8UnormStorage { get; init; }
-    public bool SupportsTimestampQuery { get; init; }
     public string[] Features { get; init; } = [];
     public string[] Diagnostics { get; init; } = [];
 }

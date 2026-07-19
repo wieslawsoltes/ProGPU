@@ -18,8 +18,6 @@ namespace ProGPU.Samples;
 
 public class PictureShowcaseVisual : FrameworkElement, IAnimatedElement
 {
-    private readonly ThemeResourceBrush _backgroundBrush = new("ControlBackground");
-    private readonly Pen _borderPen = new(new ThemeResourceBrush("ControlBorder"), 1f);
     private float _time = 0f;
     private GpuPicture? _cachedPicture;
     
@@ -248,6 +246,7 @@ public class PictureShowcaseVisual : FrameworkElement, IAnimatedElement
         _statsBlock.Inlines.Add(new Bold(new Run(EnableCaching ? "Hardware GpuPicture Playback (Cached)\n" : "Manual Redraw Pipeline (Uncached)\n")));
         
         _statsBlock.Inlines.Add(new Run("Performance FPS: "));
+        var fpsBrush = _averageFps > 55 ? new ThemeResourceBrush("AccentBrush") : new ThemeResourceBrush("TextPrimary");
         var fpsRun = new Run($"{_averageFps:F1} FPS\n");
         _statsBlock.Inlines.Add(new Bold(fpsRun));
 
@@ -255,6 +254,7 @@ public class PictureShowcaseVisual : FrameworkElement, IAnimatedElement
         _statsBlock.Inlines.Add(new Bold(new Run($"{_smoothedFrameTimeMs:F3} ms\n")));
 
         _statsBlock.Inlines.Add(new Run("Heap Allocations: "));
+        var allocBrush = _averageAllocationsPerSecond == 0 ? new ThemeResourceBrush("AccentBrush") : new ThemeResourceBrush("TextPrimary");
         var allocText = _averageAllocationsPerSecond == 0 ? "0 Bytes (Zero-Alloc)\n" : $"{_averageAllocationsPerSecond / (1024f * 1024f):F2} MB/sec\n";
         var allocRun = new Run(allocText);
         _statsBlock.Inlines.Add(new Bold(allocRun));
@@ -266,11 +266,11 @@ public class PictureShowcaseVisual : FrameworkElement, IAnimatedElement
     public override void OnRender(DrawingContext context)
     {
         // Dark Tech Charcoal Canvas Background card
-        context.DrawRectangle(_backgroundBrush, _borderPen, new Rect(0, 0, Size.X, Size.Y));
+        context.DrawRectangle(new ThemeResourceBrush("ControlBackground"), new Pen(new ThemeResourceBrush("ControlBorder"), 1f), new Rect(0, 0, Size.X, Size.Y));
 
         if (_cachedPicture == null) return;
 
-        long renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         // Calculate dynamic orbital rotation transform matrix around center
         var center = Size * 0.5f;
@@ -303,7 +303,8 @@ public class PictureShowcaseVisual : FrameworkElement, IAnimatedElement
 
         context.PopClip();
 
-        _lastFrameTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds;
+        sw.Stop();
+        _lastFrameTimeMs = sw.Elapsed.TotalMilliseconds;
         
         // Rolling smooth average of frame times
         _smoothedFrameTimeMs = _smoothedFrameTimeMs * 0.95 + _lastFrameTimeMs * 0.05;

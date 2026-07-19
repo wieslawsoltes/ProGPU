@@ -172,12 +172,6 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
-    public void Test_InterShowcasePage_Renders()
-    {
-        RunPageTest(InterShowcasePage.Create(), "Inter Typeface");
-    }
-
-    [Fact]
     public void Test_FontGlyphBrowserPage_Hover_Diagnostics()
     {
         EnsureFontsAndStateLoaded();

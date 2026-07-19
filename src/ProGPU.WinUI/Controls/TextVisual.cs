@@ -6,8 +6,6 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading;
-using System.Threading.Tasks;
 using ProGPU.Backend;
 using ProGPU.Text;
 using ProGPU.Vector;
@@ -16,21 +14,14 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls;
 
-public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferredWarmable
+public class TextVisual : FrameworkElement, ITextLayoutProvider
 {
-    private const int MaximumPendingDeferredWarmups = 16;
-    private const int MaximumConcurrentDeferredWarmups = 2;
-    private static readonly SemaphoreSlim s_deferredWarmupConcurrency =
-        new(MaximumConcurrentDeferredWarmups, MaximumConcurrentDeferredWarmups);
-    private static int s_deferredWarmupsInFlight;
     private string _text = string.Empty;
     private float _fontSize = 14f;
     private TextAlignment _alignment = TextAlignment.Left;
     private TextLayout? _layout;
     private TextShapingOptions _textShapingOptions = TextShapingOptions.Default;
     private bool _deferLayoutUntilRender;
-    private int _layoutRevision;
-    private int _deferredWarmupState;
 
     public string Text
     {
@@ -40,7 +31,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             if (_text != value)
             {
                 _text = value;
-                InvalidateLayoutCache();
+                _layout = null;
                 Invalidate();
             }
         }
@@ -51,7 +42,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
         base.OnPropertyChanged(dp, oldValue, newValue);
         if (dp == FontProperty)
         {
-            InvalidateLayoutCache();
+            _layout = null;
             Invalidate();
         }
     }
@@ -64,7 +55,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             if (_fontSize != value)
             {
                 _fontSize = value;
-                InvalidateLayoutCache();
+                _layout = null;
                 Invalidate();
             }
         }
@@ -91,7 +82,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             if (_alignment != value)
             {
                 _alignment = value;
-                InvalidateLayoutCache();
+                _layout = null;
                 Invalidate();
             }
         }
@@ -106,7 +97,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             if (!_textShapingOptions.Equals(value))
             {
                 _textShapingOptions = value;
-                InvalidateLayoutCache();
+                _layout = null;
                 Invalidate();
             }
         }
@@ -124,7 +115,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             if (_deferLayoutUntilRender != value)
             {
                 _deferLayoutUntilRender = value;
-                InvalidateLayoutCache();
+                _layout = null;
                 InvalidateMeasure();
                 Invalidate();
             }
@@ -144,11 +135,6 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
             return new Rect(-padding, -padding, Size.X + padding * 2f, Size.Y + padding * 2f);
         }
     }
-
-    public override bool IsViewportDeferred => DeferLayoutUntilRender;
-
-    /// <summary>Reports whether CPU shaping has produced a reusable positioned layout.</summary>
-    public bool HasPreparedLayout => Volatile.Read(ref _layout) != null;
 
     public TextLayout? GetOrUpdateLayout(GlyphAtlas atlas)
     {
@@ -193,98 +179,6 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
         return true;
     }
 
-    /// <summary>
-    /// Queues bounded CPU-only shaping for the next viewport ring. The immutable layout is
-    /// published through the UI dispatcher; atlas generation and drawing remain on the render
-    /// thread. Returns false when already prepared, already queued, invalid, or globally throttled.
-    /// </summary>
-    public bool QueueViewportWarmup()
-    {
-        if (!DeferLayoutUntilRender || Volatile.Read(ref _layout) != null)
-        {
-            return false;
-        }
-
-        TtfFont? font = ResolveFont();
-        string text = Text;
-        float maxWidth = Size.X;
-        if (string.IsNullOrEmpty(text) || font == null ||
-            !float.IsFinite(maxWidth) || maxWidth <= 0f)
-        {
-            return false;
-        }
-        if (Interlocked.CompareExchange(ref _deferredWarmupState, 1, 0) != 0)
-        {
-            return false;
-        }
-        if (Interlocked.Increment(ref s_deferredWarmupsInFlight) > MaximumPendingDeferredWarmups)
-        {
-            Interlocked.Decrement(ref s_deferredWarmupsInFlight);
-            Volatile.Write(ref _deferredWarmupState, 0);
-            return false;
-        }
-
-        int revision = Volatile.Read(ref _layoutRevision);
-        float fontSize = FontSize;
-        TextAlignment alignment = Alignment;
-        TextShapingOptions shapingOptions = TextShapingOptions;
-        _ = Task.Run(async () =>
-        {
-            TextLayout? prepared = null;
-            await s_deferredWarmupConcurrency.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                prepared = new TextLayout(
-                    text,
-                    font,
-                    fontSize,
-                    maxWidth,
-                    alignment,
-                    atlas: null,
-                    shapingOptions: shapingOptions);
-            }
-            catch
-            {
-                // The foreground layout path remains authoritative and will surface the same
-                // failure with its normal diagnostics if preparation cannot be completed.
-            }
-            finally
-            {
-                s_deferredWarmupConcurrency.Release();
-                Interlocked.Decrement(ref s_deferredWarmupsInFlight);
-            }
-
-            void Publish()
-            {
-                if (prepared != null &&
-                    revision == Volatile.Read(ref _layoutRevision) &&
-                    Volatile.Read(ref _layout) == null)
-                {
-                    Volatile.Write(ref _layout, prepared);
-                }
-                Volatile.Write(ref _deferredWarmupState, 0);
-            }
-
-            var dispatcher = Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue;
-            if (dispatcher != null)
-            {
-                try
-                {
-                    dispatcher(Publish);
-                }
-                catch
-                {
-                    Volatile.Write(ref _deferredWarmupState, 0);
-                }
-            }
-            else
-            {
-                Publish();
-            }
-        });
-        return true;
-    }
-
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         var resolvedFont = ResolveFont();
@@ -313,14 +207,8 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider, IViewportDeferr
         float maxWidth = arrangeRect.Width;
         if (_layout != null && !HasCompatibleLayoutWidth(_layout, maxWidth))
         {
-            InvalidateLayoutCache();
+            _layout = null;
         }
-    }
-
-    private void InvalidateLayoutCache()
-    {
-        Interlocked.Increment(ref _layoutRevision);
-        Volatile.Write(ref _layout, null);
     }
 
     private bool HasCompatibleLayoutWidth(TextLayout layout, float requestedWidth)

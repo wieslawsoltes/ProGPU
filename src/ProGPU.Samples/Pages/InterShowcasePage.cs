@@ -5,6 +5,7 @@ using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.Vector;
+using System.Diagnostics;
 
 namespace ProGPU.Samples;
 
@@ -156,23 +157,61 @@ public static class InterShowcasePage
         document.AddChild(CreateLanguageSection());
         document.AddChild(CreateClosingStatement());
 
-        ConfigureDemandShapedSpecimens(page);
+        StageInvisibleSpecimenLayouts(page);
 
         return page;
     }
 
-    private static void ConfigureDemandShapedSpecimens(FrameworkElement page)
+    private static void StageInvisibleSpecimenLayouts(FrameworkElement page)
     {
         var specimens = new List<TextVisual>();
         CollectFixedHeightSpecimens(page, specimens);
         for (var index = 0; index < specimens.Count; index++)
         {
-            // The fixed height lets layout reserve the exact document space without
-            // shaping off-screen text. Visible text is shaped on demand and retained;
-            // bounded visible-range overscan can be added without bringing back a
-            // page-wide UI-thread warm loop.
             specimens[index].DeferLayoutUntilRender = true;
         }
+        if (specimens.Count == 0)
+        {
+            return;
+        }
+
+        var next = 0;
+        var retriesBeforeLayout = 0;
+        void WarmNextFrame()
+        {
+            if (page.Parent == null)
+            {
+                // Navigation may cache a detached page. Do not keep warming content that
+                // cannot become visible; a later activation still shapes on demand.
+                return;
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            do
+            {
+                if (!specimens[next].WarmDeferredLayout())
+                {
+                    if (++retriesBeforeLayout < 4)
+                    {
+                        UIThread.Post(WarmNextFrame);
+                    }
+                    return;
+                }
+
+                retriesBeforeLayout = 0;
+                next++;
+            }
+            while (next < specimens.Count && Stopwatch.GetElapsedTime(start).TotalMilliseconds < 4d);
+
+            if (next < specimens.Count)
+            {
+                UIThread.Post(WarmNextFrame);
+            }
+        }
+
+        // Let the lightweight visible page measure, arrange, and present before starting
+        // bounded CPU-only shaping work for content below the viewport.
+        UIThread.Post(() => UIThread.Post(WarmNextFrame));
     }
 
     private static void CollectFixedHeightSpecimens(Visual visual, List<TextVisual> specimens)

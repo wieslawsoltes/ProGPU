@@ -8,16 +8,6 @@ using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
-/// <summary>
-/// Optional hook for viewport-deferred visuals whose immutable CPU preparation can run ahead of
-/// the compiled viewport. Implementations must keep GPU resources and visual invalidation on their
-/// owning thread.
-/// </summary>
-public interface IViewportDeferredWarmable
-{
-    bool QueueViewportWarmup();
-}
-
 public class Visual
 {
     private Vector2 _offset;
@@ -27,7 +17,6 @@ public class Visual
     private Matrix4x4 _transform = Matrix4x4.Identity;
     private bool _isDirty = true;
     private long _changeVersion;
-    private long _localChangeVersion;
     private bool _cacheAsLayer;
     public virtual bool HasTemplate => false;
     private Vector3 _scale = Vector3.One;
@@ -35,16 +24,12 @@ public class Visual
     private Vector3 _centerPoint = Vector3.Zero;
     private Vector2 _renderTransformOrigin = new Vector2(0.5f, 0.5f);
     private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new(StringComparer.OrdinalIgnoreCase);
-    private int _animationSubtreeCount;
-    private bool _customFrameAnimationActive;
     private Rect? _clipBounds;
     private Rect? _outerClipBounds;
     private PathGeometry? _geometryClip;
     private Brush? _opacityMask;
     private Rect? _opacityMaskBounds;
     private int _hitTestId;
-    private SceneTransformHandle? _sceneTransform;
-    private bool _excludeFromParentRetainedTransform;
 
     private EffectBase? _effect;
     public EffectBase? Effect
@@ -71,9 +56,7 @@ public class Visual
             if (_parent != value)
             {
                 var oldParent = _parent;
-                oldParent?.AdjustAnimationSubtreeCount(-_animationSubtreeCount);
                 _parent = value;
-                _parent?.AdjustAnimationSubtreeCount(_animationSubtreeCount);
                 OnParentChanged(oldParent, _parent);
             }
         }
@@ -91,38 +74,6 @@ public class Visual
             if (_offset != value)
             {
                 _offset = value;
-                Invalidate();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Optional retained placement applied after this visual's ordinary ancestry. Updating the
-    /// handle patches GPU placement without changing this visual's geometry version. The
-    /// transformed subtree must use translation-only ancestry and compositor-compatible clips.
-    /// </summary>
-    public SceneTransformHandle? RetainedTransform
-    {
-        get => _sceneTransform;
-        set
-        {
-            if (!ReferenceEquals(_sceneTransform, value))
-            {
-                _sceneTransform = value;
-                Invalidate();
-            }
-        }
-    }
-
-    /// <summary>Leaves this visual in the parent's ordinary coordinate space.</summary>
-    public bool ExcludeFromParentRetainedTransform
-    {
-        get => _excludeFromParentRetainedTransform;
-        set
-        {
-            if (_excludeFromParentRetainedTransform != value)
-            {
-                _excludeFromParentRetainedTransform = value;
                 Invalidate();
             }
         }
@@ -197,7 +148,6 @@ public class Visual
     }
 
     public long ChangeVersion => _changeVersion;
-    public long LocalChangeVersion => _localChangeVersion;
 
     public bool CacheAsLayer
     {
@@ -354,45 +304,10 @@ public class Visual
             {
                 _changeVersion = 1;
             }
-            _localChangeVersion++;
-            if (_localChangeVersion < 0)
-            {
-                _localChangeVersion = 1;
-            }
         }
 
         _isDirty = true;
-        Parent?.InvalidateDescendant();
-    }
-
-    private void InvalidateDescendant()
-    {
-        unchecked
-        {
-            _changeVersion++;
-            if (_changeVersion < 0)
-            {
-                _changeVersion = 1;
-            }
-        }
-        _isDirty = true;
-        Parent?.InvalidateDescendant();
-    }
-
-    /// <summary>
-    /// Requests compositor replay after a retained transform changed without invalidating the
-    /// compiled scene's immutable geometry, text, paint, or draw-order version.
-    /// </summary>
-    public void InvalidateRetainedTransform()
-    {
-        _isDirty = true;
-        Parent?.InvalidateRetainedTransformDescendant();
-    }
-
-    private void InvalidateRetainedTransformDescendant()
-    {
-        _isDirty = true;
-        Parent?.InvalidateRetainedTransformDescendant();
+        Parent?.Invalidate();
     }
 
     public virtual void OnRender(DrawingContext context)
@@ -405,12 +320,6 @@ public class Visual
     /// A null value disables clip culling. Descendants are always traversed independently.
     /// </summary>
     public virtual Rect? LocalRenderBounds => null;
-
-    /// <summary>
-    /// Indicates that direct commands may be omitted outside the active viewport and rebuilt at
-    /// coarse retained-scroll boundaries. Layout and descendant traversal remain unaffected.
-    /// </summary>
-    public virtual bool IsViewportDeferred => false;
 
     public Matrix4x4 GetLocalTransform()
     {
@@ -436,56 +345,9 @@ public class Visual
 
     public Matrix4x4 GetGlobalTransformMatrix()
     {
-        var local = GetInputLocalTransform();
-        if (Parent == null) return local;
-        var parentTransform = Parent.GetGlobalTransformMatrix();
-        if (!ExcludeFromParentRetainedTransform && Parent.ChildrenRetainedTransform is { } retainedTransform)
-        {
-            parentTransform = retainedTransform.Matrix * parentTransform;
-        }
-        return local * parentTransform;
-    }
-
-    /// <summary>Returns the local transform used by CPU input and public transform queries.</summary>
-    public Matrix4x4 GetInputLocalTransform()
-    {
         var local = GetLocalTransform();
-        return RetainedTransform == null ? local : local * RetainedTransform.Matrix;
-    }
-
-    /// <summary>
-    /// Returns whether this subtree can currently be replayed through one retained translation.
-    /// Geometry clips, masks, cached/effect surfaces, and nested spatial handles require their
-    /// own transform-indexed clip or surface metadata and therefore stay on the ordinary path.
-    /// </summary>
-    public bool SupportsRetainedTransformSubtree(bool allowRootTransform = true)
-    {
-        if (Effect != null || CacheAsLayer || GeometryClip != null || OpacityMask != null ||
-            ClipBounds.HasValue || OuterClipBounds.HasValue ||
-            (!allowRootTransform && RetainedTransform != null))
-        {
-            return false;
-        }
-
-        if (this is not ContainerVisual container)
-        {
-            return true;
-        }
-
-        if (container.ChildrenRetainedTransform != null)
-        {
-            return false;
-        }
-
-        var children = container.Children;
-        for (int i = 0; i < children.Count; i++)
-        {
-            if (!children[i].SupportsRetainedTransformSubtree(allowRootTransform: false))
-            {
-                return false;
-            }
-        }
-        return true;
+        if (Parent == null) return local;
+        return local * Parent.GetGlobalTransformMatrix();
     }
 
     public GeneralTransform TransformToVisual(Visual? visual)
@@ -505,100 +367,30 @@ public class Visual
 
     public void StartAnimation(string propertyName, CompositionAnimation animation)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(propertyName);
-        ArgumentNullException.ThrowIfNull(animation);
-        bool wasActive = HasLocalFrameAnimation;
         _activeAnimations[propertyName] = animation;
-        if (!wasActive && HasLocalFrameAnimation)
-        {
-            AdjustAnimationSubtreeCount(1);
-        }
         Invalidate();
     }
 
     public void StopAnimation(string propertyName)
     {
-        bool wasActive = HasLocalFrameAnimation;
         if (_activeAnimations.Remove(propertyName))
         {
-            if (wasActive && !HasLocalFrameAnimation)
-            {
-                AdjustAnimationSubtreeCount(-1);
-            }
             Invalidate();
         }
     }
 
     public void UpdateAnimations(float elapsedSeconds)
     {
-        if (_animationSubtreeCount == 0)
-        {
-            return;
-        }
-
         TickAnimations(elapsedSeconds);
-        if (_customFrameAnimationActive)
-        {
-            OnUpdateAnimation(elapsedSeconds);
-        }
 
         if (this is ContainerVisual container)
         {
             var children = container.Children;
             for (int i = 0; i < children.Count; i++)
             {
-                if (children[i]._animationSubtreeCount != 0)
-                {
-                    children[i].UpdateAnimations(elapsedSeconds);
-                }
+                children[i].UpdateAnimations(elapsedSeconds);
             }
         }
-    }
-
-    /// <summary>
-    /// Enables a control-owned frame animation without forcing static visual trees to be traversed.
-    /// State must be advanced and invalidated here, before layout and compositor compilation.
-    /// </summary>
-    protected void SetCustomFrameAnimationActive(bool active)
-    {
-        if (_customFrameAnimationActive == active)
-        {
-            return;
-        }
-
-        bool wasActive = HasLocalFrameAnimation;
-        _customFrameAnimationActive = active;
-        if (wasActive != HasLocalFrameAnimation)
-        {
-            AdjustAnimationSubtreeCount(active ? 1 : -1);
-        }
-    }
-
-    protected virtual void OnUpdateAnimation(float elapsedSeconds)
-    {
-    }
-
-    /// <summary>
-    /// Gets the number of visuals with frame animation state in this subtree.
-    /// Exposed to derived controls for diagnostics without making the counter public API.
-    /// </summary>
-    protected int AnimationSubtreeCount => _animationSubtreeCount;
-
-    private bool HasLocalFrameAnimation => _customFrameAnimationActive || _activeAnimations.Count != 0;
-
-    private void AdjustAnimationSubtreeCount(int delta)
-    {
-        if (delta == 0)
-        {
-            return;
-        }
-
-        _animationSubtreeCount = checked(_animationSubtreeCount + delta);
-        if (_animationSubtreeCount < 0)
-        {
-            throw new InvalidOperationException("Visual animation subtree accounting became negative.");
-        }
-        Parent?.AdjustAnimationSubtreeCount(delta);
     }
 
     public void TickAnimations(float elapsedSeconds)
@@ -701,24 +493,6 @@ public class ContainerVisual : Visual
 {
     private readonly List<Visual> _children = new();
     private readonly object _childrenLock = new();
-    private SceneTransformHandle? _childrenRetainedTransform;
-
-    /// <summary>
-    /// Applies one retained translation to non-excluded children while this container's own
-    /// background, viewport clip, and overlay chrome remain fixed.
-    /// </summary>
-    public SceneTransformHandle? ChildrenRetainedTransform
-    {
-        get => _childrenRetainedTransform;
-        set
-        {
-            if (!ReferenceEquals(_childrenRetainedTransform, value))
-            {
-                _childrenRetainedTransform = value;
-                Invalidate();
-            }
-        }
-    }
 
     public IReadOnlyList<Visual> Children => _children;
 

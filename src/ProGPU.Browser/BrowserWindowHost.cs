@@ -61,7 +61,6 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         if (index < 0) return;
         var hosted = _windows[index];
         _windows.RemoveAt(index);
-        if (hosted.Window.InputState is { } inputState) BrowserInputDispatcher.Detach(inputState);
         hosted.Window.ShutdownExternalRenderer();
         hosted.Gpu.Dispose();
     }

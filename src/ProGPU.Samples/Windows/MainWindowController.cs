@@ -1,6 +1,5 @@
 using Thickness = Microsoft.UI.Xaml.Thickness;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
 using Silk.NET.Windowing;
@@ -29,8 +28,6 @@ namespace ProGPU.Samples;
 
 public static unsafe class MainWindowController
 {
-    private static readonly List<IAnimatedElement> ActiveSampleAnimations = new();
-
     public static void Start(Window window)
     {
         SamplePerformanceBenchmark.AttachWindow(window);
@@ -107,7 +104,6 @@ public static unsafe class MainWindowController
         if (AppState._wgpuContext == null || AppState._font == null) return;
 
         DetachSceneGraphHandlers();
-        ActiveSampleAnimations.Clear();
 
         // 1. Root Grid containing Header + Main Body + Bottom Diagnostics Bar
         AppState._rootGrid = new Microsoft.UI.Xaml.Controls.Grid
@@ -369,7 +365,6 @@ public static unsafe class MainWindowController
             {
                 LolsPage.ResetAndStop();
             }
-            RefreshSampleAnimations();
             AppState._rootGrid?.Invalidate();
         };
 
@@ -552,7 +547,7 @@ public static unsafe class MainWindowController
     {
         long updateStart = Stopwatch.GetTimestamp();
         UIThread.RunPending();
-        ActiveSampleAnimations.UpdateSampleAnimations((float)delta);
+        AppState._rootGrid?.UpdateSampleAnimations((float)delta);
 
         if (AppState._animateGear && IsGearPageActive())
         {
@@ -574,12 +569,6 @@ public static unsafe class MainWindowController
         }
 
         SamplePerformanceBenchmark.RecordHostUpdate(Stopwatch.GetElapsedTime(updateStart));
-    }
-
-    private static void RefreshSampleAnimations()
-    {
-        ActiveSampleAnimations.Clear();
-        AppState._navigationView?.Content?.CollectSampleAnimations(ActiveSampleAnimations);
     }
 
     private static bool IsGearPageActive()
@@ -760,8 +749,6 @@ public static unsafe class MainWindowController
 
 public class HamburgerIconVisual : FrameworkElement
 {
-    private readonly ThemeResourceBrush _brush = new("TextPrimary");
-
     public HamburgerIconVisual()
     {
         WidthConstraint = 18f;
@@ -772,11 +759,12 @@ public class HamburgerIconVisual : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
+        var brush = ThemeManager.GetBrush("TextPrimary");
         float startX = (Size.X - 18f) / 2f;
         float startY = (Size.Y - 12f) / 2f;
-        context.DrawRectangle(_brush, null, new Rect(startX, startY, 18f, 2f));
-        context.DrawRectangle(_brush, null, new Rect(startX, startY + 5f, 18f, 2f));
-        context.DrawRectangle(_brush, null, new Rect(startX, startY + 10f, 18f, 2f));
+        context.DrawRectangle(brush, null, new Rect(startX, startY, 18f, 2f));
+        context.DrawRectangle(brush, null, new Rect(startX, startY + 5f, 18f, 2f));
+        context.DrawRectangle(brush, null, new Rect(startX, startY + 10f, 18f, 2f));
         base.OnRender(context);
     }
 }

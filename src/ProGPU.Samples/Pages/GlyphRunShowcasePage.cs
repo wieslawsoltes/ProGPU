@@ -18,23 +18,6 @@ namespace ProGPU.Samples;
 
 public class GlyphRunShowcaseVisual : FrameworkElement, IAnimatedElement
 {
-    private readonly ThemeResourceBrush _backgroundBrush = new("CardBackground");
-    private readonly Pen _borderPen = new(new ThemeResourceBrush("ControlBorder"), 1f);
-    private readonly ThemeResourceBrush _textBrush = new("TextPrimary");
-    private readonly Pen _circleGuidePen = new(
-        new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.07f)),
-        1.5f);
-    private readonly Vector2[] _singleGlyphPosition = [Vector2.Zero];
-    private string _targetText = "GPU Instanced Glyph Rendering Engine";
-    private TtfFont _targetFont = (AppState._font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont)!;
-    private float _fontSize = 28f;
-    private float _tracking = 2f;
-    private ushort[] _glyphIndices = [];
-    private Vector2[] _glyphPositions = [];
-    private float[] _glyphAdvances = [];
-    private ushort[][] _singleGlyphIndices = [];
-    private float _totalAdvance;
-    private bool _glyphLayoutDirty = true;
     private float _time = 0f;
 
     public void Update(float delta)
@@ -42,55 +25,10 @@ public class GlyphRunShowcaseVisual : FrameworkElement, IAnimatedElement
         UpdateTime(delta);
     }
 
-    public string TargetText
-    {
-        get => _targetText;
-        set
-        {
-            value ??= string.Empty;
-            if (_targetText == value) return;
-            _targetText = value;
-            _glyphLayoutDirty = true;
-            Invalidate();
-        }
-    }
-
-    public TtfFont TargetFont
-    {
-        get => _targetFont;
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            if (ReferenceEquals(_targetFont, value)) return;
-            _targetFont = value;
-            _glyphLayoutDirty = true;
-            Invalidate();
-        }
-    }
-
-    public float FontSize
-    {
-        get => _fontSize;
-        set
-        {
-            if (_fontSize == value) return;
-            _fontSize = value;
-            _glyphLayoutDirty = true;
-            Invalidate();
-        }
-    }
-
-    public float Tracking
-    {
-        get => _tracking;
-        set
-        {
-            if (_tracking == value) return;
-            _tracking = value;
-            _glyphLayoutDirty = true;
-            Invalidate();
-        }
-    }
+    public string TargetText { get; set; } = "GPU Instanced Glyph Rendering Engine";
+    public TtfFont TargetFont { get; set; } = (AppState._font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont)!;
+    public float FontSize { get; set; } = 28f;
+    public float Tracking { get; set; } = 2f;
     public float WaveAmplitude { get; set; } = 20f;
     public float WaveFrequency { get; set; } = 0.015f;
     public string LayoutMode { get; set; } = "Wave"; // "Wave" or "Circular"
@@ -112,58 +50,42 @@ public class GlyphRunShowcaseVisual : FrameworkElement, IAnimatedElement
         }
     }
 
-    private void EnsureGlyphLayout()
-    {
-        if (!_glyphLayoutDirty)
-        {
-            return;
-        }
-
-        int count = _targetText.Length;
-        _glyphIndices = new ushort[count];
-        _glyphPositions = new Vector2[count];
-        _glyphAdvances = new float[count];
-        _singleGlyphIndices = new ushort[count][];
-        _totalAdvance = 0f;
-        for (int index = 0; index < count; index++)
-        {
-            ushort glyphIndex = _targetFont.GetGlyphIndex(_targetText[index]);
-            float advance = _targetFont.GetAdvanceWidth(glyphIndex, _fontSize) + _tracking;
-            _glyphIndices[index] = glyphIndex;
-            _glyphAdvances[index] = advance;
-            _singleGlyphIndices[index] = [glyphIndex];
-            _totalAdvance += advance;
-        }
-        _glyphLayoutDirty = false;
-    }
-
     public override void OnRender(DrawingContext context)
     {
         // Card background
-        context.DrawRectangle(_backgroundBrush, _borderPen, new Rect(0, 0, Size.X, Size.Y));
+        context.DrawRectangle(ThemeManager.GetBrush("CardBackground"), new Pen(ThemeManager.GetBrush("ControlBorder"), 1f), new Rect(0, 0, Size.X, Size.Y));
 
-        if (string.IsNullOrEmpty(_targetText)) return;
-        EnsureGlyphLayout();
+        if (string.IsNullOrEmpty(TargetText) || TargetFont == null) return;
+
+        var brush = ThemeManager.GetBrush("TextPrimary");
 
         if (LayoutMode == "Wave")
         {
             // 1. WAVE LAYOUT: All characters rendered in a single, high-performance instanced DrawGlyphRun call.
-            int count = _targetText.Length;
+            int count = TargetText.Length;
+            var glyphIndices = new ushort[count];
+            var glyphPositions = new Vector2[count];
 
             float cursorX = 30f;
             float baselineY = Size.Y / 2f;
 
             for (int i = 0; i < count; i++)
             {
+                char c = TargetText[i];
+                ushort glyphIdx = TargetFont.GetGlyphIndex(c);
+                glyphIndices[i] = glyphIdx;
+
+                float advance = TargetFont.GetAdvanceWidth(glyphIdx, FontSize);
+
                 // Wave effect offset per character
                 float waveOffset = MathF.Sin(cursorX * WaveFrequency + _time) * WaveAmplitude;
-                _glyphPositions[i] = new Vector2(cursorX, baselineY + waveOffset);
+                glyphPositions[i] = new Vector2(cursorX, baselineY + waveOffset);
 
-                cursorX += _glyphAdvances[i];
+                cursorX += advance + Tracking;
             }
 
             // Draw all characters as a single run
-            context.DrawGlyphRun(_glyphIndices, _glyphPositions, _targetFont, _fontSize, _textBrush, Vector2.Zero);
+            context.DrawGlyphRun(glyphIndices, glyphPositions, TargetFont, FontSize, brush, Vector2.Zero);
         }
         else if (LayoutMode == "Circular")
         {
@@ -174,18 +96,29 @@ public class GlyphRunShowcaseVisual : FrameworkElement, IAnimatedElement
             float radius = MathF.Min(Size.X, Size.Y) * 0.35f;
 
             // Compute total angular length of text to center it
+            float totalWidth = 0f;
+            var glyphIndices = new ushort[TargetText.Length];
+            var advances = new float[TargetText.Length];
+            for (int i = 0; i < TargetText.Length; i++)
+            {
+                char c = TargetText[i];
+                glyphIndices[i] = TargetFont.GetGlyphIndex(c);
+                advances[i] = TargetFont.GetAdvanceWidth(glyphIndices[i], FontSize) + Tracking;
+                totalWidth += advances[i];
+            }
+
             // Calculate angular start so the text centers at the top/sides
-            float totalArcAngle = _totalAdvance / radius;
+            float totalArcAngle = totalWidth / radius;
             float startAngle = -MathF.PI / 2f - (totalArcAngle / 2f) + (_time * 0.05f);
 
             float currentAngle = startAngle;
 
-            for (int i = 0; i < _targetText.Length; i++)
+            for (int i = 0; i < TargetText.Length; i++)
             {
-                ushort glyphIdx = _glyphIndices[i];
-                if (glyphIdx == 0 && _targetText[i] == ' ')
+                ushort glyphIdx = glyphIndices[i];
+                if (glyphIdx == 0 && TargetText[i] == ' ')
                 {
-                    currentAngle += _glyphAdvances[i] / radius;
+                    currentAngle += advances[i] / radius;
                     continue;
                 }
 
@@ -196,23 +129,19 @@ public class GlyphRunShowcaseVisual : FrameworkElement, IAnimatedElement
                 // Rotate glyph outwards / perpendicular to circle (face outward)
                 float rotationAngle = currentAngle + MathF.PI / 2f;
 
+                var singleIndex = new ushort[] { glyphIdx };
+                var singlePos = new Vector2[] { Vector2.Zero };
+
                 // Create transformation matrix for this specific glyph
                 var rotMat = Matrix4x4.CreateRotationZ(rotationAngle);
 
-                context.DrawGlyphRun(
-                    _singleGlyphIndices[i],
-                    _singleGlyphPosition,
-                    _targetFont,
-                    _fontSize,
-                    _textBrush,
-                    new Vector2(gx, gy),
-                    rotMat);
+                context.DrawGlyphRun(singleIndex, singlePos, TargetFont, FontSize, brush, new Vector2(gx, gy), rotMat);
 
-                currentAngle += _glyphAdvances[i] / radius;
+                currentAngle += advances[i] / radius;
             }
 
             // Draw a central circle outline to visualize the circular guide
-            context.DrawEllipse(null, _circleGuidePen, new Vector2(centerX, centerY), radius, radius);
+            context.DrawEllipse(null, new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.07f)), 1.5f), new Vector2(centerX, centerY), radius, radius);
         }
     }
 }

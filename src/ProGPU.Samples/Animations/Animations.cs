@@ -12,38 +12,6 @@ public interface IAnimatedElement
 
 public static class VisualExtensions
 {
-    public static void CollectSampleAnimations(this Visual visual, List<IAnimatedElement> destination)
-    {
-        ArgumentNullException.ThrowIfNull(visual);
-        ArgumentNullException.ThrowIfNull(destination);
-
-        if (visual is IAnimatedElement animated)
-        {
-            destination.Add(animated);
-        }
-
-        if (visual is not ContainerVisual container)
-        {
-            return;
-        }
-
-        int count = container.Children.Count;
-        for (int index = 0; index < count; index++)
-        {
-            container.Children[index].CollectSampleAnimations(destination);
-        }
-    }
-
-    public static void UpdateSampleAnimations(
-        this IReadOnlyList<IAnimatedElement> animations,
-        float delta)
-    {
-        for (int index = 0; index < animations.Count; index++)
-        {
-            animations[index].Update(delta);
-        }
-    }
-
     public static void UpdateSampleAnimations(this Visual visual, float delta)
     {
         if (visual == null) return;

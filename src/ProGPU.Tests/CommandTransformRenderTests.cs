@@ -41,31 +41,6 @@ public sealed class CommandTransformRenderTests
     }
 
     [Fact]
-    public void TransformedPathOverloadRetainsCallerGeometryCache()
-    {
-        var path = new PathGeometry();
-        var figure = new PathFigure(Vector2.Zero);
-        figure.Segments.Add(new LineSegment(new Vector2(8f, 0f)));
-        path.Figures.Add(figure);
-        var cache = RenderCommandGeometryCache.ForPath(path);
-        var transform = Matrix4x4.CreateRotationZ(0.25f) *
-            Matrix4x4.CreateTranslation(12f, 6f, 0f);
-        var context = new DrawingContext();
-
-        context.DrawPath(
-            new SolidColorBrush(0xFF0000FF),
-            null,
-            path,
-            transform,
-            cache);
-
-        var command = Assert.Single(context.Commands);
-        Assert.Equal(RenderCommandType.DrawPath, command.Type);
-        Assert.Same(cache, command.GeometryCache);
-        Assert.Equal(transform, command.Transform);
-    }
-
-    [Fact]
     public void RectangleCommandTransformMovesRenderedPrimitive()
     {
         var window = HeadlessWindow.Shared;

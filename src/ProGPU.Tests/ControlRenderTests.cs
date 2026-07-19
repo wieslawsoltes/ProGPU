@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Numerics;
 using ProGPU.Layout;
-using ProGPU.Scene;
 using ProGPU.Vector;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,11 +16,6 @@ namespace ProGPU.Tests;
 
 public class ControlRenderTests
 {
-    private sealed class InstrumentedProgressBar : ProgressBar
-    {
-        public int ActiveAnimationCount => AnimationSubtreeCount;
-    }
-
     private static HeadlessWindow SharedWindow
     {
         get
@@ -466,7 +460,7 @@ public class ControlRenderTests
     [Fact]
     public void ProgressBar_AllStates_RenderCorrectly()
     {
-        var progress = new InstrumentedProgressBar
+        var progress = new ProgressBar
         {
             Width = 200f,
             Height = 10f,
@@ -474,41 +468,6 @@ public class ControlRenderTests
             VerticalAlignment = VerticalAlignment.Center
         };
         VerifyControlStates(progress, "progress");
-    }
-
-    [Fact]
-    public void IndeterminateProgressAdvancesBeforeRenderAndRenderIsSideEffectFree()
-    {
-        var progress = new InstrumentedProgressBar
-        {
-            Width = 200f,
-            Height = 10f,
-            IsIndeterminate = true
-        };
-        progress.Measure(new Vector2(200f, 10f));
-        progress.Arrange(new Rect(0f, 0f, 200f, 10f));
-        long versionBeforeUpdate = progress.ChangeVersion;
-
-        progress.UpdateAnimations(1f / 60f);
-
-        Assert.True(progress.ChangeVersion > versionBeforeUpdate);
-        Assert.Equal(1, progress.ActiveAnimationCount);
-        var first = new DrawingContext();
-        long versionBeforeRender = progress.ChangeVersion;
-        progress.OnRender(first);
-        Assert.Equal(versionBeforeRender, progress.ChangeVersion);
-
-        var second = new DrawingContext();
-        progress.OnRender(second);
-        Assert.Equal(versionBeforeRender, progress.ChangeVersion);
-        Assert.Equal(first.Commands.Count, second.Commands.Count);
-        for (int index = 0; index < first.Commands.Count; index++)
-        {
-            Assert.Equal(first.Commands[index].Rect, second.Commands[index].Rect);
-        }
-
-        progress.IsIndeterminate = false;
-        Assert.Equal(0, progress.ActiveAnimationCount);
     }
 
     [Fact]

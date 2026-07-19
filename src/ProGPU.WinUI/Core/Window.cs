@@ -25,10 +25,7 @@ public readonly record struct WindowFrameMetrics(
     double SurfaceAcquireTimeMs,
     double CompositorTimeMs,
     double PresentTimeMs,
-    double TotalTimeMs,
-    uint RenderTargetWidth,
-    uint RenderTargetHeight,
-    float DpiScale);
+    double TotalTimeMs);
 
 public class Window
 {
@@ -79,12 +76,6 @@ public class Window
     /// atlas without increasing the default footprint of ordinary applications.
     /// </summary>
     public uint GlyphAtlasSize { get; set; } = CompositorOptions.Default.GlyphAtlasSize;
-
-    public uint GlyphAtlasPageCount { get; set; } = CompositorOptions.Default.GlyphAtlasPageCount;
-
-    public bool EnableGpuSceneVisibility { get; set; } = CompositorOptions.Default.EnableGpuSceneVisibility;
-
-    public uint GpuSceneVisibilityMinimumItems { get; set; } = CompositorOptions.Default.GpuSceneVisibilityMinimumItems;
 
     public NativeWindowDecorations Decorations
     {
@@ -399,9 +390,6 @@ public class Window
             {
                 EnableGpuHitTesting = false,
                 GlyphAtlasSize = GlyphAtlasSize,
-                GlyphAtlasPageCount = GlyphAtlasPageCount,
-                EnableGpuSceneVisibility = EnableGpuSceneVisibility,
-                GpuSceneVisibilityMinimumItems = GpuSceneVisibilityMinimumItems,
                 PrimarySampleCount = sampleCount
             });
         ApplySystemBackdrop();
@@ -451,9 +439,6 @@ public class Window
             {
                 EnableGpuHitTesting = false,
                 GlyphAtlasSize = GlyphAtlasSize,
-                GlyphAtlasPageCount = GlyphAtlasPageCount,
-                EnableGpuSceneVisibility = EnableGpuSceneVisibility,
-                GpuSceneVisibilityMinimumItems = GpuSceneVisibilityMinimumItems,
                 PrimarySampleCount = sampleCount
             });
         ApplySystemBackdrop();
@@ -628,10 +613,7 @@ public class Window
             surfaceAcquireTimeMs,
             compositorTimeMs,
             presentTimeMs,
-            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds,
-            (uint)framebufferSize.X,
-            (uint)framebufferSize.Y,
-            dpiScale);
+            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
     }
 
     private void OnResize(Vector2D<int> _)
