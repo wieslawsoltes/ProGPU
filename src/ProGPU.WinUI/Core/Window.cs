@@ -542,6 +542,7 @@ public class Window
         double animationTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        VisualStateManager.UpdateAdaptiveStates(content, logicalSize);
         content.Measure(logicalSize);
         content.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
         double layoutTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;

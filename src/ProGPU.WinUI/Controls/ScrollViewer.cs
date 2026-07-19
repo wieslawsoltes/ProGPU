@@ -16,6 +16,32 @@ public interface IScrollViewportAware
     void OnScrollViewportChanged();
 }
 
+public enum ScrollMode
+{
+    Disabled,
+    Enabled,
+    Auto
+}
+
+public enum ZoomMode
+{
+    Disabled,
+    Enabled
+}
+
+public sealed class ScrollViewerViewChangingEventArgs : EventArgs
+{
+    public bool IsInertial { get; internal init; }
+    public float HorizontalOffset { get; internal init; }
+    public float VerticalOffset { get; internal init; }
+    public float ZoomFactor { get; internal init; }
+}
+
+public sealed class ScrollViewerViewChangedEventArgs : EventArgs
+{
+    public bool IsIntermediate { get; internal init; }
+}
+
 [ContentProperty(Name = "Content")]
 public class ScrollViewer : ContentControl
 {
@@ -26,6 +52,12 @@ public class ScrollViewer : ContentControl
     private float _dragStartOffset;
     private float _dragStartMouseY;
     private bool _isPointerOverScrollbar;
+    private float _zoomFactor = 1f;
+    private Vector2 _inertiaVelocity;
+    private Vector2 _contentBaseTranslation;
+    private Vector3 _contentBaseScale = Vector3.One;
+    private Vector2 _contentBaseTransformOrigin = new(0.5f, 0.5f);
+    private bool _hasContentTransformSnapshot;
 
     public new FrameworkElement? Content
     {
@@ -34,10 +66,20 @@ public class ScrollViewer : ContentControl
         {
             if (base.Content is FrameworkElement oldContent && !ReferenceEquals(oldContent, value))
             {
-                oldContent.LayoutTranslation = Vector2.Zero;
+                oldContent.LayoutTranslation = _contentBaseTranslation;
+                oldContent.Scale = _contentBaseScale;
+                oldContent.RenderTransformOrigin = _contentBaseTransformOrigin;
+                _hasContentTransformSnapshot = false;
             }
 
             base.Content = value;
+            if (value != null && !_hasContentTransformSnapshot)
+            {
+                _contentBaseTranslation = value.LayoutTranslation;
+                _contentBaseScale = value.Scale;
+                _contentBaseTransformOrigin = value.RenderTransformOrigin;
+                _hasContentTransformSnapshot = true;
+            }
             UpdateContentTranslation();
         }
     }
@@ -98,12 +140,37 @@ public class ScrollViewer : ContentControl
         }
     }
 
-    public float ContentHeight => Content?.DesiredSize.Y ?? Size.Y;
-    public float ContentWidth => Content?.DesiredSize.X ?? Size.X;
+    public float ContentHeight => (Content?.DesiredSize.Y ?? Size.Y) * ZoomFactor;
+    public float ContentWidth => (Content?.DesiredSize.X ?? Size.X) * ZoomFactor;
+    public ScrollMode HorizontalScrollMode { get; set; } = ScrollMode.Auto;
+    public ScrollMode VerticalScrollMode { get; set; } = ScrollMode.Auto;
+    public ZoomMode ZoomMode { get; set; } = ZoomMode.Disabled;
+    public float MinZoomFactor { get; set; } = 0.1f;
+    public float MaxZoomFactor { get; set; } = 10f;
+    public float ZoomFactor
+    {
+        get => _zoomFactor;
+        private set
+        {
+            var clamped = Math.Clamp(value, Math.Max(0.01f, MinZoomFactor), Math.Max(MinZoomFactor, MaxZoomFactor));
+            if (MathF.Abs(_zoomFactor - clamped) < 0.0001f) return;
+            _zoomFactor = clamped;
+            _horizontalOffset = Math.Clamp(_horizontalOffset, 0f, Math.Max(0f, ContentWidth - Size.X));
+            _verticalOffset = Math.Clamp(_verticalOffset, 0f, Math.Max(0f, ContentHeight - Size.Y));
+            UpdateContentTranslation();
+            Invalidate();
+        }
+    }
+
+    public event EventHandler<ScrollViewerViewChangingEventArgs>? ViewChanging;
+    public event EventHandler<ScrollViewerViewChangedEventArgs>? ViewChanged;
 
     public ScrollViewer()
     {
         Padding = new Thickness(0);
+        ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY |
+            ManipulationModes.TranslateRailsX | ManipulationModes.TranslateRailsY |
+            ManipulationModes.TranslateInertia | ManipulationModes.Scale | ManipulationModes.ScaleInertia;
         
         var defaultStyle = ThemeManager.GetDefaultStyle(GetType());
         if (defaultStyle != null)
@@ -111,6 +178,105 @@ public class ScrollViewer : ContentControl
             Style = defaultStyle;
         }
     }
+
+    public bool ChangeView(double? horizontalOffset, double? verticalOffset, float? zoomFactor, bool disableAnimation = true)
+    {
+        var changed = false;
+        if (zoomFactor.HasValue && ZoomMode == ZoomMode.Enabled)
+        {
+            var old = ZoomFactor;
+            ZoomFactor = zoomFactor.Value;
+            changed |= old != ZoomFactor;
+        }
+        if (horizontalOffset.HasValue && HorizontalScrollMode != ScrollMode.Disabled)
+        {
+            var old = HorizontalOffset;
+            HorizontalOffset = (float)horizontalOffset.Value;
+            changed |= old != HorizontalOffset;
+        }
+        if (verticalOffset.HasValue && VerticalScrollMode != ScrollMode.Disabled)
+        {
+            var old = VerticalOffset;
+            VerticalOffset = (float)verticalOffset.Value;
+            changed |= old != VerticalOffset;
+        }
+        if (changed) RaiseViewChanged(isIntermediate: false);
+        return changed;
+    }
+
+    public override void OnManipulationStarted(ManipulationStartedRoutedEventArgs e)
+    {
+        _inertiaVelocity = Vector2.Zero;
+        base.OnManipulationStarted(e);
+    }
+
+    public override void OnManipulationDelta(ManipulationDeltaRoutedEventArgs e)
+    {
+        if (!IsEnabled)
+        {
+            base.OnManipulationDelta(e);
+            return;
+        }
+        var oldHorizontal = HorizontalOffset;
+        var oldVertical = VerticalOffset;
+        var oldZoom = ZoomFactor;
+        if (HorizontalScrollMode != ScrollMode.Disabled) HorizontalOffset -= e.Delta.Translation.X;
+        if (VerticalScrollMode != ScrollMode.Disabled) VerticalOffset -= e.Delta.Translation.Y;
+        if (ZoomMode == ZoomMode.Enabled && float.IsFinite(e.Delta.Scale)) ZoomFactor *= e.Delta.Scale;
+        if (oldHorizontal != HorizontalOffset || oldVertical != VerticalOffset || oldZoom != ZoomFactor)
+        {
+            ViewChanging?.Invoke(this, new ScrollViewerViewChangingEventArgs
+            {
+                IsInertial = e.IsInertial,
+                HorizontalOffset = HorizontalOffset,
+                VerticalOffset = VerticalOffset,
+                ZoomFactor = ZoomFactor
+            });
+            RaiseViewChanged(isIntermediate: true);
+            e.Handled = true;
+        }
+        base.OnManipulationDelta(e);
+    }
+
+    public override void OnManipulationCompleted(ManipulationCompletedRoutedEventArgs e)
+    {
+        if (e.IsInertial) _inertiaVelocity = -e.Velocities.Linear;
+        RaiseViewChanged(isIntermediate: false);
+        base.OnManipulationCompleted(e);
+    }
+
+    protected override void OnUpdateAnimations(float elapsedSeconds)
+    {
+        base.OnUpdateAnimations(elapsedSeconds);
+        if (_inertiaVelocity.LengthSquared() < 4f || elapsedSeconds <= 0f)
+        {
+            _inertiaVelocity = Vector2.Zero;
+            return;
+        }
+        var oldHorizontal = HorizontalOffset;
+        var oldVertical = VerticalOffset;
+        if (HorizontalScrollMode != ScrollMode.Disabled) HorizontalOffset += _inertiaVelocity.X * elapsedSeconds;
+        if (VerticalScrollMode != ScrollMode.Disabled) VerticalOffset += _inertiaVelocity.Y * elapsedSeconds;
+        if (oldHorizontal == HorizontalOffset && oldVertical == VerticalOffset)
+        {
+            _inertiaVelocity = Vector2.Zero;
+            RaiseViewChanged(isIntermediate: false);
+            return;
+        }
+        var decay = MathF.Pow(0.002f, elapsedSeconds);
+        _inertiaVelocity *= decay;
+        ViewChanging?.Invoke(this, new ScrollViewerViewChangingEventArgs
+        {
+            IsInertial = true,
+            HorizontalOffset = HorizontalOffset,
+            VerticalOffset = VerticalOffset,
+            ZoomFactor = ZoomFactor
+        });
+        RaiseViewChanged(isIntermediate: true);
+    }
+
+    private void RaiseViewChanged(bool isIntermediate) =>
+        ViewChanged?.Invoke(this, new ScrollViewerViewChangedEventArgs { IsIntermediate = isIntermediate });
 
     public override void OnPointerWheelChanged(PointerRoutedEventArgs e)
     {
@@ -271,7 +437,9 @@ public class ScrollViewer : ContentControl
     {
         if (Content != null)
         {
-            Content.LayoutTranslation = new Vector2(-_horizontalOffset, -_verticalOffset);
+            Content.RenderTransformOrigin = Vector2.Zero;
+            Content.Scale = new Vector3(_contentBaseScale.X * ZoomFactor, _contentBaseScale.Y * ZoomFactor, _contentBaseScale.Z);
+            Content.LayoutTranslation = _contentBaseTranslation + new Vector2(-_horizontalOffset, -_verticalOffset);
         }
     }
 

@@ -29,6 +29,19 @@ public class StackPanel : Panel
         set => SetValue(OrientationProperty, value);
     }
 
+    public static readonly DependencyProperty SpacingProperty =
+        DependencyProperty.Register(
+            nameof(Spacing),
+            typeof(float),
+            typeof(StackPanel),
+            new PropertyMetadata(0f, (d, e) => ((StackPanel)d).InvalidateMeasure()));
+
+    public float Spacing
+    {
+        get => (float)(GetValue(SpacingProperty) ?? 0f);
+        set => SetValue(SpacingProperty, Math.Max(0f, value));
+    }
+
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         float totalWidth = 0f;
@@ -36,11 +49,18 @@ public class StackPanel : Panel
 
         float paddingH = Padding.Horizontal;
         float paddingV = Padding.Vertical;
+        var hasPreviousVisibleChild = false;
 
         foreach (var child in Children)
         {
+            if (child is FrameworkElement { Visibility: Visibility.Collapsed }) continue;
             if (child is LayoutNode node)
             {
+                if (hasPreviousVisibleChild)
+                {
+                    if (Orientation == Orientation.Vertical) totalHeight += Spacing;
+                    else totalWidth += Spacing;
+                }
                 if (Orientation == Orientation.Vertical)
                 {
                     float availW = float.IsInfinity(availableSize.X) ? availableSize.X : Math.Max(0f, availableSize.X - paddingH);
@@ -57,6 +77,7 @@ public class StackPanel : Panel
                     totalWidth += desired.X;
                     totalHeight = Math.Max(totalHeight, desired.Y);
                 }
+                hasPreviousVisibleChild = true;
             }
         }
 
@@ -67,10 +88,13 @@ public class StackPanel : Panel
     {
         float offset = 0f;
 
+        var hasPreviousVisibleChild = false;
         foreach (var child in Children)
         {
+            if (child is FrameworkElement { Visibility: Visibility.Collapsed }) continue;
             if (child is LayoutNode node)
             {
+                if (hasPreviousVisibleChild) offset += Spacing;
                 var desired = node.DesiredSize;
                 
                 if (Orientation == Orientation.Vertical)
@@ -85,6 +109,7 @@ public class StackPanel : Panel
                     node.Arrange(new Rect(arrangeRect.X + offset, arrangeRect.Y, childWidth, arrangeRect.Height));
                     offset += childWidth;
                 }
+                hasPreviousVisibleChild = true;
             }
         }
     }
