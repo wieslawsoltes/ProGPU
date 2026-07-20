@@ -715,6 +715,37 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void NoWrapRightAlignedRichTextExpandsAfterMutableRunUpdate()
+    {
+        var run = new Microsoft.UI.Xaml.Documents.Run("0");
+        var text = new RichTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 11f,
+            TextWrapping = TextWrapping.NoWrap,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Bold(run));
+
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new GridLength(100f, GridUnitType.Absolute));
+        row.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+        row.AddChild(text);
+        Grid.SetColumn(text, 1);
+
+        row.Measure(new Vector2(337f, 100f));
+        row.Arrange(new Rect(0f, 0f, 337f, 100f));
+        var initialWidth = text.Size.X;
+
+        run.Text = "5.80 x 1.40 x 5.80";
+        row.Measure(new Vector2(337f, 100f));
+        row.Arrange(new Rect(0f, 0f, 337f, 100f));
+
+        Assert.True(text.Size.X > initialWidth);
+        Assert.Single(text.PositionedChars.Select(static character => character.Position.Y).Distinct());
+    }
+
+    [Fact]
     public void WrappedRichTextRetainsItsFiniteMeasureWidth()
     {
         var text = new RichTextBlock
