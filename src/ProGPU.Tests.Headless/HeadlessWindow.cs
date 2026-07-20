@@ -192,6 +192,23 @@ public unsafe class HeadlessWindow : IDisposable
         _compositor.RenderScene(_content, _width, _height, _offscreenTexture!.ViewPtr);
     }
 
+    public void RenderAtDpi(uint logicalWidth, uint logicalHeight, float dpiScale, float deltaTime = 0.016f)
+    {
+        if (_content == null) return;
+
+        _content.UpdateAnimations(deltaTime);
+        _content.Measure(new Vector2(logicalWidth, logicalHeight));
+        _content.Arrange(new Rect(0, 0, logicalWidth, logicalHeight));
+        _compositor.RenderScene(
+            _content,
+            logicalWidth,
+            logicalHeight,
+            _width,
+            _height,
+            dpiScale,
+            _offscreenTexture!.ViewPtr);
+    }
+
     public byte[] ReadPixels(TimeSpan? mapTimeout = null)
     {
         if (_offscreenTexture == null || _readbackBuffer == null)

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using System.Reflection;
 using Microsoft.UI.Xaml;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Text;
@@ -229,6 +230,73 @@ public sealed class TextRenderingModeRenderTests
         }
     }
 
+    [Fact]
+    public void OddPixelHighDpiRasterSizeRendersRegularAndBoldFaces()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(660, 270);
+        window.Content = CreateHighDpiRichTextFaces();
+
+        try
+        {
+            window.RenderAtDpi(220, 90, 3f);
+            var pixels = window.ReadPixels();
+            var regularPixels = CountVisiblePixels(pixels, 660, 0, 135);
+            var boldPixels = CountVisiblePixels(pixels, 660, 135, 270);
+
+            Assert.True(regularPixels > 20, $"Expected regular text pixels, found {regularPixels}; vertices={window.Compositor.TextVertexCount}.");
+            Assert.True(boldPixels > 20, $"Expected bold text pixels, found {boldPixels}; vertices={window.Compositor.TextVertexCount}.");
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    private static int CountVisiblePixels(byte[] pixels, int width, int startY, int endY)
+    {
+        var count = 0;
+        for (var y = startY; y < endY; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var offset = (y * width + x) * 4;
+                if (pixels[offset] > 12 || pixels[offset + 1] > 12 || pixels[offset + 2] > 12)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    private static Microsoft.UI.Xaml.Controls.Grid CreateHighDpiRichTextFaces()
+    {
+        var root = new Microsoft.UI.Xaml.Controls.Grid();
+        root.RowDefinitions.Add(new GridLength(45f, GridUnitType.Absolute));
+        root.RowDefinitions.Add(new GridLength(45f, GridUnitType.Absolute));
+
+        var regular = new Microsoft.UI.Xaml.Controls.RichTextBlock
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 11f
+        };
+        regular.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run("Regular eleven"));
+        root.AddChild(regular);
+
+        var bold = new Microsoft.UI.Xaml.Controls.RichTextBlock
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 11f
+        };
+        bold.Inlines.Add(new Microsoft.UI.Xaml.Documents.Bold(new Microsoft.UI.Xaml.Documents.Run("Bold eleven")));
+        root.AddChild(bold);
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(bold, 1);
+
+        return root;
+    }
+
     private static bool ContainsSubpixelCoverage(byte[] pixels)
     {
         for (var i = 0; i < pixels.Length; i += 4)
@@ -299,4 +367,5 @@ public sealed class TextRenderingModeRenderTests
                 textRenderingMode: TextRenderingMode.ClearType);
         }
     }
+
 }
