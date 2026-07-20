@@ -327,9 +327,11 @@ public static class PictureShowcasePage
         Grid.SetRow(descText, 0);
 
         // Body Content Columns
-        var contentGrid = new Grid { Margin = new Thickness(12) };
-        contentGrid.ColumnDefinitions.Add(new GridLength(280, GridUnitType.Absolute)); // Sidebar controller
-        contentGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Vector visual canvas
+        var contentSplit = new ResponsiveSplitView
+        {
+            Margin = new Thickness(12),
+            OpenPaneLength = 280f
+        };
 
         // Sidebar Panel
         var sidebarBorder = new Border
@@ -444,8 +446,7 @@ public static class PictureShowcasePage
         sidebarStack.AddChild(zoomStack);
 
         sidebarBorder.Child = sidebarStack;
-        contentGrid.AddChild(sidebarBorder);
-        Grid.SetColumn(sidebarBorder, 0);
+        contentSplit.PaneContent = sidebarBorder;
 
         // Canvas container border
         var canvasBorder = new Border
@@ -456,11 +457,10 @@ public static class PictureShowcasePage
             CornerRadius = 8f,
             Child = pictureVisual
         };
-        contentGrid.AddChild(canvasBorder);
-        Grid.SetColumn(canvasBorder, 1);
+        contentSplit.MainContent = canvasBorder;
 
-        mainGrid.AddChild(contentGrid);
-        Grid.SetRow(contentGrid, 1);
+        mainGrid.AddChild(contentSplit);
+        Grid.SetRow(contentSplit, 1);
 
         return mainGrid;
     }

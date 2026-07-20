@@ -63,9 +63,7 @@ public static class LolsPage
         Microsoft.UI.Xaml.Controls.Grid.SetRow(headerText, 0);
 
         // 2. Main Content Grid
-        var contentGrid = new Microsoft.UI.Xaml.Controls.Grid();
-        contentGrid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Settings Panel
-        contentGrid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // Visual Canvas Panel
+        var contentSplit = new ResponsiveSplitView { OpenPaneLength = 300f };
 
         // --- Column 0: Settings Panel ---
         var settingsCard = new Border
@@ -174,8 +172,7 @@ public static class LolsPage
         };
         settingsStack.AddChild(resetBtn);
 
-        contentGrid.AddChild(settingsCard);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(settingsCard, 0);
+        contentSplit.PaneContent = settingsCard;
 
         // --- Column 1: Visual Canvas Card ---
         var canvasCard = new Border
@@ -196,11 +193,10 @@ public static class LolsPage
         };
         canvasCard.Child = _canvas;
 
-        contentGrid.AddChild(canvasCard);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(canvasCard, 1);
+        contentSplit.MainContent = canvasCard;
 
-        mainGrid.AddChild(contentGrid);
-        Microsoft.UI.Xaml.Controls.Grid.SetRow(contentGrid, 1);
+        mainGrid.AddChild(contentSplit);
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(contentSplit, 1);
 
         return mainGrid;
     }

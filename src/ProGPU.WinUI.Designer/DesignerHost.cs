@@ -102,35 +102,23 @@ public class DesignerHost : Grid
         RowDefinitions.Add(GridLength.Star(1f));
         RowDefinitions.Add(GridLength.Auto);
         
-        var contentGrid = new Grid();
-        contentGrid.ColumnDefinitions.Add(new GridLength(260f, GridUnitType.Absolute));
-        contentGrid.ColumnDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
-        contentGrid.ColumnDefinitions.Add(GridLength.Star(1f));
-        contentGrid.ColumnDefinitions.Add(new GridLength(6f, GridUnitType.Absolute));
-        contentGrid.ColumnDefinitions.Add(new GridLength(280f, GridUnitType.Absolute));
-        
-        Grid.SetRow(contentGrid, 0);
-        AddChild(contentGrid);
-
-        var leftSplitter = new GridSplitter
+        var leftSplitView = new ResponsiveSplitView
         {
-            WidthConstraint = 6f,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            ResizeDirection = GridSplitterResizeDirection.Columns
+            OpenPaneLength = 260f,
+            CompactModeThreshold = 900f,
+            PanePlacement = PanePlacement.Left,
+            IsPaneScrollEnabled = false
         };
-        Grid.SetColumn(leftSplitter, 1);
-        contentGrid.AddChild(leftSplitter);
-
-        var rightSplitter = new GridSplitter
+        var rightSplitView = new ResponsiveSplitView
         {
-            WidthConstraint = 6f,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            ResizeDirection = GridSplitterResizeDirection.Columns
+            OpenPaneLength = 280f,
+            CompactModeThreshold = 700f,
+            PanePlacement = PanePlacement.Right,
+            IsPaneScrollEnabled = false
         };
-        Grid.SetColumn(rightSplitter, 3);
-        contentGrid.AddChild(rightSplitter);
+        leftSplitView.MainContent = rightSplitView;
+        Grid.SetRow(leftSplitView, 0);
+        AddChild(leftSplitView);
 
         // 1. Left Sidebar
         _sidebarLeftBorder = new Border
@@ -144,8 +132,7 @@ public class DesignerHost : Grid
 
         _sidebarLeft.RowDefinitions.Add(GridLength.Star(1.0f));
         _sidebarLeft.RowDefinitions.Add(GridLength.Star(1.0f));
-        Grid.SetColumn(_sidebarLeftBorder, 0);
-        contentGrid.AddChild(_sidebarLeftBorder);
+        leftSplitView.PaneContent = _sidebarLeftBorder;
 
         // Top half: Toolbox
         _toolbox = new Toolbox(DesignerFont);
@@ -180,8 +167,7 @@ public class DesignerHost : Grid
         _workspaceCenter = new Grid();
         _workspaceCenter.RowDefinitions.Add(GridLength.Auto);
         _workspaceCenter.RowDefinitions.Add(GridLength.Star(1f));
-        Grid.SetColumn(_workspaceCenter, 2);
-        contentGrid.AddChild(_workspaceCenter);
+        rightSplitView.MainContent = _workspaceCenter;
 
         // Reorganized elegant top visual designer settings bar
         var toolbarBorder = new Border
@@ -568,8 +554,7 @@ public class DesignerHost : Grid
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             Child = sidebarPivot
         };
-        Grid.SetColumn(_sidebarRightBorder, 4);
-        contentGrid.AddChild(_sidebarRightBorder);
+        rightSplitView.PaneContent = _sidebarRightBorder;
 
         // 4. Bottom Collapsible Panel - C# Script Preview
         _bottomPanel = new Border { Background = new ThemeResourceBrush("CardBackground"), Height = 20f };
@@ -879,12 +864,14 @@ public class DesignerHost : Grid
         if (focused == null) return false;
 
         var current = focused;
+        var isTextInput = false;
         while (current != null)
         {
             if (current is TextBox || current is PasswordBox || current is VirtualizedCodeEditor)
             {
-                return true;
+                isTextInput = true;
             }
+            if (ReferenceEquals(current, this)) return isTextInput;
             current = current.Parent as FrameworkElement;
         }
         return false;

@@ -291,17 +291,8 @@ public static class FontGlyphBrowserPage
         _selectedFont = AppState._font ?? PopupService.DefaultFont;
         _systemFonts = new List<FontInfo>();
 
-        // 2. Main Page Layout Root
-        var mainGrid = new Grid
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
-        mainGrid.ColumnDefinitions.Add(new GridLength(1.4f, GridUnitType.Star)); // Left Pane: Controls + Grid
-        mainGrid.ColumnDefinitions.Add(new GridLength(20f, GridUnitType.Absolute)); // Spacer
-        mainGrid.ColumnDefinitions.Add(new GridLength(0.8f, GridUnitType.Star)); // Right Pane: Large Preview
-
-        // Left Container
+        // 2. Main browser workspace. Selected-glyph details live in the collapsible
+        // SplitView pane so the virtualized glyph surface owns compact screens.
         var leftStack = new Grid
         {
             Margin = new Thickness(20),
@@ -314,10 +305,7 @@ public static class FontGlyphBrowserPage
         leftStack.RowDefinitions.Add(new GridLength(1f, GridUnitType.Auto)); // Row 3: Path status
         leftStack.RowDefinitions.Add(new GridLength(1f, GridUnitType.Auto)); // Row 4: Metadata (Metrics Dashboard)
         leftStack.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star)); // Row 5: Glyph grid!
-        mainGrid.AddChild(leftStack);
-        Grid.SetColumn(leftStack, 0);
-
-        // Right Container Card
+        // Selected-glyph information pane
         var previewCard = new Border
         {
             Background = new ThemeResourceBrush("CardBackground"),
@@ -329,9 +317,6 @@ public static class FontGlyphBrowserPage
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
-        mainGrid.AddChild(previewCard);
-        Grid.SetColumn(previewCard, 2);
-
         var previewStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
@@ -673,7 +658,14 @@ public static class FontGlyphBrowserPage
         UpdateSelectedFontDetails();
         UpdateSelectedGlyph(_selectedGlyphIndex);
 
-        return mainGrid;
+        return new ResponsiveSplitView
+        {
+            OpenPaneLength = 380f,
+            CompactModeThreshold = 900f,
+            PanePlacement = PanePlacement.Left,
+            PaneContent = previewCard,
+            MainContent = leftStack
+        };
     }
 
     private static void OnItemHover(object? sender, PointerRoutedEventArgs e)

@@ -285,9 +285,11 @@ public static class SamplePagePresenter
         description.Inlines.Add(new Run("This MotionMark-inspired benchmark renders thousands of animated line and Bezier segments through the public DrawingContext path API. Retained PathGeometry instances avoid rebuilding segment objects while preserving the normal renderer and cache behavior."));
         stack.AddChild(description);
 
-        var grid = new Microsoft.UI.Xaml.Controls.Grid { HeightConstraint = 620f };
-        grid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Column 0: Settings Panel
-        grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // Column 1: Visual Canvas Card
+        var grid = new ResponsiveSplitView
+        {
+            HeightConstraint = 620f,
+            OpenPaneLength = 300f
+        };
 
         var visual = new MotionMarkShowcaseVisual();
 
@@ -437,11 +439,8 @@ public static class SamplePagePresenter
         };
         settingsStack.AddChild(gpuToggle);
 
-        grid.AddChild(settingsCard);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(settingsCard, 0);
-
-        grid.AddChild(visual);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(visual, 1);
+        grid.PaneContent = settingsCard;
+        grid.MainContent = visual;
 
         stack.AddChild(grid);
 
@@ -450,9 +449,12 @@ public static class SamplePagePresenter
 
     public static FrameworkElement CreateTypographyScriptsView()
     {
-        var scroll = new ScrollViewer { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        var root = new Microsoft.UI.Xaml.Controls.Grid();
+        root.RowDefinitions.Add(GridLength.Auto);
+        root.RowDefinitions.Add(GridLength.Star(1f));
         var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(16) };
-        scroll.Content = stack;
+        root.AddChild(stack);
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(stack, 0);
 
         var title = new RichTextBlock { Font = AppState.GetFont(), FontSize = 18f, Margin = new Thickness(0, 0, 0, 8) };
         title.Inlines.Add(new Bold(new Run("Advanced Typography, Unicode & Language Scripts")));
@@ -462,9 +464,11 @@ public static class SamplePagePresenter
         description.Inlines.Add(new Run("This page showcases the high-performance rendering of different language scripts, custom system fonts, and Unicode symbol outlines on the GPU. Settings altered in the configuration card apply dynamically to all script panels."));
         stack.AddChild(description);
 
-        var grid = new Microsoft.UI.Xaml.Controls.Grid();
-        grid.ColumnDefinitions.Add(new GridLength(280f, GridUnitType.Absolute)); // Settings Sidebar
-        grid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Scripts Dashboard
+        var grid = new ResponsiveSplitView
+        {
+            Margin = new Thickness(16, 0, 16, 16),
+            OpenPaneLength = 280f
+        };
 
         // Left Panel: Configuration Card
         var settingsCard = new Border
@@ -542,13 +546,17 @@ public static class SamplePagePresenter
         var gammaSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 1.0f, Maximum = 3.0f, Value = Compositor.DefaultTextGamma, Margin = new Thickness(0, 0, 0, 16) };
         settingsStack.AddChild(gammaSlider);
 
-        grid.AddChild(settingsCard);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(settingsCard, 0);
+        grid.PaneContent = settingsCard;
 
         // Right Panel: Scripts List
         var dashboardStack = new StackPanel { Orientation = Orientation.Vertical };
-        grid.AddChild(dashboardStack);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(dashboardStack, 1);
+        var dashboardScroll = new ScrollViewer
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Content = dashboardStack
+        };
+        grid.MainContent = dashboardScroll;
 
         var textBlocks = new List<RichTextBlock>();
 
@@ -714,8 +722,9 @@ public static class SamplePagePresenter
         contrastSlider.ValueChanged += (s, e) => updateVisuals();
         gammaSlider.ValueChanged += (s, e) => updateVisuals();
 
-        stack.AddChild(grid);
-        return scroll;
+        root.AddChild(grid);
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(grid, 1);
+        return root;
     }
 
     public static FrameworkElement CreateInteractiveInputView()

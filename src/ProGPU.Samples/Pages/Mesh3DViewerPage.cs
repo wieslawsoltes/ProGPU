@@ -217,16 +217,12 @@ public enum LayoutMode3D
     Perspective
 }
 
-public class Mesh3DViewerPageGrid : Grid, IAnimatedElement
+public class Mesh3DViewerPageGrid : ResponsiveSplitView, IAnimatedElement
 {
-    private bool? _isNarrow;
-
-    public FrameworkElement? Sidebar { get; set; }
-    public FrameworkElement? Workspace { get; set; }
-
     public Mesh3DViewerPageGrid()
     {
-        ApplyResponsiveStructure(isNarrow: false);
+        OpenPaneLength = 300f;
+        CompactModeThreshold = 720f;
     }
 
     public void Update(float delta)
@@ -234,35 +230,6 @@ public class Mesh3DViewerPageGrid : Grid, IAnimatedElement
         Mesh3DViewerPage.UpdateAnimations((float)delta);
     }
 
-    protected override Vector2 MeasureOverride(Vector2 availableSize)
-    {
-        var isNarrow = availableSize.X < 720f;
-        if (_isNarrow != isNarrow) ApplyResponsiveStructure(isNarrow);
-        return base.MeasureOverride(availableSize);
-    }
-
-    private void ApplyResponsiveStructure(bool isNarrow)
-    {
-        _isNarrow = isNarrow;
-        ColumnDefinitions.Clear();
-        RowDefinitions.Clear();
-        if (isNarrow)
-        {
-            ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-            RowDefinitions.Add(new GridLength(0.55f, GridUnitType.Star));
-            RowDefinitions.Add(new GridLength(0.45f, GridUnitType.Star));
-            if (Sidebar != null) { SetColumn(Sidebar, 0); SetRow(Sidebar, 0); }
-            if (Workspace != null) { SetColumn(Workspace, 0); SetRow(Workspace, 1); }
-        }
-        else
-        {
-            ColumnDefinitions.Add(new GridLength(300f, GridUnitType.Absolute));
-            ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-            RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-            if (Sidebar != null) { SetColumn(Sidebar, 0); SetRow(Sidebar, 0); }
-            if (Workspace != null) { SetColumn(Workspace, 1); SetRow(Workspace, 0); }
-        }
-    }
 }
 
 public static class Mesh3DViewerPage
@@ -741,8 +708,7 @@ public static class Mesh3DViewerPage
         animStack.AddChild(animChk);
         sidebarStack.AddChild(animStack);
 
-        mainGrid.AddChild(sidebar);
-        Grid.SetColumn(sidebar, 0);
+        mainGrid.PaneContent = sidebar;
 
         // 2. MAIN 4-WAY SPLIT VIEW WORKSPACE (3x3 CAD NESTED GRIDS FOR SPLITTING)
         _viewportsGrid = new Grid { Margin = new Thickness(16f) };
@@ -1038,10 +1004,7 @@ public static class Mesh3DViewerPage
         Grid.SetRow(_rowSplitterRight, 1);
         Grid.SetColumn(_rowSplitterRight, 0);
 
-        mainGrid.AddChild(_viewportsGrid);
-        Grid.SetColumn(_viewportsGrid, 1);
-        mainGrid.Sidebar = sidebar;
-        mainGrid.Workspace = _viewportsGrid;
+        mainGrid.MainContent = _viewportsGrid;
 
         // Populate initial 3D geometries and register layout animation callbacks
         UpdateViewportModels();

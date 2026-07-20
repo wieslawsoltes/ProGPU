@@ -16,7 +16,7 @@ using Microsoft.UI.Xaml.Documents;
 
 namespace ProGPU.Samples
 {
-    public class ShaderToyPlaygroundPageGrid : Grid, IAnimatedElement
+    public class ShaderToyPlaygroundPageGrid : ResponsiveSplitView, IAnimatedElement
     {
         private readonly ShaderToyControl _toyControl;
         private readonly RichEditBox _editor;
@@ -75,10 +75,8 @@ namespace ProGPU.Samples
             _pauseBtn.Content = new TextBlock { Text = "Pause", Font = AppState._font, FontSize = 11f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
 
             Margin = new Thickness(12);
-
-            // Columns: Left (Code & Controls) / Right (Canvas & Console)
-            ColumnDefinitions.Add(new GridLength(460, GridUnitType.Absolute));
-            ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
+            OpenPaneLength = 460f;
+            CompactModeThreshold = 900f;
 
             // ----------------------------------------------------
             // LEFT COLUMN: Controls & Code Editor
@@ -243,8 +241,7 @@ namespace ProGPU.Samples
             leftGrid.AddChild(editorBorder);
             Grid.SetRow(editorBorder, 2);
 
-            AddChild(leftGrid);
-            Grid.SetColumn(leftGrid, 0);
+            PaneContent = leftGrid;
 
             // ----------------------------------------------------
             // RIGHT COLUMN: Live Canvas & Console Log
@@ -288,8 +285,7 @@ namespace ProGPU.Samples
             rightGrid.AddChild(consoleCard);
             Grid.SetRow(consoleCard, 1);
 
-            AddChild(rightGrid);
-            Grid.SetColumn(rightGrid, 1);
+            MainContent = rightGrid;
 
             // Handle dropdown Preset changes
             presetCombo.SelectionChanged += (s, e) =>

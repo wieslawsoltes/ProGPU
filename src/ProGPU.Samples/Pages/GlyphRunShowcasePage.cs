@@ -150,10 +150,6 @@ public static class GlyphRunShowcasePage
 {
     public static FrameworkElement Create()
     {
-        var grid = new Microsoft.UI.Xaml.Controls.Grid();
-        grid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Left adjust panel
-        grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // Right Visual preview
-
         var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
 
         var title = new RichTextBlock { Font = AppState._font, FontSize = 15f, Margin = new Thickness(0, 0, 0, 5) };
@@ -316,9 +312,6 @@ public static class GlyphRunShowcasePage
         };
         leftStack.AddChild(animBtn);
 
-        grid.AddChild(leftStack);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
-
         var previewContainer = new Border
         {
             CornerRadius = 8f,
@@ -329,13 +322,15 @@ public static class GlyphRunShowcasePage
             Child = visual
         };
 
-        grid.AddChild(previewContainer);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(previewContainer, 1);
-
         // We can hook a global loop or animation tick to this visual in the Page lifecycle
         // Since FrameworkElement has layout animation tick, we can hook it up via MainWindowController OnWindowUpdate.
         // Handled automatically via IAnimatedElement traversal in UpdateSampleAnimations.
 
-        return grid;
+        return new ResponsiveSplitView
+        {
+            OpenPaneLength = 300f,
+            PaneContent = leftStack,
+            MainContent = previewContainer
+        };
     }
 }

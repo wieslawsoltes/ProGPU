@@ -25,10 +25,6 @@ public static class FrameworkEffectsPage
 {
         public static FrameworkElement Create()
         {
-            var grid = new Microsoft.UI.Xaml.Controls.Grid();
-            grid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Adjustments panel
-            grid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));      // Effect Showroom
-    
             // ================= LEFT: Adjustments Panel =================
             var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
             
@@ -91,9 +87,6 @@ public static class FrameworkEffectsPage
             colorButtonsStack.AddChild(greenBtn);
     
             leftStack.AddChild(colorButtonsStack);
-            grid.AddChild(leftStack);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
-    
             // ================= RIGHT: Effect Showroom =================
             var showroomGrid = new Microsoft.UI.Xaml.Controls.Grid { Margin = new Thickness(12) };
             showroomGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
@@ -214,9 +207,6 @@ public static class FrameworkEffectsPage
             showroomGrid.AddChild(blurCard);
             Microsoft.UI.Xaml.Controls.Grid.SetColumn(blurCard, 2);
     
-            grid.AddChild(showroomGrid);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(showroomGrid, 1);
-    
             // ================= Interactivity Hookups =================
             blurSlider.ValueChanged += (s, e) =>
             {
@@ -285,6 +275,11 @@ public static class FrameworkEffectsPage
                 neonCard.Invalidate();
             };
     
-            return grid;
+            return new ResponsiveSplitView
+            {
+                OpenPaneLength = 300f,
+                PaneContent = leftStack,
+                MainContent = showroomGrid
+            };
         }
 }

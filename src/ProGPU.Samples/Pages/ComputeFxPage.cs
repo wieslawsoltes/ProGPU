@@ -27,10 +27,6 @@ public static class ComputeFxPage
         {
             MainWindowController.EnsureEffectResources();
 
-            var grid = new Microsoft.UI.Xaml.Controls.Grid();
-            grid.ColumnDefinitions.Add(new GridLength(280, GridUnitType.Absolute)); // Compute adjust sliders
-            grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // WebGPU offscreen effect canvas
-    
             var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
             var computeTitle = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
             computeTitle.Inlines.Add(new Bold(new Run("WGSL Compute Accelerator")));
@@ -112,9 +108,6 @@ public static class ComputeFxPage
             };
             leftStack.AddChild(toggleAnimBtn);
     
-            grid.AddChild(leftStack);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
-    
             // Center WebGPU texture offscreen render Canvas (Column 1)
             AppState._gearCanvasVisual ??= new GearCanvasVisual(AppState._font!)
             {
@@ -134,9 +127,11 @@ public static class ComputeFxPage
                 Child = displayCanvas
             };
     
-            grid.AddChild(canvasContainer);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(canvasContainer, 1);
-    
-            return grid;
+            return new ResponsiveSplitView
+            {
+                OpenPaneLength = 280f,
+                PaneContent = leftStack,
+                MainContent = canvasContainer
+            };
         }
 }

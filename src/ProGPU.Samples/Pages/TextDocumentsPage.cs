@@ -25,10 +25,6 @@ public static class TextDocumentsPage
 {
         public static FrameworkElement Create()
         {
-            var grid = new Microsoft.UI.Xaml.Controls.Grid();
-            grid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));
-            grid.ColumnDefinitions.Add(new GridLength(1.1f, GridUnitType.Star));
-    
             // Column 0: Interactive text typing editors
             var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
             
@@ -123,9 +119,6 @@ public static class TextDocumentsPage
             actionBtns2.AddChild(cutBtn);
             actionBtns2.AddChild(pasteBtn);
             leftStack.AddChild(actionBtns2);
-    
-            grid.AddChild(leftStack);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
     
             // Column 1: Multi-column FlowDocument
             var rightStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8) };
@@ -223,9 +216,11 @@ public static class TextDocumentsPage
             docBorder.Child = flowDoc;
             rightStack.AddChild(docBorder);
     
-            grid.AddChild(rightStack);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(rightStack, 1);
-    
-            return grid;
+            return new ResponsiveSplitView
+            {
+                OpenPaneLength = 420f,
+                PaneContent = leftStack,
+                MainContent = rightStack
+            };
         }
 }

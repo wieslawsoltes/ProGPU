@@ -207,9 +207,12 @@ namespace ProGPU.Samples
             Microsoft.UI.Xaml.Controls.Grid.SetRow(configBar, 1);
 
             // ================= ROW 2: DUAL-PANE EDITOR & PREVIEW =================
-            var workspaceGrid = new Microsoft.UI.Xaml.Controls.Grid { Margin = new Thickness(12) };
-            workspaceGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star)); // Left Pane: Editor
-            workspaceGrid.ColumnDefinitions.Add(new GridLength(1.1f, GridUnitType.Star)); // Right Pane: Previewer
+            var workspaceSplit = new ResponsiveSplitView
+            {
+                Margin = new Thickness(12),
+                OpenPaneLength = 460f,
+                CompactModeThreshold = 900f
+            };
 
             // LEFT PANE: EDITOR CARD WITH TOOLBAR (using Grid to fill panel space dynamically)
             var editorContainerGrid = new Microsoft.UI.Xaml.Controls.Grid { Margin = new Thickness(0, 0, 10, 0) };
@@ -269,8 +272,7 @@ namespace ProGPU.Samples
                 : string.Empty));
             editorContainerGrid.AddChild(_editorControl);
             Microsoft.UI.Xaml.Controls.Grid.SetRow(_editorControl, 1);
-            workspaceGrid.AddChild(editorContainerGrid);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(editorContainerGrid, 0);
+            workspaceSplit.PaneContent = editorContainerGrid;
 
             // RIGHT PANE: PREVIEW CARD
             var previewBorder = new Border
@@ -300,11 +302,10 @@ namespace ProGPU.Samples
                 : string.Empty;
             _previewScroll.Content = _previewControl;
 
-            workspaceGrid.AddChild(previewBorder);
-            Microsoft.UI.Xaml.Controls.Grid.SetColumn(previewBorder, 1);
+            workspaceSplit.MainContent = previewBorder;
 
-            rootGrid.AddChild(workspaceGrid);
-            Microsoft.UI.Xaml.Controls.Grid.SetRow(workspaceGrid, 2);
+            rootGrid.AddChild(workspaceSplit);
+            Microsoft.UI.Xaml.Controls.Grid.SetRow(workspaceSplit, 2);
 
             // ================= ASYNC ACTIONS & PRESETS SYNC =================
 

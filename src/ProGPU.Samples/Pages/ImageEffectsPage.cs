@@ -19,10 +19,6 @@ public static class ImageEffectsPage
     {
         MainWindowController.EnsureEffectResources();
 
-        var grid = new Microsoft.UI.Xaml.Controls.Grid();
-        grid.ColumnDefinitions.Add(new GridLength(300, GridUnitType.Absolute)); // Adjust sliders
-        grid.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));      // Live Preview Area
-
         var leftStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12) };
         
         var title = new RichTextBlock { Font = AppState._font, FontSize = 14f, Margin = new Thickness(0, 0, 0, 5) };
@@ -148,9 +144,6 @@ public static class ImageEffectsPage
         };
         leftStack.AddChild(blurSlider);
 
-        grid.AddChild(leftStack);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(leftStack, 0);
-
         // Right Preview Area (Column 1)
         var previewContainer = new Border
         {
@@ -162,9 +155,11 @@ public static class ImageEffectsPage
             Child = previewImage
         };
 
-        grid.AddChild(previewContainer);
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(previewContainer, 1);
-
-        return grid;
+        return new ResponsiveSplitView
+        {
+            OpenPaneLength = 300f,
+            PaneContent = leftStack,
+            MainContent = previewContainer
+        };
     }
 }

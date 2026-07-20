@@ -463,9 +463,7 @@ public static class DxfViewerPage
     {
         var mainGrid = new Grid();
 
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new GridLength(280f, GridUnitType.Absolute)); // Sidebar
-        grid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Main canvas card
+        var grid = new ResponsiveSplitView { OpenPaneLength = 280f };
 
         mainGrid.AddChild(grid);
 
@@ -618,13 +616,11 @@ public static class DxfViewerPage
         _statusText.Inlines.Add(new Run("Status: Ready"));
         sidebarStack.AddChild(_statusText);
 
-        grid.AddChild(sidebarCard);
-        Grid.SetColumn(sidebarCard, 0);
+        grid.PaneContent = sidebarCard;
 
         // 2. MAIN CAD CANVAS PANEL
         _canvas = new DxfCanvasControl();
-        grid.AddChild(_canvas);
-        Grid.SetColumn(_canvas, 1);
+        grid.MainContent = _canvas;
 
         // Hookup actions
         sampleBtn.Click += (s, e) =>
