@@ -211,7 +211,8 @@ namespace ProGPU.Samples
             {
                 Margin = new Thickness(12),
                 OpenPaneLength = 460f,
-                CompactModeThreshold = 900f
+                CompactModeThreshold = 900f,
+                IsPaneScrollEnabled = false
             };
 
             // LEFT PANE: EDITOR CARD WITH TOOLBAR (using Grid to fill panel space dynamically)

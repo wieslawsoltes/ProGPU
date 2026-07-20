@@ -223,6 +223,7 @@ public class Mesh3DViewerPageGrid : ResponsiveSplitView, IAnimatedElement
     {
         OpenPaneLength = 300f;
         CompactModeThreshold = 720f;
+        IsPaneScrollEnabled = false;
     }
 
     public void Update(float delta)

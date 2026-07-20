@@ -77,6 +77,7 @@ namespace ProGPU.Samples
             Margin = new Thickness(12);
             OpenPaneLength = 460f;
             CompactModeThreshold = 900f;
+            IsPaneScrollEnabled = false;
 
             // ----------------------------------------------------
             // LEFT COLUMN: Controls & Code Editor
