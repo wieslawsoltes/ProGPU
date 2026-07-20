@@ -108,6 +108,81 @@ public sealed class TouchGestureResponsiveTests
     }
 
     [Fact]
+    public void TouchCanDragAndPageVerticalAndHorizontalScrollBars()
+    {
+        var verticalContent = new Border { Width = 220, Height = 900 };
+        var vertical = new ScrollViewer { Content = verticalContent, Width = 220, Height = 180 };
+        ArrangeRoot(vertical, new Vector2(220, 180));
+        UseInputRoot(vertical);
+
+        // Twenty-five pixels from the edge is intentionally outside the mouse hit strip,
+        // but inside the expanded touch target around the first thumb.
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 70, 195, 18, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 70, 195, 90, 20_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 70, 195, 90, 30_000, false));
+        Assert.InRange(vertical.VerticalOffset, 350f, 370f);
+
+        vertical.VerticalOffset = 0f;
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 71, 195, 150, 50_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 71, 195, 150, 60_000, false));
+        Assert.InRange(vertical.VerticalOffset, 160f, 164f);
+
+        var horizontalContent = new Border { Width = 900, Height = 100 };
+        var horizontal = new ScrollViewer { Content = horizontalContent, Width = 220, Height = 100 };
+        ArrangeRoot(horizontal, new Vector2(220, 100));
+        UseInputRoot(horizontal);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 72, 18, 75, 100_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 72, 90, 75, 120_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 72, 90, 75, 130_000, false));
+        Assert.InRange(horizontal.HorizontalOffset, 290f, 300f);
+    }
+
+    [Fact]
+    public void DataGridTouchCanDragThumbAndPageTrackWithoutSelectingRows()
+    {
+        var dataGrid = new DataGrid { Width = 320, Height = 180 };
+        dataGrid.Columns.Add(new DataGridColumn("Value", 280f, "Value"));
+        for (var index = 0; index < 100; index++) dataGrid.ItemsSource.Add($"Row {index}");
+        ArrangeRoot(dataGrid, new Vector2(320, 180));
+        UseInputRoot(dataGrid);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 73, 295, 44, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 73, 295, 110, 20_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 73, 295, 110, 30_000, false));
+        Assert.True(dataGrid.ScrollOffset > 1_300f);
+        Assert.Equal(-1, dataGrid.SelectedIndex);
+
+        dataGrid.ScrollOffset = 0f;
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 74, 295, 150, 50_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 74, 295, 150, 60_000, false));
+        Assert.InRange(dataGrid.ScrollOffset, 132f, 134f);
+        Assert.Equal(-1, dataGrid.SelectedIndex);
+    }
+
+    [Fact]
+    public void StandaloneVirtualizingPanelScrollbarAcceptsTouchDrag()
+    {
+        var panel = new VirtualizingStackPanel
+        {
+            Width = 220,
+            Height = 180,
+            ItemsCount = 100,
+            ItemHeight = 40f,
+            CreateVisualFactory = static () => new Border(),
+            BindVisualCallback = static (_, _) => { }
+        };
+        ArrangeRoot(panel, new Vector2(220, 180));
+        UseInputRoot(panel);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 75, 195, 18, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Moved, 75, 195, 90, 20_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 75, 195, 90, 30_000, false));
+
+        Assert.True(panel.ScrollOffset > 1_500f);
+    }
+
+    [Fact]
     public void TouchTapActivatesButtonsTogglesCheckBoxesAndDropDowns()
     {
         var button = new Button
@@ -137,6 +212,57 @@ public sealed class TouchGestureResponsiveTests
         comboBox.Items.Add(new ComboBoxItem("One"));
         Tap(comboBox, 5, 20, 20);
         Assert.True(comboBox.IsDropDownOpen);
+    }
+
+    [Fact]
+    public void TouchClickClearsTransientStatesAndDoesNotUseKeyboardFocusVisuals()
+    {
+        var button = new Button { Width = 120, Height = 48, Content = new Border() };
+        ArrangeRoot(button, new Vector2(120, 48));
+        UseInputRoot(button);
+        var normalBorder = button.GetCurrentBorderBrush();
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 76, 20, 20, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 76, 20, 20, 30_000, false));
+
+        Assert.True(button.IsFocused);
+        Assert.False(InputSystem.IsKeyboardFocusActive);
+        Assert.False(button.IsPointerPressed);
+        Assert.False(button.IsPointerOver);
+        Assert.Same(normalBorder, button.GetCurrentBorderBrush());
+    }
+
+    [Fact]
+    public void RadioButtonDefaultsContentToLeftAlignment()
+    {
+        var content = new Border { Width = 80, Height = 20 };
+        var radioButton = new RadioButton { Width = 360, Height = 40, Content = content };
+        ArrangeRoot(radioButton, new Vector2(360, 40));
+
+        Assert.Equal(HorizontalAlignment.Left, radioButton.HorizontalContentAlignment);
+        Assert.InRange(content.Offset.X, 0f, 12f);
+    }
+
+    [Fact]
+    public void RatingControlTouchTapSelectsEveryRatingIncludingOneWithoutMove()
+    {
+        var rating = new RatingControl { Width = 118, Height = 28, MaxRating = 5 };
+        ArrangeRoot(rating, new Vector2(118, 28));
+        UseInputRoot(rating);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 77, 13, 13, 1_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 77, 13, 13, 20_000, false));
+        Assert.Equal(1d, rating.Value);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 78, 34, 13, 30_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 78, 34, 13, 40_000, false));
+        Assert.Equal(2d, rating.Value);
+
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 79, 105, 13, 50_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 79, 105, 13, 60_000, false));
+        Assert.Equal(5d, rating.Value);
+        Assert.False(rating.IsPointerPressed);
+        Assert.False(rating.IsPointerOver);
     }
 
     [Fact]
