@@ -96,6 +96,25 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserTerminalPointersDiscardQueuedMovesBeforeImmediateDispatch()
+    {
+        var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
+
+        Assert.Contains("function discardQueuedPointerMoves(pointerId)", browserAsset, StringComparison.Ordinal);
+        Assert.Equal(2, browserAsset.Split("if (state.dispatchImmediatePointer) discardQueuedPointerMoves(event.pointerId);", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void BrowserTextSinkIncludesCanvasOriginBeforeViewportClamping()
+    {
+        var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
+
+        Assert.Contains("const canvasBounds = state.canvas?.getBoundingClientRect();", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const sinkX = (canvasBounds?.left || 0) + x;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const sinkY = (canvasBounds?.top || 0) + y + height;", browserAsset, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BrowserHostRegistersBundledInterForSkiaSharpDefaults()
     {
         var browserHost = Read("src", "ProGPU.Browser", "BrowserWindowHost.cs");

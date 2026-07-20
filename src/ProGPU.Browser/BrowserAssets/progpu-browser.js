@@ -424,6 +424,13 @@ function dispatchPointerEvent(kind, event, point) {
   queuePointerEvent(kind, event, point);
 }
 
+function discardQueuedPointerMoves(pointerId) {
+  for (let index = state.inputEvents.length - 1; index >= 0; index--) {
+    const queued = state.inputEvents[index];
+    if (queued.kind === 1 && queued.data === pointerId) state.inputEvents.splice(index, 1);
+  }
+}
+
 function installBrowserInput() {
   if (state.inputInstalled) return;
   state.inputInstalled = true;
@@ -456,12 +463,14 @@ function installBrowserInput() {
   });
   state.canvas.addEventListener('pointerup', event => {
     const point = pointerPosition(event);
+    if (state.dispatchImmediatePointer) discardQueuedPointerMoves(event.pointerId);
     dispatchPointerEvent(3, event, point);
     try { state.canvas.releasePointerCapture(event.pointerId); } catch { }
     event.preventDefault();
   });
   state.canvas.addEventListener('pointercancel', event => {
     const point = pointerPosition(event);
+    if (state.dispatchImmediatePointer) discardQueuedPointerMoves(event.pointerId);
     dispatchPointerEvent(9, event, point);
     try { state.canvas.releasePointerCapture(event.pointerId); } catch { }
     event.preventDefault();
@@ -580,8 +589,11 @@ function configureTextInput(inputMode, enterKeyHint, autoCapitalize, spellCheck,
   const viewportTop = viewport?.offsetTop || 0;
   const viewportWidth = viewport?.width || globalThis.innerWidth;
   const viewportHeight = viewport?.height || globalThis.innerHeight;
-  textSink.style.left = `${Math.max(viewportLeft, Math.min(viewportLeft + viewportWidth - 2, x))}px`;
-  textSink.style.top = `${Math.max(viewportTop, Math.min(viewportTop + viewportHeight - 2, y + height))}px`;
+  const canvasBounds = state.canvas?.getBoundingClientRect();
+  const sinkX = (canvasBounds?.left || 0) + x;
+  const sinkY = (canvasBounds?.top || 0) + y + height;
+  textSink.style.left = `${Math.max(viewportLeft, Math.min(viewportLeft + viewportWidth - 2, sinkX))}px`;
+  textSink.style.top = `${Math.max(viewportTop, Math.min(viewportTop + viewportHeight - 2, sinkY))}px`;
   textSink.style.width = `${Math.max(2, Math.min(width || 2, viewportWidth))}px`;
   textSink.style.height = '2px';
   textSink.value = '';
