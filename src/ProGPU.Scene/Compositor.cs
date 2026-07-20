@@ -172,6 +172,7 @@ public readonly record struct RenderTargetViewport(float X, float Y, float Width
 
 public unsafe class Compositor : IDisposable
 {
+    private const float MaximumGlyphAtlasRasterSize = 128f;
     public enum VectorRenderingEngine
     {
         Atlas,
@@ -386,9 +387,11 @@ public unsafe class Compositor : IDisposable
         // Rasterize ordinary atlas text at its actual physical size. Coarsely
         // quantizing high-DPI UI text (for example 11 DIP * 3 = 33 px) and then
         // scaling the bitmap back to the requested size softens every edge. The
-        // atlas remains bounded by its existing capacity/LRU policy, while text
-        // above the 64 px bitmap ceiling continues through the vector fallback.
-        return Math.Clamp(targetRasterFontSize, 4f, 64f);
+        // atlas remains bounded by its existing capacity/LRU policy. Keeping
+        // common mobile display text (for example 26 DIP at DPR 3) in the glyph
+        // atlas also lets viewport culling run before residency is requested;
+        // exceptionally large text continues through the vector fallback.
+        return Math.Clamp(targetRasterFontSize, 4f, MaximumGlyphAtlasRasterSize);
     }
 
     private readonly List<StaticTextRecord> _compiledTextRecords = new();
@@ -5569,7 +5572,8 @@ SceneStateUploadComplete:
         RenderCommand cmd,
         Matrix4x4 transform,
         uint subpixelPhaseGrid = PathAtlas.DefaultSubpixelPhaseGrid,
-        bool quantizeScale = false)
+        bool quantizeScale = false,
+        float rasterScale = 1f)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Path == null) return;
@@ -5633,12 +5637,18 @@ SceneStateUploadComplete:
                 scaleX = scaleY = Math.Max(scaleX, scaleY);
             }
 
+            rasterScale = float.IsFinite(rasterScale) && rasterScale > 0f
+                ? rasterScale
+                : 1f;
+            scaleX *= rasterScale;
+            scaleY *= rasterScale;
+
             var info = _pathAtlas.GetOrCreatePath(
                 cmd.Path,
                 scaleX,
                 scaleY,
-                GetSubpixelPhase(transform.M41),
-                GetSubpixelPhase(transform.M42),
+                GetSubpixelPhase(transform.M41 * rasterScale),
+                GetSubpixelPhase(transform.M42 * rasterScale),
                 cmd.PathSampleGrid,
                 subpixelPhaseGrid,
                 quantizeScale);
@@ -5739,7 +5749,12 @@ SceneStateUploadComplete:
                     }
                 }
 
-                CompilePathCommand(dashedCmd, transform);
+                CompilePathCommand(
+                    dashedCmd,
+                    transform,
+                    subpixelPhaseGrid,
+                    quantizeScale,
+                    rasterScale);
                 return;
             }
 
@@ -9401,6 +9416,9 @@ SceneStateUploadComplete:
             rasterFontSize = ResolveGlyphRasterSize(logicalTargetSize);
             atlasToLogicalScale = cmd.FontSize / MathF.Max(rasterFontSize, 0.0001f);
         }
+        var vectorGlyphRasterScale = cmd.UseLogicalGlyphAtlasResolution
+            ? (float.IsFinite(staticZoom) && staticZoom > 0f ? staticZoom : 1f)
+            : dpiScale;
         var fontScaleX = cmd.HasFontTransform && float.IsFinite(cmd.FontTransform.X)
             ? cmd.FontTransform.X
             : 1f;
@@ -9442,6 +9460,15 @@ SceneStateUploadComplete:
 
             if (colorLayers != null && colorLayers.Count > 0)
             {
+                if (IsVectorGlyphOutsideActiveClip(
+                    runGlyph.Position + cmd.Position,
+                    cmd.FontSize,
+                    activeTransform,
+                    fontScaleX))
+                {
+                    continue;
+                }
+
                 for (int layerIndex = 0; layerIndex < colorLayers.Count; layerIndex++)
                 {
                     var layer = colorLayers[layerIndex];
@@ -9470,7 +9497,12 @@ SceneStateUploadComplete:
                             : PathAtlas.HighPrecisionCoverageSampleGrid,
                         PathCoverageGamma = textPathCoverageGamma
                     };
-                    CompilePathCommand(pathCmd, activeTransform);
+                    CompilePathCommand(
+                        pathCmd,
+                        activeTransform,
+                        subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
+                        quantizeScale: true,
+                        rasterScale: vectorGlyphRasterScale);
                 }
 
                 continue;
@@ -9528,7 +9560,8 @@ SceneStateUploadComplete:
                     glyphItalicSkew,
                     textPathCoverageGamma,
                     activeTransform,
-                    fontScaleX);
+                    fontScaleX,
+                    vectorGlyphRasterScale);
 
                 continue;
             }
@@ -9563,7 +9596,8 @@ SceneStateUploadComplete:
                     glyphItalicSkew,
                     textPathCoverageGamma,
                     activeTransform,
-                    fontScaleX);
+                    fontScaleX,
+                    vectorGlyphRasterScale);
                 continue;
             }
             var glyphAtlasScale = atlasToLogicalScale * (info.RasterScale > 0f ? info.RasterScale : 1f);
@@ -9642,6 +9676,9 @@ SceneStateUploadComplete:
             rasterFontSize = ResolveGlyphRasterSize(logicalTargetSize);
             atlasToLogicalScale = cmd.FontSize / MathF.Max(rasterFontSize, 0.0001f);
         }
+        var vectorGlyphRasterScale = cmd.UseLogicalGlyphAtlasResolution
+            ? (float.IsFinite(staticZoom) && staticZoom > 0f ? staticZoom : 1f)
+            : dpiScale;
         var fontScaleX = cmd.HasFontTransform && float.IsFinite(cmd.FontTransform.X)
             ? cmd.FontTransform.X
             : 1f;
@@ -9684,6 +9721,15 @@ SceneStateUploadComplete:
 
             if (colorLayers != null && colorLayers.Count > 0)
             {
+                if (IsVectorGlyphOutsideActiveClip(
+                    position + cmd.Position,
+                    cmd.FontSize,
+                    activeTransform,
+                    fontScaleX))
+                {
+                    continue;
+                }
+
                 for (int layerIndex = 0; layerIndex < colorLayers.Count; layerIndex++)
                 {
                     var layer = colorLayers[layerIndex];
@@ -9712,7 +9758,12 @@ SceneStateUploadComplete:
                             : PathAtlas.HighPrecisionCoverageSampleGrid,
                         PathCoverageGamma = textPathCoverageGamma
                     };
-                    CompilePathCommand(pathCmd, activeTransform);
+                    CompilePathCommand(
+                        pathCmd,
+                        activeTransform,
+                        subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
+                        quantizeScale: true,
+                        rasterScale: vectorGlyphRasterScale);
                 }
 
                 continue;
@@ -9750,7 +9801,8 @@ SceneStateUploadComplete:
                     glyphItalicSkew,
                     textPathCoverageGamma,
                     activeTransform,
-                    fontScaleX);
+                    fontScaleX,
+                    vectorGlyphRasterScale);
 
                 continue;
             }
@@ -9788,7 +9840,8 @@ SceneStateUploadComplete:
                     glyphItalicSkew,
                     textPathCoverageGamma,
                     activeTransform,
-                    fontScaleX);
+                    fontScaleX,
+                    vectorGlyphRasterScale);
                 continue;
             }
             var glyphAtlasScale = atlasToLogicalScale * (info.RasterScale > 0f ? info.RasterScale : 1f);
@@ -9846,6 +9899,19 @@ SceneStateUploadComplete:
         float clipRight = clip.X + clip.Width;
         float clipBottom = clip.Y + clip.Height;
         return maxX <= clip.X || minX >= clipRight || maxY <= clip.Y || minY >= clipBottom;
+    }
+
+    private bool IsVectorGlyphOutsideActiveClip(
+        Vector2 position,
+        float fontSize,
+        Matrix4x4 transform,
+        float scaleX)
+    {
+        var transformedPosition = Vector2.Transform(position, transform);
+        var transformedFontSize = fontSize
+            * TransformMetrics.GetStrokeScale(transform)
+            * MathF.Max(1f, MathF.Abs(scaleX));
+        return IsTextGlyphOutsideActiveClip(transformedPosition, transformedFontSize);
     }
 
     private static bool TryCompileRetainedGlyph(
@@ -9906,8 +9972,18 @@ SceneStateUploadComplete:
         float italicSkew,
         float pathCoverageGamma,
         Matrix4x4 activeTransform,
-        float scaleX)
+        float scaleX,
+        float rasterScale)
     {
+        if (IsVectorGlyphOutsideActiveClip(
+            position,
+            command.FontSize,
+            activeTransform,
+            scaleX))
+        {
+            return;
+        }
+
         var outline = font.GetGlyphOutline(glyphIndex);
         if (outline is null)
         {
@@ -9927,7 +10003,8 @@ SceneStateUploadComplete:
                 pass * boldOffset,
                 pathCoverageGamma,
                 activeTransform,
-                scaleX);
+                scaleX,
+                rasterScale);
         }
     }
 
@@ -9940,7 +10017,8 @@ SceneStateUploadComplete:
         float xOffset,
         float pathCoverageGamma,
         Matrix4x4 activeTransform,
-        float scaleX = 1f)
+        float scaleX = 1f,
+        float rasterScale = 1f)
     {
         var positioned = position + new Vector2(xOffset, 0f);
         PathGeometry positionedOutline;
@@ -10007,7 +10085,8 @@ SceneStateUploadComplete:
             },
             placementTransform,
             subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
-            quantizeScale: true);
+            quantizeScale: true,
+            rasterScale: rasterScale);
     }
 
     private static float GetTextPathCoverageGamma(
