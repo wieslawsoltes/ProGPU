@@ -257,6 +257,7 @@ public class RichTextBlock : FrameworkElement
 
     private float _fontSize = 14f;
     private TextAlignment _textAlignment = TextAlignment.Left;
+    private TextWrapping _textWrapping = TextWrapping.Wrap;
     private readonly List<PositionedRichChar> _positionedChars = new();
     private readonly List<TableVisualDecoration> _tableDecorations = new();
     private readonly DrawingContext _renderCommandCache = new();
@@ -359,6 +360,18 @@ public class RichTextBlock : FrameworkElement
         }
     }
 
+    public TextWrapping TextWrapping
+    {
+        get => _textWrapping;
+        set
+        {
+            if (_textWrapping == value) return;
+            _textWrapping = value;
+            _isLayoutDirty = true;
+            Invalidate();
+        }
+    }
+
     public List<PositionedRichChar> PositionedChars => _positionedChars;
 
     public override Rect? LocalRenderBounds
@@ -431,6 +444,8 @@ public class RichTextBlock : FrameworkElement
 
         float measuredH = 0f;
         float measuredW = 0f;
+        float? firstLineY = null;
+        bool hasMultipleLines = false;
         foreach (var pc in _positionedChars)
         {
             float adv = 0f;
@@ -446,6 +461,13 @@ public class RichTextBlock : FrameworkElement
             }
             measuredW = Math.Max(measuredW, pc.Position.X + adv);
             measuredH = Math.Max(measuredH, pc.Position.Y + pc.Info.FontSize);
+            firstLineY ??= pc.Position.Y;
+            hasMultipleLines |= Math.Abs(pc.Position.Y - firstLineY.Value) > 0.01f;
+        }
+
+        if (TextWrapping != TextWrapping.NoWrap && hasMultipleLines && !float.IsInfinity(maxW))
+        {
+            measuredW = Math.Max(measuredW, maxW);
         }
 
         return new Vector2(measuredW, measuredH + 4f);
@@ -532,12 +554,13 @@ public class RichTextBlock : FrameworkElement
             FontSize, 
             Foreground, 
             TextAlignment, 
-            this.ActualTheme, 
-            _positionedChars, 
-            _tableDecorations, 
-            this, 
-            AddChild, 
-            RemoveChild);
+            this.ActualTheme,
+            _positionedChars,
+            _tableDecorations,
+            this,
+            AddChild,
+            RemoveChild,
+            TextWrapping);
         _isRenderCommandCacheDirty = true;
     }
 

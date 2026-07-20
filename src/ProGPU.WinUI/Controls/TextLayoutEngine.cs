@@ -175,7 +175,8 @@ namespace Microsoft.UI.Xaml.Controls
             List<TableVisualDecoration> tableDecorations,
             FrameworkElement parent,
             Action<Visual> addChild,
-            Action<Visual> removeChild)
+            Action<Visual> removeChild,
+            TextWrapping textWrapping = TextWrapping.Wrap)
         {
             var blocks = new List<Block> { new Paragraph(inlines.ToArray()) { MarginBottom = 0f } };
             return LayoutSingleColumn(
@@ -191,7 +192,8 @@ namespace Microsoft.UI.Xaml.Controls
                 tableDecorations,
                 parent,
                 addChild,
-                removeChild);
+                removeChild,
+                textWrapping);
         }        private static int GetInlinesLength(IEnumerable<Inline> inlines)
         {
             int len = 0;
@@ -375,7 +377,8 @@ namespace Microsoft.UI.Xaml.Controls
             Action<Visual> addChild,
             HashSet<Visual> encounteredChildren,
             List<PositionedRichChar> blockChars,
-            List<TableVisualDecoration> blockDecorations)
+            List<TableVisualDecoration> blockDecorations,
+            TextWrapping textWrapping)
         {
             blockChars.Clear();
             blockDecorations.Clear();
@@ -580,7 +583,9 @@ namespace Microsoft.UI.Xaml.Controls
                     lastWordStartCursorX = cursorX;
                 }
 
-                if (cursorX + advance > maxWidth - padding.Right && cursorX > padding.Left + rc.LeftIndent)
+                if (textWrapping != TextWrapping.NoWrap &&
+                    cursorX + advance > maxWidth - padding.Right &&
+                    cursorX > padding.Left + rc.LeftIndent)
                 {
                     if (lastWordStart > 0)
                     {
@@ -679,7 +684,8 @@ namespace Microsoft.UI.Xaml.Controls
             List<TableVisualDecoration> tableDecorations,
             FrameworkElement parent,
             Action<Visual> addChild,
-            Action<Visual> removeChild)
+            Action<Visual> removeChild,
+            TextWrapping textWrapping = TextWrapping.Wrap)
         {
             positionedChars.Clear();
             tableDecorations.Clear();
@@ -790,7 +796,7 @@ namespace Microsoft.UI.Xaml.Controls
 
                         if (!isCacheValid)
                         {
-                            LayoutBlock(block, cursorY, maxWidth, padding, activeFont, baseFontSize, resolvedFg, alignment, theme, parent, addChild, encounteredChildren, block.CachedChars, block.CachedDecorations);
+                            LayoutBlock(block, cursorY, maxWidth, padding, activeFont, baseFontSize, resolvedFg, alignment, theme, parent, addChild, encounteredChildren, block.CachedChars, block.CachedDecorations, textWrapping);
                             block.IsLayoutValid = true;
                             block.CachedWidthConstraint = maxWidth;
                             block.CachedTheme = theme;
@@ -850,7 +856,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (!block.IsLayoutValid || Math.Abs(block.CachedWidthConstraint - maxWidth) > 0.01f || block.CachedTheme != theme)
                     {
-                        LayoutBlock(block, blockTop, maxWidth, padding, activeFont, baseFontSize, resolvedFg, alignment, theme, parent, addChild, encounteredChildren, block.CachedChars, block.CachedDecorations);
+                        LayoutBlock(block, blockTop, maxWidth, padding, activeFont, baseFontSize, resolvedFg, alignment, theme, parent, addChild, encounteredChildren, block.CachedChars, block.CachedDecorations, textWrapping);
                         block.IsLayoutValid = true;
                         block.CachedWidthConstraint = maxWidth;
                         block.CachedTheme = theme;

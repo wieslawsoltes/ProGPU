@@ -8,6 +8,13 @@ namespace Microsoft.UI.Xaml
         Collapsed = 1
     }
 
+    public enum TextWrapping
+    {
+        NoWrap = 1,
+        Wrap = 2,
+        WrapWholeWords = 3
+    }
+
     public class UIElement : DependencyObject
     {
         public static readonly DependencyProperty VisibilityProperty =

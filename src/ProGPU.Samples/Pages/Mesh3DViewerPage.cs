@@ -512,7 +512,7 @@ public static class Mesh3DViewerPage
             Background = new ThemeResourceBrush("ControlBackgroundHover")
         };
         var browseBtnRun = new Run("Browse") { FontSize = 12f, Foreground = new ThemeResourceBrush("TextPrimary") };
-        browseBtn.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(browseBtnRun) } };
+        browseBtn.Content = new RichTextBlock { TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(browseBtnRun) } };
         pathGrid.AddChild(browseBtn);
         Grid.SetColumn(browseBtn, 2);
         
@@ -650,7 +650,7 @@ public static class Mesh3DViewerPage
             Background = new ThemeResourceBrush("ControlBackgroundHover")
         };
         var customBtnRun = new Run("Custom") { FontSize = 11f, Foreground = new ThemeResourceBrush("TextPrimary") };
-        customBtn.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(customBtnRun) } };
+        customBtn.Content = new RichTextBlock { TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(customBtnRun) } };
 
         customBtn.Click += (s, e) => { ShowColorPickerPopup(customBtn); };
         colorGrid.AddChild(customBtn);
@@ -1621,7 +1621,7 @@ public static class Mesh3DViewerPage
             Background = new ThemeResourceBrush(mode == LayoutMode3D.Quad ? "ControlBackgroundPressed" : "ControlBackgroundHover")
         };
         var textRun = new Run(label) { FontSize = 10f, Foreground = new ThemeResourceBrush("TextPrimary") };
-        btn.Content = new RichTextBlock { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(textRun) } };
+        btn.Content = new RichTextBlock { TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Inlines = { new Bold(textRun) } };
         btn.Click += (s, e) => { SetLayoutMode(mode); };
         return btn;
     }

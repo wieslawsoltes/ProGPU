@@ -48,7 +48,7 @@ public class ContentControl : Control
             else
             {
                 // Auto-wrap non-FrameworkElement content in a RichTextBlock
-                var tb = new RichTextBlock();
+                var tb = new RichTextBlock { TextWrapping = TextWrapping.NoWrap };
                 tb.Inlines.Add(new Run { Text = newValue.ToString() ?? string.Empty });
                 AddChild(tb);
             }

@@ -697,6 +697,53 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void NoWrapRichTextKeepsControlContentOnOneLine()
+    {
+        var text = new RichTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 14f,
+            TextWrapping = TextWrapping.NoWrap
+        };
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run("Browse"));
+
+        text.Measure(new Vector2(12f, 80f));
+        text.Arrange(new Rect(0f, 0f, 12f, 80f));
+
+        Assert.True(text.DesiredSize.X > 12f);
+        Assert.Single(text.PositionedChars.Select(static character => character.Position.Y).Distinct());
+    }
+
+    [Fact]
+    public void WrappedRichTextRetainsItsFiniteMeasureWidth()
+    {
+        var text = new RichTextBlock
+        {
+            Font = LoadTestFont(),
+            FontSize = 14f,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run("Responsive controls remain readable"));
+
+        text.Measure(new Vector2(64f, 200f));
+        text.Arrange(new Rect(0f, 0f, 160f, 200f));
+
+        Assert.InRange(text.DesiredSize.X, 63.99f, 64.01f);
+        Assert.InRange(text.Size.X, 63.99f, 64.01f);
+        Assert.True(text.PositionedChars.Select(static character => character.Position.Y).Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void ContentPresenterUsesWinUiNoWrapDefaultForTextContent()
+    {
+        var presenter = new ContentPresenter { Content = "Button label" };
+
+        var generatedText = Assert.IsType<RichTextBlock>(Assert.Single(presenter.Children));
+        Assert.Equal(TextWrapping.NoWrap, presenter.TextWrapping);
+        Assert.Equal(TextWrapping.NoWrap, generatedText.TextWrapping);
+    }
+
+    [Fact]
     public void MutableRunInvalidatesAndRelayoutsItsOwningTextBlock()
     {
         var font = LoadTestFont();

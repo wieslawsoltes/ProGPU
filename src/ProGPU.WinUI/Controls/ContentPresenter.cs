@@ -13,6 +13,7 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class ContentPresenter : FrameworkElement
 {
+    private RichTextBlock? _generatedText;
     public static readonly DependencyProperty BackgroundProperty =
         DependencyProperty.Register(
             "Background",
@@ -90,6 +91,11 @@ public class ContentPresenter : FrameworkElement
         {
             RemoveChild(oldFe);
         }
+        else if (_generatedText != null)
+        {
+            RemoveChild(_generatedText);
+            _generatedText = null;
+        }
 
         if (newValue != null)
         {
@@ -100,10 +106,32 @@ public class ContentPresenter : FrameworkElement
             else
             {
                 // Auto-wrap non-FrameworkElement content in a RichTextBlock
-                var tb = new RichTextBlock();
-                tb.Inlines.Add(new Run { Text = newValue.ToString() ?? string.Empty });
-                AddChild(tb);
+                _generatedText = new RichTextBlock { TextWrapping = TextWrapping };
+                _generatedText.Inlines.Add(new Run { Text = newValue.ToString() ?? string.Empty });
+                AddChild(_generatedText);
             }
+        }
+    }
+
+    public static readonly DependencyProperty TextWrappingProperty =
+        DependencyProperty.Register(
+            nameof(TextWrapping),
+            typeof(TextWrapping),
+            typeof(ContentPresenter),
+            new PropertyMetadata(TextWrapping.NoWrap, OnTextWrappingChanged) { AffectsMeasure = true, AffectsArrange = true, AffectsRender = true });
+
+    public TextWrapping TextWrapping
+    {
+        get => (TextWrapping)(GetValue(TextWrappingProperty) ?? TextWrapping.NoWrap);
+        set => SetValue(TextWrappingProperty, value);
+    }
+
+    private static void OnTextWrappingChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var presenter = (ContentPresenter)d;
+        if (presenter._generatedText != null)
+        {
+            presenter._generatedText.TextWrapping = (TextWrapping)(e.NewValue ?? TextWrapping.NoWrap);
         }
     }
 
