@@ -43,6 +43,7 @@ public sealed class TextRenderingModeRenderTests
     [InlineData(11f, 3f, 33f)]
     [InlineData(11.5f, 3f, 34.5f)]
     [InlineData(14f, 2.625f, 36.75f)]
+    [InlineData(26f, 3f, 78f)]
     public void UiTextRasterizationPreservesItsPhysicalFontSize(
         float fontSize,
         float dpiScale,
@@ -253,6 +254,41 @@ public sealed class TextRenderingModeRenderTests
         }
     }
 
+    [Fact]
+    public void HighDpiVectorFallbackRetainsOpaqueThinStemCoverage()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(900, 240);
+        window.Content = new ForcedVectorTextVisual();
+
+        try
+        {
+            window.RenderAtDpi(300, 80, 3f);
+            var pixels = window.ReadPixels();
+            var maximumCoverage = 0;
+            var opaqueCoveragePixels = 0;
+            for (var offset = 0; offset < pixels.Length; offset += 4)
+            {
+                maximumCoverage = Math.Max(maximumCoverage, pixels[offset]);
+                if (pixels[offset] >= 240)
+                {
+                    opaqueCoveragePixels++;
+                }
+            }
+
+            Assert.True(
+                maximumCoverage >= 240,
+                $"Expected device-scale vector text to retain opaque stem coverage, found {maximumCoverage}.");
+            Assert.True(
+                opaqueCoveragePixels >= 100,
+                $"Expected substantial opaque thin-stem coverage, found {opaqueCoveragePixels} pixels.");
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static int CountVisiblePixels(byte[] pixels, int width, int startY, int endY)
     {
         var count = 0;
@@ -295,6 +331,28 @@ public sealed class TextRenderingModeRenderTests
         Microsoft.UI.Xaml.Controls.Grid.SetRow(bold, 1);
 
         return root;
+    }
+
+    private sealed class ForcedVectorTextVisual : FrameworkElement
+    {
+        private readonly TtfFont _font = InterFontFamily.GetVariableFont(100f, 18f);
+
+        public ForcedVectorTextVisual()
+        {
+            Width = 300f;
+            Height = 80f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawText(
+                "Designing clear interfaces 0123456789",
+                _font,
+                26f,
+                new SolidColorBrush(Vector4.One),
+                new Vector2(0f, 36f),
+                useVectorGlyphRendering: true);
+        }
     }
 
     private static bool ContainsSubpixelCoverage(byte[] pixels)

@@ -177,6 +177,23 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void OffscreenVectorGlyphsAreCulledBeforePathAtlasCompilation()
+    {
+        var font = new TtfFont(BuildMissingGlyphOutlineFont());
+        using var window = new HeadlessWindow(64, 48);
+        window.Content = new ClippedGlyphRunVisual(font, useVectorGlyphRendering: true);
+
+        window.Render();
+
+        var compiledGlyphCount = GetDrawCalls(window.Compositor)
+            .Where(static drawCall => drawCall.Type == Compositor.DrawCallType.Vector)
+            .Sum(static drawCall => (long)drawCall.IndexCount) / 6;
+        Assert.Equal(1, compiledGlyphCount);
+        Assert.Equal(1, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+    }
+
+    [Fact]
     public void TextLayoutCacheMemoryStaysBoundedAcrossDistinctVirtualizedRows()
     {
         const int visibleRows = 128;
@@ -5554,10 +5571,12 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     private sealed class ClippedGlyphRunVisual : FrameworkElement
     {
         private readonly TtfFont _font;
+        private readonly bool _useVectorGlyphRendering;
 
-        public ClippedGlyphRunVisual(TtfFont font)
+        public ClippedGlyphRunVisual(TtfFont font, bool useVectorGlyphRendering = false)
         {
             _font = font;
+            _useVectorGlyphRendering = useVectorGlyphRendering;
             Width = 64f;
             Height = 48f;
         }
@@ -5576,7 +5595,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 _font,
                 24f,
                 new SolidColorBrush(Vector4.One),
-                Vector2.Zero);
+                Vector2.Zero,
+                useVectorGlyphRendering: _useVectorGlyphRendering);
             context.PopClip();
         }
     }
