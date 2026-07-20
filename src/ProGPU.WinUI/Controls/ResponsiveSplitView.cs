@@ -79,8 +79,6 @@ public class ResponsiveSplitView : SplitView
 
     public float CompactModeThreshold { get; set; } = 760f;
 
-    public float MinimumCompactOpenPaneLength { get; set; } = 340f;
-
     public float CompactContentRevealLength { get; set; }
 
     public bool IsPaneScrollEnabled
@@ -120,9 +118,7 @@ public class ResponsiveSplitView : SplitView
             }
 
             var availablePaneWidth = Math.Max(0f, width - CompactContentRevealLength);
-            OpenPaneLength = Math.Min(
-                Math.Max(_wideOpenPaneLength, MinimumCompactOpenPaneLength),
-                availablePaneWidth);
+            OpenPaneLength = availablePaneWidth;
         }
         else
         {

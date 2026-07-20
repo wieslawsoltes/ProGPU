@@ -554,7 +554,7 @@ public sealed class TouchGestureResponsiveTests
     {
         var splitView = new ResponsiveSplitView
         {
-            OpenPaneLength = 460f,
+            OpenPaneLength = 300f,
             CompactModeThreshold = 700f,
             PaneContent = new Border(),
             MainContent = new Border()
@@ -563,7 +563,7 @@ public sealed class TouchGestureResponsiveTests
         ArrangeRoot(splitView, new Vector2(900, 400));
         Assert.Equal(SplitViewDisplayMode.Inline, splitView.DisplayMode);
         Assert.True(splitView.IsPaneOpen);
-        Assert.Equal(460f, splitView.Pane?.Size.X);
+        Assert.Equal(300f, splitView.Pane?.Size.X);
 
         ArrangeRoot(splitView, new Vector2(360, 400));
         Assert.Equal(SplitViewDisplayMode.Overlay, splitView.DisplayMode);
