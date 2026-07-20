@@ -81,7 +81,7 @@ public class ResponsiveSplitView : SplitView
 
     public float MinimumCompactOpenPaneLength { get; set; } = 340f;
 
-    public float CompactContentRevealLength { get; set; } = 48f;
+    public float CompactContentRevealLength { get; set; }
 
     public bool IsPaneScrollEnabled
     {

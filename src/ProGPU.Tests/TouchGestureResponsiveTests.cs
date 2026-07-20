@@ -577,9 +577,9 @@ public sealed class TouchGestureResponsiveTests
         Assert.True(splitView.IsPaneOpen);
 
         ArrangeRoot(splitView, new Vector2(360, 400));
-        Assert.Equal(312f, splitView.Pane?.Size.X);
-        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 82, 292, 20, 30_000, true));
-        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 82, 292, 20, 50_000, false));
+        Assert.Equal(360f, splitView.Pane?.Size.X);
+        InputSystem.InjectPointer(Touch(PointerInputKind.Pressed, 82, 340, 20, 30_000, true));
+        InputSystem.InjectPointer(Touch(PointerInputKind.Released, 82, 340, 20, 50_000, false));
         Assert.False(splitView.IsPaneOpen);
     }
 
