@@ -24,6 +24,11 @@ public enum SplitViewDisplayMode
     CompactOverlay
 }
 
+public sealed class SplitViewPaneClosingEventArgs : EventArgs
+{
+    public bool Cancel { get; set; }
+}
+
 public class SplitView : FrameworkElement
 {
     private FrameworkElement? _pane;
@@ -33,6 +38,11 @@ public class SplitView : FrameworkElement
     private float _compactPaneLength = 60f;
     private PanePlacement _panePlacement = PanePlacement.Left;
     private SplitViewDisplayMode _displayMode = SplitViewDisplayMode.Inline;
+
+    public event EventHandler? PaneOpening;
+    public event EventHandler? PaneOpened;
+    public event EventHandler<SplitViewPaneClosingEventArgs>? PaneClosing;
+    public event EventHandler? PaneClosed;
 
     public FrameworkElement? Pane
     {
@@ -71,9 +81,32 @@ public class SplitView : FrameworkElement
         {
             if (_isPaneOpen != value)
             {
+                if (value)
+                {
+                    PaneOpening?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    var closingArgs = new SplitViewPaneClosingEventArgs();
+                    PaneClosing?.Invoke(this, closingArgs);
+                    if (closingArgs.Cancel)
+                    {
+                        return;
+                    }
+                }
+
                 _isPaneOpen = value;
                 Invalidate();
                 InvalidateMeasure();
+
+                if (value)
+                {
+                    PaneOpened?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    PaneClosed?.Invoke(this, EventArgs.Empty);
+                }
             }
         }
     }
@@ -90,6 +123,16 @@ public class SplitView : FrameworkElement
                 InvalidateMeasure();
             }
         }
+    }
+
+    /// <summary>
+    /// Gets or sets the width of the pane when it is open. This is the WinUI-compatible
+    /// name for the legacy <see cref="PaneWidth"/> property.
+    /// </summary>
+    public float OpenPaneLength
+    {
+        get => PaneWidth;
+        set => PaneWidth = value;
     }
 
     public float CompactPaneLength
@@ -136,8 +179,7 @@ public class SplitView : FrameworkElement
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
-        bool hasCompact = DisplayMode == SplitViewDisplayMode.CompactInline || DisplayMode == SplitViewDisplayMode.CompactOverlay;
-        float pW = IsPaneOpen ? PaneWidth : (hasCompact ? CompactPaneLength : 0f);
+        float pW = GetPaneLength(availableSize.X);
 
         if (Pane != null)
         {
@@ -159,8 +201,7 @@ public class SplitView : FrameworkElement
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
-        bool hasCompact = DisplayMode == SplitViewDisplayMode.CompactInline || DisplayMode == SplitViewDisplayMode.CompactOverlay;
-        float pW = IsPaneOpen ? PaneWidth : (hasCompact ? CompactPaneLength : 0f);
+        float pW = GetPaneLength(arrangeRect.Width);
 
         float paneX = arrangeRect.X;
         float contentX = arrangeRect.X;
@@ -201,5 +242,17 @@ public class SplitView : FrameworkElement
         {
             Pane.Arrange(new Rect(paneX, arrangeRect.Y, pW, arrangeRect.Height));
         }
+    }
+
+    private float GetPaneLength(float availableWidth)
+    {
+        bool hasCompact = DisplayMode == SplitViewDisplayMode.CompactInline || DisplayMode == SplitViewDisplayMode.CompactOverlay;
+        float paneLength = IsPaneOpen ? OpenPaneLength : (hasCompact ? CompactPaneLength : 0f);
+        if (!float.IsPositiveInfinity(availableWidth))
+        {
+            paneLength = Math.Min(paneLength, Math.Max(0f, availableWidth));
+        }
+
+        return Math.Max(0f, paneLength);
     }
 }
