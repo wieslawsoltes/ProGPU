@@ -187,6 +187,26 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void DrawTextUsesBoundedGlyphAtlasByDefault()
+    {
+        var font = LoadTestFont();
+        var context = new DrawingContext();
+
+        context.DrawText(
+            "Visible virtualized text",
+            font,
+            13f,
+            new SolidColorBrush(Vector4.One),
+            Vector2.Zero);
+
+        var command = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawText);
+        Assert.True(command.PreferGlyphAtlas);
+        Assert.False(command.UseVectorGlyphRendering);
+    }
+
+    [Fact]
     public void GlyphAtlasRemembersCapacityFallbacksInsteadOfRetryingEveryFrame()
     {
         var font = LoadTestFont();

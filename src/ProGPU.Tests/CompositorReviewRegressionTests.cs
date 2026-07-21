@@ -2063,6 +2063,34 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void DrawTextRecoversGlyphAtlasResidencyAfterEarlierCapacityFallbacks()
+    {
+        var font = new TtfFont(BuildMissingGlyphOutlineFont());
+        using var window = new HeadlessWindow(
+            96,
+            64,
+            CompositorOptions.Default with
+            {
+                GlyphAtlasSize = 32,
+                PathAtlasSize = 256
+            });
+        window.Content = new AtlasOverflowGlyphRunVisual(font);
+        window.Render();
+        Assert.True(window.Compositor.Atlas.CapacityExceeded);
+
+        window.Content = new PreferredDrawTextVisual(font);
+        window.Render();
+
+        Assert.True(window.Compositor.Atlas.EvictionCount > 0);
+        Assert.Contains(
+            GetDrawCalls(window.Compositor),
+            drawCall => drawCall.Type == Compositor.DrawCallType.Text && drawCall.IndexCount > 0);
+        Assert.DoesNotContain(
+            GetDrawCalls(window.Compositor),
+            drawCall => drawCall.Type == Compositor.DrawCallType.Vector && drawCall.IndexCount > 0);
+    }
+
+    [Fact]
     public void GlyphRunBrushOpacityComposesWithVisualOpacity()
     {
         var font = new TtfFont(BuildMissingGlyphOutlineFont());
@@ -5791,6 +5819,28 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 24f,
                 new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
                 Vector2.Zero);
+        }
+    }
+
+    private sealed class PreferredDrawTextVisual : FrameworkElement
+    {
+        private readonly TtfFont _font;
+
+        public PreferredDrawTextVisual(TtfFont font)
+        {
+            _font = font;
+            Width = 96f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawText(
+                "A",
+                _font,
+                24f,
+                new SolidColorBrush(Vector4.One),
+                new Vector2(0.25f, 40f));
         }
     }
 
