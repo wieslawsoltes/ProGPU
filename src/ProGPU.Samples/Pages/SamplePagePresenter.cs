@@ -50,17 +50,23 @@ public static class SamplePagePresenter
         stack.AddChild(title);
 
         var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
-        description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker) to query system dialogs. Reads and writes files asynchronously using WinUI's StorageFile platform subsystem."));
+        description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker, FolderPicker) to query system dialogs. Reads and writes files asynchronously using WinUI's StorageFile platform subsystem."));
         stack.AddChild(description);
 
-        var actionsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15) };
+        var actionsRow = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalSpacing = 10f,
+            VerticalSpacing = 10f,
+            Margin = new Thickness(0, 0, 0, 15)
+        };
         
-        var openBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
+        var openBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f };
         var openBtnText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         openBtnText.Inlines.Add(new Run("Open Text File..."));
         openBtn.Content = openBtnText;
 
-        var saveBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f, Margin = new Thickness(0, 0, 10, 0) };
+        var saveBtn = new Button { Width = 160f, Height = 36f, CornerRadius = 6f };
         var saveBtnText = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         saveBtnText.Inlines.Add(new Run("Save Copy As..."));
         saveBtn.Content = saveBtnText;

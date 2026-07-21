@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishTrimmed>true</PublishTrimmed>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <ProGpuWgpuNativeXCFramework Condition="'$(ProGpuWgpuNativeXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/wgpu-native-ios/wgpu_native.xcframework</ProGpuWgpuNativeXCFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Noto\ProGPU.Fonts.Noto.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuWgpuNativeXCFramework)')">
+    <NativeReference Include="$(ProGpuWgpuNativeXCFramework)">
+      <Kind>Framework</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>true</SmartLink>
+    </NativeReference>
+  </ItemGroup>
+  <Target Name="ProGpuWarnMissingWgpuNative" BeforeTargets="Build"
+          Condition="!Exists('$(ProGpuWgpuNativeXCFramework)')">
+    <Warning Text="ProGPU iOS compiled without wgpu_native.xcframework. Run eng/build-wgpu-native-ios.sh before deploying or publishing the app." />
+  </Target>
+</Project>

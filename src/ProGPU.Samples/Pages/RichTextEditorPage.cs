@@ -24,7 +24,9 @@ public sealed class RichTextEditorPage : Grid
     private IRichDocumentFormatCodec? _currentCodec;
 
     public RichTextEditorPage()
-        : this(RichDocumentFormatRegistry.CreateDefault())
+        : this(OperatingSystem.IsIOS() || OperatingSystem.IsBrowser()
+            ? RichDocumentFormatRegistry.CreatePortableDefault()
+            : RichDocumentFormatRegistry.CreateDefault())
     {
     }
 
@@ -79,7 +81,7 @@ public sealed class RichTextEditorPage : Grid
             Margin = new Thickness(0f, 4f, 0f, 10f)
         };
         description.Inlines.Add(new Run(
-            "Open and save plain text, Markdown, RTF, HTML, or Microsoft Word DOCX through the shared format registry, then edit with the same virtualized layout and rendering engine."));
+            "Open and save formats from the shared document registry, then edit with the same virtualized layout and rendering engine."));
         header.AddChild(description);
 
         var supported = new RichTextBlock

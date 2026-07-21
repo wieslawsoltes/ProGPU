@@ -24,6 +24,9 @@
              CopyToOutputDirectory="Always"
              CopyToPublishDirectory="Always" />
     <UpToDateCheckInput Include="..\ProGPU.Browser\BrowserAssets\progpu-browser.js" />
+    <!-- WgpuContext uses this iOS-only import to root the static wgpu-native archive.
+         WebAssembly still resolves imports at link time, so provide an unreachable stub. -->
+    <NativeFileReference Include="..\ProGPU.Backend\Native\progpu-static-resolver-stub.c" />
   </ItemGroup>
   <ItemGroup Condition="'$(RunAOTCompilation)' == 'true'">
     <!-- Mono 10's browser AOT compiler asserts on netDxf 2.4.0. Keep that third-party

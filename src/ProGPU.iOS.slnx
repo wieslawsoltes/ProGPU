@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ProGPU.iOS/ProGPU.iOS.csproj" />
+  <Project Path="ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj" />
+</Solution>

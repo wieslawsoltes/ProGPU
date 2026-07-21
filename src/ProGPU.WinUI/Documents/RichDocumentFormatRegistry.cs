@@ -17,12 +17,22 @@ public sealed class RichDocumentFormatRegistry
 
     public static RichDocumentFormatRegistry CreateDefault()
     {
+        RichDocumentFormatRegistry registry = CreatePortableDefault();
+        registry.Register(WordDocumentCodec.Default);
+        return registry;
+    }
+
+    /// <summary>
+    /// Creates the dependency-light registry used where an Open XML package is
+    /// not part of the deployed application.
+    /// </summary>
+    public static RichDocumentFormatRegistry CreatePortableDefault()
+    {
         var registry = new RichDocumentFormatRegistry();
         registry.Register(PlainTextDocumentCodec.Default);
         registry.Register(MarkdownDocumentCodec.Default);
         registry.Register(RtfDocumentCodec.Default);
         registry.Register(HtmlDocumentCodec.Default);
-        registry.Register(WordDocumentCodec.Default);
         return registry;
     }
 

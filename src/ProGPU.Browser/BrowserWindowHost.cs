@@ -71,7 +71,10 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
     public void Hide(Window window)
     {
         var hosted = _windows.FirstOrDefault(item => ReferenceEquals(item.Window, window));
-        if (hosted != null) hosted.IsVisible = false;
+        if (hosted == null) return;
+        hosted.IsVisible = false;
+        window.NotifyHostVisibilityChanged(false);
+        window.NotifyHostActivationChanged(WindowActivationState.Deactivated);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
