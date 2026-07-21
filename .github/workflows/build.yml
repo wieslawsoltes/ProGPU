@@ -100,12 +100,13 @@ jobs:
               "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
             )
           } elseif ($IsLinux) {
-            # Mesa software execution makes these two focused shaping contracts take
-            # about eleven minutes. The full hardware-GPU coverage remains in the
-            # macOS lane; Linux keeps the rest of the cross-platform suite.
+            # The shaping contract suite repeatedly initializes and dispatches GPU
+            # pipelines; under Mesa software execution it dominates this lane. The
+            # complete suite remains covered by the macOS hardware-GPU lane, while
+            # Linux keeps the remaining core tests and all headless render coverage.
             $testArgs += @(
               "--filter",
-              "Category!=SlowSoftwareGpu"
+              "FullyQualifiedName!~ShapingContractsTests"
             )
           }
 

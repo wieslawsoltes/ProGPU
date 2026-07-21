@@ -454,7 +454,6 @@ public sealed class ShapingContractsTests
     }
 
     [Theory]
-    [Trait("Category", "SlowSoftwareGpu")]
     [InlineData("deva", 0x0915u, 0x094du, 0x0937u)]
     [InlineData("dev3", 0x0915u, 0x094du, 0x0937u)]
     public void GpuRunsAuthoritativeComplexScriptSyllableMachines(
@@ -1037,7 +1036,6 @@ public sealed class ShapingContractsTests
     }
 
     [Fact]
-    [Trait("Category", "SlowSoftwareGpu")]
     public void GpuDefaultFeatureKeepsExplicitFlagScopedToRequestedRange()
     {
         const string text = "1/2 3/4";

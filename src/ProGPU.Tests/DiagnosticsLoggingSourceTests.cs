@@ -145,7 +145,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
-        Assert.Contains("Category!=SlowSoftwareGpu", workflow, StringComparison.Ordinal);
+        Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);
         Assert.Contains("src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("$headlessArgs = @(", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~Test_TypographyScriptsPage_Renders", workflow, StringComparison.Ordinal);
