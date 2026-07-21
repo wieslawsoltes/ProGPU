@@ -352,8 +352,6 @@ public class Control : FrameworkElement, ITemplatedControl
 
     public virtual Brush? GetCurrentBackground()
     {
-        if (IsPropertySetLocally(BackgroundProperty)) return Background;
-
         string prefix = GetThemePrefix();
         var theme = ActualTheme;
         if (!IsEnabled) return (ThemeManager.GetResource($"{prefix}BackgroundDisabled", theme) as Brush) ?? Background;
@@ -365,8 +363,6 @@ public class Control : FrameworkElement, ITemplatedControl
 
     public virtual Brush? GetCurrentForeground()
     {
-        if (IsPropertySetLocally(ForegroundProperty)) return Foreground;
-
         string prefix = GetThemePrefix();
         var theme = ActualTheme;
         if (!IsEnabled) return (ThemeManager.GetResource($"{prefix}ForegroundDisabled", theme) as Brush) ?? Foreground;
@@ -378,8 +374,6 @@ public class Control : FrameworkElement, ITemplatedControl
 
     public virtual Brush? GetCurrentBorderBrush()
     {
-        if (IsPropertySetLocally(BorderBrushProperty)) return BorderBrush;
-
         string prefix = GetThemePrefix();
         var theme = ActualTheme;
         if (!IsEnabled) return (ThemeManager.GetResource($"{prefix}BorderBrushDisabled", theme) as Brush) ?? BorderBrush;
