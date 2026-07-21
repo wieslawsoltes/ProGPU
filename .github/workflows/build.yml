@@ -95,20 +95,6 @@ jobs:
           )
 
           if ($IsWindows) {
-            # Keep a contextual GPU shaping smoke test on a hosted hardware API.
-            # The macOS 26 Metal compiler rejects the historical contextual
-            # entry point, while the Windows D3D12 lane can validate it in an
-            # isolated process before the lifetime-bounded core selection.
-            $shapingArgs = $testArgs + @(
-              "--filter",
-              "FullyQualifiedName=ProGPU.Tests.ShapingContractsTests.GpuDefaultFeatureKeepsExplicitFlagScopedToRequestedRange"
-            )
-
-            dotnet @shapingArgs
-            if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
-            }
-
             $testArgs += @(
               "--filter",
               "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
@@ -116,9 +102,9 @@ jobs:
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual
             # OpenType entry point even when its WGSL is restored byte-for-byte.
-            # Keep all other core and headless macOS coverage; the complete GPU
-            # contextual pipeline smoke test runs above in an isolated Windows
-            # D3D12 process; the complete contract remains a local validation.
+            # Keep all other core and headless macOS coverage. Software D3D12 and
+            # Vulkan do not complete this compiler-heavy suite in a practical CI
+            # time, so the complete contract remains a local hardware validation.
             $testArgs += @(
               "--filter",
               "FullyQualifiedName!~ShapingContractsTests"

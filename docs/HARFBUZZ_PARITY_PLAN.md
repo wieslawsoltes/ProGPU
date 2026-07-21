@@ -156,10 +156,11 @@ unbuildable. Substitution, positioning, clustering, and output ordering remain
 GPU-validated; public safety flags remain exact on the CPU path. Rejected:
 skipping the contract suite across every hosted GPU backend, retrying an invalid
 pipeline, over-marking whole runs, silently falling back after partial GPU
-execution, or copying another engine's control flow. CI keeps a contextual GPU
-shaping smoke test in an isolated Windows D3D12 process; the complete 76-test
-contract remains a required local validation. macOS 26 retains all other core
-and headless coverage while its Metal compiler limitation is tracked.
+execution, or copying another engine's control flow. The complete 76-test GPU
+contract remains a required local hardware validation and source-contract tests
+guard the Metal-compatible module shape in CI. Hosted software D3D12 and Vulkan
+do not complete the compiler-heavy suite in a practical time; macOS 26 retains
+all other core and headless coverage while its Metal limitation is tracked.
 
 The broader cross-engine matrix in
 [`TEXT_SHAPING_SHOWCASE_RESEARCH.md`](TEXT_SHAPING_SHOWCASE_RESEARCH.md)
