@@ -99,6 +99,14 @@ jobs:
               "--filter",
               "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
             )
+          } elseif ($IsLinux) {
+            # Mesa software execution makes these two focused shaping contracts take
+            # about eleven minutes. The full hardware-GPU coverage remains in the
+            # macOS lane; Linux keeps the rest of the cross-platform suite.
+            $testArgs += @(
+              "--filter",
+              "Category!=SlowSoftwareGpu"
+            )
           }
 
           dotnet @testArgs
@@ -180,6 +188,20 @@ jobs:
             }
           }
 
+  pack:
+    name: Pack shipping packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
       - name: Pack shipping packages
         shell: bash
         run: PROGPU_PACKAGE_VERSION=0.1.0-ci.${{ github.run_number }} ./eng/progpu-pack.sh
@@ -187,7 +209,7 @@ jobs:
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
-          name: progpu-packages-${{ matrix.rid }}
+          name: progpu-packages-linux-x64
           path: |
             artifacts/packages/Release/*.nupkg
             artifacts/packages/Release/*.snupkg
