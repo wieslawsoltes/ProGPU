@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -197,6 +198,42 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 pixels[alphaOffset] > 0,
                 $"Color glyph {glyphIndex} was not rendered at its translated position.");
         }
+    }
+
+    [Fact]
+    public void RepeatedComplexColorEmojiReusesAtlasEntries()
+    {
+        const int glyphCount = 256;
+        const int segmentCount = 128;
+        var font = new TtfFont(BuildComplexColorLayerFont(segmentCount));
+        using var window = new HeadlessWindow(
+            1024,
+            1024,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                PathAtlasSize = 2048
+            });
+        window.Content = new RepeatedComplexColorGlyphVisual(font, glyphCount);
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long retainedBytesBefore = GC.GetTotalMemory(forceFullCollection: true);
+        var stopwatch = Stopwatch.StartNew();
+
+        window.Render();
+
+        stopwatch.Stop();
+        long retainedBytes = GC.GetTotalMemory(forceFullCollection: true) - retainedBytesBefore;
+        int cachedPathCount = window.Compositor.PathAtlas.CachedPathCount;
+        string metrics =
+            $"cachedPaths={cachedPathCount}, retainedBytes={retainedBytes}, " +
+            $"renderMilliseconds={stopwatch.Elapsed.TotalMilliseconds:F3}";
+        Console.WriteLine($"[PathAtlasComparison] {metrics}");
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.True(cachedPathCount <= 2, metrics);
     }
 
     [Fact]
@@ -4372,6 +4409,29 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             ("CPAL", BuildCpalTable()));
     }
 
+    private static byte[] BuildComplexColorLayerFont(int pointCount)
+    {
+        byte[][] glyphs =
+        {
+            Array.Empty<byte>(),
+            Array.Empty<byte>(),
+            BuildZigZagGlyph(pointCount, xOffset: 0),
+            BuildZigZagGlyph(pointCount, xOffset: 100),
+        };
+
+        byte[] glyf = BuildGlyfTable(glyphs, out uint[] glyphOffsets);
+        return BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("hhea", BuildHheaTable(glyphs.Length)),
+            ("maxp", BuildMaxpTable(glyphs.Length)),
+            ("hmtx", BuildHmtxTable(glyphs.Length)),
+            ("cmap", BuildCmapFormat12Table()),
+            ("loca", BuildLongLoca(glyphOffsets)),
+            ("glyf", glyf),
+            ("COLR", BuildColrTable()),
+            ("CPAL", BuildCpalTable()));
+    }
+
     private static byte[] BuildMissingGlyphOutlineFont()
     {
         byte[][] glyphs =
@@ -4489,6 +4549,46 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         WriteShort(writer, 0);
         WriteShort(writer, (short)(yMax - yMin));
         WriteShort(writer, 0);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildZigZagGlyph(int pointCount, short xOffset)
+    {
+        Assert.InRange(pointCount, 2, 1024);
+        const short width = 700;
+        const short yStep = 6;
+        short yMax = checked((short)((pointCount - 1) * yStep));
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+
+        WriteShort(writer, 1);
+        WriteShort(writer, xOffset);
+        WriteShort(writer, 0);
+        WriteShort(writer, checked((short)(xOffset + width)));
+        WriteShort(writer, yMax);
+        WriteUShort(writer, checked((ushort)(pointCount - 1)));
+        WriteUShort(writer, 0);
+        for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+        {
+            writer.Write((byte)1);
+        }
+
+        short previousX = 0;
+        for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+        {
+            short x = checked((short)(xOffset + (pointIndex % 2 == 0 ? 0 : width)));
+            WriteShort(writer, checked((short)(x - previousX)));
+            previousX = x;
+        }
+
+        short previousY = 0;
+        for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+        {
+            short y = checked((short)(pointIndex * yStep));
+            WriteShort(writer, checked((short)(y - previousY)));
+            previousY = y;
+        }
+
         return stream.ToArray();
     }
 
@@ -5203,6 +5303,41 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 positions,
                 _font,
                 24f,
+                new SolidColorBrush(Vector4.One),
+                Vector2.Zero);
+        }
+    }
+
+    private sealed class RepeatedComplexColorGlyphVisual : FrameworkElement
+    {
+        private readonly TtfFont _font;
+        private readonly int _glyphCount;
+
+        public RepeatedComplexColorGlyphVisual(TtfFont font, int glyphCount)
+        {
+            _font = font;
+            _glyphCount = glyphCount;
+            Width = 1024f;
+            Height = 1024f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var glyphIndices = new ushort[_glyphCount];
+            var positions = new Vector2[_glyphCount];
+            Array.Fill(glyphIndices, (ushort)1);
+            for (int index = 0; index < _glyphCount; index++)
+            {
+                positions[index] = new Vector2(
+                    8f + index % 16 * 62f,
+                    50f + index / 16 * 62f);
+            }
+
+            context.DrawGlyphRun(
+                glyphIndices,
+                positions,
+                _font,
+                40f,
                 new SolidColorBrush(Vector4.One),
                 Vector2.Zero);
         }

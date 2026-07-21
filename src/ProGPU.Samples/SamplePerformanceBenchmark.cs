@@ -288,7 +288,11 @@ internal static class SamplePerformanceBenchmark
             workloadDetails +
             $" draws={finalMetrics?.DrawCallsCount ?? 0}" +
             $" vectorVertices={finalMetrics?.VectorVerticesCount ?? 0}" +
-            $" textVertices={finalMetrics?.TextVerticesCount ?? 0}");
+            $" textVertices={finalMetrics?.TextVerticesCount ?? 0}" +
+            $" pathAtlasEntries={finalMetrics?.PathAtlasCachedCount ?? 0}" +
+            $" pathAtlasCpuCacheBytes={finalMetrics?.PathAtlasCpuCacheBytes ?? 0}" +
+            $" pathAtlasFillCacheEntries={AppState._screenCompositor?.PathAtlas.CachedFillPathCount ?? 0}" +
+            $" pathAtlasHitTestCacheEntries={AppState._screenCompositor?.PathAtlas.CachedHitTestPathCount ?? 0}");
 
         AppState._window?.Close();
     }
