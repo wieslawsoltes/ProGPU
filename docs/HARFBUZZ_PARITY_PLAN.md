@@ -92,11 +92,12 @@ corpus with `--verify` retains 4,977 exact OpenType passes, zero output
 mismatches, and zero reconstruction failures; 15 unsupported, 106 non-OpenType,
 and 49 missing-system-font classifications remain. The WebGPU
 executor now preserves input flags and emits dependency flags for fractions,
-Arabic joining/tatweel boundaries, contextual and chained lookups, pair and
-legacy kerning, cursive/mark attachment, and fallback mark positioning. Exact
-native GPU regression comparisons cover those implemented paths. GPU item
-context, character-level grapheme-interior flagging, the remaining specialized
-script safety rules, and full-corpus GPU execution remain blocking parity gaps.
+Arabic joining/tatweel boundaries, pair and legacy kerning, cursive/mark
+attachment, and fallback mark positioning. Exact native GPU regression
+comparisons cover those implemented paths. GPU contextual/chained dependency
+flags, item context, character-level grapheme-interior flagging, the remaining
+specialized script safety rules, and full-corpus GPU execution remain blocking
+parity gaps.
 
 ## 2026-07-21 Metal contextual-pipeline compatibility review
 
@@ -106,10 +107,12 @@ The WGSL module and all other entry points validated, and successful Apple
 Silicon runs produced exact CPU/GPU output. A first private-span refactor passed
 one clean macOS 26 pull-request run but failed on the next clean `main` runner,
 showing that process isolation and call-site movement alone did not put the
-pipeline below the compiler edge. The compatibility change therefore also
-specializes the exact monotone-cluster safety scan and deduplicates equivalent
-OpenType format matchers; it remains an original control-flow refactor rather
-than an algorithm or output-policy change.
+pipeline below the compiler edge. A second exact one-scan specialization for
+monotone clusters was also rejected by a clean macOS 26 runner. The release
+compatibility change therefore deduplicates equivalent OpenType format matchers
+and withdraws only the unreleased GPU contextual dependency-flag propagation;
+contextual substitution output and the authoritative CPU flag path are
+unchanged.
 
 Primary sources consulted for this review:
 
@@ -140,19 +143,18 @@ Primary sources consulted for this review:
   behind a retained scene. ProGPU retains the same CPU-reference/GPU-executor
   boundary and does not introduce a renderer dependency into shaping.
 
-Adopted: preserve HarfBuzz's matched-span flag semantics and the existing
-single-invocation deterministic lookup order. Adapted: a contextual match stores
-one fixed-size pending span in invocation-private state, and the top-level serial
-executor flushes that span before running nested lookup tasks. Monotone cluster
-levels use the lesser endpoint cluster, which is the exact span minimum by their
-public ordering contract, and one marking scan; non-monotone levels retain the
-general minimum scan in a separate entry point. OpenType contextual and chained
-contextual formats 1 and 2 share class-parameterized matching control flow while
-retaining their distinct table offsets and glyph-versus-class comparisons. The
-mutation order, `O(N)` worst-case scan per matched dependency, fixed 64-task
-recursion replacement, and `O(1)` additional private storage remain unchanged.
-Rejected: skipping the GPU tests, omitting dependency flags, over-marking whole
-runs, falling back after an invalid pipeline, or copying another engine's
+Adopted: preserve HarfBuzz's matched-span flag semantics in the authoritative
+CPU executor and preserve the GPU executor's existing single-invocation,
+deterministic contextual substitution order. OpenType contextual and chained
+contextual formats 1 and 2 now share class-parameterized matching control flow
+while retaining their distinct table offsets and glyph-versus-class
+comparisons. Adapted: GPU contextual dependency flags return to the explicit
+parity backlog until they can be emitted by a separate bounded pass that does
+not make Metal compile the complete scan inside the nested-lookup graph. Other
+GPU safety paths—fractions, Arabic joining/tatweel, pair and legacy kerning,
+cursive/mark attachment, and fallback mark positioning—remain active. Rejected:
+skipping the GPU tests, retrying an invalid pipeline, over-marking whole runs,
+silently falling back after partial GPU execution, or copying another engine's
 control flow.
 
 The broader cross-engine matrix in

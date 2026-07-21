@@ -72,20 +72,14 @@ public class ShaderResourceTests
     }
 
     [Fact]
-    public void OpenTypeShapingKeepsContextTasksAndClusterSpecificSafetyFlushesInPrivateStorage()
+    public void OpenTypeShapingKeepsContextTasksInPrivateStorageAndSharesFormatMatchers()
     {
         string source = ShaderResource.Load(typeof(ComputeShaders), "OpenTypeShaping.wgsl");
 
         Assert.Contains("var<private> lookup_tasks: array<LookupTask, 64>;", source, StringComparison.Ordinal);
         Assert.Contains("var<private> lookup_task_count: u32;", source, StringComparison.Ordinal);
-        Assert.Contains("var<private> pending_unsafe_to_break: u32;", source, StringComparison.Ordinal);
-        Assert.Contains("fn schedule_unsafe_to_break(start: u32, end: u32)", source, StringComparison.Ordinal);
-        Assert.Contains("fn flush_pending_unsafe_to_break()", source, StringComparison.Ordinal);
-        Assert.Contains("fn flush_pending_unsafe_to_break_monotone()", source, StringComparison.Ordinal);
-        Assert.Contains("fn execute_contextual_substitution_lookup_stage_monotone", source, StringComparison.Ordinal);
         Assert.Contains("fn context_match_value(class_def: u32, glyph_id: u32)", source, StringComparison.Ordinal);
-        Assert.Contains("schedule_unsafe_to_break(match_start, match_end);", source, StringComparison.Ordinal);
-        Assert.Contains("flush_pending_unsafe_to_break();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("pending_unsafe_to_break", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ptr<function, array<LookupTask", source, StringComparison.Ordinal);
     }
 
