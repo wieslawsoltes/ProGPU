@@ -154,9 +154,11 @@ fraction, joining/tatweel, kerning, cursive/mark attachment, or fallback-mark
 span scans outside the contextual call graph still made the contextual pipeline
 unbuildable. Substitution, positioning, clustering, and output ordering remain
 GPU-validated; public safety flags remain exact on the CPU path. Rejected:
-skipping the GPU tests, retrying an invalid pipeline, over-marking whole runs,
-silently falling back after partial GPU execution, or copying another engine's
-control flow.
+skipping the contract suite across every hosted GPU backend, retrying an invalid
+pipeline, over-marking whole runs, silently falling back after partial GPU
+execution, or copying another engine's control flow. CI keeps the complete GPU
+shaping contract in an isolated Windows D3D12 process; macOS 26 retains all
+other core and headless coverage while its Metal compiler limitation is tracked.
 
 The broader cross-engine matrix in
 [`TEXT_SHAPING_SHOWCASE_RESEARCH.md`](TEXT_SHAPING_SHOWCASE_RESEARCH.md)
