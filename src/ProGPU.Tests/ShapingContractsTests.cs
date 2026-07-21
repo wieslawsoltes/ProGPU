@@ -9,8 +9,15 @@ using Xunit;
 
 namespace ProGPU.Tests;
 
-public sealed class ShapingContractsTests
+public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
 {
+    private readonly ShapingGpuFixture _gpu;
+
+    public ShapingContractsTests(ShapingGpuFixture gpu)
+    {
+        _gpu = gpu;
+    }
+
     [Fact]
     public void OpenTypeTagRoundTripsFontByteOrder()
     {
@@ -391,10 +398,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.InitializeRun(
@@ -464,10 +470,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -490,10 +495,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -513,10 +517,9 @@ public sealed class ShapingContractsTests
     {
         var face = new KhmerShapingFontFace();
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var consonant = new ShapingBuffer();
         using var broken = new ShapingBuffer();
         using var splitMatra = new ShapingBuffer();
@@ -561,10 +564,9 @@ public sealed class ShapingContractsTests
             new(1, table + 48, 1, 0, new OpenTypeTag("fina").Value, 1),
             new(1, table + 70, 1, 0, new OpenTypeTag("isol").Value, 1)
         ];
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var joined = new ShapingBuffer();
         using var transparent = new ShapingBuffer();
 
@@ -600,10 +602,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(mirroredText, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var mirrored = new ShapingBuffer();
         using var reordered = new ShapingBuffer();
 
@@ -649,10 +650,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] interCommands = GpuOpenTypeLookupPlanCompiler.Compile(interPlan, request);
         using var expectedComposed = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape("e\u0301", interFace, request, expectedComposed);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var interData = new GpuOpenTypeFontData(context, interPlan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actualComposed = new ShapingBuffer();
         pipeline.ExecuteRun(
             [new GpuShapingScalar('e', 0), new GpuShapingScalar(0x0301, 0)],
@@ -689,11 +689,10 @@ public sealed class ShapingContractsTests
             new(1, table + 4, 1, 0, new OpenTypeTag("ljmo").Value, 1),
             new(1, table + 26, 1, 0, new OpenTypeTag("vjmo").Value, 1)
         ];
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var composedData = new GpuOpenTypeFontData(context, composedPlan);
         using var jamoData = new GpuOpenTypeFontData(context, jamoPlan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var composed = new ShapingBuffer();
         using var jamo = new ShapingBuffer();
         using var decomposed = new ShapingBuffer();
@@ -743,10 +742,9 @@ public sealed class ShapingContractsTests
         var face = new ThaiShapingFontFace();
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
         var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("thai"), language: "th");
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -767,10 +765,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -790,10 +787,9 @@ public sealed class ShapingContractsTests
     {
         var face = new UseDiacriticFontFace();
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -814,10 +810,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -855,10 +850,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand command = Assert.Single(
             GpuOpenTypeLookupPlanCompiler.Compile(plan, request),
             static value => value.FeatureTag == new OpenTypeTag("ltrm").Value);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -874,10 +868,9 @@ public sealed class ShapingContractsTests
     {
         var face = new TtfShapingFontFace(InterFontFamily.Regular);
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -904,10 +897,9 @@ public sealed class ShapingContractsTests
         var face = new IndicShapingFontFace();
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
         var request = new ShapingRequest(ShapingDirection.LeftToRight, new OpenTypeTag("deva"));
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
 
         foreach ((string Text, uint[] Expected) item in new[]
                  {
@@ -944,10 +936,9 @@ public sealed class ShapingContractsTests
             static value => value.FeatureTag == new OpenTypeTag("locl").Value);
         Assert.Equal(2u, command.CommandFlags & 0x0eu);
 
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         GpuShapingScalar[] input =
         [
             new GpuShapingScalar(0x0915, 0),
@@ -1061,10 +1052,9 @@ public sealed class ShapingContractsTests
 
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
         pipeline.ExecuteRun(
             text.Select((character, index) => new GpuShapingScalar(character, index)).ToArray(),
@@ -1091,10 +1081,9 @@ public sealed class ShapingContractsTests
         commands = commands.Where(command => command.FeatureTag == new OpenTypeTag("ss01").Value).ToArray();
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape("33", face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1117,10 +1106,9 @@ public sealed class ShapingContractsTests
         (uint lookupOffset, uint inputGlyph, uint expectedGlyph) = FindSingleSubstitution(plan);
         uint codePoint = FindCodePoint(plan, inputGlyph);
         Assert.NotEqual(uint.MaxValue, codePoint);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var output = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1148,10 +1136,9 @@ public sealed class ShapingContractsTests
             new GpuShapingScalar(character, index)).ToArray();
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(input, fontData, request.Direction, commands, actual);
@@ -1174,10 +1161,9 @@ public sealed class ShapingContractsTests
             new GpuShapingScalar(character, index)).ToArray();
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(input, fontData, request.Direction, commands, actual);
@@ -1195,10 +1181,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1216,10 +1201,9 @@ public sealed class ShapingContractsTests
     {
         var face = new FallbackMarkFontFace();
         GpuOpenTypeShapingPlan plan = GpuOpenTypeShapingPlanCompiler.Compile(face);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1244,10 +1228,9 @@ public sealed class ShapingContractsTests
         var request = new ShapingRequest(ShapingDirection.RightToLeft, new OpenTypeTag("arab"));
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         Assert.Contains(commands, static command => command.FeatureTag == new OpenTypeTag("stch").Value);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1273,10 +1256,9 @@ public sealed class ShapingContractsTests
         var request = new ShapingRequest(ShapingDirection.RightToLeft, new OpenTypeTag("arab"));
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         Assert.Contains(commands, static command => command.TableKind == 4);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1310,10 +1292,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1341,10 +1322,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1374,10 +1354,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1414,10 +1393,9 @@ public sealed class ShapingContractsTests
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         using var expected = new ShapingBuffer();
         CpuOpenTypeShaper.Instance.Shape(text, face, request, expected);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun([new GpuShapingScalar(0x200d, 0)], fontData, request, commands, actual);
@@ -1437,10 +1415,9 @@ public sealed class ShapingContractsTests
             ShapingDirection.LeftToRight,
             OpenTypeTag.DefaultScript,
             flags: ShapingBufferFlags.PreserveDefaultIgnorables);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -1464,10 +1441,9 @@ public sealed class ShapingContractsTests
         var request = new ShapingRequest(ShapingDirection.LeftToRight, OpenTypeTag.DefaultScript);
         GpuOpenTypeLookupCommand[] commands = GpuOpenTypeLookupPlanCompiler.Compile(plan, request);
         Assert.Contains(commands, command => command.TableKind == 3);
-        using var context = new WgpuContext();
-        context.Initialize(null);
+        WgpuContext context = _gpu.Context;
         using var fontData = new GpuOpenTypeFontData(context, plan);
-        using var pipeline = new GpuOpenTypeRunPipeline(context);
+        GpuOpenTypeRunPipeline pipeline = _gpu.Pipeline;
         using var actual = new ShapingBuffer();
 
         pipeline.ExecuteRun(
@@ -2252,4 +2228,41 @@ public sealed class ShapingContractsTests
         (ushort)(data[offset] << 8 | data[offset + 1]);
 
     private static ShapingGlyph Glyph(uint glyphId) => new() { GlyphId = glyphId };
+}
+
+public sealed class ShapingGpuFixture : IDisposable
+{
+    private readonly Lazy<Resources> _resources = new(CreateResources);
+
+    public WgpuContext Context => _resources.Value.Context;
+
+    public GpuOpenTypeRunPipeline Pipeline => _resources.Value.Pipeline;
+
+    public void Dispose()
+    {
+        if (_resources.IsValueCreated)
+            _resources.Value.Dispose();
+    }
+
+    private static Resources CreateResources()
+    {
+        var context = new WgpuContext();
+        context.Initialize(null);
+        return new Resources(context, new GpuOpenTypeRunPipeline(context));
+    }
+
+    private sealed class Resources(
+        WgpuContext context,
+        GpuOpenTypeRunPipeline pipeline) : IDisposable
+    {
+        public WgpuContext Context { get; } = context;
+
+        public GpuOpenTypeRunPipeline Pipeline { get; } = pipeline;
+
+        public void Dispose()
+        {
+            Pipeline.Dispose();
+            Context.Dispose();
+        }
+    }
 }
