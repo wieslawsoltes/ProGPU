@@ -10,6 +10,33 @@ namespace ProGPU.Tests;
 public sealed class WgpuContextTests
 {
     [Fact]
+    public void ChooseSurfaceFormat_PrefersNonSrgbRgbaOverSrgbFirstEntry()
+    {
+        TextureFormat selected = WgpuContext.ChooseSurfaceFormat(
+            [TextureFormat.Rgba8UnormSrgb, TextureFormat.Rgba8Unorm]);
+
+        Assert.Equal(TextureFormat.Rgba8Unorm, selected);
+    }
+
+    [Fact]
+    public void ChooseSurfaceFormat_PrefersBgraNonSrgbWhenBothEncodedFormatsExist()
+    {
+        TextureFormat selected = WgpuContext.ChooseSurfaceFormat(
+            [TextureFormat.Rgba8Unorm, TextureFormat.Bgra8Unorm]);
+
+        Assert.Equal(TextureFormat.Bgra8Unorm, selected);
+    }
+
+    [Fact]
+    public void ChooseSurfaceFormat_FallsBackToFirstAdvertisedFormat()
+    {
+        TextureFormat selected = WgpuContext.ChooseSurfaceFormat(
+            [TextureFormat.Rgba16float, TextureFormat.Rgba8UnormSrgb]);
+
+        Assert.Equal(TextureFormat.Rgba16float, selected);
+    }
+
+    [Fact]
     public unsafe void SharedSurfaceRejectsUninitializedDeviceOwnerWithoutMutatingContext()
     {
         using var owner = new WgpuContext();

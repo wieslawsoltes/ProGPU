@@ -15,10 +15,13 @@
     <PackageVersion Include="OpenFontSharp" Version="1.0.0" />
     <PackageVersion Include="ProDiagnostics" Version="12.0.0" />
     <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Input.Common" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.GLFW" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.WebGPU" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.WebGPU.Native.WGPU" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Windowing.Common" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Windowing.Glfw" Version="2.23.0" />
     <PackageVersion Include="StbImageSharp" Version="2.30.15" />
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <PackageVersion Include="System.Drawing.Common" Version="10.0.9" />
