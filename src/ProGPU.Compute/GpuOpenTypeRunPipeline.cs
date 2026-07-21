@@ -178,6 +178,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
     private ComputePipeline* _alternateLookupPipeline;
     private ComputePipeline* _ligatureLookupPipeline;
     private ComputePipeline* _contextualLookupPipeline;
+    private ComputePipeline* _monotoneContextualLookupPipeline;
     private readonly Dictionary<LookupTransitionKind, nint> _lookupTransitionPipelines = new();
     private readonly ComputePipeline* _preprocessPipeline;
     private readonly ComputePipeline* _substitutionFinalizePipeline;
@@ -294,7 +295,9 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         ComputePipeline* multipleLookupPipeline = (substitutionKinds & (1u << 2)) != 0 ? GetMultipleLookupPipeline() : null;
         ComputePipeline* alternateLookupPipeline = (substitutionKinds & (1u << 3)) != 0 ? GetAlternateLookupPipeline() : null;
         ComputePipeline* ligatureLookupPipeline = (substitutionKinds & (1u << 4)) != 0 ? GetLigatureLookupPipeline() : null;
-        ComputePipeline* contextualLookupPipeline = (substitutionKinds & (1u << 16)) != 0 ? GetContextualLookupPipeline() : null;
+        ComputePipeline* contextualLookupPipeline = (substitutionKinds & (1u << 16)) != 0
+            ? GetContextualLookupPipeline(clusterLevel)
+            : null;
         BindGroup* lookupSelectGroup = runLookupStages ? CreateBindGroup(_lookupSelectPipeline, font, 2) : null;
         BindGroup* lookupCommandSelectGroup = substitutionStageCount == 0
             ? null
@@ -687,8 +690,18 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
         return _ligatureLookupPipeline;
     }
 
-    private ComputePipeline* GetContextualLookupPipeline()
+    private ComputePipeline* GetContextualLookupPipeline(ShapingClusterLevel clusterLevel)
     {
+        if (clusterLevel is ShapingClusterLevel.MonotoneGraphemes or ShapingClusterLevel.MonotoneCharacters)
+        {
+            if (_monotoneContextualLookupPipeline == null)
+                _monotoneContextualLookupPipeline = _pipelineCache.GetOrCreateComputePipeline(
+                    "OpenTypeMonotoneContextualSubstitutionLookups",
+                    _shader,
+                    "execute_contextual_substitution_lookup_stage_monotone");
+            return _monotoneContextualLookupPipeline;
+        }
+
         if (_contextualLookupPipeline == null)
             _contextualLookupPipeline = _pipelineCache.GetOrCreateComputePipeline(
                 "OpenTypeContextualSubstitutionLookups", _shader, "execute_contextual_substitution_lookup_stage");
