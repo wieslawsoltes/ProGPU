@@ -91,6 +91,8 @@ public class ProgressBar : Control
             // Indeterminate sliding glow track animation segment
             float segmentWidth = Size.X * 0.3f; // 30% of track length
             float xStart = -segmentWidth + _indeterminateOffset;
+            if (FlowDirection == FlowDirection.RightToLeft)
+                xStart = Size.X - xStart - segmentWidth;
 
             // Clip the sliding segment to the track's rounded bounds using basic layout intersects
             float renderX = Math.Max(0f, xStart);
@@ -120,7 +122,10 @@ public class ProgressBar : Control
 
             if (fillWidth > 0f)
             {
-                context.FillRoundedRectangle(BorderBrush ?? ThemeManager.GetBrush("ProgressBarForeground"), new Rect(rect.X, rect.Y, fillWidth, rect.Height), rect.Height / 2f);
+                float fillX = FlowDirection == FlowDirection.RightToLeft
+                    ? rect.Right - fillWidth
+                    : rect.X;
+                context.FillRoundedRectangle(BorderBrush ?? ThemeManager.GetBrush("ProgressBarForeground"), new Rect(fillX, rect.Y, fillWidth, rect.Height), rect.Height / 2f);
             }
         }
 

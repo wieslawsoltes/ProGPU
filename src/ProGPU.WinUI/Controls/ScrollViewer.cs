@@ -512,7 +512,10 @@ public class ScrollViewer : ContentControl
         {
             Content.RenderTransformOrigin = Vector2.Zero;
             Content.Scale = new Vector3(_contentBaseScale.X * ZoomFactor, _contentBaseScale.Y * ZoomFactor, _contentBaseScale.Z);
-            Content.LayoutTranslation = _contentBaseTranslation + new Vector2(-_horizontalOffset, -_verticalOffset);
+            float horizontalTranslation = FlowDirection == FlowDirection.RightToLeft
+                ? _horizontalOffset
+                : -_horizontalOffset;
+            Content.LayoutTranslation = _contentBaseTranslation + new Vector2(horizontalTranslation, -_verticalOffset);
         }
     }
 
@@ -545,8 +548,11 @@ public class ScrollViewer : ContentControl
                 (_scrollbarPointerId != 0 && _activeScrollBar == Orientation.Vertical);
             var scrollbarWidth = active ? ScrollBarInteraction.ExpandedThickness : ScrollBarInteraction.CollapsedThickness;
             var padding = active ? ScrollBarInteraction.ExpandedPadding : ScrollBarInteraction.CollapsedPadding;
-            var trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, Size.Y);
-            var thumbRect = new Rect(Size.X - scrollbarWidth - padding, verticalMetrics.ThumbStart,
+            float scrollbarX = FlowDirection == FlowDirection.RightToLeft
+                ? padding
+                : Size.X - scrollbarWidth - padding;
+            var trackRect = new Rect(scrollbarX, 0f, scrollbarWidth, Size.Y);
+            var thumbRect = new Rect(scrollbarX, verticalMetrics.ThumbStart,
                 scrollbarWidth, verticalMetrics.ThumbLength);
             Brush trackBg = active
                 ? ThemeManager.GetBrush("ControlBackgroundHover") 
@@ -565,7 +571,10 @@ public class ScrollViewer : ContentControl
             var scrollbarHeight = active ? ScrollBarInteraction.ExpandedThickness : ScrollBarInteraction.CollapsedThickness;
             var padding = active ? ScrollBarInteraction.ExpandedPadding : ScrollBarInteraction.CollapsedPadding;
             var trackRect = new Rect(0f, Size.Y - scrollbarHeight - padding, Size.X, scrollbarHeight);
-            var thumbRect = new Rect(horizontalMetrics.ThumbStart, Size.Y - scrollbarHeight - padding,
+            float thumbX = FlowDirection == FlowDirection.RightToLeft
+                ? Size.X - horizontalMetrics.ThumbStart - horizontalMetrics.ThumbLength
+                : horizontalMetrics.ThumbStart;
+            var thumbRect = new Rect(thumbX, Size.Y - scrollbarHeight - padding,
                 horizontalMetrics.ThumbLength, scrollbarHeight);
             Brush trackBg = active
                 ? ThemeManager.GetBrush("ControlBackgroundHover")

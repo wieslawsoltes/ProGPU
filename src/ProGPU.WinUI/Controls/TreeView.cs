@@ -161,6 +161,14 @@ public class TreeViewItem : Control
         }
     }
 
+    private float LogicalToPhysicalX(float x) =>
+        FlowDirection == FlowDirection.RightToLeft ? Size.X - x : x;
+
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
         float w = WidthConstraint ?? availableSize.X;
@@ -184,7 +192,10 @@ public class TreeViewItem : Control
         if (IsSelected)
         {
             var accentBrush = ThemeManager.GetBrush("SystemAccentColor");
-            context.DrawRectangle(accentBrush, null, new Rect(2f, 2f, 2f, Size.Y - 4f)); // Left active accent indicator stripe
+            context.DrawRectangle(
+                accentBrush,
+                null,
+                LogicalToPhysical(new Rect(2f, 2f, 2f, Size.Y - 4f)));
         }
 
         var font = PopupService.DefaultFont;
@@ -196,7 +207,7 @@ public class TreeViewItem : Control
             // Draw expansion triangle arrow
             if (Items.Count > 0)
             {
-                float arrowX = indentX - 8f;
+                float arrowX = LogicalToPhysicalX(indentX - 8f);
                 float arrowY = Size.Y * 0.5f;
                 var arrowPen = new Pen(ThemeManager.GetBrush("TextSecondary"), 1.25f);
                 if (IsExpanded)
@@ -206,17 +217,36 @@ public class TreeViewItem : Control
                 }
                 else
                 {
-                    context.DrawLine(arrowPen, new Vector2(arrowX - 1.5f, arrowY - 3f), new Vector2(arrowX + 1.5f, arrowY));
-                    context.DrawLine(arrowPen, new Vector2(arrowX + 1.5f, arrowY), new Vector2(arrowX - 1.5f, arrowY + 3f));
+                    float direction = FlowDirection == FlowDirection.RightToLeft ? -1f : 1f;
+                    context.DrawLine(arrowPen, new Vector2(arrowX - direction * 1.5f, arrowY - 3f), new Vector2(arrowX + direction * 1.5f, arrowY));
+                    context.DrawLine(arrowPen, new Vector2(arrowX + direction * 1.5f, arrowY), new Vector2(arrowX - direction * 1.5f, arrowY + 3f));
                 }
             }
 
             // Draw Header Text
-            float textX = indentX + 6f;
             float textY = (Size.Y - 12f) / 2f;
             string label = Header?.ToString() ?? string.Empty;
             Brush textBrush = IsSelected ? ThemeManager.GetBrush("TextPrimary") : ThemeManager.GetBrush("TextSecondary");
-            context.DrawText(label, font, 11f, textBrush, new Vector2(textX, textY));
+            Rect textBounds = LogicalToPhysical(new Rect(
+                indentX + 6f,
+                textY,
+                Math.Max(0f, Size.X - indentX - 12f),
+                12f));
+            context.DrawText(
+                label,
+                font,
+                11f,
+                textBrush,
+                new Vector2(textBounds.X, textY),
+                Matrix4x4.Identity,
+                textBounds,
+                textShapingOptions: ProGPU.Text.TextShapingOptions.Default.WithDirection(
+                    FlowDirection == FlowDirection.RightToLeft
+                        ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                        : ProGPU.Text.Shaping.ShapingDirection.LeftToRight),
+                textAlignment: FlowDirection == FlowDirection.RightToLeft
+                    ? ProGPU.Text.TextAlignment.Right
+                    : ProGPU.Text.TextAlignment.Left);
         }
 
         base.OnRender(context);

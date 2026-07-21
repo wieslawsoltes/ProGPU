@@ -472,19 +472,22 @@ public class NavigationViewItem : Control
             // 2. Draw 3px left accent stripe indicator
             if (IsSelected)
             {
-                context.DrawRectangle(accentBrush, null, new Rect(3f, 6f, 3f, Size.Y - 12f));
+                context.DrawRectangle(accentBrush, null, LogicalToPhysical(new Rect(3f, 6f, 3f, Size.Y - 12f)));
             }
         }
 
         var font = nav?.GetActiveFont();
         if (font != null)
         {
-            float baseIndent = 16f + (Level * 16f); // nesting indentation
-            float startX = baseIndent;
+            float baseIndent = 16f + (Level * 16f); // logical nesting indentation
+            float logicalStartX = baseIndent;
             if (activeFamily == VisualThemeFamily.macOS)
             {
-                startX += 14f;
+                logicalStartX += 14f;
             }
+            float startX = FlowDirection == FlowDirection.RightToLeft
+                ? Size.X - logicalStartX - 16f
+                : logicalStartX;
             float textY = (Size.Y - 14f) / 2f;
 
             // 3. Draw Icon
@@ -922,20 +925,41 @@ public class NavigationViewItem : Control
                     context.DrawLine(translucentPen, new Vector2(startX + 4f, startY + 10f), new Vector2(startX + 10f, startY + 10f));
                 }
 
-                startX += 28f;
+                logicalStartX += 28f;
             }
 
             // 4. Draw label text in theme colors
             if (isPaneOpen && !string.IsNullOrEmpty(Text))
             {
                 var textBrush = IsSelected ? textPrimary : textSecondary;
-                context.DrawText(Text, font, 14f, textBrush, new Vector2(startX, textY));
+                float trailingInset = Items.Count > 0 ? 40f : 12f;
+                Rect textBounds = LogicalToPhysical(new Rect(
+                    logicalStartX,
+                    textY,
+                    Math.Max(0f, Size.X - logicalStartX - trailingInset),
+                    14f));
+                context.DrawText(
+                    Text,
+                    font,
+                    14f,
+                    textBrush,
+                    new Vector2(textBounds.X, textY),
+                    Matrix4x4.Identity,
+                    textBounds,
+                    textShapingOptions: TextShapingOptions.Default.WithDirection(
+                        FlowDirection == FlowDirection.RightToLeft
+                            ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                            : ProGPU.Text.Shaping.ShapingDirection.LeftToRight),
+                    textAlignment: FlowDirection == FlowDirection.RightToLeft
+                        ? ProGPU.Text.TextAlignment.Right
+                        : ProGPU.Text.TextAlignment.Left);
             }
 
             // 5. Draw nested expandable arrow indicator
             if (isPaneOpen && Items.Count > 0)
             {
-                float arrowX = activeFamily == VisualThemeFamily.macOS ? baseIndent + 2f : Size.X - 18f;
+                float logicalArrowX = activeFamily == VisualThemeFamily.macOS ? baseIndent + 2f : Size.X - 18f;
+                float arrowX = FlowDirection == FlowDirection.RightToLeft ? Size.X - logicalArrowX : logicalArrowX;
                 float arrowY = Size.Y * 0.5f;
                 var arrowPen = new Pen(translucentHeavyBrush, 1.5f);
                 if (IsExpanded)
@@ -945,8 +969,9 @@ public class NavigationViewItem : Control
                 }
                 else
                 {
-                    context.DrawLine(arrowPen, new Vector2(arrowX - 1.5f, arrowY - 3f), new Vector2(arrowX + 1.5f, arrowY));
-                    context.DrawLine(arrowPen, new Vector2(arrowX + 1.5f, arrowY), new Vector2(arrowX - 1.5f, arrowY + 3f));
+                    float direction = FlowDirection == FlowDirection.RightToLeft ? -1f : 1f;
+                    context.DrawLine(arrowPen, new Vector2(arrowX - direction * 1.5f, arrowY - 3f), new Vector2(arrowX + direction * 1.5f, arrowY));
+                    context.DrawLine(arrowPen, new Vector2(arrowX + direction * 1.5f, arrowY), new Vector2(arrowX - direction * 1.5f, arrowY + 3f));
                 }
             }
         }
@@ -958,4 +983,9 @@ public class NavigationViewItem : Control
             context.DrawRoundedRectangle(null, focusPen, new Rect(2f, 2f, Size.X - 4f, Size.Y - 4f), 4f);
         }
     }
+
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
 }

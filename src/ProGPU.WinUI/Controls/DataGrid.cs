@@ -894,6 +894,20 @@ public class DataGrid : Control
         return -1;
     }
 
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
+    private float LogicalToPhysicalX(float x) =>
+        FlowDirection == FlowDirection.RightToLeft ? Size.X - x : x;
+
+    private TextShapingOptions GetTextShapingOptions() =>
+        TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
+
     private void SortColumn(int columnIndex)
     {
         if (columnIndex < 0 || columnIndex >= Columns.Count) return;
@@ -1059,18 +1073,35 @@ public class DataGrid : Control
         for (int i = 0; i < Columns.Count; i++)
         {
             var col = Columns[i];
-            Rect colRect = new Rect(runningX, 0, col.ActualWidth, _headerHeight);
+            Rect logicalColRect = new Rect(runningX, 0, col.ActualWidth, _headerHeight);
+            Rect colRect = LogicalToPhysical(logicalColRect);
             context.DrawRectangle(null, colBorder, colRect);
 
             // Draw Header Text
             float textY = (_headerHeight - FontSize) / 2f;
-            context.DrawText(col.Header, activeFont, FontSize, ThemeManager.GetBrush("TextPrimary"), new Vector2(runningX + 8f, textY));
+            Rect headerTextBounds = LogicalToPhysical(new Rect(
+                runningX + 8f,
+                textY,
+                Math.Max(0f, col.ActualWidth - 16f),
+                FontSize));
+            context.DrawText(
+                col.Header,
+                activeFont,
+                FontSize,
+                ThemeManager.GetBrush("TextPrimary"),
+                new Vector2(headerTextBounds.X, textY),
+                Matrix4x4.Identity,
+                headerTextBounds,
+                textShapingOptions: GetTextShapingOptions(),
+                textAlignment: FlowDirection == FlowDirection.RightToLeft
+                    ? ProGPU.Text.TextAlignment.Right
+                    : ProGPU.Text.TextAlignment.Left);
 
             // Draw Sorting indicator if active sorting
             if (SortingColumn == col)
             {
                 float headerTextW = col.Header.Length * (FontSize * 0.6f); // approximate width
-                float sortX = runningX + 12f + headerTextW;
+                float sortX = LogicalToPhysicalX(runningX + 12f + headerTextW);
                 float sortY = _headerHeight * 0.5f;
                 float direction = col.IsAscending ? -1f : 1f;
                 var sortPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 1.5f);
@@ -1082,7 +1113,10 @@ public class DataGrid : Control
             if (i == _hoveredSeparatorIndex || i == _resizingColumnIndex)
             {
                 float separatorX = runningX + col.ActualWidth;
-                context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, new Rect(separatorX - 1f, 0f, 2f, _headerHeight));
+                context.DrawRectangle(
+                    ThemeManager.GetBrush("SystemAccentColor"),
+                    null,
+                    LogicalToPhysical(new Rect(separatorX - 1f, 0f, 2f, _headerHeight)));
             }
 
             runningX += col.ActualWidth;
@@ -1128,7 +1162,7 @@ public class DataGrid : Control
                 // Draw active selection vertical indicator stripe on far-left
                 if (r == SelectedIndex)
                 {
-                    Rect selectionStripe = new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f);
+                    Rect selectionStripe = LogicalToPhysical(new Rect(0f, rowY + 2f, 3f, _rowHeight - 4f));
                     context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
                 }
 
@@ -1147,7 +1181,23 @@ public class DataGrid : Control
                     {
                         string val = GetCellValue(item, col.PropertyName);
                         float cellTextY = rowY + (_rowHeight - FontSize) / 2f;
-                        context.DrawText(val, activeFont, FontSize, ThemeManager.GetBrush("TextPrimary"), new Vector2(colX + 8f, cellTextY));
+                        Rect cellTextBounds = LogicalToPhysical(new Rect(
+                            colX + 8f,
+                            cellTextY,
+                            Math.Max(0f, colWidth - 16f),
+                            FontSize));
+                        context.DrawText(
+                            val,
+                            activeFont,
+                            FontSize,
+                            ThemeManager.GetBrush("TextPrimary"),
+                            new Vector2(cellTextBounds.X, cellTextY),
+                            Matrix4x4.Identity,
+                            cellTextBounds,
+                            textShapingOptions: GetTextShapingOptions(),
+                            textAlignment: FlowDirection == FlowDirection.RightToLeft
+                                ? ProGPU.Text.TextAlignment.Right
+                                : ProGPU.Text.TextAlignment.Left);
                     }
                     colX += colWidth;
                 }
@@ -1169,8 +1219,11 @@ public class DataGrid : Control
             float scrollableHeight = TotalBodyHeight - viewportH;
             float thumbY = _headerHeight + (ScrollOffset / scrollableHeight) * (viewportH - thumbHeight);
 
-            Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, _headerHeight, scrollbarWidth, viewportH);
-            Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
+            float scrollbarX = FlowDirection == FlowDirection.RightToLeft
+                ? padding
+                : Size.X - scrollbarWidth - padding;
+            Rect trackRect = new Rect(scrollbarX, _headerHeight, scrollbarWidth, viewportH);
+            Rect thumbRect = new Rect(scrollbarX, thumbY, scrollbarWidth, thumbHeight);
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingScroll) 

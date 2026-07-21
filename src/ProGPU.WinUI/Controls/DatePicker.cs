@@ -61,15 +61,19 @@ public class DatePicker : Control
 
     private Vector2 GetAbsolutePosition()
     {
-        Vector2 pos = Offset;
-        Visual? current = Parent;
-        while (current != null)
-        {
-            pos += current.Offset;
-            current = current.Parent;
-        }
-        return pos;
+        return Vector2.Transform(Vector2.Zero, GetGlobalTransformMatrix());
     }
+
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
+    private ProGPU.Text.TextShapingOptions GetTextShapingOptions() =>
+        ProGPU.Text.TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
 
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
@@ -93,12 +97,16 @@ public class DatePicker : Control
             }
 
             _popupCalendar.SelectedDate = SelectedDate ?? DateTime.Today;
+            _popupCalendar.FlowDirection = FlowDirection;
 
             var absPos = GetAbsolutePosition();
             // Force theme synchronization right before showing the popup
             _popupCalendar.NotifyThemeChanged();
             // Position exactly underneath the DatePicker input box
-            PopupService.ShowPopup(_popupCalendar, new Vector2(absPos.X, absPos.Y + Size.Y + 4f), this);
+            float popupX = FlowDirection == FlowDirection.RightToLeft
+                ? absPos.X + Size.X - _popupCalendar.Width
+                : absPos.X;
+            PopupService.ShowPopup(_popupCalendar, new Vector2(popupX, absPos.Y + Size.Y + 4f), this);
             e.Handled = true;
         }
         base.OnPointerPressed(e);
@@ -132,10 +140,28 @@ public class DatePicker : Control
             : ThemeManager.GetBrush("TextSecondary");
 
         float textY = (Size.Y - 14f) / 2f;
-        context.DrawText(dateText, font, 14f, textBrush, new Vector2(Padding.Left, textY));
+        Rect logicalTextBounds = new Rect(
+            Padding.Left,
+            textY,
+            Math.Max(0f, Size.X - Padding.Left - 32f),
+            14f);
+        Rect textBounds = LogicalToPhysical(logicalTextBounds);
+        context.DrawText(
+            dateText,
+            font,
+            14f,
+            textBrush,
+            new Vector2(textBounds.X, textY),
+            Matrix4x4.Identity,
+            textBounds,
+            textShapingOptions: GetTextShapingOptions(),
+            textAlignment: FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.TextAlignment.Right
+                : ProGPU.Text.TextAlignment.Left);
 
-        // 3. Render a font-independent calendar icon on the right side.
-        float iconX = Size.X - 25f;
+        // 3. Render a font-independent calendar icon on the logical trailing side.
+        Rect iconRect = LogicalToPhysical(new Rect(Size.X - 25f, 0f, 13f, Size.Y));
+        float iconX = iconRect.X;
         float iconY = (Size.Y - 14f) * 0.5f;
         var iconPen = new Pen(ThemeManager.GetBrush("TextSecondary"), 1.25f);
         context.DrawRoundedRectangle(null, iconPen, new Rect(iconX, iconY + 1.5f, 13f, 11f), 1.5f);

@@ -1503,7 +1503,10 @@ public class ToggleSwitchChrome : FrameworkElement
         float thumbMinX = trackRect.X + thumbMargin + thumbRadius;
         float thumbMaxX = trackRect.X + trackRect.Width - thumbMargin - thumbRadius;
 
-        float thumbX = IsOn ? thumbMaxX : thumbMinX;
+        bool isRightToLeft = FlowDirection == FlowDirection.RightToLeft;
+        float thumbX = IsOn
+            ? (isRightToLeft ? thumbMinX : thumbMaxX)
+            : (isRightToLeft ? thumbMaxX : thumbMinX);
         float thumbY = trackRect.Y + trackRect.Height / 2f;
 
         Rect thumbRect = new Rect(thumbX - thumbRadius, thumbY - thumbRadius, thumbDiameter, thumbDiameter);
@@ -1797,7 +1800,9 @@ public class SliderChrome : FrameworkElement
             pct = (Value - Minimum) / (Maximum - Minimum);
         }
 
-        float thumbX = baseThumbRadius + pct * trackWidth;
+        bool isRightToLeft = FlowDirection == FlowDirection.RightToLeft;
+        float logicalThumbX = baseThumbRadius + pct * trackWidth;
+        float thumbX = isRightToLeft ? width - logicalThumbX : logicalThumbX;
         float drawThumbRadius;
         if (activeFamily == VisualThemeFamily.macOS)
         {
@@ -1817,9 +1822,11 @@ public class SliderChrome : FrameworkElement
             context.DrawRoundedRectangle(inactiveBg, null, trackRect, trackHeight / 2f);
 
             // 2. Draw macOS Track Progress (Active part)
-            if (thumbX > baseThumbRadius)
+            if (pct > 0f)
             {
-                Rect activeRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
+                Rect activeRect = isRightToLeft
+                    ? new Rect(thumbX, yCenter - trackHeight / 2f, width - baseThumbRadius - thumbX, trackHeight)
+                    : new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
                 Brush activeBg = ThemeManager.GetBrush(IsEnabled
                     ? (IsPointerPressed ? "SliderTrackValueFillPressed" : IsPointerOver ? "SliderTrackValueFillPointerOver" : "SliderTrackValueFill")
                     : "SliderTrackValueFillDisabled", activeTheme, activeFamily);
@@ -1848,13 +1855,17 @@ public class SliderChrome : FrameworkElement
         }
         else
         {
-            Rect inactiveRect = new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
+            Rect inactiveRect = isRightToLeft
+                ? new Rect(baseThumbRadius, yCenter - trackHeight / 2f, Math.Max(0f, thumbX - baseThumbRadius), trackHeight)
+                : new Rect(thumbX, yCenter - trackHeight / 2f, Math.Max(0f, width - baseThumbRadius - thumbX), trackHeight);
             Brush inactiveBg = ThemeManager.GetBrush(IsEnabled ? "SliderTrackFill" : "SliderTrackFillDisabled", activeTheme, activeFamily);
             context.DrawRectangle(inactiveBg, null, inactiveRect);
 
-            if (thumbX > baseThumbRadius)
+            if (pct > 0f)
             {
-                Rect activeRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
+                Rect activeRect = isRightToLeft
+                    ? new Rect(thumbX, yCenter - trackHeight / 2f, width - baseThumbRadius - thumbX, trackHeight)
+                    : new Rect(baseThumbRadius, yCenter - trackHeight / 2f, thumbX - baseThumbRadius, trackHeight);
                 Brush activeBg = ThemeManager.GetBrush(IsEnabled
                     ? (IsPointerPressed ? "SliderTrackValueFillPressed" : IsPointerOver ? "SliderTrackValueFillPointerOver" : "SliderTrackValueFill")
                     : "SliderTrackValueFillDisabled", activeTheme, activeFamily);

@@ -77,6 +77,7 @@ public class RatingControl : Control
     private const float StarSize = 18f;
     private const float StarSpacing = 4f;
     private PathGeometry[]? _starGeometries;
+    private FlowDirection _starGeometryFlowDirection = FlowDirection.LeftToRight;
 
     public event EventHandler<double>? ValueChanged;
 
@@ -84,6 +85,12 @@ public class RatingControl : Control
     {
         IsTabStop = true;
         Padding = new Thickness(4);
+    }
+
+    protected override void OnPropertyChanged(DependencyProperty dp, object? oldValue, object? newValue)
+    {
+        base.OnPropertyChanged(dp, oldValue, newValue);
+        if (dp == FlowDirectionProperty) _starGeometries = null;
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -186,7 +193,13 @@ public class RatingControl : Control
     {
         if (IsEnabled && IsFocused && !IsReadOnly)
         {
-            if (e.Key == Silk.NET.Input.Key.Left || e.Key == Silk.NET.Input.Key.Down)
+            bool decrease = e.Key == Silk.NET.Input.Key.Down ||
+                (e.Key == Silk.NET.Input.Key.Left && FlowDirection != FlowDirection.RightToLeft) ||
+                (e.Key == Silk.NET.Input.Key.Right && FlowDirection == FlowDirection.RightToLeft);
+            bool increase = e.Key == Silk.NET.Input.Key.Up ||
+                (e.Key == Silk.NET.Input.Key.Right && FlowDirection != FlowDirection.RightToLeft) ||
+                (e.Key == Silk.NET.Input.Key.Left && FlowDirection == FlowDirection.RightToLeft);
+            if (decrease)
             {
                 var oldVal = Value;
                 Value = Math.Max(0.0, Value - 1.0);
@@ -197,7 +210,7 @@ public class RatingControl : Control
                 e.Handled = true;
                 return;
             }
-            else if (e.Key == Silk.NET.Input.Key.Right || e.Key == Silk.NET.Input.Key.Up)
+            else if (increase)
             {
                 var oldVal = Value;
                 Value = Math.Min(MaxRating, Value + 1.0);
@@ -258,12 +271,17 @@ public class RatingControl : Control
 
         double activeRating = (_hoverValue >= 0.0) ? _hoverValue : Value;
 
-        if (_starGeometries == null || _starGeometries.Length != MaxRating)
+        if (_starGeometries == null || _starGeometries.Length != MaxRating ||
+            _starGeometryFlowDirection != FlowDirection)
         {
+            _starGeometryFlowDirection = FlowDirection;
             _starGeometries = new PathGeometry[MaxRating];
             for (int i = 0; i < MaxRating; i++)
             {
-                float cx = startX + i * (StarSize + StarSpacing) + halfStar;
+                float logicalCenter = startX + i * (StarSize + StarSpacing) + halfStar;
+                float cx = FlowDirection == FlowDirection.RightToLeft
+                    ? Size.X - logicalCenter
+                    : logicalCenter;
                 float cy = startY + halfStar;
                 _starGeometries[i] = CreateStarGeometry(cx, cy, halfStar - 0.5f);
             }

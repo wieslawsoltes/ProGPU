@@ -55,7 +55,14 @@ public class ToolTip : Control
             if (font != null)
             {
                 // Measure text size dynamically using TextLayout.MeasuredSize
-                var textLayout = new TextLayout(text, font, 14f);
+                var textLayout = new TextLayout(
+                    text,
+                    font,
+                    14f,
+                    float.PositiveInfinity,
+                    ProGPU.Text.TextAlignment.Left,
+                    null,
+                    GetTextShapingOptions());
                 size = textLayout.MeasuredSize;
             }
             else
@@ -111,12 +118,27 @@ public class ToolTip : Control
                         font,
                         14f,
                         textBrush,
-                        new Vector2(Padding.Left, Padding.Top)
-                    );
+                        new Vector2(Padding.Left, Padding.Top),
+                        Matrix4x4.Identity,
+                        new Rect(
+                            0f,
+                            0f,
+                            Math.Max(0f, Size.X - Padding.Horizontal),
+                            Math.Max(0f, Size.Y - Padding.Vertical)),
+                        textShapingOptions: GetTextShapingOptions(),
+                        textAlignment: FlowDirection == FlowDirection.RightToLeft
+                            ? ProGPU.Text.TextAlignment.Right
+                            : ProGPU.Text.TextAlignment.Left);
                 }
             }
         }
 
         base.OnRender(context);
     }
+
+    private TextShapingOptions GetTextShapingOptions() =>
+        TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
 }

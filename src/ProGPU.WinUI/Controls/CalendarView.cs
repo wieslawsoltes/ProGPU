@@ -90,6 +90,17 @@ public class CalendarView : Control
         return rects;
     }
 
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
+    private ProGPU.Text.TextShapingOptions GetTextShapingOptions() =>
+        ProGPU.Text.TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
+
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
         var localPos = e.Position;
@@ -197,24 +208,40 @@ public class CalendarView : Control
         );
 
         // 2. Render month navigation header bar
-        string monthTitle = _displayDate.ToString("MMMM yyyy");
-        context.DrawText(monthTitle, font, 14f, Foreground ?? ThemeManager.GetBrush("TextPrimary"), new Vector2(16f, 12f));
-
         // Arrow button rectangles
         float arrowY = 10f;
         _prevBtnRect = new Rect(Size.X - 68f, arrowY, 24f, 24f);
         _nextBtnRect = new Rect(Size.X - 36f, arrowY, 24f, 24f);
+        Rect physicalPrevRect = LogicalToPhysical(_prevBtnRect);
+        Rect physicalNextRect = LogicalToPhysical(_nextBtnRect);
+
+        string monthTitle = _displayDate.ToString("MMMM yyyy");
+        Rect logicalTitleBounds = new Rect(16f, 12f, Math.Max(0f, _prevBtnRect.X - 24f), 14f);
+        Rect titleBounds = LogicalToPhysical(logicalTitleBounds);
+        context.DrawText(
+            monthTitle,
+            font,
+            14f,
+            Foreground ?? ThemeManager.GetBrush("TextPrimary"),
+            new Vector2(titleBounds.X, titleBounds.Y),
+            Matrix4x4.Identity,
+            titleBounds,
+            textShapingOptions: GetTextShapingOptions(),
+            textAlignment: FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.TextAlignment.Right
+                : ProGPU.Text.TextAlignment.Left);
 
         // Prev month button. Use retained vector strokes rather than a font-dependent glyph.
         var prevBrush = _isPrevHovered ? ThemeManager.GetBrush("ControlBackgroundHover") : ThemeManager.GetBrush("ControlBackground");
-        context.DrawRoundedRectangle(prevBrush, null, _prevBtnRect, 4f);
+        context.DrawRoundedRectangle(prevBrush, null, physicalPrevRect, 4f);
 
         // Next month button.
         var nextBrush = _isNextHovered ? ThemeManager.GetBrush("ControlBackgroundHover") : ThemeManager.GetBrush("ControlBackground");
-        context.DrawRoundedRectangle(nextBrush, null, _nextBtnRect, 4f);
+        context.DrawRoundedRectangle(nextBrush, null, physicalNextRect, 4f);
         var arrowPen = new Pen(Foreground ?? ThemeManager.GetBrush("TextPrimary"), 1.5f);
-        DrawNavigationChevron(context, arrowPen, _prevBtnRect, pointsRight: false);
-        DrawNavigationChevron(context, arrowPen, _nextBtnRect, pointsRight: true);
+        bool isRtl = FlowDirection == FlowDirection.RightToLeft;
+        DrawNavigationChevron(context, arrowPen, physicalPrevRect, pointsRight: isRtl);
+        DrawNavigationChevron(context, arrowPen, physicalNextRect, pointsRight: !isRtl);
 
         // 3. Render day-of-week header column names
         string[] daysOfWeek = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" };
@@ -223,7 +250,8 @@ public class CalendarView : Control
         
         for (int i = 0; i < 7; i++)
         {
-            float headerX = 8f + i * cellW + (cellW - 14f) / 2f;
+            Rect physicalCell = LogicalToPhysical(dayRects[i]);
+            float headerX = physicalCell.X + (physicalCell.Width - 14f) / 2f;
             context.DrawText(daysOfWeek[i], font, 11f, ThemeManager.GetBrush("TextSecondary"), new Vector2(headerX, 48f));
         }
 
@@ -236,7 +264,7 @@ public class CalendarView : Control
 
         for (int i = 0; i < 42; i++)
         {
-            var cellRect = dayRects[i];
+            var cellRect = LogicalToPhysical(dayRects[i]);
             var date = GetDateForIndex(i);
 
             bool isSelected = SelectedDate.HasValue && SelectedDate.Value.Date == date.Date;

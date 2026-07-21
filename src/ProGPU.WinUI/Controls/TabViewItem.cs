@@ -8,6 +8,7 @@ using System.Numerics;
 using ProGPU.Layout;
 using ProGPU.Vector;
 using ProGPU.Scene;
+using ProGPU.Text;
 
 namespace Microsoft.UI.Xaml.Controls;
 
@@ -200,7 +201,7 @@ public class TabViewItem : ContentControl
                 var sepColor = activeTheme == ElementTheme.Light
                     ? new SolidColorBrush(new Vector4(0.8f, 0.8f, 0.8f, 1f))
                     : new SolidColorBrush(new Vector4(0.25f, 0.25f, 0.25f, 1f));
-                context.DrawRectangle(sepColor, null, new Rect(Size.X - 1f, 0f, 1f, Size.Y));
+                context.DrawRectangle(sepColor, null, LogicalToPhysical(new Rect(Size.X - 1f, 0f, 1f, Size.Y)));
             }
         }
         else
@@ -231,13 +232,33 @@ public class TabViewItem : ContentControl
             var textBrush = IsSelected 
                 ? (Foreground ?? ThemeManager.GetBrush("TextPrimary")) 
                 : ThemeManager.GetBrush("TextSecondary");
-            float textX = isMacOS ? 24f : Padding.Left;
-            context.DrawText(HeaderText, activeFont, 13f, textBrush, new Vector2(textX, textY));
+            float logicalTextX = isMacOS ? 24f : Padding.Left;
+            Rect textBounds = LogicalToPhysical(new Rect(
+                logicalTextX,
+                textY,
+                Math.Max(0f, Size.X - logicalTextX - Padding.Right),
+                13f));
+            context.DrawText(
+                HeaderText,
+                activeFont,
+                13f,
+                textBrush,
+                new Vector2(textBounds.X, textY),
+                Matrix4x4.Identity,
+                textBounds,
+                textShapingOptions: TextShapingOptions.Default.WithDirection(
+                    FlowDirection == FlowDirection.RightToLeft
+                        ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                        : ProGPU.Text.Shaping.ShapingDirection.LeftToRight),
+                textAlignment: FlowDirection == FlowDirection.RightToLeft
+                    ? ProGPU.Text.TextAlignment.Right
+                    : ProGPU.Text.TextAlignment.Left);
 
             // 4. Draw Close (x) button on the left side in macOS mode (offset 8f) or right side in others (offset Size.X - 18f)
             // Beautiful hover styling for close button zone
             float closeSize = 12f;
-            float closeX = isMacOS ? 8f : Size.X - 18f;
+            Rect closeRect = LogicalToPhysical(new Rect(isMacOS ? 8f : Size.X - 18f, 0f, closeSize, Size.Y));
+            float closeX = closeRect.X;
             float closeY = (Size.Y - closeSize) / 2f;
 
             Brush? closeBrush = null;
@@ -268,6 +289,11 @@ public class TabViewItem : ContentControl
 
         base.OnRender(context);
     }
+
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
 
     private static PathGeometry CreateTabShapePath(Rect rect, float r)
     {

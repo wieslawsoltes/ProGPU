@@ -189,7 +189,14 @@ public class Pivot : FrameworkElement
             if (font != null)
             {
                 var text = item.Header?.ToString() ?? $"Item {i + 1}";
-                var layout = new TextLayout(text, font, 15f, float.PositiveInfinity, TextAlignment.Left, null);
+                var layout = new TextLayout(
+                    text,
+                    font,
+                    15f,
+                    float.PositiveInfinity,
+                    ProGPU.Text.TextAlignment.Left,
+                    null,
+                    GetTextShapingOptions());
                 itemW = layout.MeasuredSize.X + 24f; // 12f side padding
             }
             var rect = new Rect(cursorX, cursorY, itemW, headerH);
@@ -225,7 +232,14 @@ public class Pivot : FrameworkElement
             if (font != null)
             {
                 var text = item.Header?.ToString() ?? $"Item {i + 1}";
-                var layout = new TextLayout(text, font, 15f, float.PositiveInfinity, TextAlignment.Left, null);
+                var layout = new TextLayout(
+                    text,
+                    font,
+                    15f,
+                    float.PositiveInfinity,
+                    ProGPU.Text.TextAlignment.Left,
+                    null,
+                    GetTextShapingOptions());
                 itemW = layout.MeasuredSize.X + 24f;
             }
             totalHeaderW += itemW + (i < Items.Count - 1 ? 16f : 0f);
@@ -422,6 +436,17 @@ public class Pivot : FrameworkElement
         return a + (b - a) * t;
     }
 
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
+    private TextShapingOptions GetTextShapingOptions() =>
+        TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
+
     public override void OnRender(DrawingContext context)
     {
         var activeTheme = this.ActualTheme;
@@ -441,7 +466,7 @@ public class Pivot : FrameworkElement
             if (i >= _headerRects.Count) break;
             
             var rect = _headerRects[i];
-            var renderRect = new Rect(rect.X - _scrollOffset, rect.Y, rect.Width, rect.Height);
+            var renderRect = LogicalToPhysical(new Rect(rect.X - _scrollOffset, rect.Y, rect.Width, rect.Height));
             
             // Draw hover backgrounds
             if (i == _hoveredHeaderIndex)
@@ -458,11 +483,24 @@ public class Pivot : FrameworkElement
                     ? ThemeManager.GetBrush("TextPrimary", activeTheme) 
                     : ThemeManager.GetBrush("TextSecondary", activeTheme);
                 
-                var layout = new TextLayout(text, font, 15f, float.PositiveInfinity, TextAlignment.Left, null);
+                var layout = new TextLayout(
+                    text,
+                    font,
+                    15f,
+                    float.PositiveInfinity,
+                    ProGPU.Text.TextAlignment.Left,
+                    null,
+                    GetTextShapingOptions());
                 float textX = renderRect.X + (renderRect.Width - layout.MeasuredSize.X) / 2f;
                 float textY = renderRect.Y + (renderRect.Height - 15f) / 2f;
                 
-                context.DrawText(text, font, 15f, textBrush, new Vector2(textX, textY));
+                context.DrawText(
+                    text,
+                    font,
+                    15f,
+                    textBrush,
+                    new Vector2(textX, textY),
+                    textShapingOptions: GetTextShapingOptions());
             }
         }
 
@@ -485,7 +523,7 @@ public class Pivot : FrameworkElement
                 activeW = selRect.Width;
             }
 
-            Rect activeStripe = new Rect(activeX - _scrollOffset + 12f, sepY - 2f, activeW - 24f, 3f);
+            Rect activeStripe = LogicalToPhysical(new Rect(activeX - _scrollOffset + 12f, sepY - 2f, activeW - 24f, 3f));
             var accentBrush = ThemeManager.GetBrush("SystemAccentColor", activeTheme);
             context.DrawRectangle(accentBrush, null, activeStripe);
         }
@@ -501,7 +539,8 @@ public class Pivot : FrameworkElement
         {
             if (Items.Count > 0)
             {
-                SelectedIndex = (SelectedIndex - 1 + Items.Count) % Items.Count;
+                int delta = FlowDirection == FlowDirection.RightToLeft ? 1 : -1;
+                SelectedIndex = (SelectedIndex + delta + Items.Count) % Items.Count;
             }
             e.Handled = true;
             return;
@@ -510,7 +549,8 @@ public class Pivot : FrameworkElement
         {
             if (Items.Count > 0)
             {
-                SelectedIndex = (SelectedIndex + 1) % Items.Count;
+                int delta = FlowDirection == FlowDirection.RightToLeft ? -1 : 1;
+                SelectedIndex = (SelectedIndex + delta + Items.Count) % Items.Count;
             }
             e.Handled = true;
             return;
