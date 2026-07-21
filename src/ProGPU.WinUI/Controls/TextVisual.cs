@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using ProGPU.Backend;
 using ProGPU.Text;
 using ProGPU.Text.Shaping;
@@ -24,6 +25,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
     private TextShapingOptions _textShapingOptions = TextShapingOptions.Default;
     private TextReadingOrder _textReadingOrder = TextReadingOrder.DetectFromContent;
     private bool _deferLayoutUntilRender;
+    private int _layoutRevision;
 
     public string Text
     {
@@ -33,7 +35,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             if (_text != value)
             {
                 _text = value;
-                _layout = null;
+                ClearLayout();
                 Invalidate();
             }
         }
@@ -44,7 +46,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         base.OnPropertyChanged(dp, oldValue, newValue);
         if (dp == FontProperty || dp == FlowDirectionProperty)
         {
-            _layout = null;
+            ClearLayout();
             InvalidateMeasure();
             Invalidate();
         }
@@ -58,7 +60,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             if (_fontSize != value)
             {
                 _fontSize = value;
-                _layout = null;
+                ClearLayout();
                 Invalidate();
             }
         }
@@ -85,7 +87,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             if (_alignment != value)
             {
                 _alignment = value;
-                _layout = null;
+                ClearLayout();
                 Invalidate();
             }
         }
@@ -100,7 +102,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             if (!_textShapingOptions.Equals(value))
             {
                 _textShapingOptions = value;
-                _layout = null;
+                ClearLayout();
                 Invalidate();
             }
         }
@@ -113,7 +115,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         {
             if (_textReadingOrder == value) return;
             _textReadingOrder = value;
-            _layout = null;
+            ClearLayout();
             InvalidateMeasure();
             Invalidate();
         }
@@ -149,7 +151,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             if (_deferLayoutUntilRender != value)
             {
                 _deferLayoutUntilRender = value;
-                _layout = null;
+                ClearLayout();
                 InvalidateMeasure();
                 Invalidate();
             }
@@ -159,6 +161,12 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
     private TtfFont? ResolveFont()
     {
         return Font ?? PopupService.DefaultFont;
+    }
+
+    private void ClearLayout()
+    {
+        Interlocked.Increment(ref _layoutRevision);
+        Volatile.Write(ref _layout, null);
     }
 
     public override Rect? LocalRenderBounds
@@ -176,28 +184,33 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         if (resolvedFont == null) return null;
 
         float maxWidth = Size.X;
-        if (_layout == null || !HasCompatibleLayoutWidth(_layout, maxWidth))
+        TextLayout? layout = Volatile.Read(ref _layout);
+        if (layout == null || !HasCompatibleLayoutWidth(layout, maxWidth))
         {
-            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, atlas, EffectiveShapingOptions);
+            layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, atlas, EffectiveShapingOptions);
+            Volatile.Write(ref _layout, layout);
         }
-        else if (!_layout.HasTextures)
+        else if (!layout.HasTextures)
         {
-            _layout.GenerateLayout(atlas);
+            layout.GenerateLayout(atlas);
         }
-        return _layout;
+        return layout;
     }
 
     /// <summary>
-    /// Shapes a deferred retained layout without allocating atlas textures. Returns false
-    /// until layout has supplied a finite width.
+    /// Shapes a deferred retained layout without allocating atlas textures. The completed
+    /// layout is published atomically, so this may run on a background worker
+    /// after arrange. Returns false until layout has supplied a finite width or when the
+    /// text state changed while shaping.
     /// </summary>
     public bool WarmDeferredLayout()
     {
-        if (_layout != null)
+        if (Volatile.Read(ref _layout) != null)
         {
             return true;
         }
 
+        int revision = Volatile.Read(ref _layoutRevision);
         var resolvedFont = ResolveFont();
         float maxWidth = Size.X;
         if (string.IsNullOrEmpty(Text) || resolvedFont == null)
@@ -209,8 +222,18 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             return false;
         }
 
-        _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, EffectiveShapingOptions);
-        return true;
+        string text = Text;
+        float fontSize = FontSize;
+        ProGPU.Text.TextAlignment alignment = Alignment;
+        TextShapingOptions shapingOptions = EffectiveShapingOptions;
+        var prepared = new TextLayout(text, resolvedFont, fontSize, maxWidth, alignment, null, shapingOptions);
+        if (revision != Volatile.Read(ref _layoutRevision))
+        {
+            return false;
+        }
+
+        Interlocked.CompareExchange(ref _layout, prepared, null);
+        return revision == Volatile.Read(ref _layoutRevision);
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -228,20 +251,23 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             return new Vector2(maxWidth, HeightConstraint.Value);
         }
 
-        if (_layout == null || !HasCompatibleLayoutWidth(_layout, maxWidth))
+        TextLayout? layout = Volatile.Read(ref _layout);
+        if (layout == null || !HasCompatibleLayoutWidth(layout, maxWidth))
         {
-            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, EffectiveShapingOptions);
+            layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, EffectiveShapingOptions);
+            Volatile.Write(ref _layout, layout);
         }
-        return _layout.MeasuredSize;
+        return layout.MeasuredSize;
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
         float maxWidth = arrangeRect.Width;
-        if (_layout != null && !HasCompatibleLayoutWidth(_layout, maxWidth))
+        TextLayout? layout = Volatile.Read(ref _layout);
+        if (layout != null && !HasCompatibleLayoutWidth(layout, maxWidth))
         {
-            _layout = null;
+            ClearLayout();
         }
     }
 

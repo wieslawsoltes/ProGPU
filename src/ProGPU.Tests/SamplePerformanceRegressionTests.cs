@@ -151,6 +151,34 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public async Task DeferredTextVisualCanPublishBackgroundShaping()
+    {
+        var text = new TextVisual
+        {
+            Text = "Background retained shaping",
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            WidthConstraint = 240f,
+            HeightConstraint = 48f,
+            DeferLayoutUntilRender = true
+        };
+
+        text.Measure(new Vector2(240f, 48f));
+        text.Arrange(new Rect(0f, 0f, 240f, 48f));
+
+        bool[] prepared = await Task.WhenAll(
+            Task.Run(text.WarmDeferredLayout),
+            Task.Run(text.WarmDeferredLayout));
+
+        Assert.All(prepared, Assert.True);
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        TextLayout? layout = text.GetOrUpdateLayout(atlas);
+        Assert.NotNull(layout);
+        Assert.Equal(text.Text, layout.Text);
+        Assert.Equal(240f, layout.MaxWidth);
+    }
+
+    [Fact]
     public void ClippedBoundsSkipOnlyLocalCommandsAndStillTraverseOverflowDescendants()
     {
         var visibleGrandchild = new RenderCounterVisual();

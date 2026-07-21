@@ -21,11 +21,15 @@ internal static class SamplePerformanceBenchmark
     private static double s_deltaSeconds;
     private static double s_compileMilliseconds;
     private static double s_maxCompileMilliseconds;
+    private static int s_maxCompileFrame;
+    private static float s_maxCompileScrollOffset;
+    private static float s_maxCompileScrollExtent;
     private static int s_compileFramesOverBudget;
     private static double s_uploadMilliseconds;
     private static double s_renderMilliseconds;
     private static double s_compositorMilliseconds;
     private static double s_hostUpdateMilliseconds;
+    private static double s_maxHostUpdateMilliseconds;
     private static double s_layoutMilliseconds;
     private static double s_animationMilliseconds;
     private static double s_surfaceAcquireMilliseconds;
@@ -193,7 +197,17 @@ internal static class SamplePerformanceBenchmark
         {
             var metrics = compositor.Metrics;
             s_compileMilliseconds += metrics.VisualTreeCompileTimeMs;
-            s_maxCompileMilliseconds = Math.Max(s_maxCompileMilliseconds, metrics.VisualTreeCompileTimeMs);
+            if (metrics.VisualTreeCompileTimeMs > s_maxCompileMilliseconds)
+            {
+                s_maxCompileMilliseconds = metrics.VisualTreeCompileTimeMs;
+                s_maxCompileFrame = s_frame - s_warmupFrames;
+                if (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
+                {
+                    InterShowcasePage.TryGetBenchmarkScrollState(
+                        out s_maxCompileScrollOffset,
+                        out s_maxCompileScrollExtent);
+                }
+            }
             if (metrics.VisualTreeCompileTimeMs > 16.667d)
             {
                 s_compileFramesOverBudget++;
@@ -299,11 +313,16 @@ internal static class SamplePerformanceBenchmark
             $" deltaFps={deltaFps:F2} wallFps={wallFps:F2}" +
             $" compileMs={s_compileMilliseconds / divisor:F4}" +
             $" maxCompileMs={s_maxCompileMilliseconds:F4}" +
+            $" maxCompileFrame={s_maxCompileFrame}" +
+            (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase)
+                ? $" maxCompileScroll={s_maxCompileScrollOffset:F0}/{s_maxCompileScrollExtent:F0}"
+                : string.Empty) +
             $" compileFramesOverBudget={s_compileFramesOverBudget}" +
             $" uploadMs={s_uploadMilliseconds / divisor:F4}" +
             $" renderMs={s_renderMilliseconds / divisor:F4}" +
             $" compositorMs={s_compositorMilliseconds / divisor:F4}" +
             $" hostUpdateMs={s_hostUpdateMilliseconds / divisor:F4}" +
+            $" maxHostUpdateMs={s_maxHostUpdateMilliseconds:F4}" +
             $" layoutMs={s_layoutMilliseconds / divisor:F4}" +
             $" animationMs={s_animationMilliseconds / divisor:F4}" +
             $" acquireMs={s_surfaceAcquireMilliseconds / divisor:F4}" +
@@ -328,6 +347,7 @@ internal static class SamplePerformanceBenchmark
         if (RequestedPage is not null && !s_finished && s_frame > s_warmupFrames)
         {
             s_hostUpdateMilliseconds += elapsed.TotalMilliseconds;
+            s_maxHostUpdateMilliseconds = Math.Max(s_maxHostUpdateMilliseconds, elapsed.TotalMilliseconds);
         }
     }
 
