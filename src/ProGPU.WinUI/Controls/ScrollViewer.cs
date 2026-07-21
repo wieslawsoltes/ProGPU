@@ -285,17 +285,35 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
-            float maxScroll = Math.Max(0f, ContentHeight - Size.Y);
-            if (maxScroll > 0f)
+            bool changed = false;
+            float verticalMaximum = Math.Max(0f, ContentHeight - Size.Y);
+            if (VerticalScrollMode != ScrollMode.Disabled && verticalMaximum > 0f && e.WheelDelta != 0f)
             {
-                float delta = -e.WheelDelta * 30f;
-                float targetOffset = Math.Clamp(_verticalOffset + delta, 0f, maxScroll);
+                float delta = e.IsPreciseScrolling ? -e.WheelDelta : -e.WheelDelta * 30f;
+                float targetOffset = Math.Clamp(_verticalOffset + delta, 0f, verticalMaximum);
                 if (targetOffset != _verticalOffset)
                 {
                     VerticalOffset = targetOffset;
-                    e.Handled = true;
-                    return;
+                    changed = true;
                 }
+            }
+
+            float horizontalMaximum = Math.Max(0f, ContentWidth - Size.X);
+            if (HorizontalScrollMode != ScrollMode.Disabled && horizontalMaximum > 0f && e.WheelDeltaX != 0f)
+            {
+                float delta = e.IsPreciseScrolling ? -e.WheelDeltaX : -e.WheelDeltaX * 30f;
+                float targetOffset = Math.Clamp(_horizontalOffset + delta, 0f, horizontalMaximum);
+                if (targetOffset != _horizontalOffset)
+                {
+                    HorizontalOffset = targetOffset;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                e.Handled = true;
+                return;
             }
         }
         base.OnPointerWheelChanged(e);

@@ -389,6 +389,21 @@ public class TextBox : Control, ITextInputClient
                     _compositionOriginalText = string.Empty;
                 }
                 break;
+            case TextInputEventKind.ReplaceText:
+                SaveUndoState();
+                SelectionStart = Math.Clamp(args.ReplacementStart, 0, Text.Length);
+                SelectionLength = Math.Clamp(args.ReplacementLength, 0, Text.Length - SelectionStart);
+                CaretIndex = SelectionStart + SelectionLength;
+                InsertText(args.Text);
+                SelectionStart = Math.Clamp(args.SelectionStart, 0, Text.Length);
+                SelectionLength = Math.Clamp(args.SelectionLength, 0, Text.Length - SelectionStart);
+                CaretIndex = SelectionStart + SelectionLength;
+                break;
+            case TextInputEventKind.SelectionChanged:
+                SelectionStart = Math.Clamp(args.SelectionStart, 0, Text.Length);
+                SelectionLength = Math.Clamp(args.SelectionLength, 0, Text.Length - SelectionStart);
+                CaretIndex = SelectionStart + SelectionLength;
+                break;
             case TextInputEventKind.Paste:
                 string pasteText = ClipboardHelper.GetText();
                 if (!string.IsNullOrEmpty(pasteText))

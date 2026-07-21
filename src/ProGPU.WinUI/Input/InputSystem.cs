@@ -34,6 +34,7 @@ public class WindowInputState
     public bool IsMiddleButtonPressed;
     public bool IsRightButtonPressed;
     public Action<StandardCursor>? CursorChanged;
+    internal FrameworkElement? ComposingElement;
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
     internal Dictionary<uint, FrameworkElement> CapturedElements { get; } = new();
     internal Dictionary<FrameworkElement, ManipulationSession> Manipulations { get; } = new();
@@ -110,11 +111,50 @@ public static class InputSystem
     public static void InjectTextInput(TextInputEventKind kind, string? text = null, bool isComposing = false)
     {
         if (_focusedElement == null) return;
-        _focusedElement.OnTextInput(new TextInputRoutedEventArgs
+        FrameworkElement target = _focusedElement;
+        if (kind == TextInputEventKind.CompositionStarted)
+        {
+            Current.ComposingElement = target;
+        }
+        target.OnTextInput(new TextInputRoutedEventArgs
         {
             Kind = kind,
             Text = text ?? string.Empty,
             IsComposing = isComposing
+        });
+        if (kind is TextInputEventKind.CompositionCompleted or TextInputEventKind.CompositionCanceled)
+        {
+            Current.ComposingElement = null;
+        }
+    }
+
+    public static void InjectTextReplacement(
+        string text,
+        int replacementStart,
+        int replacementLength,
+        int selectionStart,
+        int selectionLength)
+    {
+        if (_focusedElement == null) return;
+        _focusedElement.OnTextInput(new TextInputRoutedEventArgs
+        {
+            Kind = TextInputEventKind.ReplaceText,
+            Text = text ?? string.Empty,
+            ReplacementStart = replacementStart,
+            ReplacementLength = replacementLength,
+            SelectionStart = selectionStart,
+            SelectionLength = selectionLength
+        });
+    }
+
+    public static void InjectTextSelection(int selectionStart, int selectionLength)
+    {
+        if (_focusedElement == null) return;
+        _focusedElement.OnTextInput(new TextInputRoutedEventArgs
+        {
+            Kind = TextInputEventKind.SelectionChanged,
+            SelectionStart = selectionStart,
+            SelectionLength = selectionLength
         });
     }
 
@@ -667,6 +707,8 @@ public static class InputSystem
         Pressure = input.Pressure,
         ContactRect = input.ContactRect,
         WheelDelta = input.WheelDeltaY,
+        WheelDeltaX = input.WheelDeltaX,
+        IsPreciseScrolling = input.IsPreciseWheel,
         KeyModifiers = input.Modifiers,
         IsCanceled = canceled
     };
@@ -1032,6 +1074,14 @@ public static class InputSystem
         if (_focusedElement == element) return;
 
         var oldFocus = _focusedElement;
+        if (oldFocus != null && ReferenceEquals(Current.ComposingElement, oldFocus))
+        {
+            oldFocus.OnTextInput(new TextInputRoutedEventArgs
+            {
+                Kind = TextInputEventKind.CompositionCanceled
+            });
+            Current.ComposingElement = null;
+        }
         _focusedElement = element;
 
         if (oldFocus is Control oldControl)

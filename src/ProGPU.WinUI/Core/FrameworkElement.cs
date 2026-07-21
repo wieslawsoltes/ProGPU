@@ -40,6 +40,8 @@ public class PointerRoutedEventArgs : RoutedEventArgs
     public bool IsMiddleButtonPressed { get; set; }
     public bool IsRightButtonPressed { get; set; }
     public float WheelDelta { get; set; }
+    public float WheelDeltaX { get; set; }
+    public bool IsPreciseScrolling { get; set; }
     public Pointer Pointer { get; set; } = new(1, PointerDeviceType.Mouse, false);
     public ulong Timestamp { get; set; }
     public bool IsPrimary { get; set; } = true;

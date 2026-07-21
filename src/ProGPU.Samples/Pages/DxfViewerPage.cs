@@ -445,9 +445,25 @@ public class DxfCanvasControl : FrameworkElement
     {
         if (Document == null) return;
 
-        // Standard scroll zoom mapping (Scroll up = Zoom In, Scroll down = Zoom Out)
-        float factor = e.WheelDelta > 0 ? 1.15f : 0.85f;
-        ZoomToPoint(e.Position, factor);
+        if (e.IsPreciseScrolling && !e.KeyModifiers.HasFlag(VirtualKeyModifiers.Control))
+        {
+            // UIKit scroll events report the content-following two-axis translation in
+            // logical points. Preserve it exactly for trackpad panning.
+            Context.Pan += new Vector2(e.WheelDeltaX, e.WheelDelta);
+            Invalidate();
+        }
+        else if (e.IsPreciseScrolling)
+        {
+            // The iOS host maps the relative UIPinch scale to 120 * ln(scale).
+            // This restores the exact multiplicative scale without quantized steps.
+            ZoomToPoint(e.Position, MathF.Exp(e.WheelDelta / 120f));
+        }
+        else
+        {
+            // Preserve conventional stepped mouse-wheel zoom on desktop.
+            float factor = e.WheelDelta > 0 ? 1.15f : 0.85f;
+            ZoomToPoint(e.Position, factor);
+        }
         e.Handled = true;
     }
 }

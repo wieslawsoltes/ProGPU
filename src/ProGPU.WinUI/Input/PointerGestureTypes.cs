@@ -230,6 +230,8 @@ public enum TextInputEventKind
     CompositionUpdated,
     CompositionCompleted,
     CompositionCanceled,
+    ReplaceText,
+    SelectionChanged,
     Paste
 }
 
@@ -238,6 +240,10 @@ public sealed class TextInputRoutedEventArgs : Microsoft.UI.Xaml.RoutedEventArgs
     public TextInputEventKind Kind { get; internal init; }
     public string Text { get; internal init; } = string.Empty;
     public bool IsComposing { get; internal init; }
+    public int ReplacementStart { get; internal init; } = -1;
+    public int ReplacementLength { get; internal init; }
+    public int SelectionStart { get; internal init; } = -1;
+    public int SelectionLength { get; internal init; }
 }
 
 public readonly record struct TextInputOptions(
@@ -282,5 +288,6 @@ public readonly record struct PointerInputEvent(
     Rect ContactRect = default,
     float WheelDeltaX = 0f,
     float WheelDeltaY = 0f,
+    bool IsPreciseWheel = false,
     VirtualKeyModifiers Modifiers = VirtualKeyModifiers.None);
 }

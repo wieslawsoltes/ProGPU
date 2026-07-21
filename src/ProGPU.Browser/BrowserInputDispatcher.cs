@@ -142,6 +142,7 @@ public static partial class BrowserInputDispatcher
                     ToMicroseconds(ReadDouble(record, 32)),
                     WheelDeltaX: ReadSingle(record, 12),
                     WheelDeltaY: ReadSingle(record, 16),
+                    IsPreciseWheel: true,
                     Modifiers: ReadModifiers(ReadUInt32(record, 24))));
                 break;
             case BrowserInputKind.KeyDown:

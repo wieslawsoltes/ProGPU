@@ -509,7 +509,7 @@ function installBrowserInput() {
     const point = pointerPosition(event);
     const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 :
       event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? state.canvas.clientHeight : 1;
-    queueInputEvent(4, point.x, point.y, -event.deltaX * unit / 100, -event.deltaY * unit / 100,
+    queueInputEvent(4, point.x, point.y, -event.deltaX * unit, -event.deltaY * unit,
       1, eventModifiers(event), 0, event.timeStamp, 0, 0, 0, 0, -1);
     event.preventDefault();
   }, { passive: false });

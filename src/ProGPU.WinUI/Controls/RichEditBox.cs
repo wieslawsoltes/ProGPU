@@ -1081,6 +1081,17 @@ namespace Microsoft.UI.Xaml.Controls
                 case TextInputEventKind.CompositionCanceled:
                     CancelComposition();
                     break;
+                case TextInputEventKind.ReplaceText:
+                    SelectionStart = Math.Clamp(args.ReplacementStart, 0, Text.Length);
+                    SelectionLength = Math.Clamp(args.ReplacementLength, 0, Text.Length - SelectionStart);
+                    InsertText(args.Text);
+                    SelectionStart = Math.Clamp(args.SelectionStart, 0, Text.Length);
+                    SelectionLength = Math.Clamp(args.SelectionLength, 0, Text.Length - SelectionStart);
+                    break;
+                case TextInputEventKind.SelectionChanged:
+                    SelectionStart = Math.Clamp(args.SelectionStart, 0, Text.Length);
+                    SelectionLength = Math.Clamp(args.SelectionLength, 0, Text.Length - SelectionStart);
+                    break;
                 case TextInputEventKind.Paste:
                     PasteFromClipboard();
                     break;
