@@ -175,14 +175,27 @@ public static class InterShowcasePage
             return;
         }
 
+        void WarmInBackground()
+        {
+            for (var index = 0; index < specimens.Count; index++)
+            {
+                if (page.Parent == null)
+                {
+                    // Navigation may cache a detached page. Do not keep warming content
+                    // that cannot become visible; a later activation shapes on demand.
+                    return;
+                }
+
+                specimens[index].WarmDeferredLayout();
+            }
+        }
+
         var next = 0;
         var retriesBeforeLayout = 0;
-        void WarmNextFrame()
+        void WarmBrowserSlice()
         {
             if (page.Parent == null)
             {
-                // Navigation may cache a detached page. Do not keep warming content that
-                // cannot become visible; a later activation still shapes on demand.
                 return;
             }
 
@@ -193,7 +206,7 @@ public static class InterShowcasePage
                 {
                     if (++retriesBeforeLayout < 4)
                     {
-                        UIThread.Post(WarmNextFrame);
+                        UIThread.Post(WarmBrowserSlice);
                     }
                     return;
                 }
@@ -205,13 +218,25 @@ public static class InterShowcasePage
 
             if (next < specimens.Count)
             {
-                UIThread.Post(WarmNextFrame);
+                UIThread.Post(WarmBrowserSlice);
             }
         }
 
         // Let the lightweight visible page measure, arrange, and present before starting
-        // bounded CPU-only shaping work for content below the viewport.
-        UIThread.Post(() => UIThread.Post(WarmNextFrame));
+        // one sequential CPU-only worker for content below the viewport. Atlas allocation
+        // remains demand-driven on the compositor thread when a specimen becomes visible.
+        UIThread.Post(() => UIThread.Post(() =>
+        {
+            if (OperatingSystem.IsBrowser())
+            {
+                // Browser builds without worker-thread support preserve a bounded UI slice.
+                WarmBrowserSlice();
+            }
+            else
+            {
+                _ = Task.Run(WarmInBackground);
+            }
+        }));
     }
 
     private static void CollectFixedHeightSpecimens(Visual visual, List<TextVisual> specimens)
@@ -261,6 +286,22 @@ public static class InterShowcasePage
         }
 
         _benchmarkScrollViewer.VerticalOffset = nextOffset;
+    }
+
+    internal static bool TryGetBenchmarkScrollState(out float verticalOffset, out float maximumOffset)
+    {
+        if (_benchmarkScrollViewer == null)
+        {
+            verticalOffset = 0f;
+            maximumOffset = 0f;
+            return false;
+        }
+
+        verticalOffset = _benchmarkScrollViewer.VerticalOffset;
+        maximumOffset = Math.Max(
+            0f,
+            _benchmarkScrollViewer.ContentHeight - _benchmarkScrollViewer.Size.Y);
+        return true;
     }
 
     private static FrameworkElement CreateTopNavigation()
