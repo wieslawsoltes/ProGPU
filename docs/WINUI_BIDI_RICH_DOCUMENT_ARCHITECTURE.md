@@ -133,6 +133,9 @@ Microsoft and Unicode:
 - [DirectWrite `HitTestPoint`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-hittestpoint)
   returns logical position, leading/trailing affinity, inside state, and enclosing
   geometry.
+- [DirectWrite `HitTestTextRange`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-hittesttextrange)
+  returns one or more visual geometries for a logical range and applies an explicit
+  layout origin, rather than collapsing bidi fragments into one hit rectangle.
 - [Direct2D and DirectWrite text rendering](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
   separates reusable layout from `DrawTextLayout`/glyph-run rendering.
 - [Unicode Bidirectional Algorithm, UAX #9 rev. 51](https://www.unicode.org/reports/tr9/)
@@ -170,8 +173,20 @@ Shaping and production engines:
 - [Parley retained layout data](https://docs.rs/parley/latest/src/parley/layout/data.rs.html)
   stores font/style runs, bidi levels, source ranges, clusters, glyphs, lines, and
   line items as distinct stages.
+- [Parley's upstream architecture](https://github.com/linebender/parley) keeps font
+  fallback, shaping, font parsing, Unicode analysis, layout, selection, and editing
+  as distinct but reusable layers.
 - [Vello](https://github.com/linebender/vello) keeps retained scene construction
   separate from GPU compute rendering and glyph caching.
+- [WebRender's spatial tree](https://github.com/servo/webrender/blob/main/webrender/src/spatial_tree.rs)
+  retains scroll-frame transforms separately from scene content, reinforcing the
+  single viewport-translation boundary used by the rich editor.
+- [Open XML SDK overview](https://learn.microsoft.com/en-us/office/open-xml/word/overview),
+  [stream opening](https://learn.microsoft.com/en-us/office/open-xml/word/how-to-open-a-word-processing-document-from-a-stream),
+  and [WordprocessingML paragraph structure](https://learn.microsoft.com/en-us/office/open-xml/word/working-with-paragraphs)
+  define the strongly typed package/part/body/paragraph/run boundary used by the DOCX
+  adapter. The official [`DocumentFormat.OpenXml` package](https://www.nuget.org/packages/DocumentFormat.OpenXml)
+  supplies package creation, relationship handling, and schema validation.
 
 ## Cross-engine decisions
 
@@ -181,6 +196,7 @@ Shaping and production engines:
 | Shaping/layout reuse | `TextLayout` retains shaped glyphs, safety flags, and cluster mappings. Rich documents retain per-block results in a presenter-local `RichDocumentLayoutSession`; content and style changes invalidate by version. Rich text and Markdown pass paragraph-local context across style/font items, refuse splits inside shaping clusters, and reshape both fragments when a line break crosses an `UnsafeToBreak` dependency. Width/alignment changes can rebuild formatting without sharing unsafe coordinates across controls. |
 | Display-list reuse | Rich and Markdown presenters record commands once and replay them until layout, theme, selection, or hyperlink-hover state changes. Selection/hover are repaint-only. |
 | Visibility culling | Single-column documents estimate offscreen block heights, realize a buffered viewport, recycle embedded controls, retain list capacity, and anchor the scroll position when estimates become exact. Rich editing projects run storage into paragraph blocks, so a 2,000-line editor realizes only the buffered viewport. Cache state is no longer stored authoritatively on semantic nodes. |
+| Scroll and selection coordinates | Following WebRender's separation of scroll transforms and retained scene data, layout and caret positions stay in document coordinates and the viewport offset is applied once at input/output boundaries. `RichTextBlock` refreshes its realized block window only after a viewport-sized movement, while `ScrollViewer` translates retained commands for intermediate motion. Following DirectWrite, logical ranges produce separate line/direction rectangles; following HarfBuzz and Skia, hit testing never splits a shaped cluster. |
 | Cache identity/eviction | Block keys include width, padding, font identity/size, foreground, alignment, theme, wrapping, reading order, and flow direction. Glyph/path cache keys and atlas-generation recovery remain compositor-owned. Offscreen block payloads are cleared without `TrimExcess` churn. |
 | Demand-driven upload | CPU shaping and layout produce reusable glyph IDs/positions. Visible retained commands drive atlas demand; semantic import never initializes WebGPU. |
 | Worker preparation | The design keeps semantic import and future shaping preparation separable from UI-thread child measure/arrange. Present implementation does not move framework-element measurement off thread. |
@@ -192,7 +208,7 @@ Shaping and production engines:
 ## Shared document pipeline
 
 ```text
-Markdown / HTML / RTF / plain text / custom typed codec
+Markdown / HTML / RTF / DOCX / plain text / custom typed codec
                     │
                     ▼
        versioned RichDocument blocks
@@ -243,6 +259,16 @@ expose alternate text through `TextGetOptions.UseObjectText`. The automation tex
 provider uses the same logical ranges and shaped line geometry for visible ranges,
 format attributes, movement, hit testing, per-line screen rectangles, and embedded
 child/range mapping.
+
+The DOCX codec uses the Microsoft Open XML SDK only at the interchange boundary.
+It opens and creates packages from byte streams, resolves document defaults and
+based-on style chains, maps paragraph/run formatting, language and bidi state,
+hyperlinks, numbering, table grids/merges/shading/borders, and embedded bitmap parts
+to the shared semantic model, and writes the same features back as schema-valid
+WordprocessingML. Binary storage is shared by desktop and browser hosts; browser save
+copies bytes directly from WebAssembly memory into a `Blob`, avoiding base64/string
+expansion.
+
 Rich clipboard transfer retains styled spans and paragraph formatting when
 `ClipboardCopyFormat` permits all formats. A typed host adapter publishes and consumes
 plain text, RTF, and semantic HTML together; the process-local fallback uses the same
@@ -441,20 +467,30 @@ custom/default tab layout and the 63-stop limit, semantic list-marker rendering 
 numbered extraction, RTF and HTML native rich clipboard transfer, inline-image decoding/alternate text,
 complete automation provider methods, embedded-object child ranges and per-line bounds,
 notifying column metadata, incremental 2,000-paragraph editor
-virtualization, software-keyboard/IME composition, read-only input, casing, return
+virtualization, viewport refresh after deep scrolling, document-coordinate hit-test
+round trips, direction-run selection rectangles, software-keyboard/IME composition,
+read-only input, casing, return
 policy, and maximum length. The text-shaping sample has a passing 1280 x 800 headless
 render with non-background-pixel and PNG assertions.
+
+DOCX-focused validation covers Open XML schema validation, styled paragraph,
+hyperlink, bullet-list, table/grid/column-span, bidi, and embedded-PNG round trips;
+the sample saves binary DOCX through `StorageFile` and reopens it for editing. A
+2,000-paragraph regression jumps from the initial realized window to paragraph 1900,
+asserts that the viewport range advanced, round-trips a client point to the target
+logical range, and keeps realized blocks bounded below 300.
 
 Validation completed on the same source tree:
 
 - `ProGPU.Samples` Release build: zero warnings and zero errors.
-- `ProGPU.Tests`: 2,173 passed, zero failed/skipped.
-- `ProGPU.Tests.Headless`: 186 passed, zero failed/skipped.
+- `ProGPU.Tests`: 2,177 passed, zero failed/skipped.
+- `ProGPU.Tests.Headless`: 192 passed, zero failed/skipped.
 - focused bidi/editor/document coverage: 126 passed.
 - `Text Shaping Lab` headless capture: 1280 x 800, non-empty pixel assertion and
   PNG creation passed; the initial viewport was inspected for clipping and contrast.
-- browser Release AOT: all 68 eligible assemblies AOT-compiled and the native
-  WebAssembly link completed with the typed browser clipboard imports. Existing
+- browser Release AOT: all 72 eligible assemblies AOT-compiled and the native
+  WebAssembly link completed with the typed browser clipboard and binary-save imports.
+  Existing
   dependency-property/third-party trimmer warnings remain unchanged.
 - real Chromium AOT smoke: the gallery initialized WebGPU, reported `HR: ready`,
   rendered continuously without console errors, navigated to `Text Shaping Lab`,
@@ -466,8 +502,10 @@ Validation completed on the same source tree:
   bytes/frame, 594/600 scene-cache hits, and 41 realized paragraphs in the final
   sample. This is a current-machine sample, not a cross-machine comparison baseline.
 
-Remaining format-depth gates include standard nested RTF/TOM editor tables, section/header/footer
-destinations, tracked revisions, full browser-grade HTML error recovery/CSS cascade,
+Remaining format-depth gates include lossless preservation of Word features without
+a counterpart in `RichDocument` (headers/footers, comments, footnotes, tracked
+revisions, fields, and section/page setup), standard nested RTF/TOM editor tables,
+full browser-grade HTML error recovery/CSS cascade,
 remote-resource image loading, and format-specific features that have no semantic
 counterpart in the current `RichDocument` model. RichEdit table metadata and visual
 formatting round-trip through the semantic snapshot/codec bridge and direct cell
