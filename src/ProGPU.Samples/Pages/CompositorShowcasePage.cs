@@ -128,7 +128,7 @@ public static class CompositorShowcasePage
                 new Run(" or a live toggle switch control: "),
                 new InlineUIContainer(embedToggle),
                 new Run(" that layout, measure, wrap, and arrange seamlessly.")
-            ) { MarginBottom = 10f, TextAlignment = TextAlignment.Justify };
+            ) { MarginBottom = 10f, TextAlignment = Microsoft.UI.Xaml.TextAlignment.Justify };
     
             var p2 = new Paragraph(
                 new Bold(new Run("Document Links & Stats:\n")),
@@ -137,7 +137,7 @@ public static class CompositorShowcasePage
                 new Run(" inline alongside styled runs. Try selecting text, or interact with elements directly! Links can also be clicked, e.g. "),
                 new Hyperlink(new Bold(new Run("ProGPU Website"))) { Uri = "https://github.com/wieslawsoltes/ProGPU" },
                 new Run(" to visit the repository or trigger routed event bubbles.")
-            ) { MarginBottom = 10f, TextAlignment = TextAlignment.Justify };
+            ) { MarginBottom = 10f, TextAlignment = Microsoft.UI.Xaml.TextAlignment.Justify };
     
             flowDoc.Paragraphs.Add(p1);
             flowDoc.Paragraphs.Add(p2);

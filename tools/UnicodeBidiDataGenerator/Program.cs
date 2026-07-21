@@ -1,0 +1,344 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+
+const string UnicodeVersion = "17.0.0";
+const string DerivedBidiClassSha256 = "4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4";
+const string BidiBracketsSha256 = "dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428";
+const string DerivedBidiClassUrl =
+    $"https://www.unicode.org/Public/{UnicodeVersion}/ucd/extracted/DerivedBidiClass.txt";
+const string BidiBracketsUrl =
+    $"https://www.unicode.org/Public/{UnicodeVersion}/ucd/BidiBrackets.txt";
+
+var options = Options.Parse(args);
+string repositoryRoot = FindRepositoryRoot(Environment.CurrentDirectory);
+string outputPath = Path.GetFullPath(options.OutputPath ?? Path.Combine(
+    repositoryRoot,
+    "src",
+    "ProGPU.Text",
+    "Bidi",
+    "UnicodeBidiData.Generated.cs"));
+
+string derivedText;
+string bracketsText;
+if (options.UcdDirectory is { } ucdDirectory)
+{
+    string fullUcdDirectory = Path.GetFullPath(ucdDirectory);
+    derivedText = await ReadVerifiedFileAsync(
+        Path.Combine(fullUcdDirectory, "DerivedBidiClass.txt"),
+        DerivedBidiClassSha256);
+    bracketsText = await ReadVerifiedFileAsync(
+        Path.Combine(fullUcdDirectory, "BidiBrackets.txt"),
+        BidiBracketsSha256);
+}
+else
+{
+    using var client = new HttpClient();
+    derivedText = await DownloadVerifiedFileAsync(client, DerivedBidiClassUrl, DerivedBidiClassSha256);
+    bracketsText = await DownloadVerifiedFileAsync(client, BidiBracketsUrl, BidiBracketsSha256);
+}
+
+List<ClassRange> classRanges = ParseAndMergeClasses(derivedText);
+List<BracketRecord> brackets = ParseBrackets(bracketsText);
+string generated = GenerateSource(classRanges, brackets);
+
+Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+string temporaryPath = outputPath + ".tmp";
+await File.WriteAllTextAsync(temporaryPath, generated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+File.Move(temporaryPath, outputPath, overwrite: true);
+Console.WriteLine($"Generated {classRanges.Count:N0} bidi ranges and {brackets.Count:N0} bracket records at {outputPath}");
+
+static List<ClassRange> ParseAndMergeClasses(string text)
+{
+    var classes = new BidiClassValue[0x110000];
+    Array.Fill(classes, BidiClassValue.L);
+
+    foreach (string sourceLine in ReadLines(text))
+    {
+        const string missingPrefix = "# @missing:";
+        if (!sourceLine.StartsWith(missingPrefix, StringComparison.Ordinal)) continue;
+        string line = sourceLine[missingPrefix.Length..].Trim();
+        ParseClassAssignment(line, classes);
+    }
+
+    foreach (string sourceLine in ReadLines(text))
+    {
+        string line = StripComment(sourceLine);
+        if (line.Length == 0) continue;
+        ParseClassAssignment(line, classes);
+    }
+
+    var ranges = new List<ClassRange>();
+    int start = 0;
+    BidiClassValue current = classes[0];
+    for (int codePoint = 1; codePoint < classes.Length; codePoint++)
+    {
+        if (classes[codePoint] == current) continue;
+        ranges.Add(new ClassRange(start, codePoint - 1, current));
+        start = codePoint;
+        current = classes[codePoint];
+    }
+    ranges.Add(new ClassRange(start, classes.Length - 1, current));
+    return ranges;
+}
+
+static void ParseClassAssignment(string line, BidiClassValue[] classes)
+{
+    string[] fields = line.Split(';', StringSplitOptions.TrimEntries);
+    if (fields.Length < 2) throw new InvalidDataException($"Invalid bidi assignment: {line}");
+    (int start, int end) = ParseRange(fields[0]);
+    BidiClassValue value = ParseClass(fields[1]);
+    Array.Fill(classes, value, start, end - start + 1);
+}
+
+static List<BracketRecord> ParseBrackets(string text)
+{
+    var records = new List<BracketRecord>();
+    foreach (string sourceLine in ReadLines(text))
+    {
+        string line = StripComment(sourceLine);
+        if (line.Length == 0) continue;
+        string[] fields = line.Split(';', StringSplitOptions.TrimEntries);
+        if (fields.Length != 3) throw new InvalidDataException($"Invalid bracket assignment: {line}");
+        int codePoint = int.Parse(fields[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        int pair = int.Parse(fields[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        byte kind = fields[2] switch
+        {
+            "o" => 1,
+            "c" => 2,
+            _ => throw new InvalidDataException($"Invalid bracket kind: {fields[2]}")
+        };
+        records.Add(new BracketRecord(codePoint, pair, kind));
+    }
+    records.Sort(static (left, right) => left.CodePoint.CompareTo(right.CodePoint));
+    return records;
+}
+
+static string GenerateSource(List<ClassRange> ranges, List<BracketRecord> brackets)
+{
+    var builder = new StringBuilder(64 * 1024);
+    builder.AppendLine("namespace ProGPU.Text.Bidi;");
+    builder.AppendLine();
+    builder.AppendLine("// <auto-generated />");
+    builder.AppendLine($"// Generated by tools/UnicodeBidiDataGenerator from Unicode {UnicodeVersion} UCD data.");
+    builder.AppendLine($"// DerivedBidiClass.txt SHA-256: {DerivedBidiClassSha256}");
+    builder.AppendLine($"// BidiBrackets.txt SHA-256: {BidiBracketsSha256}");
+    builder.AppendLine("// Packed records are searched directly; runtime lookup performs no parsing or allocation.");
+    builder.AppendLine("internal static class UnicodeBidiData");
+    builder.AppendLine("{");
+    builder.AppendLine("    private const int CodePointBits = 21;");
+    builder.AppendLine("    private const ulong CodePointMask = (1UL << CodePointBits) - 1UL;");
+    builder.AppendLine();
+    WriteTable(builder, "ClassRanges", ranges.Select(static range => Pack(range.Start, range.End, (byte)range.Value)));
+    builder.AppendLine();
+    WriteTable(builder, "BracketRecords", brackets.Select(static bracket => Pack(bracket.CodePoint, bracket.Pair, bracket.Kind)));
+    builder.AppendLine();
+    builder.AppendLine("    public static BidiClass GetClass(int codePoint)");
+    builder.AppendLine("    {");
+    builder.AppendLine("        ReadOnlySpan<ulong> records = ClassRanges;");
+    builder.AppendLine("        int low = 0;");
+    builder.AppendLine("        int high = records.Length - 1;");
+    builder.AppendLine("        while (low <= high)");
+    builder.AppendLine("        {");
+    builder.AppendLine("            int middle = low + ((high - low) >> 1);");
+    builder.AppendLine("            ulong record = records[middle];");
+    builder.AppendLine("            int start = (int)(record & CodePointMask);");
+    builder.AppendLine("            int end = (int)((record >> CodePointBits) & CodePointMask);");
+    builder.AppendLine("            if (codePoint < start) high = middle - 1;");
+    builder.AppendLine("            else if (codePoint > end) low = middle + 1;");
+    builder.AppendLine("            else return (BidiClass)(record >> (CodePointBits * 2));");
+    builder.AppendLine("        }");
+    builder.AppendLine("        return BidiClass.L;");
+    builder.AppendLine("    }");
+    builder.AppendLine();
+    builder.AppendLine("    public static bool TryGetBracket(int codePoint, out int pair, out BracketKind kind)");
+    builder.AppendLine("    {");
+    builder.AppendLine("        ReadOnlySpan<ulong> records = BracketRecords;");
+    builder.AppendLine("        int low = 0;");
+    builder.AppendLine("        int high = records.Length - 1;");
+    builder.AppendLine("        while (low <= high)");
+    builder.AppendLine("        {");
+    builder.AppendLine("            int middle = low + ((high - low) >> 1);");
+    builder.AppendLine("            ulong record = records[middle];");
+    builder.AppendLine("            int candidate = (int)(record & CodePointMask);");
+    builder.AppendLine("            if (codePoint < candidate) high = middle - 1;");
+    builder.AppendLine("            else if (codePoint > candidate) low = middle + 1;");
+    builder.AppendLine("            else");
+    builder.AppendLine("            {");
+    builder.AppendLine("                pair = (int)((record >> CodePointBits) & CodePointMask);");
+    builder.AppendLine("                kind = (BracketKind)(record >> (CodePointBits * 2));");
+    builder.AppendLine("                return true;");
+    builder.AppendLine("            }");
+    builder.AppendLine("        }");
+    builder.AppendLine("        pair = 0;");
+    builder.AppendLine("        kind = BracketKind.None;");
+    builder.AppendLine("        return false;");
+    builder.AppendLine("    }");
+    builder.AppendLine("}");
+    return builder.ToString();
+}
+
+static void WriteTable(StringBuilder builder, string name, IEnumerable<ulong> records)
+{
+    builder.AppendLine($"    private static ReadOnlySpan<ulong> {name} =>");
+    builder.AppendLine("    [");
+    ulong[] values = records.ToArray();
+    int column = 0;
+    for (int index = 0; index < values.Length; index++)
+    {
+        if (column == 0) builder.Append("        ");
+        builder.Append($"0x{values[index]:X16}UL,");
+        column++;
+        if (column == 4 || index == values.Length - 1)
+        {
+            builder.AppendLine();
+            column = 0;
+        }
+        else
+        {
+            builder.Append(' ');
+        }
+    }
+    builder.AppendLine("    ];");
+}
+
+static ulong Pack(int first, int second, byte value) =>
+    (uint)first | ((ulong)(uint)second << 21) | ((ulong)value << 42);
+
+static (int Start, int End) ParseRange(string text)
+{
+    string[] bounds = text.Split("..", StringSplitOptions.TrimEntries);
+    int start = int.Parse(bounds[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    int end = bounds.Length == 1
+        ? start
+        : int.Parse(bounds[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    return (start, end);
+}
+
+static BidiClassValue ParseClass(string value) => value switch
+{
+    "L" or "Left_To_Right" => BidiClassValue.L,
+    "R" or "Right_To_Left" => BidiClassValue.R,
+    "AL" or "Arabic_Letter" => BidiClassValue.AL,
+    "EN" => BidiClassValue.EN,
+    "ES" => BidiClassValue.ES,
+    "ET" or "European_Terminator" => BidiClassValue.ET,
+    "AN" => BidiClassValue.AN,
+    "CS" => BidiClassValue.CS,
+    "NSM" => BidiClassValue.NSM,
+    "BN" => BidiClassValue.BN,
+    "B" => BidiClassValue.B,
+    "S" => BidiClassValue.S,
+    "WS" => BidiClassValue.WS,
+    "ON" => BidiClassValue.ON,
+    "LRE" => BidiClassValue.LRE,
+    "LRO" => BidiClassValue.LRO,
+    "RLE" => BidiClassValue.RLE,
+    "RLO" => BidiClassValue.RLO,
+    "PDF" => BidiClassValue.PDF,
+    "LRI" => BidiClassValue.LRI,
+    "RLI" => BidiClassValue.RLI,
+    "FSI" => BidiClassValue.FSI,
+    "PDI" => BidiClassValue.PDI,
+    _ => throw new InvalidDataException($"Unknown bidi class: {value}")
+};
+
+static IEnumerable<string> ReadLines(string text)
+{
+    using var reader = new StringReader(text);
+    while (reader.ReadLine() is { } line) yield return line;
+}
+
+static string StripComment(string line)
+{
+    int comment = line.IndexOf('#');
+    return (comment < 0 ? line : line[..comment]).Trim();
+}
+
+static async Task<string> ReadVerifiedFileAsync(string path, string expectedSha256)
+{
+    byte[] bytes = await File.ReadAllBytesAsync(path);
+    VerifySha256(bytes, expectedSha256, path);
+    return Encoding.UTF8.GetString(bytes);
+}
+
+static async Task<string> DownloadVerifiedFileAsync(HttpClient client, string url, string expectedSha256)
+{
+    byte[] bytes = await client.GetByteArrayAsync(url);
+    VerifySha256(bytes, expectedSha256, url);
+    return Encoding.UTF8.GetString(bytes);
+}
+
+static void VerifySha256(byte[] bytes, string expected, string source)
+{
+    string actual = Convert.ToHexStringLower(SHA256.HashData(bytes));
+    if (!actual.Equals(expected, StringComparison.Ordinal))
+    {
+        throw new InvalidDataException($"SHA-256 mismatch for {source}: expected {expected}, got {actual}.");
+    }
+}
+
+static string FindRepositoryRoot(string start)
+{
+    for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
+            Directory.Exists(Path.Combine(directory.FullName, "src", "ProGPU.Text")))
+        {
+            return directory.FullName;
+        }
+    }
+    throw new DirectoryNotFoundException("Run from inside the ProGPU repository or pass --output.");
+}
+
+internal sealed record Options(string? OutputPath, string? UcdDirectory)
+{
+    public static Options Parse(string[] arguments)
+    {
+        string? output = null;
+        string? ucdDirectory = null;
+        for (int index = 0; index < arguments.Length; index++)
+        {
+            string value = index + 1 < arguments.Length
+                ? arguments[++index]
+                : throw new ArgumentException($"Missing value for {arguments[index]}.");
+            switch (arguments[index - 1])
+            {
+                case "--output": output = value; break;
+                case "--ucd-directory": ucdDirectory = value; break;
+                default: throw new ArgumentException($"Unknown option: {arguments[index - 1]}");
+            }
+        }
+        return new Options(output, ucdDirectory);
+    }
+}
+
+internal enum BidiClassValue : byte
+{
+    L,
+    R,
+    AL,
+    EN,
+    ES,
+    ET,
+    AN,
+    CS,
+    NSM,
+    BN,
+    B,
+    S,
+    WS,
+    ON,
+    LRE,
+    LRO,
+    RLE,
+    RLO,
+    PDF,
+    LRI,
+    RLI,
+    FSI,
+    PDI
+}
+
+internal readonly record struct ClassRange(int Start, int End, BidiClassValue Value);
+internal readonly record struct BracketRecord(int CodePoint, int Pair, byte Kind);

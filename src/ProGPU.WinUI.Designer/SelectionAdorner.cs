@@ -520,7 +520,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         float Snap(float coord) => MathF.Round(coord * dpiScale * 4f) / 4f / dpiScale;
 
         // Measure text
-        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, TextAlignment.Left, null);
+        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
         float textWidth = textLayout.MeasuredSize.X;
         float textHeight = textLayout.MeasuredSize.Y;
 
@@ -692,7 +692,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
     {
         float Snap(float coord) => MathF.Round(coord * dpiScale * 4f) / 4f / dpiScale;
 
-        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, TextAlignment.Left, null);
+        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
         float textWidth = textLayout.MeasuredSize.X;
         float textHeight = textLayout.MeasuredSize.Y;
 

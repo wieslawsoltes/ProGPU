@@ -94,10 +94,48 @@ public sealed class TextShapingOptions : IEquatable<TextShapingOptions>
     /// </summary>
     public IReadOnlySet<string>? ExplicitFeatureTags { get; init; }
 
-    internal ShapingClusterLevel ClusterLevel { get; init; } = ShapingClusterLevel.MonotoneGraphemes;
-    internal ShapingBufferFlags BufferFlags { get; init; }
+    public ShapingClusterLevel ClusterLevel { get; init; } = ShapingClusterLevel.MonotoneGraphemes;
+    public ShapingBufferFlags BufferFlags { get; init; }
     internal ReadOnlyMemory<ShapingFeature> RangedFeatures { get; init; }
     internal IReadOnlyList<OpenTypeFeatureSetting>? BaseFeatures { get; init; }
+
+    public TextShapingOptions WithDirection(ShapingDirection direction)
+    {
+        if (Direction == direction)
+        {
+            return this;
+        }
+
+        return new TextShapingOptions
+        {
+            Script = Script,
+            Language = Language,
+            Direction = direction,
+            Features = Features,
+            ExplicitFeatureTags = ExplicitFeatureTags,
+            ClusterLevel = ClusterLevel,
+            BufferFlags = BufferFlags,
+            RangedFeatures = RangedFeatures,
+            BaseFeatures = BaseFeatures
+        };
+    }
+
+    public TextShapingOptions WithBufferFlags(ShapingBufferFlags flags)
+    {
+        if (BufferFlags == flags) return this;
+        return new TextShapingOptions
+        {
+            Script = Script,
+            Language = Language,
+            Direction = Direction,
+            Features = Features,
+            ExplicitFeatureTags = ExplicitFeatureTags,
+            ClusterLevel = ClusterLevel,
+            BufferFlags = flags,
+            RangedFeatures = RangedFeatures,
+            BaseFeatures = BaseFeatures
+        };
+    }
 
     internal int GetFeatureValue(string tag, int inputIndex)
     {
@@ -283,7 +321,8 @@ public readonly record struct ShapedGlyph(
     float AdvanceX,
     float AdvanceY,
     float OffsetX,
-    float OffsetY);
+    float OffsetY,
+    ShapingGlyphFlags Flags = ShapingGlyphFlags.None);
 
 public static class OpenTypeTextShaper
 {
@@ -368,7 +407,9 @@ public static class OpenTypeTextShaper
         string text,
         TtfFont font,
         float fontSize,
-        TextShapingOptions? options = null)
+        TextShapingOptions? options = null,
+        ReadOnlyMemory<char> preContext = default,
+        ReadOnlyMemory<char> postContext = default)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(font);
@@ -378,7 +419,7 @@ public static class OpenTypeTextShaper
             return [];
         }
 
-        ShapingResult shaping = ShapeCore(text, font, options);
+        ShapingResult shaping = ShapeCore(text, font, options, preContext, postContext);
         using GlyphPositionBuffer positions = shaping.Positions;
         ShapingDirection direction = shaping.Direction;
         float scale = fontSize / font.UnitsPerEm;
@@ -414,7 +455,8 @@ public static class OpenTypeTextShaper
                 record.AdvanceX * scale,
                 -advanceY,
                 offsetX,
-                -offsetY);
+                -offsetY,
+                record.Flags);
         }
 
         return result;
@@ -424,7 +466,9 @@ public static class OpenTypeTextShaper
         string text,
         TtfFont font,
         TextShapingOptions options,
-        ShapingBuffer destination)
+        ShapingBuffer destination,
+        ReadOnlyMemory<char> preContext = default,
+        ReadOnlyMemory<char> postContext = default)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(font);
@@ -433,7 +477,7 @@ public static class OpenTypeTextShaper
         destination.Clear();
         if (text.Length == 0) return;
 
-        ShapingResult shaping = ShapeCore(text, font, options);
+        ShapingResult shaping = ShapeCore(text, font, options, preContext, postContext);
         using GlyphPositionBuffer positions = shaping.Positions;
         destination.EnsureCapacity(positions.Count);
         for (var index = 0; index < positions.Count; index++)
@@ -444,6 +488,7 @@ public static class OpenTypeTextShaper
                 GlyphId = record.GlyphIndex,
                 CodePoint = record.CodePoint,
                 Cluster = record.Cluster,
+                Flags = record.Flags,
                 AdvanceX = record.AdvanceX,
                 AdvanceY = -record.AdvanceY,
                 OffsetX = record.OffsetX,
@@ -455,8 +500,11 @@ public static class OpenTypeTextShaper
     private static ShapingResult ShapeCore(
         string text,
         TtfFont font,
-        TextShapingOptions options)
+        TextShapingOptions options,
+        ReadOnlyMemory<char> preContext = default,
+        ReadOnlyMemory<char> postContext = default)
     {
+        TextShapingOptions requestedOptions = options;
         string unicodeScript = options.Script ?? InferScript(text);
         ShapingPlan shapingPlan = s_shapingPlanCaches
             .GetValue(font, static _ => new FontShapingPlanCache())
@@ -479,7 +527,10 @@ public static class OpenTypeTextShaper
             font,
             unicodeScript,
             options.ClusterLevel,
-            options.BufferFlags);
+            options.BufferFlags,
+            preContext,
+            postContext);
+        substitutions.InsertBeginningDottedCircle();
         if (!simpleLatin)
         {
             substitutions.ApplyDirectionalCodePointFallback(
@@ -633,6 +684,19 @@ public static class OpenTypeTextShaper
                 positions.ApplyArabicStretch(font, direction == ShapingDirection.RightToLeft);
             }
 
+            if ((options.BufferFlags & ShapingBufferFlags.Verify) != 0)
+            {
+                VerifyShapeResult(
+                    text,
+                    font,
+                    requestedOptions,
+                    unicodeScript,
+                    preContext,
+                    postContext,
+                    positions,
+                    direction);
+            }
+
             return new ShapingResult(positions, direction);
         }
         catch
@@ -640,6 +704,192 @@ public static class OpenTypeTextShaper
             positions.Dispose();
             throw;
         }
+    }
+
+    private static void VerifyShapeResult(
+        string text,
+        TtfFont font,
+        TextShapingOptions requestedOptions,
+        string unicodeScript,
+        ReadOnlyMemory<char> preContext,
+        ReadOnlyMemory<char> postContext,
+        GlyphPositionBuffer expected,
+        ShapingDirection direction)
+    {
+        // HarfBuzz's VERIFY contract first checks monotone cluster order, then
+        // reshapes every fragment separated by a safe boundary and compares the
+        // reconstruction with the original result. Verification is deliberately
+        // off the hot path and may allocate diagnostic fragment state.
+        bool monotone = requestedOptions.ClusterLevel is
+            ShapingClusterLevel.MonotoneGraphemes or ShapingClusterLevel.MonotoneCharacters;
+        if (!monotone || expected.Count == 0) return;
+
+        bool forward = direction is ShapingDirection.LeftToRight or ShapingDirection.TopToBottom;
+        for (var index = 1; index < expected.Count; index++)
+        {
+            int previousCluster = expected[index - 1].Cluster;
+            int currentCluster = expected[index].Cluster;
+            if (previousCluster != currentCluster && (previousCluster < currentCluster) != forward)
+            {
+                throw new InvalidOperationException(
+                    $"Shaping verification failed: clusters are not monotone at glyph {index} " +
+                    $"({previousCluster} then {currentCluster}).");
+            }
+        }
+
+        int outputStart = 0;
+        int logicalEdge = forward ? 0 : text.Length;
+        for (var outputEnd = 1; outputEnd <= expected.Count; outputEnd++)
+        {
+            bool atEnd = outputEnd == expected.Count;
+            if (!atEnd)
+            {
+                GlyphRecord left = expected[outputEnd - 1];
+                GlyphRecord right = expected[outputEnd];
+                if (left.Cluster == right.Cluster) continue;
+                ShapingGlyphFlags boundaryFlags = forward ? right.Flags : left.Flags;
+                if ((boundaryFlags & ShapingGlyphFlags.UnsafeToBreak) != 0) continue;
+            }
+
+            int fragmentStart;
+            int fragmentEnd;
+            if (forward)
+            {
+                fragmentStart = logicalEdge;
+                fragmentEnd = atEnd ? text.Length : expected[outputEnd].Cluster;
+                logicalEdge = fragmentEnd;
+            }
+            else
+            {
+                fragmentStart = atEnd ? 0 : expected[outputEnd - 1].Cluster;
+                fragmentEnd = logicalEdge;
+                logicalEdge = fragmentStart;
+            }
+
+            if (fragmentStart < 0 || fragmentEnd > text.Length || fragmentStart >= fragmentEnd)
+            {
+                throw new InvalidOperationException(
+                    $"Shaping verification failed: safe boundary produced invalid UTF-16 range " +
+                    $"[{fragmentStart}, {fragmentEnd}).");
+            }
+
+            ShapingBufferFlags fragmentFlags = requestedOptions.BufferFlags & ~ShapingBufferFlags.Verify;
+            if (fragmentStart != 0) fragmentFlags &= ~ShapingBufferFlags.BeginningOfText;
+            if (fragmentEnd != text.Length) fragmentFlags &= ~ShapingBufferFlags.EndOfText;
+            TextShapingOptions fragmentOptions = CreateVerificationOptions(
+                requestedOptions,
+                unicodeScript,
+                direction,
+                fragmentFlags,
+                fragmentStart,
+                fragmentEnd);
+            string fragmentText = text.Substring(fragmentStart, fragmentEnd - fragmentStart);
+            ReadOnlyMemory<char> fragmentPreContext = string.Concat(
+                preContext.Span,
+                text.AsSpan(0, fragmentStart)).AsMemory();
+            ReadOnlyMemory<char> fragmentPostContext = string.Concat(
+                text.AsSpan(fragmentEnd),
+                postContext.Span).AsMemory();
+
+            ShapingResult fragment = ShapeCore(
+                fragmentText,
+                font,
+                fragmentOptions,
+                fragmentPreContext,
+                fragmentPostContext);
+            using GlyphPositionBuffer actual = fragment.Positions;
+            int expectedCount = outputEnd - outputStart;
+            if (actual.Count != expectedCount)
+            {
+                throw new InvalidOperationException(
+                    $"Shaping verification failed: fragment [{fragmentStart}, {fragmentEnd}) produced " +
+                    $"{actual.Count} glyphs instead of {expectedCount}.");
+            }
+
+            for (var index = 0; index < actual.Count; index++)
+            {
+                GlyphRecord left = expected[outputStart + index];
+                GlyphRecord right = actual[index];
+                if (left.GlyphIndex != right.GlyphIndex ||
+                    left.Cluster != right.Cluster + fragmentStart ||
+                    left.CodePoint != right.CodePoint ||
+                    left.AdvanceX != right.AdvanceX ||
+                    left.AdvanceY != right.AdvanceY ||
+                    left.OffsetX != right.OffsetX ||
+                    left.OffsetY != right.OffsetY)
+                {
+                    throw new InvalidOperationException(
+                        $"Shaping verification failed: fragment [{fragmentStart}, {fragmentEnd}) " +
+                        $"differs at reconstructed glyph {outputStart + index}; expected " +
+                        $"gid={left.GlyphIndex}, cluster={left.Cluster}, advance=({left.AdvanceX},{left.AdvanceY}), " +
+                        $"offset=({left.OffsetX},{left.OffsetY}), actual gid={right.GlyphIndex}, " +
+                        $"cluster={right.Cluster + fragmentStart}, advance=({right.AdvanceX},{right.AdvanceY}), " +
+                        $"offset=({right.OffsetX},{right.OffsetY}); output=" +
+                        $"[{FormatVerificationGlyphs(expected)}].");
+                }
+            }
+
+            outputStart = outputEnd;
+        }
+    }
+
+    private static string FormatVerificationGlyphs(GlyphPositionBuffer glyphs)
+    {
+        var result = new StringBuilder(glyphs.Count * 12);
+        for (var index = 0; index < glyphs.Count; index++)
+        {
+            if (index != 0) result.Append('|');
+            GlyphRecord glyph = glyphs[index];
+            result.Append(glyph.GlyphIndex)
+                .Append('@')
+                .Append(glyph.Cluster)
+                .Append(':')
+                .Append((uint)glyph.Flags);
+        }
+        return result.ToString();
+    }
+
+    private static TextShapingOptions CreateVerificationOptions(
+        TextShapingOptions source,
+        string unicodeScript,
+        ShapingDirection direction,
+        ShapingBufferFlags flags,
+        int fragmentStart,
+        int fragmentEnd) => new()
+    {
+        Script = unicodeScript,
+        Language = source.Language,
+        Direction = direction,
+        Features = source.Features,
+        ExplicitFeatureTags = source.ExplicitFeatureTags,
+        ClusterLevel = source.ClusterLevel,
+        BufferFlags = flags,
+        RangedFeatures = RemapVerificationFeatures(source.RangedFeatures.Span, fragmentStart, fragmentEnd),
+        BaseFeatures = source.BaseFeatures
+    };
+
+    private static ReadOnlyMemory<ShapingFeature> RemapVerificationFeatures(
+        ReadOnlySpan<ShapingFeature> features,
+        int fragmentStart,
+        int fragmentEnd)
+    {
+        if (features.IsEmpty) return default;
+        var remapped = new List<ShapingFeature>(features.Length);
+        uint start = checked((uint)fragmentStart);
+        uint end = checked((uint)fragmentEnd);
+        for (var index = 0; index < features.Length; index++)
+        {
+            ShapingFeature feature = features[index];
+            uint clippedStart = Math.Max(feature.Start, start);
+            uint clippedEnd = feature.End == uint.MaxValue ? end : Math.Min(feature.End, end);
+            if (clippedStart >= clippedEnd) continue;
+            remapped.Add(new ShapingFeature(
+                feature.Tag,
+                feature.Value,
+                clippedStart - start,
+                clippedEnd - start));
+        }
+        return remapped.ToArray();
     }
 
     private static bool IsPrintableAscii(string text)
@@ -1546,10 +1796,13 @@ public static class OpenTypeTextShaper
             return false;
         }
         int matchPosition = position;
+        int matchStart = position;
+        int matchEnd = position + 1;
         for (var index = 0; index < backtrackCount; index++)
         {
             matchPosition = glyphs.PreviousContextIndex(matchPosition - 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchStart = Math.Min(matchStart, matchPosition);
             int coverageOffset = offset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverageOffset, glyphs[matchPosition]) < 0)
             {
@@ -1573,6 +1826,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.NextContextIndex(matchPosition + 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchEnd = Math.Max(matchEnd, matchPosition + 1);
             int coverageOffset = offset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverageOffset, glyphs[matchPosition]) < 0)
             {
@@ -1591,6 +1845,7 @@ public static class OpenTypeTextShaper
         {
             return false;
         }
+        glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
         glyphs.Replace(position, ReadU16(data, cursor + coverageIndex * 2));
         return true;
     }
@@ -1616,6 +1871,13 @@ public static class OpenTypeTextShaper
         }
 
         ushort subtableCount = ReadU16(data, subtableCountOffset);
+        bool randomAlternates = featureTag == "rand" && featureValue == ushort.MaxValue;
+        if (randomAlternates)
+        {
+            // Random alternate selection advances one shared buffer PRNG. As in
+            // HarfBuzz, no interior boundary can be reconstructed independently.
+            glyphs.MarkUnsafeToBreak(0, glyphs.Count);
+        }
         for (var subtableIndex = 0; subtableIndex < subtableCount; subtableIndex++)
         {
             int offsetPosition = subtableCountOffset + 2 + subtableIndex * 2;
@@ -1675,7 +1937,7 @@ public static class OpenTypeTextShaper
                     continue;
                 }
 
-                int alternateIndex = featureTag == "rand" && positionValue == ushort.MaxValue
+                int alternateIndex = randomAlternates && positionValue == ushort.MaxValue
                     ? glyphs.NextRandomAlternate(alternateCount)
                     : Math.Clamp(positionValue, 1, alternateCount) - 1;
                 int alternateOffset = setOffset + 2 + alternateIndex * 2;
@@ -1860,10 +2122,13 @@ public static class OpenTypeTextShaper
         cursor += 2;
         if (!CanRead(data, cursor, backtrackCount * 2)) return false;
         int matchPosition = position;
+        int matchStart = position;
+        int matchEnd = position + 1;
         for (var index = 0; index < backtrackCount; index++)
         {
             matchPosition = glyphs.PreviousContextIndex(matchPosition - 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchStart = Math.Min(matchStart, matchPosition);
             int coverage = subtableOffset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverage, glyphs[matchPosition]) < 0) return false;
         }
@@ -1882,6 +2147,7 @@ public static class OpenTypeTextShaper
             if (FindCoverage(data, coverage, glyphs[matchPosition]) < 0) return false;
         }
         int inputEnd = matchPosition + 1;
+        matchEnd = Math.Max(matchEnd, inputEnd);
         cursor += inputCount * 2;
 
         if (!CanRead(data, cursor, 2)) return false;
@@ -1892,6 +2158,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.NextContextIndex(matchPosition + 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchEnd = Math.Max(matchEnd, matchPosition + 1);
             int coverage = subtableOffset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverage, glyphs[matchPosition]) < 0) return false;
         }
@@ -1900,8 +2167,9 @@ public static class OpenTypeTextShaper
         if (!CanRead(data, cursor, 2)) return false;
         ushort recordCount = ReadU16(data, cursor);
         cursor += 2;
-        return CanRead(data, cursor, recordCount * 4) &&
-               ApplySubstitutionRecords(data, glyphs, position, cursor, recordCount, lookupFlags, inputEnd);
+        if (!CanRead(data, cursor, recordCount * 4)) return false;
+        glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
+        return ApplySubstitutionRecords(data, glyphs, position, cursor, recordCount, lookupFlags, inputEnd);
     }
 
     private static void ApplyUnsupportedChainingLookup(
@@ -1993,8 +2261,10 @@ public static class OpenTypeTextShaper
 
             int ruleOffset = setOffset + ReadU16(data, setOffset + 2 + ruleIndex * 2);
             if (MatchChainRule(data, glyphs, ruleOffset, position, lookupFlags, useClasses: false, 0, 0, 0,
-                    out int recordsOffset, out ushort recordCount, out int inputEnd))
+                    out int recordsOffset, out ushort recordCount, out int inputEnd,
+                    out int matchStart, out int matchEnd))
             {
+                glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
                 return ApplySubstitutionRecords(
                     data, glyphs, position, recordsOffset, recordCount, lookupFlags, inputEnd);
             }
@@ -2063,8 +2333,11 @@ public static class OpenTypeTextShaper
                     lookaheadClassDef,
                     out int recordsOffset,
                     out ushort recordCount,
-                    out int inputEnd))
+                    out int inputEnd,
+                    out int matchStart,
+                    out int matchEnd))
             {
+                glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
                 return ApplySubstitutionRecords(
                     data, glyphs, position, recordsOffset, recordCount, lookupFlags, inputEnd);
             }
@@ -2084,11 +2357,15 @@ public static class OpenTypeTextShaper
         int lookaheadClassDef,
         out int recordsOffset,
         out ushort recordCount,
-        out int inputEnd)
+        out int inputEnd,
+        out int matchStart,
+        out int matchEnd)
     {
         recordsOffset = 0;
         recordCount = 0;
         inputEnd = 0;
+        matchStart = position;
+        matchEnd = position + 1;
         if (!CanRead(data, ruleOffset, 2))
         {
             return false;
@@ -2106,6 +2383,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.PreviousContextIndex(matchPosition - 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchStart = Math.Min(matchStart, matchPosition);
             ushort expected = ReadU16(data, cursor + index * 2);
             ushort actualGlyph = glyphs[matchPosition];
             int actual = useClasses ? GetGlyphClass(data, backtrackClassDef, actualGlyph) : actualGlyph;
@@ -2141,6 +2419,7 @@ public static class OpenTypeTextShaper
             }
         }
         inputEnd = matchPosition + 1;
+        matchEnd = Math.Max(matchEnd, inputEnd);
         cursor += trailingInputCount * 2;
 
         if (!CanRead(data, cursor, 2))
@@ -2157,6 +2436,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.NextContextIndex(matchPosition + 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchEnd = Math.Max(matchEnd, matchPosition + 1);
             ushort expected = ReadU16(data, cursor + index * 2);
             ushort actualGlyph = glyphs[matchPosition];
             int actual = useClasses ? GetGlyphClass(data, lookaheadClassDef, actualGlyph) : actualGlyph;
@@ -2185,6 +2465,11 @@ public static class OpenTypeTextShaper
         ushort lookupFlags,
         int inputEnd)
     {
+        // A contextual lookup can change one glyph based on the complete input
+        // sequence.  Preserve that dependency even when the nested lookup is a
+        // no-op: shaping either fragment independently is not equivalent to the
+        // matched whole sequence.  This mirrors HarfBuzz context_apply_lookup().
+        glyphs.MarkUnsafeToBreak(position, inputEnd);
         bool changed = false;
         for (var recordIndex = 0; recordIndex < recordCount; recordIndex++)
         {
@@ -3198,6 +3483,7 @@ public static class OpenTypeTextShaper
                 value2Offset = value1Offset + valueSize1;
                 if (valueFormat1 != 0) ApplyValueRecord(data, glyphs, position, value1Offset, valueFormat1);
                 if (valueFormat2 != 0) ApplyValueRecord(data, glyphs, second, value2Offset, valueFormat2);
+                glyphs.MarkUnsafeToBreak(position, second + 1);
                 return true;
             }
             return false;
@@ -3212,6 +3498,7 @@ public static class OpenTypeTextShaper
         if (!CanRead(data, recordOffset, valueSize1 + valueSize2)) return false;
         if (valueFormat1 != 0) ApplyValueRecord(data, glyphs, position, recordOffset, valueFormat1);
         if (valueFormat2 != 0) ApplyValueRecord(data, glyphs, second, recordOffset + valueSize1, valueFormat2);
+        glyphs.MarkUnsafeToBreak(position, second + 1);
         return true;
     }
 
@@ -3455,6 +3742,7 @@ public static class OpenTypeTextShaper
                 }
             }
             if (!matches) continue;
+            glyphs.MarkUnsafeToBreak(position, matchPosition + 1);
             return ApplyPositionRecords(data, glyphs, position, rule + 4 + (glyphCount - 1) * 2, recordCount, lookupFlags);
         }
         return false;
@@ -3502,6 +3790,7 @@ public static class OpenTypeTextShaper
                 }
             }
             if (!matches) continue;
+            glyphs.MarkUnsafeToBreak(position, matchPosition + 1);
             return ApplyPositionRecords(data, glyphs, position, rule + 4 + (glyphCount - 1) * 2, recordCount, lookupFlags);
         }
         return false;
@@ -3530,6 +3819,7 @@ public static class OpenTypeTextShaper
                 if (matchPosition < 0) return false;
             }
         }
+        glyphs.MarkUnsafeToBreak(position, matchPosition + 1);
         return ApplyPositionRecords(data, glyphs, position, coverages + glyphCount * 2, recordCount, lookupFlags);
     }
 
@@ -3572,8 +3862,10 @@ public static class OpenTypeTextShaper
             if (!CanRead(data, pointer, 2)) break;
             int rule = setOffset + ReadU16(data, pointer);
             if (MatchChainPositionRule(data, glyphs, rule, position, lookupFlags, false, 0, 0, 0,
-                    out int records, out int recordCount))
+                    out int records, out int recordCount, out int inputEnd,
+                    out int matchStart, out int matchEnd))
             {
+                glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
                 return ApplyPositionRecords(data, glyphs, position, records, recordCount, lookupFlags);
             }
         }
@@ -3607,8 +3899,10 @@ public static class OpenTypeTextShaper
             int rule = setOffset + ReadU16(data, pointer);
             if (MatchChainPositionRule(data, glyphs, rule, position, lookupFlags, true,
                     backtrackClassDef, inputClassDef, lookaheadClassDef,
-                    out int records, out int recordCount))
+                    out int records, out int recordCount, out int inputEnd,
+                    out int matchStart, out int matchEnd))
             {
+                glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
                 return ApplyPositionRecords(data, glyphs, position, records, recordCount, lookupFlags);
             }
         }
@@ -3628,10 +3922,13 @@ public static class OpenTypeTextShaper
         cursor += 2;
         if (!CanRead(data, cursor, backtrackCount * 2)) return false;
         int matchPosition = position;
+        int matchStart = position;
+        int matchEnd = position + 1;
         for (var index = 0; index < backtrackCount; index++)
         {
             matchPosition = glyphs.PreviousEligibleIndex(matchPosition - 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchStart = Math.Min(matchStart, matchPosition);
             int coverage = offset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverage, glyphs.GetGlyph(matchPosition)) < 0) return false;
         }
@@ -3651,6 +3948,8 @@ public static class OpenTypeTextShaper
                 if (matchPosition < 0) return false;
             }
         }
+        int inputEnd = matchPosition + 1;
+        matchEnd = Math.Max(matchEnd, inputEnd);
         cursor += inputCount * 2;
         if (!CanRead(data, cursor, 2)) return false;
         int lookaheadCount = ReadU16(data, cursor);
@@ -3660,6 +3959,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.NextEligibleIndex(matchPosition + 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchEnd = Math.Max(matchEnd, matchPosition + 1);
             int coverage = offset + ReadU16(data, cursor + index * 2);
             if (FindCoverage(data, coverage, glyphs.GetGlyph(matchPosition)) < 0) return false;
         }
@@ -3667,8 +3967,9 @@ public static class OpenTypeTextShaper
         if (!CanRead(data, cursor, 2)) return false;
         int recordCount = ReadU16(data, cursor);
         cursor += 2;
-        return CanRead(data, cursor, recordCount * 4) &&
-               ApplyPositionRecords(data, glyphs, position, cursor, recordCount, lookupFlags);
+        if (!CanRead(data, cursor, recordCount * 4)) return false;
+        glyphs.MarkUnsafeToBreak(matchStart, matchEnd);
+        return ApplyPositionRecords(data, glyphs, position, cursor, recordCount, lookupFlags);
     }
 
     private static bool MatchChainPositionRule(
@@ -3682,10 +3983,16 @@ public static class OpenTypeTextShaper
         int inputClassDef,
         int lookaheadClassDef,
         out int recordsOffset,
-        out int recordCount)
+        out int recordCount,
+        out int inputEnd,
+        out int matchStart,
+        out int matchEnd)
     {
         recordsOffset = 0;
         recordCount = 0;
+        inputEnd = 0;
+        matchStart = position;
+        matchEnd = position + 1;
         if (!CanRead(data, ruleOffset, 2)) return false;
         int cursor = ruleOffset;
         int backtrackCount = ReadU16(data, cursor);
@@ -3696,6 +4003,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.PreviousEligibleIndex(matchPosition - 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchStart = Math.Min(matchStart, matchPosition);
             int expected = ReadU16(data, cursor + index * 2);
             ushort glyph = glyphs.GetGlyph(matchPosition);
             if (useClasses ? GetGlyphClass(data, backtrackClassDef, glyph) != expected : glyph != expected) return false;
@@ -3714,6 +4022,8 @@ public static class OpenTypeTextShaper
             ushort glyph = glyphs.GetGlyph(matchPosition);
             if (useClasses ? GetGlyphClass(data, inputClassDef, glyph) != expected : glyph != expected) return false;
         }
+        inputEnd = matchPosition + 1;
+        matchEnd = Math.Max(matchEnd, inputEnd);
         cursor += (inputCount - 1) * 2;
         if (!CanRead(data, cursor, 2)) return false;
         int lookaheadCount = ReadU16(data, cursor);
@@ -3723,6 +4033,7 @@ public static class OpenTypeTextShaper
         {
             matchPosition = glyphs.NextEligibleIndex(matchPosition + 1, lookupFlags);
             if (matchPosition < 0) return false;
+            matchEnd = Math.Max(matchEnd, matchPosition + 1);
             int expected = ReadU16(data, cursor + index * 2);
             ushort glyph = glyphs.GetGlyph(matchPosition);
             if (useClasses ? GetGlyphClass(data, lookaheadClassDef, glyph) != expected : glyph != expected) return false;
@@ -4417,6 +4728,8 @@ public static class OpenTypeTextShaper
         private readonly ReadOnlyMemory<byte> _gdefTable;
         private readonly ShapingClusterLevel _clusterLevel;
         private readonly ShapingBufferFlags _bufferFlags;
+        private readonly ReadOnlyMemory<char> _preContext;
+        private readonly ReadOnlyMemory<char> _postContext;
         private byte _lookupSyllable;
         private bool _restrictLookupToSyllable;
         private bool _manualJoiners;
@@ -4432,12 +4745,16 @@ public static class OpenTypeTextShaper
             TtfFont font,
             ShapingClusterLevel clusterLevel = ShapingClusterLevel.MonotoneGraphemes,
             ShapingBufferFlags bufferFlags = ShapingBufferFlags.None,
+            ReadOnlyMemory<char> preContext = default,
+            ReadOnlyMemory<char> postContext = default,
             bool ownsGlyphList = false)
         {
             _glyphs = glyphs;
             _font = font;
             _clusterLevel = clusterLevel;
             _bufferFlags = bufferFlags;
+            _preContext = preContext;
+            _postContext = postContext;
             _ownsGlyphList = ownsGlyphList;
             _typeface = font.LayoutTypeface;
             font.TryGetTable("GDEF", out _gdefTable);
@@ -4521,6 +4838,36 @@ public static class OpenTypeTextShaper
                 GlyphRecord glyph = _glyphs[index];
                 glyph.UseSyllable = 0;
                 _glyphs[index] = glyph;
+            }
+        }
+
+        public void MarkUnsafeToBreak(int start, int end) =>
+            MarkInteriorGlyphFlags(
+                start,
+                end,
+                ShapingGlyphFlags.UnsafeToBreak | ShapingGlyphFlags.UnsafeToConcat);
+
+        private void MarkSyllablesUnsafeToBreak()
+        {
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                byte syllable = _glyphs[start].UseSyllable;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].UseSyllable == syllable) end++;
+                MarkUnsafeToBreak(start, end);
+                start = end;
+            }
+        }
+
+        private void MarkGraphemeClustersUnsafeToBreak()
+        {
+            for (var start = 0; start < _glyphs.Count;)
+            {
+                int grapheme = _glyphs[start].GraphemeCluster;
+                int end = start + 1;
+                while (end < _glyphs.Count && _glyphs[end].GraphemeCluster == grapheme) end++;
+                MarkUnsafeToBreak(start, end);
+                start = end;
             }
         }
 
@@ -5055,6 +5402,7 @@ public static class OpenTypeTextShaper
             }
 
             FindKhmerSyllables();
+            MarkSyllablesUnsafeToBreak();
             InsertBrokenKhmerDottedCircles();
             for (var start = 0; start < _glyphs.Count;)
             {
@@ -5238,6 +5586,7 @@ public static class OpenTypeTextShaper
                 _glyphs[index] = glyph;
             }
             FindMyanmarSyllables();
+            MarkSyllablesUnsafeToBreak();
         }
 
         private void FindMyanmarSyllables()
@@ -5490,6 +5839,7 @@ public static class OpenTypeTextShaper
                 _glyphs[index] = glyph;
             }
             FindIndicSyllables();
+            MarkSyllablesUnsafeToBreak();
         }
 
         private void FindIndicSyllables()
@@ -6121,9 +6471,19 @@ public static class OpenTypeTextShaper
             if (reordered || _glyphs[start].IndicPosition == IndicShapingData.PositionPreMatra)
                 MergeCluster(start, end);
 
-            if (_glyphs[start].IndicPosition == IndicShapingData.PositionPreMatra &&
-                (start == 0 || IsIndicWordBoundary(_glyphs[start - 1].CodePoint)))
-                AddIndicMask(start, IndicInitMask);
+            if (_glyphs[start].IndicPosition == IndicShapingData.PositionPreMatra)
+            {
+                if (start == 0 || !IsIndicInitContinuation(_glyphs[start - 1].CodePoint))
+                {
+                    AddIndicMask(start, IndicInitMask);
+                }
+                else
+                {
+                    // The init form depends on the preceding syllable's final
+                    // character. Match HarfBuzz's final-reordering boundary rule.
+                    MarkUnsafeToBreak(start - 1, start + 1);
+                }
+            }
         }
 
         private int FindIndicRephDestination(int start, int end, int baseIndex, string script)
@@ -6194,6 +6554,17 @@ public static class OpenTypeTextShaper
                 UnicodeCategory.OtherPunctuation;
         }
 
+        private static bool IsIndicInitContinuation(uint codePoint)
+        {
+            UnicodeCategory category = Rune.GetUnicodeCategory(new Rune((int)codePoint));
+            return category is UnicodeCategory.Format or UnicodeCategory.OtherNotAssigned or
+                UnicodeCategory.PrivateUse or UnicodeCategory.Surrogate or
+                UnicodeCategory.LowercaseLetter or UnicodeCategory.ModifierLetter or
+                UnicodeCategory.OtherLetter or UnicodeCategory.TitlecaseLetter or
+                UnicodeCategory.UppercaseLetter or UnicodeCategory.SpacingCombiningMark or
+                UnicodeCategory.EnclosingMark or UnicodeCategory.NonSpacingMark;
+        }
+
         private static bool IsIndicConsonant(GlyphRecord glyph) => glyph.Ligated == 0 && glyph.IndicCategory is
             IndicShapingData.Consonant or IndicShapingData.ConsonantWithStacker or IndicShapingData.Ra or
             IndicShapingData.ConsonantMedial or IndicShapingData.Vowel or IndicShapingData.Placeholder or
@@ -6236,6 +6607,7 @@ public static class OpenTypeTextShaper
             }
 
             FindUseSyllables();
+            MarkSyllablesUnsafeToBreak();
             AssignUseRephaEligibility();
             if (!UsesArabicJoining(unicodeScript))
             {
@@ -6644,6 +7016,26 @@ public static class OpenTypeTextShaper
 
             int previous = -1;
             int state = 0;
+            ReadOnlySpan<char> preContext = _preContext.Span;
+            int preOffset = preContext.Length;
+            for (var contextIndex = 0; contextIndex < 5 && preOffset > 0; contextIndex++)
+            {
+                OperationStatus status = Rune.DecodeLastFromUtf16(
+                    preContext[..preOffset],
+                    out Rune rune,
+                    out int consumed);
+                if (status != OperationStatus.Done)
+                {
+                    rune = Rune.ReplacementChar;
+                    consumed = 1;
+                }
+                preOffset -= Math.Max(consumed, 1);
+                ArabicJoiningData.JoiningType joiningType =
+                    ArabicJoiningData.GetJoiningType(checked((uint)rune.Value));
+                if (joiningType == ArabicJoiningData.JoiningType.Transparent) continue;
+                state = s_arabicStateTable[state * 6 + (int)joiningType].NextState;
+                break;
+            }
             for (var index = 0; index < _glyphs.Count; index++)
             {
                 ArabicJoiningData.JoiningType joiningType = ArabicJoiningData.GetJoiningType(_glyphs[index].CodePoint);
@@ -6661,6 +7053,16 @@ public static class OpenTypeTextShaper
                     GlyphRecord prior = _glyphs[previous];
                     prior.ArabicAction = entry.PreviousAction;
                     _glyphs[previous] = prior;
+                    MarkSafeToInsertTatweel(previous, index + 1);
+                }
+                else if (previous < 0)
+                {
+                    if (joiningType >= ArabicJoiningData.JoiningType.RightJoining)
+                        MarkUnsafeToConcat(0, index + 1);
+                }
+                else if (joiningType >= ArabicJoiningData.JoiningType.RightJoining || state is >= 2 and <= 5)
+                {
+                    MarkUnsafeToConcat(previous, index + 1);
                 }
 
                 GlyphRecord current = _glyphs[index];
@@ -6669,6 +7071,97 @@ public static class OpenTypeTextShaper
                 previous = index;
                 state = entry.NextState;
             }
+
+            ReadOnlySpan<char> postContext = _postContext.Span;
+            int postOffset = 0;
+            for (var contextIndex = 0; contextIndex < 5 && postOffset < postContext.Length; contextIndex++)
+            {
+                OperationStatus status = Rune.DecodeFromUtf16(
+                    postContext[postOffset..],
+                    out Rune rune,
+                    out int consumed);
+                if (status != OperationStatus.Done)
+                {
+                    rune = Rune.ReplacementChar;
+                    consumed = 1;
+                }
+                postOffset += Math.Max(consumed, 1);
+                ArabicJoiningData.JoiningType joiningType =
+                    ArabicJoiningData.GetJoiningType(checked((uint)rune.Value));
+                if (joiningType == ArabicJoiningData.JoiningType.Transparent) continue;
+                ArabicStateEntry entry = s_arabicStateTable[state * 6 + (int)joiningType];
+                if (entry.PreviousAction != None && previous >= 0)
+                {
+                    GlyphRecord prior = _glyphs[previous];
+                    prior.ArabicAction = entry.PreviousAction;
+                    _glyphs[previous] = prior;
+                    MarkSafeToInsertTatweel(previous, _glyphs.Count);
+                }
+                else if (previous >= 0 && state is >= 2 and <= 5)
+                {
+                    MarkUnsafeToConcat(previous, _glyphs.Count);
+                }
+                break;
+            }
+        }
+
+        private void MarkUnsafeToConcat(int start, int end)
+        {
+            if ((_bufferFlags & ShapingBufferFlags.ProduceUnsafeToConcat) == 0) return;
+            start = Math.Clamp(start, 0, _glyphs.Count);
+            end = Math.Clamp(end, start, _glyphs.Count);
+            for (var index = start; index < end; index++)
+            {
+                GlyphRecord glyph = _glyphs[index];
+                glyph.Flags |= ShapingGlyphFlags.UnsafeToConcat;
+                _glyphs[index] = glyph;
+            }
+        }
+
+        private void MarkSafeToInsertTatweel(int start, int end)
+        {
+            ShapingGlyphFlags flags = (_bufferFlags & ShapingBufferFlags.ProduceSafeToInsertTatweel) != 0
+                ? ShapingGlyphFlags.SafeToInsertTatweel
+                : ShapingGlyphFlags.UnsafeToBreak | ShapingGlyphFlags.UnsafeToConcat;
+            MarkInteriorGlyphFlags(start, end, flags);
+        }
+
+        private void MarkInteriorGlyphFlags(int start, int end, ShapingGlyphFlags flags)
+        {
+            start = Math.Clamp(start, 0, _glyphs.Count);
+            end = Math.Clamp(end, start, _glyphs.Count);
+            if (end - start < 2) return;
+            int minimumCluster = int.MaxValue;
+            for (var index = start; index < end; index++)
+                minimumCluster = Math.Min(minimumCluster, _glyphs[index].Cluster);
+
+            for (var index = start; index < end; index++)
+            {
+                if (_glyphs[index].Cluster == minimumCluster) continue;
+                GlyphRecord glyph = _glyphs[index];
+                glyph.Flags |= flags;
+                _glyphs[index] = glyph;
+            }
+        }
+
+        public void InsertBeginningDottedCircle()
+        {
+            if ((_bufferFlags & ShapingBufferFlags.BeginningOfText) == 0 ||
+                (_bufferFlags & ShapingBufferFlags.DoNotInsertDottedCircle) != 0 ||
+                !_preContext.IsEmpty ||
+                _glyphs.Count == 0 ||
+                !IsUnicodeMark(_glyphs[0].CodePoint))
+            {
+                return;
+            }
+
+            ushort dottedCircleGlyph = _font.GetGlyphIndex(0x25CC);
+            if (dottedCircleGlyph == 0) return;
+            GlyphRecord first = _glyphs[0];
+            _glyphs.Insert(0, new GlyphRecord(dottedCircleGlyph, first.Cluster, 0x25CC)
+            {
+                GraphemeCluster = first.GraphemeCluster
+            });
         }
 
         public void AssignFractionActions()
@@ -6682,6 +7175,7 @@ public static class OpenTypeTextShaper
                 while (denominatorEnd < _glyphs.Count && IsDecimalDigit(_glyphs[denominatorEnd].CodePoint)) denominatorEnd++;
                 if (numeratorStart == slash || denominatorEnd == slash + 1) continue;
                 _hasFractionActions = true;
+                MarkUnsafeToBreak(numeratorStart, denominatorEnd);
                 for (var index = numeratorStart; index < slash; index++)
                 {
                     GlyphRecord glyph = _glyphs[index];
@@ -6988,7 +7482,9 @@ public static class OpenTypeTextShaper
             TtfFont font,
             string script,
             ShapingClusterLevel clusterLevel,
-            ShapingBufferFlags bufferFlags)
+            ShapingBufferFlags bufferFlags,
+            ReadOnlyMemory<char> preContext = default,
+            ReadOnlyMemory<char> postContext = default)
         {
             if (text.Length > MaximumShapedGlyphCount)
             {
@@ -7027,6 +7523,8 @@ public static class OpenTypeTextShaper
                     font,
                     clusterLevel,
                     bufferFlags,
+                    preContext,
+                    postContext,
                     ownsGlyphList: true);
             }
 
@@ -7087,6 +7585,12 @@ public static class OpenTypeTextShaper
                         : (separateClusters || script == "hang") && normalizedGrapheme is null
                             ? graphemeStart + index
                             : IsIndicShaperScript(script) || script == "khmr" ? indicCluster : graphemeStart;
+                    // HarfBuzz deliberately keeps ZWNJ as a separate cluster even
+                    // though Unicode grapheme segmentation classifies it as an
+                    // extending format control. This preserves a granular shaping
+                    // boundary and lets removal transfer its cluster directionally.
+                    if (!characterClusters && !preserveUseMarkOrder && rune.Value == 0x200C)
+                        cluster = graphemeStart + index;
                     if (preserveUseMarkOrder)
                     {
                         if (preserveDefaultIgnorableCluster && rune.Value is 0x200C or 0x200D)
@@ -7144,12 +7648,17 @@ public static class OpenTypeTextShaper
                 }
                 graphemeStart = graphemeEnd;
             }
-            return new GlyphSubstitutionBuffer(
+            var result = new GlyphSubstitutionBuffer(
                 glyphs,
                 font,
                 clusterLevel,
                 bufferFlags,
+                preContext,
+                postContext,
                 ownsGlyphList: true);
+            if (clusterLevel is ShapingClusterLevel.MonotoneCharacters or ShapingClusterLevel.Characters)
+                result.MarkGraphemeClustersUnsafeToBreak();
+            return result;
         }
 
         private static bool IsKhmerBaseCategory(uint codePoint)
@@ -7418,7 +7927,13 @@ public static class OpenTypeTextShaper
                     if (sourceIndex + 1 < substitutions.Count &&
                         cluster == substitutions.GetRecord(sourceIndex + 1).Cluster)
                         continue;
-                    if (outputIndex > 0)
+                    if (direction is ShapingDirection.RightToLeft or ShapingDirection.BottomToTop &&
+                        sourceIndex + 1 < substitutions.Count)
+                    {
+                        forwardSourceCluster = substitutions.GetRecord(sourceIndex + 1).Cluster;
+                        forwardMergedCluster = Math.Min(cluster, forwardSourceCluster);
+                    }
+                    else if (outputIndex > 0)
                     {
                         if (cluster < _glyphs[outputIndex - 1].Cluster)
                         {
@@ -7657,6 +8172,23 @@ public static class OpenTypeTextShaper
         public void RestoreMarkFilteringCoverage(int coverage) =>
             _markFilteringCoverage = coverage;
 
+        public void MarkUnsafeToBreak(int start, int end)
+        {
+            start = Math.Clamp(start, 0, _count);
+            end = Math.Clamp(end, start, _count);
+            if (end - start < 2) return;
+            int minimumCluster = int.MaxValue;
+            for (var index = start; index < end; index++)
+                minimumCluster = Math.Min(minimumCluster, _glyphs[index].Cluster);
+
+            for (var index = start; index < end; index++)
+            {
+                if (_glyphs[index].Cluster == minimumCluster) continue;
+                _glyphs[index].Flags |=
+                    ShapingGlyphFlags.UnsafeToBreak | ShapingGlyphFlags.UnsafeToConcat;
+            }
+        }
+
         public int PreviousEligibleIndex(
             int index,
             ushort lookupFlags,
@@ -7726,6 +8258,7 @@ public static class OpenTypeTextShaper
 
         public void Attach(int markIndex, int targetIndex, int anchorDeltaX, int anchorDeltaY)
         {
+            MarkUnsafeToBreak(Math.Min(markIndex, targetIndex), Math.Max(markIndex, targetIndex) + 1);
             GlyphRecord mark = _glyphs[markIndex];
             mark.OffsetX = ClampToShort(anchorDeltaX);
             mark.OffsetY = ClampToShort(anchorDeltaY);
@@ -7743,6 +8276,9 @@ public static class OpenTypeTextShaper
             int exitY,
             ushort lookupFlags)
         {
+            MarkUnsafeToBreak(
+                Math.Min(previousIndex, currentIndex),
+                Math.Max(previousIndex, currentIndex) + 1);
             GlyphRecord previous = _glyphs[previousIndex];
             GlyphRecord current = _glyphs[currentIndex];
             switch (_direction)
@@ -7980,6 +8516,7 @@ public static class OpenTypeTextShaper
         private void ApplyLegacyKernAdjustment(int leftIndex, int rightIndex, int kerning, bool crossStream)
         {
             if (kerning == 0) return;
+            MarkUnsafeToBreak(leftIndex, rightIndex + 1);
             GlyphRecord left = _glyphs[leftIndex];
             GlyphRecord right = _glyphs[rightIndex];
             if (crossStream)
@@ -8057,6 +8594,7 @@ public static class OpenTypeTextShaper
         {
             if (!TryGetGlyphExtents(font, _glyphs[baseIndex].GlyphIndex, out GlyphExtents baseExtents))
                 return;
+            MarkUnsafeToBreak(baseIndex, end);
 
             baseExtents.YBearing += _glyphs[baseIndex].OffsetY;
             baseExtents.XBearing = 0;
@@ -8401,6 +8939,7 @@ public static class OpenTypeTextShaper
                     context--;
                     totalWidth += _glyphs[context].AdvanceX;
                 }
+                MarkUnsafeToBreak(context, end);
 
                 int remaining = totalWidth - fixedWidth;
                 int copies = remaining > repeatingWidth && repeatingWidth > 0
@@ -8566,6 +9105,7 @@ public static class OpenTypeTextShaper
         public int GraphemeCluster;
         public int CharacterCluster;
         public uint CodePoint;
+        public ShapingGlyphFlags Flags;
         public short AdvanceX;
         public short AdvanceY;
         public short OffsetX;

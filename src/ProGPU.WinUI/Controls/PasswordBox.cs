@@ -11,6 +11,7 @@ using ProGPU.Layout;
 using ProGPU.Vector;
 using ProGPU.Scene;
 using ProGPU.Text;
+using ProGPU.Text.Shaping;
 using static System.FormattableString;
 
 namespace Microsoft.UI.Xaml.Controls;
@@ -51,6 +52,13 @@ public class PasswordBox : Control, ITextInputClient
             typeof(PasswordBox),
             new PropertyMetadata(true) { AffectsRender = true });
 
+    public static readonly DependencyProperty TextReadingOrderProperty =
+        DependencyProperty.Register(
+            nameof(TextReadingOrder),
+            typeof(TextReadingOrder),
+            typeof(PasswordBox),
+            new PropertyMetadata(TextReadingOrder.DetectFromContent) { AffectsRender = true });
+
     public string Password
     {
         get => (string)(GetValue(PasswordProperty) ?? string.Empty);
@@ -75,13 +83,28 @@ public class PasswordBox : Control, ITextInputClient
         set => SetValue(IsPasswordRevealButtonEnabledProperty, value);
     }
 
+    public TextReadingOrder TextReadingOrder
+    {
+        get => (TextReadingOrder)(GetValue(TextReadingOrderProperty) ?? TextReadingOrder.DetectFromContent);
+        set => SetValue(TextReadingOrderProperty, value);
+    }
+
     private int _caretIndex;
     private float _fontSize = 14f;
     private bool _isPasswordRevealed;
     private bool _isRevealHovered;
     private bool _isRevealPressed;
+    private bool _caretTrailingAffinity;
+    private TextLayout? _textLayout;
+    private string _textLayoutText = string.Empty;
+    private TtfFont? _textLayoutFont;
+    private float _textLayoutFontSize;
+    private float _textLayoutWidth = -1f;
+    private FlowDirection _textLayoutFlowDirection;
+    private TextReadingOrder _textLayoutReadingOrder;
 
     private Vector2 _cachedRevealSize = Vector2.Zero;
+    private FlowDirection _cachedRevealFlowDirection = FlowDirection.LeftToRight;
     private PathGeometry? _eyelidGeometry;
     private PathGeometry? _pupilGeometry;
     private PathGeometry? _strikeGeometry;
@@ -306,16 +329,17 @@ public class PasswordBox : Control, ITextInputClient
                 else if (args.Kind == TextInputEventKind.DeleteContentBackward && CaretIndex > 0)
                 {
                     SaveUndoState();
-                    var length = CaretIndex >= 2 && char.IsLowSurrogate(Password[CaretIndex - 1]) && char.IsHighSurrogate(Password[CaretIndex - 2]) ? 2 : 1;
-                    SelectionStart = CaretIndex - length;
-                    SelectionLength = length;
+                    int previous = TextBoundaryHelper.PreviousGraphemeBoundary(Password, CaretIndex);
+                    SelectionStart = previous;
+                    SelectionLength = CaretIndex - previous;
                     DeleteSelection();
                 }
                 else if (args.Kind == TextInputEventKind.DeleteContentForward && CaretIndex < Password.Length)
                 {
                     SaveUndoState();
+                    int next = TextBoundaryHelper.NextGraphemeBoundary(Password, CaretIndex);
                     SelectionStart = CaretIndex;
-                    SelectionLength = CaretIndex + 1 < Password.Length && char.IsHighSurrogate(Password[CaretIndex]) && char.IsLowSurrogate(Password[CaretIndex + 1]) ? 2 : 1;
+                    SelectionLength = next - CaretIndex;
                     DeleteSelection();
                 }
                 break;
@@ -336,6 +360,14 @@ public class PasswordBox : Control, ITextInputClient
                 break;
             case TextInputEventKind.CompositionCanceled:
                 _pendingComposition = string.Empty;
+                break;
+            case TextInputEventKind.Paste:
+                string pasteText = ClipboardHelper.GetText();
+                if (!string.IsNullOrEmpty(pasteText))
+                {
+                    SaveUndoState();
+                    InsertText(pasteText);
+                }
                 break;
         }
         args.Handled = true;
@@ -378,27 +410,7 @@ public class PasswordBox : Control, ITextInputClient
             e.Handled = true; // prevent bubbling immediately to avoid parent focus theft
             base.OnPointerPressed(e);
 
-            float clickX = e.Position.X - Padding.Left;
-            int index = 0;
-            string visText = GetVisibleText();
-            if (Font != null && !string.IsNullOrEmpty(visText))
-            {
-                int bestIndex = 0;
-                float bestDiff = float.PositiveInfinity;
-
-                for (int i = 0; i <= visText.Length; i++)
-                {
-                    string sub = visText.Substring(0, i);
-                    var layout = new TextLayout(sub, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-                    float diff = Math.Abs(layout.MeasuredSize.X - clickX);
-                    if (diff < bestDiff)
-                    {
-                        bestDiff = diff;
-                        bestIndex = i;
-                    }
-                }
-                index = bestIndex;
-            }
+            int index = HitTestTextPosition(e.Position, out _caretTrailingAffinity);
 
             _selectionAnchor = index;
             SelectionStart = index;
@@ -460,27 +472,7 @@ public class PasswordBox : Control, ITextInputClient
 
             if (_isDraggingSelection)
             {
-                float clickX = e.Position.X - Padding.Left;
-                int currentIdx = 0;
-                string visText = GetVisibleText();
-                if (Font != null && !string.IsNullOrEmpty(visText))
-                {
-                    int bestIndex = 0;
-                    float bestDiff = float.PositiveInfinity;
-
-                    for (int i = 0; i <= visText.Length; i++)
-                    {
-                        string sub = visText.Substring(0, i);
-                        var layout = new TextLayout(sub, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-                        float diff = Math.Abs(layout.MeasuredSize.X - clickX);
-                        if (diff < bestDiff)
-                        {
-                            bestDiff = diff;
-                            bestIndex = i;
-                        }
-                    }
-                    currentIdx = bestIndex;
-                }
+                int currentIdx = HitTestTextPosition(e.Position, out _caretTrailingAffinity);
 
                 SelectionStart = _selectionAnchor;
                 SelectionLength = currentIdx - _selectionAnchor;
@@ -530,6 +522,24 @@ public class PasswordBox : Control, ITextInputClient
 
             bool isShift = _pressedKeys.Contains(Key.ShiftLeft) || 
                            _pressedKeys.Contains(Key.ShiftRight);
+
+            if (!isCtrlOrCmd && e.Key is Key.Left or Key.Right)
+            {
+                if (MoveCaretVisually(e.Key == Key.Left ? -1 : 1, isShift))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            else if (isCtrlOrCmd && e.Key is Key.Left or Key.Right)
+            {
+                if (MoveCaretVisuallyByWord(e.Key == Key.Left ? -1 : 1, isShift))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
 
             if (isCtrlOrCmd)
             {
@@ -583,10 +593,11 @@ public class PasswordBox : Control, ITextInputClient
                 else if (CaretIndex > 0)
                 {
                     SaveUndoState();
-                    string before = Password.Substring(0, CaretIndex - 1);
+                    int previous = TextBoundaryHelper.PreviousGraphemeBoundary(Password, CaretIndex);
+                    string before = Password.Substring(0, previous);
                     string after = Password.Substring(CaretIndex);
                     Password = before + after;
-                    CaretIndex--;
+                    CaretIndex = previous;
                     SelectionStart = CaretIndex;
                     SelectionLength = 0;
                     e.Handled = true;
@@ -603,8 +614,9 @@ public class PasswordBox : Control, ITextInputClient
                 else if (CaretIndex < Password.Length)
                 {
                     SaveUndoState();
+                    int next = TextBoundaryHelper.NextGraphemeBoundary(Password, CaretIndex);
                     string before = Password.Substring(0, CaretIndex);
-                    string after = Password.Substring(CaretIndex + 1);
+                    string after = Password.Substring(next);
                     Password = before + after;
                     SelectionStart = CaretIndex;
                     SelectionLength = 0;
@@ -709,24 +721,165 @@ public class PasswordBox : Control, ITextInputClient
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
     }
 
-    private float GetCaretX()
+    private TextShapingOptions GetEffectiveShapingOptions()
     {
-        string visText = GetVisibleText();
-        if (Font == null || CaretIndex <= 0 || string.IsNullOrEmpty(visText)) return Padding.Left;
-        
-        string substring = visText.Substring(0, Math.Min(CaretIndex, visText.Length));
-        var tempLayout = new TextLayout(substring, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-        return Padding.Left + tempLayout.MeasuredSize.X;
+        ShapingDirection direction = TextReadingOrder == TextReadingOrder.DetectFromContent
+            ? ShapingDirection.Unspecified
+            : FlowDirection == FlowDirection.RightToLeft
+                ? ShapingDirection.RightToLeft
+                : ShapingDirection.LeftToRight;
+        return TextShapingOptions.Default.WithDirection(direction);
     }
 
-    private float GetXForIndex(int idx)
+    private ProGPU.Text.TextAlignment GetEffectiveLayoutAlignment() =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? ProGPU.Text.TextAlignment.Right
+            : ProGPU.Text.TextAlignment.Left;
+
+    private TextLayout? GetTextLayout()
     {
         string visText = GetVisibleText();
-        if (Font == null || idx <= 0 || string.IsNullOrEmpty(visText)) return Padding.Left;
-        int clampedIdx = Math.Clamp(idx, 0, visText.Length);
-        string substring = visText.Substring(0, clampedIdx);
-        var tempLayout = new TextLayout(substring, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-        return Padding.Left + tempLayout.MeasuredSize.X;
+        TtfFont? font = Font;
+        if (font == null || string.IsNullOrEmpty(visText)) return null;
+
+        float width = Math.Max(0f, Size.X - Padding.Horizontal);
+        if (_textLayout == null ||
+            !string.Equals(_textLayoutText, visText, StringComparison.Ordinal) ||
+            !ReferenceEquals(_textLayoutFont, font) ||
+            _textLayoutFontSize != FontSize ||
+            Math.Abs(_textLayoutWidth - width) > 0.01f ||
+            _textLayoutFlowDirection != FlowDirection ||
+            _textLayoutReadingOrder != TextReadingOrder)
+        {
+            _textLayout = new TextLayout(
+                visText,
+                font,
+                FontSize,
+                width,
+                GetEffectiveLayoutAlignment(),
+                null,
+                GetEffectiveShapingOptions());
+            _textLayoutText = visText;
+            _textLayoutFont = font;
+            _textLayoutFontSize = FontSize;
+            _textLayoutWidth = width;
+            _textLayoutFlowDirection = FlowDirection;
+            _textLayoutReadingOrder = TextReadingOrder;
+        }
+
+        return _textLayout;
+    }
+
+    private float GetTextY() => (Size.Y - FontSize) / 2f;
+
+    private TextCaretStop GetCaretStop()
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout != null)
+        {
+            return layout.GetCaretStop(CaretIndex, _caretTrailingAffinity);
+        }
+
+        float x = FlowDirection == FlowDirection.RightToLeft
+            ? Math.Max(0f, Size.X - Padding.Horizontal)
+            : 0f;
+        return new TextCaretStop(0, false, new Vector2(x, 0f), FontSize, 0);
+    }
+
+    private float GetCaretX() => Padding.Left + GetCaretStop().Position.X;
+
+    private int HitTestTextPosition(Vector2 controlPoint, out bool trailingAffinity)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null)
+        {
+            trailingAffinity = false;
+            return 0;
+        }
+
+        Vector2 visualPoint = InputSystem.GetVisualLocalPosition(this, controlPoint);
+        TextHitTestResult hit = layout.HitTestPoint(
+            new Vector2(visualPoint.X - Padding.Left, visualPoint.Y - GetTextY()));
+        trailingAffinity = hit.IsTrailingHit;
+        return hit.TextPosition;
+    }
+
+    private bool MoveCaretVisually(int direction, bool extendSelection)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null) return false;
+
+        if (!extendSelection && SelectionLength != 0)
+        {
+            TextCaretStop target = TextBoundaryHelper.GetVisualSelectionEdge(
+                layout,
+                SelectionStart,
+                SelectionLength,
+                direction);
+            CaretIndex = target.TextPosition;
+            _caretTrailingAffinity = target.IsTrailing;
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+            return true;
+        }
+
+        if (extendSelection) PrepareSelectionAnchorForExtension();
+        TextCaretStop next = layout.MoveCaretVisually(CaretIndex, _caretTrailingAffinity, direction);
+        CaretIndex = next.TextPosition;
+        _caretTrailingAffinity = next.IsTrailing;
+        SelectionStart = extendSelection ? _selectionAnchor : CaretIndex;
+        SelectionLength = extendSelection ? CaretIndex - _selectionAnchor : 0;
+        return true;
+    }
+
+    private bool MoveCaretVisuallyByWord(int direction, bool extendSelection)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null) return false;
+        if (!extendSelection && SelectionLength != 0)
+        {
+            TextCaretStop edge = TextBoundaryHelper.GetVisualSelectionEdge(
+                layout,
+                SelectionStart,
+                SelectionLength,
+                direction);
+            CaretIndex = edge.TextPosition;
+            _caretTrailingAffinity = edge.IsTrailing;
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+            return true;
+        }
+        if (extendSelection) PrepareSelectionAnchorForExtension();
+
+        TextCaretStop next = TextBoundaryHelper.MoveCaretVisuallyByWord(
+            layout,
+            Password,
+            CaretIndex,
+            _caretTrailingAffinity,
+            direction);
+        CaretIndex = next.TextPosition;
+        _caretTrailingAffinity = next.IsTrailing;
+        if (extendSelection)
+        {
+            SelectionStart = _selectionAnchor;
+            SelectionLength = CaretIndex - _selectionAnchor;
+        }
+        else
+        {
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+        }
+        return true;
+    }
+
+    private void PrepareSelectionAnchorForExtension()
+    {
+        int otherEnd = SelectionStart + SelectionLength;
+        _selectionAnchor = SelectionLength == 0
+            ? CaretIndex
+            : CaretIndex == SelectionStart
+                ? otherEnd
+                : SelectionStart;
     }
 
     public override void OnRender(DrawingContext context)
@@ -764,7 +917,7 @@ public class PasswordBox : Control, ITextInputClient
         }
 
         // 2. Draw text
-        float textY = (Size.Y - FontSize) / 2f;
+        float textY = GetTextY();
         string visText = GetVisibleText();
 
         if (Font != null)
@@ -774,23 +927,50 @@ public class PasswordBox : Control, ITextInputClient
             int selEnd = Math.Max(SelectionStart, SelectionStart + SelectionLength);
             if (selEnd > selStart)
             {
-                float x1 = GetXForIndex(selStart);
-                float x2 = GetXForIndex(selEnd);
-                Rect selRect = new Rect(x1, textY - 1f, x2 - x1, FontSize + 2f);
-                context.DrawRectangle(ThemeManager.GetBrush("SelectionHighlight"), null, selRect);
+                TextLayout? layout = GetTextLayout();
+                if (layout != null)
+                {
+                    foreach (TextBounds bounds in layout.GetSelectionRectangles(selStart, selEnd - selStart))
+                    {
+                        var selectionRect = new Rect(
+                            Padding.Left + bounds.X,
+                            textY + bounds.Y,
+                            bounds.Width,
+                            bounds.Height);
+                        context.DrawRectangle(ThemeManager.GetBrush("SelectionHighlight"), null, selectionRect);
+                    }
+                }
             }
 
             if (string.IsNullOrEmpty(Password))
             {
                 if (!string.IsNullOrEmpty(PlaceholderText))
                 {
-                    context.DrawText(PlaceholderText, Font, FontSize, ThemeManager.GetBrush("PasswordBoxForegroundDisabled"), new Vector2(Padding.Left, textY));
+                    context.DrawText(
+                        PlaceholderText,
+                        Font,
+                        FontSize,
+                        ThemeManager.GetBrush("PasswordBoxForegroundDisabled"),
+                        new Vector2(Padding.Left, textY),
+                        Matrix4x4.Identity,
+                        new Rect(0f, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y),
+                        textShapingOptions: GetEffectiveShapingOptions(),
+                        textAlignment: GetEffectiveLayoutAlignment());
                 }
             }
             else
             {
                 var fgBrush = GetCurrentForeground() ?? ThemeManager.GetBrush("PasswordBoxForeground");
-                context.DrawText(visText, Font, FontSize, fgBrush, new Vector2(Padding.Left, textY));
+                context.DrawText(
+                    visText,
+                    Font,
+                    FontSize,
+                    fgBrush,
+                    new Vector2(Padding.Left, textY),
+                    Matrix4x4.Identity,
+                    new Rect(0f, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y),
+                    textShapingOptions: GetEffectiveShapingOptions(),
+                    textAlignment: GetEffectiveLayoutAlignment());
             }
 
             // 3. Draw blinking caret
@@ -806,7 +986,7 @@ public class PasswordBox : Control, ITextInputClient
         if (IsPasswordRevealButtonEnabled)
         {
             float revealSize = 26f;
-            float rx = Size.X - 29f;
+            float rx = FlowDirection == FlowDirection.RightToLeft ? 3f : Size.X - 29f;
             float ry = (Size.Y - revealSize) / 2f;
             Rect revealRect = new Rect(rx, ry, revealSize, revealSize);
 
@@ -831,9 +1011,11 @@ public class PasswordBox : Control, ITextInputClient
             var eyeBrush = GetCurrentForeground() ?? ThemeManager.GetBrush("PasswordBoxForeground");
             var eyePen = new Pen(eyeBrush, 1.25f);
 
-            if (_eyelidGeometry == null || _cachedRevealSize != Size)
+            if (_eyelidGeometry == null || _cachedRevealSize != Size ||
+                _cachedRevealFlowDirection != FlowDirection)
             {
                 _cachedRevealSize = Size;
+                _cachedRevealFlowDirection = FlowDirection;
                 _eyelidGeometry = PathGeometry.Parse(Invariant($"M {cx - 7} {cy} Q {cx} {cy - 4} {cx + 7} {cy} Q {cx} {cy + 4} {cx - 7} {cy} Z"));
                 _pupilGeometry = PathGeometry.Parse(Invariant($"M {cx - 2f} {cy} Q {cx - 2f} {cy - 2f} {cx} {cy - 2f} Q {cx + 2f} {cy - 2f} {cx + 2f} {cy} Q {cx + 2f} {cy + 2f} {cx} {cy + 2f} Q {cx - 2f} {cy + 2f} {cx - 2f} {cy} Z"));
                 _strikeGeometry = PathGeometry.Parse(Invariant($"M {cx - 5.5f} {cy - 3.5f} L {cx + 5.5f} {cy + 3.5f}"));

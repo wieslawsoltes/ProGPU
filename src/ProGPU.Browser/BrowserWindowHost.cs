@@ -30,6 +30,8 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         PopupService.DefaultFont ??= fallbackFont;
         ClipboardHelper.PlatformSetText = SetClipboardText;
         ClipboardHelper.PlatformGetText = GetClipboardText;
+        ClipboardHelper.PlatformSetRichText = SetClipboardRichText;
+        ClipboardHelper.PlatformGetRichText = GetClipboardRichText;
         BrowserStorageServices.Initialize();
     }
 
@@ -122,6 +124,10 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
     {
         if (_disposed) return;
         while (_windows.Count != 0) Close(_windows[^1].Window);
+        ClipboardHelper.PlatformSetText = null;
+        ClipboardHelper.PlatformGetText = null;
+        ClipboardHelper.PlatformSetRichText = null;
+        ClipboardHelper.PlatformGetRichText = null;
         _disposed = true;
     }
 
@@ -139,6 +145,27 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
 
     [JSImport("getClipboardText", "progpu-browser")]
     private static partial string GetClipboardText();
+
+    [JSImport("setClipboardRichText", "progpu-browser")]
+    private static partial void SetClipboardRichTextNative(string plainText, string rtf, string html);
+
+    [JSImport("getClipboardRtf", "progpu-browser")]
+    private static partial string GetClipboardRtf();
+
+    [JSImport("getClipboardHtml", "progpu-browser")]
+    private static partial string GetClipboardHtml();
+
+    private static void SetClipboardRichText(RichClipboardPayload payload) =>
+        SetClipboardRichTextNative(payload.PlainText, payload.Rtf, payload.Html);
+
+    private static RichClipboardPayload? GetClipboardRichText()
+    {
+        string rtf = GetClipboardRtf();
+        string html = GetClipboardHtml();
+        return rtf.Length == 0 && html.Length == 0
+            ? null
+            : new RichClipboardPayload(GetClipboardText(), rtf, html);
+    }
 
     private sealed class HostedWindow(Window window, BrowserGpuContext gpu)
     {

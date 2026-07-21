@@ -100,6 +100,46 @@ public class PointerRoutedEventArgs : RoutedEventArgs
 
 public partial class FrameworkElement
 {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty FlowDirectionProperty =
+        Microsoft.UI.Xaml.DependencyProperty.Register(
+            "FlowDirection",
+            typeof(Microsoft.UI.Xaml.FlowDirection),
+            typeof(FrameworkElement),
+            new Microsoft.UI.Xaml.PropertyMetadata(
+                Microsoft.UI.Xaml.FlowDirection.LeftToRight,
+                static (d, e) =>
+                {
+                    var element = (FrameworkElement)d;
+                    var direction = (Microsoft.UI.Xaml.FlowDirection)(e.NewValue ?? Microsoft.UI.Xaml.FlowDirection.LeftToRight);
+                    element.IsRightToLeftLayout = direction == Microsoft.UI.Xaml.FlowDirection.RightToLeft;
+                },
+                isInheritable: true)
+            {
+                AffectsMeasure = true,
+                AffectsArrange = true,
+                AffectsRender = true
+            });
+
+    public Microsoft.UI.Xaml.FlowDirection FlowDirection
+    {
+        get => (Microsoft.UI.Xaml.FlowDirection)(GetValue(FlowDirectionProperty) ?? Microsoft.UI.Xaml.FlowDirection.LeftToRight);
+        set => SetValue(FlowDirectionProperty, value);
+    }
+
+    protected override Matrix4x4 GetCoordinateFrameTransform()
+    {
+        if (FlowDirection != Microsoft.UI.Xaml.FlowDirection.RightToLeft)
+        {
+            return Matrix4x4.Identity;
+        }
+
+        // WinUI defines (0, 0) at the top-right of an RTL FrameworkElement.
+        // Keep this separate from the render transform: text and glyph content
+        // must not be reflected even though the element's coordinate frame is.
+        return Matrix4x4.CreateScale(-1f, 1f, 1f) *
+               Matrix4x4.CreateTranslation(Size.X, 0f, 0f);
+    }
+
     public static readonly Microsoft.UI.Xaml.DependencyProperty DataContextProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "DataContext",
@@ -296,7 +336,7 @@ public partial class FrameworkElement
         // 1. Layout-affecting properties (require Measure, Arrange, and Paint)
         if (name == "Width" || name == "Height" || name == "MinWidth" || name == "MaxWidth" || 
             name == "MinHeight" || name == "MaxHeight" || name == "Margin" || name == "Padding" || 
-            name == "HorizontalAlignment" || name == "VerticalAlignment" || name == "Visibility" || 
+            name == "HorizontalAlignment" || name == "VerticalAlignment" || name == "Visibility" || name == "FlowDirection" ||
             name == "Font" || name == "FontSize" || name == "Text" || name == "Content" || 
             name == "Child" || name == "Glyph" || name == "GlyphName" || name == "Symbol" || 
             name == "Header" || name == "Orientation" || name == "Dock" || name == "Spacing" || 

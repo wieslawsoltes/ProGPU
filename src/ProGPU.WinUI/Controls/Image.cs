@@ -10,6 +10,7 @@ using ProGPU.Layout;
 using ProGPU.Scene;
 using ProGPU.Backend;
 using Silk.NET.WebGPU;
+using StbImageSharp;
 
 namespace Microsoft.UI.Xaml.Controls;
 
@@ -19,6 +20,64 @@ public enum Stretch
     Fill,
     Uniform,
     UniformToFill
+}
+
+/// <summary>
+/// Immutable encoded image payload. Decoding is cached on first render and GPU upload
+/// remains demand-driven, so constructing or measuring the source does not initialize WebGPU.
+/// </summary>
+public sealed class EncodedImageSource
+{
+    private readonly byte[] _data;
+    private readonly object _sync = new();
+    private byte[]? _rgba;
+    private bool _decodeAttempted;
+
+    public EncodedImageSource(ReadOnlySpan<byte> data, int suggestedWidth = 0, int suggestedHeight = 0)
+    {
+        _data = data.ToArray();
+        SuggestedWidth = Math.Max(0, suggestedWidth);
+        SuggestedHeight = Math.Max(0, suggestedHeight);
+    }
+
+    internal EncodedImageSource(byte[] ownedData, int suggestedWidth, int suggestedHeight)
+    {
+        _data = ownedData ?? throw new ArgumentNullException(nameof(ownedData));
+        SuggestedWidth = Math.Max(0, suggestedWidth);
+        SuggestedHeight = Math.Max(0, suggestedHeight);
+    }
+
+    public int SuggestedWidth { get; }
+    public int SuggestedHeight { get; }
+
+    internal bool TryGetRgba(out ReadOnlyMemory<byte> pixels, out int width, out int height)
+    {
+        lock (_sync)
+        {
+            if (!_decodeAttempted)
+            {
+                _decodeAttempted = true;
+                try
+                {
+                    ImageResult decoded = ImageResult.FromMemory(_data, ColorComponents.RedGreenBlueAlpha);
+                    _rgba = decoded.Data;
+                    DecodedWidth = decoded.Width;
+                    DecodedHeight = decoded.Height;
+                }
+                catch
+                {
+                    _rgba = null;
+                }
+            }
+            pixels = _rgba;
+            width = DecodedWidth;
+            height = DecodedHeight;
+            return _rgba is not null && width > 0 && height > 0;
+        }
+    }
+
+    internal int DecodedWidth { get; private set; }
+    internal int DecodedHeight { get; private set; }
 }
 
 public class Image : FrameworkElement
@@ -34,6 +93,9 @@ public class Image : FrameworkElement
     private float _sepia = 0f;
     private float _invert = 0f;
     private float _blurSigma = 0f;
+
+    protected override bool ShouldInheritProperty(DependencyProperty property) =>
+        property != FlowDirectionProperty && base.ShouldInheritProperty(property);
 
     public float Brightness
     {
@@ -104,6 +166,7 @@ public class Image : FrameworkElement
                     }
                 }
 
+                InvalidateMeasure();
                 Invalidate();
             }
         }
@@ -129,7 +192,10 @@ public class Image : FrameworkElement
         get
         {
             var tex = ActiveTexture;
-            return tex != null ? new Vector2(tex.Width, tex.Height) : Vector2.Zero;
+            if (tex != null) return new Vector2(tex.Width, tex.Height);
+            return _source is EncodedImageSource encoded
+                ? new Vector2(encoded.SuggestedWidth, encoded.SuggestedHeight)
+                : Vector2.Zero;
         }
     }
 
@@ -186,7 +252,7 @@ public class Image : FrameworkElement
 
     public override void OnRender(DrawingContext context)
     {
-        var texture = ActiveTexture;
+        var texture = EnsureActiveTexture();
         if (texture == null)
         {
             return;
@@ -255,19 +321,66 @@ public class Image : FrameworkElement
             context.PushClip(new Rect(Vector2.Zero, Size));
         }
 
+        Matrix4x4 flowTransform = FlowDirection == FlowDirection.RightToLeft
+            ? Matrix4x4.CreateScale(-1f, 1f, 1f) * Matrix4x4.CreateTranslation(controlSize.X, 0f, 0f)
+            : Matrix4x4.Identity;
+
         if (Brightness != 0f || Contrast != 1f || Saturation != 1f || Grayscale != 0f || Sepia != 0f || Invert != 0f || BlurSigma > 0.01f)
         {
-            context.DrawImageWithEffect(texture, destRect, Brightness, Contrast, Saturation, Grayscale, Sepia, Invert, BlurSigma);
+            context.DrawImageWithEffect(
+                texture,
+                destRect,
+                Brightness,
+                Contrast,
+                Saturation,
+                Grayscale,
+                Sepia,
+                Invert,
+                BlurSigma,
+                transform: flowTransform);
         }
         else
         {
-            context.DrawTexture(texture, destRect);
+            if (FlowDirection == FlowDirection.RightToLeft)
+            {
+                context.DrawTexture(
+                    texture,
+                    destRect,
+                    new Rect(0f, 0f, texture.Width, texture.Height),
+                    flowTransform);
+            }
+            else
+            {
+                context.DrawTexture(texture, destRect);
+            }
         }
 
         if (clip)
         {
             context.PopClip();
         }
+    }
+
+    private GpuTexture? EnsureActiveTexture()
+    {
+        if (ActiveTexture is { } active) return active;
+        if (_source is not EncodedImageSource encoded ||
+            !encoded.TryGetRgba(out ReadOnlyMemory<byte> pixels, out int width, out int height) ||
+            WgpuContext.Current is not { } context)
+        {
+            return null;
+        }
+
+        _loadedTexture = new GpuTexture(
+            context,
+            (uint)width,
+            (uint)height,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Encoded Image",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        _loadedTexture.WritePixels<byte>(pixels.Span);
+        return _loadedTexture;
     }
 
     private static GpuTexture LoadBmp(string path)

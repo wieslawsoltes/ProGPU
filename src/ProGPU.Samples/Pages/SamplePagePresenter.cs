@@ -688,13 +688,13 @@ public static class SamplePagePresenter
             sizeLabel.Inlines.Add(new Bold(new Run($"Global Font Size: {sz:F0}")));
             sizeLabel.Invalidate();
 
-            TextAlignment align = alignCombo.SelectedItem?.Text switch
+            Microsoft.UI.Xaml.TextAlignment align = alignCombo.SelectedItem?.Text switch
             {
-                "Left" => TextAlignment.Left,
-                "Center" => TextAlignment.Center,
-                "Right" => TextAlignment.Right,
-                "Justify" => TextAlignment.Justify,
-                _ => TextAlignment.Left
+                "Left" => Microsoft.UI.Xaml.TextAlignment.Left,
+                "Center" => Microsoft.UI.Xaml.TextAlignment.Center,
+                "Right" => Microsoft.UI.Xaml.TextAlignment.Right,
+                "Justify" => Microsoft.UI.Xaml.TextAlignment.Justify,
+                _ => Microsoft.UI.Xaml.TextAlignment.Left
             };
 
             Compositor.DefaultTextContrast = contrastSlider.Value;

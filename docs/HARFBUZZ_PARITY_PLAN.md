@@ -31,30 +31,101 @@ both the old and new pins.
 
 ## Current baseline
 
-The existing `OpenTypeTextShaper` is useful but not a general Unicode shaping
-engine. It currently has:
+As of 2026-07-20, the implementation is substantially beyond the original
+planning baseline:
 
-- scalar-to-glyph mapping, a subset of GSUB/GPOS, feature selection, variation
-  deltas, horizontal advances, clusters, and Inter-focused validation;
-- no direction or vertical-position contract;
-- no complete Unicode normalization, default-ignorable, grapheme, joining,
-  syllable, reordering, or script-specific shaping pipeline;
-- incomplete script/language inference and OpenType language mapping;
-- incomplete contextual/nested lookup coverage and no ranged features;
-- per-scalar font fallback before shaping, which can split a shaping cluster;
-- a package dependency from `ProGPU.Text` to rendering/WebGPU assemblies, so
-  shaping is not independently consumable.
+- `ProGPU.Text.Shaping` is a standalone, rendering-independent contract package
+  with immutable requests, typed directions, all four cluster levels, ranged
+  features, buffer flags, glyph flags, design-unit results, and a typed
+  `IShapingFontFace` boundary;
+- generated Unicode 17 data and the managed executor cover normalization,
+  grapheme/character clusters, default ignorables, variation selectors,
+  direction and vertical metrics, Arabic joining/fallback/stretch, Indic, USE,
+  Khmer, Myanmar, Hangul, Thai/Lao, Tibetan, Hebrew, and directional mappings;
+- GSUB/GPOS execution includes contextual and nested lookup machinery, ranged
+  feature evaluation, GDEF filtering, mark/cursive attachment, legacy kerning,
+  variation adjustments, and vertical positioning;
+- a pinned differential runner classifies non-OpenType cases and unsupported
+  options separately and can exercise CPU, WebGPU, or both backends.
+
+The complete pinned CPU corpus was measured on 2026-07-20 with HarfBuzz 14.2.1:
+
+| Result | Cases |
+| --- | ---: |
+| Exact OpenType passes | 4,977 |
+| Glyph/cluster/position mismatches | 0 |
+| Unsupported option cases | 15 |
+| Deliberately classified non-OpenType cases | 106 |
+| Environment errors (unavailable legacy macOS fonts) | 49 |
+| Total | 5,147 |
+
+The 15 unsupported cases are the current actionable corpus boundary: legacy
+`dfont` containers (6), optical-size `ptem` (4), glyph extents (2), a
+missing-variation-selector policy (1), synthetic slant (1), and synthetic bold
+(1). HarfBuzz inclusive feature ranges now translate to ProGPU's half-open
+UTF-16 ranges, including negative scalar indices, and preserve/remove-default-
+ignorables map to typed buffer flags. The five affected macOS cases are AAT-only
+fonts without GSUB and are therefore classified as non-OpenType rather than
+unsupported options. The 49 errors are not shaping mismatches: the corpus names
+Apple Chancery, Kokonor, Khmer MN, Tamil MN, Thonburi, SFNSDisplay, Zapfino, and
+Hiragino fonts that are absent on the test host.
+
+`ShapingRequest` now carries paragraph-local pre/post context without emitting
+it, and the managed executor matches all 11 pinned `item-context.tests` cases.
+BOT controls leading-mark dotted-circle recovery exactly with respect to
+pre-context. Arabic joining propagates unsafe-to-break/concat and optional
+tatweel-safety state, including the pinned `unsafe-to-concat.tests` result.
+Indic, Khmer, Myanmar, and USE syllables; character-level grapheme interiors;
+automatic fractions; Arabic stretch; random alternates; pair/legacy kern,
+cursive and mark positioning; and complete matched contextual/chained
+GSUB/GPOS ranges now propagate unsafe-to-break dependencies as well. The low-level
+`TextLayout` wrapper refuses unsafe dependency and cluster splits because it does
+not reshape arbitrary fragments. The shared rich-text/Markdown engine refuses
+cluster-interior splits but may wrap at an unsafe dependency boundary because it
+reshapes every committed line fragment. Both layout paths pass context across
+bidi/font/style items and apply BOT/EOT only at real fragment edges.
+
+`Verify` now checks monotone cluster order, reshapes every fragment separated by
+an advertised safe boundary with adjusted BOT/EOT, context, and ranged features,
+and requires an exact reconstruction apart from glyph flags. The full pinned
+corpus with `--verify` retains 4,977 exact OpenType passes, zero output
+mismatches, and zero reconstruction failures; 15 unsupported, 106 non-OpenType,
+and 49 missing-system-font classifications remain. The WebGPU
+executor now preserves input flags and emits dependency flags for fractions,
+Arabic joining/tatweel boundaries, contextual and chained lookups, pair and
+legacy kerning, cursive/mark attachment, and fallback mark positioning. Exact
+native GPU regression comparisons cover those implemented paths. GPU item
+context, character-level grapheme-interior flagging, the remaining specialized
+script safety rules, and full-corpus GPU execution remain blocking parity gaps.
 
 The first baseline command is:
 
 ```sh
 dotnet run --project tools/HarfBuzzParity -- suite \
   --harfbuzz-root /path/to/harfbuzz \
+  --verify \
   --report artifacts/harfbuzz-parity.json
 ```
 
 The report is expected to be red until every OpenType category below reaches
 zero mismatches and zero unsupported cases.
+
+## Primary HarfBuzz sources for the remaining boundary work
+
+- [HarfBuzz buffer API](https://harfbuzz.github.io/harfbuzz-hb-buffer.html)
+  defines item context, BOT/EOT boundary semantics, verification, and the three
+  public glyph-safety flags.
+- [HarfBuzz shaping and shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  defines the boundary between buffer preparation, plan creation, and execution.
+- [HarfBuzz OpenType shaping model](https://harfbuzz.github.io/shaping-opentype-features.html)
+  defines feature defaults, ordering, and range behavior.
+- [Pinned in-house shaping corpus](https://github.com/harfbuzz/harfbuzz/tree/9de7e9d56396654b07649005cd2f4f494b2cdc4b/test/shape/data/in-house)
+  is the executable parity specification used for the counts above.
+- [Pinned buffer implementation](https://github.com/harfbuzz/harfbuzz/blob/9de7e9d56396654b07649005cd2f4f494b2cdc4b/src/hb-buffer.cc)
+  is the source-level reference for context storage, flag verification, and
+  serialization behavior.
+- [Pinned OpenType shaping implementation](https://github.com/harfbuzz/harfbuzz/blob/9de7e9d56396654b07649005cd2f4f494b2cdc4b/src/hb-ot-shape.cc)
+  is the source-level reference for boundary-aware shaping and safety propagation.
 
 ## Target package architecture
 

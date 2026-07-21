@@ -12,6 +12,7 @@ internal static partial class BrowserStorageServices
     {
         StoragePlatformServices.PickPathAsync = PickPathAsync;
         StoragePlatformServices.WriteTextAsync = WriteTextAsync;
+        StoragePlatformServices.WriteBytesAsync = WriteBytesAsync;
     }
 
     private static async Task<string?> PickPathAsync(int mode, IReadOnlyList<string>? fileTypes, string? defaultName)
@@ -71,6 +72,19 @@ internal static partial class BrowserStorageServices
         return Task.FromResult(true);
     }
 
+    private static Task<bool> WriteBytesAsync(string path, byte[] bytes)
+    {
+        if (!path.StartsWith(SaveDirectory, StringComparison.Ordinal)) return Task.FromResult(false);
+        unsafe
+        {
+            fixed (byte* source = bytes)
+            {
+                DownloadBytes(Path.GetFileName(path), (nint)source, bytes.Length);
+            }
+        }
+        return Task.FromResult(true);
+    }
+
     [JSImport("pickStorage", "progpu-browser")]
     private static partial Task<string> PickStorageCoreAsync(int mode, string filters, string defaultName);
 
@@ -85,4 +99,7 @@ internal static partial class BrowserStorageServices
 
     [JSImport("downloadText", "progpu-browser")]
     private static partial void DownloadText(string name, string text);
+
+    [JSImport("downloadBytes", "progpu-browser")]
+    private static partial void DownloadBytes(string name, nint source, int length);
 }

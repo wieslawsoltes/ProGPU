@@ -1119,18 +1119,11 @@ public static class InputSystem
         return null;
     }
 
-    private static Matrix4x4 GetGlobalTransform(Visual visual)
-    {
-        var local = visual.GetLocalTransform();
-        if (visual.Parent == null) return local;
-        return local * GetGlobalTransform(visual.Parent);
-    }
-
     public static Vector2 GetLocalPosition(Visual? visual, Vector2 screenPoint)
     {
         if (visual == null) return screenPoint;
 
-        Matrix4x4 globalTransform = GetGlobalTransform(visual);
+        Matrix4x4 globalTransform = visual.GetGlobalCoordinateTransformMatrix();
         if (Matrix4x4.Invert(globalTransform, out Matrix4x4 invGlobal))
         {
             Vector3 screenPt3 = new Vector3(screenPoint.X, screenPoint.Y, 0f);
@@ -1146,6 +1139,33 @@ public static class InputSystem
             current = current.Parent;
         }
         return screenPoint - globalOffset;
+    }
+
+    /// <summary>
+    /// Converts a point in an element's public coordinate frame to the physical
+    /// local frame used by unreflected text and retained drawing commands.
+    /// </summary>
+    internal static Vector2 GetVisualLocalPosition(FrameworkElement element, Vector2 coordinatePoint) =>
+        element.FlowDirection == FlowDirection.RightToLeft
+            ? new Vector2(element.Size.X - coordinatePoint.X, coordinatePoint.Y)
+            : coordinatePoint;
+
+    /// <summary>
+    /// Converts a root point directly to the physical local frame used by
+    /// unreflected text and retained drawing commands.
+    /// </summary>
+    internal static Vector2 GetPhysicalLocalPosition(Visual? visual, Vector2 screenPoint)
+    {
+        if (visual == null) return screenPoint;
+
+        Matrix4x4 globalTransform = visual.GetGlobalTransformMatrix();
+        if (Matrix4x4.Invert(globalTransform, out Matrix4x4 invGlobal))
+        {
+            Vector3 local = Vector3.Transform(new Vector3(screenPoint.X, screenPoint.Y, 0f), invGlobal);
+            return new Vector2(local.X, local.Y);
+        }
+
+        return GetLocalPosition(visual, screenPoint);
     }
 
     private static List<FrameworkElement> GetVisualPath(FrameworkElement? element)
@@ -1533,6 +1553,12 @@ public static class InputSystem
 
         if (key == Key.Tab)
         {
+            if (_focusedElement != null)
+            {
+                var tabArgs = new KeyRoutedEventArgs { Key = key };
+                _focusedElement.OnKeyDown(tabArgs);
+                if (tabArgs.Handled) return;
+            }
             CycleFocus(_isShiftPressed);
             return;
         }

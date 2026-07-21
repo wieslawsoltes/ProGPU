@@ -340,7 +340,7 @@ public static class KeyboardParityPage
 
         var pasteBtn = new Button { Width = 60f, Height = 26f };
         pasteBtn.Content = new TextVisual { Text = "Paste", FontSize = 11f, Brush = new ThemeResourceBrush("TextPrimary"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        pasteBtn.Click += (s, e) => { richEntry.Paste(); logAccelerator("Button Click", "Pasted clipboard text"); };
+        pasteBtn.Click += (s, e) => { richEntry.PasteFromClipboard(); logAccelerator("Button Click", "Pasted clipboard text"); };
 
         toolbarRow1.AddChild(undoBtn);
         toolbarRow1.AddChild(redoBtn);

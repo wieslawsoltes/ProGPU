@@ -383,12 +383,18 @@ public class VirtualizingPanel : Panel, IScrollViewportAware
                 if (_panel.IsHorizontal)
                 {
                     trackRect = new Rect(0f, Size.Y - scrollbarThickness - padding, viewportSize, scrollbarThickness);
-                    thumbRect = new Rect(metrics.ThumbStart, Size.Y - scrollbarThickness - padding, metrics.ThumbLength, scrollbarThickness);
+                    float thumbX = FlowDirection == FlowDirection.RightToLeft
+                        ? Size.X - metrics.ThumbStart - metrics.ThumbLength
+                        : metrics.ThumbStart;
+                    thumbRect = new Rect(thumbX, Size.Y - scrollbarThickness - padding, metrics.ThumbLength, scrollbarThickness);
                 }
                 else
                 {
-                    trackRect = new Rect(Size.X - scrollbarThickness - padding, 0f, scrollbarThickness, viewportSize);
-                    thumbRect = new Rect(Size.X - scrollbarThickness - padding, metrics.ThumbStart, scrollbarThickness, metrics.ThumbLength);
+                    float scrollbarX = FlowDirection == FlowDirection.RightToLeft
+                        ? padding
+                        : Size.X - scrollbarThickness - padding;
+                    trackRect = new Rect(scrollbarX, 0f, scrollbarThickness, viewportSize);
+                    thumbRect = new Rect(scrollbarX, metrics.ThumbStart, scrollbarThickness, metrics.ThumbLength);
                 }
 
                 // Draw track (subtle translucent backdrop line)

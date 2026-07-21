@@ -369,6 +369,25 @@ public sealed class OpenTypeTextShaperTests
             $"Repeated shaping allocated {allocated:N0} bytes; cached lookup plans must not be rebuilt per run.");
     }
 
+    [Fact]
+    public void IndicSyllableBoundariesExposeUnsafeToBreakDependencies()
+    {
+        IReadOnlyList<ShapedGlyph> glyphs = OpenTypeTextShaper.Shape(
+            "\u0915\u094D\u0937",
+            InterFontFamily.Regular,
+            32f,
+            new TextShapingOptions
+            {
+                Script = "deva",
+                Direction = ShapingDirection.LeftToRight
+            });
+
+        Assert.True(glyphs.Count >= 2);
+        Assert.Contains(
+            glyphs.Skip(1),
+            static glyph => (glyph.Flags & ShapingGlyphFlags.UnsafeToBreak) != 0);
+    }
+
     private static TextShapingOptions Features(params string[] optional)
     {
         var features = new List<OpenTypeFeatureSetting>

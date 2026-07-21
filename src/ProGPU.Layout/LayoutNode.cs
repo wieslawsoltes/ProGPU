@@ -117,6 +117,7 @@ namespace ProGPU.Layout
         private Thickness _padding;
         private HorizontalAlignment _horizontalAlignment = HorizontalAlignment.Stretch;
         private VerticalAlignment _verticalAlignment = VerticalAlignment.Stretch;
+        private bool _isRightToLeftLayout;
         private float? _widthConstraint;
         private float? _heightConstraint;
         private bool _isCollapsed = false;
@@ -200,6 +201,21 @@ namespace ProGPU.Layout
                     InvalidateArrange();
                     Invalidate();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Mirrors child layout coordinates around this node's horizontal axis.
+        /// Framework layers set this from their inherited flow-direction contract.
+        /// </summary>
+        public bool IsRightToLeftLayout
+        {
+            get => _isRightToLeftLayout;
+            set
+            {
+                if (_isRightToLeftLayout == value) return;
+                _isRightToLeftLayout = value;
+                InvalidateArrange();
             }
         }
 
@@ -336,6 +352,7 @@ namespace ProGPU.Layout
 
         public void Arrange(Rect finalRect)
         {
+            Rect requestedFinalRect = finalRect;
             if (IsCollapsed)
             {
                 Size = Vector2.Zero;
@@ -391,6 +408,11 @@ namespace ProGPU.Layout
                 offset.Y += visualHeight - size.Y;
             }
 
+            if (Parent is LayoutNode parent && parent.IsRightToLeftLayout)
+            {
+                offset.X = parent.Size.X - (offset.X + size.X);
+            }
+
             // Apply placement and delegate to arrange override
             _arrangedOffset = offset;
             Offset = _arrangedOffset + _layoutTranslation;
@@ -407,7 +429,7 @@ namespace ProGPU.Layout
                 ArrangeOverride(arrangeRect);
             }
             
-            _previousFinalRect = finalRect;
+            _previousFinalRect = requestedFinalRect;
             _isArrangeValid = true;
         }
 

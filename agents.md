@@ -6,6 +6,38 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+### A-1. Mandatory Clean-Room Implementation
+
+Do not copy, port, translate, adapt, transcribe, or otherwise include source code from
+another project in ProGPU. Studying other engines is required where this handbook calls
+for research, but that research may inform only observable behavior, public contracts,
+algorithms described in specifications or papers, architecture, test cases, and measured
+tradeoffs. It must not be used as a source-text implementation shortcut.
+
+When an equivalent feature exists elsewhere, implement it clean-room:
+
+* Start from authoritative specifications, public API contracts, primary research, and
+  independently observed behavior. Record the sources consulted and the concepts adopted,
+  adapted, or rejected without reproducing their implementation text or structure.
+* Design and write an original ProGPU implementation that follows this repository's typed,
+  reflection-free architecture, ownership rules, invalidation contracts, and platform
+  boundaries. Do not preserve foreign helper types, naming, file organization, control
+  flow, lookup-table encodings, comments, or other implementation fingerprints.
+* Treat performance and quality as part of correctness. State the algorithm and complexity,
+  keep hot paths allocation-free or bounded where practical, use generated packed data
+  instead of runtime text parsing, and validate representative latency, throughput, memory,
+  and output-quality behavior.
+* Build independent conformance, differential, property, fuzz, and regression tests from
+  specifications or observable behavior. Passing tests from copied code is not evidence of
+  a clean-room implementation.
+* Before committing, audit the current tree and every branch-reachable commit for copied or
+  ported code, attribution markers, obsolete foreign helper files, and accidental vendoring.
+  Remove any prohibited implementation from both the final tree and the branch history.
+
+Third-party dependencies may be consumed only through the repository's normal reviewed
+package, submodule, or explicitly vendored-dependency process with compatible licensing;
+that does not permit copying their source into ordinary ProGPU implementation files.
+
 ### A0. Reflection-Free WPF Port Support
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

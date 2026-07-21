@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ProGPU.Fonts.Inter;
+using ProGPU.Fonts.Noto;
 using ProGPU.Compute;
 using ProGPU.Backend;
 using ProGPU.Text;
@@ -92,11 +93,91 @@ public sealed class ShapingContractsTests
             ShapingDirection.RightToLeft,
             new OpenTypeTag("arab"),
             language: "ar",
-            flags: ShapingBufferFlags.BeginningOfText | ShapingBufferFlags.EndOfText);
+            flags: ShapingBufferFlags.BeginningOfText | ShapingBufferFlags.EndOfText,
+            preContext: "ك".AsMemory(),
+            postContext: "ن".AsMemory());
 
         Assert.Equal(ShapingDirection.RightToLeft, request.Direction);
         Assert.Equal("arab", request.Script.ToString());
         Assert.Equal("ar", request.Language);
+        Assert.Equal("ك", request.PreContext.ToString());
+        Assert.Equal("ن", request.PostContext.ToString());
+    }
+
+    [Theory]
+    [InlineData("office AVATAR", "latn", ShapingDirection.LeftToRight)]
+    [InlineData("بب x", "arab", ShapingDirection.RightToLeft)]
+    public void VerifyFlagReconstructsEverySafeFragment(
+        string text,
+        string script,
+        ShapingDirection direction)
+    {
+        var face = new TtfShapingFontFace(InterFontFamily.Regular);
+        using var baseline = new ShapingBuffer();
+        using var verified = new ShapingBuffer();
+        var request = new ShapingRequest(direction, new OpenTypeTag(script));
+        var verifiedRequest = new ShapingRequest(
+            direction,
+            new OpenTypeTag(script),
+            flags: ShapingBufferFlags.Verify);
+
+        CpuOpenTypeShaper.Instance.Shape(text, face, request, baseline);
+        CpuOpenTypeShaper.Instance.Shape(text, face, verifiedRequest, verified);
+
+        Assert.Equal(baseline.Count, verified.Count);
+        for (var index = 0; index < baseline.Count; index++)
+        {
+            Assert.Equal(baseline[index].GlyphId, verified[index].GlyphId);
+            Assert.Equal(baseline[index].Cluster, verified[index].Cluster);
+            Assert.Equal(baseline[index].AdvanceX, verified[index].AdvanceX);
+            Assert.Equal(baseline[index].AdvanceY, verified[index].AdvanceY);
+            Assert.Equal(baseline[index].OffsetX, verified[index].OffsetX);
+            Assert.Equal(baseline[index].OffsetY, verified[index].OffsetY);
+        }
+    }
+
+    [Fact]
+    public void CpuExecutorUsesBotAndPreContextForLeadingDottedCircleRecovery()
+    {
+        TtfFont font = NotoFontFamily.Symbols;
+        Assert.NotEqual((ushort)0, font.GetGlyphIndex(0x25CC));
+        Assert.NotEqual((ushort)0, font.GetGlyphIndex(0x0301));
+        var face = new TtfShapingFontFace(font);
+        using var atParagraphStart = new ShapingBuffer();
+        using var withinParagraph = new ShapingBuffer();
+        using var disabled = new ShapingBuffer();
+
+        CpuOpenTypeShaper.Instance.Shape(
+            "\u0301",
+            face,
+            new ShapingRequest(
+                ShapingDirection.LeftToRight,
+                new OpenTypeTag("latn"),
+                flags: ShapingBufferFlags.BeginningOfText),
+            atParagraphStart);
+        CpuOpenTypeShaper.Instance.Shape(
+            "\u0301",
+            face,
+            new ShapingRequest(
+                ShapingDirection.LeftToRight,
+                new OpenTypeTag("latn"),
+                flags: ShapingBufferFlags.BeginningOfText,
+                preContext: "A".AsMemory()),
+            withinParagraph);
+        CpuOpenTypeShaper.Instance.Shape(
+            "\u0301",
+            face,
+            new ShapingRequest(
+                ShapingDirection.LeftToRight,
+                new OpenTypeTag("latn"),
+                flags: ShapingBufferFlags.BeginningOfText | ShapingBufferFlags.DoNotInsertDottedCircle),
+            disabled);
+
+        Assert.Equal(2, atParagraphStart.Count);
+        Assert.Equal(0x25CCu, atParagraphStart[0].CodePoint);
+        Assert.Equal(0x0301u, atParagraphStart[1].CodePoint);
+        Assert.Single(withinParagraph.Glyphs.ToArray());
+        Assert.Single(disabled.Glyphs.ToArray());
     }
 
     [Fact]
@@ -540,9 +621,20 @@ public sealed class ShapingContractsTests
             [],
             reordered);
 
-        Assert.Equal(expected.Glyphs.ToArray(), mirrored.Glyphs.ToArray());
+        ShapingGlyph[] expectedGlyphs = expected.Glyphs.ToArray();
+        ShapingGlyph[] actualGlyphs = mirrored.Glyphs.ToArray();
+        Assert.True(expectedGlyphs.SequenceEqual(actualGlyphs),
+            $"Expected: {string.Join("; ", expectedGlyphs.Select(Describe))}\n" +
+            $"Actual: {string.Join("; ", actualGlyphs.Select(Describe))}\n" +
+            $"Commands: {string.Join("; ", commands.Select(static command =>
+                $"table={command.TableKind},type={command.LookupType},tag={new OpenTypeTag(command.FeatureTag)}," +
+                $"offset={command.LookupOffset},flags={command.LookupFlags}"))}");
         Assert.Equal(new uint[] { 'q', 0x0300, 0x0315 },
             reordered.Glyphs.ToArray().Select(static glyph => glyph.CodePoint));
+
+        static string Describe(ShapingGlyph glyph) =>
+            $"gid={glyph.GlyphId},cp={glyph.CodePoint:x},c={glyph.Cluster},flags={glyph.Flags}," +
+            $"a=({glyph.AdvanceX},{glyph.AdvanceY}),o=({glyph.OffsetX},{glyph.OffsetY})";
     }
 
     [Fact]

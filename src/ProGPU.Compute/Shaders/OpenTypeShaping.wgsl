@@ -1,5 +1,5 @@
-// Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering plus bounded Arabic presentation fallback/stretch, load metrics, execute GPOS or extent-based fallback mark positioning, then finalize output order.
-// Time complexity: O(N*(log R + log V + log U + log D + log Q + log K) + S*N + L*N*log C) for typical bounded combining runs, and O(N^2 + S*N + L*N*log C) worst-case when all N scalars form one reverse-ordered combining run; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, K invalid-vowel constraints, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
+// Algorithm: initialize through a compressed nominal cmap, preprocess Unicode and deterministic complex-script syllables, execute stage-aware OpenType substitutions with Indic/USE/Myanmar/Khmer reordering plus bounded Arabic presentation fallback/stretch, propagate HarfBuzz-compatible break/concat/tatweel safety across shaping dependencies, load metrics, execute GPOS or extent-based fallback mark positioning, then finalize output order.
+// Time complexity: O(N*(log R + log V + log U + log D + log Q + log K) + S*N + L*N*log C) for typical bounded combining, context, and attachment runs, and O(N^2 + S*N + L*N*(N + log C)) worst-case when a run or every matched lookup dependency spans all N glyphs; R is cmap ranges, V variation-selector ranges, U Unicode-property ranges, D directional mappings, Q normalization records, K invalid-vowel constraints, S selected deterministic syllable-machine passes (at most one), L ordered ranged lookups, and C coverage size. Safety propagation scans only each dependency's matched span. Initialization, metrics, and output conversion are parallel while order-changing preprocessing and lookup mutation are serial.
 // Space complexity: O(N + R + V + U + D + Q + K + M + G + L) storage for glyphs plus stable internal identities, cmap/variation/packed Unicode normalization and vowel-constraint data, M generated Indic/USE/Myanmar/Khmer transition words, G metrics and optional extents, and lookup commands; each invocation uses O(1) private storage and no textures.
 // Workgroups contain 64 independent glyph invocations; Unicode preprocessing and the ordered lookup/position VMs use one invocation because they mutate shared order. Substitution stage transitions, consecutive same-type command groups, and single/multiple/alternate/ligature/contextual GSUB execution use separate compute passes so Metal/WebGPU compilers do not have to inline unrelated lookup graphs. Command grouping preserves lookup order while bounding dispatches by O(min(L, type runs)). The Arabic joining machine has 42 fixed transitions (168 bytes of private state), and each stch run is capped at 256 generated components inside the preallocated run capacity; the generated complex-script machines use uploaded state/category matrices with 256 fixed category entries per state. Runtime loops are bounded by uploaded counts/capacity and OpenType table counts. Lookup flags use GDEF glyph/mark classes and mark-set coverage without auxiliary allocations. All arithmetic is exact 32-bit integer design-unit arithmetic.
 
@@ -173,6 +173,9 @@ const FEATURE_GPOS_MATCH: u32 = 16u;
 const GLYPH_SUBSTITUTED: u32 = 2u;
 const GLYPH_INVISIBLE: u32 = 4u;
 const GLYPH_SPLIT_MATRA_COMPONENT: u32 = 32u;
+const GLYPH_UNSAFE_TO_BREAK: u32 = 1u;
+const GLYPH_UNSAFE_TO_CONCAT: u32 = 2u;
+const GLYPH_SAFE_TO_INSERT_TATWEEL: u32 = 4u;
 const SPACE_FALLBACK_SHIFT: u32 = 8u;
 const SPACE_EM: u32 = 1u;
 const SPACE_EM2: u32 = 2u;
@@ -212,6 +215,41 @@ const INDIC_POSITION_SHIFT: u32 = 8u;
 const INDIC_POSITION_MASK: u32 = 0xffu << INDIC_POSITION_SHIFT;
 const USE_RPHF_ELIGIBLE: u32 = 1u << 16u;
 const USE_CATEGORY_SHIFT: u32 = 24u;
+
+fn mark_interior_glyph_flags(start_value: u32, end_value: u32, flags: u32) {
+    let start = min(start_value, run_state.glyph_count);
+    let end = min(max(end_value, start), run_state.glyph_count);
+    if (end - start < 2u) { return; }
+    var minimum_cluster = 0x7fffffffi;
+    for (var index = start; index < end; index++) {
+        minimum_cluster = min(minimum_cluster, glyphs[index].cluster);
+    }
+    for (var index = start; index < end; index++) {
+        if (glyphs[index].cluster != minimum_cluster) { glyphs[index].flags |= flags; }
+    }
+}
+
+fn mark_unsafe_to_break(start: u32, end: u32) {
+    mark_interior_glyph_flags(
+        start, end, GLYPH_UNSAFE_TO_BREAK | GLYPH_UNSAFE_TO_CONCAT);
+}
+
+fn mark_safe_to_insert_tatweel(start: u32, end: u32) {
+    let flags = select(
+        GLYPH_UNSAFE_TO_BREAK | GLYPH_UNSAFE_TO_CONCAT,
+        GLYPH_SAFE_TO_INSERT_TATWEEL,
+        (params.request_flags & 128u) != 0u);
+    mark_interior_glyph_flags(start, end, flags);
+}
+
+fn mark_unsafe_to_concat(start_value: u32, end_value: u32) {
+    if ((params.request_flags & 64u) == 0u) { return; }
+    let start = min(start_value, run_state.glyph_count);
+    let end = min(max(end_value, start), run_state.glyph_count);
+    for (var index = start; index < end; index++) {
+        glyphs[index].flags |= GLYPH_UNSAFE_TO_CONCAT;
+    }
+}
 
 fn ligature_component(position: u32) -> u32 {
     return glyph_states[position].ligature_component & 0xffffu;
@@ -393,6 +431,7 @@ fn prepare_fraction_masks() {
         for (var index = slash + 1u; index < end; index++) {
             glyph_states[index].feature_mask |= FRACTION_DENOMINATOR;
         }
+        mark_unsafe_to_break(start, end);
     }
 }
 
@@ -2460,6 +2499,11 @@ fn assign_arabic_joining_actions() {
         let previous_action = entry & 0xffu;
         if (previous_action != ARABIC_NONE && previous != 0xffffffffu) {
             set_arabic_action(previous, previous_action);
+            mark_safe_to_insert_tatweel(previous, position + 1u);
+        } else if (previous == 0xffffffffu) {
+            if (joining_type >= 2u) { mark_unsafe_to_concat(0u, position + 1u); }
+        } else if (joining_type >= 2u || (state >= 2u && state <= 5u)) {
+            mark_unsafe_to_concat(previous, position + 1u);
         }
         set_arabic_action(position, (entry >> 8u) & 0xffu);
         previous = position;
@@ -2924,6 +2968,7 @@ fn apply_context_subtable(subtable: u32, position: u32, lookup_offset: u32, look
             }
             if (!matched) { continue; }
             run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+            mark_unsafe_to_break(position, u32(last) + 1u);
             return schedule_records(rule + 2u + glyph_count * 2u, record_count, position,
                 lookup_offset, lookup_flags, depth, feature_value, feature_tag);
         }
@@ -2954,6 +2999,7 @@ fn apply_context_subtable(subtable: u32, position: u32, lookup_offset: u32, look
             }
             if (!matched) { continue; }
             run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+            mark_unsafe_to_break(position, u32(last) + 1u);
             return schedule_records(rule + 2u + glyph_count * 2u, record_count, position,
                 lookup_offset, lookup_flags, depth, feature_value, feature_tag);
         }
@@ -2973,6 +3019,7 @@ fn apply_context_subtable(subtable: u32, position: u32, lookup_offset: u32, look
         }
         if (matched) {
             run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+            mark_unsafe_to_break(position, u32(last) + 1u);
             return schedule_records(subtable + 6u + glyph_count * 2u, record_count, position,
                 lookup_offset, lookup_flags, depth, feature_value, feature_tag);
         }
@@ -2993,6 +3040,19 @@ fn match_backtrack_glyphs(offset: u32, count: u32, position: u32,
         cursor -= 1;
     }
     return true;
+}
+
+fn backtrack_span_start(position: u32, count: u32,
+    lookup_offset: u32, lookup_flags: u32) -> u32 {
+    var start = position;
+    var cursor = i32(position) - 1;
+    for (var index = 0u; index < count; index++) {
+        cursor = previous_context_eligible(cursor, lookup_offset, lookup_flags);
+        if (cursor < 0) { break; }
+        start = u32(cursor);
+        cursor -= 1;
+    }
+    return start;
 }
 
 fn apply_chain_context_subtable(subtable: u32, position: u32, lookup_offset: u32, lookup_flags: u32,
@@ -3039,6 +3099,10 @@ fn apply_chain_context_subtable(subtable: u32, position: u32, lookup_offset: u32
             cursor += lookahead_count * 2u;
             let record_count = table_u16(cursor);
             run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+            let match_start = backtrack_span_start(
+                position, backtrack_count, lookup_offset, lookup_flags);
+            let match_end = select(u32(last) + 1u, u32(lookahead) + 1u, lookahead_count != 0u);
+            mark_unsafe_to_break(match_start, match_end);
             return schedule_records(cursor + 2u, record_count, position, lookup_offset, lookup_flags,
                 depth, feature_value, feature_tag);
         }
@@ -3091,6 +3155,10 @@ fn apply_chain_context_subtable(subtable: u32, position: u32, lookup_offset: u32
             cursor += lookahead_count * 2u;
             let record_count = table_u16(cursor);
             run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+            let match_start = backtrack_span_start(
+                position, backtrack_count, lookup_offset, lookup_flags);
+            let match_end = select(u32(last) + 1u, u32(lookahead) + 1u, lookahead_count != 0u);
+            mark_unsafe_to_break(match_start, match_end);
             return schedule_records(cursor + 2u, record_count, position, lookup_offset, lookup_flags,
                 depth, feature_value, feature_tag);
         }
@@ -3131,6 +3199,10 @@ fn apply_chain_context_subtable(subtable: u32, position: u32, lookup_offset: u32
         cursor += lookahead_count * 2u;
         let record_count = table_u16(cursor);
         run_state.skip_count = max(run_state.skip_count, u32(last) - position);
+        let match_start = backtrack_span_start(
+            position, backtrack_count, lookup_offset, lookup_flags);
+        let match_end = select(u32(last) + 1u, u32(lookahead) + 1u, lookahead_count != 0u);
+        mark_unsafe_to_break(match_start, match_end);
         return schedule_records(cursor + 2u, record_count, position, lookup_offset, lookup_flags,
             depth, feature_value, feature_tag);
     }
@@ -3145,6 +3217,8 @@ fn apply_reverse_chain_subtable(subtable: u32, position: u32,
     var cursor = subtable + 4u;
     let backtrack_count = table_u16(cursor);
     cursor += 2u;
+    let match_start = backtrack_span_start(
+        position, backtrack_count, lookup_offset, lookup_flags);
     var match_position = i32(position) - 1;
     for (var index = 0u; index < backtrack_count; index++) {
         match_position = previous_context_eligible(match_position, lookup_offset, lookup_flags);
@@ -3164,6 +3238,8 @@ fn apply_reverse_chain_subtable(subtable: u32, position: u32,
     cursor += lookahead_count * 2u;
     let glyph_count = table_u16(cursor);
     if (u32(covered) >= glyph_count) { return false; }
+    let match_end = select(position + 1u, u32(match_position) + 1u, lookahead_count != 0u);
+    mark_unsafe_to_break(match_start, match_end);
     glyphs[position].glyph_id = table_u16(cursor + 2u + u32(covered) * 2u);
     glyph_states[position].internal_flags |= GLYPH_SUBSTITUTED;
     return true;
@@ -3859,6 +3935,7 @@ fn next_legacy_kern_glyph(start: u32) -> i32 {
 
 fn apply_legacy_kern_adjustment(left: u32, right: u32, kerning: i32, cross_stream: bool) {
     if (kerning == 0) { return; }
+    mark_unsafe_to_break(left, right + 1u);
     if (cross_stream) {
         glyphs[right].offset_y += kerning;
         return;
@@ -4055,6 +4132,7 @@ fn position_fallback_mark(position: u32, combining: u32,
 fn position_fallback_marks_around_base(base_index: u32, end: u32) {
     let base_glyph = glyphs[base_index].glyph_id;
     if (base_glyph >= params.metric_count || glyph_extents[base_glyph].is_valid == 0u) { return; }
+    mark_unsafe_to_break(base_index, end);
     var base = glyph_extents[base_glyph];
     base.y_bearing += glyphs[base_index].offset_y;
     base.x_bearing = 0;
@@ -4437,6 +4515,7 @@ fn apply_pair_position(subtable: u32, position: u32, lookup_offset: u32, lookup_
             else {
                 if (value_format1 != 0u) { apply_value_record(record + 2u, value_format1, position, subtable); }
                 if (value_format2 != 0u) { apply_value_record(record + 2u + value_size1, value_format2, second, subtable); }
+                mark_unsafe_to_break(position, second + 1u);
                 return true;
             }
         }
@@ -4451,6 +4530,7 @@ fn apply_pair_position(subtable: u32, position: u32, lookup_offset: u32, lookup_
     let record = subtable + 16u + (class1 * class2_count + class2) * (value_size1 + value_size2);
     if (value_format1 != 0u) { apply_value_record(record, value_format1, position, subtable); }
     if (value_format2 != 0u) { apply_value_record(record + value_size1, value_format2, second, subtable); }
+    mark_unsafe_to_break(position, second + 1u);
     return true;
 }
 
@@ -4538,6 +4618,7 @@ fn apply_cursive_position(subtable: u32, position: u32,
     let exit = read_anchor(subtable + exit_relative);
     if (entry.x == 0x7fffffffi || exit.x == 0x7fffffffi) { return false; }
     let previous = u32(previous_index);
+    mark_unsafe_to_break(min(previous, position), max(previous, position) + 1u);
     if (params.direction == 1u) {
         glyphs[previous].advance_x = exit.x + glyphs[previous].offset_x;
         let delta = entry.x + glyphs[position].offset_x;
@@ -4599,6 +4680,7 @@ fn attach_mark(mark_index: u32, target_index: u32, mark_coverage_index: u32,
     let mark_anchor = read_anchor(mark_array + mark_anchor_relative);
     let target_anchor = read_anchor(target_anchor_base + target_anchor_relative);
     if (mark_anchor.x == 0x7fffffffi || target_anchor.x == 0x7fffffffi) { return false; }
+    mark_unsafe_to_break(min(mark_index, target_index), max(mark_index, target_index) + 1u);
     glyphs[mark_index].offset_x = target_anchor.x - mark_anchor.x;
     glyphs[mark_index].offset_y = target_anchor.y - mark_anchor.y;
     glyph_states[mark_index].attachment_chain = i32(target_index);

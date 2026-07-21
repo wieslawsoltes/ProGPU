@@ -22,6 +22,11 @@ public static class PopupService
     {
         if (ActivePopups.Contains(popup)) return;
 
+        if (owner != null && !popup.IsPropertySetLocally(FrameworkElement.FlowDirectionProperty))
+        {
+            popup.FlowDirection = owner.FlowDirection;
+        }
+
         popup.Offset = offset;
         
         // Dynamic boundary constraint checking against root window dimensions

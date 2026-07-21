@@ -372,14 +372,29 @@ public class Visual
         return local * Parent.GetGlobalTransformMatrix();
     }
 
+    /// <summary>
+    /// Gets the transform from this visual's public coordinate frame to its
+    /// physical local coordinate frame. Framework integrations override this
+    /// for direction-sensitive coordinate systems without reflecting render
+    /// content such as text.
+    /// </summary>
+    protected virtual Matrix4x4 GetCoordinateFrameTransform() => Matrix4x4.Identity;
+
+    /// <summary>
+    /// Gets the transform from this visual's public coordinate frame to the
+    /// root coordinate frame, including direction-sensitive coordinate rules.
+    /// </summary>
+    public Matrix4x4 GetGlobalCoordinateTransformMatrix() =>
+        GetCoordinateFrameTransform() * GetGlobalTransformMatrix();
+
     public GeneralTransform TransformToVisual(Visual? visual)
     {
-        var globalA = GetGlobalTransformMatrix();
+        var globalA = GetGlobalCoordinateTransformMatrix();
         if (visual == null)
         {
             return new GeneralTransform(globalA);
         }
-        var globalB = visual.GetGlobalTransformMatrix();
+        var globalB = visual.GetGlobalCoordinateTransformMatrix();
         if (Matrix4x4.Invert(globalB, out var invB))
         {
             return new GeneralTransform(globalA * invB);

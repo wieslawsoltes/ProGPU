@@ -113,15 +113,7 @@ public static class DevToolsInputSystem
 
     private static Vector2 GetLocalPosition(Visual? visual, Vector2 screenPoint)
     {
-        if (visual == null) return screenPoint;
-        Vector2 globalOffset = Vector2.Zero;
-        Visual? current = visual;
-        while (current != null)
-        {
-            globalOffset += current.Offset;
-            current = current.Parent;
-        }
-        return screenPoint - globalOffset;
+        return InputSystem.GetLocalPosition(visual, screenPoint);
     }
 
     private static List<FrameworkElement> GetVisualPath(FrameworkElement? element)

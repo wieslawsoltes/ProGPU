@@ -48,6 +48,10 @@ internal static class SamplePerformanceBenchmark
     private static float s_maximumMarkdownOffset;
     private static bool s_workloadStarted;
     private static bool s_finished;
+    private static int s_richTextStateSamples;
+    private static int s_richTextStateFailures;
+    private static int s_lastRealizedRichParagraphs;
+    private static int s_lastVisibleRichCharacters;
     private static readonly bool s_scrollWorkload = ReadOptionalBool(ScrollVariable) == true;
     private static readonly float s_scrollStep = ReadPositiveFloat(ScrollStepVariable, 40f);
 
@@ -127,6 +131,12 @@ internal static class SamplePerformanceBenchmark
             else if (string.Equals(RequestedPage, "Data Virtualization", StringComparison.OrdinalIgnoreCase))
             {
                 DataVirtualizationPage.AdvanceBenchmarkScroll(s_scrollStep);
+            }
+            else if (string.Equals(RequestedPage, "Text & Documents", StringComparison.OrdinalIgnoreCase))
+            {
+                TextDocumentsPage.AdvanceBenchmarkScroll(s_scrollStep);
+                if (s_frame > s_warmupFrames && s_frame % 60 == 0)
+                    RecordRichTextState();
             }
         }
 
@@ -247,6 +257,16 @@ internal static class SamplePerformanceBenchmark
                 $" glyphAtlasEvictions={dataCompositor.Atlas.EvictionCount - s_glyphAtlasEvictionsAtStart}" +
                 $" glyphAtlasClears={dataCompositor.Atlas.ClearCount - s_glyphAtlasClearsAtStart}";
         }
+        else if (string.Equals(RequestedPage, "Text & Documents", StringComparison.OrdinalIgnoreCase))
+        {
+            RecordRichTextState();
+            if (s_richTextStateSamples == 0 || s_richTextStateFailures != 0)
+                throw new InvalidOperationException("Rich text benchmark lost its virtualized visible document state.");
+            workloadDetails =
+                $" richTextStateSamples={s_richTextStateSamples}" +
+                $" realizedParagraphs={s_lastRealizedRichParagraphs}" +
+                $" visibleRichCharacters={s_lastVisibleRichCharacters}";
+        }
 
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
@@ -302,6 +322,20 @@ internal static class SamplePerformanceBenchmark
         {
             s_glyphStateFailures++;
         }
+    }
+
+    private static void RecordRichTextState()
+    {
+        if (!TextDocumentsPage.TryGetBenchmarkState(
+                out int realizedParagraphs,
+                out int visibleCharacters))
+        {
+            s_richTextStateFailures++;
+            return;
+        }
+        s_richTextStateSamples++;
+        s_lastRealizedRichParagraphs = realizedParagraphs;
+        s_lastVisibleRichCharacters = visibleCharacters;
     }
 
     private static void RecordMarkdownState()

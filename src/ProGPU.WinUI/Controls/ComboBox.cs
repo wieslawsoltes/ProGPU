@@ -141,15 +141,19 @@ public class ComboBox : Control
 
     private Vector2 GetAbsolutePosition()
     {
-        Vector2 pos = Offset;
-        Visual? current = Parent;
-        while (current != null)
-        {
-            pos += current.Offset;
-            current = current.Parent;
-        }
-        return pos;
+        return Vector2.Transform(Vector2.Zero, GetGlobalTransformMatrix());
     }
+
+    private Rect LogicalToPhysical(Rect rect) =>
+        FlowDirection == FlowDirection.RightToLeft
+            ? new Rect(Size.X - rect.Right, rect.Y, rect.Width, rect.Height)
+            : rect;
+
+    private ProGPU.Text.TextShapingOptions GetTextShapingOptions() =>
+        ProGPU.Text.TextShapingOptions.Default.WithDirection(
+            FlowDirection == FlowDirection.RightToLeft
+                ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                : ProGPU.Text.Shaping.ShapingDirection.LeftToRight);
 
     private void UpdatePopupState()
     {
@@ -198,6 +202,7 @@ public class ComboBox : Control
             float mainH = HeightConstraint ?? 32f;
             _dropDownPopup.Width = Size.X;
             _dropDownPopup.Height = Math.Min(300f, Items.Count * 32f + 2f);
+            _dropDownPopup.FlowDirection = FlowDirection;
 
             // Force theme synchronization right before showing the popup
             _dropDownPopup.NotifyThemeChanged();
@@ -383,13 +388,30 @@ public class ComboBox : Control
                 ? (Foreground ?? ThemeManager.GetBrush("TextPrimary")) 
                 : ThemeManager.GetBrush("TextSecondary");
 
-            context.DrawText(textToDraw, activeFont, FontSize, textBrush, new Vector2(Padding.Left, textY));
+            Rect logicalTextBounds = new Rect(
+                Padding.Left,
+                textY,
+                Math.Max(0f, Size.X - Padding.Left - Padding.Right),
+                FontSize);
+            Rect textBounds = LogicalToPhysical(logicalTextBounds);
+            context.DrawText(
+                textToDraw,
+                activeFont,
+                FontSize,
+                textBrush,
+                new Vector2(textBounds.X, textY),
+                Matrix4x4.Identity,
+                textBounds,
+                textShapingOptions: GetTextShapingOptions(),
+                textAlignment: FlowDirection == FlowDirection.RightToLeft
+                    ? ProGPU.Text.TextAlignment.Right
+                    : ProGPU.Text.TextAlignment.Left);
 
             if (activeFamily == VisualThemeFamily.macOS)
             {
                 float capW = 22f;
                 float capH = headerH - 4f;
-                Rect capRect = new Rect(Size.X - capW - 2f, 2f, capW, capH);
+                Rect capRect = LogicalToPhysical(new Rect(Size.X - capW - 2f, 2f, capW, capH));
                 
                 // Draw capsule background using central theme tokens
                 Brush capBg = ThemeManager.GetBrush("ControlBackground", activeTheme, activeFamily);
@@ -409,11 +431,12 @@ public class ComboBox : Control
                     arrowBrush = ThemeManager.GetBrush("TextSecondary", activeTheme, activeFamily);
                 }
 
-                DrawDropDownChevron(context, arrowBrush, Size.X - capW / 2f - 1f, headerH * 0.5f);
+                DrawDropDownChevron(context, arrowBrush, capRect.X + capRect.Width * 0.5f, headerH * 0.5f);
             }
             else
             {
-                DrawDropDownChevron(context, ThemeManager.GetBrush("TextSecondary"), Size.X - 16f, headerH * 0.5f);
+                float arrowX = FlowDirection == FlowDirection.RightToLeft ? 16f : Size.X - 16f;
+                DrawDropDownChevron(context, ThemeManager.GetBrush("TextSecondary"), arrowX, headerH * 0.5f);
             }
         }
 

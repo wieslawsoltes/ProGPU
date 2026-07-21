@@ -230,7 +230,13 @@ public class RadioButton : ContentControl
     {
         if (IsEnabled && IsFocused)
         {
-            if (e.Key == Silk.NET.Input.Key.Up || e.Key == Silk.NET.Input.Key.Left)
+            bool movePrevious = e.Key == Silk.NET.Input.Key.Up ||
+                (e.Key == Silk.NET.Input.Key.Left && FlowDirection != FlowDirection.RightToLeft) ||
+                (e.Key == Silk.NET.Input.Key.Right && FlowDirection == FlowDirection.RightToLeft);
+            bool moveNext = e.Key == Silk.NET.Input.Key.Down ||
+                (e.Key == Silk.NET.Input.Key.Right && FlowDirection != FlowDirection.RightToLeft) ||
+                (e.Key == Silk.NET.Input.Key.Left && FlowDirection == FlowDirection.RightToLeft);
+            if (movePrevious)
             {
                 var group = GetGroupRadioButtons();
                 int idx = group.IndexOf(this);
@@ -243,7 +249,7 @@ public class RadioButton : ContentControl
                 }
                 return;
             }
-            else if (e.Key == Silk.NET.Input.Key.Down || e.Key == Silk.NET.Input.Key.Right)
+            else if (moveNext)
             {
                 var group = GetGroupRadioButtons();
                 int idx = group.IndexOf(this);

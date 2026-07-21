@@ -155,6 +155,59 @@ public class ControlRenderTests
     }
 
     [Fact]
+    public void DesktopMouseInputChangesRenderedButtonVisualStates()
+    {
+        PopupService.Clear();
+        var window = SharedWindow;
+        var button = new Button
+        {
+            Width = 150f,
+            Height = 50f,
+            Content = "Action",
+            Background = ThemeManager.GetBrush("ButtonBackground"),
+            Foreground = ThemeManager.GetBrush("ButtonForeground"),
+            BorderBrush = ThemeManager.GetBrush("ButtonBorderBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        window.Content = button;
+        window.Render();
+        byte[] normalPixels = window.ReadPixels();
+
+        InputSystem.Current = InputSystem.CreateExternalState(button);
+        var pointerPosition = button.Offset + new Vector2(10f, 10f);
+        InputSystem.InjectPointer(new PointerInputEvent(
+            PointerInputKind.Moved,
+            1,
+            Windows.Devices.Input.PointerDeviceType.Mouse,
+            pointerPosition,
+            1_000,
+            IsPrimary: true));
+        window.Render();
+        byte[] hoverPixels = window.ReadPixels();
+
+        InputSystem.InjectPointer(new PointerInputEvent(
+            PointerInputKind.Pressed,
+            1,
+            Windows.Devices.Input.PointerDeviceType.Mouse,
+            pointerPosition,
+            2_000,
+            IsPrimary: true,
+            IsInContact: true,
+            IsLeftButtonPressed: true,
+            Pressure: 0.5f));
+        window.Render();
+        byte[] pressedPixels = window.ReadPixels();
+
+        Assert.False(normalPixels.AsSpan().SequenceEqual(hoverPixels), "Hover pixels should differ from normal pixels.");
+        Assert.False(hoverPixels.AsSpan().SequenceEqual(pressedPixels), "Pressed pixels should differ from hover pixels.");
+
+        window.Content = null;
+        PopupService.Clear();
+        InputSystem.Current = new WindowInputState();
+    }
+
+    [Fact]
     public void Button_AccentStyle_RenderCorrectly()
     {
         var button = new Button

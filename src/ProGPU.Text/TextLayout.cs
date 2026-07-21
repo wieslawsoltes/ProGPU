@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using ProGPU.Text.Bidi;
 using ProGPU.Text.Shaping;
 
 namespace ProGPU.Text;
@@ -25,7 +26,29 @@ public struct TextRunGlyph
     public GlyphInfo Glyph;
     public TtfFont Font; // The font that owns/defines this glyph
     public int Cluster; // UTF-16 index in the original text
+    public sbyte BidiLevel; // Resolved UAX #9 embedding level for the source cluster
+    public ShapingGlyphFlags ShapingFlags; // HarfBuzz-compatible break/concat safety contract
 }
+
+public readonly record struct TextCaretStop(
+    int TextPosition,
+    bool IsTrailing,
+    Vector2 Position,
+    float Height,
+    sbyte BidiLevel);
+
+public readonly record struct TextBounds(float X, float Y, float Width, float Height)
+{
+    public float Right => X + Width;
+    public float Bottom => Y + Height;
+}
+
+public readonly record struct TextHitTestResult(
+    int TextPosition,
+    bool IsTrailingHit,
+    bool IsInside,
+    TextBounds Bounds,
+    sbyte BidiLevel);
 
 public class TextLayout
 {
@@ -308,10 +331,12 @@ public class TextLayout
         ushort GlyphIndex,
         int Cluster,
         uint CodePoint,
+        sbyte BidiLevel,
         float AdvanceX,
         float AdvanceY,
         float OffsetX,
-        float OffsetY)
+        float OffsetY,
+        ShapingGlyphFlags Flags)
     {
         public bool IsWhitespace => CodePoint is ' ' or '\t';
     }
@@ -351,7 +376,10 @@ public class TextLayout
         {
             int newline = Text.IndexOf('\n', sourceStart);
             int sourceEnd = newline >= 0 ? newline : Text.Length;
-            List<ShapedCandidate> candidates = ShapeRange(sourceStart, sourceEnd - sourceStart);
+            BidiParagraph paragraph = BidiParagraph.Resolve(
+                Text.AsSpan(sourceStart, sourceEnd - sourceStart),
+                ShapingOptions.Direction);
+            List<ShapedCandidate> candidates = ShapeRange(sourceStart, sourceEnd - sourceStart, paragraph);
 
             if (candidates.Count == 0)
             {
@@ -366,11 +394,18 @@ public class TextLayout
                 {
                     float width = 0f;
                     int lastBreak = -1;
+                    int lastSafeClusterBreak = -1;
                     int candidateEnd = candidateStart;
                     for (; candidateEnd < candidates.Count; candidateEnd++)
                     {
                         ShapedCandidate candidate = candidates[candidateEnd];
-                        if (candidate.IsWhitespace)
+                        if (candidateEnd > candidateStart &&
+                            IsSafeBreakBefore(candidates, candidateEnd))
+                        {
+                            lastSafeClusterBreak = candidateEnd;
+                        }
+                        if (candidate.IsWhitespace &&
+                            IsSafeBreakBefore(candidates, candidateEnd + 1))
                         {
                             lastBreak = candidateEnd + 1;
                         }
@@ -384,6 +419,14 @@ public class TextLayout
                             {
                                 candidateEnd = lastBreak;
                             }
+                            else if (lastSafeClusterBreak > candidateStart)
+                            {
+                                candidateEnd = lastSafeClusterBreak;
+                            }
+                            else
+                            {
+                                candidateEnd = FindNextSafeBreak(candidates, candidateEnd + 1);
+                            }
                             break;
                         }
                         width += candidate.AdvanceX;
@@ -396,9 +439,14 @@ public class TextLayout
 
                     int glyphStart = Glyphs.Count;
                     float cursorX = 0f;
-                    for (var candidateIndex = candidateStart; candidateIndex < candidateEnd; candidateIndex++)
+                    List<ShapedCandidate> visualCandidates = GetVisualLineCandidates(
+                        candidates,
+                        candidateStart,
+                        candidateEnd,
+                        paragraph.ParagraphLevel);
+                    for (var candidateIndex = 0; candidateIndex < visualCandidates.Count; candidateIndex++)
                     {
-                        ShapedCandidate candidate = candidates[candidateIndex];
+                        ShapedCandidate candidate = visualCandidates[candidateIndex];
                         float advance = candidate.AdvanceX;
                         var glyph = new GlyphInfo
                         {
@@ -419,6 +467,8 @@ public class TextLayout
                             CodePoint = candidate.CodePoint,
                             GlyphIndex = candidate.GlyphIndex,
                             Cluster = candidate.Cluster,
+                            BidiLevel = candidate.BidiLevel,
+                            ShapingFlags = candidate.Flags,
                             Position = new Vector2(
                                 cursorX + candidate.OffsetX,
                                 cursorY + fontAscent + candidate.OffsetY),
@@ -523,6 +573,7 @@ public class TextLayout
                 CodePoint = candidate.CodePoint,
                 GlyphIndex = checked((ushort)candidate.GlyphId),
                 Cluster = candidate.Cluster,
+                ShapingFlags = candidate.Flags,
                 Position = new Vector2(
                     cursorX + candidate.OffsetX * scale,
                     fontAscent + candidate.OffsetY * scale),
@@ -556,7 +607,10 @@ public class TextLayout
         {
             int newline = Text.IndexOf('\n', sourceStart);
             int sourceEnd = newline >= 0 ? newline : Text.Length;
-            List<ShapedCandidate> candidates = ShapeRange(sourceStart, sourceEnd - sourceStart);
+            List<ShapedCandidate> candidates = ShapeRange(
+                sourceStart,
+                sourceEnd - sourceStart,
+                BidiParagraph.Resolve(Text.AsSpan(sourceStart, sourceEnd - sourceStart), ShapingOptions.Direction));
             float cursorY = 0f;
 
             for (var index = 0; index < candidates.Count; index++)
@@ -582,6 +636,8 @@ public class TextLayout
                     CodePoint = candidate.CodePoint,
                     GlyphIndex = candidate.GlyphIndex,
                     Cluster = candidate.Cluster,
+                    BidiLevel = candidate.BidiLevel,
+                    ShapingFlags = candidate.Flags,
                     Position = new Vector2(
                         columnX + columnSpacing * 0.5f + candidate.OffsetX,
                         cursorY + candidate.OffsetY),
@@ -618,11 +674,33 @@ public class TextLayout
         MeasuredSize = new Vector2(float.IsInfinity(MaxWidth) ? contentWidth : MaxWidth, maxColumnHeight);
     }
 
-    private List<ShapedCandidate> ShapeRange(int start, int length)
+    private List<ShapedCandidate> ShapeRange(int start, int length, BidiParagraph paragraph)
     {
         var candidates = new List<ShapedCandidate>(Math.Max(1, length));
+        for (int bidiRunIndex = 0; bidiRunIndex < paragraph.Runs.Length; bidiRunIndex++)
+        {
+            BidiRun bidiRun = paragraph.Runs[bidiRunIndex];
+            AppendFontRuns(
+                candidates,
+                start + bidiRun.Start,
+                bidiRun.Length,
+                bidiRun.Level,
+                start,
+                start + length);
+        }
+        return candidates;
+    }
+
+    private void AppendFontRuns(
+        List<ShapedCandidate> candidates,
+        int start,
+        int length,
+        sbyte bidiLevel,
+        int paragraphStart,
+        int paragraphEnd)
+    {
         int end = start + length;
-        int runStart = start;
+        int fontRunStart = start;
         TtfFont? runFont = null;
 
         for (int index = start; index < end;)
@@ -655,24 +733,44 @@ public class TextLayout
             if (runFont is null)
             {
                 runFont = resolvedFont;
-                runStart = scalarStart;
+                fontRunStart = scalarStart;
             }
             else if (!ReferenceEquals(runFont, resolvedFont))
             {
-                AppendShapedRun(candidates, runStart, scalarStart - runStart, runFont);
+                AppendShapedRun(
+                    candidates,
+                    fontRunStart,
+                    scalarStart - fontRunStart,
+                    runFont,
+                    bidiLevel,
+                    paragraphStart,
+                    paragraphEnd);
                 runFont = resolvedFont;
-                runStart = scalarStart;
+                fontRunStart = scalarStart;
             }
         }
 
-        if (runFont is not null && runStart < end)
+        if (runFont is not null && fontRunStart < end)
         {
-            AppendShapedRun(candidates, runStart, end - runStart, runFont);
+            AppendShapedRun(
+                candidates,
+                fontRunStart,
+                end - fontRunStart,
+                runFont,
+                bidiLevel,
+                paragraphStart,
+                paragraphEnd);
         }
-        return candidates;
     }
 
-    private void AppendShapedRun(List<ShapedCandidate> candidates, int start, int length, TtfFont font)
+    private void AppendShapedRun(
+        List<ShapedCandidate> candidates,
+        int start,
+        int length,
+        TtfFont font,
+        sbyte bidiLevel,
+        int paragraphStart,
+        int paragraphEnd)
     {
         // The overwhelmingly common layout is one font run spanning the complete
         // string. Reuse the command text in that case so first-touch virtualized
@@ -680,13 +778,22 @@ public class TextLayout
         string runText = start == 0 && length == Text.Length
             ? Text
             : Text.Substring(start, length);
+        int runEnd = start + length;
+        ShapingBufferFlags flags = ShapingOptions.BufferFlags;
+        if (start == paragraphStart) flags |= ShapingBufferFlags.BeginningOfText;
+        if (runEnd == paragraphEnd) flags |= ShapingBufferFlags.EndOfText;
+        ReadOnlyMemory<char> preContext = Text.AsMemory(paragraphStart, start - paragraphStart);
+        ReadOnlyMemory<char> postContext = Text.AsMemory(runEnd, paragraphEnd - runEnd);
+        TextShapingOptions contextualOptions = ShapingOptions.WithBufferFlags(flags);
         if (ShapingOptions.Direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop)
         {
             IReadOnlyList<ShapedGlyph> vertical = OpenTypeTextShaper.Shape(
                 runText,
                 font,
                 FontSize,
-                ShapingOptions);
+                contextualOptions,
+                preContext,
+                postContext);
             for (var index = 0; index < vertical.Count; index++)
             {
                 ShapedGlyph glyph = vertical[index];
@@ -695,31 +802,354 @@ public class TextLayout
                     glyph.GlyphIndex,
                     start + glyph.Cluster,
                     glyph.CodePoint,
+                    bidiLevel,
                     glyph.AdvanceX,
                     glyph.AdvanceY,
                     glyph.OffsetX,
-                    glyph.OffsetY));
+                    glyph.OffsetY,
+                    glyph.Flags));
             }
             return;
         }
 
         ShapingBuffer shaping = t_shapingBuffer ??= new ShapingBuffer(64);
-        OpenTypeTextShaper.ShapeDesignUnits(runText, font, ShapingOptions, shaping);
+        ShapingDirection runDirection = (bidiLevel & 1) == 0
+            ? ShapingDirection.LeftToRight
+            : ShapingDirection.RightToLeft;
+        OpenTypeTextShaper.ShapeDesignUnits(
+            runText,
+            font,
+            contextualOptions.WithDirection(runDirection),
+            shaping,
+            preContext,
+            postContext);
         float scale = FontSize / font.UnitsPerEm;
         ReadOnlySpan<ShapingGlyph> shaped = shaping.Glyphs;
+        var runCandidates = new List<ShapedCandidate>(shaped.Length);
         for (var index = 0; index < shaped.Length; index++)
         {
             ShapingGlyph glyph = shaped[index];
-            candidates.Add(new ShapedCandidate(
+            runCandidates.Add(new ShapedCandidate(
                 font,
                 checked((ushort)glyph.GlyphId),
                 start + glyph.Cluster,
                 glyph.CodePoint,
+                bidiLevel,
                 glyph.AdvanceX * scale,
                 glyph.AdvanceY * scale,
                 glyph.OffsetX * scale,
-                glyph.OffsetY * scale));
+                glyph.OffsetY * scale,
+                glyph.Flags));
         }
+
+        AppendInLogicalClusterOrder(candidates, runCandidates, (bidiLevel & 1) != 0);
+    }
+
+    private static void AppendInLogicalClusterOrder(
+        List<ShapedCandidate> destination,
+        List<ShapedCandidate> run,
+        bool rightToLeft)
+    {
+        if (!rightToLeft || run.Count < 2)
+        {
+            destination.AddRange(run);
+            return;
+        }
+
+        // RTL shaping returns cluster groups in visual order. Reverse the groups,
+        // while retaining the shaper's glyph order inside each cluster, so line
+        // breaking can operate over logical text before UAX #9 L2 is applied.
+        int groupEnd = run.Count;
+        while (groupEnd > 0)
+        {
+            int groupStart = groupEnd - 1;
+            int cluster = run[groupStart].Cluster;
+            while (groupStart > 0 && run[groupStart - 1].Cluster == cluster)
+            {
+                groupStart--;
+            }
+
+            for (int index = groupStart; index < groupEnd; index++)
+            {
+                destination.Add(run[index]);
+            }
+            groupEnd = groupStart;
+        }
+    }
+
+    private static bool IsSafeBreakBefore(IReadOnlyList<ShapedCandidate> candidates, int index)
+    {
+        if (index <= 0 || index >= candidates.Count) return true;
+        if (candidates[index - 1].Cluster == candidates[index].Cluster) return false;
+        return (candidates[index].Flags & ShapingGlyphFlags.UnsafeToBreak) == 0;
+    }
+
+    private static int FindNextSafeBreak(IReadOnlyList<ShapedCandidate> candidates, int index)
+    {
+        index = Math.Clamp(index, 0, candidates.Count);
+        while (index < candidates.Count && !IsSafeBreakBefore(candidates, index)) index++;
+        return index;
+    }
+
+    private static List<ShapedCandidate> GetVisualLineCandidates(
+        List<ShapedCandidate> logicalCandidates,
+        int start,
+        int end,
+        sbyte paragraphLevel)
+    {
+        var groupStarts = new List<int>();
+        var groupLevels = new List<sbyte>();
+        for (int index = start; index < end;)
+        {
+            groupStarts.Add(index);
+            groupLevels.Add(logicalCandidates[index].BidiLevel);
+            int cluster = logicalCandidates[index].Cluster;
+            index++;
+            while (index < end && logicalCandidates[index].Cluster == cluster)
+            {
+                index++;
+            }
+        }
+        groupStarts.Add(end);
+
+        // UAX #9 L1 resets trailing whitespace on each wrapped line.
+        for (int group = groupLevels.Count - 1; group >= 0; group--)
+        {
+            bool whitespace = true;
+            for (int index = groupStarts[group]; index < groupStarts[group + 1]; index++)
+            {
+                whitespace &= logicalCandidates[index].IsWhitespace;
+            }
+            if (!whitespace)
+            {
+                break;
+            }
+            groupLevels[group] = paragraphLevel;
+        }
+
+        int[] visualOrder = BidiParagraph.GetVisualOrder(groupLevels.ToArray());
+        var result = new List<ShapedCandidate>(end - start);
+        for (int visualIndex = 0; visualIndex < visualOrder.Length; visualIndex++)
+        {
+            int group = visualOrder[visualIndex];
+            for (int index = groupStarts[group]; index < groupStarts[group + 1]; index++)
+            {
+                result.Add(logicalCandidates[index]);
+            }
+        }
+        return result;
+    }
+
+    public IReadOnlyList<TextCaretStop> GetVisualCaretStops()
+    {
+        List<ClusterBox> boxes = BuildClusterBoxes();
+        if (boxes.Count == 0)
+        {
+            return [new TextCaretStop(0, false, Vector2.Zero, Math.Max(0f, FontSize), 0)];
+        }
+
+        var stops = new List<TextCaretStop>(boxes.Count * 2);
+        for (int index = 0; index < boxes.Count; index++)
+        {
+            ClusterBox box = boxes[index];
+            bool rtl = (box.Level & 1) != 0;
+            // Cluster boxes are already emitted line-by-line in physical order.
+            // Preserve that order instead of sorting by glyph bounds: fallback
+            // fonts can have different ascenders on the same baseline.
+            stops.Add(new TextCaretStop(
+                rtl ? box.End : box.Start,
+                rtl,
+                new Vector2(box.Left, box.Top),
+                box.Height,
+                box.Level));
+            stops.Add(new TextCaretStop(
+                rtl ? box.Start : box.End,
+                !rtl,
+                new Vector2(box.Right, box.Top),
+                box.Height,
+                box.Level));
+        }
+        for (int index = stops.Count - 1; index > 0; index--)
+        {
+            TextCaretStop current = stops[index];
+            TextCaretStop previous = stops[index - 1];
+            if (current.TextPosition == previous.TextPosition &&
+                current.IsTrailing == previous.IsTrailing &&
+                Vector2.DistanceSquared(current.Position, previous.Position) < 0.0001f)
+            {
+                stops.RemoveAt(index);
+            }
+        }
+        return stops;
+    }
+
+    public TextHitTestResult HitTestPoint(Vector2 point)
+    {
+        List<ClusterBox> boxes = BuildClusterBoxes();
+        if (boxes.Count == 0)
+        {
+            return new TextHitTestResult(0, false, false, new TextBounds(0f, 0f, 0f, FontSize), 0);
+        }
+
+        float bestDistance = float.PositiveInfinity;
+        ClusterBox best = boxes[0];
+        bool inside = false;
+        for (int index = 0; index < boxes.Count; index++)
+        {
+            ClusterBox box = boxes[index];
+            float dx = point.X < box.Left ? box.Left - point.X : point.X > box.Right ? point.X - box.Right : 0f;
+            float dy = point.Y < box.Top ? box.Top - point.Y : point.Y > box.Bottom ? point.Y - box.Bottom : 0f;
+            float distance = dx * dx + dy * dy;
+            if (distance >= bestDistance) continue;
+            bestDistance = distance;
+            best = box;
+            inside = dx == 0f && dy == 0f;
+        }
+
+        bool visualRightHalf = point.X >= (best.Left + best.Right) * 0.5f;
+        bool rtl = (best.Level & 1) != 0;
+        bool trailing = rtl ? !visualRightHalf : visualRightHalf;
+        int position = trailing ? best.End : best.Start;
+        return new TextHitTestResult(
+            position,
+            trailing,
+            inside,
+            new TextBounds(best.Left, best.Top, best.Width, best.Height),
+            best.Level);
+    }
+
+    public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
+    {
+        IReadOnlyList<TextCaretStop> stops = GetVisualCaretStops();
+        TextCaretStop best = stops[0];
+        int bestDistance = int.MaxValue;
+        for (int index = 0; index < stops.Count; index++)
+        {
+            TextCaretStop candidate = stops[index];
+            int distance = Math.Abs(candidate.TextPosition - textPosition);
+            if (distance < bestDistance ||
+                (distance == bestDistance && candidate.IsTrailing == trailingAffinity && best.IsTrailing != trailingAffinity))
+            {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    public TextCaretStop MoveCaretVisually(
+        int textPosition,
+        bool trailingAffinity,
+        int direction)
+    {
+        IReadOnlyList<TextCaretStop> stops = GetVisualCaretStops();
+        if (stops.Count == 0) return default;
+        int current = 0;
+        float bestDistance = float.PositiveInfinity;
+        for (int index = 0; index < stops.Count; index++)
+        {
+            TextCaretStop candidate = stops[index];
+            float affinityPenalty = candidate.IsTrailing == trailingAffinity ? 0f : 0.25f;
+            float logicalPenalty = Math.Abs(candidate.TextPosition - textPosition) * 1000f;
+            float distance = logicalPenalty + affinityPenalty;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                current = index;
+            }
+        }
+        return stops[Math.Clamp(current + Math.Sign(direction), 0, stops.Count - 1)];
+    }
+
+    public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
+    {
+        int selectionStart = Math.Clamp(Math.Min(textStart, textStart + textLength), 0, Text.Length);
+        int selectionEnd = Math.Clamp(Math.Max(textStart, textStart + textLength), 0, Text.Length);
+        if (selectionEnd <= selectionStart) return Array.Empty<TextBounds>();
+
+        List<ClusterBox> boxes = BuildClusterBoxes();
+        var selected = new List<ClusterBox>();
+        for (int index = 0; index < boxes.Count; index++)
+        {
+            ClusterBox box = boxes[index];
+            if (box.End > selectionStart && box.Start < selectionEnd)
+            {
+                selected.Add(box);
+            }
+        }
+        selected.Sort(static (left, right) =>
+        {
+            int line = left.Top.CompareTo(right.Top);
+            return line != 0 ? line : left.Left.CompareTo(right.Left);
+        });
+
+        var result = new List<TextBounds>();
+        for (int index = 0; index < selected.Count; index++)
+        {
+            ClusterBox box = selected[index];
+            if (result.Count > 0)
+            {
+                TextBounds previous = result[^1];
+                if (Math.Abs(previous.Y - box.Top) < 0.01f &&
+                    Math.Abs(previous.Height - box.Height) < 0.01f &&
+                    box.Left <= previous.Right + 0.5f)
+                {
+                    result[^1] = new TextBounds(previous.X, previous.Y, Math.Max(previous.Right, box.Right) - previous.X, previous.Height);
+                    continue;
+                }
+            }
+            result.Add(new TextBounds(box.Left, box.Top, box.Width, box.Height));
+        }
+        return result;
+    }
+
+    private List<ClusterBox> BuildClusterBoxes()
+    {
+        var result = new List<ClusterBox>();
+        if (Glyphs.Count == 0) return result;
+
+        var logicalClusters = Glyphs.Select(static glyph => glyph.Cluster).Distinct().Order().ToArray();
+        var clusterEnds = new Dictionary<int, int>(logicalClusters.Length);
+        for (int index = 0; index < logicalClusters.Length; index++)
+        {
+            int start = logicalClusters[index];
+            int end = index + 1 < logicalClusters.Length ? logicalClusters[index + 1] : Text.Length;
+            clusterEnds[start] = Math.Max(start + 1, end);
+        }
+
+        for (int glyphIndex = 0; glyphIndex < Glyphs.Count;)
+        {
+            TextRunGlyph first = Glyphs[glyphIndex];
+            int cluster = first.Cluster;
+            float baseline = first.Position.Y;
+            float left = first.Position.X;
+            float right = first.Position.X + Math.Max(0f, first.Glyph.Advance);
+            float scale = FontSize / first.Font.UnitsPerEm;
+            float top = baseline - first.Font.Ascender * scale;
+            float bottom = top + Math.Max(first.Glyph.Height, FontSize);
+            int endGlyph = glyphIndex + 1;
+            while (endGlyph < Glyphs.Count &&
+                   Glyphs[endGlyph].Cluster == cluster &&
+                   Math.Abs(Glyphs[endGlyph].Position.Y - baseline) < 0.01f)
+            {
+                TextRunGlyph glyph = Glyphs[endGlyph++];
+                left = Math.Min(left, glyph.Position.X);
+                right = Math.Max(right, glyph.Position.X + Math.Max(0f, glyph.Glyph.Advance));
+                float glyphScale = FontSize / glyph.Font.UnitsPerEm;
+                float glyphTop = glyph.Position.Y - glyph.Font.Ascender * glyphScale;
+                top = Math.Min(top, glyphTop);
+                bottom = Math.Max(bottom, glyphTop + Math.Max(glyph.Glyph.Height, FontSize));
+            }
+            result.Add(new ClusterBox(cluster, clusterEnds[cluster], first.BidiLevel, left, top, Math.Max(0f, right - left), Math.Max(1f, bottom - top)));
+            glyphIndex = endGlyph;
+        }
+        return result;
+    }
+
+    private readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height)
+    {
+        public float Right => Left + Width;
+        public float Bottom => Top + Height;
     }
 
     private void GenerateLayoutLegacy(GlyphAtlas? atlas)

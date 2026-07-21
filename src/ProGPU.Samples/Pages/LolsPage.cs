@@ -96,7 +96,7 @@ public static class LolsPage
             Margin = new Thickness(0, 0, 0, 12)
         };
 
-        _scoreLabel = new RichTextBlock { Font = AppState._font, FontSize = 22f, TextAlignment = TextAlignment.Center };
+        _scoreLabel = new RichTextBlock { Font = AppState._font, FontSize = 22f, TextAlignment = Microsoft.UI.Xaml.TextAlignment.Center };
         _scoreLabel.Inlines.Add(new Bold(new Run("LOL/s: 0.00")) { Foreground = new ThemeResourceBrush("SystemAccentColor") });
         scoreBorder.Child = _scoreLabel;
         settingsStack.AddChild(scoreBorder);

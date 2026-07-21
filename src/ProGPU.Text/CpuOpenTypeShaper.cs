@@ -58,6 +58,12 @@ public sealed class CpuOpenTypeShaper : IOpenTypeShaper
             BaseFeatures = baseline.Features
         };
 
-        OpenTypeTextShaper.ShapeDesignUnits(text.ToString(), ttfFace.Font, options, buffer);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            text.ToString(),
+            ttfFace.Font,
+            options,
+            buffer,
+            request.PreContext,
+            request.PostContext);
     }
 }

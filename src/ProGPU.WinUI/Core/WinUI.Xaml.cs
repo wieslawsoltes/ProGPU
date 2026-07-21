@@ -8,6 +8,30 @@ namespace Microsoft.UI.Xaml
         Collapsed = 1
     }
 
+    public enum FlowDirection
+    {
+        LeftToRight = 0,
+        RightToLeft = 1
+    }
+
+    public enum TextAlignment
+    {
+        Center = 0,
+        Left = 1,
+        Start = 1,
+        Right = 2,
+        End = 2,
+        Justify = 3,
+        DetectFromContent = 4
+    }
+
+    public enum TextReadingOrder
+    {
+        Default = 0,
+        UseFlowDirection = 0,
+        DetectFromContent = 1
+    }
+
     public enum TextWrapping
     {
         NoWrap = 1,
@@ -17,6 +41,13 @@ namespace Microsoft.UI.Xaml
 
     public class UIElement : DependencyObject
     {
+        private Automation.Peers.AutomationPeer? _automationPeer;
+
+        protected virtual Automation.Peers.AutomationPeer? OnCreateAutomationPeer() => null;
+
+        internal Automation.Peers.AutomationPeer? GetOrCreateAutomationPeer() =>
+            _automationPeer ??= OnCreateAutomationPeer();
+
         public static readonly DependencyProperty VisibilityProperty =
             DependencyProperty.Register(
                 "Visibility",
@@ -68,4 +99,22 @@ namespace Microsoft.UI.Xaml
 namespace Windows.Foundation
 {
     public delegate void TypedEventHandler<TSender, TResult>(TSender sender, TResult args);
+
+    public interface IAsyncOperation<TResult>
+    {
+        System.Threading.Tasks.Task<TResult> AsTask();
+        System.Runtime.CompilerServices.TaskAwaiter<TResult> GetAwaiter();
+    }
+
+    internal sealed class CompletedAsyncOperation<TResult> : IAsyncOperation<TResult>
+    {
+        private readonly System.Threading.Tasks.Task<TResult> _task;
+        public CompletedAsyncOperation(TResult result) => _task = System.Threading.Tasks.Task.FromResult(result);
+        public System.Threading.Tasks.Task<TResult> AsTask() => _task;
+        public System.Runtime.CompilerServices.TaskAwaiter<TResult> GetAwaiter() => _task.GetAwaiter();
+    }
+
+    public readonly record struct Point(double X, double Y);
+
+    public readonly record struct Rect(double X, double Y, double Width, double Height);
 }

@@ -173,7 +173,9 @@ public readonly record struct ShapingRequest
         string? language = null,
         ShapingClusterLevel clusterLevel = ShapingClusterLevel.MonotoneGraphemes,
         ShapingBufferFlags flags = ShapingBufferFlags.None,
-        ReadOnlyMemory<ShapingFeature> features = default)
+        ReadOnlyMemory<ShapingFeature> features = default,
+        ReadOnlyMemory<char> preContext = default,
+        ReadOnlyMemory<char> postContext = default)
     {
         if (direction == ShapingDirection.Unspecified)
         {
@@ -192,6 +194,8 @@ public readonly record struct ShapingRequest
         ClusterLevel = clusterLevel;
         Flags = flags;
         Features = features;
+        PreContext = preContext;
+        PostContext = postContext;
     }
 
     public ShapingDirection Direction { get; }
@@ -200,6 +204,18 @@ public readonly record struct ShapingRequest
     public ShapingClusterLevel ClusterLevel { get; }
     public ShapingBufferFlags Flags { get; }
     public ReadOnlyMemory<ShapingFeature> Features { get; }
+
+    /// <summary>
+    /// Text immediately preceding this item, in logical order. Context can
+    /// affect boundary-sensitive shaping but is never emitted into the result.
+    /// </summary>
+    public ReadOnlyMemory<char> PreContext { get; }
+
+    /// <summary>
+    /// Text immediately following this item, in logical order. Context can
+    /// affect boundary-sensitive shaping but is never emitted into the result.
+    /// </summary>
+    public ReadOnlyMemory<char> PostContext { get; }
 }
 
 /// <summary>

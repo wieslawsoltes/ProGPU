@@ -100,6 +100,10 @@ public abstract class Shape : FrameworkElement
         var geom = DefiningGeometry;
         if (geom == null) return;
 
+        Matrix4x4 flowMirror = FlowDirection == FlowDirection.RightToLeft
+            ? Matrix4x4.CreateScale(-1f, 1f, 1f) * Matrix4x4.CreateTranslation(Size.X, 0f, 0f)
+            : Matrix4x4.Identity;
+
         Pen? pen = null;
         if (Stroke != null && StrokeThickness > 0f)
         {
@@ -136,13 +140,18 @@ public abstract class Shape : FrameworkElement
                                  Matrix4x4.CreateScale(scaleX, scaleY, 1f) *
                                  Matrix4x4.CreateTranslation(thickness / 2f, thickness / 2f, 0f);
 
-                geom.ParentTransformMatrix = localScale;
+                geom.ParentTransformMatrix = localScale * flowMirror;
                 geom.Draw(context, Fill, pen);
                 geom.ParentTransformMatrix = null;
                 return;
             }
         }
 
+        if (FlowDirection == FlowDirection.RightToLeft)
+        {
+            geom.ParentTransformMatrix = flowMirror;
+        }
         geom.Draw(context, Fill, pen);
+        geom.ParentTransformMatrix = null;
     }
 }

@@ -229,7 +229,8 @@ public enum TextInputEventKind
     CompositionStarted,
     CompositionUpdated,
     CompositionCompleted,
-    CompositionCanceled
+    CompositionCanceled,
+    Paste
 }
 
 public sealed class TextInputRoutedEventArgs : Microsoft.UI.Xaml.RoutedEventArgs

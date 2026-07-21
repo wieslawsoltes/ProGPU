@@ -80,7 +80,16 @@ public class PathIcon : IconElement
         if (_parsedGeometry != null)
         {
             var brush = GetCurrentForeground() ?? ThemeManager.GetBrush("TextPrimary");
-            context.DrawPath(brush, null, _parsedGeometry);
+            if (FlowDirection == FlowDirection.RightToLeft)
+            {
+                Matrix4x4 mirror = Matrix4x4.CreateScale(-1f, 1f, 1f) *
+                    Matrix4x4.CreateTranslation(Size.X, 0f, 0f);
+                context.DrawPath(brush, null, _parsedGeometry, mirror);
+            }
+            else
+            {
+                context.DrawPath(brush, null, _parsedGeometry);
+            }
         }
     }
 }

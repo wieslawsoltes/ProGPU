@@ -107,7 +107,8 @@ public class NavigationView : FrameworkElement
         public override void OnRender(DrawingContext context)
         {
             context.DrawRectangle(_background, null, new Rect(0f, 0f, Size.X, Size.Y));
-            context.DrawRectangle(_separator, null, new Rect(Size.X - 1f, 0f, 1f, Size.Y));
+            float separatorX = FlowDirection == FlowDirection.RightToLeft ? 0f : Size.X - 1f;
+            context.DrawRectangle(_separator, null, new Rect(separatorX, 0f, 1f, Size.Y));
 
             base.OnRender(context);
         }

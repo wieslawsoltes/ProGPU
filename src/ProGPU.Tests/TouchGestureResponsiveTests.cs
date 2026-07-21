@@ -101,6 +101,38 @@ public sealed class TouchGestureResponsiveTests
     }
 
     [Fact]
+    public void RichEditorMobileInputSupportsCompositionPoliciesAndReadOnly()
+    {
+        var editor = new RichEditBox
+        {
+            Text = "A",
+            CharacterCasing = CharacterCasing.Upper,
+            AcceptsReturn = false,
+            MaxLength = 4
+        };
+        editor.CaretIndex = 1;
+        editor.SelectionStart = 1;
+        ArrangeRoot(editor, new Vector2(320, 120));
+        UseInputRoot(editor);
+        InputSystem.SetFocus(editor);
+
+        InputSystem.InjectTextInput(TextInputEventKind.InsertText, "b");
+        InputSystem.InjectTextInput(TextInputEventKind.InsertLineBreak);
+        Assert.Equal("AB", editor.Text);
+
+        InputSystem.InjectTextInput(TextInputEventKind.CompositionStarted, isComposing: true);
+        InputSystem.InjectTextInput(TextInputEventKind.CompositionUpdated, "に", true);
+        InputSystem.InjectTextInput(TextInputEventKind.CompositionUpdated, "日本", true);
+        InputSystem.InjectTextInput(TextInputEventKind.CompositionCompleted, "日本");
+        Assert.Equal("AB日本", editor.Text);
+
+        editor.IsReadOnly = true;
+        InputSystem.InjectTextInput(TextInputEventKind.DeleteContentBackward);
+        InputSystem.InjectTextInput(TextInputEventKind.InsertText, "C");
+        Assert.Equal("AB日本", editor.Text);
+    }
+
+    [Fact]
     public void ScrollViewerConsumesTouchManipulationAndSupportsChangeView()
     {
         var content = new Border
@@ -372,6 +404,100 @@ public sealed class TouchGestureResponsiveTests
         InputSystem.InjectPointer(Mouse(PointerInputKind.Released, 150, 20, 30_000, false));
         Assert.Equal(1, clicks);
         Assert.False(button.IsPointerOver);
+    }
+
+    [Fact]
+    public void DesktopMouseInputRefreshesButtonHoverAndPressedChrome()
+    {
+        var button = new Button { Width = 120, Height = 40, Content = "Action" };
+        ArrangeRoot(button, new Vector2(120, 40));
+        UseInputRoot(button);
+        var chrome = Assert.Single(button.Children.OfType<Border>());
+
+        long normalChromeVersion = chrome.ChangeVersion;
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 20, 20, 1_000, false));
+
+        Assert.True(button.IsPointerOver);
+        Assert.True(chrome.ChangeVersion > normalChromeVersion);
+        Assert.Same(
+            ThemeManager.GetResource("ButtonBackgroundPointerOver", button.ActualTheme),
+            button.GetCurrentBackground());
+
+        long hoverChromeVersion = chrome.ChangeVersion;
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Pressed, 20, 20, 2_000, true));
+
+        Assert.True(button.IsPointerPressed);
+        Assert.True(chrome.ChangeVersion > hoverChromeVersion);
+        Assert.Same(
+            ThemeManager.GetResource("ButtonBackgroundPressed", button.ActualTheme),
+            button.GetCurrentBackground());
+
+        long pressedChromeVersion = chrome.ChangeVersion;
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Released, 20, 20, 3_000, false));
+
+        Assert.False(button.IsPointerPressed);
+        Assert.True(button.IsPointerOver);
+        Assert.True(chrome.ChangeVersion > pressedChromeVersion);
+    }
+
+    [Fact]
+    public void DesktopMouseInputAppliesStateBrushesOverLocalControlBrushes()
+    {
+        var button = new Button
+        {
+            Width = 120,
+            Height = 40,
+            Content = "Action",
+            Background = ThemeManager.GetBrush("ButtonBackground"),
+            Foreground = ThemeManager.GetBrush("ButtonForeground"),
+            BorderBrush = ThemeManager.GetBrush("ButtonBorderBrush")
+        };
+        ArrangeRoot(button, new Vector2(120, 40));
+        UseInputRoot(button);
+
+        InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 20, 20, 1_000, false));
+
+        Assert.Same(
+            ThemeManager.GetResource("ButtonBackgroundPointerOver", button.ActualTheme),
+            button.GetCurrentBackground());
+        Assert.Same(
+            ThemeManager.GetResource("ButtonForegroundPointerOver", button.ActualTheme),
+            button.GetCurrentForeground());
+        Assert.Same(
+            ThemeManager.GetResource("ButtonBorderBrushPointerOver", button.ActualTheme),
+            button.GetCurrentBorderBrush());
+    }
+
+    [Fact]
+    public void DesktopMouseInputRefreshesTemplatedControlChrome()
+    {
+        Control[] controls =
+        [
+            new ToggleButton { Width = 120, Height = 40, Content = "Toggle" },
+            new CheckBox { Width = 120, Height = 40, Content = "Check" },
+            new RadioButton { Width = 120, Height = 40, Content = "Radio" },
+            new ToggleSwitch { Width = 120, Height = 40 },
+            new Slider { Width = 120, Height = 40 }
+        ];
+
+        foreach (var control in controls)
+        {
+            ArrangeRoot(control, new Vector2(120, 40));
+            UseInputRoot(control);
+            var chrome = control.Children
+                .SelectMany(static child => DescendantsAndSelf(child))
+                .First(child => child.GetType().Name.EndsWith("Chrome", StringComparison.Ordinal));
+
+            long normalChromeVersion = chrome.ChangeVersion;
+            InputSystem.InjectPointer(Mouse(PointerInputKind.Moved, 20, 20, 1_000, false));
+            Assert.True(control.IsPointerOver);
+            Assert.True(chrome.ChangeVersion > normalChromeVersion, control.GetType().Name);
+
+            long hoverChromeVersion = chrome.ChangeVersion;
+            InputSystem.InjectPointer(Mouse(PointerInputKind.Pressed, 20, 20, 2_000, true));
+            Assert.True(control.IsPointerPressed);
+            Assert.True(chrome.ChangeVersion > hoverChromeVersion, control.GetType().Name);
+        }
     }
 
     [Fact]
@@ -681,6 +807,16 @@ public sealed class TouchGestureResponsiveTests
     {
         InputSystem.Current = InputSystem.CreateExternalState(root);
         InputSystem.Root = root;
+    }
+
+    private static IEnumerable<Visual> DescendantsAndSelf(Visual visual)
+    {
+        yield return visual;
+        if (visual is not ContainerVisual container) yield break;
+        foreach (var child in container.Children)
+        {
+            foreach (var descendant in DescendantsAndSelf(child)) yield return descendant;
+        }
     }
 
     private sealed class TrackingControl : Control

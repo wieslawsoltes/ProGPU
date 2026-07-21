@@ -170,6 +170,22 @@ public class DependencyProperty
         }
     }
 
+    internal static IReadOnlyList<DependencyProperty> GetRegisteredInheritableProperties()
+    {
+        lock (RegisteredProperties)
+        {
+            var properties = new List<DependencyProperty>();
+            foreach (var property in RegisteredProperties)
+            {
+                if (property.Metadata?.IsInheritable == true)
+                {
+                    properties.Add(property);
+                }
+            }
+            return properties;
+        }
+    }
+
     public static DependencyProperty? GetPropertyByIndex(int index)
     {
         lock (RegisteredProperties)
@@ -257,9 +273,67 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     protected override void OnParentChanged(ProGPU.Scene.ContainerVisual? oldParent, ProGPU.Scene.ContainerVisual? newParent)
     {
         base.OnParentChanged(oldParent, newParent);
+        NotifyInheritedParentChanged(oldParent as DependencyObject, newParent as DependencyObject);
         if (ResolveThemeContext(oldParent) != ResolveThemeContext(newParent))
         {
             NotifyThemeChanged();
+        }
+    }
+
+    /// <summary>
+    /// Allows controls with WinUI inheritance boundaries (for example Image and
+    /// media hosts) to opt out of selected inheritable dependency properties.
+    /// </summary>
+    protected virtual bool ShouldInheritProperty(DependencyProperty property) => true;
+
+    private void NotifyInheritedParentChanged(DependencyObject? oldParent, DependencyObject? newParent)
+    {
+        foreach (DependencyProperty property in DependencyProperty.GetRegisteredInheritableProperties())
+        {
+            if (HasEffectiveValue(property) || !ShouldInheritProperty(property))
+            {
+                continue;
+            }
+
+            object? oldValue = ResolveInheritedValue(property, oldParent);
+            object? newValue = ResolveInheritedValue(property, newParent);
+            if (!Equals(oldValue, newValue))
+            {
+                OnPropertyChanged(property, oldValue, newValue);
+                PropagateInheritedPropertyChange(property, oldValue, newValue);
+            }
+        }
+    }
+
+    private bool HasEffectiveValue(DependencyProperty property) =>
+        property.Index < _effectiveValues.Length && _effectiveValues[property.Index] is not null;
+
+    private static object? ResolveInheritedValue(DependencyProperty property, DependencyObject? parent)
+    {
+        for (DependencyObject? current = parent; current is not null; current = current.Parent as DependencyObject)
+        {
+            int index = property.Index;
+            if (index < current._effectiveValues.Length && current._effectiveValues[index] is { } value)
+            {
+                return value;
+            }
+        }
+        return property.Metadata?.DefaultValue;
+    }
+
+    private void PropagateInheritedPropertyChange(DependencyProperty property, object? oldValue, object? newValue)
+    {
+        for (int index = 0; index < Children.Count; index++)
+        {
+            if (Children[index] is not DependencyObject child ||
+                child.HasEffectiveValue(property) ||
+                !child.ShouldInheritProperty(property))
+            {
+                continue;
+            }
+
+            child.OnPropertyChanged(property, oldValue, newValue);
+            child.PropagateInheritedPropertyChange(property, oldValue, newValue);
         }
     }
 
@@ -386,7 +460,7 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
             if (val != null) return val;
         }
 
-        if (dp.Metadata?.IsInheritable == true)
+        if (dp.Metadata?.IsInheritable == true && ShouldInheritProperty(dp))
         {
             var p = Parent as DependencyObject;
             while (p != null)
@@ -566,10 +640,14 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         _effectiveValues[idx] = newValue;
         _valueSources[idx] = source;
 
-        var finalValue = newValue ?? dp.Metadata?.DefaultValue;
+        var finalValue = newValue ?? ResolveInheritedValue(dp, Parent as DependencyObject);
         if (!Equals(oldValue, finalValue))
         {
             OnPropertyChanged(dp, oldValue, finalValue);
+            if (dp.Metadata?.IsInheritable == true)
+            {
+                PropagateInheritedPropertyChange(dp, oldValue, finalValue);
+            }
         }
     }
 

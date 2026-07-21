@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using ProGPU.Backend;
 using ProGPU.Text;
+using ProGPU.Text.Shaping;
 using ProGPU.Vector;
 using ProGPU.Layout;
 using ProGPU.Scene;
@@ -18,9 +19,10 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
 {
     private string _text = string.Empty;
     private float _fontSize = 14f;
-    private TextAlignment _alignment = TextAlignment.Left;
+    private ProGPU.Text.TextAlignment _alignment = ProGPU.Text.TextAlignment.Left;
     private TextLayout? _layout;
     private TextShapingOptions _textShapingOptions = TextShapingOptions.Default;
+    private TextReadingOrder _textReadingOrder = TextReadingOrder.DetectFromContent;
     private bool _deferLayoutUntilRender;
 
     public string Text
@@ -40,9 +42,10 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
         base.OnPropertyChanged(dp, oldValue, newValue);
-        if (dp == FontProperty)
+        if (dp == FontProperty || dp == FlowDirectionProperty)
         {
             _layout = null;
+            InvalidateMeasure();
             Invalidate();
         }
     }
@@ -74,7 +77,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         set => SetValue(BrushProperty, value);
     }
 
-    public TextAlignment Alignment
+    public ProGPU.Text.TextAlignment Alignment
     {
         get => _alignment;
         set
@@ -100,6 +103,37 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
                 _layout = null;
                 Invalidate();
             }
+        }
+    }
+
+    public TextReadingOrder TextReadingOrder
+    {
+        get => _textReadingOrder;
+        set
+        {
+            if (_textReadingOrder == value) return;
+            _textReadingOrder = value;
+            _layout = null;
+            InvalidateMeasure();
+            Invalidate();
+        }
+    }
+
+    private TextShapingOptions EffectiveShapingOptions
+    {
+        get
+        {
+            if (TextShapingOptions.Direction is ShapingDirection.TopToBottom or ShapingDirection.BottomToTop)
+            {
+                return TextShapingOptions;
+            }
+
+            ShapingDirection direction = TextReadingOrder == TextReadingOrder.DetectFromContent
+                ? ShapingDirection.Unspecified
+                : FlowDirection == FlowDirection.RightToLeft
+                    ? ShapingDirection.RightToLeft
+                    : ShapingDirection.LeftToRight;
+            return TextShapingOptions.WithDirection(direction);
         }
     }
 
@@ -144,7 +178,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
         float maxWidth = Size.X;
         if (_layout == null || !HasCompatibleLayoutWidth(_layout, maxWidth))
         {
-            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, atlas, TextShapingOptions);
+            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, atlas, EffectiveShapingOptions);
         }
         else if (!_layout.HasTextures)
         {
@@ -175,7 +209,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             return false;
         }
 
-        _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, TextShapingOptions);
+        _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, EffectiveShapingOptions);
         return true;
     }
 
@@ -196,7 +230,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
 
         if (_layout == null || !HasCompatibleLayoutWidth(_layout, maxWidth))
         {
-            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, TextShapingOptions);
+            _layout = new TextLayout(Text, resolvedFont, FontSize, maxWidth, Alignment, null, EffectiveShapingOptions);
         }
         return _layout.MeasuredSize;
     }
@@ -215,7 +249,7 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
     {
         float existingWidth = layout.MaxWidth;
         if (existingWidth.Equals(requestedWidth)) return true;
-        return Alignment == TextAlignment.Left &&
+        return Alignment == ProGPU.Text.TextAlignment.Left &&
                float.IsPositiveInfinity(existingWidth) &&
                requestedWidth >= layout.ContentSize.X;
     }
@@ -237,7 +271,8 @@ public class TextVisual : FrameworkElement, ITextLayoutProvider
             Brush = resolvedBrush,
             Position = Vector2.Zero,
             Rect = new Rect(Vector2.Zero, Size),
-            TextShapingOptions = TextShapingOptions
+            TextShapingOptions = EffectiveShapingOptions,
+            TextAlignment = Alignment
         });
     }
 }

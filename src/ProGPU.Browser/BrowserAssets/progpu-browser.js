@@ -24,6 +24,8 @@ const state = {
   textInputBounds: null,
   isComposing: false,
   clipboardText: '',
+  clipboardRtf: '',
+  clipboardHtml: '',
   pickedStorageBytes: null,
   worker: null,
   workerRequests: new Map(),
@@ -563,7 +565,12 @@ function installBrowserInput() {
   });
   textSink.addEventListener('paste', event => {
     state.clipboardText = event.clipboardData?.getData('text/plain') || '';
-    if (state.clipboardText && state.dispatchTextInput) state.dispatchTextInput(0, state.clipboardText, false);
+    state.clipboardRtf = event.clipboardData?.getData('text/rtf') ||
+      event.clipboardData?.getData('application/rtf') || '';
+    state.clipboardHtml = event.clipboardData?.getData('text/html') || '';
+    if ((state.clipboardText || state.clipboardRtf || state.clipboardHtml) && state.dispatchTextInput) {
+      state.dispatchTextInput(8, '', false);
+    }
     event.preventDefault();
   });
   globalThis.addEventListener('blur', () => queueInputEvent(8));
@@ -654,11 +661,40 @@ function hideTextInput() {
 
 function setClipboardText(text) {
   state.clipboardText = String(text ?? '');
+  state.clipboardRtf = '';
+  state.clipboardHtml = '';
   if (navigator.clipboard?.writeText) navigator.clipboard.writeText(state.clipboardText).catch(() => { });
 }
 
 function getClipboardText() {
   return state.clipboardText;
+}
+
+function setClipboardRichText(plainText, rtf, html) {
+  state.clipboardText = String(plainText ?? '');
+  state.clipboardRtf = String(rtf ?? '');
+  state.clipboardHtml = String(html ?? '');
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(state.clipboardText).catch(() => { });
+    return;
+  }
+  const formats = {
+    'text/plain': new Blob([state.clipboardText], { type: 'text/plain' }),
+    'text/html': new Blob([state.clipboardHtml], { type: 'text/html' })
+  };
+  if (typeof ClipboardItem.supports === 'function' && ClipboardItem.supports('text/rtf')) {
+    formats['text/rtf'] = new Blob([state.clipboardRtf], { type: 'text/rtf' });
+  }
+  navigator.clipboard.write([new ClipboardItem(formats)])
+    .catch(() => navigator.clipboard?.writeText?.(state.clipboardText).catch(() => { }));
+}
+
+function getClipboardRtf() {
+  return state.clipboardRtf;
+}
+
+function getClipboardHtml() {
+  return state.clipboardHtml;
 }
 
 async function stagePickedFile(file) {
@@ -723,6 +759,18 @@ function downloadText(name, text) {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = name || 'download.txt';
+  anchor.click();
+  queueMicrotask(() => URL.revokeObjectURL(url));
+}
+
+function downloadBytes(name, source, length) {
+  const heap = runtime.localHeapViewU8();
+  if (source < 0 || length < 0 || source + length > heap.byteLength) throw new RangeError('Download source is outside WASM memory.');
+  const bytes = heap.slice(source, source + length);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = name || 'download.bin';
   anchor.click();
   queueMicrotask(() => URL.revokeObjectURL(url));
 }
@@ -1558,7 +1606,7 @@ if (isDispatcherWorker) {
 } else {
   initializeDiagnosticsVisibility();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, configureTextInput, hideTextInput, setClipboardText, getClipboardText, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;

@@ -586,13 +586,17 @@ public class ColorPicker : Control
                 new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1.0f)
             };
 
-            var trackBrush = new LinearGradientBrush(new Vector2(8f, 0f), new Vector2(Size.X - 8f, 0f), hueStops);
+            var trackBrush = IsRightToLeftLayout
+                ? new LinearGradientBrush(new Vector2(Size.X - 8f, 0f), new Vector2(8f, 0f), hueStops)
+                : new LinearGradientBrush(new Vector2(8f, 0f), new Vector2(Size.X - 8f, 0f), hueStops);
             context.DrawRoundedRectangle(trackBrush, null, trackRect, 4f);
             context.DrawRoundedRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 1f), trackRect, 4f);
 
             // Thumb
             float pct = Value / 360f;
-            float thumbX = 8f + pct * (Size.X - 16f);
+            float thumbX = IsRightToLeftLayout
+                ? Size.X - 8f - pct * (Size.X - 16f)
+                : 8f + pct * (Size.X - 16f);
             var center = new Vector2(thumbX, yCenter);
 
             context.DrawCircle(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.4f)), 1.5f), center, 7f);
@@ -638,13 +642,17 @@ public class ColorPicker : Control
                 new GradientStop(new Vector4(pureColor.X, pureColor.Y, pureColor.Z, 1f), 1f)
             };
 
-            var trackBrush = new LinearGradientBrush(new Vector2(8f, 0f), new Vector2(Size.X - 8f, 0f), alphaStops);
+            var trackBrush = IsRightToLeftLayout
+                ? new LinearGradientBrush(new Vector2(Size.X - 8f, 0f), new Vector2(8f, 0f), alphaStops)
+                : new LinearGradientBrush(new Vector2(8f, 0f), new Vector2(Size.X - 8f, 0f), alphaStops);
             context.DrawRoundedRectangle(trackBrush, null, trackRect, 4f);
             context.DrawRoundedRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 1f), trackRect, 4f);
 
             // Thumb
             float pct = Value;
-            float thumbX = 8f + pct * (Size.X - 16f);
+            float thumbX = IsRightToLeftLayout
+                ? Size.X - 8f - pct * (Size.X - 16f)
+                : 8f + pct * (Size.X - 16f);
             var center = new Vector2(thumbX, yCenter);
 
             context.DrawCircle(new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)), new Pen(new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.4f)), 1.5f), center, 7f);

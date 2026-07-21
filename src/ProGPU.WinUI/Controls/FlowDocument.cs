@@ -15,11 +15,62 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class Paragraph : Block
 {
-    public List<Inline> Inlines { get; } = new();
-    public TextAlignment TextAlignment { get; set; } = TextAlignment.Left;
+    internal Microsoft.UI.Text.RichParagraphFormatState? EditorFormatState { get; set; }
+    public RichElementCollection<Inline> Inlines { get; }
+    private TextAlignment _textAlignment = TextAlignment.Left;
+    internal bool HasExplicitTextAlignment { get; private set; }
+    private float _firstLineIndent;
+    private float _leftIndent;
+    private float _rightIndent;
+    private float _spaceBefore;
+    private float _lineSpacing;
+    private Microsoft.UI.Text.LineSpacingRule _lineSpacingRule = Microsoft.UI.Text.LineSpacingRule.Single;
+    private FlowDirection? _flowDirection;
 
-    public Paragraph() { }
-    public Paragraph(params Inline[] inlines)
+    public float FirstLineIndent { get => _firstLineIndent; set { if (_firstLineIndent != value) { _firstLineIndent = value; OnChanged(); } } }
+    public float LeftIndent { get => _leftIndent; set { if (_leftIndent != value) { _leftIndent = value; OnChanged(); } } }
+    public float RightIndent { get => _rightIndent; set { if (_rightIndent != value) { _rightIndent = value; OnChanged(); } } }
+    public float SpaceBefore { get => _spaceBefore; set { if (_spaceBefore != value) { _spaceBefore = value; OnChanged(); } } }
+    public float LineSpacing { get => _lineSpacing; set { if (_lineSpacing != value) { _lineSpacing = value; OnChanged(); } } }
+    public Microsoft.UI.Text.LineSpacingRule LineSpacingRule { get => _lineSpacingRule; set { if (_lineSpacingRule != value) { _lineSpacingRule = value; OnChanged(); } } }
+    public FlowDirection? FlowDirection { get => _flowDirection; set { if (_flowDirection != value) { _flowDirection = value; OnChanged(); } } }
+
+    public TextAlignment TextAlignment
+    {
+        get => _textAlignment;
+        set
+        {
+            if (_textAlignment == value && HasExplicitTextAlignment) return;
+            _textAlignment = value;
+            HasExplicitTextAlignment = true;
+            OnChanged();
+        }
+    }
+
+    internal void ApplyEditorFormat(
+        Microsoft.UI.Text.RichParagraphFormatState state,
+        TextAlignment alignment,
+        FlowDirection? flowDirection,
+        bool hasExplicitTextAlignment)
+    {
+        EditorFormatState = state;
+        SetMarginBottomWithoutNotification(state.SpaceAfter);
+        _spaceBefore = state.SpaceBefore;
+        _firstLineIndent = state.FirstLineIndent;
+        _leftIndent = state.LeftIndent;
+        _rightIndent = state.RightIndent;
+        _lineSpacing = state.LineSpacing;
+        _lineSpacingRule = state.LineSpacingRule;
+        _flowDirection = flowDirection;
+        _textAlignment = alignment;
+        HasExplicitTextAlignment = hasExplicitTextAlignment;
+    }
+
+    public Paragraph()
+    {
+        Inlines = new RichElementCollection<Inline>(OnChanged);
+    }
+    public Paragraph(params Inline[] inlines) : this()
     {
         Inlines.AddRange(inlines);
     }
@@ -30,15 +81,42 @@ public class FlowDocument : FrameworkElement
     private float _fontSize = 14f;
     private int _columnCount = 2;
     private float _columnGap = 24f;
-    private readonly List<Paragraph> _paragraphs = new();
-    public List<Paragraph> Paragraphs => _paragraphs;
-    public List<Block> Blocks { get; } = new();
+    private TextAlignment _textAlignment = TextAlignment.Left;
+    private bool _hasExplicitTextAlignment;
+    private TextReadingOrder _textReadingOrder = TextReadingOrder.DetectFromContent;
+    private readonly RichElementCollection<Paragraph> _paragraphs;
+    public RichElementCollection<Paragraph> Paragraphs => _paragraphs;
+    public RichElementCollection<Block> Blocks { get; }
+    private RichDocument? _document;
     private readonly List<TableVisualDecoration> _tableDecorations = new();
+    private readonly DrawingContext _renderCommandCache = new();
+    private bool _isRenderCommandCacheDirty = true;
+    private Hyperlink? _cachedHoveredHyperlink;
+
+    public RichDocument? Document
+    {
+        get => _document;
+        set
+        {
+            if (ReferenceEquals(_document, value)) return;
+            if (_document is not null) _document.Changed -= OnDocumentChanged;
+            _document = value;
+            if (_document is not null) _document.Changed += OnDocumentChanged;
+            Invalidate();
+            InvalidateMeasure();
+        }
+    }
+
+    private void OnDocumentChanged(object? sender, EventArgs e)
+    {
+        Invalidate();
+        InvalidateMeasure();
+    }
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
         base.OnPropertyChanged(dp, oldValue, newValue);
-        if (dp == FontProperty)
+        if (dp == FontProperty || dp == FlowDirectionProperty)
         {
             Invalidate();
         }
@@ -69,9 +147,47 @@ public class FlowDocument : FrameworkElement
         set { _columnGap = value; Invalidate(); }
     }
 
+    public TextAlignment TextAlignment
+    {
+        get => _textAlignment;
+        set
+        {
+            if (_textAlignment == value && _hasExplicitTextAlignment) return;
+            _textAlignment = value;
+            _hasExplicitTextAlignment = true;
+            Invalidate();
+            InvalidateMeasure();
+        }
+    }
+
+    public TextReadingOrder TextReadingOrder
+    {
+        get => _textReadingOrder;
+        set
+        {
+            if (_textReadingOrder == value) return;
+            _textReadingOrder = value;
+            Invalidate();
+            InvalidateMeasure();
+        }
+    }
+
+    private TextAlignment ResolveEffectiveTextAlignment() =>
+        FlowDirection == FlowDirection.RightToLeft && !_hasExplicitTextAlignment
+            ? TextAlignment.Right
+            : TextAlignment;
+
     public FlowDocument()
     {
         Padding = new Thickness(16);
+        _paragraphs = new RichElementCollection<Paragraph>(OnContentChanged);
+        Blocks = new RichElementCollection<Block>(OnContentChanged);
+    }
+
+    private void OnContentChanged()
+    {
+        Invalidate();
+        InvalidateMeasure();
     }
 
     protected override void OnThemeChanged()
@@ -86,7 +202,7 @@ public class FlowDocument : FrameworkElement
         base.OnPointerMoved(e);
         if (!IsEnabled) return;
 
-        var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+        var localPos = InputSystem.GetPhysicalLocalPosition(this, e.ScreenPosition);
         Hyperlink? foundLink = null;
 
         foreach (var pc in _positionedChars)
@@ -94,7 +210,9 @@ public class FlowDocument : FrameworkElement
             if (pc.Info.SourceInline is Hyperlink hl && Font != null)
             {
                 ushort gIdx = Font.GetGlyphIndex(pc.Info.Character);
-                float advance = Font.GetAdvanceWidth(gIdx, pc.Info.FontSize);
+                float advance = pc.HasShapedAdvance
+                    ? pc.ShapedAdvance
+                    : Font.GetAdvanceWidth(gIdx, pc.Info.FontSize);
                 Rect charRect = new Rect(pc.Position.X, pc.Position.Y, advance, pc.Info.FontSize);
                 if (charRect.Contains(localPos))
                 {
@@ -107,6 +225,7 @@ public class FlowDocument : FrameworkElement
         if (_hoveredHyperlink != foundLink)
         {
             _hoveredHyperlink = foundLink;
+            _isRenderCommandCacheDirty = true;
             Invalidate();
         }
     }
@@ -154,7 +273,7 @@ public class FlowDocument : FrameworkElement
     private void PerformFlowLayout(float width, float height)
     {
         TextLayoutEngine.LayoutMultiColumn(
-            Blocks,
+            Document?.Blocks ?? Blocks,
             Paragraphs,
             width,
             height,
@@ -169,21 +288,44 @@ public class FlowDocument : FrameworkElement
             _tableDecorations,
             this,
             AddChild,
-            RemoveChild);
+            RemoveChild,
+            TextReadingOrder,
+            FlowDirection,
+            ResolveEffectiveTextAlignment());
+        _isRenderCommandCacheDirty = true;
     }
 
     public override void OnRender(DrawingContext context)
     {
-        if (Font == null || _positionedChars.Count == 0) return;
+        if (Font == null || _positionedChars.Count == 0)
+        {
+            _renderCommandCache.Clear();
+            _isRenderCommandCacheDirty = false;
+            return;
+        }
 
-        TextLayoutEngine.Render(
-            context, 
-            _positionedChars, 
-            _tableDecorations, 
-            Font, 
-            -1, 
-            0, 
-            _hoveredHyperlink);
+        if (!ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
+        {
+            _isRenderCommandCacheDirty = true;
+        }
+
+        if (_isRenderCommandCacheDirty)
+        {
+            _renderCommandCache.Clear();
+            TextLayoutEngine.Render(
+                _renderCommandCache,
+                _positionedChars,
+                _tableDecorations,
+                Font,
+                -1,
+                0,
+                null,
+                _hoveredHyperlink);
+            _cachedHoveredHyperlink = _hoveredHyperlink;
+            _isRenderCommandCacheDirty = false;
+        }
+
+        context.Commands.AddRange(_renderCommandCache.Commands);
 
         base.OnRender(context);
     }

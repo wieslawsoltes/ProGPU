@@ -11,6 +11,8 @@ using ProGPU.Layout;
 using ProGPU.Vector;
 using ProGPU.Scene;
 using ProGPU.Text;
+using ProGPU.Text.Bidi;
+using ProGPU.Text.Shaping;
 
 namespace Microsoft.UI.Xaml.Controls;
 
@@ -20,6 +22,9 @@ public class TextBox : Control, ITextInputClient
     private string _placeholderText = "Enter text...";
     private int _caretIndex;
     private float _fontSize = 14f;
+    private TextLayout? _textLayout;
+    private float _textLayoutWidth = -1f;
+    private bool _caretTrailingAffinity;
 
     // Premium selection and clipboard fields
     private int _selectionStart = 0;
@@ -36,6 +41,81 @@ public class TextBox : Control, ITextInputClient
     public string AutoCapitalization { get; set; } = "sentences";
     public bool IsSpellCheckEnabled { get; set; } = true;
     public bool AcceptsReturn { get; set; }
+
+    public static readonly DependencyProperty TextAlignmentProperty =
+        DependencyProperty.Register(
+            "TextAlignment",
+            typeof(Microsoft.UI.Xaml.TextAlignment),
+            typeof(TextBox),
+            new PropertyMetadata(Microsoft.UI.Xaml.TextAlignment.Left, static (d, e) => ((TextBox)d).OnTextAlignmentChanged(e))
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            });
+
+    public static readonly DependencyProperty HorizontalTextAlignmentProperty =
+        DependencyProperty.Register(
+            "HorizontalTextAlignment",
+            typeof(Microsoft.UI.Xaml.TextAlignment),
+            typeof(TextBox),
+            new PropertyMetadata(Microsoft.UI.Xaml.TextAlignment.Left, static (d, e) => ((TextBox)d).OnHorizontalTextAlignmentChanged(e))
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            });
+
+    public static readonly DependencyProperty TextReadingOrderProperty =
+        DependencyProperty.Register(
+            "TextReadingOrder",
+            typeof(Microsoft.UI.Xaml.TextReadingOrder),
+            typeof(TextBox),
+            new PropertyMetadata(Microsoft.UI.Xaml.TextReadingOrder.DetectFromContent, static (d, _) => ((TextBox)d).InvalidateTextLayout())
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            });
+
+    private bool _syncingTextAlignment;
+
+    public Microsoft.UI.Xaml.TextAlignment TextAlignment
+    {
+        get => (Microsoft.UI.Xaml.TextAlignment)(GetValue(TextAlignmentProperty) ?? Microsoft.UI.Xaml.TextAlignment.Left);
+        set => SetValue(TextAlignmentProperty, value);
+    }
+
+    public Microsoft.UI.Xaml.TextAlignment HorizontalTextAlignment
+    {
+        get => (Microsoft.UI.Xaml.TextAlignment)(GetValue(HorizontalTextAlignmentProperty) ?? Microsoft.UI.Xaml.TextAlignment.Left);
+        set => SetValue(HorizontalTextAlignmentProperty, value);
+    }
+
+    public Microsoft.UI.Xaml.TextReadingOrder TextReadingOrder
+    {
+        get => (Microsoft.UI.Xaml.TextReadingOrder)(GetValue(TextReadingOrderProperty) ?? Microsoft.UI.Xaml.TextReadingOrder.DetectFromContent);
+        set => SetValue(TextReadingOrderProperty, value);
+    }
+
+    private void OnTextAlignmentChanged(DependencyPropertyChangedEventArgs args)
+    {
+        if (!_syncingTextAlignment)
+        {
+            _syncingTextAlignment = true;
+            SetValue(HorizontalTextAlignmentProperty, args.NewValue ?? Microsoft.UI.Xaml.TextAlignment.Left);
+            _syncingTextAlignment = false;
+        }
+        InvalidateTextLayout();
+    }
+
+    private void OnHorizontalTextAlignmentChanged(DependencyPropertyChangedEventArgs args)
+    {
+        if (!_syncingTextAlignment)
+        {
+            _syncingTextAlignment = true;
+            SetValue(TextAlignmentProperty, args.NewValue ?? Microsoft.UI.Xaml.TextAlignment.Left);
+            _syncingTextAlignment = false;
+        }
+        InvalidateTextLayout();
+    }
 
     // Premium multi-step undo/redo state
     private class UndoState
@@ -69,6 +149,7 @@ public class TextBox : Control, ITextInputClient
                 CaretIndex = Math.Clamp(CaretIndex, 0, _text.Length);
                 SelectionStart = Math.Clamp(SelectionStart, 0, _text.Length);
                 SelectionLength = Math.Clamp(SelectionLength, -SelectionStart, _text.Length - SelectionStart);
+                InvalidateTextLayout();
                 Invalidate();
                 TextChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -139,19 +220,26 @@ public class TextBox : Control, ITextInputClient
     public float FontSize
     {
         get => _fontSize;
-        set { if (_fontSize != value) { _fontSize = value; Invalidate(); } }
+        set { if (_fontSize != value) { _fontSize = value; InvalidateTextLayout(); } }
     }
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
         base.OnPropertyChanged(dp, oldValue, newValue);
-        if (dp == FontProperty)
+        if (dp == FontProperty || dp == FlowDirectionProperty)
         {
-            Invalidate();
+            InvalidateTextLayout();
         }
     }
 
     public event EventHandler? TextChanged;
+
+    private void InvalidateTextLayout()
+    {
+        _textLayout = null;
+        _textLayoutWidth = -1f;
+        Invalidate();
+    }
 
     public TextBox()
     {
@@ -301,6 +389,14 @@ public class TextBox : Control, ITextInputClient
                     _compositionOriginalText = string.Empty;
                 }
                 break;
+            case TextInputEventKind.Paste:
+                string pasteText = ClipboardHelper.GetText();
+                if (!string.IsNullOrEmpty(pasteText))
+                {
+                    SaveUndoState();
+                    InsertText(pasteText);
+                }
+                break;
         }
         args.Handled = true;
     }
@@ -316,16 +412,17 @@ public class TextBox : Control, ITextInputClient
         if (backward && CaretIndex > 0)
         {
             SaveUndoState();
-            var length = CaretIndex >= 2 && char.IsLowSurrogate(Text[CaretIndex - 1]) && char.IsHighSurrogate(Text[CaretIndex - 2]) ? 2 : 1;
-            SelectionStart = CaretIndex - length;
-            SelectionLength = length;
+            int previous = TextBoundaryHelper.PreviousGraphemeBoundary(Text, CaretIndex);
+            SelectionStart = previous;
+            SelectionLength = CaretIndex - previous;
             DeleteSelection();
         }
         else if (!backward && CaretIndex < Text.Length)
         {
             SaveUndoState();
+            int next = TextBoundaryHelper.NextGraphemeBoundary(Text, CaretIndex);
             SelectionStart = CaretIndex;
-            SelectionLength = CaretIndex + 1 < Text.Length && char.IsHighSurrogate(Text[CaretIndex]) && char.IsLowSurrogate(Text[CaretIndex + 1]) ? 2 : 1;
+            SelectionLength = next - CaretIndex;
             DeleteSelection();
         }
     }
@@ -374,26 +471,7 @@ public class TextBox : Control, ITextInputClient
             e.Handled = true; // prevent bubbling immediately to avoid parent focus theft
             base.OnPointerPressed(e); // sets focus on this TextBox without bubbling
 
-            float clickX = e.Position.X - Padding.Left;
-            int index = 0;
-            if (Font != null && !string.IsNullOrEmpty(Text))
-            {
-                int bestIndex = 0;
-                float bestDiff = float.PositiveInfinity;
-
-                for (int i = 0; i <= Text.Length; i++)
-                {
-                    string sub = Text.Substring(0, i);
-                    var layout = new TextLayout(sub, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-                    float diff = Math.Abs(layout.MeasuredSize.X - clickX);
-                    if (diff < bestDiff)
-                    {
-                        bestDiff = diff;
-                        bestIndex = i;
-                    }
-                }
-                index = bestIndex;
-            }
+            int index = HitTestTextPosition(e.Position, out _caretTrailingAffinity);
             
             _selectionAnchor = index;
             SelectionStart = index;
@@ -437,26 +515,7 @@ public class TextBox : Control, ITextInputClient
             base.OnPointerMoved(e);
             if (_isDraggingSelection)
             {
-                float clickX = e.Position.X - Padding.Left;
-                int currentIdx = 0;
-                if (Font != null && !string.IsNullOrEmpty(Text))
-                {
-                    int bestIndex = 0;
-                    float bestDiff = float.PositiveInfinity;
-
-                    for (int i = 0; i <= Text.Length; i++)
-                    {
-                        string sub = Text.Substring(0, i);
-                        var layout = new TextLayout(sub, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-                        float diff = Math.Abs(layout.MeasuredSize.X - clickX);
-                        if (diff < bestDiff)
-                        {
-                            bestDiff = diff;
-                            bestIndex = i;
-                        }
-                    }
-                    currentIdx = bestIndex;
-                }
+                int currentIdx = HitTestTextPosition(e.Position, out _caretTrailingAffinity);
 
                 SelectionStart = _selectionAnchor;
                 SelectionLength = currentIdx - _selectionAnchor;
@@ -493,6 +552,92 @@ public class TextBox : Control, ITextInputClient
         base.OnCharacterReceived(e);
     }
 
+    private bool MoveCaretVisually(int direction, bool extendSelection)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null) return false;
+
+        if (!extendSelection && SelectionLength != 0)
+        {
+            TextCaretStop target = TextBoundaryHelper.GetVisualSelectionEdge(
+                layout,
+                SelectionStart,
+                SelectionLength,
+                direction);
+            CaretIndex = target.TextPosition;
+            _caretTrailingAffinity = target.IsTrailing;
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+            return true;
+        }
+
+        if (extendSelection) PrepareSelectionAnchorForExtension();
+        TextCaretStop next = layout.MoveCaretVisually(CaretIndex, _caretTrailingAffinity, direction);
+        CaretIndex = next.TextPosition;
+        _caretTrailingAffinity = next.IsTrailing;
+        if (extendSelection)
+        {
+            SelectionStart = _selectionAnchor;
+            SelectionLength = CaretIndex - _selectionAnchor;
+        }
+        else
+        {
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+        }
+        return true;
+    }
+
+    private bool MoveCaretVisuallyByWord(int direction, bool extendSelection)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null) return false;
+        if (!extendSelection && SelectionLength != 0)
+        {
+            TextCaretStop edge = TextBoundaryHelper.GetVisualSelectionEdge(
+                layout,
+                SelectionStart,
+                SelectionLength,
+                direction);
+            CaretIndex = edge.TextPosition;
+            _caretTrailingAffinity = edge.IsTrailing;
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+            return true;
+        }
+        if (extendSelection) PrepareSelectionAnchorForExtension();
+
+        TextCaretStop next = TextBoundaryHelper.MoveCaretVisuallyByWord(
+            layout,
+            Text,
+            CaretIndex,
+            _caretTrailingAffinity,
+            direction);
+        CaretIndex = next.TextPosition;
+        _caretTrailingAffinity = next.IsTrailing;
+        if (extendSelection)
+        {
+            SelectionStart = _selectionAnchor;
+            SelectionLength = CaretIndex - _selectionAnchor;
+        }
+        else
+        {
+            SelectionStart = CaretIndex;
+            SelectionLength = 0;
+        }
+        return true;
+    }
+
+    private void PrepareSelectionAnchorForExtension()
+    {
+        int otherEnd = SelectionStart + SelectionLength;
+        _selectionAnchor = SelectionLength == 0
+            ? CaretIndex
+            : CaretIndex == SelectionStart
+                ? otherEnd
+                : SelectionStart;
+    }
+
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
         if (IsEnabled && IsFocused)
@@ -506,6 +651,24 @@ public class TextBox : Control, ITextInputClient
 
             bool isShift = _pressedKeys.Contains(Key.ShiftLeft) || 
                            _pressedKeys.Contains(Key.ShiftRight);
+
+            if (!isCtrlOrCmd && e.Key is Key.Left or Key.Right)
+            {
+                if (MoveCaretVisually(e.Key == Key.Left ? -1 : 1, isShift))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            else if (isCtrlOrCmd && e.Key is Key.Left or Key.Right)
+            {
+                if (MoveCaretVisuallyByWord(e.Key == Key.Left ? -1 : 1, isShift))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
 
             if (isCtrlOrCmd)
             {
@@ -579,10 +742,11 @@ public class TextBox : Control, ITextInputClient
                 else if (CaretIndex > 0)
                 {
                     SaveUndoState();
-                    string before = Text.Substring(0, CaretIndex - 1);
+                    int previous = TextBoundaryHelper.PreviousGraphemeBoundary(Text, CaretIndex);
+                    string before = Text.Substring(0, previous);
                     string after = Text.Substring(CaretIndex);
                     Text = before + after;
-                    CaretIndex--;
+                    CaretIndex = previous;
                     SelectionStart = CaretIndex;
                     SelectionLength = 0;
                     e.Handled = true;
@@ -599,8 +763,9 @@ public class TextBox : Control, ITextInputClient
                 else if (CaretIndex < Text.Length)
                 {
                     SaveUndoState();
+                    int next = TextBoundaryHelper.NextGraphemeBoundary(Text, CaretIndex);
                     string before = Text.Substring(0, CaretIndex);
-                    string after = Text.Substring(CaretIndex + 1);
+                    string after = Text.Substring(next);
                     Text = before + after;
                     SelectionStart = CaretIndex;
                     SelectionLength = 0;
@@ -700,24 +865,77 @@ public class TextBox : Control, ITextInputClient
         return new Vector2(w, h);
     }
 
-
-
-    private float GetCaretX()
+    private TextShapingOptions GetEffectiveShapingOptions()
     {
-        if (Font == null || CaretIndex <= 0 || string.IsNullOrEmpty(Text)) return Padding.Left;
-        
-        string substring = Text.Substring(0, Math.Min(CaretIndex, Text.Length));
-        var tempLayout = new TextLayout(substring, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-        return Padding.Left + tempLayout.MeasuredSize.X;
+        ShapingDirection direction = TextReadingOrder == Microsoft.UI.Xaml.TextReadingOrder.DetectFromContent
+            ? ShapingDirection.Unspecified
+            : FlowDirection == FlowDirection.RightToLeft
+                ? ShapingDirection.RightToLeft
+                : ShapingDirection.LeftToRight;
+        return TextShapingOptions.Default.WithDirection(direction);
     }
 
-    private float GetXForIndex(int idx)
+    private ProGPU.Text.TextAlignment GetEffectiveLayoutAlignment()
     {
-        if (Font == null || idx <= 0 || string.IsNullOrEmpty(Text)) return Padding.Left;
-        int clampedIdx = Math.Clamp(idx, 0, Text.Length);
-        string substring = Text.Substring(0, clampedIdx);
-        var tempLayout = new TextLayout(substring, Font, FontSize, float.PositiveInfinity, TextAlignment.Left, null);
-        return Padding.Left + tempLayout.MeasuredSize.X;
+        Microsoft.UI.Xaml.TextAlignment alignment = TextAlignment;
+        if (!IsPropertySetLocally(TextAlignmentProperty) &&
+            !IsPropertySetInStyle(TextAlignmentProperty) &&
+            FlowDirection == FlowDirection.RightToLeft)
+        {
+            alignment = Microsoft.UI.Xaml.TextAlignment.Right;
+        }
+        if (alignment == Microsoft.UI.Xaml.TextAlignment.DetectFromContent && !string.IsNullOrEmpty(Text))
+        {
+            BidiParagraph paragraph = BidiParagraph.Resolve(Text, ShapingDirection.Unspecified);
+            alignment = paragraph.ParagraphLevel == 0
+                ? Microsoft.UI.Xaml.TextAlignment.Left
+                : Microsoft.UI.Xaml.TextAlignment.Right;
+        }
+        return alignment switch
+        {
+            Microsoft.UI.Xaml.TextAlignment.Center => ProGPU.Text.TextAlignment.Center,
+            Microsoft.UI.Xaml.TextAlignment.Right => ProGPU.Text.TextAlignment.Right,
+            Microsoft.UI.Xaml.TextAlignment.Justify => ProGPU.Text.TextAlignment.Justify,
+            _ => ProGPU.Text.TextAlignment.Left
+        };
+    }
+
+    private TextLayout? GetTextLayout()
+    {
+        TtfFont? font = Font;
+        if (font == null || string.IsNullOrEmpty(Text)) return null;
+        float width = Math.Max(0f, Size.X - Padding.Horizontal);
+        if (_textLayout == null || Math.Abs(_textLayoutWidth - width) > 0.01f)
+        {
+            _textLayout = new TextLayout(Text, font, FontSize, width, GetEffectiveLayoutAlignment(), null, GetEffectiveShapingOptions());
+            _textLayoutWidth = width;
+        }
+        return _textLayout;
+    }
+
+    private float GetTextY() => (Size.Y - FontSize) / 2f;
+
+    private TextCaretStop GetCaretStop()
+    {
+        TextLayout? layout = GetTextLayout();
+        return layout?.GetCaretStop(CaretIndex, _caretTrailingAffinity) ??
+               new TextCaretStop(0, false, Vector2.Zero, FontSize, 0);
+    }
+
+    private float GetCaretX() => Padding.Left + GetCaretStop().Position.X;
+
+    private int HitTestTextPosition(Vector2 controlPoint, out bool trailingAffinity)
+    {
+        TextLayout? layout = GetTextLayout();
+        if (layout == null)
+        {
+            trailingAffinity = false;
+            return 0;
+        }
+        Vector2 visualPoint = InputSystem.GetVisualLocalPosition(this, controlPoint);
+        TextHitTestResult hit = layout.HitTestPoint(new Vector2(visualPoint.X - Padding.Left, visualPoint.Y - GetTextY()));
+        trailingAffinity = hit.IsTrailingHit;
+        return hit.TextPosition;
     }
 
     public override void OnRender(DrawingContext context)
@@ -758,7 +976,7 @@ public class TextBox : Control, ITextInputClient
         }
 
         // 2. Draw text
-        float textY = (Size.Y - FontSize) / 2f;
+        float textY = GetTextY();
         if (Font != null)
         {
             Rect textClip = new Rect(Padding.Left, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y);
@@ -769,10 +987,19 @@ public class TextBox : Control, ITextInputClient
             int selEnd = Math.Max(SelectionStart, SelectionStart + SelectionLength);
             if (selEnd > selStart)
             {
-                float x1 = GetXForIndex(selStart);
-                float x2 = GetXForIndex(selEnd);
-                Rect selRect = new Rect(x1, textY - 1f, x2 - x1, FontSize + 2f);
-                context.DrawRectangle(ThemeManager.GetBrush("SelectionHighlight"), null, selRect);
+                TextLayout? layout = GetTextLayout();
+                if (layout != null)
+                {
+                    foreach (TextBounds bounds in layout.GetSelectionRectangles(selStart, selEnd - selStart))
+                    {
+                        var selectionRect = new Rect(
+                            Padding.Left + bounds.X,
+                            textY + bounds.Y,
+                            bounds.Width,
+                            bounds.Height);
+                        context.DrawRectangle(ThemeManager.GetBrush("SelectionHighlight"), null, selectionRect);
+                    }
+                }
             }
 
             if (string.IsNullOrEmpty(Text))
@@ -780,14 +1007,32 @@ public class TextBox : Control, ITextInputClient
                 // Draw placeholder
                 if (!string.IsNullOrEmpty(PlaceholderText))
                 {
-                    context.DrawText(PlaceholderText, Font, FontSize, ThemeManager.GetBrush("TextBoxForegroundDisabled"), new Vector2(Padding.Left, textY));
+                    context.DrawText(
+                        PlaceholderText,
+                        Font,
+                        FontSize,
+                        ThemeManager.GetBrush("TextBoxForegroundDisabled"),
+                        new Vector2(Padding.Left, textY),
+                        Matrix4x4.Identity,
+                        new Rect(0f, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y),
+                        textShapingOptions: GetEffectiveShapingOptions(),
+                        textAlignment: GetEffectiveLayoutAlignment());
                 }
             }
             else
             {
                 // Draw normal text
                 var fgBrush = GetCurrentForeground() ?? ThemeManager.GetBrush("TextBoxForeground");
-                context.DrawText(Text, Font, FontSize, fgBrush, new Vector2(Padding.Left, textY));
+                context.DrawText(
+                    Text,
+                    Font,
+                    FontSize,
+                    fgBrush,
+                    new Vector2(Padding.Left, textY),
+                    Matrix4x4.Identity,
+                    new Rect(0f, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y),
+                    textShapingOptions: GetEffectiveShapingOptions(),
+                    textAlignment: GetEffectiveLayoutAlignment());
             }
 
             // 3. Draw insertion caret

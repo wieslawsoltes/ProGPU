@@ -238,13 +238,13 @@ public static unsafe class MainWindowController
         headerGrid.AddChild(themeBtn);
         Microsoft.UI.Xaml.Controls.Grid.SetColumn(themeBtn, 3);
 
-        var subtitleText = new RichTextBlock 
-        { 
+        var subtitleText = new RichTextBlock
+        {
             Name = "GallerySubtitle",
-            Font = AppState._font, 
-            FontSize = 11f, 
+            Font = AppState._font,
+            FontSize = 11f,
             VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Right
+            TextAlignment = Microsoft.UI.Xaml.TextAlignment.Right
         };
         subtitleText.Inlines.Add(new Run(".NET 10 cross-platform high-performance engine showcase"));
         headerGrid.AddChild(subtitleText);
@@ -292,6 +292,7 @@ public static unsafe class MainWindowController
         var chartShowcaseItem = PageItem("GPU Charting", "📊", ChartShowcasePage.Create);
         var panelsItem = PageItem("Layout Panels", "🔲", LayoutPanelsPage.Create);
         var textItem = PageItem("Text & Documents", "📄", TextDocumentsPage.Create);
+        var richTextEditorItem = PageItem("Rich Document Editor", "✍️", RichTextEditorPage.Create);
         var markdownPlaygroundItem = PageItem("Markdown Playground", "📝", MarkdownPage.Create);
         var dataItem = PageItem("Data Virtualization", "📊", DataVirtualizationPage.Create);
         var virtualizationControlsItem = PageItem("Virtualization Controls", "🎛️", VirtualizationControlsPage.Create);
@@ -299,6 +300,7 @@ public static unsafe class MainWindowController
         var imageEffectsItem = PageItem("Image Effects", "🖼️", ImageEffectsPage.Create);
         var gdiShowcaseItem = PageItem("GDI Shim Showcase", "🎨", GdiShowcasePage.Create);
         var glyphRunShowcaseItem = PageItem("Glyph Run Showcase", "🔤", GlyphRunShowcasePage.Create);
+        var textShapingItem = PageItem("Text Shaping Lab", "ﬃ", TextShapingShowcasePage.Create);
         var wpfShowcaseItem = PageItem("WPF Shim Showcase", "📐", WpfShowcasePage.Create);
 
         var computeItem = PageItem("Compute FX", "⚙", ComputeFxPage.Create);
@@ -348,6 +350,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(pathOpsItem);
         AppState._navigationView.MenuItems.Add(fontGlyphBrowserItem);
         AppState._navigationView.MenuItems.Add(textItem);
+        AppState._navigationView.MenuItems.Add(richTextEditorItem);
         AppState._navigationView.MenuItems.Add(markdownPlaygroundItem);
         AppState._navigationView.MenuItems.Add(dataItem);
         AppState._navigationView.MenuItems.Add(virtualizationControlsItem);
@@ -355,6 +358,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(imageEffectsItem);
         AppState._navigationView.MenuItems.Add(gdiShowcaseItem);
         AppState._navigationView.MenuItems.Add(glyphRunShowcaseItem);
+        AppState._navigationView.MenuItems.Add(textShapingItem);
         AppState._navigationView.MenuItems.Add(wpfShowcaseItem);
         AppState._navigationView.MenuItems.Add(computeItem);
         AppState._navigationView.MenuItems.Add(motionAnimationsItem);
@@ -586,8 +590,8 @@ public static unsafe class MainWindowController
         if (InputSystem.FocusedElement != null)
         {
             var typeName = InputSystem.FocusedElement.GetType().Name;
-            AppState._activeFocusedName = string.IsNullOrEmpty(InputSystem.FocusedElement.Name) 
-                ? typeName 
+            AppState._activeFocusedName = string.IsNullOrEmpty(InputSystem.FocusedElement.Name)
+                ? typeName
                 : $"{typeName} ({InputSystem.FocusedElement.Name})";
         }
         else

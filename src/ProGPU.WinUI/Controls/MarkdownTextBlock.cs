@@ -20,6 +20,10 @@ namespace Microsoft.UI.Xaml.Controls
         private int _columnCount = 1;
         private float _columnGap = 24f;
         private TtfFont? _codeFont;
+        private RichDocument? _document;
+        private IRichDocumentImporter<string> _documentImporter = MarkdownDocumentImporter.Default;
+        private long _lastDocumentVersion = -1;
+        private bool _syncingTextAlignment;
 
         private readonly List<Block> _blocks = new();
         private readonly List<PositionedRichChar> _positionedChars = new();
@@ -27,6 +31,8 @@ namespace Microsoft.UI.Xaml.Controls
         private readonly List<PositionedRichChar> _measurementChars = new();
         private readonly List<TableVisualDecoration> _measurementDecorations = new();
         private readonly DrawingContext _renderCommandCache = new();
+        private readonly RichDocumentLayoutSession _layoutSession = new();
+        private readonly RichDocumentLayoutSession _measurementLayoutSession = new();
         
         private Hyperlink? _hoveredHyperlink = null;
         private bool _isLayoutDirty = true;
@@ -53,7 +59,133 @@ namespace Microsoft.UI.Xaml.Controls
             }
         }
 
+        /// <summary>
+        /// Optional pre-parsed document. When set, it takes precedence over <see cref="Markdown"/>
+        /// and is rendered by the same retained layout engine.
+        /// </summary>
+        public RichDocument? Document
+        {
+            get => _document;
+            set
+            {
+                if (ReferenceEquals(_document, value)) return;
+                if (_document is not null) _document.Changed -= OnDocumentChanged;
+                _document = value;
+                if (_document is not null) _document.Changed += OnDocumentChanged;
+                _lastDocumentVersion = -1;
+                _blocks.Clear();
+                Invalidate();
+            }
+        }
+
+        /// <summary>Typed parser adapter used for the <see cref="Markdown"/> source.</summary>
+        public IRichDocumentImporter<string> DocumentImporter
+        {
+            get => _documentImporter;
+            set
+            {
+                ArgumentNullException.ThrowIfNull(value);
+                if (ReferenceEquals(_documentImporter, value)) return;
+                _documentImporter = value;
+                _lastParsedMarkdown = string.Empty;
+                _blocks.Clear();
+                Invalidate();
+            }
+        }
+
+        private void OnDocumentChanged(object? sender, EventArgs e)
+        {
+            _lastDocumentVersion = -1;
+            _blocks.Clear();
+            Invalidate();
+        }
+
         public List<PositionedRichChar> PositionedChars => _positionedChars;
+        public RichDocumentLayoutSession LayoutSession => _layoutSession;
+
+        public static readonly DependencyProperty TextAlignmentProperty =
+            DependencyProperty.Register(
+                nameof(TextAlignment),
+                typeof(TextAlignment),
+                typeof(MarkdownTextBlock),
+                new PropertyMetadata(TextAlignment.Left, static (d, e) => ((MarkdownTextBlock)d).OnTextAlignmentChanged(e))
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
+
+        public static readonly DependencyProperty HorizontalTextAlignmentProperty =
+            DependencyProperty.Register(
+                nameof(HorizontalTextAlignment),
+                typeof(TextAlignment),
+                typeof(MarkdownTextBlock),
+                new PropertyMetadata(TextAlignment.Left, static (d, e) => ((MarkdownTextBlock)d).OnHorizontalTextAlignmentChanged(e))
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
+
+        public static readonly DependencyProperty TextReadingOrderProperty =
+            DependencyProperty.Register(
+                nameof(TextReadingOrder),
+                typeof(TextReadingOrder),
+                typeof(MarkdownTextBlock),
+                new PropertyMetadata(TextReadingOrder.DetectFromContent, static (d, _) => ((MarkdownTextBlock)d).Invalidate())
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
+
+        public TextAlignment TextAlignment
+        {
+            get => (TextAlignment)(GetValue(TextAlignmentProperty) ?? TextAlignment.Left);
+            set => SetValue(TextAlignmentProperty, value);
+        }
+
+        public TextAlignment HorizontalTextAlignment
+        {
+            get => (TextAlignment)(GetValue(HorizontalTextAlignmentProperty) ?? TextAlignment.Left);
+            set => SetValue(HorizontalTextAlignmentProperty, value);
+        }
+
+        public TextReadingOrder TextReadingOrder
+        {
+            get => (TextReadingOrder)(GetValue(TextReadingOrderProperty) ?? TextReadingOrder.DetectFromContent);
+            set => SetValue(TextReadingOrderProperty, value);
+        }
+
+        private void OnTextAlignmentChanged(DependencyPropertyChangedEventArgs args)
+        {
+            if (!_syncingTextAlignment)
+            {
+                _syncingTextAlignment = true;
+                SetValue(HorizontalTextAlignmentProperty, args.NewValue ?? TextAlignment.Left);
+                _syncingTextAlignment = false;
+            }
+            Invalidate();
+        }
+
+        private void OnHorizontalTextAlignmentChanged(DependencyPropertyChangedEventArgs args)
+        {
+            if (!_syncingTextAlignment)
+            {
+                _syncingTextAlignment = true;
+                SetValue(TextAlignmentProperty, args.NewValue ?? TextAlignment.Left);
+                _syncingTextAlignment = false;
+            }
+            Invalidate();
+        }
+
+        private TextAlignment ResolveEffectiveTextAlignment()
+        {
+            if (!IsPropertySetLocally(TextAlignmentProperty) &&
+                !IsPropertySetInStyle(TextAlignmentProperty) &&
+                FlowDirection == FlowDirection.RightToLeft)
+            {
+                return TextAlignment.Right;
+            }
+            return TextAlignment;
+        }
 
         public float FontSize
 
@@ -141,7 +273,7 @@ namespace Microsoft.UI.Xaml.Controls
         protected override void OnPropertyChanged(DependencyProperty dp, object? oldValue, object? newValue)
         {
             base.OnPropertyChanged(dp, oldValue, newValue);
-            if (dp == FontProperty)
+            if (dp == FontProperty || dp == FlowDirectionProperty)
             {
                 _lastParsedMarkdown = string.Empty;
                 _blocks.Clear();
@@ -152,6 +284,8 @@ namespace Microsoft.UI.Xaml.Controls
 
         protected override void OnThemeChanged()
         {
+            _layoutSession.Invalidate();
+            _measurementLayoutSession.Invalidate();
             _lastParsedMarkdown = string.Empty;
             _blocks.Clear();
             _isLayoutDirty = true;
@@ -161,6 +295,8 @@ namespace Microsoft.UI.Xaml.Controls
 
         public new void Invalidate()
         {
+            _layoutSession.Invalidate();
+            _measurementLayoutSession.Invalidate();
             _isLayoutDirty = true;
             _isRenderCommandCacheDirty = true;
             base.Invalidate();
@@ -172,7 +308,7 @@ namespace Microsoft.UI.Xaml.Controls
             base.OnPointerMoved(e);
             if (!IsEnabled) return;
 
-            var localPos = InputSystem.GetLocalPosition(this, e.ScreenPosition);
+            var localPos = InputSystem.GetPhysicalLocalPosition(this, e.ScreenPosition);
             Hyperlink? foundLink = null;
             var activeFont = GetActiveFont();
 
@@ -181,7 +317,9 @@ namespace Microsoft.UI.Xaml.Controls
                 if (pc.Info.SourceInline is Hyperlink hl && activeFont != null)
                 {
                     ushort gIdx = activeFont.GetGlyphIndex(pc.Info.Character);
-                    float advance = activeFont.GetAdvanceWidth(gIdx, pc.Info.FontSize);
+                    float advance = pc.HasShapedAdvance
+                        ? pc.ShapedAdvance
+                        : activeFont.GetAdvanceWidth(gIdx, pc.Info.FontSize);
                     Rect charRect = new Rect(pc.Position.X, pc.Position.Y, advance, pc.Info.FontSize);
                     if (charRect.Contains(localPos))
                     {
@@ -238,13 +376,17 @@ namespace Microsoft.UI.Xaml.Controls
                     activeFont, 
                     FontSize, 
                     Foreground, 
-                    TextAlignment.Left, 
+                    ResolveEffectiveTextAlignment(),
                     this.ActualTheme, 
                     _measurementChars,
                     _measurementDecorations,
                     this, 
                     (v) => {}, 
-                    (v) => {});
+                    (v) => {},
+                    TextWrapping.Wrap,
+                    TextReadingOrder,
+                    FlowDirection,
+                    _measurementLayoutSession);
 
                 if (ColumnCount > 1)
                 {
@@ -290,6 +432,18 @@ namespace Microsoft.UI.Xaml.Controls
 
         private void EnsureParsed()
         {
+            if (_document is not null)
+            {
+                if (_lastDocumentVersion != _document.Version)
+                {
+                    _blocks.Clear();
+                    _blocks.AddRange(_document.Blocks);
+                    _lastDocumentVersion = _document.Version;
+                    _isLayoutDirty = true;
+                }
+                return;
+            }
+
             if (_markdown != _lastParsedMarkdown)
             {
                 _blocks.Clear();
@@ -301,8 +455,14 @@ namespace Microsoft.UI.Xaml.Controls
                     return;
                 }
                 var resolvedCodeFont = CodeFont ?? activeFont;
-                var parsedBlocks = MarkdownParser.Parse(_markdown, Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme), FontSize, activeFont, resolvedCodeFont, this.ActualTheme);
-                _blocks.AddRange(parsedBlocks);
+                var context = new RichDocumentImportContext(
+                    activeFont,
+                    resolvedCodeFont,
+                    FontSize,
+                    Foreground ?? ThemeManager.GetBrush("TextPrimary", this.ActualTheme),
+                    this.ActualTheme);
+                RichDocument parsed = DocumentImporter.Import(_markdown, context);
+                _blocks.AddRange(parsed.Blocks);
                 _lastParsedMarkdown = _markdown;
                 _isLayoutDirty = true;
             }
@@ -355,13 +515,17 @@ namespace Microsoft.UI.Xaml.Controls
                     activeFont, 
                     FontSize, 
                     Foreground, 
-                    TextAlignment.Left, 
+                    ResolveEffectiveTextAlignment(),
                     this.ActualTheme, 
                     _positionedChars, 
                     _tableDecorations, 
                     this, 
                     AddChild, 
-                    RemoveChild);
+                    RemoveChild,
+                    TextWrapping.Wrap,
+                    TextReadingOrder,
+                    FlowDirection,
+                    _layoutSession);
             }
             else
             {
@@ -382,7 +546,10 @@ namespace Microsoft.UI.Xaml.Controls
                     _tableDecorations,
                     this,
                     AddChild,
-                    RemoveChild);
+                    RemoveChild,
+                    TextReadingOrder,
+                    FlowDirection,
+                    ResolveEffectiveTextAlignment());
             }
 
             _lastLayoutWidth = width;
@@ -398,7 +565,7 @@ namespace Microsoft.UI.Xaml.Controls
             PerformEngineLayout(Size.X, Size.Y);
             if (_lastScrollY != previousLayoutScrollY)
             {
-                Invalidate();
+                base.Invalidate();
             }
         }
 
@@ -440,6 +607,7 @@ namespace Microsoft.UI.Xaml.Controls
                     activeFont,
                     -1,
                     0,
+                    null,
                     _hoveredHyperlink);
                 _cachedHoveredHyperlink = _hoveredHyperlink;
                 _isRenderCommandCacheDirty = false;

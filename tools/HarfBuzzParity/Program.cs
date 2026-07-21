@@ -67,7 +67,8 @@ internal static class HarfBuzzParityProgram
               dotnet run --project tools/HarfBuzzParity -- suite \
                 --harfbuzz-root PATH [--hb-shape PATH] [--filter GLOB-TEXT] \
                 [--skip-cases N] [--max-cases N] [--report PATH] \
-                [--backend cpu|gpu|both] [--max-failure-details N] [--progress-every N]
+                [--backend cpu|gpu|both] [--verify] \
+                [--max-failure-details N] [--progress-every N]
 
             The HarfBuzz root must contain test/shape/data/in-house. Unsupported
             OpenType behavior is reported separately and still makes the command fail.
@@ -102,6 +103,7 @@ internal sealed record SuiteOptions(
     int? MaxCases,
     string? ReportPath,
     ShapingBackend Backend,
+    bool Verify,
     int MaxFailureDetails,
     int ProgressEvery)
 {
@@ -114,6 +116,7 @@ internal sealed record SuiteOptions(
         int? maxCases = null;
         string? report = null;
         ShapingBackend backend = ShapingBackend.Cpu;
+        bool verify = false;
         int maxDetails = 25;
         int progressEvery = 250;
 
@@ -144,6 +147,7 @@ internal sealed record SuiteOptions(
                     "both" => ShapingBackend.Both,
                     var value => throw new ArgumentException($"Unknown shaping backend '{value}'.")
                 }; break;
+                case "--verify": verify = true; break;
                 case "--max-failure-details": maxDetails = ParseNonNegative(Value(), option); break;
                 case "--progress-every": progressEvery = ParsePositive(Value(), option); break;
                 default: throw new ArgumentException($"Unknown option '{option}'.");
@@ -156,7 +160,7 @@ internal sealed record SuiteOptions(
         }
 
         return new SuiteOptions(
-            Path.GetFullPath(root), hbShape, filter, skipCases, maxCases, report, backend, maxDetails, progressEvery);
+            Path.GetFullPath(root), hbShape, filter, skipCases, maxCases, report, backend, verify, maxDetails, progressEvery);
     }
 
     private static int ParsePositive(string value, string option) =>
@@ -311,6 +315,14 @@ internal sealed class SuiteRunner : IDisposable
         {
             return CaseResult.Unsupported(testCase, string.Join(", ", configuration.UnsupportedReasons));
         }
+        if ((_options.Backend & ShapingBackend.Gpu) != 0 && configuration.HasItemContext)
+        {
+            return CaseResult.Unsupported(testCase, "gpu-item-context");
+        }
+        if ((_options.Backend & ShapingBackend.Gpu) != 0 && configuration.HasGlyphFlagRequest)
+        {
+            return CaseResult.Unsupported(testCase, "gpu-glyph-flags");
+        }
         if (string.Equals(Path.GetExtension(testCase.FontPath), ".dfont", StringComparison.OrdinalIgnoreCase))
         {
             return CaseResult.Unsupported(testCase, "font-container:dfont");
@@ -351,12 +363,12 @@ internal sealed class SuiteRunner : IDisposable
         }
     }
 
-    private static IReadOnlyList<ShapedGlyph> ShapeCpu(
+    private IReadOnlyList<ShapedGlyph> ShapeCpu(
         TestCase testCase,
         CaseConfiguration configuration,
         TtfFont font)
     {
-        if (configuration.ClusterLevel is not ShapingClusterLevel clusterLevel)
+        if (configuration.ClusterLevel is null && !configuration.RequiresContractShape && !_options.Verify)
         {
             return OpenTypeTextShaper.Shape(
                 testCase.Text,
@@ -366,7 +378,12 @@ internal sealed class SuiteRunner : IDisposable
         }
 
         using var buffer = new ShapingBuffer();
-        ShapingRequest request = CreateRequest(testCase, configuration, clusterLevel);
+        ShapingClusterLevel clusterLevel = configuration.ClusterLevel ?? ShapingClusterLevel.MonotoneGraphemes;
+        ShapingRequest request = CreateRequest(
+            testCase,
+            configuration,
+            clusterLevel,
+            _options.Verify ? ShapingBufferFlags.Verify : ShapingBufferFlags.None);
         CpuOpenTypeShaper.Instance.Shape(testCase.Text, new TtfShapingFontFace(font), request, buffer);
         return Convert(
             buffer,
@@ -504,7 +521,8 @@ internal sealed class SuiteRunner : IDisposable
     private static ShapingRequest CreateRequest(
         TestCase testCase,
         CaseConfiguration configuration,
-        ShapingClusterLevel clusterLevel)
+        ShapingClusterLevel clusterLevel,
+        ShapingBufferFlags additionalFlags = ShapingBufferFlags.None)
     {
         ShapingDirection direction = configuration.Direction == ShapingDirection.Unspecified
             ? InferDirection(testCase.Text)
@@ -512,9 +530,51 @@ internal sealed class SuiteRunner : IDisposable
         OpenTypeTag script = configuration.Script is { Length: 4 } scriptTag
             ? new OpenTypeTag(scriptTag)
             : InferScript(testCase.Text);
-        ShapingFeature[] features = configuration.Features.Select(static feature =>
-            new ShapingFeature(new OpenTypeTag(feature.Tag), checked((uint)Math.Max(feature.Value, 0)))).ToArray();
-        return new ShapingRequest(direction, script, configuration.Language, clusterLevel, features: features);
+        var features = new List<ShapingFeature>(
+            configuration.Features.Count + configuration.RangedFeatures.Count);
+        features.AddRange(configuration.Features.Select(static feature =>
+            new ShapingFeature(new OpenTypeTag(feature.Tag), checked((uint)Math.Max(feature.Value, 0)))));
+        foreach (CorpusRangedFeature feature in configuration.RangedFeatures)
+        {
+            uint start = ScalarIndexToUtf16Offset(testCase.Text, feature.Start, endInclusive: false);
+            uint end = feature.EndInclusive == int.MaxValue
+                ? uint.MaxValue
+                : ScalarIndexToUtf16Offset(testCase.Text, feature.EndInclusive, endInclusive: true);
+            features.Add(new ShapingFeature(
+                new OpenTypeTag(feature.Tag),
+                checked((uint)Math.Max(feature.Value, 0)),
+                start,
+                end));
+        }
+        return new ShapingRequest(
+            direction,
+            script,
+            configuration.Language,
+            clusterLevel,
+            configuration.BufferFlags | additionalFlags,
+            features.ToArray(),
+            configuration.PreContext.AsMemory(),
+            configuration.PostContext.AsMemory());
+    }
+
+    private static uint ScalarIndexToUtf16Offset(string text, int scalarIndex, bool endInclusive)
+    {
+        int scalarCount = 0;
+        foreach (Rune _ in text.EnumerateRunes()) scalarCount++;
+        int target = scalarIndex < 0 ? scalarCount + scalarIndex : scalarIndex;
+        if (endInclusive) target++;
+        target = Math.Clamp(target, 0, scalarCount);
+        if (target == scalarCount) return checked((uint)text.Length);
+
+        int scalar = 0;
+        int utf16 = 0;
+        while (scalar < target)
+        {
+            Rune.DecodeFromUtf16(text.AsSpan(utf16), out _, out int consumed);
+            utf16 += Math.Max(consumed, 1);
+            scalar++;
+        }
+        return checked((uint)utf16);
     }
 
     private static OpenTypeTag InferScript(string text)
@@ -557,7 +617,7 @@ internal sealed class SuiteRunner : IDisposable
             }
             return new ShapedGlyph(
                 checked((ushort)glyph.GlyphId), glyph.Cluster, glyph.CodePoint,
-                glyph.AdvanceX * scale, advanceY, offsetX, offsetY);
+                glyph.AdvanceX * scale, advanceY, offsetX, offsetY, glyph.Flags);
         }).ToArray();
     }
 
@@ -726,6 +786,10 @@ internal sealed class SuiteRunner : IDisposable
                        $"expected [{string.Join('|', expected.Select(static glyph => $"{glyph.Glyph}:{glyph.AdvanceX},{glyph.AdvanceY},{glyph.OffsetX},{glyph.OffsetY}"))}], " +
                        $"actual [{string.Join('|', actual.Select(static glyph => $"{glyph.GlyphIndex}/{glyph.CodePoint:X}:{Round(glyph.AdvanceX)},{Round(-glyph.AdvanceY)},{Round(glyph.OffsetX)},{Round(-glyph.OffsetY)}"))}]";
             }
+            if (configuration.ShowFlags && left.Flags != (uint)right.Flags)
+            {
+                return $"glyph[{index}] flags expected {left.Flags}, actual {(uint)right.Flags}";
+            }
         }
         return null;
     }
@@ -764,6 +828,7 @@ internal sealed class CaseConfiguration
     public string? NonOpenTypeReason { get; private set; }
     public List<string> UnsupportedReasons { get; } = [];
     public List<OpenTypeFeatureSetting> Features { get; } = [];
+    public List<CorpusRangedFeature> RangedFeatures { get; } = [];
     public List<FontVariationSetting> Variations { get; } = [];
     public string? Script { get; private set; }
     public string? Language { get; private set; }
@@ -774,6 +839,18 @@ internal sealed class CaseConfiguration
     public bool IgnoreAdvances { get; private set; }
     public bool IgnoreClusters { get; private set; }
     public ShapingClusterLevel? ClusterLevel { get; private set; }
+    public ShapingBufferFlags BufferFlags { get; private set; }
+    public string PreContext { get; private set; } = string.Empty;
+    public string PostContext { get; private set; } = string.Empty;
+    public bool HasItemContext =>
+        (BufferFlags & (ShapingBufferFlags.BeginningOfText | ShapingBufferFlags.EndOfText)) != 0 ||
+        PreContext.Length != 0 || PostContext.Length != 0;
+    public bool RequiresContractShape => BufferFlags != ShapingBufferFlags.None || RangedFeatures.Count != 0 ||
+        PreContext.Length != 0 || PostContext.Length != 0;
+    public bool HasGlyphFlagRequest =>
+        (BufferFlags & (ShapingBufferFlags.ProduceUnsafeToConcat |
+                        ShapingBufferFlags.ProduceSafeToInsertTatweel)) != 0 || ShowFlags;
+    public bool ShowFlags { get; private set; }
 
     public static CaseConfiguration Parse(string options)
     {
@@ -873,10 +950,25 @@ internal sealed class CaseConfiguration
                 continue;
             }
 
-            if (option is "--bot" or "--eot") AddUnsupported(result, "item-context-flags");
-            else if (option.Contains("default-ignorables", StringComparison.Ordinal)) AddUnsupported(result, "default-ignorables");
-            else if (option.StartsWith("--unicodes-before=", StringComparison.Ordinal) || option.StartsWith("--unicodes-after=", StringComparison.Ordinal)) AddUnsupported(result, "item-context");
-            else if (option is "--unsafe-to-concat" or "--safe-to-insert-tatweel" or "--show-flags") AddUnsupported(result, "glyph-flags");
+            if (option == "--bot") result.BufferFlags |= ShapingBufferFlags.BeginningOfText;
+            else if (option == "--eot") result.BufferFlags |= ShapingBufferFlags.EndOfText;
+            else if (TryValue(option, "--unicodes-before=", out string? before))
+            {
+                if (TryParseUnicodeSequence(before, out string decoded)) result.PreContext = decoded;
+                else AddUnsupported(result, "item-context");
+            }
+            else if (TryValue(option, "--unicodes-after=", out string? after))
+            {
+                if (TryParseUnicodeSequence(after, out string decoded)) result.PostContext = decoded;
+                else AddUnsupported(result, "item-context");
+            }
+            else if (option == "--preserve-default-ignorables")
+                result.BufferFlags |= ShapingBufferFlags.PreserveDefaultIgnorables;
+            else if (option == "--remove-default-ignorables")
+                result.BufferFlags |= ShapingBufferFlags.RemoveDefaultIgnorables;
+            else if (option == "--unsafe-to-concat") result.BufferFlags |= ShapingBufferFlags.ProduceUnsafeToConcat;
+            else if (option == "--safe-to-insert-tatweel") result.BufferFlags |= ShapingBufferFlags.ProduceSafeToInsertTatweel;
+            else if (option == "--show-flags") result.ShowFlags = true;
             else if (option is "--show-extents") AddUnsupported(result, "glyph-extents");
             else if (option.StartsWith("--font-ptem=", StringComparison.Ordinal)) AddUnsupported(result, "font-ptem");
             else if (option.StartsWith("--font-bold=", StringComparison.Ordinal)) AddUnsupported(result, "synthetic-bold");
@@ -908,15 +1000,30 @@ internal sealed class CaseConfiguration
         };
     }
 
+    private static bool TryParseUnicodeSequence(string value, out string decoded)
+    {
+        var text = new StringBuilder();
+        foreach (string rawCodePoint in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string scalar = rawCodePoint.StartsWith("U+", StringComparison.OrdinalIgnoreCase)
+                ? rawCodePoint[2..]
+                : rawCodePoint;
+            if (!int.TryParse(scalar, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int codePoint) ||
+                !Rune.IsValid(codePoint))
+            {
+                decoded = string.Empty;
+                return false;
+            }
+            text.Append(char.ConvertFromUtf32(codePoint));
+        }
+        decoded = text.ToString();
+        return true;
+    }
+
     private static void ParseFeatures(string value, CaseConfiguration result)
     {
         foreach (string token in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            if (token.Contains('['))
-            {
-                AddUnsupported(result, "feature-ranges");
-                continue;
-            }
             string setting = token;
             int enabled = 1;
             if (setting[0] == '-')
@@ -927,6 +1034,24 @@ internal sealed class CaseConfiguration
             else if (setting[0] == '+')
             {
                 setting = setting[1..];
+            }
+            int rangeStart = 0;
+            int rangeEndInclusive = int.MaxValue;
+            bool ranged = false;
+            int openBracket = setting.IndexOf('[');
+            if (openBracket >= 0)
+            {
+                int closeBracket = setting.IndexOf(']', openBracket + 1);
+                if (closeBracket < 0 || !TryParseFeatureRange(
+                        setting.AsSpan(openBracket + 1, closeBracket - openBracket - 1),
+                        out rangeStart,
+                        out rangeEndInclusive))
+                {
+                    AddUnsupported(result, $"feature:{token}");
+                    continue;
+                }
+                setting = string.Concat(setting.AsSpan(0, openBracket), setting.AsSpan(closeBracket + 1));
+                ranged = true;
             }
             int equals = setting.IndexOf('=');
             if (equals >= 0)
@@ -943,8 +1068,36 @@ internal sealed class CaseConfiguration
                 AddUnsupported(result, $"feature:{token}");
                 continue;
             }
-            result.Features.Add(new OpenTypeFeatureSetting(setting, enabled));
+            if (ranged)
+                result.RangedFeatures.Add(new CorpusRangedFeature(setting, enabled, rangeStart, rangeEndInclusive));
+            else
+                result.Features.Add(new OpenTypeFeatureSetting(setting, enabled));
         }
+    }
+
+    private static bool TryParseFeatureRange(
+        ReadOnlySpan<char> value,
+        out int start,
+        out int endInclusive)
+    {
+        start = 0;
+        endInclusive = int.MaxValue;
+        int colon = value.IndexOf(':');
+        if (colon < 0)
+        {
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out start))
+                return false;
+            endInclusive = start;
+            return true;
+        }
+
+        ReadOnlySpan<char> startText = value[..colon];
+        ReadOnlySpan<char> endText = value[(colon + 1)..];
+        if (!startText.IsEmpty &&
+            !int.TryParse(startText, NumberStyles.Integer, CultureInfo.InvariantCulture, out start))
+            return false;
+        return endText.IsEmpty ||
+            int.TryParse(endText, NumberStyles.Integer, CultureInfo.InvariantCulture, out endInclusive);
     }
 
     private static void ParseVariations(string value, CaseConfiguration result)
@@ -980,6 +1133,12 @@ internal sealed class CaseConfiguration
         }
     }
 }
+
+internal readonly record struct CorpusRangedFeature(
+    string Tag,
+    int Value,
+    int Start,
+    int EndInclusive);
 
 internal sealed record TestCase(
     string TestFile,
@@ -1151,6 +1310,9 @@ internal sealed record ReferenceGlyph
 
     [System.Text.Json.Serialization.JsonPropertyName("ay")]
     public int AdvanceY { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("fl")]
+    public uint Flags { get; init; }
 }
 
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

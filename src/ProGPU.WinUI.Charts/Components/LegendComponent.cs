@@ -28,7 +28,7 @@ namespace ProGPU.WinUI.Charts.Components
                 string name = series.Name ?? $"Series {i}";
                 
                 // Measure series name text width
-                var layout = new TextLayout(name, defaultFont, 10f, float.PositiveInfinity, TextAlignment.Left, null);
+                var layout = new TextLayout(name, defaultFont, 10f, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
                 float itemW = 12f + 6f + layout.MeasuredSize.X + 20f; // Indicator (12px) + Gap (6px) + Text + Item Gap (20px)
                 itemWidths.Add(itemW);
                 totalWidth += itemW;

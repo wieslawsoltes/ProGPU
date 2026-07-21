@@ -566,6 +566,7 @@ public struct RenderCommand
     public bool IsBold;
     public bool IsItalic;
     public TextShapingOptions? TextShapingOptions;
+    public TextAlignment TextAlignment;
     public Vector2 FontTransform;
     public bool HasFontTransform;
     public float Rotation;
@@ -1146,7 +1147,8 @@ public class DrawingContext : IRenderDataProvider
         TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
         TextHintingMode textHintingMode = TextHintingMode.Auto,
         bool useVectorGlyphRendering = false,
-        TextShapingOptions? textShapingOptions = null)
+        TextShapingOptions? textShapingOptions = null,
+        TextAlignment textAlignment = TextAlignment.Left)
     {
         Commands.Add(new RenderCommand
         {
@@ -1162,7 +1164,8 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
-            TextShapingOptions = textShapingOptions
+            TextShapingOptions = textShapingOptions,
+            TextAlignment = textAlignment
         });
     }
 
@@ -1180,7 +1183,8 @@ public class DrawingContext : IRenderDataProvider
         TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
         TextHintingMode textHintingMode = TextHintingMode.Auto,
         bool useVectorGlyphRendering = false,
-        TextShapingOptions? textShapingOptions = null)
+        TextShapingOptions? textShapingOptions = null,
+        TextAlignment textAlignment = TextAlignment.Left)
     {
         Commands.Add(new RenderCommand
         {
@@ -1198,7 +1202,8 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
-            TextShapingOptions = textShapingOptions
+            TextShapingOptions = textShapingOptions,
+            TextAlignment = textAlignment
         });
     }
 
@@ -1215,7 +1220,8 @@ public class DrawingContext : IRenderDataProvider
         TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
         TextHintingMode textHintingMode = TextHintingMode.Auto,
         bool useVectorGlyphRendering = false,
-        TextShapingOptions? textShapingOptions = null)
+        TextShapingOptions? textShapingOptions = null,
+        TextAlignment textAlignment = TextAlignment.Left)
     {
         Commands.Add(new RenderCommand
         {
@@ -1232,7 +1238,8 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
-            TextShapingOptions = textShapingOptions
+            TextShapingOptions = textShapingOptions,
+            TextAlignment = textAlignment
         });
     }
 

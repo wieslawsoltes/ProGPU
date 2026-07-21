@@ -99,6 +99,15 @@ jobs:
               "--filter",
               "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
             )
+          } elseif ($IsLinux) {
+            # The shaping contract suite repeatedly initializes and dispatches GPU
+            # pipelines; under Mesa software execution it dominates this lane. The
+            # complete suite remains covered by the macOS hardware-GPU lane, while
+            # Linux keeps the remaining core tests and all headless render coverage.
+            $testArgs += @(
+              "--filter",
+              "FullyQualifiedName!~ShapingContractsTests"
+            )
           }
 
           dotnet @testArgs
@@ -180,6 +189,20 @@ jobs:
             }
           }
 
+  pack:
+    name: Pack shipping packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
       - name: Pack shipping packages
         shell: bash
         run: PROGPU_PACKAGE_VERSION=0.1.0-ci.${{ github.run_number }} ./eng/progpu-pack.sh
@@ -187,7 +210,7 @@ jobs:
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
-          name: progpu-packages-${{ matrix.rid }}
+          name: progpu-packages-linux-x64
           path: |
             artifacts/packages/Release/*.nupkg
             artifacts/packages/Release/*.snupkg

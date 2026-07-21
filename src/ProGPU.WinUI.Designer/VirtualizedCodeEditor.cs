@@ -741,12 +741,15 @@ public class VirtualizedCodeEditor : Control
         // Draw automatic code line numbering gutter
         var activeTheme = ActualTheme;
         var gutterBg = ThemeManager.GetBrush("CardBackground", activeTheme);
-        context.DrawRectangle(gutterBg, null, new Rect(0f, 0f, GutterWidth, Size.Y));
+        bool isRtl = FlowDirection == FlowDirection.RightToLeft;
+        float gutterX = isRtl ? Size.X - GutterWidth : 0f;
+        context.DrawRectangle(gutterBg, null, new Rect(gutterX, 0f, GutterWidth, Size.Y));
         
         // Draw thin vertical separator line
         var sepBrush = ThemeManager.GetBrush("ControlBorderBrush", activeTheme);
         var sepPen = new Pen(sepBrush, 1f);
-        context.DrawLine(sepPen, new Vector2(GutterWidth, 0f), new Vector2(GutterWidth, Size.Y));
+        float separatorX = isRtl ? Size.X - GutterWidth : GutterWidth;
+        context.DrawLine(sepPen, new Vector2(separatorX, 0f), new Vector2(separatorX, Size.Y));
         
         // Draw line numbers
         var lineNumBrush = ThemeManager.GetBrush("TextSecondary", activeTheme);
@@ -767,10 +770,12 @@ public class VirtualizedCodeEditor : Control
                 float posY = MathF.Round(i * _itemHeight - ScrollOffset);
                 string lineNumStr = (i + 1).ToString();
                 
-                var textLayout = new TextLayout(lineNumStr, numberFont, fontSize, float.PositiveInfinity, TextAlignment.Left, null);
+                var textLayout = new TextLayout(lineNumStr, numberFont, fontSize, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
                 float textW = textLayout.MeasuredSize.X;
                 
-                float posX = GutterWidth - textW - 8f;
+                float posX = isRtl
+                    ? separatorX + 8f
+                    : GutterWidth - textW - 8f;
                 context.DrawText(lineNumStr, numberFont, fontSize, lineNumBrush, new Vector2(posX, posY + textYOffset));
             }
         }
@@ -785,8 +790,9 @@ public class VirtualizedCodeEditor : Control
             float scrollableHeight = totalHeight - viewportHeight;
             float thumbY = (ScrollOffset / scrollableHeight) * (viewportHeight - thumbHeight);
 
-            Rect trackRect = new Rect(Size.X - scrollbarWidth - padding, 0f, scrollbarWidth, viewportHeight);
-            Rect thumbRect = new Rect(Size.X - scrollbarWidth - padding, thumbY, scrollbarWidth, thumbHeight);
+            float scrollbarX = isRtl ? padding : Size.X - scrollbarWidth - padding;
+            Rect trackRect = new Rect(scrollbarX, 0f, scrollbarWidth, viewportHeight);
+            Rect thumbRect = new Rect(scrollbarX, thumbY, scrollbarWidth, thumbHeight);
 
             var trackBg = ThemeManager.GetBrush("ControlBackground", activeTheme);
             context.DrawRectangle(trackBg, null, trackRect);

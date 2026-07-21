@@ -145,13 +145,15 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
+        Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);
         Assert.Contains("src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("$headlessArgs = @(", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~Test_TypographyScriptsPage_Renders", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName=ProGPU.Tests.Headless.SamplePagesTests.Test_TypographyScriptsPage_Renders", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @headlessArgs", workflow, StringComparison.Ordinal);
+        Assert.Contains("  pack:\n    name: Pack shipping packages", workflow, StringComparison.Ordinal);
         Assert.Contains("uses: actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
-        Assert.Contains("name: progpu-packages-${{ matrix.rid }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("name: progpu-packages-linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/packages/Release/*.snupkg", workflow, StringComparison.Ordinal);
         Assert.Contains("if-no-files-found: error", workflow, StringComparison.Ordinal);

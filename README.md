@@ -442,7 +442,7 @@ PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
 dotnet run --project src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release --no-build
 ```
 
-Set `PROGPU_SAMPLE_BENCHMARK_VSYNC=false` for uncapped throughput, or change the page to `Markdown Playground` or `DXF CAD Viewer` to verify static-scene reuse. The first measured static frame may populate the cache; subsequent frames should report hits unless the page intentionally animates or invalidates.
+Set `PROGPU_SAMPLE_BENCHMARK_VSYNC=false` for uncapped throughput, or change the page to `Markdown Playground`, `Text & Documents`, or `DXF CAD Viewer`. The `Text & Documents` scroll workload builds a 20,000-paragraph mixed-script `RichEditBox` and reports realized paragraphs and visible characters alongside frame, layout, compositor, allocation, and scene-cache metrics. The first measured static frame may populate the cache; subsequent frames should report hits unless the page intentionally animates or invalidates.
 
 Rendering quality remains part of the performance contract. The optimized text path retains the glyph index chosen during layout, hoists transform/raster invariants out of glyph loops, and skips color/bitmap table probes only when the parsed font has no such tables. Avalonia solid outline text records one retained glyph run instead of one path per glyph: shaped indices are retained, `Vector2` positions are converted once when the platform glyph run is created, and redraws reuse both arrays. Recording is O(1) with no glyph-count-dependent allocation; compositor compilation is O(G) for G glyphs. Gradient brushes and color/bitmap fonts keep their path or texture fallbacks.
 

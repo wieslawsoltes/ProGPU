@@ -23,6 +23,40 @@ namespace ProGPU.Samples;
 
 public static class TextDocumentsPage
 {
+        private static RichEditBox? _benchmarkEditor;
+        private static int _benchmarkPosition;
+        private static int _benchmarkDirection = 1;
+
+        internal static void AdvanceBenchmarkScroll(float step)
+        {
+            if (_benchmarkEditor is not { } editor || editor.Text.Length == 0) return;
+            int distance = Math.Max(1, (int)MathF.Round(step * 8f));
+            int next = _benchmarkPosition + _benchmarkDirection * distance;
+            if (next >= editor.Text.Length)
+            {
+                next = editor.Text.Length;
+                _benchmarkDirection = -1;
+            }
+            else if (next <= 0)
+            {
+                next = 0;
+                _benchmarkDirection = 1;
+            }
+            _benchmarkPosition = next;
+            editor.TextDocument.GetRange(next, next).ScrollIntoView(Microsoft.UI.Text.PointOptions.None);
+        }
+
+        internal static bool TryGetBenchmarkState(out int realizedParagraphs, out int visibleCharacters)
+        {
+            realizedParagraphs = _benchmarkEditor?.LayoutSession.RealizedBlockCount ?? 0;
+            visibleCharacters = 0;
+            if (_benchmarkEditor is not { } editor) return false;
+            var provider = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer
+                .CreatePeerForElement(editor) as Microsoft.UI.Xaml.Automation.Provider.ITextProvider;
+            visibleCharacters = provider?.GetVisibleRanges().Sum(static range => range.GetText().Length) ?? 0;
+            return realizedParagraphs > 0 && visibleCharacters > 0;
+        }
+
         public static FrameworkElement Create()
         {
             // Column 0: Interactive text typing editors
@@ -69,6 +103,17 @@ public static class TextDocumentsPage
             richEntry.Inlines.Add(new Run(", or "));
             richEntry.Inlines.Add(new Underline(new Run("Ctrl+U (Underline)")));
             richEntry.Inlines.Add(new Run(" to toggle style, or type over selection."));
+            _benchmarkEditor = richEntry;
+            _benchmarkPosition = 0;
+            _benchmarkDirection = 1;
+            if (string.Equals(
+                    SamplePerformanceBenchmark.RequestedPage,
+                    "Text & Documents",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                richEntry.Text = string.Join('\n', Enumerable.Range(0, 20_000).Select(static index =>
+                    $"Paragraph {index:D5}: Latin office affinity — العربية مرحبا — עברית שלום — हिन्दी नमस्ते — 日本語かなカナ"));
+            }
             leftStack.AddChild(richEntry);
     
             // Formatting & Actions Buttons row (Undo, Redo, Bold, Italic, Underline, Copy, Paste)
@@ -113,7 +158,7 @@ public static class TextDocumentsPage
     
             var pasteBtn = new Button { Width = 60f, Height = 28f, CornerRadius = 4f };
             pasteBtn.Content = new TextVisual { Text = "Paste", FontSize = 11f, Brush = new ThemeResourceBrush("ButtonForeground"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            pasteBtn.Click += (s, e) => richEntry.Paste();
+            pasteBtn.Click += (s, e) => richEntry.PasteFromClipboard();
     
             actionBtns2.AddChild(copyBtn);
             actionBtns2.AddChild(cutBtn);

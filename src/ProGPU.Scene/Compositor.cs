@@ -9377,7 +9377,7 @@ SceneStateUploadComplete:
                 font,
                 cmd.FontSize,
                 maxWidth,
-                TextAlignment.Left,
+                cmd.TextAlignment,
                 cmd.TextShapingOptions);
             if (!TryGetCachedTextLayout(key, out layout))
             {
@@ -9386,7 +9386,7 @@ SceneStateUploadComplete:
                     font,
                     cmd.FontSize,
                     maxWidth,
-                    TextAlignment.Left,
+                    cmd.TextAlignment,
                     cmd.TextShapingOptions);
                 AddCachedTextLayout(key, layout);
             }
