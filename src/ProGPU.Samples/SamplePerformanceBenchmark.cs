@@ -11,6 +11,8 @@ internal static class SamplePerformanceBenchmark
     private const string VSyncVariable = "PROGPU_SAMPLE_BENCHMARK_VSYNC";
     private const string ScrollVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL";
     private const string ScrollStepVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP";
+    private const string PreconditionPagesVariable = "PROGPU_SAMPLE_BENCHMARK_PRECONDITION_PAGES";
+    private const string PreconditionFramesVariable = "PROGPU_SAMPLE_BENCHMARK_PRECONDITION_FRAMES";
 
     private static readonly int s_warmupFrames = ReadPositiveInt(WarmupFramesVariable, 180);
     private static readonly int s_measureFrames = ReadPositiveInt(MeasureFramesVariable, 600);
@@ -19,11 +21,15 @@ internal static class SamplePerformanceBenchmark
     private static double s_deltaSeconds;
     private static double s_compileMilliseconds;
     private static double s_maxCompileMilliseconds;
+    private static int s_maxCompileFrame;
+    private static float s_maxCompileScrollOffset;
+    private static float s_maxCompileScrollExtent;
     private static int s_compileFramesOverBudget;
     private static double s_uploadMilliseconds;
     private static double s_renderMilliseconds;
     private static double s_compositorMilliseconds;
     private static double s_hostUpdateMilliseconds;
+    private static double s_maxHostUpdateMilliseconds;
     private static double s_layoutMilliseconds;
     private static double s_animationMilliseconds;
     private static double s_surfaceAcquireMilliseconds;
@@ -54,6 +60,11 @@ internal static class SamplePerformanceBenchmark
     private static int s_lastVisibleRichCharacters;
     private static readonly bool s_scrollWorkload = ReadOptionalBool(ScrollVariable) == true;
     private static readonly float s_scrollStep = ReadPositiveFloat(ScrollStepVariable, 40f);
+    private static readonly string[] s_preconditionPages = ReadPageList(PreconditionPagesVariable);
+    private static readonly int s_preconditionFrames = ReadPositiveInt(PreconditionFramesVariable, 180);
+    private static int s_preconditionPageIndex;
+    private static int s_preconditionFrame;
+    private static bool s_isPreconditioning;
 
     public static string? RequestedPage { get; } = ReadRequestedPage();
 
@@ -78,10 +89,18 @@ internal static class SamplePerformanceBenchmark
             }
         }
 
+        if (s_preconditionPages.Length != 0)
+        {
+            s_isPreconditioning = true;
+            SelectNavigationPage(s_preconditionPages[0]);
+        }
+
         Console.WriteLine(
             $"[SampleBenchmark] page={selectedPage} warmupFrames={s_warmupFrames}" +
             $" measureFrames={s_measureFrames} vsync={AppState._wgpuContext?.VSync}" +
-            $" scroll={s_scrollWorkload} scrollStep={s_scrollStep:F0}");
+            $" scroll={s_scrollWorkload} scrollStep={s_scrollStep:F0}" +
+            $" preconditionPages={string.Join(';', s_preconditionPages)}" +
+            $" preconditionFrames={s_preconditionFrames}");
     }
 
     public static void ObserveFrame(double deltaSeconds)
@@ -106,37 +125,45 @@ internal static class SamplePerformanceBenchmark
             s_workloadStarted = true;
         }
 
+        if (s_isPreconditioning)
+        {
+            AdvancePageScroll(s_preconditionPages[s_preconditionPageIndex]);
+            s_preconditionFrame++;
+            if (s_preconditionFrame >= s_preconditionFrames)
+            {
+                RecordPreconditionState(s_preconditionPages[s_preconditionPageIndex]);
+                s_preconditionFrame = 0;
+                s_preconditionPageIndex++;
+                if (s_preconditionPageIndex < s_preconditionPages.Length)
+                {
+                    SelectNavigationPage(s_preconditionPages[s_preconditionPageIndex]);
+                }
+                else
+                {
+                    s_isPreconditioning = false;
+                    SelectNavigationPage(RequestedPage!);
+                }
+            }
+            return;
+        }
+
         if (s_scrollWorkload)
         {
-            if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
+            AdvancePageScroll(RequestedPage);
+            if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase) &&
+                s_frame > s_warmupFrames && s_frame % 60 == 0)
             {
-                FontGlyphBrowserPage.AdvanceBenchmarkScroll(s_scrollStep);
-                if (s_frame > s_warmupFrames && s_frame % 60 == 0)
-                {
-                    RecordGlyphBrowserState();
-                }
+                RecordGlyphBrowserState();
             }
-            else if (string.Equals(RequestedPage, "Markdown Playground", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(RequestedPage, "Markdown Playground", StringComparison.OrdinalIgnoreCase) &&
+                     s_frame > s_warmupFrames && s_frame % 60 == 0)
             {
-                MarkdownPage.AdvanceBenchmarkScroll();
-                if (s_frame > s_warmupFrames && s_frame % 60 == 0)
-                {
-                    RecordMarkdownState();
-                }
+                RecordMarkdownState();
             }
-            else if (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(RequestedPage, "Text & Documents", StringComparison.OrdinalIgnoreCase) &&
+                     s_frame > s_warmupFrames && s_frame % 60 == 0)
             {
-                InterShowcasePage.AdvanceBenchmarkScroll(s_scrollStep);
-            }
-            else if (string.Equals(RequestedPage, "Data Virtualization", StringComparison.OrdinalIgnoreCase))
-            {
-                DataVirtualizationPage.AdvanceBenchmarkScroll(s_scrollStep);
-            }
-            else if (string.Equals(RequestedPage, "Text & Documents", StringComparison.OrdinalIgnoreCase))
-            {
-                TextDocumentsPage.AdvanceBenchmarkScroll(s_scrollStep);
-                if (s_frame > s_warmupFrames && s_frame % 60 == 0)
-                    RecordRichTextState();
+                RecordRichTextState();
             }
         }
 
@@ -170,7 +197,17 @@ internal static class SamplePerformanceBenchmark
         {
             var metrics = compositor.Metrics;
             s_compileMilliseconds += metrics.VisualTreeCompileTimeMs;
-            s_maxCompileMilliseconds = Math.Max(s_maxCompileMilliseconds, metrics.VisualTreeCompileTimeMs);
+            if (metrics.VisualTreeCompileTimeMs > s_maxCompileMilliseconds)
+            {
+                s_maxCompileMilliseconds = metrics.VisualTreeCompileTimeMs;
+                s_maxCompileFrame = s_frame - s_warmupFrames;
+                if (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
+                {
+                    InterShowcasePage.TryGetBenchmarkScrollState(
+                        out s_maxCompileScrollOffset,
+                        out s_maxCompileScrollExtent);
+                }
+            }
             if (metrics.VisualTreeCompileTimeMs > 16.667d)
             {
                 s_compileFramesOverBudget++;
@@ -253,6 +290,9 @@ internal static class SamplePerformanceBenchmark
             workloadDetails =
                 $" cachedTextLayouts={dataCompositor.CachedTextLayoutCount}" +
                 $" cachedTextLayoutGlyphs={dataCompositor.CachedTextLayoutGlyphCount}" +
+                $" glyphAtlasEntries={dataCompositor.Atlas.CachedGlyphCount}" +
+                $" glyphAtlasEvictionsTotal={dataCompositor.Atlas.EvictionCount}" +
+                $" glyphAtlasCapacityExceeded={dataCompositor.Atlas.CapacityExceeded}" +
                 $" glyphAtlasGenerationChanges={dataCompositor.Atlas.Generation - s_glyphAtlasGenerationAtStart}" +
                 $" glyphAtlasEvictions={dataCompositor.Atlas.EvictionCount - s_glyphAtlasEvictionsAtStart}" +
                 $" glyphAtlasClears={dataCompositor.Atlas.ClearCount - s_glyphAtlasClearsAtStart}";
@@ -273,11 +313,16 @@ internal static class SamplePerformanceBenchmark
             $" deltaFps={deltaFps:F2} wallFps={wallFps:F2}" +
             $" compileMs={s_compileMilliseconds / divisor:F4}" +
             $" maxCompileMs={s_maxCompileMilliseconds:F4}" +
+            $" maxCompileFrame={s_maxCompileFrame}" +
+            (string.Equals(RequestedPage, "Inter Typeface", StringComparison.OrdinalIgnoreCase)
+                ? $" maxCompileScroll={s_maxCompileScrollOffset:F0}/{s_maxCompileScrollExtent:F0}"
+                : string.Empty) +
             $" compileFramesOverBudget={s_compileFramesOverBudget}" +
             $" uploadMs={s_uploadMilliseconds / divisor:F4}" +
             $" renderMs={s_renderMilliseconds / divisor:F4}" +
             $" compositorMs={s_compositorMilliseconds / divisor:F4}" +
             $" hostUpdateMs={s_hostUpdateMilliseconds / divisor:F4}" +
+            $" maxHostUpdateMs={s_maxHostUpdateMilliseconds:F4}" +
             $" layoutMs={s_layoutMilliseconds / divisor:F4}" +
             $" animationMs={s_animationMilliseconds / divisor:F4}" +
             $" acquireMs={s_surfaceAcquireMilliseconds / divisor:F4}" +
@@ -288,7 +333,11 @@ internal static class SamplePerformanceBenchmark
             workloadDetails +
             $" draws={finalMetrics?.DrawCallsCount ?? 0}" +
             $" vectorVertices={finalMetrics?.VectorVerticesCount ?? 0}" +
-            $" textVertices={finalMetrics?.TextVerticesCount ?? 0}");
+            $" textVertices={finalMetrics?.TextVerticesCount ?? 0}" +
+            $" pathAtlasEntries={finalMetrics?.PathAtlasCachedCount ?? 0}" +
+            $" pathAtlasCpuCacheBytes={finalMetrics?.PathAtlasCpuCacheBytes ?? 0}" +
+            $" pathAtlasFillCacheEntries={AppState._screenCompositor?.PathAtlas.CachedFillPathCount ?? 0}" +
+            $" pathAtlasHitTestCacheEntries={AppState._screenCompositor?.PathAtlas.CachedHitTestPathCount ?? 0}");
 
         AppState._window?.Close();
     }
@@ -298,7 +347,52 @@ internal static class SamplePerformanceBenchmark
         if (RequestedPage is not null && !s_finished && s_frame > s_warmupFrames)
         {
             s_hostUpdateMilliseconds += elapsed.TotalMilliseconds;
+            s_maxHostUpdateMilliseconds = Math.Max(s_maxHostUpdateMilliseconds, elapsed.TotalMilliseconds);
         }
+    }
+
+    private static void AdvancePageScroll(string? page)
+    {
+        if (string.Equals(page, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
+            FontGlyphBrowserPage.AdvanceBenchmarkScroll(s_scrollStep);
+        else if (string.Equals(page, "Markdown Playground", StringComparison.OrdinalIgnoreCase))
+            MarkdownPage.AdvanceBenchmarkScroll();
+        else if (string.Equals(page, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
+            InterShowcasePage.AdvanceBenchmarkScroll(s_scrollStep);
+        else if (string.Equals(page, "Data Virtualization", StringComparison.OrdinalIgnoreCase))
+            DataVirtualizationPage.AdvanceBenchmarkScroll(s_scrollStep);
+        else if (string.Equals(page, "Text & Documents", StringComparison.OrdinalIgnoreCase))
+            TextDocumentsPage.AdvanceBenchmarkScroll(s_scrollStep);
+    }
+
+    private static void SelectNavigationPage(string page)
+    {
+        var navigationView = AppState._navigationView ??
+            throw new InvalidOperationException("Benchmark navigation is not initialized.");
+        foreach (var menuItem in navigationView.MenuItems)
+        {
+            if (string.Equals(menuItem.Text, page, StringComparison.OrdinalIgnoreCase))
+            {
+                navigationView.SelectedItem = menuItem;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"Benchmark navigation page '{page}' was not found.");
+    }
+
+    private static void RecordPreconditionState(string page)
+    {
+        var compositor = AppState._screenCompositor;
+        Console.WriteLine(
+            $"[SampleBenchmark] PRECONDITION page=\"{page}\" frames={s_preconditionFrames}" +
+            $" cachedTextLayouts={compositor?.CachedTextLayoutCount ?? 0}" +
+            $" cachedTextLayoutGlyphs={compositor?.CachedTextLayoutGlyphCount ?? 0}" +
+            $" glyphAtlasEntries={compositor?.Atlas.CachedGlyphCount ?? 0}" +
+            $" glyphAtlasGeneration={compositor?.Atlas.Generation ?? 0}" +
+            $" glyphAtlasEvictions={compositor?.Atlas.EvictionCount ?? 0}" +
+            $" glyphAtlasCapacityExceeded={compositor?.Atlas.CapacityExceeded ?? false}" +
+            $" pathAtlasEntries={compositor?.PathAtlas.CachedPathCount ?? 0}");
     }
 
     private static void RecordGlyphBrowserState()
@@ -358,6 +452,14 @@ internal static class SamplePerformanceBenchmark
     {
         string? value = Environment.GetEnvironmentVariable(PageVariable);
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string[] ReadPageList(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(value)
+            ? Array.Empty<string>()
+            : value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static int ReadPositiveInt(string name, int fallback)

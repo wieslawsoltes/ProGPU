@@ -151,6 +151,34 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public async Task DeferredTextVisualCanPublishBackgroundShaping()
+    {
+        var text = new TextVisual
+        {
+            Text = "Background retained shaping",
+            Font = LoadTestFont(),
+            FontSize = 18f,
+            WidthConstraint = 240f,
+            HeightConstraint = 48f,
+            DeferLayoutUntilRender = true
+        };
+
+        text.Measure(new Vector2(240f, 48f));
+        text.Arrange(new Rect(0f, 0f, 240f, 48f));
+
+        bool[] prepared = await Task.WhenAll(
+            Task.Run(text.WarmDeferredLayout),
+            Task.Run(text.WarmDeferredLayout));
+
+        Assert.All(prepared, Assert.True);
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        TextLayout? layout = text.GetOrUpdateLayout(atlas);
+        Assert.NotNull(layout);
+        Assert.Equal(text.Text, layout.Text);
+        Assert.Equal(240f, layout.MaxWidth);
+    }
+
+    [Fact]
     public void ClippedBoundsSkipOnlyLocalCommandsAndStillTraverseOverflowDescendants()
     {
         var visibleGrandchild = new RenderCounterVisual();
@@ -184,6 +212,26 @@ public sealed class SamplePerformanceRegressionTests
         Assert.True(command.PreferGlyphAtlas);
         Assert.False(command.UseLogicalGlyphAtlasResolution);
         Assert.DoesNotContain(context.Commands, static command => command.Type == RenderCommandType.DrawPath);
+    }
+
+    [Fact]
+    public void DrawTextUsesBoundedGlyphAtlasByDefault()
+    {
+        var font = LoadTestFont();
+        var context = new DrawingContext();
+
+        context.DrawText(
+            "Visible virtualized text",
+            font,
+            13f,
+            new SolidColorBrush(Vector4.One),
+            Vector2.Zero);
+
+        var command = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawText);
+        Assert.True(command.PreferGlyphAtlas);
+        Assert.False(command.UseVectorGlyphRendering);
     }
 
     [Fact]

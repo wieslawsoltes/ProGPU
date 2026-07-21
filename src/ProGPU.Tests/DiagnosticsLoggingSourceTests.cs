@@ -88,7 +88,7 @@ public class DiagnosticsLoggingSourceTests
 
         Assert.Contains("<ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<VersionPrefix Condition=\"'$(VersionPrefix)' == ''\">0.1.0</VersionPrefix>", directoryBuildProps, StringComparison.Ordinal);
-        Assert.Contains("<VersionSuffix Condition=\"'$(VersionSuffix)' == ''\">preview.21</VersionSuffix>", directoryBuildProps, StringComparison.Ordinal);
+        Assert.Contains("<VersionSuffix Condition=\"'$(VersionSuffix)' == ''\">preview.22</VersionSuffix>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<Version Condition=\"'$(Version)' == ''\">$(VersionPrefix)-$(VersionSuffix)</Version>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<PackageVersion Condition=\"'$(PackageVersion)' == ''\">$(Version)</PackageVersion>", directoryBuildProps, StringComparison.Ordinal);
         Assert.Contains("<AssemblyVersion Condition=\"'$(AssemblyVersion)' == ''\">0.1.0.0</AssemblyVersion>", directoryBuildProps, StringComparison.Ordinal);
@@ -128,6 +128,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("rid: linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("rid: osx-arm64", workflow, StringComparison.Ordinal);
         Assert.Contains("rid: win-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("- os: macos-26", workflow, StringComparison.Ordinal);
         Assert.Contains("Install Linux WebGPU dependencies", workflow, StringComparison.Ordinal);
         Assert.Contains("libvulkan1", workflow, StringComparison.Ordinal);
         Assert.Contains("mesa-vulkan-drivers", workflow, StringComparison.Ordinal);
@@ -144,6 +145,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("\"${{ matrix.rid }}\",", workflow, StringComparison.Ordinal);
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("$shapingArgs = $testArgs + @(", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);
         Assert.Contains("src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj", workflow, StringComparison.Ordinal);
@@ -175,7 +177,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("native_rid_root=\"${native_root}/runtimes/linux-x64/native\"", workflow, StringComparison.Ordinal);
         Assert.Contains("headless_native_root=\"${GITHUB_WORKSPACE}/src/ProGPU.Tests.Headless/bin/Release/net10.0/linux-x64\"", workflow, StringComparison.Ordinal);
         Assert.Contains("export LD_LIBRARY_PATH=\"${native_root}:${native_rid_root}:${headless_native_root}:${headless_native_rid_root}:${LD_LIBRARY_PATH:-}\"", workflow, StringComparison.Ordinal);
-        Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal --filter \"FullyQualifiedName!~ShapingContractsTests\"", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime linux-x64 --no-build --verbosity normal", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet nuget push artifacts/packages/Release/*.nupkg", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet nuget push artifacts/packages/Release/*.snupkg", workflow, StringComparison.Ordinal);

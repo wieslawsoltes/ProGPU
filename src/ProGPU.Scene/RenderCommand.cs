@@ -1164,6 +1164,7 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
+            PreferGlyphAtlas = true,
             TextShapingOptions = textShapingOptions,
             TextAlignment = textAlignment
         });
@@ -1202,6 +1203,7 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
+            PreferGlyphAtlas = true,
             TextShapingOptions = textShapingOptions,
             TextAlignment = textAlignment
         });
@@ -1238,6 +1240,7 @@ public class DrawingContext : IRenderDataProvider
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
             UseVectorGlyphRendering = useVectorGlyphRendering,
+            PreferGlyphAtlas = true,
             TextShapingOptions = textShapingOptions,
             TextAlignment = textAlignment
         });

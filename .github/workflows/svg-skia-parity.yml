@@ -35,7 +35,7 @@ env:
 jobs:
   image-parity:
     name: Native and ProGPU image parity
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:

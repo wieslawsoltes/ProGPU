@@ -1,3 +1,5 @@
+using ProGPU.Vector;
+
 namespace ProGPU.Scene;
 
 public sealed record CompositorOptions
@@ -7,6 +9,9 @@ public sealed record CompositorOptions
     public uint GlyphAtlasSize { get; init; } = 2048;
 
     public uint PathAtlasSize { get; init; } = 2048;
+
+    public long PathAtlasCpuCacheBudgetBytes { get; init; } =
+        PathAtlas.DefaultCompiledPathCacheBudgetBytes;
 
     public uint InitialVertexCount { get; init; } = 16384;
 
@@ -27,6 +32,10 @@ public sealed record CompositorOptions
         if (PathAtlasSize == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(PathAtlasSize));
+        }
+        if (PathAtlasCpuCacheBudgetBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PathAtlasCpuCacheBudgetBytes));
         }
         if (InitialVertexCount == 0)
         {

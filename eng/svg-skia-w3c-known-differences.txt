@@ -36,7 +36,6 @@ text-fonts-03-t
 text-fonts-04-t
 text-fonts-05-f
 text-intro-01-t
-text-intro-04-t
 text-intro-11-t
 text-text-01-b
 text-text-10-t

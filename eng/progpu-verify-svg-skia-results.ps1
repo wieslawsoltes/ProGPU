@@ -71,6 +71,6 @@ if ($difference.Count -ne 0) {
 }
 
 Assert-Counts $native 533 530 0 3 'Native W3C'
-Assert-Counts $progpu 533 484 46 3 'ProGPU W3C'
+Assert-Counts $progpu 533 485 45 3 'ProGPU W3C'
 
-Write-Host "Svg.Skia W3C parity inventory verified: native 530/533 with 3 skips; ProGPU 484/533 with 46 reviewed differences and 3 skips."
+Write-Host "Svg.Skia W3C parity inventory verified: native 530/533 with 3 skips; ProGPU 485/533 with 45 reviewed differences and 3 skips."

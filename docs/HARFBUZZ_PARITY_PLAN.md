@@ -90,13 +90,86 @@ an advertised safe boundary with adjusted BOT/EOT, context, and ranged features,
 and requires an exact reconstruction apart from glyph flags. The full pinned
 corpus with `--verify` retains 4,977 exact OpenType passes, zero output
 mismatches, and zero reconstruction failures; 15 unsupported, 106 non-OpenType,
-and 49 missing-system-font classifications remain. The WebGPU
-executor now preserves input flags and emits dependency flags for fractions,
-Arabic joining/tatweel boundaries, contextual and chained lookups, pair and
-legacy kerning, cursive/mark attachment, and fallback mark positioning. Exact
-native GPU regression comparisons cover those implemented paths. GPU item
-context, character-level grapheme-interior flagging, the remaining specialized
-script safety rules, and full-corpus GPU execution remain blocking parity gaps.
+and 49 missing-system-font classifications remain. The CPU executor preserves
+input flags and emits dependency flags for fractions, Arabic joining/tatweel
+boundaries, contextual and chained lookups, pair and legacy kerning,
+cursive/mark attachment, and fallback mark positioning. The WebGPU executor
+defers those dependency flags to a future bounded pass while native GPU
+regression comparisons continue to cover substitution, positioning, clustering,
+and output ordering. GPU dependency flags, item context, character-level
+grapheme-interior flagging, the remaining specialized script safety rules, and
+full-corpus GPU execution remain blocking parity gaps.
+
+## 2026-07-21 Metal contextual-pipeline compatibility review
+
+The macOS 15 and macOS 26 hosted Metal compilers intermittently rejected the
+contextual-substitution entry point after dependency flag propagation was added.
+The WGSL module and all other entry points validated, and successful Apple
+Silicon runs produced exact CPU/GPU output. A first private-span refactor passed
+one clean macOS 26 pull-request run but failed on the next clean `main` runner,
+showing that process isolation and call-site movement alone did not put the
+pipeline below the compiler edge. A second exact one-scan specialization for
+monotone clusters was also rejected by a clean macOS 26 runner. The release
+compatibility change therefore restores the last known Metal-compatible WGSL
+module and withdraws the unreleased GPU dependency-flag propagation;
+contextual substitution output and the authoritative CPU flag path are
+unchanged.
+
+Primary sources consulted for this review:
+
+- [HarfBuzz buffer API](https://harfbuzz.github.io/harfbuzz-hb-buffer.html)
+  defines unsafe-to-break, unsafe-to-concat, safe-to-insert-tatweel, and cluster
+  levels. These observable flags remain exact on the authoritative CPU shaping
+  path and are not made conservative to accommodate a compiler.
+- [DirectWrite `GetGlyphPlacements`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextanalyzer-getglyphplacements)
+  keeps cluster maps, glyph properties, advances, and offsets as reusable
+  shaping outputs; the ProGPU CPU reference and shared glyph contract remain
+  unchanged.
+- [Direct2D and DirectWrite text rendering](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
+  separates text services/layout from glyph rendering. ProGPU likewise keeps
+  this compiler workaround inside the optional GPU executor rather than in
+  layout or retained rendering.
+- [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/)
+  separates inspectable shaped results from rendering, and
+  [SkParagraph cache source](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/src/ParagraphCache.h)
+  demonstrates reusable paragraph inputs/results. No ProGPU shaping-plan or
+  layout-cache identity changes.
+- [WebRender rendering overview](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst)
+  separates retained display lists, visibility culling, glyph-atlas preparation,
+  and GPU submission. The change does not move safety semantics into raster or
+  scene code.
+- [Parley API](https://docs.rs/parley/latest/parley/) shares font/layout contexts
+  and retains layouts for repeated line breaking, while
+  [Vello](https://github.com/linebender/vello) applies GPU compute to rendering
+  behind a retained scene. ProGPU retains the same CPU-reference/GPU-executor
+  boundary and does not introduce a renderer dependency into shaping.
+
+Adopted: preserve HarfBuzz's matched-span flag semantics in the authoritative
+CPU executor and preserve the GPU executor's existing single-invocation,
+deterministic contextual substitution order, including the distinct OpenType
+format 1 glyph matcher and format 2 class matcher. Adapted: all GPU dependency
+safety flags return to the explicit parity backlog until they can be emitted by
+a separate bounded pass. Metal compiles the complete WGSL module, so leaving
+fraction, joining/tatweel, kerning, cursive/mark attachment, or fallback-mark
+span scans outside the contextual call graph still made the contextual pipeline
+unbuildable. Substitution, positioning, clustering, and output ordering remain
+GPU-validated; public safety flags remain exact on the CPU path. Rejected:
+skipping the contract suite across every hosted GPU backend, retrying an invalid
+pipeline, over-marking whole runs, silently falling back after partial GPU
+execution, or copying another engine's control flow. The complete 76-test GPU
+contract remains a required local hardware validation and source-contract tests
+guard the Metal-compatible module shape in CI. Hosted software D3D12 and Vulkan
+do not complete the compiler-heavy suite in a practical time; macOS 26 retains
+all other core and headless coverage while its Metal limitation is tracked.
+
+The broader cross-engine matrix in
+[`TEXT_SHAPING_SHOWCASE_RESEARCH.md`](TEXT_SHAPING_SHOWCASE_RESEARCH.md)
+remains unchanged: startup/lazy initialization, shaping and layout reuse,
+retained-scene culling, glyph/path/texture cache keys and eviction,
+demand-driven upload, worker preparation, DPI/subpixel/hinting, fallback fonts,
+variable-font state, and device-loss/atlas invalidation are unaffected. Only the
+optional GPU executor's dependency-flag implementation and compiler
+organization change.
 
 The first baseline command is:
 

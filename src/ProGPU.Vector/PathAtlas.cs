@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.WebGPU;
@@ -241,8 +242,9 @@ public unsafe class PathAtlas : IDisposable
     public const uint HighPrecisionCoverageSampleGrid = 8;
     public const uint DefaultSubpixelPhaseGrid = 64;
 
-    private const int MaxCompiledFillPathCount = 4096;
-    private const int MaxCompiledHitTestPathCount = 4096;
+    public const long DefaultCompiledPathCacheBudgetBytes = 8L * 1024L * 1024L;
+
+    private const int MaxCompiledPathCount = 4096;
     private const int RasterizationStorageOffsetAlignment = 256;
     private const int ExactRecoveryPathLimit = 10;
     private const int ExactRecoveryNodeBudget = 25_000;
@@ -251,6 +253,7 @@ public unsafe class PathAtlas : IDisposable
     private readonly WgpuContext _context;
     private readonly GpuTexture _atlasTexture;
     private readonly uint _atlasSize;
+    private readonly long _compiledPathCacheBudgetBytes;
 
     private uint _currentX = 2;
     private uint _currentY = 2;
@@ -279,8 +282,10 @@ public unsafe class PathAtlas : IDisposable
     }
 
     private readonly Dictionary<PathCacheKey, PathInfo> _paths = new();
-    private readonly Dictionary<int, CompiledPathData> _compiledFillPaths = new();
-    private readonly Dictionary<int, CompiledPathData> _compiledHitTestPaths = new();
+    private readonly Dictionary<int, CompiledPathCacheEntry> _compiledFillPaths = new();
+    private readonly Dictionary<int, CompiledPathCacheEntry> _compiledHitTestPaths = new();
+    private readonly LinkedList<CompiledPathCacheToken> _compiledPathCacheLru = new();
+    private long _compiledPathCacheBytes;
     private readonly List<GpuBuffer> _tempBuffers = new();
     private readonly List<PathInfo> _pendingPaths = new();
 
@@ -364,17 +369,29 @@ public unsafe class PathAtlas : IDisposable
     public GpuTexture AtlasTexture => _atlasTexture;
     public uint AtlasSize => _atlasSize;
     public int CachedPathCount => _paths.Count;
+    public int CachedFillPathCount => _compiledFillPaths.Count;
     public int CachedHitTestPathCount => _compiledHitTestPaths.Count;
+    public long CompiledPathCacheBytes => _compiledPathCacheBytes;
+    public long CompiledPathCacheBudgetBytes => _compiledPathCacheBudgetBytes;
     public ulong Generation { get; private set; }
     public bool CapacityExceeded { get; private set; }
     public int LastExactRecoveryNodeCount { get; private set; }
     public int LastExactRecoveryCandidateCount { get; private set; }
     public bool LastExactRecoveryBudgetExceeded { get; private set; }
 
-    public PathAtlas(WgpuContext context, uint atlasSize = 2048)
+    public PathAtlas(
+        WgpuContext context,
+        uint atlasSize = 2048,
+        long compiledPathCacheBudgetBytes = DefaultCompiledPathCacheBudgetBytes)
     {
+        if (compiledPathCacheBudgetBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(compiledPathCacheBudgetBytes));
+        }
+
         _context = context;
         _atlasSize = atlasSize;
+        _compiledPathCacheBudgetBytes = compiledPathCacheBudgetBytes;
 
         _atlasTexture = new GpuTexture(
             _context,
@@ -820,7 +837,10 @@ public unsafe class PathAtlas : IDisposable
         ArgumentNullException.ThrowIfNull(path);
 
         int contentHash = ComputeHash(path);
-        if (_compiledHitTestPaths.TryGetValue(contentHash, out var cached))
+        if (TryGetCachedCompiledPath(
+                _compiledHitTestPaths,
+                contentHash,
+                out var cached))
         {
             records = cached.Records;
             segments = cached.Segments;
@@ -845,18 +865,17 @@ public unsafe class PathAtlas : IDisposable
             localMaxY = 0f;
         }
 
-        if (_compiledHitTestPaths.Count >= MaxCompiledHitTestPathCount)
-        {
-            _compiledHitTestPaths.Clear();
-        }
-
-        _compiledHitTestPaths[contentHash] = new CompiledPathData(
-            records,
-            segments,
-            localMinX,
-            localMinY,
-            localMaxX,
-            localMaxY);
+        CacheCompiledPath(
+            _compiledHitTestPaths,
+            CompiledPathCacheKind.HitTest,
+            contentHash,
+            new CompiledPathData(
+                records,
+                segments,
+                localMinX,
+                localMinY,
+                localMaxX,
+                localMaxY));
         return segments.Length != 0;
     }
 
@@ -873,7 +892,10 @@ public unsafe class PathAtlas : IDisposable
         ArgumentNullException.ThrowIfNull(path);
 
         int contentHash = ComputeHash(path);
-        if (_compiledFillPaths.TryGetValue(contentHash, out var cached))
+        if (TryGetCachedCompiledPath(
+                _compiledFillPaths,
+                contentHash,
+                out var cached))
         {
             records = cached.Records;
             segments = cached.Segments;
@@ -903,20 +925,107 @@ public unsafe class PathAtlas : IDisposable
             localMaxY = 0f;
         }
 
-        if (_compiledFillPaths.Count >= MaxCompiledFillPathCount)
-        {
-            _compiledFillPaths.Clear();
-        }
-
-        _compiledFillPaths[contentHash] = new CompiledPathData(
-            records,
-            segments,
-            localMinX,
-            localMinY,
-            localMaxX,
-            localMaxY);
+        CacheCompiledPath(
+            _compiledFillPaths,
+            CompiledPathCacheKind.Fill,
+            contentHash,
+            new CompiledPathData(
+                records,
+                segments,
+                localMinX,
+                localMinY,
+                localMaxX,
+                localMaxY));
         return segments.Length != 0;
     }
+
+    private bool TryGetCachedCompiledPath(
+        Dictionary<int, CompiledPathCacheEntry> cache,
+        int contentHash,
+        out CompiledPathData data)
+    {
+        if (!cache.TryGetValue(contentHash, out CompiledPathCacheEntry? entry))
+        {
+            data = default;
+            return false;
+        }
+
+        _compiledPathCacheLru.Remove(entry.Node);
+        _compiledPathCacheLru.AddFirst(entry.Node);
+        data = entry.Data;
+        return true;
+    }
+
+    private void CacheCompiledPath(
+        Dictionary<int, CompiledPathCacheEntry> cache,
+        CompiledPathCacheKind kind,
+        int contentHash,
+        CompiledPathData data)
+    {
+        // Average lookup and recency updates are O(1). A miss evicts E entries
+        // in O(E), retains O(B) payload for byte budget B, and never keeps an
+        // oversize entry. This bounds complex emoji independently of path count.
+        long sizeBytes = EstimateCompiledPathBytes(data);
+        if (sizeBytes > _compiledPathCacheBudgetBytes)
+        {
+            return;
+        }
+
+        while (_compiledPathCacheBytes + sizeBytes > _compiledPathCacheBudgetBytes ||
+               _compiledPathCacheLru.Count >= MaxCompiledPathCount)
+        {
+            EvictLeastRecentlyUsedCompiledPath();
+        }
+
+        var node = new LinkedListNode<CompiledPathCacheToken>(
+            new CompiledPathCacheToken(kind, contentHash));
+        cache[contentHash] = new CompiledPathCacheEntry(data, sizeBytes, node);
+        _compiledPathCacheLru.AddFirst(node);
+        _compiledPathCacheBytes += sizeBytes;
+    }
+
+    private void EvictLeastRecentlyUsedCompiledPath()
+    {
+        LinkedListNode<CompiledPathCacheToken>? node = _compiledPathCacheLru.Last;
+        if (node == null)
+        {
+            return;
+        }
+
+        _compiledPathCacheLru.Remove(node);
+        CompiledPathCacheToken token = node.Value;
+        Dictionary<int, CompiledPathCacheEntry> cache = token.Kind == CompiledPathCacheKind.Fill
+            ? _compiledFillPaths
+            : _compiledHitTestPaths;
+        if (cache.Remove(token.ContentHash, out CompiledPathCacheEntry? entry))
+        {
+            _compiledPathCacheBytes -= entry.SizeBytes;
+        }
+    }
+
+    private static long EstimateCompiledPathBytes(CompiledPathData data)
+    {
+        const int arrayAndEntryOverhead = 128;
+        return checked(
+            (long)data.Records.Length * Unsafe.SizeOf<GpuPathRecord>() +
+            (long)data.Segments.Length * Unsafe.SizeOf<GpuPathSegment>() +
+            arrayAndEntryOverhead);
+    }
+
+    private enum CompiledPathCacheKind : byte
+    {
+        Fill,
+        HitTest
+    }
+
+    private readonly record struct CompiledPathCacheToken(
+        CompiledPathCacheKind Kind,
+        int ContentHash);
+
+    private sealed record CompiledPathCacheEntry(
+        CompiledPathData Data,
+        long SizeBytes,
+        LinkedListNode<CompiledPathCacheToken> Node);
 
     private readonly record struct CompiledPathData(
         GpuPathRecord[] Records,
@@ -2500,6 +2609,8 @@ public unsafe class PathAtlas : IDisposable
         _paths.Clear();
         _compiledFillPaths.Clear();
         _compiledHitTestPaths.Clear();
+        _compiledPathCacheLru.Clear();
+        _compiledPathCacheBytes = 0;
         _pendingPaths.Clear();
 
         _isDisposed = true;
