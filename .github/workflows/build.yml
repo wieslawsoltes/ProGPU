@@ -99,6 +99,24 @@ jobs:
               "--filter",
               "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
             )
+          } elseif ($IsMacOS) {
+            # Compile and dispatch the large OpenType shaping pipelines in a clean
+            # process. Keeping them separate prevents earlier WebGPU test contexts
+            # from exhausting transient Metal compiler state on hosted runners.
+            $shapingArgs = $testArgs + @(
+              "--filter",
+              "FullyQualifiedName~ShapingContractsTests"
+            )
+
+            dotnet @shapingArgs
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+
+            $testArgs += @(
+              "--filter",
+              "FullyQualifiedName!~ShapingContractsTests"
+            )
           } elseif ($IsLinux) {
             # The shaping contract suite repeatedly initializes and dispatches GPU
             # pipelines; under Mesa software execution it dominates this lane. The

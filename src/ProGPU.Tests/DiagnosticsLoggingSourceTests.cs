@@ -128,6 +128,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("rid: linux-x64", workflow, StringComparison.Ordinal);
         Assert.Contains("rid: osx-arm64", workflow, StringComparison.Ordinal);
         Assert.Contains("rid: win-x64", workflow, StringComparison.Ordinal);
+        Assert.Contains("- os: macos-26", workflow, StringComparison.Ordinal);
         Assert.Contains("Install Linux WebGPU dependencies", workflow, StringComparison.Ordinal);
         Assert.Contains("libvulkan1", workflow, StringComparison.Ordinal);
         Assert.Contains("mesa-vulkan-drivers", workflow, StringComparison.Ordinal);
@@ -144,6 +145,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("\"${{ matrix.rid }}\",", workflow, StringComparison.Ordinal);
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
         Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("$shapingArgs = $testArgs + @(", workflow, StringComparison.Ordinal);
+        Assert.Contains("FullyQualifiedName~ShapingContractsTests", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet @shapingArgs", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);
         Assert.Contains("src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj", workflow, StringComparison.Ordinal);
