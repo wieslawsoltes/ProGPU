@@ -16,6 +16,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using Button = Microsoft.UI.Xaml.Controls.Button;
 using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
 

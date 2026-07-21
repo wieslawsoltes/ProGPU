@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Text;
 using System;
 using System.Collections.Generic;

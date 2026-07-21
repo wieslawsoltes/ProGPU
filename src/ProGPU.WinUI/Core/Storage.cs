@@ -26,11 +26,15 @@ public class StorageFile
 
     public async Task<string> ReadTextAsync()
     {
+        if (StoragePlatformServices.ReadTextAsync is { } platformRead)
+            return await platformRead(Path).ConfigureAwait(false);
         return await File.ReadAllTextAsync(Path);
     }
 
     public async Task<byte[]> ReadBytesAsync()
     {
+        if (StoragePlatformServices.ReadBytesAsync is { } platformRead)
+            return await platformRead(Path).ConfigureAwait(false);
         return await File.ReadAllBytesAsync(Path);
     }
 
@@ -65,8 +69,14 @@ public class StorageFile
 public static class StoragePlatformServices
 {
     public static Func<int, IReadOnlyList<string>?, string?, Task<string?>>? PickPathAsync { get; set; }
+    public static Func<string, Task<string>>? ReadTextAsync { get; set; }
+    public static Func<string, Task<byte[]>>? ReadBytesAsync { get; set; }
     public static Func<string, string, Task<bool>>? WriteTextAsync { get; set; }
     public static Func<string, byte[], Task<bool>>? WriteBytesAsync { get; set; }
+    public static Func<string, Task<IReadOnlyList<string>>>? EnumerateFilesAsync { get; set; }
+    public static Func<string, Task<IReadOnlyList<string>>>? EnumerateFoldersAsync { get; set; }
+    public static Func<string, string, Task<string>>? CreateFileAsync { get; set; }
+    public static Func<string, string, Task<string>>? CreateFolderAsync { get; set; }
 }
 
 public class StorageFolder
@@ -79,8 +89,17 @@ public class StorageFolder
         Path = path;
     }
 
-    public Task<IReadOnlyList<StorageFile>> GetFilesAsync()
+    public async Task<IReadOnlyList<StorageFile>> GetFilesAsync()
     {
+        if (StoragePlatformServices.EnumerateFilesAsync is { } platformEnumerate)
+        {
+            IReadOnlyList<string> paths = await platformEnumerate(Path).ConfigureAwait(false);
+            var platformFiles = new List<StorageFile>(paths.Count);
+            foreach (string path in paths)
+                platformFiles.Add(new StorageFile(path));
+            return platformFiles;
+        }
+
         var files = new List<StorageFile>();
         if (Directory.Exists(Path))
         {
@@ -89,11 +108,20 @@ public class StorageFolder
                 files.Add(new StorageFile(file));
             }
         }
-        return Task.FromResult<IReadOnlyList<StorageFile>>(files);
+        return files;
     }
 
-    public Task<IReadOnlyList<StorageFolder>> GetFoldersAsync()
+    public async Task<IReadOnlyList<StorageFolder>> GetFoldersAsync()
     {
+        if (StoragePlatformServices.EnumerateFoldersAsync is { } platformEnumerate)
+        {
+            IReadOnlyList<string> paths = await platformEnumerate(Path).ConfigureAwait(false);
+            var platformFolders = new List<StorageFolder>(paths.Count);
+            foreach (string path in paths)
+                platformFolders.Add(new StorageFolder(path));
+            return platformFolders;
+        }
+
         var folders = new List<StorageFolder>();
         if (Directory.Exists(Path))
         {
@@ -102,14 +130,35 @@ public class StorageFolder
                 folders.Add(new StorageFolder(dir));
             }
         }
-        return Task.FromResult<IReadOnlyList<StorageFolder>>(folders);
+        return folders;
     }
 
     public async Task<StorageFile> CreateFileAsync(string desiredName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(desiredName);
+        if (StoragePlatformServices.CreateFileAsync is { } platformCreate)
+        {
+            string path = await platformCreate(Path, desiredName).ConfigureAwait(false);
+            return new StorageFile(path);
+        }
+
         var fullPath = System.IO.Path.Combine(Path, desiredName);
         await File.WriteAllTextAsync(fullPath, string.Empty);
         return new StorageFile(fullPath);
+    }
+
+    public async Task<StorageFolder> CreateFolderAsync(string desiredName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(desiredName);
+        if (StoragePlatformServices.CreateFolderAsync is { } platformCreate)
+        {
+            string path = await platformCreate(Path, desiredName).ConfigureAwait(false);
+            return new StorageFolder(path);
+        }
+
+        string fullPath = System.IO.Path.Combine(Path, desiredName);
+        Directory.CreateDirectory(fullPath);
+        return new StorageFolder(fullPath);
     }
 
     public static Task<StorageFolder> GetFolderFromPathAsync(string path)

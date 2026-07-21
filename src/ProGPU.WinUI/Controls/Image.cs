@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.IO;
 using System.Numerics;
@@ -13,14 +14,6 @@ using Silk.NET.WebGPU;
 using StbImageSharp;
 
 namespace Microsoft.UI.Xaml.Controls;
-
-public enum Stretch
-{
-    None,
-    Fill,
-    Uniform,
-    UniformToFill
-}
 
 /// <summary>
 /// Immutable encoded image payload. Decoding is cached on first render and GPU upload

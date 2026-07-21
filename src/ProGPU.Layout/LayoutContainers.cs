@@ -7,8 +7,8 @@ namespace Microsoft.UI.Xaml.Controls
 {
     public enum Orientation
     {
-        Horizontal,
-        Vertical
+        Vertical = 0,
+        Horizontal = 1
     }
 }
 

@@ -108,4 +108,81 @@ public sealed class StoragePickerPlatformServiceTests
             StoragePlatformServices.WriteBytesAsync = previousByteWriter;
         }
     }
+
+    [Fact]
+    public async Task StorageObjectsUseHostBackedReadEnumerationAndCreationWhenAvailable()
+    {
+        var previousTextReader = StoragePlatformServices.ReadTextAsync;
+        var previousByteReader = StoragePlatformServices.ReadBytesAsync;
+        var previousFileEnumerator = StoragePlatformServices.EnumerateFilesAsync;
+        var previousFolderEnumerator = StoragePlatformServices.EnumerateFoldersAsync;
+        var previousFileCreator = StoragePlatformServices.CreateFileAsync;
+        var previousFolderCreator = StoragePlatformServices.CreateFolderAsync;
+        var requests = new List<string>();
+        try
+        {
+            StoragePlatformServices.ReadTextAsync = path =>
+            {
+                requests.Add($"read-text:{path}");
+                return Task.FromResult("host text");
+            };
+            StoragePlatformServices.ReadBytesAsync = path =>
+            {
+                requests.Add($"read-bytes:{path}");
+                return Task.FromResult<byte[]>([4, 5, 6]);
+            };
+            StoragePlatformServices.EnumerateFilesAsync = path =>
+            {
+                requests.Add($"files:{path}");
+                return Task.FromResult<IReadOnlyList<string>>(["content://tree/root/document/one.txt"]);
+            };
+            StoragePlatformServices.EnumerateFoldersAsync = path =>
+            {
+                requests.Add($"folders:{path}");
+                return Task.FromResult<IReadOnlyList<string>>(["content://tree/root/document/child"]);
+            };
+            StoragePlatformServices.CreateFileAsync = (path, name) =>
+            {
+                requests.Add($"create-file:{path}:{name}");
+                return Task.FromResult($"{path}/document/{name}");
+            };
+            StoragePlatformServices.CreateFolderAsync = (path, name) =>
+            {
+                requests.Add($"create-folder:{path}:{name}");
+                return Task.FromResult($"{path}/tree/{name}");
+            };
+
+            const string filePath = "content://documents/document/source.txt";
+            var file = new StorageFile(filePath);
+            Assert.Equal("host text", await file.ReadTextAsync());
+            Assert.Equal([4, 5, 6], await file.ReadBytesAsync());
+
+            const string folderPath = "content://documents/tree/root";
+            var folder = new StorageFolder(folderPath);
+            Assert.Equal("one.txt", Assert.Single(await folder.GetFilesAsync()).Name);
+            Assert.Equal("child", Assert.Single(await folder.GetFoldersAsync()).Name);
+            Assert.Equal("created.txt", (await folder.CreateFileAsync("created.txt")).Name);
+            Assert.Equal("created", (await folder.CreateFolderAsync("created")).Name);
+
+            Assert.Equal(
+                [
+                    $"read-text:{filePath}",
+                    $"read-bytes:{filePath}",
+                    $"files:{folderPath}",
+                    $"folders:{folderPath}",
+                    $"create-file:{folderPath}:created.txt",
+                    $"create-folder:{folderPath}:created"
+                ],
+                requests);
+        }
+        finally
+        {
+            StoragePlatformServices.ReadTextAsync = previousTextReader;
+            StoragePlatformServices.ReadBytesAsync = previousByteReader;
+            StoragePlatformServices.EnumerateFilesAsync = previousFileEnumerator;
+            StoragePlatformServices.EnumerateFoldersAsync = previousFolderEnumerator;
+            StoragePlatformServices.CreateFileAsync = previousFileCreator;
+            StoragePlatformServices.CreateFolderAsync = previousFolderCreator;
+        }
+    }
 }

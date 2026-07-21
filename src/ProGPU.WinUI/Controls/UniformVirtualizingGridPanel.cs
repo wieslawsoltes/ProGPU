@@ -12,6 +12,11 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
     private int _itemsCount = 0;
     private float _itemWidth = 80f;
     private float _itemHeight = 80f;
+    private float _measuredItemWidth = 80f;
+    private float _measuredItemHeight = 80f;
+    private Orientation _orientation = Orientation.Horizontal;
+    private int _maximumRowsOrColumns = -1;
+    private float _cacheLength;
 
     public UniformVirtualizingGridPanel()
     {
@@ -80,9 +85,12 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
         get => _itemWidth;
         set
         {
+            if (!float.IsNaN(value) && (!float.IsFinite(value) || value <= 0f))
+                throw new ArgumentOutOfRangeException(nameof(value));
             if (_itemWidth != value)
             {
                 _itemWidth = value;
+                _measuredItemWidth = float.IsNaN(value) ? 80f : value;
                 UpdateViewport();
                 Invalidate();
             }
@@ -94,20 +102,76 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
         get => _itemHeight;
         set
         {
+            if (!float.IsNaN(value) && (!float.IsFinite(value) || value <= 0f))
+                throw new ArgumentOutOfRangeException(nameof(value));
             if (_itemHeight != value)
             {
                 _itemHeight = value;
+                _measuredItemHeight = float.IsNaN(value) ? 80f : value;
                 UpdateViewport();
                 Invalidate();
             }
         }
     }
 
-    public int ColumnsCount => Math.Max(1, (int)Math.Floor(Math.Max(1f, ViewportWidth) / ItemWidth));
-    
-    public int RowsCount => (int)Math.Ceiling((double)ItemsCount / ColumnsCount);
+    public Orientation Orientation
+    {
+        get => _orientation;
+        set
+        {
+            if (_orientation == value) return;
+            _orientation = value;
+            UpdateViewport();
+            InvalidateMeasure();
+            Invalidate();
+        }
+    }
 
-    public override float TotalVirtualHeight => RowsCount * ItemHeight;
+    public int MaximumRowsOrColumns
+    {
+        get => _maximumRowsOrColumns;
+        set
+        {
+            if (value == 0 || value < -1) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_maximumRowsOrColumns == value) return;
+            _maximumRowsOrColumns = value;
+            UpdateViewport();
+            InvalidateMeasure();
+        }
+    }
+
+    public float CacheLength
+    {
+        get => _cacheLength;
+        set
+        {
+            if (!float.IsFinite(value) || value < 0f) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_cacheLength == value) return;
+            _cacheLength = value;
+            UpdateViewport();
+        }
+    }
+
+    private float EffectiveItemWidth => float.IsNaN(_itemWidth) ? _measuredItemWidth : _itemWidth;
+    private float EffectiveItemHeight => float.IsNaN(_itemHeight) ? _measuredItemHeight : _itemHeight;
+
+    public int ColumnsCount => Orientation == Orientation.Horizontal
+        ? GetPrimaryCount(ViewportWidth, EffectiveItemWidth)
+        : (int)Math.Ceiling((double)ItemsCount / GetPrimaryCount(ViewportHeight, EffectiveItemHeight));
+
+    public int RowsCount => Orientation == Orientation.Vertical
+        ? GetPrimaryCount(ViewportHeight, EffectiveItemHeight)
+        : (int)Math.Ceiling((double)ItemsCount / GetPrimaryCount(ViewportWidth, EffectiveItemWidth));
+
+    public override float TotalVirtualHeight => Orientation == Orientation.Horizontal
+        ? RowsCount * EffectiveItemHeight
+        : Math.Max(ViewportHeight, RowsCount * EffectiveItemHeight);
+
+    public override float TotalVirtualWidth => Orientation == Orientation.Vertical
+        ? ColumnsCount * EffectiveItemWidth
+        : Math.Max(ViewportWidth, ColumnsCount * EffectiveItemWidth);
+
+    public override bool IsHorizontal => Orientation == Orientation.Vertical;
 
     protected override void OnScrollOffsetChanged(float newOffset)
     {
@@ -116,8 +180,12 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {
-        float width = float.IsInfinity(availableSize.X) ? 400f : availableSize.X;
-        float height = float.IsInfinity(availableSize.Y) ? TotalVirtualHeight : availableSize.Y;
+        float width = float.IsInfinity(availableSize.X)
+            ? Orientation == Orientation.Vertical ? TotalVirtualWidth : 400f
+            : availableSize.X;
+        float height = float.IsInfinity(availableSize.Y)
+            ? Orientation == Orientation.Horizontal ? TotalVirtualHeight : 400f
+            : availableSize.Y;
 
         // Perform active viewport computation during layout pass
         UpdateViewport();
@@ -150,18 +218,36 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
             return;
         }
 
-        int cols = ColumnsCount;
-        int rows = RowsCount;
+        if (float.IsNaN(_itemWidth) || float.IsNaN(_itemHeight))
+        {
+            Visual first = GetOrCreateVisual(0, createVisual, itemsControl, ownerBindVisual, directBindVisual);
+            if (first is LayoutNode firstNode)
+            {
+                firstNode.Measure(new Vector2(
+                    float.IsNaN(_itemWidth) ? float.PositiveInfinity : _itemWidth,
+                    float.IsNaN(_itemHeight) ? float.PositiveInfinity : _itemHeight));
+                if (float.IsNaN(_itemWidth)) _measuredItemWidth = Math.Max(1f, firstNode.DesiredSize.X);
+                if (float.IsNaN(_itemHeight)) _measuredItemHeight = Math.Max(1f, firstNode.DesiredSize.Y);
+            }
+        }
 
-        // 1. Calculate visible item range
-        int startRow = (int)Math.Floor(ScrollOffset / ItemHeight);
-        int endRow = (int)Math.Ceiling((ScrollOffset + viewportHeight) / ItemHeight);
+        float itemWidth = EffectiveItemWidth;
+        float itemHeight = EffectiveItemHeight;
+        int primaryCount = Orientation == Orientation.Horizontal
+            ? GetPrimaryCount(viewportWidth, itemWidth)
+            : GetPrimaryCount(viewportHeight, itemHeight);
+        int groupCount = (int)Math.Ceiling((double)itemsCount / primaryCount);
+        float viewportLength = Orientation == Orientation.Horizontal ? viewportHeight : viewportWidth;
+        float itemLength = Orientation == Orientation.Horizontal ? itemHeight : itemWidth;
+        float realizationPadding = viewportLength * CacheLength;
+        float realizationStart = Math.Max(0f, ScrollOffset - realizationPadding);
+        float realizationEnd = ScrollOffset + viewportLength + realizationPadding;
 
-        startRow = Math.Clamp(startRow, 0, rows - 1);
-        endRow = Math.Clamp(endRow, 0, rows - 1);
+        int startGroup = Math.Clamp((int)Math.Floor(realizationStart / itemLength), 0, groupCount - 1);
+        int endGroup = Math.Clamp((int)Math.Ceiling(realizationEnd / itemLength), 0, groupCount - 1);
 
-        int startIdx = startRow * cols;
-        int endIdx = Math.Min(itemsCount - 1, (endRow + 1) * cols - 1);
+        int startIdx = startGroup * primaryCount;
+        int endIdx = Math.Min(itemsCount - 1, (endGroup + 1) * primaryCount - 1);
 
         startIdx = Math.Clamp(startIdx, 0, itemsCount - 1);
         endIdx = Math.Clamp(endIdx, 0, itemsCount - 1);
@@ -189,51 +275,60 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
         // 3. Position and Bind newly visible items
         for (int i = startIdx; i <= endIdx; i++)
         {
-            int row = i / cols;
-            int col = i % cols;
-
-            if (!_activeVisuals.TryGetValue(i, out var visual))
-            {
-                // Grab from pool or allocate new
-                visual = _recycledVisuals.Count > 0 ? _recycledVisuals.Pop() : createVisual();
-                
-                // Bind dataset properties
-                if (itemsControl != null)
-                {
-                    var item = itemsControl.GetItemAt(i);
-                    if (item != null)
-                    {
-                        ownerBindVisual!(visual, item, i);
-                    }
-                }
-                else
-                {
-                    directBindVisual!(visual, i);
-                }
-                
-                _activeVisuals[i] = visual;
-                AddChild(visual);
-            }
+            int row = Orientation == Orientation.Horizontal ? i / primaryCount : i % primaryCount;
+            int col = Orientation == Orientation.Horizontal ? i % primaryCount : i / primaryCount;
+            Visual visual = GetOrCreateVisual(i, createVisual, itemsControl, ownerBindVisual, directBindVisual);
 
             // Calculate screen position relative to viewport
-            float posX = col * ItemWidth;
-            float posY = row * ItemHeight;
+            float posX = col * itemWidth;
+            float posY = row * itemHeight;
             if (ScrollViewerOwner == null)
             {
-                posY = MathF.Round(posY - ScrollOffset);
+                if (Orientation == Orientation.Horizontal) posY = MathF.Round(posY - ScrollOffset);
+                else posX = MathF.Round(posX - ScrollOffset);
             }
             
             // Position child visual node
             visual.Offset = new Vector2(posX, posY);
-            visual.Size = new Vector2(ItemWidth, ItemHeight);
+            visual.Size = new Vector2(itemWidth, itemHeight);
 
             // If child is a LayoutNode, arrange it!
             if (visual is LayoutNode childNode)
             {
-                childNode.Measure(new Vector2(ItemWidth, ItemHeight));
-                childNode.Arrange(new Rect(posX, posY, ItemWidth, ItemHeight));
+                childNode.Measure(new Vector2(itemWidth, itemHeight));
+                childNode.Arrange(new Rect(posX, posY, itemWidth, itemHeight));
             }
         }
+    }
+
+    private int GetPrimaryCount(float viewportLength, float itemLength)
+    {
+        if (MaximumRowsOrColumns > 0) return MaximumRowsOrColumns;
+        return Math.Max(1, (int)Math.Floor(Math.Max(1f, viewportLength) / itemLength));
+    }
+
+    private Visual GetOrCreateVisual(
+        int index,
+        Func<Visual> createVisual,
+        ItemsControl? itemsControl,
+        Action<Visual, object, int>? ownerBindVisual,
+        Action<Visual, int>? directBindVisual)
+    {
+        if (_activeVisuals.TryGetValue(index, out Visual? visual)) return visual;
+
+        visual = _recycledVisuals.Count > 0 ? _recycledVisuals.Pop() : createVisual();
+        if (itemsControl is not null)
+        {
+            object? item = itemsControl.GetItemAt(index);
+            if (item is not null) ownerBindVisual!(visual, item, index);
+        }
+        else
+        {
+            directBindVisual!(visual, index);
+        }
+        _activeVisuals[index] = visual;
+        AddChild(visual);
+        return visual;
     }
 
     private void ClearActiveToRecycler()
@@ -249,6 +344,8 @@ public class UniformVirtualizingGridPanel : VirtualizingPanel
     public override void ForceRebind()
     {
         ClearActiveToRecycler();
+        if (float.IsNaN(_itemWidth)) _measuredItemWidth = 80f;
+        if (float.IsNaN(_itemHeight)) _measuredItemHeight = 80f;
         base.ForceRebind();
     }
 

@@ -536,16 +536,26 @@ public class Window : DependencyObject
 
     public void ShutdownExternalRenderer()
     {
-        _compositor?.Dispose();
-        _compositor = null;
-        _wgpuContext = null;
-        _inputState = null;
+        SuspendExternalRenderer();
         _isExternalHostActive = false;
         NotifyHostVisibilityChanged(false);
         NotifyHostActivationChanged(WindowActivationState.Deactivated);
         WindowManager.Unregister(this);
         RaiseClosed();
         DetachWindowServices();
+    }
+
+    /// <summary>
+    /// Releases renderer-owned resources while preserving the WinUI window and its
+    /// application state. Mobile hosts use this when a native presentation surface is
+    /// temporarily destroyed and initialize a replacement renderer when it returns.
+    /// </summary>
+    public void SuspendExternalRenderer()
+    {
+        _compositor?.Dispose();
+        _compositor = null;
+        _wgpuContext = null;
+        _inputState = null;
     }
 
     /// <summary>
