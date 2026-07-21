@@ -22,6 +22,7 @@ public sealed class RichDocumentFormatRegistry
         registry.Register(MarkdownDocumentCodec.Default);
         registry.Register(RtfDocumentCodec.Default);
         registry.Register(HtmlDocumentCodec.Default);
+        registry.Register(WordDocumentCodec.Default);
         return registry;
     }
 

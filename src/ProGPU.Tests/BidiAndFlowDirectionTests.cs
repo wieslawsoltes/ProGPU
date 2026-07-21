@@ -11,6 +11,7 @@ using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.Text.Bidi;
 using ProGPU.Text.Shaping;
+using ProGPU.Vector;
 using Silk.NET.Input;
 using Xunit;
 
@@ -2684,6 +2685,79 @@ public class BidiAndFlowDirectionTests
     }
 
     [Fact]
+    public void RichEditBoxRealizesTheScrolledViewportAndHitTestsInDocumentCoordinates()
+    {
+        string[] paragraphs = Enumerable.Range(0, 2_000)
+            .Select(static index => $"paragraph {index:D4} selectable text")
+            .ToArray();
+        var editor = new RichEditBox
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 16f,
+            Text = string.Join('\n', paragraphs)
+        };
+        editor.Measure(new System.Numerics.Vector2(420f, 220f));
+        editor.Arrange(new Rect(0f, 0f, 420f, 220f));
+        var viewer = Assert.IsType<ScrollViewer>(typeof(RichEditBox)
+            .GetField("_scrollViewer", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(editor));
+        var presenter = Assert.IsType<RichTextBlock>(typeof(RichEditBox)
+            .GetField("_blockView", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(editor));
+        int initialMaximumPosition = presenter.PositionedChars.Max(static character => character.Info.TextPosition);
+        int target = editor.Text.IndexOf("paragraph 1900", StringComparison.Ordinal);
+
+        typeof(RichEditBox).GetMethod(
+            "ScrollDocumentPositionIntoView",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, [target]);
+        var visibleRange = ((int Start, int End))typeof(RichEditBox).GetMethod(
+            "GetVisibleDocumentRange",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, null)!;
+        int visibleStart = visibleRange.Start;
+        int visibleEnd = visibleRange.End;
+        Rect targetBounds = (Rect)typeof(RichEditBox).GetMethod(
+            "GetDocumentClientRangeBounds",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(
+                editor,
+                [target, target + "paragraph 1900".Length])!;
+        int hit = (int)typeof(RichEditBox).GetMethod(
+            "GetDocumentPositionFromPoint",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(
+                editor,
+                [new Windows.Foundation.Point(targetBounds.X + 2f, targetBounds.Y + targetBounds.Height * 0.5f), true])!;
+
+        Assert.True(viewer.ContentHeight > viewer.Size.Y);
+        Assert.True(viewer.VerticalOffset > 0f);
+        Assert.True(visibleStart > initialMaximumPosition);
+        Assert.InRange(target, visibleStart, visibleEnd);
+        Assert.InRange(targetBounds.Y, 0f, editor.Size.Y);
+        Assert.InRange(hit, target, target + "paragraph 1900".Length);
+        Assert.InRange(editor.LayoutSession.RealizedBlockCount, 1, 300);
+    }
+
+    [Fact]
+    public void RichEditBoxSelectionRectanglesPreserveMixedDirectionVisualRuns()
+    {
+        const string text = "Latin אבג Arabic مرحبا tail";
+        var editor = new RichEditBox
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 20f,
+            Text = text
+        };
+        editor.Measure(new System.Numerics.Vector2(520f, 100f));
+        editor.Arrange(new Rect(0f, 0f, 520f, 100f));
+
+        Rect[] rectangles = (Rect[])typeof(RichEditBox).GetMethod(
+            "GetDocumentClientRangeRectangles",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(editor, [0, text.Length])!;
+
+        Assert.True(rectangles.Length >= 3);
+        Assert.All(rectangles, static bounds => Assert.True(bounds.Width > 0f && bounds.Height > 0f));
+        Assert.Contains(rectangles, left => rectangles.Any(right => left.X > right.Right));
+    }
+
+    [Fact]
     public void RichEditorParagraphProjectionPreservesGlobalUtf16OffsetsAndBlankLines()
     {
         var editor = new RichEditBox
@@ -3312,6 +3386,104 @@ public class BidiAndFlowDirectionTests
         using var plainStream = new Windows.Storage.Streams.RandomAccessStream(plainBytes, leaveOpen: true);
         imported.TextDocument.GetRange(7, imported.Text.Length).GetTextViaStream(TextGetOptions.None, plainStream);
         Assert.Equal("אבג", System.Text.Encoding.UTF8.GetString(plainBytes.ToArray()));
+    }
+
+    [Fact]
+    public void WordDocumentCodecRoundTripsSharedRichDocumentStructureAndProducesAValidPackage()
+    {
+        var paragraph = new Paragraph(
+            new Bold(new Run("Bold ")),
+            new Italic(new Run("italic ")),
+            new Hyperlink(new Run("link")) { Uri = "https://example.com/document" })
+        {
+            TextAlignment = Microsoft.UI.Xaml.TextAlignment.Center,
+            FlowDirection = FlowDirection.RightToLeft,
+            LeftIndent = 18f,
+            SpaceBefore = 6f,
+            MarginBottom = 9f
+        };
+        var list = new ListBlock { IsOrdered = false, Indentation = 30f };
+        list.Items.Add(new ListItem(new Run("First bullet")));
+        list.Items.Add(new ListItem(new Run("Second bullet")));
+        var table = new Table(
+            new TableRow(new TableCell("A1") { ColumnSpan = 2 }, new TableCell("C1")),
+            new TableRow(new TableCell("A2"), new TableCell("B2"), new TableCell("C2")))
+        {
+            ColumnWidths = new System.Collections.Generic.List<float> { 80f, 90f, 100f },
+            CellPadding = 7f,
+            BorderThickness = 2f
+        };
+        var document = new RichDocument();
+        document.ReplaceBlocks([paragraph, list, table]);
+
+        byte[] bytes = WordDocumentCodec.Default.Export(document);
+
+        Assert.True(bytes.Length > 256);
+        Assert.Equal((byte)'P', bytes[0]);
+        Assert.Equal((byte)'K', bytes[1]);
+        using (var packageStream = new System.IO.MemoryStream(bytes, writable: false))
+        using (var package = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(packageStream, false))
+        {
+            Assert.NotNull(package.MainDocumentPart?.Document?.Body);
+            Assert.NotEmpty(package.MainDocumentPart!.HyperlinkRelationships);
+            Assert.NotNull(package.MainDocumentPart.NumberingDefinitionsPart);
+            Assert.Single(package.MainDocumentPart.Document.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Table>());
+            var validationErrors = new DocumentFormat.OpenXml.Validation.OpenXmlValidator(
+                DocumentFormat.OpenXml.FileFormatVersions.Office2019).Validate(package).ToArray();
+            Assert.True(
+                validationErrors.Length == 0,
+                string.Join("\n", validationErrors.Select(static error => $"{error.Description} Node={error.Node?.OuterXml}")));
+        }
+
+        var context = new RichDocumentImportContext(
+            InterFontFamily.Regular,
+            InterFontFamily.Regular,
+            14f,
+            new SolidColorBrush(0x202020FF),
+            ElementTheme.Light);
+        RichDocument imported = WordDocumentCodec.Default.Import(bytes, context);
+
+        Assert.IsType<Paragraph>(imported.Blocks[0]);
+        Assert.IsType<ListBlock>(imported.Blocks[1]);
+        Assert.False(Assert.IsType<ListBlock>(imported.Blocks[1]).IsOrdered);
+        Table importedTable = Assert.IsType<Table>(imported.Blocks[2]);
+        Assert.Equal(2, importedTable.Rows.Count);
+        Assert.Equal(2, importedTable.Rows[0].Cells[0].ColumnSpan);
+        string text = PlainTextDocumentExporter.Default.Export(imported);
+        Assert.Contains("Bold italic link", text, StringComparison.Ordinal);
+        Assert.Contains("First bullet", text, StringComparison.Ordinal);
+        Assert.Contains("C2", text, StringComparison.Ordinal);
+        Assert.True(RichDocumentFormatRegistry.CreateDefault().TryGetFileExtension(".docx", out IRichDocumentFormatCodec? registered));
+        Assert.Same(WordDocumentCodec.Default, registered);
+    }
+
+    [Fact]
+    public void WordDocumentCodecRoundTripsEmbeddedPngImages()
+    {
+        const string html = "<p>before<img alt=\"pixel\" width=\"1\" height=\"1\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X2NDNwAAAABJRU5ErkJggg==\">after</p>";
+        var context = new RichDocumentImportContext(
+            InterFontFamily.Regular,
+            InterFontFamily.Regular,
+            14f,
+            new SolidColorBrush(0x202020FF),
+            ElementTheme.Light);
+        RichDocument source = HtmlDocumentCodec.Default.Import(System.Text.Encoding.UTF8.GetBytes(html), context);
+
+        byte[] docx = WordDocumentCodec.Default.Export(source);
+        using (var packageStream = new System.IO.MemoryStream(docx, writable: false))
+        using (var package = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(packageStream, false))
+        {
+            var validationErrors = new DocumentFormat.OpenXml.Validation.OpenXmlValidator(
+                DocumentFormat.OpenXml.FileFormatVersions.Office2019).Validate(package).ToArray();
+            Assert.True(
+                validationErrors.Length == 0,
+                string.Join("\n", validationErrors.Select(static error => $"{error.Description} Node={error.Node?.OuterXml}")));
+        }
+        RichDocument imported = WordDocumentCodec.Default.Import(docx, context);
+
+        Paragraph paragraph = Assert.IsType<Paragraph>(Assert.Single(imported.Blocks));
+        Assert.Contains(paragraph.Inlines, static inline => inline is InlineUIContainer);
+        Assert.Equal("before\uFFFCafter", PlainTextDocumentExporter.Default.Export(imported));
     }
 
     [Fact]

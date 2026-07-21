@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input" />
     <PackageReference Include="Markdig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="StbImageSharp" />
   </ItemGroup>
   <ItemGroup>
