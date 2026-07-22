@@ -2,12 +2,12 @@
   <PropertyGroup>
     <ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.1.0</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.23</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.24</VersionSuffix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)-$(VersionSuffix)</Version>
     <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     <Description Condition="'$(Description)' == ''">ProGPU runtime package for GPU-accelerated .NET composition, rendering, vector graphics, text, and WebGPU platform integration.</Description>
     <PackageDescription Condition="'$(PackageDescription)' == ''">$(Description)</PackageDescription>
-    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Adds the pluggable GPU wavefront vector engine and high-DPI coverage; safely defers transient surface capability and framebuffer transitions during resize and maximize; preserves portable font rendering; and keeps WebGPU validation callbacks rooted across the complete cross-platform gate.</PackageReleaseNotes>
+    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Adds demand-sized GPU glyph and path atlases with bounded managed caches and batched first-use uploads; preserves responsive live-resize rendering and browser storage pickers; introduces native iOS and Android WebGPU hosts with mobile input and platform services; and improves retained text, virtualization, and sample memory performance.</PackageReleaseNotes>
     <Authors Condition="'$(Authors)' == ''">Wieslaw Soltes</Authors>
     <Company Condition="'$(Company)' == ''">ProGPU</Company>
     <PackageProjectUrl Condition="'$(PackageProjectUrl)' == ''">https://github.com/wieslawsoltes/ProGPU</PackageProjectUrl>
