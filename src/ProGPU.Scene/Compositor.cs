@@ -125,6 +125,14 @@ public struct CompositorMetrics
     public ulong PathAtlasTextureBytes;
     public uint PathRasterStagingBytes;
     public uint PathPeakRasterStagingBytes;
+    public uint GlyphAtlasSize;
+    public uint GlyphAtlasMaximumSize;
+    public uint ColorGlyphAtlasSize;
+    public uint ColorGlyphAtlasMaximumSize;
+    public uint PathAtlasSize;
+    public uint PathAtlasMaximumSize;
+    public int GlyphOutlineCompiledCount;
+    public int GlyphOutlineRecordCapacity;
     public bool SceneCacheHit;
     public string? SceneCacheMissReason;
 }
@@ -716,6 +724,8 @@ public unsafe class Compositor : IDisposable
     private BindGroup* _pathAtlasBindGroup;
     private BindGroupLayout* _pathAtlasBindGroupLayoutOffscreen;
     private BindGroup* _pathAtlasBindGroupOffscreen;
+    private ulong _boundGlyphAtlasTextureRevision;
+    private ulong _boundPathAtlasTextureRevision;
 
     // MSAA color target resources
     private Texture* _msaaTexture;
@@ -1982,6 +1992,8 @@ public unsafe class Compositor : IDisposable
             Entries = pathAtlasEntries
         };
         _pathAtlasBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &pathAtlasDescOffscreen);
+        _boundGlyphAtlasTextureRevision = _atlas.TextureRevision;
+        _boundPathAtlasTextureRevision = _pathAtlas.TextureRevision;
 
         _dummyMaskTexture = new GpuTexture(
             _context,
@@ -2013,6 +2025,62 @@ public unsafe class Compositor : IDisposable
             Entries = maskEntries
         };
         _dummyMaskBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescMaskOffscreen);
+    }
+
+    private void RefreshAtlasBindGroupsIfNeeded()
+    {
+        if (_boundGlyphAtlasTextureRevision != _atlas.TextureRevision)
+        {
+            if (_atlasBindGroup != null)
+            {
+                _context.QueueBindGroupDisposal((nint)_atlasBindGroup);
+            }
+            if (_atlasBindGroupOffscreen != null)
+            {
+                _context.QueueBindGroupDisposal((nint)_atlasBindGroupOffscreen);
+            }
+
+            var entries = stackalloc BindGroupEntry[3];
+            entries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
+            entries[1] = new BindGroupEntry { Binding = 1, TextureView = _atlas.AtlasTexture.ViewPtr };
+            entries[2] = new BindGroupEntry { Binding = 2, TextureView = _atlas.ColorAtlasTexture.ViewPtr };
+            var descriptor = new BindGroupDescriptor
+            {
+                Layout = _atlasBindGroupLayout,
+                EntryCount = 3,
+                Entries = entries
+            };
+            _atlasBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
+            descriptor.Layout = _atlasBindGroupLayoutOffscreen;
+            _atlasBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
+            _boundGlyphAtlasTextureRevision = _atlas.TextureRevision;
+        }
+
+        if (_boundPathAtlasTextureRevision != _pathAtlas.TextureRevision)
+        {
+            if (_pathAtlasBindGroup != null)
+            {
+                _context.QueueBindGroupDisposal((nint)_pathAtlasBindGroup);
+            }
+            if (_pathAtlasBindGroupOffscreen != null)
+            {
+                _context.QueueBindGroupDisposal((nint)_pathAtlasBindGroupOffscreen);
+            }
+
+            var entries = stackalloc BindGroupEntry[2];
+            entries[0] = new BindGroupEntry { Binding = 0, Sampler = _atlasSampler };
+            entries[1] = new BindGroupEntry { Binding = 1, TextureView = _pathAtlas.AtlasTexture.ViewPtr };
+            var descriptor = new BindGroupDescriptor
+            {
+                Layout = _pathAtlasBindGroupLayout,
+                EntryCount = 2,
+                Entries = entries
+            };
+            _pathAtlasBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
+            descriptor.Layout = _pathAtlasBindGroupLayoutOffscreen;
+            _pathAtlasBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
+            _boundPathAtlasTextureRevision = _pathAtlas.TextureRevision;
+        }
     }
 
     public void RenderScene(
@@ -2578,6 +2646,7 @@ DynamicBufferUploadComplete:
         }
 
 SceneStateUploadComplete:
+        RefreshAtlasBindGroupsIfNeeded();
         uploadSw.Stop();
         passSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -2961,6 +3030,14 @@ SceneStateUploadComplete:
             PathAtlasTextureBytes = _pathAtlas.PersistentTextureBytes,
             PathRasterStagingBytes = _pathAtlas.LastRasterStagingBytes,
             PathPeakRasterStagingBytes = _pathAtlas.PeakRasterStagingBytes,
+            GlyphAtlasSize = _atlas.AtlasSize,
+            GlyphAtlasMaximumSize = _atlas.MaxAtlasSize,
+            ColorGlyphAtlasSize = _atlas.ColorAtlasSize,
+            ColorGlyphAtlasMaximumSize = _atlas.MaxColorAtlasSize,
+            PathAtlasSize = _pathAtlas.AtlasSize,
+            PathAtlasMaximumSize = _pathAtlas.MaxAtlasSize,
+            GlyphOutlineCompiledCount = _atlas.CompiledGpuGlyphCount,
+            GlyphOutlineRecordCapacity = _atlas.AllocatedGpuGlyphRecordCapacity,
             SceneCacheHit = reuseCompiledScene,
             SceneCacheMissReason = reuseCompiledScene ? null : _currentSceneCacheMissReason
         };
@@ -3943,19 +4020,20 @@ SceneStateUploadComplete:
         // traversed so overflow content is never dropped.
         if (compileLocalCommands)
         {
+            var ownedRenderCommandCache = node as IOwnedRenderCommandCache;
+            bool ownsRenderCommandCache = ownedRenderCommandCache != null;
             RetainedVisualCommands? retainedCommands = null;
-            bool hasRetainedCommands = node is not DrawingVisual &&
+            bool hasRetainedCommands = !ownsRenderCommandCache && node is not DrawingVisual &&
                 _retainedVisualCommands.TryGetValue(node, out retainedCommands);
             bool reuseRetainedCommands = hasRetainedCommands &&
                 retainedCommands!.RenderContentVersion == node.RenderContentVersion &&
                 retainedCommands.TargetWidth == _currentWidth &&
                 retainedCommands.TargetHeight == _currentHeight &&
                 retainedCommands.DpiScale == _currentDpiScale;
-            bool usesPooledContext = !hasRetainedCommands;
+            bool usesPooledContext = !hasRetainedCommands && !ownsRenderCommandCache;
             bool keepRetainedCommands = reuseRetainedCommands;
-            var ctx = hasRetainedCommands
-                ? retainedCommands!.Context
-                : GetDrawingContext();
+            var ctx = ownedRenderCommandCache?.GetOrUpdateRenderCommandCache() ??
+                (hasRetainedCommands ? retainedCommands!.Context : GetDrawingContext());
             try
             {
                 if (!reuseRetainedCommands)
@@ -3965,8 +4043,13 @@ SceneStateUploadComplete:
                         ctx.Clear();
                     }
 
-                    node.OnRender(ctx);
-                    if (node is not DrawingVisual && CanRetainVisualCommands(ctx))
+                    if (!ownsRenderCommandCache)
+                    {
+                        node.OnRender(ctx);
+                    }
+                    if (!ownsRenderCommandCache &&
+                        node is not DrawingVisual &&
+                        CanRetainVisualCommands(ctx))
                     {
                         if (hasRetainedCommands)
                         {
@@ -5693,10 +5776,10 @@ SceneStateUploadComplete:
                 var v2 = Vector2.Transform(new Vector2(unscaledMinX + unscaledWidth, unscaledMinY + unscaledHeight), transform);
                 var v3 = Vector2.Transform(new Vector2(unscaledMinX, unscaledMinY + unscaledHeight), transform);
 
-                var uv0 = new Vector2(info.TexCoordMin.X, info.TexCoordMin.Y);
-                var uv1 = new Vector2(info.TexCoordMax.X, info.TexCoordMin.Y);
-                var uv2 = new Vector2(info.TexCoordMax.X, info.TexCoordMax.Y);
-                var uv3 = new Vector2(info.TexCoordMin.X, info.TexCoordMax.Y);
+                var uv0 = new Vector2(info.X + info.Key.SubpixelX, info.Y + info.Key.SubpixelY);
+                var uv1 = new Vector2(info.X + info.Width + info.Key.SubpixelX, info.Y + info.Key.SubpixelY);
+                var uv2 = new Vector2(info.X + info.Width + info.Key.SubpixelX, info.Y + info.Height + info.Key.SubpixelY);
+                var uv3 = new Vector2(info.X + info.Key.SubpixelX, info.Y + info.Height + info.Key.SubpixelY);
 
                 var cp0 = new Vector2(unscaledMinX, unscaledMinY);
                 var cp1 = new Vector2(unscaledMinX + unscaledWidth, unscaledMinY);
@@ -9633,7 +9716,7 @@ SceneStateUploadComplete:
                         info.BearY,
                         glyphRenderWidth * fontScaleX,
                         glyphRenderHeight),
-                    TexCoords = new Vector4(info.TexCoordMin.X, info.TexCoordMin.Y, info.TexCoordMax.X, info.TexCoordMax.Y),
+                    TexCoords = new Vector4(info.X, info.Y, info.X + info.Width, info.Y + info.Height),
                     Color = color,
                     ScaleBoldItalicUseMvp = new Vector4(
                         glyphAtlasScale,
@@ -9863,7 +9946,7 @@ SceneStateUploadComplete:
                         info.BearY,
                         glyphRenderWidth * fontScaleX,
                         glyphRenderHeight),
-                    TexCoords = new Vector4(info.TexCoordMin.X, info.TexCoordMin.Y, info.TexCoordMax.X, info.TexCoordMax.Y),
+                    TexCoords = new Vector4(info.X, info.Y, info.X + info.Width, info.Y + info.Height),
                     Color = color,
                     ScaleBoldItalicUseMvp = new Vector4(
                         glyphAtlasScale,
@@ -12329,6 +12412,7 @@ SceneStateUploadComplete:
             _gradientStopsStorageBuffer.Write(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_activeGradientStops));
         }
         _pathAtlas.RasterizePendingPaths();
+        RefreshAtlasBindGroupsIfNeeded();
 
         // Render target view for offscreen GpuTexture
         var targetView = targetTexture.ViewPtr;

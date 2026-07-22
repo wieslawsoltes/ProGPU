@@ -12,7 +12,7 @@ using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml.Controls
 {
-    public class MarkdownTextBlock : FrameworkElement, IScrollViewportAware
+    public class MarkdownTextBlock : FrameworkElement, IScrollViewportAware, IOwnedRenderCommandCache
     {
         private string _markdown = string.Empty;
         private float _fontSize = 14f;
@@ -582,14 +582,14 @@ namespace Microsoft.UI.Xaml.Controls
             _isRenderCommandCacheDirty = false;
         }
 
-        public override void OnRender(DrawingContext context)
+        private DrawingContext GetOrUpdateRenderCommandCache()
         {
             var activeFont = GetActiveFont();
             if (activeFont == null || _positionedChars.Count == 0)
             {
                 _renderCommandCache.Clear();
                 _isRenderCommandCacheDirty = false;
-                return;
+                return _renderCommandCache;
             }
 
             if (!ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
@@ -613,8 +613,15 @@ namespace Microsoft.UI.Xaml.Controls
                 _isRenderCommandCacheDirty = false;
             }
 
-            context.Commands.AddRange(_renderCommandCache.Commands);
+            return _renderCommandCache;
+        }
 
+        DrawingContext IOwnedRenderCommandCache.GetOrUpdateRenderCommandCache() =>
+            GetOrUpdateRenderCommandCache();
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.Commands.AddRange(GetOrUpdateRenderCommandCache().Commands);
             base.OnRender(context);
         }
     }

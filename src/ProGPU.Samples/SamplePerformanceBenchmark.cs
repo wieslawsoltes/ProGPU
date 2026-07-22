@@ -234,6 +234,8 @@ internal static class SamplePerformanceBenchmark
             : 0d;
         double divisor = Math.Max(1, measuredFrames);
         long allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(precise: false) - s_allocatedBytesAtStart);
+        long managedHeapBytes = GC.GetTotalMemory(forceFullCollection: false);
+        var gcMemoryInfo = GC.GetGCMemoryInfo();
         var finalMetrics = AppState._screenCompositor?.Metrics;
         string workloadDetails = string.Empty;
         if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
@@ -340,9 +342,16 @@ internal static class SamplePerformanceBenchmark
             $" colorGlyphAtlasTextureBytes={finalMetrics?.ColorGlyphAtlasTextureBytes ?? 0}" +
             $" glyphCoverageStagingBytes={finalMetrics?.GlyphCoverageStagingBytes ?? 0}" +
             $" glyphOutlineGpuBytes={finalMetrics?.GlyphOutlineGpuBytes ?? 0}" +
+            $" glyphOutlineCompiled={finalMetrics?.GlyphOutlineCompiledCount ?? 0}" +
+            $" glyphOutlineCapacity={finalMetrics?.GlyphOutlineRecordCapacity ?? 0}" +
+            $" glyphAtlasSize={finalMetrics?.GlyphAtlasSize ?? 0}/{finalMetrics?.GlyphAtlasMaximumSize ?? 0}" +
+            $" colorGlyphAtlasSize={finalMetrics?.ColorGlyphAtlasSize ?? 0}/{finalMetrics?.ColorGlyphAtlasMaximumSize ?? 0}" +
             $" pathAtlasTextureBytes={finalMetrics?.PathAtlasTextureBytes ?? 0}" +
+            $" pathAtlasSize={finalMetrics?.PathAtlasSize ?? 0}/{finalMetrics?.PathAtlasMaximumSize ?? 0}" +
             $" pathRasterStagingBytes={finalMetrics?.PathRasterStagingBytes ?? 0}" +
             $" pathPeakRasterStagingBytes={finalMetrics?.PathPeakRasterStagingBytes ?? 0}" +
+            $" managedHeapBytes={managedHeapBytes}" +
+            $" managedFragmentedBytes={gcMemoryInfo.FragmentedBytes}" +
             $" pathAtlasFillCacheEntries={AppState._screenCompositor?.PathAtlas.CachedFillPathCount ?? 0}" +
             $" pathAtlasHitTestCacheEntries={AppState._screenCompositor?.PathAtlas.CachedHitTestPathCount ?? 0}");
 

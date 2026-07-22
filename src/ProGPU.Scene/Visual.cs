@@ -8,6 +8,16 @@ using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
+/// <summary>
+/// Marks a visual whose <see cref="Visual.OnRender"/> implementation already owns
+/// an immutable-until-invalidated command cache. The compositor must not retain a
+/// second copy of that command stream.
+/// </summary>
+public interface IOwnedRenderCommandCache
+{
+    DrawingContext GetOrUpdateRenderCommandCache();
+}
+
 public class Visual
 {
     private Vector2 _offset;

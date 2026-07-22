@@ -1456,7 +1456,12 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 4u) {
         // Path rendering: sample coverage directly from PathAtlas
-        let coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, input.texCoord, atlasCoordDx, atlasCoordDy).r;
+        let pathAtlasDims = textureDimensions(pathAtlasTexture);
+        let pathAtlasSize = vec2<f32>(f32(pathAtlasDims.x), f32(pathAtlasDims.y));
+        let pathAtlasCoord = input.texCoord / pathAtlasSize;
+        let pathAtlasCoordDx = dpdx(pathAtlasCoord);
+        let pathAtlasCoordDy = dpdy(pathAtlasCoord);
+        let coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, pathAtlasCoord, pathAtlasCoordDx, pathAtlasCoordDy).r;
         let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
         let correctedCoverage = pow(coverage, coverageGamma);
         shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);

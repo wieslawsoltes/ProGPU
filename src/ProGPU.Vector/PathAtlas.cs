@@ -241,6 +241,8 @@ public unsafe class PathAtlas : IDisposable
     public const uint StandardCoverageSampleGrid = 4;
     public const uint HighPrecisionCoverageSampleGrid = 8;
     public const uint DefaultSubpixelPhaseGrid = 64;
+    public const uint DefaultInitialAtlasSize = 512;
+    public const uint DefaultRasterStagingChunkBytes = 256 * 1024;
 
     public const long DefaultCompiledPathCacheBudgetBytes = 8L * 1024L * 1024L;
 
@@ -251,8 +253,9 @@ public unsafe class PathAtlas : IDisposable
     private const int ExactRecoveryCandidateBudget = 250_000;
 
     private readonly WgpuContext _context;
-    private readonly GpuTexture _atlasTexture;
-    private readonly uint _atlasSize;
+    private GpuTexture _atlasTexture;
+    private uint _atlasSize;
+    private readonly uint _maxAtlasSize;
     private readonly long _compiledPathCacheBudgetBytes;
 
     private uint _currentX = 2;
@@ -368,6 +371,8 @@ public unsafe class PathAtlas : IDisposable
 
     public GpuTexture AtlasTexture => _atlasTexture;
     public uint AtlasSize => _atlasSize;
+    public uint MaxAtlasSize => _maxAtlasSize;
+    public ulong TextureRevision { get; private set; }
     public int CachedPathCount => _paths.Count;
     public int CachedFillPathCount => _compiledFillPaths.Count;
     public int CachedHitTestPathCount => _compiledHitTestPaths.Count;
@@ -391,9 +396,14 @@ public unsafe class PathAtlas : IDisposable
         {
             throw new ArgumentOutOfRangeException(nameof(compiledPathCacheBudgetBytes));
         }
+        if (atlasSize <= 4)
+        {
+            throw new ArgumentOutOfRangeException(nameof(atlasSize));
+        }
 
         _context = context;
-        _atlasSize = atlasSize;
+        _maxAtlasSize = atlasSize;
+        _atlasSize = Math.Min(atlasSize, DefaultInitialAtlasSize);
         _compiledPathCacheBudgetBytes = compiledPathCacheBudgetBytes;
 
         _atlasTexture = new GpuTexture(
@@ -2142,6 +2152,10 @@ public unsafe class PathAtlas : IDisposable
         uint gW = (uint)width;
         uint gH = (uint)height;
 
+        while ((gW + 4 > _atlasSize || gH + 4 > _atlasSize) && TryGrowAtlas(gW, gH))
+        {
+        }
+
         if (_recoveryFreeRectangles != null)
         {
             info = new PathInfo
@@ -2160,6 +2174,19 @@ public unsafe class PathAtlas : IDisposable
                     checked(gH + 2),
                     out AtlasFreeRectangle placement))
             {
+                if (TryGrowAtlas(gW, gH))
+                {
+                    return GetOrCreatePath(
+                        path,
+                        scaleX,
+                        scaleY,
+                        subpixelX,
+                        subpixelY,
+                        sampleGrid,
+                        subpixelPhaseGrid,
+                        quantizeScale);
+                }
+
                 ProGpuVectorDiagnostics.WriteLine(
                     "[PathAtlas] Warning: The recovery-packed atlas cannot fit a new current-frame path; preserving existing path coordinates.");
                 CapacityExceeded = true;
@@ -2189,6 +2216,19 @@ public unsafe class PathAtlas : IDisposable
 
         if (_currentY + gH + 2 > _atlasSize)
         {
+            if (TryGrowAtlas(gW, gH))
+            {
+                return GetOrCreatePath(
+                    path,
+                    scaleX,
+                    scaleY,
+                    subpixelX,
+                    subpixelY,
+                    sampleGrid,
+                    subpixelPhaseGrid,
+                    quantizeScale);
+            }
+
             if (!HasPathsUsedInCurrentFrame())
             {
                 ProGpuVectorDiagnostics.WriteLine("[PathAtlas] Texture Atlas is full! Repacking cached paths before frame compilation...");
@@ -2263,6 +2303,95 @@ public unsafe class PathAtlas : IDisposable
         _pendingPaths.Add(info);
 
         return info;
+    }
+
+    private bool TryGrowAtlas(uint requiredWidth, uint requiredHeight)
+    {
+        if (_atlasSize >= _maxAtlasSize)
+        {
+            return false;
+        }
+
+        uint requiredSize = checked(Math.Max(requiredWidth, requiredHeight) + 4);
+        uint oldSize = _atlasSize;
+        uint newSize = oldSize;
+        do
+        {
+            newSize = Math.Min(_maxAtlasSize, checked(newSize * 2));
+        }
+        while (newSize < requiredSize && newSize < _maxAtlasSize);
+        if (newSize < requiredSize)
+        {
+            return false;
+        }
+
+        var newTexture = new GpuTexture(
+            _context,
+            newSize,
+            newSize,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc |
+            TextureUsage.RenderAttachment,
+            "Dynamic Path Coverage Atlas");
+        newTexture.ClearRenderTarget();
+        newTexture.CopyBaseLevelRegionFrom(_atlasTexture, oldSize, oldSize);
+        GpuTexture oldTexture = _atlasTexture;
+        _atlasTexture = newTexture;
+        _atlasSize = newSize;
+        oldTexture.Dispose();
+
+        if (_recoveryFreeRectangles != null)
+        {
+            _recoveryFreeRectangles.Add(new AtlasFreeRectangle(
+                oldSize,
+                2,
+                newSize - oldSize,
+                oldSize - 2));
+            _recoveryFreeRectangles.Add(new AtlasFreeRectangle(
+                2,
+                oldSize,
+                newSize - 2,
+                newSize - oldSize));
+        }
+
+        RefreshNormalizedTextureCoordinates();
+        TextureRevision++;
+        CapacityExceeded = false;
+        return true;
+    }
+
+    private void RefreshNormalizedTextureCoordinates()
+    {
+        float texelSize = 1f / _atlasSize;
+        foreach (KeyValuePair<PathCacheKey, PathInfo> pair in _paths)
+        {
+            ref PathInfo info = ref CollectionsMarshal.GetValueRefOrNullRef(
+                _paths,
+                pair.Key);
+            if (info.Width == 0 || info.Height == 0)
+            {
+                continue;
+            }
+
+            info.TexCoordMin = new Vector2(
+                (info.X + info.Key.SubpixelX) * texelSize,
+                (info.Y + info.Key.SubpixelY) * texelSize);
+            info.TexCoordMax = new Vector2(
+                (info.X + info.Width + info.Key.SubpixelX) * texelSize,
+                (info.Y + info.Height + info.Key.SubpixelY) * texelSize);
+        }
+
+        for (int pendingIndex = 0; pendingIndex < _pendingPaths.Count; pendingIndex++)
+        {
+            PathInfo info = _pendingPaths[pendingIndex];
+            info.TexCoordMin = new Vector2(
+                (info.X + info.Key.SubpixelX) * texelSize,
+                (info.Y + info.Key.SubpixelY) * texelSize);
+            info.TexCoordMax = new Vector2(
+                (info.X + info.Width + info.Key.SubpixelX) * texelSize,
+                (info.Y + info.Height + info.Key.SubpixelY) * texelSize);
+            _pendingPaths[pendingIndex] = info;
+        }
     }
 
     public void RasterizePendingPaths()
@@ -2344,41 +2473,33 @@ public unsafe class PathAtlas : IDisposable
 
             totalRecordCount = 0;
             totalSegmentCount = 0;
-            int totalCoverageBytes = 0;
             for (int i = 0; i < rasterizationCount; i++)
             {
                 var rasterization = rasterizations[i];
                 uint outputBytesPerRow = GpuCoverageUpload.GetBytesPerRow(
                     rasterization.Info.Width);
-                int outputByteOffset = AlignUp(
-                    totalCoverageBytes,
-                    (int)GpuCoverageUpload.CopyRowAlignment);
                 rasterizations[i] = rasterization with
                 {
                     RecordOffset = totalRecordCount,
                     SegmentOffset = totalSegmentCount,
-                    OutputByteOffset = outputByteOffset,
                     OutputBytesPerRow = outputBytesPerRow
                 };
                 totalRecordCount = checked(totalRecordCount + rasterization.Records.Length);
                 totalSegmentCount = checked(totalSegmentCount + rasterization.Segments.Length);
-                totalCoverageBytes = checked(
-                    outputByteOffset +
-                    checked((int)(outputBytesPerRow * rasterization.Info.Height)));
             }
-            LastRasterStagingBytes = checked((uint)totalCoverageBytes);
-            PeakRasterStagingBytes = Math.Max(PeakRasterStagingBytes, LastRasterStagingBytes);
 
             int uniformSize = Marshal.SizeOf<PathUniforms>();
             dispatches = ArrayPool<RasterizationDispatch>.Shared.Rent(rasterizationCount);
             int totalUniformBytes = 0;
+            int maxCoverageBytes = 0;
             int groupStart = 0;
             while (groupStart < rasterizationCount)
             {
                 var groupInfo = rasterizations[groupStart].Info;
                 uint workgroupsX = DivRoundUp(DivRoundUp(groupInfo.Width, 4), 16);
                 uint workgroupsY = DivRoundUp(groupInfo.Height, 16);
-                int groupEnd = groupStart + 1;
+                int groupCoverageBytes = 0;
+                int groupEnd = groupStart;
                 while (groupEnd < rasterizationCount)
                 {
                     var candidate = rasterizations[groupEnd].Info;
@@ -2388,6 +2509,23 @@ public unsafe class PathAtlas : IDisposable
                         break;
                     }
 
+                    PendingRasterization candidateRasterization = rasterizations[groupEnd];
+                    int outputByteOffset = AlignUp(
+                        groupCoverageBytes,
+                        (int)GpuCoverageUpload.CopyRowAlignment);
+                    int candidateEnd = checked(
+                        outputByteOffset +
+                        checked((int)(candidateRasterization.OutputBytesPerRow * candidate.Height)));
+                    if (groupEnd > groupStart && candidateEnd > DefaultRasterStagingChunkBytes)
+                    {
+                        break;
+                    }
+
+                    rasterizations[groupEnd] = candidateRasterization with
+                    {
+                        OutputByteOffset = outputByteOffset
+                    };
+                    groupCoverageBytes = candidateEnd;
                     groupEnd++;
                 }
 
@@ -2403,8 +2541,11 @@ public unsafe class PathAtlas : IDisposable
                     uniformByteOffset,
                     uniformByteSize);
                 totalUniformBytes = checked(uniformByteOffset + uniformByteSize);
+                maxCoverageBytes = Math.Max(maxCoverageBytes, groupCoverageBytes);
                 groupStart = groupEnd;
             }
+            LastRasterStagingBytes = checked((uint)maxCoverageBytes);
+            PeakRasterStagingBytes = Math.Max(PeakRasterStagingBytes, LastRasterStagingBytes);
 
             recordData = ArrayPool<GpuPathRecord>.Shared.Rent(totalRecordCount);
             segmentData = ArrayPool<GpuPathSegment>.Shared.Rent(totalSegmentCount);
@@ -2481,7 +2622,7 @@ public unsafe class PathAtlas : IDisposable
             _tempBuffers.Add(segmentsBuffer);
             var coverageBuffer = new GpuBuffer(
                 _context,
-                checked((uint)totalCoverageBytes),
+                checked((uint)maxCoverageBytes),
                 BufferUsage.Storage | BufferUsage.CopySrc,
                 "Path Coverage Staging Buffer");
             _tempBuffers.Add(coverageBuffer);
@@ -2514,10 +2655,6 @@ public unsafe class PathAtlas : IDisposable
             };
             var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
             SilkMarshal.Free((nint)encoderDescriptor.Label);
-            var passDescriptor = new ComputePassDescriptor();
-            var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-            _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
-
             for (int dispatchIndex = 0; dispatchIndex < dispatchCount; dispatchIndex++)
             {
                 var dispatch = dispatches[dispatchIndex];
@@ -2547,32 +2684,34 @@ public unsafe class PathAtlas : IDisposable
                     ref bindGroupToReleaseCount,
                     dispatchCount,
                     (nint)bindGroup);
+                var passDescriptor = new ComputePassDescriptor();
+                var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+                _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
                 _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
                 _context.Api.ComputePassEncoderDispatchWorkgroups(
                     pass,
                     dispatch.WorkgroupsX,
                     dispatch.WorkgroupsY,
                     checked((uint)dispatch.Count));
-            }
+                _context.Api.ComputePassEncoderEnd(pass);
+                _context.Api.ComputePassEncoderRelease(pass);
 
-            _context.Api.ComputePassEncoderEnd(pass);
-            _context.Api.ComputePassEncoderRelease(pass);
-
-            for (int rasterizationIndex = 0; rasterizationIndex < rasterizationCount; rasterizationIndex++)
-            {
-                var rasterization = rasterizations[rasterizationIndex];
-                var info = rasterization.Info;
-                GpuCoverageUpload.RecordCopy(
-                    _context,
-                    encoder,
-                    coverageBuffer,
-                    checked((uint)rasterization.OutputByteOffset),
-                    rasterization.OutputBytesPerRow,
-                    _atlasTexture,
-                    info.X,
-                    info.Y,
-                    info.Width,
-                    info.Height);
+                for (int localIndex = 0; localIndex < dispatch.Count; localIndex++)
+                {
+                    var rasterization = rasterizations[dispatch.StartIndex + localIndex];
+                    var info = rasterization.Info;
+                    GpuCoverageUpload.RecordCopy(
+                        _context,
+                        encoder,
+                        coverageBuffer,
+                        checked((uint)rasterization.OutputByteOffset),
+                        rasterization.OutputBytesPerRow,
+                        _atlasTexture,
+                        info.X,
+                        info.Y,
+                        info.Width,
+                        info.Height);
+                }
             }
 
             var commandBufferDescriptor = new CommandBufferDescriptor

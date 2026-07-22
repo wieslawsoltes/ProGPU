@@ -39,23 +39,158 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
-    public void SampleAtlasConfigurationCutsPersistentGpuResidencyByTwoThirds()
+    public void SampleAtlasConfigurationStartsAtThreePercentOfLegacyResidency()
     {
         const ulong glyphSize = 2_560;
         const ulong pathSize = 2_048;
-        const ulong colorSize = GlyphAtlas.DefaultColorAtlasSize;
         const ulong legacyBytes =
             glyphSize * glyphSize * 4UL +
             pathSize * pathSize * 4UL;
-        const ulong compactBytes =
-            glyphSize * glyphSize +
-            colorSize * colorSize * 4UL +
+        const ulong initialBytes =
+            GlyphAtlas.DefaultInitialAtlasSize * GlyphAtlas.DefaultInitialAtlasSize +
+            GlyphAtlas.DefaultInitialColorAtlasSize * GlyphAtlas.DefaultInitialColorAtlasSize * 4UL +
             GlyphAtlas.DefaultCoverageRingBufferSize +
-            pathSize * pathSize;
+            PathAtlas.DefaultInitialAtlasSize * PathAtlas.DefaultInitialAtlasSize;
 
         Assert.Equal(42_991_616UL, legacyBytes);
-        Assert.Equal(13_893_632UL, compactBytes);
-        Assert.True(compactBytes * 100UL / legacyBytes <= 33UL);
+        Assert.Equal(1_048_576UL, initialBytes);
+        Assert.True(initialBytes * 100UL / legacyBytes <= 3UL);
+    }
+
+    [Fact]
+    public void CoverageAtlasesGrowWithoutMovingTexelCoordinatesOrChangingGeneration()
+    {
+        using var pathAtlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        PathAtlas.PathInfo first = pathAtlas.GetOrCreatePath(
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 72f, 72f),
+            scale: 1f);
+        pathAtlas.RasterizePendingPaths();
+        byte[] initialPixels = pathAtlas.AtlasTexture.ReadPixels();
+        uint initialLocalX = checked((uint)(20 - (int)first.MinX));
+        uint initialLocalY = checked((uint)(20 - (int)first.MinY));
+        int initialCoverageOffset = checked((int)(
+            (first.Y + initialLocalY) * pathAtlas.AtlasSize + first.X + initialLocalX));
+        Assert.True(initialPixels[initialCoverageOffset] > 200);
+        ulong generation = pathAtlas.Generation;
+        ulong revision = pathAtlas.TextureRevision;
+
+        for (int index = 1; index < 80 && pathAtlas.AtlasSize == PathAtlas.DefaultInitialAtlasSize; index++)
+        {
+            _ = pathAtlas.GetOrCreatePath(
+                PrimitivePathGeometry.CreateRectangle(index * 100f, 0f, 72f, 72f),
+                scale: 1f);
+        }
+
+        PathAtlas.PathInfo repeated = pathAtlas.GetOrCreatePath(
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 72f, 72f),
+            scale: 1f);
+        Assert.Equal(1024u, pathAtlas.AtlasSize);
+        Assert.True(pathAtlas.TextureRevision > revision);
+        Assert.Equal(generation, pathAtlas.Generation);
+        Assert.Equal(first.X, repeated.X);
+        Assert.Equal(first.Y, repeated.Y);
+        Assert.Equal(first.Width, repeated.Width);
+        Assert.Equal(first.Height, repeated.Height);
+        Assert.Equal(
+            repeated.X / (float)pathAtlas.AtlasSize,
+            repeated.TexCoordMin.X,
+            precision: 6);
+        byte[] grownPixels = pathAtlas.AtlasTexture.ReadPixels();
+        uint grownLocalX = checked((uint)(20 - (int)repeated.MinX));
+        uint grownLocalY = checked((uint)(20 - (int)repeated.MinY));
+        int grownCoverageOffset = checked((int)(
+            (repeated.Y + grownLocalY) * pathAtlas.AtlasSize + repeated.X + grownLocalX));
+        Assert.Equal(initialPixels[initialCoverageOffset], grownPixels[grownCoverageOffset]);
+    }
+
+    [Fact]
+    public void GlyphAtlasGrowthPreservesResidentCoverageAndStableTexelCoordinates()
+    {
+        TtfFont font = LoadTestFont();
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        ushort glyph = font.GetGlyphIndex('A');
+        atlas.BeginBatch();
+        GlyphInfo first;
+        try
+        {
+            first = atlas.GetOrCreateGlyphByIndex(font, glyph, 128f, subpixelX: 0);
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        byte[] initialPixels = atlas.AtlasTexture.ReadPixels();
+        uint sampleX = 0;
+        uint sampleY = 0;
+        byte expectedCoverage = 0;
+        for (uint y = 0; y < first.Height; y++)
+        {
+            for (uint x = 0; x < first.Width; x++)
+            {
+                byte coverage = initialPixels[(first.Y + y) * atlas.AtlasSize + first.X + x];
+                if (coverage > expectedCoverage)
+                {
+                    expectedCoverage = coverage;
+                    sampleX = x;
+                    sampleY = y;
+                }
+            }
+        }
+        Assert.True(expectedCoverage > 0);
+
+        ulong generation = atlas.Generation;
+        atlas.BeginBatch();
+        try
+        {
+            for (byte phase = 1; phase < 64 && atlas.AtlasSize == GlyphAtlas.DefaultInitialAtlasSize; phase++)
+            {
+                _ = atlas.GetOrCreateGlyphByIndex(font, glyph, 128f, phase);
+            }
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        GlyphInfo repeated = atlas.GetOrCreateGlyphByIndex(font, glyph, 128f, subpixelX: 0);
+        Assert.Equal(1024u, atlas.AtlasSize);
+        Assert.True(atlas.TextureRevision > 0);
+        Assert.Equal(generation, atlas.Generation);
+        Assert.Equal(first.X, repeated.X);
+        Assert.Equal(first.Y, repeated.Y);
+        byte[] grownPixels = atlas.AtlasTexture.ReadPixels();
+        Assert.Equal(
+            expectedCoverage,
+            grownPixels[(repeated.Y + sampleY) * atlas.AtlasSize + repeated.X + sampleX]);
+    }
+
+    [Fact]
+    public void PathRasterizationReusesBoundedCoverageChunks()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        for (int index = 0; index < 24; index++)
+        {
+            _ = atlas.GetOrCreatePath(
+                PrimitivePathGeometry.CreateRectangle(index * 128f, 0f, 96f, 96f),
+                scale: 1f);
+        }
+
+        atlas.RasterizePendingPaths();
+
+        Assert.InRange(
+            atlas.LastRasterStagingBytes,
+            1u,
+            PathAtlas.DefaultRasterStagingChunkBytes);
+        Assert.Equal(atlas.LastRasterStagingBytes, atlas.PeakRasterStagingBytes);
+    }
+
+    [Fact]
+    public void TextControlsDeclareTheirOwnedCommandCaches()
+    {
+        Assert.IsAssignableFrom<IOwnedRenderCommandCache>(new RichTextBlock());
+        Assert.IsAssignableFrom<IOwnedRenderCommandCache>(new MarkdownTextBlock());
+        Assert.IsAssignableFrom<IOwnedRenderCommandCache>(new FlowDocument());
     }
 
     [Fact]

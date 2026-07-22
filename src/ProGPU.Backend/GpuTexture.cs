@@ -1201,6 +1201,93 @@ public unsafe class GpuTexture : IDisposable
         Generation++;
     }
 
+    /// <summary>
+    /// Copies a top-left base-level region from a compatible texture. This is used
+    /// by demand-grown atlases to preserve resident texels without a CPU readback.
+    /// </summary>
+    public void CopyBaseLevelRegionFrom(GpuTexture source, uint width, uint height)
+    {
+        if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
+        if (!ReferenceEquals(source.Context, _context))
+        {
+            throw new ArgumentException(
+                "Source texture must belong to the same WebGPU context.",
+                nameof(source));
+        }
+        if (source.DepthOrArrayLayers != 1 || DepthOrArrayLayers != 1 ||
+            source.Dimension != GpuTextureDimension.Dimension2D ||
+            Dimension != GpuTextureDimension.Dimension2D ||
+            source.Format != Format || source.SampleCount != SampleCount)
+        {
+            throw new ArgumentException(
+                "Source and destination must be compatible single-layer 2D textures.",
+                nameof(source));
+        }
+        if (width == 0 || width > source.Width || width > Width)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        if (height == 0 || height > source.Height || height > Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(height));
+        }
+        if (!source.Usage.HasFlag(TextureUsage.CopySrc))
+        {
+            throw new InvalidOperationException("Source texture was not created with CopySrc usage.");
+        }
+        if (!Usage.HasFlag(TextureUsage.CopyDst))
+        {
+            throw new InvalidOperationException("Destination texture was not created with CopyDst usage.");
+        }
+
+        var encoderDescriptor = new CommandEncoderDescriptor();
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        if (encoder == null)
+        {
+            throw new InvalidOperationException(
+                "Failed to create a command encoder for the regional texture copy.");
+        }
+
+        var copySource = new ImageCopyTexture
+        {
+            Texture = source.TexturePtr,
+            MipLevel = 0,
+            Origin = new Origin3D(),
+            Aspect = GetTextureCopyAspect(source.Format)
+        };
+        var copyDestination = new ImageCopyTexture
+        {
+            Texture = TexturePtr,
+            MipLevel = 0,
+            Origin = new Origin3D(),
+            Aspect = GetTextureCopyAspect(Format)
+        };
+        var copySize = new Extent3D
+        {
+            Width = width,
+            Height = height,
+            DepthOrArrayLayers = 1
+        };
+        _context.Api.CommandEncoderCopyTextureToTexture(
+            encoder,
+            &copySource,
+            &copyDestination,
+            &copySize);
+
+        var commandBufferDescriptor = new CommandBufferDescriptor();
+        var commandBuffer = _context.Api.CommandEncoderFinish(
+            encoder,
+            &commandBufferDescriptor);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+
+        AlphaMode = source.AlphaMode;
+        Generation++;
+    }
+
     private void EnsurePbgra32CompatibleFormat()
     {
         if (Format is not (TextureFormat.Bgra8Unorm or TextureFormat.Bgra8UnormSrgb))

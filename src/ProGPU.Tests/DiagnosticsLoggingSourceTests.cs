@@ -328,9 +328,12 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var figureSegments = figure.Segments;", source, StringComparison.Ordinal);
         Assert.Contains("for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var segment = figureSegments[segmentIndex];", source, StringComparison.Ordinal);
-        Assert.Contains("var fontGpuDataEnumerator = _fontGpuData.Values.GetEnumerator();", source, StringComparison.Ordinal);
-        Assert.Contains("while (fontGpuDataEnumerator.MoveNext())", source, StringComparison.Ordinal);
-        Assert.Contains("var data = fontGpuDataEnumerator.Current;", source, StringComparison.Ordinal);
+        Assert.Contains("private GpuBuffer _recordsBuffer;", source, StringComparison.Ordinal);
+        Assert.Contains("private GpuBuffer _segmentsBuffer;", source, StringComparison.Ordinal);
+        Assert.Contains("private static int GrowCapacity(int current, int required)", source, StringComparison.Ordinal);
+        Assert.Contains("capacity + Math.Max(1, capacity / 2)", source, StringComparison.Ordinal);
+        Assert.Contains("private bool TryGrowAtlas(bool colorBitmap", source, StringComparison.Ordinal);
+        Assert.Contains("CopyBaseLevelRegionFrom(oldTexture, currentSize, currentSize)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var buffer in _batchBuffers)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _batchBindGroups)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var figure in outline.Figures)", source, StringComparison.Ordinal);
@@ -1084,6 +1087,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private readonly PipelineLayout* _computePipelineLayout;", pathAtlas, StringComparison.Ordinal);
         Assert.DoesNotContain("ComputePipelineGetBindGroupLayout", pathAtlas, StringComparison.Ordinal);
         Assert.Contains("checked((uint)dispatch.Count)", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("public const uint DefaultRasterStagingChunkBytes = 256 * 1024;", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("int maxCoverageBytes = 0;", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("candidateEnd > DefaultRasterStagingChunkBytes", pathAtlas, StringComparison.Ordinal);
+        Assert.Contains("checked((uint)maxCoverageBytes)", pathAtlas, StringComparison.Ordinal);
         Assert.DoesNotContain("var bindGroupsToRelease = new List<nint>();", pathAtlas, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < _pendingPaths.Count; i++)", pathAtlas, StringComparison.Ordinal);
         Assert.Contains("var info = _pendingPaths[i];", pathAtlas, StringComparison.Ordinal);

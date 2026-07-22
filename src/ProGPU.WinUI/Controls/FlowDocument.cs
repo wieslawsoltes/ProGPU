@@ -76,7 +76,7 @@ public class Paragraph : Block
     }
 }
 
-public class FlowDocument : FrameworkElement
+public class FlowDocument : FrameworkElement, IOwnedRenderCommandCache
 {
     private float _fontSize = 14f;
     private int _columnCount = 2;
@@ -295,13 +295,13 @@ public class FlowDocument : FrameworkElement
         _isRenderCommandCacheDirty = true;
     }
 
-    public override void OnRender(DrawingContext context)
+    private DrawingContext GetOrUpdateRenderCommandCache()
     {
         if (Font == null || _positionedChars.Count == 0)
         {
             _renderCommandCache.Clear();
             _isRenderCommandCacheDirty = false;
-            return;
+            return _renderCommandCache;
         }
 
         if (!ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
@@ -325,8 +325,15 @@ public class FlowDocument : FrameworkElement
             _isRenderCommandCacheDirty = false;
         }
 
-        context.Commands.AddRange(_renderCommandCache.Commands);
+        return _renderCommandCache;
+    }
 
+    DrawingContext IOwnedRenderCommandCache.GetOrUpdateRenderCommandCache() =>
+        GetOrUpdateRenderCommandCache();
+
+    public override void OnRender(DrawingContext context)
+    {
+        context.Commands.AddRange(GetOrUpdateRenderCommandCache().Commands);
         base.OnRender(context);
     }
 }

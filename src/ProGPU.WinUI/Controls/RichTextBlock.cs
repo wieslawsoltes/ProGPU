@@ -19,7 +19,7 @@ namespace Microsoft.UI.Xaml.Controls
 {
     using Microsoft.UI.Xaml.Documents;
 
-    public class RichTextBlock : FrameworkElement, IScrollViewportAware
+    public class RichTextBlock : FrameworkElement, IScrollViewportAware, IOwnedRenderCommandCache
     {
         private static readonly SolidColorBrush HyperlinkBrush = new SolidColorBrush(0x0078D4FF);
         private static readonly SolidColorBrush HoveredHyperlinkBrush = new SolidColorBrush(0x005A9EFF);
@@ -631,14 +631,14 @@ namespace Microsoft.UI.Xaml.Controls
             TextLayoutEngine.AccumulateInlines(inline, list, defaultFg, defaultSize, isBold, isItalic, isUnderline, this.ActualTheme, parentInline, leftIndent);
         }
 
-        public override void OnRender(DrawingContext context)
+        private DrawingContext GetOrUpdateRenderCommandCache()
         {
             var activeFont = ActiveFont;
             if (activeFont == null || _positionedChars.Count == 0)
             {
                 _renderCommandCache.Clear();
                 _isRenderCommandCacheDirty = false;
-                return;
+                return _renderCommandCache;
             }
 
             if (_cachedSelectionStart != SelectionStart ||
@@ -669,8 +669,15 @@ namespace Microsoft.UI.Xaml.Controls
                 _isRenderCommandCacheDirty = false;
             }
 
-            context.Commands.AddRange(_renderCommandCache.Commands);
+            return _renderCommandCache;
+        }
 
+        DrawingContext IOwnedRenderCommandCache.GetOrUpdateRenderCommandCache() =>
+            GetOrUpdateRenderCommandCache();
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.Commands.AddRange(GetOrUpdateRenderCommandCache().Commands);
             base.OnRender(context);
         }
     }
