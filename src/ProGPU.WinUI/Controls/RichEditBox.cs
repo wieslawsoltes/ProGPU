@@ -861,7 +861,7 @@ namespace Microsoft.UI.Xaml.Controls
             _selectionLength = length;
             _blockView.SelectionStart = start;
             _blockView.SelectionLength = length;
-            _blockView.InvalidateTextRendering();
+            _blockView.InvalidateSelectionRendering();
             base.Invalidate();
             SelectionChanged?.Invoke(this, new RoutedEventArgs { OriginalSource = this });
             return true;
@@ -903,7 +903,7 @@ namespace Microsoft.UI.Xaml.Controls
             _blockView.SelectionLength = length;
             _selectedTableCells = cells;
             _blockView.TableSelection = cells;
-            _blockView.InvalidateTextRendering();
+            _blockView.InvalidateSelectionRendering();
             CaretIndex = Math.Clamp(activePosition, 0, _buffer.Length);
             _selectionAnchor = Math.Clamp(anchorPosition, 0, _buffer.Length);
             base.Invalidate();
@@ -2691,7 +2691,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (_selectedTableCells.Length == 0 && _blockView.TableSelection is null) return;
             _selectedTableCells = Array.Empty<RichEditTableCellRange>();
             _blockView.TableSelection = null;
-            _blockView.InvalidateTextRendering();
+            _blockView.InvalidateSelectionRendering();
         }
 
         private static List<int> GetTableCellStarts(string text, int start, int end)
@@ -3815,7 +3815,7 @@ namespace Microsoft.UI.Xaml.Controls
                     start > 0 ? start - 1 : start,
                     GetDefaultTextStyle());
                 _activeTypingStyle = transform(insertionStyle);
-                _blockView.InvalidateTextRendering();
+                _blockView.InvalidateSelectionRendering();
                 return;
             }
             if (_selectedTableCells.Length > 0 &&

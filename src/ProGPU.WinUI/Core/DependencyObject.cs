@@ -53,6 +53,7 @@ public class DependencyProperty
 {
     private static readonly ConcurrentDictionary<(Type OwnerType, string Name), DependencyProperty> Registry = new();
     private static readonly List<DependencyProperty> RegisteredProperties = new();
+    private static DependencyProperty[]? RegisteredInheritablePropertiesCache;
 
     public string Name { get; }
     public Type PropertyType { get; }
@@ -83,6 +84,7 @@ public class DependencyProperty
             int index = RegisteredProperties.Count;
             var dp = new DependencyProperty(name, propertyType, ownerType, typeMetadata, index, false);
             RegisteredProperties.Add(dp);
+            RegisteredInheritablePropertiesCache = null;
             Registry.TryAdd(key, dp);
             return dp;
         }
@@ -100,6 +102,7 @@ public class DependencyProperty
             int index = RegisteredProperties.Count;
             var dp = new DependencyProperty(name, propertyType, ownerType, defaultMetadata, index, true);
             RegisteredProperties.Add(dp);
+            RegisteredInheritablePropertiesCache = null;
             Registry.TryAdd(key, dp);
             return dp;
         }
@@ -174,15 +177,20 @@ public class DependencyProperty
     {
         lock (RegisteredProperties)
         {
+            if (RegisteredInheritablePropertiesCache is not null)
+                return RegisteredInheritablePropertiesCache;
+
             var properties = new List<DependencyProperty>();
-            foreach (var property in RegisteredProperties)
+            for (int index = 0; index < RegisteredProperties.Count; index++)
             {
+                DependencyProperty property = RegisteredProperties[index];
                 if (property.Metadata?.IsInheritable == true)
                 {
                     properties.Add(property);
                 }
             }
-            return properties;
+            RegisteredInheritablePropertiesCache = properties.ToArray();
+            return RegisteredInheritablePropertiesCache;
         }
     }
 
@@ -288,8 +296,10 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
 
     private void NotifyInheritedParentChanged(DependencyObject? oldParent, DependencyObject? newParent)
     {
-        foreach (DependencyProperty property in DependencyProperty.GetRegisteredInheritableProperties())
+        IReadOnlyList<DependencyProperty> properties = DependencyProperty.GetRegisteredInheritableProperties();
+        for (int index = 0; index < properties.Count; index++)
         {
+            DependencyProperty property = properties[index];
             if (HasEffectiveValue(property) || !ShouldInheritProperty(property))
             {
                 continue;

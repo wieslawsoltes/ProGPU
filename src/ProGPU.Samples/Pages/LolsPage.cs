@@ -375,20 +375,35 @@ public static class LolsPage
                 int red = random.Next(256);
                 int green = random.Next(256);
                 int blue = random.Next(256);
-                var foreground = new SolidColorBrush(new Vector4(
+                var foreground = new Vector4(
                     red / 255f,
                     green / 255f,
                     blue / 255f,
-                    1f));
+                    1f);
                 float rotation = (float)(random.NextDouble() * Math.PI * 2d);
 
-                var textControl = TextDisplayFactory.Rent();
-                TextDisplayFactory.SetText(textControl, "lol?");
-                TextDisplayFactory.SetForeground(textControl, foreground);
+                while (_canvas.Children.Count > _max && _canvas.Children[0] is Border surplus)
+                {
+                    _canvas.RemoveChild(surplus);
+                    TextDisplayFactory.Return(surplus);
+                }
 
-                textControl.Width = 80f;
-                textControl.Height = 40f;
-                textControl.CenterPoint = new Vector3(40f, 20f, 0f);
+                Border textControl;
+                bool addToCanvas;
+                if (_canvas.Children.Count >= _max && _canvas.Children[0] is Border oldest)
+                {
+                    textControl = oldest;
+                    _canvas.BringChildToFront(oldest);
+                    addToCanvas = false;
+                }
+                else
+                {
+                    textControl = TextDisplayFactory.Rent();
+                    addToCanvas = true;
+                }
+                TextDisplayFactory.SetText(textControl, "lol?");
+                TextDisplayFactory.SetForegroundColor(textControl, foreground);
+
                 textControl.Rotation = rotation;
 
                 float left = (float)(random.NextDouble() * (width - 80f));
@@ -396,17 +411,7 @@ public static class LolsPage
                 Microsoft.UI.Xaml.Controls.Canvas.SetLeft(textControl, left);
                 Microsoft.UI.Xaml.Controls.Canvas.SetTop(textControl, top);
 
-                if (_canvas.Children.Count >= _max)
-                {
-                    var oldest = _canvas.Children[0] as Border;
-                    if (oldest != null)
-                    {
-                        _canvas.RemoveChild(oldest);
-                        TextDisplayFactory.Return(oldest);
-                    }
-                }
-
-                _canvas.AddChild(textControl);
+                if (addToCanvas) _canvas.AddChild(textControl);
                 _count++;
             }
         }

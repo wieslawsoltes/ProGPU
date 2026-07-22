@@ -1599,7 +1599,9 @@ namespace Microsoft.UI.Xaml.Controls
 
             List<Visual> currentChildren = layoutSession.CurrentChildren;
             currentChildren.Clear();
-            currentChildren.AddRange(parent.Children);
+            IReadOnlyList<Visual> parentChildren = parent.Children;
+            for (int index = 0; index < parentChildren.Count; index++)
+                currentChildren.Add(parentChildren[index]);
             if (activeFont == null || blocks.Count == 0)
             {
                 foreach (var child in currentChildren)
@@ -1614,8 +1616,9 @@ namespace Microsoft.UI.Xaml.Controls
             encounteredChildren.Clear();
 
             // Invalidate only this presenter's cache when a complete layout key changes.
-            foreach (var block in blocks)
+            for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
             {
+                Block block = blocks[blockIndex];
                 RichBlockLayoutCache cache = layoutSession.GetOrCreate(block);
                 if (!cache.Matches(
                         maxWidth,
@@ -1681,8 +1684,9 @@ namespace Microsoft.UI.Xaml.Controls
                 if (scrollViewer != null && iterations == 0)
                 {
                     float currentScrollY = scrollViewer.VerticalOffset - relativeY;
-                    foreach (var block in blocks)
+                    for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
                     {
+                        Block block = blocks[blockIndex];
                         RichBlockLayoutCache cache = layoutSession.GetOrCreate(block);
                         if (cache.Height > 0f)
                         {
@@ -1702,8 +1706,9 @@ namespace Microsoft.UI.Xaml.Controls
 
                 // Pass 1: Offset assignment and block-level measurement (lazy / viewport-driven)
                 int logicalTextOffset = 0;
-                foreach (var block in blocks)
+                for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
                 {
+                    Block block = blocks[blockIndex];
                     RichBlockLayoutCache cache = layoutSession.GetOrCreate(block);
                     cache.YOffset = cursorY;
 
@@ -1782,8 +1787,9 @@ namespace Microsoft.UI.Xaml.Controls
 
             // Pass 2: Gather visible chars and decorations, and measure any newly visible blocks
             int gatheredLogicalTextOffset = 0;
-            foreach (var block in blocks)
+            for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
             {
+                Block block = blocks[blockIndex];
                 RichBlockLayoutCache cache = layoutSession.GetOrCreate(block);
                 float blockTop = cache.YOffset;
                 float blockBottom = blockTop + cache.Height;
@@ -1838,8 +1844,9 @@ namespace Microsoft.UI.Xaml.Controls
 
             // Preserve the existing diagnostics surface without using model-owned
             // state as the authoritative cache.
-            foreach (Block block in blocks)
+            for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
             {
+                Block block = blocks[blockIndex];
                 RichBlockLayoutCache cache = layoutSession.GetOrCreate(block);
                 block.CachedHeight = cache.Height;
                 block.CachedYOffset = cache.YOffset;
@@ -2620,13 +2627,17 @@ namespace Microsoft.UI.Xaml.Controls
 
             List<Visual> currentChildren = layoutSession.CurrentChildren;
             currentChildren.Clear();
-            currentChildren.AddRange(parent.Children);
+            IReadOnlyList<Visual> parentChildren = parent.Children;
+            for (int index = 0; index < parentChildren.Count; index++)
+                currentChildren.Add(parentChildren[index]);
 
             List<Block> allBlocks = layoutSession.CurrentBlocks;
             allBlocks.Clear();
-            allBlocks.AddRange(blocks);
-            foreach (var p in extraParagraphs)
+            for (int index = 0; index < blocks.Count; index++)
+                allBlocks.Add(blocks[index]);
+            for (int index = 0; index < extraParagraphs.Count; index++)
             {
+                Paragraph p = extraParagraphs[index];
                 if (!allBlocks.Contains(p)) allBlocks.Add(p);
             }
             layoutSession.RetainOnly(allBlocks);
@@ -3058,6 +3069,22 @@ namespace Microsoft.UI.Xaml.Controls
         {
             if (activeFont == null) return;
 
+            RenderTableDecorations(context, tableDecorations);
+            RenderSelection(
+                context,
+                positionedChars,
+                activeFont,
+                selectionStart,
+                selectionLength,
+                tableSelection,
+                selectionHighlightBrush);
+            RenderText(context, positionedChars, activeFont, hoveredHyperlink);
+        }
+
+        internal static void RenderTableDecorations(
+            DrawingContext context,
+            List<TableVisualDecoration> tableDecorations)
+        {
             foreach (var dec in tableDecorations)
             {
                 if (!string.IsNullOrEmpty(dec.Text) && dec.TextFont is { } markerFont && dec.TextForeground is { } markerBrush)
@@ -3095,9 +3122,17 @@ namespace Microsoft.UI.Xaml.Controls
                     }
                 }
             }
+        }
 
-            if (positionedChars.Count == 0) return;
-
+        internal static void RenderSelection(
+            DrawingContext context,
+            List<PositionedRichChar> positionedChars,
+            TtfFont activeFont,
+            int selectionStart,
+            int selectionLength,
+            IReadOnlyList<RichEditTableCellRange>? tableSelection,
+            Brush? selectionHighlightBrush)
+        {
             if ((selectionStart >= 0 && selectionLength > 0) || tableSelection is { Count: > 0 })
             {
                 for (int i = 0; i < positionedChars.Count; i++)
@@ -3121,7 +3156,15 @@ namespace Microsoft.UI.Xaml.Controls
                     }
                 }
             }
+        }
 
+        internal static void RenderText(
+            DrawingContext context,
+            List<PositionedRichChar> positionedChars,
+            TtfFont activeFont,
+            Hyperlink? hoveredHyperlink)
+        {
+            if (positionedChars.Count == 0) return;
             var runBuffer = new StringBuilder(Math.Min(positionedChars.Count, 4096));
             Vector2 startPos = Vector2.Zero;
             RichChar style = default;

@@ -1274,28 +1274,29 @@ public unsafe class PathAtlas : IDisposable
         LastExactRecoveryCandidateCount = 0;
         LastExactRecoveryBudgetExceeded = false;
         uint availableSize = _atlasSize > 2 ? _atlasSize - 2 : 0;
-        RetryPathOrdering[] orderings = Enum.GetValues<RetryPathOrdering>();
-        RecoveryPlacementHeuristic[] heuristics = Enum.GetValues<RecoveryPlacementHeuristic>();
+        var trialFreeRectangles = new List<AtlasFreeRectangle>(Math.Max(4, livePaths.Count * 2));
+        var trialPlacements = new List<RetryPlacement>(livePaths.Count);
 
-        for (int orderingIndex = 0; orderingIndex < orderings.Length; orderingIndex++)
+        for (int orderingIndex = 0;
+             orderingIndex <= (int)RetryPathOrdering.MaxSideDescending;
+             orderingIndex++)
         {
-            RetryPathOrdering ordering = orderings[orderingIndex];
-            var orderedPaths = new List<RetryPath>(livePaths);
-            orderedPaths.Sort((left, right) => CompareRetryPaths(left, right, ordering));
+            RetryPathOrdering ordering = (RetryPathOrdering)orderingIndex;
+            SortRetryPaths(livePaths, ordering);
 
-            for (int heuristicIndex = 0; heuristicIndex < heuristics.Length - 1; heuristicIndex++)
+            for (int heuristicIndex = 0;
+                 heuristicIndex < (int)RecoveryPlacementHeuristic.ExactBranchAndBound;
+                 heuristicIndex++)
             {
-                RecoveryPlacementHeuristic heuristic = heuristics[heuristicIndex];
-                var trialFreeRectangles = new List<AtlasFreeRectangle>(Math.Max(4, livePaths.Count * 2))
-                {
-                    new AtlasFreeRectangle(2, 2, availableSize, availableSize)
-                };
-                var trialPlacements = new List<RetryPlacement>(livePaths.Count);
+                RecoveryPlacementHeuristic heuristic = (RecoveryPlacementHeuristic)heuristicIndex;
+                trialFreeRectangles.Clear();
+                trialFreeRectangles.Add(new AtlasFreeRectangle(2, 2, availableSize, availableSize));
+                trialPlacements.Clear();
                 bool succeeded = true;
 
-                for (int pathIndex = 0; pathIndex < orderedPaths.Count; pathIndex++)
+                for (int pathIndex = 0; pathIndex < livePaths.Count; pathIndex++)
                 {
-                    RetryPath retryPath = orderedPaths[pathIndex];
+                    RetryPath retryPath = livePaths[pathIndex];
                     if (retryPath.Width == 0 || retryPath.Height == 0)
                     {
                         trialPlacements.Add(new RetryPlacement(retryPath, default));
@@ -1339,6 +1340,33 @@ public unsafe class PathAtlas : IDisposable
         successfulOrdering = default;
         successfulHeuristic = default;
         return false;
+    }
+
+    private static void SortRetryPaths(List<RetryPath> paths, RetryPathOrdering ordering)
+    {
+        // Each comparison is non-capturing so recovery reuses the runtime-cached
+        // delegate. The total key ordering makes an in-place re-sort independent
+        // of the preceding strategy, avoiding one PathInfo-heavy array copy per
+        // attempted ordering without changing deterministic placement order.
+        switch (ordering)
+        {
+            case RetryPathOrdering.WidthDescending:
+                paths.Sort(static (left, right) =>
+                    CompareRetryPaths(left, right, RetryPathOrdering.WidthDescending));
+                break;
+            case RetryPathOrdering.HeightDescending:
+                paths.Sort(static (left, right) =>
+                    CompareRetryPaths(left, right, RetryPathOrdering.HeightDescending));
+                break;
+            case RetryPathOrdering.MaxSideDescending:
+                paths.Sort(static (left, right) =>
+                    CompareRetryPaths(left, right, RetryPathOrdering.MaxSideDescending));
+                break;
+            default:
+                paths.Sort(static (left, right) =>
+                    CompareRetryPaths(left, right, RetryPathOrdering.AreaDescending));
+                break;
+        }
     }
 
     private bool TryPackRecoveryPathsExactly(

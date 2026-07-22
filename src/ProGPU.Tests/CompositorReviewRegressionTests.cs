@@ -3145,6 +3145,50 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RichTextSelectionOverlayReusesRetainedTextCommands()
+    {
+        var block = new RichTextBlock
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 20f,
+            Foreground = new SolidColorBrush(Vector4.One)
+        };
+        block.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run("Retained selection text"));
+        block.Measure(new Vector2(320f, 64f));
+        block.Arrange(new Rect(0f, 0f, 320f, 64f));
+
+        DrawingContext first = ((IOwnedRenderCommandCache)block).GetOrUpdateRenderCommandCache();
+        string[] firstText = first.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawText)
+            .Select(static command => command.Text!)
+            .ToArray();
+        Assert.NotEmpty(firstText);
+        FieldInfo selectionCacheField = typeof(RichTextBlock).GetField(
+            "_selectionRenderCommandCache",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.Null(selectionCacheField.GetValue(block));
+
+        block.SelectionStart = 0;
+        block.SelectionLength = 8;
+        block.InvalidateSelectionRendering();
+        DrawingContext selected = ((IOwnedRenderCommandCache)block).GetOrUpdateRenderCommandCache();
+        string[] selectedText = selected.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawText)
+            .Select(static command => command.Text!)
+            .ToArray();
+        int selectionIndex = selected.Commands.FindIndex(
+            static command => command.Type == RenderCommandType.DrawRect && command.Brush is not null);
+        int textIndex = selected.Commands.FindIndex(
+            static command => command.Type == RenderCommandType.DrawText);
+
+        Assert.Equal(firstText.Length, selectedText.Length);
+        for (int index = 0; index < firstText.Length; index++)
+            Assert.Same(firstText[index], selectedText[index]);
+        Assert.InRange(selectionIndex, 0, textIndex - 1);
+        Assert.NotNull(selectionCacheField.GetValue(block));
+    }
+
+    [Fact]
     public void NestedOwnedRichTextCommandCacheRendersThroughCompositor()
     {
         var block = new RichTextBlock

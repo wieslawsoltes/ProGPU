@@ -235,6 +235,25 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void LolsPoolRetainsTextAndBrushStateWithoutRebuildingRuns()
+    {
+        string factory = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Samples", "Helpers", "TextDisplayFactory.cs"));
+        string page = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Samples", "Pages", "LolsPage.cs"));
+
+        Assert.Contains("private sealed class PooledTextDisplay", factory, StringComparison.Ordinal);
+        Assert.Contains("public Run Run { get; }", factory, StringComparison.Ordinal);
+        Assert.Contains("public SolidColorBrush ForegroundBrush { get; }", factory, StringComparison.Ordinal);
+        Assert.DoesNotContain("textBlock.Inlines.Clear()", factory, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Run(text)", factory, StringComparison.Ordinal);
+        Assert.Contains("SetForegroundColor(textControl, foreground)", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("new SolidColorBrush(new Vector4", page, StringComparison.Ordinal);
+        Assert.Contains("_canvas.BringChildToFront(oldest)", page, StringComparison.Ordinal);
+        Assert.Contains("if (addToCanvas) _canvas.AddChild(textControl)", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ScrollOffsetsTranslateRetainedContentWithoutRearrangingIt()
     {
         var content = new ArrangeCounter

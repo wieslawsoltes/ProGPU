@@ -30,10 +30,14 @@ namespace Microsoft.UI.Xaml.Controls
         private readonly List<TableVisualDecoration> _tableDecorations = new();
         private readonly List<RichLogicalCaretAnchor> _emptyParagraphCaretAnchors = new();
         private readonly DrawingContext _renderCommandCache = new();
+        private DrawingContext? _selectionRenderCommandCache;
         private readonly RichDocumentLayoutSession _layoutSession = new();
         private readonly Paragraph _layoutParagraph = new() { MarginBottom = 0f };
         private readonly Block[] _layoutBlocks;
-        private bool _isRenderCommandCacheDirty = true;
+        private bool _isContentRenderCommandCacheDirty = true;
+        private bool _isSelectionRenderCommandCacheDirty = true;
+        private int _tableRenderCommandCount;
+        private int _selectionRenderCommandCount;
         private float _layoutHeight;
         private float _lastLayoutScrollY = -1f;
         private int _cachedSelectionStart = -1;
@@ -55,7 +59,7 @@ namespace Microsoft.UI.Xaml.Controls
             {
                 if (ReferenceEquals(_selectionHighlightColor, value)) return;
                 _selectionHighlightColor = value;
-                InvalidateTextRendering();
+                InvalidateSelectionRendering();
             }
         }
 
@@ -125,7 +129,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (e.InvalidateAll) _layoutSession.Invalidate();
             else _layoutSession.InvalidateBlocks(e.ChangedBlocks);
             _isLayoutDirty = true;
-            _isRenderCommandCacheDirty = true;
+            InvalidateAllRenderCommandCaches();
             base.Invalidate();
             InvalidateMeasure();
         }
@@ -144,15 +148,27 @@ namespace Microsoft.UI.Xaml.Controls
         {
             _layoutSession.Invalidate();
             _isLayoutDirty = true;
-            _isRenderCommandCacheDirty = true;
+            InvalidateAllRenderCommandCaches();
             base.Invalidate();
             InvalidateMeasure();
         }
 
         public void InvalidateTextRendering()
         {
-            _isRenderCommandCacheDirty = true;
+            InvalidateAllRenderCommandCaches();
             base.Invalidate();
+        }
+
+        internal void InvalidateSelectionRendering()
+        {
+            _isSelectionRenderCommandCacheDirty = true;
+            base.Invalidate();
+        }
+
+        private void InvalidateAllRenderCommandCaches()
+        {
+            _isContentRenderCommandCacheDirty = true;
+            _isSelectionRenderCommandCacheDirty = true;
         }
 
         public new void Invalidate()
@@ -164,7 +180,7 @@ namespace Microsoft.UI.Xaml.Controls
         {
             _layoutSession.Invalidate();
             _isLayoutDirty = true;
-            _isRenderCommandCacheDirty = true;
+            InvalidateAllRenderCommandCaches();
             base.OnThemeChanged();
         }
 
@@ -332,7 +348,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (_hoveredHyperlink != foundLink)
             {
                 _hoveredHyperlink = foundLink;
-                _isRenderCommandCacheDirty = true;
+                _isContentRenderCommandCacheDirty = true;
                 base.Invalidate();
             }
         }
@@ -504,7 +520,7 @@ namespace Microsoft.UI.Xaml.Controls
             }
             _layoutSession.CollectEmptyParagraphCaretAnchors(activeBlocks, _emptyParagraphCaretAnchors);
             GetScrollViewport(out _lastLayoutScrollY, out _);
-            _isRenderCommandCacheDirty = true;
+            InvalidateAllRenderCommandCaches();
         }
 
         public void OnScrollViewportChanged()
@@ -570,7 +586,11 @@ namespace Microsoft.UI.Xaml.Controls
                 RemoveChild(Children[^1]);
             }
             _renderCommandCache.Clear();
-            _isRenderCommandCacheDirty = false;
+            _selectionRenderCommandCache?.Clear();
+            _isContentRenderCommandCacheDirty = false;
+            _isSelectionRenderCommandCacheDirty = false;
+            _tableRenderCommandCount = 0;
+            _selectionRenderCommandCount = 0;
         }
 
         private void SynchronizeInlineSubscriptions()
@@ -637,36 +657,79 @@ namespace Microsoft.UI.Xaml.Controls
             if (activeFont == null || _positionedChars.Count == 0)
             {
                 _renderCommandCache.Clear();
-                _isRenderCommandCacheDirty = false;
+                _selectionRenderCommandCache?.Clear();
+                _isContentRenderCommandCacheDirty = false;
+                _isSelectionRenderCommandCacheDirty = false;
+                _tableRenderCommandCount = 0;
+                _selectionRenderCommandCount = 0;
                 return _renderCommandCache;
             }
 
             if (_cachedSelectionStart != SelectionStart ||
                 _cachedSelectionLength != SelectionLength ||
-                !ReferenceEquals(_cachedTableSelection, TableSelection) ||
-                !ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
+                !ReferenceEquals(_cachedTableSelection, TableSelection))
             {
-                _isRenderCommandCacheDirty = true;
+                _isSelectionRenderCommandCacheDirty = true;
+            }
+            if (!ReferenceEquals(_cachedHoveredHyperlink, _hoveredHyperlink))
+            {
+                _isContentRenderCommandCacheDirty = true;
             }
 
-            if (_isRenderCommandCacheDirty)
+            if (_isContentRenderCommandCacheDirty)
             {
                 _renderCommandCache.Clear();
-                TextLayoutEngine.Render(
+                TextLayoutEngine.RenderTableDecorations(
+                    _renderCommandCache,
+                    _tableDecorations);
+                _tableRenderCommandCount = _renderCommandCache.Commands.Count;
+                TextLayoutEngine.RenderSelection(
                     _renderCommandCache,
                     _positionedChars,
-                    _tableDecorations,
                     activeFont,
                     SelectionStart,
                     SelectionLength,
                     TableSelection,
-                    _hoveredHyperlink,
                     SelectionHighlightColor);
+                _selectionRenderCommandCount =
+                    _renderCommandCache.Commands.Count - _tableRenderCommandCount;
+                TextLayoutEngine.RenderText(
+                    _renderCommandCache,
+                    _positionedChars,
+                    activeFont,
+                    _hoveredHyperlink);
                 _cachedSelectionStart = SelectionStart;
                 _cachedSelectionLength = SelectionLength;
                 _cachedTableSelection = TableSelection;
                 _cachedHoveredHyperlink = _hoveredHyperlink;
-                _isRenderCommandCacheDirty = false;
+                _isContentRenderCommandCacheDirty = false;
+                _isSelectionRenderCommandCacheDirty = false;
+            }
+            else if (_isSelectionRenderCommandCacheDirty)
+            {
+                DrawingContext selectionCache =
+                    _selectionRenderCommandCache ??= new DrawingContext();
+                selectionCache.Clear();
+                TextLayoutEngine.RenderSelection(
+                    selectionCache,
+                    _positionedChars,
+                    activeFont,
+                    SelectionStart,
+                    SelectionLength,
+                    TableSelection,
+                    SelectionHighlightColor);
+                _renderCommandCache.Commands.RemoveRange(
+                    _tableRenderCommandCount,
+                    _selectionRenderCommandCount);
+                if (selectionCache.Commands.Count > 0)
+                    _renderCommandCache.Commands.InsertRange(
+                        _tableRenderCommandCount,
+                        selectionCache.Commands);
+                _selectionRenderCommandCount = selectionCache.Commands.Count;
+                _cachedSelectionStart = SelectionStart;
+                _cachedSelectionLength = SelectionLength;
+                _cachedTableSelection = TableSelection;
+                _isSelectionRenderCommandCacheDirty = false;
             }
 
             return _renderCommandCache;

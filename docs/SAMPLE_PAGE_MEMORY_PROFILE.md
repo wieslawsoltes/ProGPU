@@ -4,24 +4,33 @@
 
 The complete desktop gallery was measured page-by-page in fresh Release processes before
 and after the managed-memory work. Across all 47 pages, average retained managed memory
-fell from 80.51 MiB to 30.00 MiB (**62.7% lower**), average managed allocation fell from
-154.10 KiB/frame to 43.29 KiB/frame (**71.9% lower**), and average compositor compilation
-fell from 1.223 ms to 0.362 ms (**70.4% lower**). The sum of the 47 isolated retained-heap
-measurements fell from 3.70 GiB to 1.38 GiB. This sum is useful for comparing the complete
+fell from 80.51 MiB to 30.29 MiB (**62.4% lower**), average managed allocation fell from
+154.10 KiB/frame to 12.04 KiB/frame (**92.2% lower**), and average compositor compilation
+fell from 1.223 ms to 0.250 ms (**79.6% lower**). The sum of the 47 isolated retained-heap
+measurements fell from 3.70 GiB to 1.39 GiB. This sum is useful for comparing the complete
 gallery but is not the memory of one process because every page was deliberately isolated.
 
 The worst retained managed heap changed from Text Shaping Lab at 513.91 MiB to Text &
-Documents at 177.46 MiB. Average macOS physical footprint, which also includes the runtime,
+Documents at 189.27 MiB. Average macOS physical footprint, which also includes the runtime,
 native WebGPU/Metal objects, driver caches, and mapped resources, fell from 403.90 MiB to
-370.82 MiB (**8.2% lower**). Compile frames over the 16.67 ms budget fell from 428 to 3;
-426 of the baseline frames were from Text & Documents.
+369.69 MiB (**8.5% lower**). Compile frames over the 16.67 ms budget fell from 428 to zero;
+426 of the baseline frames were from Text & Documents. Across the isolated runs, Gen0
+collections fell from 503 to 33 and summed GC pause time fell from 868.3 ms to 34.3 ms.
+
+Relative to the previous optimized checkpoint, this final pass reduced allocation by a
+further **72.2%**, compilation by **31.0%**, physical footprint by **0.3%**, and summed GC
+pause time by **89.5%**. Average retained managed memory moved by +0.29 MiB (+1.0%) between
+the two fresh-process sweeps; this is reported rather than hidden, while the physical and
+collection measurements improved.
 
 | Representative page | Managed before | Managed after | Change | Allocation/frame before | Allocation/frame after | Compile before | Compile after |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Text Shaping Lab | 513.91 MiB | 70.04 MiB | **-86.4%** | 22.8 KiB | 16.9 KiB | 0.082 ms | 0.052 ms |
-| Typography & Scripts | 345.18 MiB | 82.17 MiB | **-76.2%** | 10.2 KiB | 8.4 KiB | 0.036 ms | 0.055 ms |
-| Text & Documents | 472.28 MiB | 177.46 MiB | **-62.4%** | 4,128.4 KiB | 197.8 KiB | 41.728 ms | 2.738 ms |
-| Font Glyph Browser | 60.85 MiB | 31.22 MiB | **-48.7%** | 104.9 KiB | 53.0 KiB | 2.491 ms | 0.899 ms |
+| Text Shaping Lab | 513.91 MiB | 70.07 MiB | **-86.4%** | 22.8 KiB | 0.9 KiB | 0.082 ms | 0.036 ms |
+| Typography & Scripts | 345.18 MiB | 82.16 MiB | **-76.2%** | 10.2 KiB | 0.9 KiB | 0.036 ms | 0.017 ms |
+| Text & Documents | 472.28 MiB | 189.27 MiB | **-59.9%** | 4,128.4 KiB | 189.3 KiB | 41.728 ms | 2.037 ms |
+| Font Glyph Browser | 60.85 MiB | 31.26 MiB | **-48.6%** | 104.9 KiB | 37.4 KiB | 2.491 ms | 0.732 ms |
+| Visual Designer | 81.26 MiB | 46.57 MiB | **-42.7%** | 129.5 KiB | 95.3 KiB | 1.906 ms | 1.872 ms |
+| LOL/s Benchmark | 65.83 MiB | 36.80 MiB | **-44.1%** | 1,994.6 KiB | 28.9 KiB | 2.999 ms | 1.881 ms |
 
 ## Measurement method
 
@@ -90,6 +99,22 @@ The implementation therefore:
    coalesced into bounded outline/uniform writes, one compute pass, and one submission per
    batch. Coverage atlases survive navigation and grow geometrically on demand, avoiding
    both hidden-page preloading and repeated uploads.
+6. Keeps rich-text table, selection, and text ordering in one retained command list. A
+   selection-only scratch list is created lazily on the first selection repaint, then only
+   the previous overlay range is spliced; shaped text commands and their strings retain
+   identity, while ordinary `RichTextBlock` instances pay no extra cache-object cost.
+7. Reuses the registered inheritable-property set, replaces capturing visual-state trigger
+   queries with indexed loops, and indexes rich-document block/child lists. These remove
+   closure, interface-enumerator, and repeated property-list allocations from steady layout
+   without bypassing inheritance, state evaluation, or invalidation.
+8. Makes the LOL/s stress page retain a bounded 512-element pool whose controls keep one
+   `Run` and one mutable brush. At the 500-element steady-state limit it rotates child order
+   in place instead of detaching, reparenting, rebuilding inlines, and allocating brushes.
+   The workload still updates 119,600+ labels per measured run at the same active limit.
+9. Re-sorts the live path-recovery list in place for the same four deterministic orderings
+   and reuses one placement/free-rectangle trial pair across the three heuristics. This
+   removes a `PathInfo`-heavy array copy per ordering and repeated trial buffers while
+   preserving exact fallback, same-frame retry, UV generation, and failure behavior.
 
 ## Cross-engine design record
 
@@ -123,63 +148,64 @@ average are the regression gates.
 
 | Page | Managed before | Managed after | Change | Alloc KiB/frame before | Alloc KiB/frame after | Compile ms before | Compile ms after |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 3D Mesh Viewer | 52.30 | 22.50 | -57.0% | 19.1 | 13.5 | 0.056 | 0.041 |
-| Advanced Controls | 50.61 | 20.79 | -58.9% | 12.1 | 7.3 | 0.042 | 0.025 |
-| Basic Input | 50.03 | 20.23 | -59.6% | 10.9 | 6.9 | 0.038 | 0.020 |
-| Color Picker | 50.50 | 20.55 | -59.3% | 7.8 | 7.0 | 0.010 | 0.013 |
-| Compositor API | 50.85 | 20.84 | -59.0% | 14.6 | 9.1 | 0.744 | 0.694 |
-| Compute FX | 50.88 | 20.84 | -59.1% | 41.4 | 35.8 | 0.019 | 0.026 |
-| Data Virtualization | 54.10 | 24.06 | -55.5% | 37.8 | 32.0 | 1.146 | 0.919 |
-| Dock Panel | 49.39 | 19.50 | -60.5% | 6.8 | 6.5 | 0.008 | 0.023 |
-| Drawing Context | 49.45 | 19.38 | -60.8% | 11.0 | 5.3 | 0.038 | 0.027 |
-| DXF CAD Viewer | 51.97 | 21.00 | -59.6% | 16.3 | 10.8 | 0.028 | 0.027 |
-| File Storage | 49.61 | 19.75 | -60.2% | 11.9 | 6.5 | 0.042 | 0.032 |
-| Font Glyph Browser | 60.85 | 31.22 | -48.7% | 104.9 | 53.0 | 2.491 | 0.899 |
-| Framework Effects | 51.05 | 18.78 | -63.2% | 10.2 | 9.8 | 0.351 | 0.324 |
-| GDI Shim Showcase | 51.06 | 21.11 | -58.7% | 10.8 | 9.2 | 0.034 | 0.043 |
-| Glyph Run Showcase | 50.40 | 20.60 | -59.1% | 10.3 | 6.8 | 0.299 | 0.439 |
-| GPU Charting | 97.22 | 68.70 | -29.3% | 18.2 | 22.2 | 0.021 | 0.058 |
-| Grid Splitter | 49.48 | 19.56 | -60.5% | 7.2 | 6.0 | 0.012 | 0.030 |
-| Image & Buttons | 50.87 | 21.02 | -58.7% | 40.8 | 33.6 | 0.023 | 0.024 |
-| Image Effects | 50.70 | 20.67 | -59.2% | 37.6 | 35.8 | 0.013 | 0.016 |
-| Inter Typeface | 99.93 | 53.02 | -46.9% | 36.3 | 35.1 | 0.500 | 0.898 |
-| Interactive Input | 60.09 | 21.79 | -63.7% | 7.9 | 7.6 | 0.012 | 0.039 |
-| Keyboard & Focus | 52.60 | 23.03 | -56.2% | 15.5 | 10.5 | 0.037 | 0.036 |
-| Layout Panels | 50.51 | 20.03 | -60.4% | 12.4 | 8.1 | 0.026 | 0.026 |
-| LOL/s Benchmark | 65.83 | 36.98 | -43.8% | 1,994.6 | 1,073.1 | 2.999 | 2.831 |
-| Markdown Playground | 89.72 | 34.78 | -61.2% | 26.6 | 12.2 | 1.131 | 1.351 |
-| Motion & Animations | 50.40 | 18.13 | -64.0% | 20.4 | 13.8 | 0.603 | 0.516 |
-| MotionMark Showcase | 59.40 | 30.58 | -48.5% | 81.8 | 44.3 | 1.123 | 0.503 |
-| Password Box | 50.42 | 20.63 | -59.1% | 8.1 | 6.1 | 0.016 | 0.021 |
-| Path Operations | 49.96 | 19.99 | -60.0% | 8.1 | 6.5 | 0.021 | 0.043 |
-| Picture Caching | 51.18 | 21.29 | -58.4% | 21.7 | 13.9 | 0.802 | 0.592 |
-| Radio Button | 50.43 | 20.63 | -59.1% | 12.0 | 7.7 | 0.036 | 0.029 |
-| Rating Control | 50.28 | 20.50 | -59.2% | 8.0 | 6.4 | 0.020 | 0.029 |
-| Rich Document Editor | 50.32 | 20.38 | -59.5% | 12.8 | 7.7 | 0.032 | 0.023 |
-| ShaderToy Playground | 51.48 | 21.47 | -58.3% | 148.0 | 32.6 | 0.707 | 0.780 |
-| SkiaSharp Shim | 51.80 | 21.77 | -58.0% | 5.9 | 5.4 | 0.009 | 0.028 |
-| SplitView Layout | 50.14 | 20.32 | -59.5% | 13.0 | 7.5 | 0.033 | 0.037 |
-| Styles Showcase | 49.41 | 19.50 | -60.5% | 7.3 | 5.7 | 0.028 | 0.016 |
-| Text & Documents | 472.28 | 177.46 | -62.4% | 4,128.4 | 197.8 | 41.728 | 2.738 |
-| Text Shaping Lab | 513.91 | 70.04 | -86.4% | 22.8 | 16.9 | 0.082 | 0.052 |
-| Theme Showcase | 52.77 | 22.96 | -56.5% | 15.1 | 16.8 | 0.043 | 0.041 |
-| Touch & Gestures | 50.47 | 21.00 | -58.4% | 12.7 | 7.1 | 0.042 | 0.036 |
-| Typography & Scripts | 345.18 | 82.17 | -76.2% | 10.2 | 8.4 | 0.036 | 0.055 |
-| Vector Shapes | 50.67 | 20.73 | -59.1% | 7.5 | 6.2 | 0.013 | 0.018 |
-| Virtualization Controls | 55.09 | 26.66 | -51.6% | 22.9 | 20.6 | 0.016 | 0.014 |
-| Visual Designer | 81.26 | 51.92 | -36.1% | 129.5 | 124.0 | 1.906 | 2.537 |
-| WPF Shim Showcase | 57.22 | 21.26 | -62.9% | 13.9 | 8.3 | 0.031 | 0.020 |
-| Wrap Panel | 49.78 | 19.82 | -60.2% | 9.2 | 7.5 | 0.014 | 0.023 |
+| 3D Mesh Viewer | 52.30 | 22.51 | -57.0% | 19.1 | 1.1 | 0.056 | 0.017 |
+| Advanced Controls | 50.61 | 20.82 | -58.9% | 12.1 | 0.9 | 0.042 | 0.013 |
+| Basic Input | 50.03 | 20.25 | -59.5% | 10.9 | 0.9 | 0.038 | 0.016 |
+| Color Picker | 50.50 | 20.55 | -59.3% | 7.8 | 0.9 | 0.010 | 0.011 |
+| Compositor API | 50.85 | 21.15 | -58.4% | 14.6 | 2.8 | 0.744 | 0.378 |
+| Compute FX | 50.88 | 20.86 | -59.0% | 41.4 | 29.7 | 0.019 | 0.008 |
+| DXF CAD Viewer | 51.97 | 22.04 | -57.6% | 16.3 | 1.1 | 0.028 | 0.013 |
+| Data Virtualization | 54.10 | 24.07 | -55.5% | 37.8 | 27.9 | 1.146 | 1.018 |
+| Dock Panel | 49.39 | 19.47 | -60.6% | 6.8 | 0.9 | 0.008 | 0.010 |
+| Drawing Context | 49.45 | 19.43 | -60.7% | 11.0 | 0.9 | 0.038 | 0.010 |
+| File Storage | 49.61 | 19.69 | -60.3% | 11.9 | 0.9 | 0.042 | 0.011 |
+| Font Glyph Browser | 60.85 | 31.26 | -48.6% | 104.9 | 37.4 | 2.491 | 0.732 |
+| Framework Effects | 51.05 | 21.30 | -58.3% | 10.2 | 1.6 | 0.351 | 0.235 |
+| GDI Shim Showcase | 51.06 | 21.10 | -58.7% | 10.8 | 1.2 | 0.034 | 0.017 |
+| GPU Charting | 97.22 | 68.72 | -29.3% | 18.2 | 3.6 | 0.021 | 0.022 |
+| Glyph Run Showcase | 50.40 | 20.44 | -59.5% | 10.3 | 1.9 | 0.299 | 0.309 |
+| Grid Splitter | 49.48 | 19.51 | -60.6% | 7.2 | 0.9 | 0.012 | 0.010 |
+| Image & Buttons | 50.87 | 21.04 | -58.6% | 40.8 | 29.7 | 0.023 | 0.007 |
+| Image Effects | 50.70 | 20.69 | -59.2% | 37.6 | 29.8 | 0.013 | 0.009 |
+| Inter Typeface | 99.93 | 53.09 | -46.9% | 36.3 | 2.9 | 0.500 | 0.548 |
+| Interactive Input | 60.09 | 21.80 | -63.7% | 7.9 | 0.9 | 0.011 | 0.013 |
+| Keyboard & Focus | 52.60 | 23.09 | -56.1% | 15.5 | 1.0 | 0.037 | 0.017 |
+| LOL/s Benchmark | 65.83 | 36.80 | -44.1% | 1994.6 | 28.9 | 2.999 | 1.881 |
+| Layout Panels | 50.51 | 20.87 | -58.7% | 12.4 | 1.0 | 0.026 | 0.014 |
+| Markdown Playground | 89.72 | 35.08 | -60.9% | 26.6 | 2.2 | 1.131 | 0.929 |
+| Motion & Animations | 50.40 | 20.66 | -59.0% | 20.4 | 7.8 | 0.603 | 0.342 |
+| MotionMark Showcase | 59.40 | 30.55 | -48.6% | 81.8 | 14.8 | 1.123 | 0.149 |
+| Password Box | 50.42 | 20.63 | -59.1% | 8.1 | 1.0 | 0.016 | 0.012 |
+| Path Operations | 49.96 | 19.99 | -60.0% | 8.1 | 0.9 | 0.021 | 0.013 |
+| Picture Caching | 51.18 | 21.26 | -58.5% | 21.7 | 6.0 | 0.802 | 0.352 |
+| Radio Button | 50.43 | 20.65 | -59.1% | 12.0 | 0.9 | 0.036 | 0.011 |
+| Rating Control | 50.28 | 20.49 | -59.2% | 8.0 | 1.0 | 0.020 | 0.013 |
+| Rich Document Editor | 50.32 | 20.35 | -59.6% | 12.8 | 0.9 | 0.032 | 0.013 |
+| ShaderToy Playground | 51.48 | 21.48 | -58.3% | 148.0 | 25.6 | 0.707 | 0.510 |
+| SkiaSharp Shim | 51.80 | 21.71 | -58.1% | 5.9 | 0.9 | 0.009 | 0.010 |
+| SplitView Layout | 50.14 | 20.32 | -59.5% | 13.0 | 0.9 | 0.033 | 0.011 |
+| Styles Showcase | 49.41 | 19.52 | -60.5% | 7.3 | 1.0 | 0.028 | 0.009 |
+| Text & Documents | 472.28 | 189.27 | -59.9% | 4128.4 | 189.3 | 41.728 | 2.037 |
+| Text Shaping Lab | 513.91 | 70.07 | -86.4% | 22.8 | 0.9 | 0.082 | 0.036 |
+| Theme Showcase | 52.77 | 23.00 | -56.4% | 15.1 | 1.1 | 0.043 | 0.013 |
+| Touch & Gestures | 50.47 | 20.95 | -58.5% | 12.7 | 1.0 | 0.042 | 0.014 |
+| Typography & Scripts | 345.18 | 82.16 | -76.2% | 10.2 | 0.9 | 0.036 | 0.017 |
+| Vector Shapes | 50.67 | 20.74 | -59.1% | 7.5 | 1.0 | 0.013 | 0.011 |
+| Virtualization Controls | 55.09 | 26.69 | -51.5% | 22.9 | 1.1 | 0.016 | 0.018 |
+| Visual Designer | 81.26 | 46.57 | -42.7% | 129.5 | 95.3 | 1.906 | 1.872 |
+| WPF Shim Showcase | 57.22 | 21.27 | -62.8% | 13.9 | 1.0 | 0.031 | 0.011 |
+| Wrap Panel | 49.78 | 19.79 | -60.2% | 9.2 | 0.9 | 0.014 | 0.012 |
 
-GPU Charting and Theme Showcase had small allocation increases in their isolated optimized
-runs (about 4 KiB/frame and 1.7 KiB/frame respectively), while their retained managed heaps
-still fell by 29.3% and 56.5%. Their absolute compile costs stayed below 0.06 ms. Visual
-Designer rose by 0.63 ms but remained at 2.54 ms with no over-budget frames. These small
-single-run movements are retained in the table rather than hidden by aggregate reporting.
+Every page allocated less than its original isolated baseline. A few sub-millisecond compile
+measurements moved upward: Inter Typeface by 0.048 ms, Glyph Run Showcase by 0.010 ms, and
+GPU Charting by 0.001 ms. They remained below 0.55 ms with no over-budget compile frames;
+these small single-run movements are retained in the table rather than hidden by aggregate
+reporting. Compute FX, Image Effects, and Image & Buttons continue to allocate about
+30 KiB/frame for their intentionally changing effect/image workloads.
 
 ## Verification
 
-- `ProGPU.Tests` Release: **2,274 passed**, 0 failed.
+- `ProGPU.Tests` Release: **2,277 passed**, 0 failed.
 - `ProGPU.Tests.Headless` Release: **196 passed**, 0 failed.
 - Path-atlas focused tests: **29 passed**, including recovery, generation, and small-atlas
   stress coverage.
@@ -190,7 +216,8 @@ single-run movements are retained in the table rather than hidden by aggregate r
 - Headless screenshots for Text Shaping Lab, Typography & Scripts, and Text & Documents were
   visually inspected with unchanged text coverage and quality.
 - Browser Release publish AOT-compiled 69 assemblies; the WebGPU gallery opened under a real
-  browser with zero console errors or warnings beyond expected system-font fallback messages.
+  browser, rendered the 3D and rich-text pages, and reported zero console errors or warnings
+  beyond expected system-font fallback messages.
 - Quality-sensitive 8x8 analytic coverage, physical-DPI raster size, quarter-physical-pixel
   snapping, direction-aware half-open winding, color glyphs, fallback/variation identity,
   and same-frame atlas recovery were not reduced or bypassed.

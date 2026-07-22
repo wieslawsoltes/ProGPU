@@ -101,7 +101,12 @@ public static class VisualStateManager
                         fallback ??= state;
                         continue;
                     }
-                    if (state.StateTriggers.Any(trigger => trigger.IsActive(width, height))) active = state;
+                    for (int triggerIndex = 0; triggerIndex < state.StateTriggers.Count; triggerIndex++)
+                    {
+                        if (!state.StateTriggers[triggerIndex].IsActive(width, height)) continue;
+                        active = state;
+                        break;
+                    }
                 }
                 ApplyState(element, group, active ?? fallback);
             }
@@ -109,8 +114,12 @@ public static class VisualStateManager
 
         if (element is ContainerVisual container)
         {
-            foreach (var child in container.Children)
-                if (child is FrameworkElement childElement) UpdateElement(childElement, width, height);
+            IReadOnlyList<Visual> children = container.Children;
+            for (int index = 0; index < children.Count; index++)
+            {
+                if (children[index] is FrameworkElement childElement)
+                    UpdateElement(childElement, width, height);
+            }
         }
     }
 
@@ -160,9 +169,10 @@ public static class VisualStateManager
     {
         if (string.Equals(root.Name, name, StringComparison.Ordinal)) return root;
         if (root is not ContainerVisual container) return null;
-        foreach (var child in container.Children)
+        IReadOnlyList<Visual> children = container.Children;
+        for (int index = 0; index < children.Count; index++)
         {
-            if (child is not FrameworkElement element) continue;
+            if (children[index] is not FrameworkElement element) continue;
             var found = FindName(element, name);
             if (found != null) return found;
         }
