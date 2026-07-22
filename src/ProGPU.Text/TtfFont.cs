@@ -46,12 +46,12 @@ public struct GlyphUniforms
     public float YStart;
     public float Scale;
     public uint GlyphIndex;
-    
+
     public uint OutputOffsetWords;
     public uint OutputRowWords;
     public uint Width;
     public uint Height;
-    
+
     public float SubpixelX;
     public float Pad0;
     public float Pad1;
@@ -128,11 +128,11 @@ public partial class TtfFont
 
     private readonly byte[] _data;
     private readonly SfntFontFace _face;
-    private readonly Typeface? _cffTypeface;
+    private readonly Lazy<Cff1OutlineSource?>? _cffOutlineSource;
+    private readonly Lazy<Typeface?>? _cffTypeface;
     private readonly object _asciiGlyphCacheLock = new();
     private ushort[]? _asciiGlyphCache;
     private byte[]? _asciiGlyphCacheStates;
-    private readonly Lazy<Typeface?> _layoutTypeface;
     private readonly Dictionary<string, (uint offset, uint length)> _tables = new();
     private readonly Dictionary<ushort, List<FontColorLayer>?> _svgColorLayerCache = new();
 
@@ -210,9 +210,6 @@ public partial class TtfFont
         _data = SfntFontContainer.Normalize(fontData);
         FaceIndex = faceIndex;
         _face = SfntFontFace.Load(_data, faceIndex);
-        _layoutTypeface = new Lazy<Typeface?>(
-            LoadLayoutTypeface,
-            LazyThreadSafetyMode.ExecutionAndPublication);
         FamilyName = GetName(SfntNameIds.PreferredFamilyName, SfntNameIds.FamilyName) ?? string.Empty;
         SubfamilyName = GetName(SfntNameIds.PreferredSubfamilyName, SfntNameIds.SubfamilyName) ?? string.Empty;
         FullName = GetName(SfntNameIds.FullName) ?? FamilyName;
@@ -227,10 +224,12 @@ public partial class TtfFont
             _tables.ContainsKey("SVG ");
         if (_tables.ContainsKey("CFF "))
         {
-            byte[] cffFontData = _face.BaseOffset == 0
-                ? _data
-                : _face.CreateStandaloneFontData();
-            _cffTypeface = TryLoadCffTypeface(cffFontData);
+            _cffOutlineSource = new Lazy<Cff1OutlineSource?>(
+                LoadCffOutlineSource,
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            _cffTypeface = new Lazy<Typeface?>(
+                LoadCffTypeface,
+                LazyThreadSafetyMode.ExecutionAndPublication);
         }
         ParseHeadTable();
         ParseHheaTable();
@@ -242,22 +241,18 @@ public partial class TtfFont
         ParseCpalTable();
     }
 
-    internal Typeface? LayoutTypeface => _layoutTypeface.Value;
-
-    private Typeface? LoadLayoutTypeface()
+    private Typeface? LoadCffTypeface()
     {
-        try
-        {
-            byte[] data = _face.BaseOffset == 0 ? _data : _face.CreateStandaloneFontData();
-            using var stream = new MemoryStream(data, writable: false);
-            return new OpenFontReader().Read(stream);
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            ProGpuTextDiagnostics.WriteLine($"[TtfFont] OpenType layout tables unavailable for '{FullName}': {exception.Message}");
-            return null;
-        }
+        byte[] data = _face.BaseOffset == 0 ? _data : _face.CreateStandaloneFontData();
+        return TryLoadCffTypeface(data);
     }
+
+    private Cff1OutlineSource? LoadCffOutlineSource() =>
+        _face.TryGetTable("CFF ", out ReadOnlyMemory<byte> table)
+            ? Cff1OutlineSource.TryCreate(table, NumGlyphs)
+            : null;
+
+    internal bool IsCffFallbackLoaded => _cffTypeface?.IsValueCreated == true;
 
     public IReadOnlyList<string> GetOpenTypeFeatureTags() => OpenTypeTextShaper.GetFeatureTags(this);
 
@@ -291,9 +286,9 @@ public partial class TtfFont
 
     private uint ReadUInt(uint offset)
     {
-        return (uint)((_data[offset] << 24) | 
-                      (_data[offset + 1] << 16) | 
-                      (_data[offset + 2] << 8) | 
+        return (uint)((_data[offset] << 24) |
+                      (_data[offset + 1] << 16) |
+                      (_data[offset + 2] << 8) |
                       _data[offset + 3]);
     }
 
@@ -1299,11 +1294,11 @@ public partial class TtfFont
     public float GetKerning(uint left, uint right, float emSize)
     {
         if (!_tables.TryGetValue("kern", out var kern)) return 0;
-        
+
         uint offset = kern.offset;
         ushort version = ReadUShort(offset);
         ushort nTables = ReadUShort(offset + 2);
-        
+
         uint subtableOffset = offset + 4;
         float scale = emSize / UnitsPerEm;
 
@@ -1495,12 +1490,29 @@ public partial class TtfFont
 
     private ParsedGlyph? GetCffGlyphOutline(ushort glyphIndex)
     {
-        if (_cffTypeface is null || glyphIndex >= _cffTypeface.GlyphCount)
+        Cff1OutlineSource? source = _cffOutlineSource?.Value;
+        if (source is not null && source.TryGetOutline(glyphIndex, out PathGeometry? geometry))
+        {
+            return geometry is null
+                ? null
+                : new ParsedGlyph(geometry, Array.Empty<Vector2>());
+        }
+
+        return GetCffFallbackGlyphOutline(glyphIndex);
+    }
+
+    internal PathGeometry? GetCffFallbackGlyphOutlineForTesting(ushort glyphIndex) =>
+        GetCffFallbackGlyphOutline(glyphIndex)?.Geometry;
+
+    private ParsedGlyph? GetCffFallbackGlyphOutline(ushort glyphIndex)
+    {
+        Typeface? typeface = _cffTypeface?.Value;
+        if (typeface is null || glyphIndex >= typeface.GlyphCount)
         {
             return null;
         }
 
-        var glyph = _cffTypeface.GetGlyph(glyphIndex);
+        var glyph = typeface.GetGlyph(glyphIndex);
         if (!glyph.IsCffGlyph)
         {
             return null;
@@ -1706,13 +1718,13 @@ public partial class TtfFont
 
         int totalPoints = endPtsOfContours[numberOfContours - 1] + 1;
         byte[] flags = new byte[totalPoints];
-        
+
         // Read Flags
         for (int i = 0; i < totalPoints; i++)
         {
             byte flag = _data[offset++];
             flags[i] = flag;
-            
+
             // Check if flag repeats
             if ((flag & 8) != 0)
             {
@@ -1725,7 +1737,7 @@ public partial class TtfFont
         }
 
         Vector2[] coords = new Vector2[totalPoints];
-        
+
         // Read X Coordinates
         float lastX = 0;
         for (int i = 0; i < totalPoints; i++)
@@ -2109,7 +2121,7 @@ public partial class TtfFont
     {
         if (!_tables.TryGetValue("COLR", out var colr)) return;
         _colrOffset = colr.offset;
-        
+
         ushort version = ReadUShort(_colrOffset);
         if (version == 0)
         {
@@ -2135,7 +2147,7 @@ public partial class TtfFont
 
             // Parse default palette (palette 0)
             _colorPalette = new Vector4[_numPaletteEntries];
-            
+
             // Check first palette record index
             ushort firstPaletteRecordIndex = ReadUShort(_cpalOffset + 12);
 

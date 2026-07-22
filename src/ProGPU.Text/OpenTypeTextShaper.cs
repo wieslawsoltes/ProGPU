@@ -389,18 +389,28 @@ public static class OpenTypeTextShaper
     public static IReadOnlyList<string> GetFeatureTags(TtfFont font)
     {
         ArgumentNullException.ThrowIfNull(font);
-        Typeface? typeface = font.LayoutTypeface;
-        if (typeface is null)
-        {
-            return [];
-        }
-
         var tags = new HashSet<string>(StringComparer.Ordinal);
-        AddFeatureTags(typeface.GSUBTable?.FeatureList, tags);
-        AddFeatureTags(typeface.GPOSTable?.FeatureList, tags);
+        AddRawFeatureTags(font, "GSUB", tags);
+        AddRawFeatureTags(font, "GPOS", tags);
         var result = tags.ToList();
         result.Sort(StringComparer.Ordinal);
         return result;
+    }
+
+    private static void AddRawFeatureTags(TtfFont font, string tableTag, HashSet<string> tags)
+    {
+        if (!font.TryGetTable(tableTag, out ReadOnlyMemory<byte> memory)) return;
+        ReadOnlySpan<byte> data = memory.Span;
+        if (!CanRead(data, 6, 2)) return;
+        int featureListOffset = ReadU16(data, 6);
+        if (!CanRead(data, featureListOffset, 2)) return;
+        ushort featureCount = ReadU16(data, featureListOffset);
+        for (var index = 0; index < featureCount; index++)
+        {
+            int recordOffset = featureListOffset + 2 + index * 6;
+            if (!CanRead(data, recordOffset, 6)) break;
+            tags.Add(Encoding.ASCII.GetString(data.Slice(recordOffset, 4)));
+        }
     }
 
     public static IReadOnlyList<ShapedGlyph> Shape(
@@ -856,17 +866,17 @@ public static class OpenTypeTextShaper
         ShapingBufferFlags flags,
         int fragmentStart,
         int fragmentEnd) => new()
-    {
-        Script = unicodeScript,
-        Language = source.Language,
-        Direction = direction,
-        Features = source.Features,
-        ExplicitFeatureTags = source.ExplicitFeatureTags,
-        ClusterLevel = source.ClusterLevel,
-        BufferFlags = flags,
-        RangedFeatures = RemapVerificationFeatures(source.RangedFeatures.Span, fragmentStart, fragmentEnd),
-        BaseFeatures = source.BaseFeatures
-    };
+        {
+            Script = unicodeScript,
+            Language = source.Language,
+            Direction = direction,
+            Features = source.Features,
+            ExplicitFeatureTags = source.ExplicitFeatureTags,
+            ClusterLevel = source.ClusterLevel,
+            BufferFlags = flags,
+            RangedFeatures = RemapVerificationFeatures(source.RangedFeatures.Span, fragmentStart, fragmentEnd),
+            BaseFeatures = source.BaseFeatures
+        };
 
     private static ReadOnlyMemory<ShapingFeature> RemapVerificationFeatures(
         ReadOnlySpan<ShapingFeature> features,
@@ -919,9 +929,8 @@ public static class OpenTypeTextShaper
         ShapingDirection direction = ResolveDirection(requestedOptions.Direction, unicodeScript);
         TextShapingOptions options = AddScriptFeatures(requestedOptions, script, useShaper, indicShaper);
         options = AddDirectionalFeatures(options, direction);
-        Typeface? typeface = font.LayoutTypeface;
-        SubstitutionPlan substitution = CreateSubstitutionPlan(font, typeface?.GSUBTable, options, script);
-        PositioningPlan positioning = CreatePositioningPlan(font, typeface?.GPOSTable, options, script);
+        SubstitutionPlan substitution = CreateSubstitutionPlan(font, null, options, script);
+        PositioningPlan positioning = CreatePositioningPlan(font, null, options, script);
         bool hasMarkFeature = unicodeScript == "hebr" &&
             GetFeatureTags(font).Contains("mark", StringComparer.Ordinal);
         return new ShapingPlan(
@@ -4723,7 +4732,6 @@ public static class OpenTypeTextShaper
         ];
 
         private readonly List<GlyphRecord> _glyphs;
-        private readonly Typeface? _typeface;
         private readonly TtfFont _font;
         private readonly ReadOnlyMemory<byte> _gdefTable;
         private readonly ShapingClusterLevel _clusterLevel;
@@ -4756,7 +4764,6 @@ public static class OpenTypeTextShaper
             _preContext = preContext;
             _postContext = postContext;
             _ownsGlyphList = ownsGlyphList;
-            _typeface = font.LayoutTypeface;
             font.TryGetTable("GDEF", out _gdefTable);
             if (OpenTypeGdefPolicy.IsBlocklisted(
                     _gdefTable.Length,
@@ -4973,17 +4980,16 @@ public static class OpenTypeTextShaper
         public void ApplyArabicFallback(bool enabled, TextShapingOptions options)
         {
             if (!enabled) return;
-            Dictionary<string, int> requested = CreateFeatureMap(options.Features);
             ReadOnlySpan<ushort> forms = ArabicFallbackData.ShapingForms;
             for (var index = 0; index < _glyphs.Count; index++)
             {
                 GlyphRecord glyph = _glyphs[index];
                 int form = glyph.ArabicAction switch
                 {
-                    Initial when IsEnabled(requested, "init") => 0,
-                    Medial when IsEnabled(requested, "medi") => 1,
-                    Final when IsEnabled(requested, "fina") => 2,
-                    Isolated when IsEnabled(requested, "isol") => 3,
+                    Initial when OpenTypeTextShaper.IsFeatureEnabled(options.Features, "init") => 0,
+                    Medial when OpenTypeTextShaper.IsFeatureEnabled(options.Features, "medi") => 1,
+                    Final when OpenTypeTextShaper.IsFeatureEnabled(options.Features, "fina") => 2,
+                    Isolated when OpenTypeTextShaper.IsFeatureEnabled(options.Features, "isol") => 3,
                     _ => -1
                 };
                 if (form < 0 || glyph.CodePoint < ArabicFallbackData.FirstCodePoint ||
@@ -4995,7 +5001,7 @@ public static class OpenTypeTextShaper
                     Replace(index, presentationGlyph);
             }
 
-            if (!IsEnabled(requested, "rlig")) return;
+            if (!OpenTypeTextShaper.IsFeatureEnabled(options.Features, "rlig")) return;
             ApplyArabicFallbackLigatures(ArabicFallbackData.ThreeComponentLigatures, 2, ignoreMarks: true);
             ApplyArabicFallbackLigatures(ArabicFallbackData.TwoComponentLigatures, 1, ignoreMarks: true);
             ApplyArabicFallbackLigatures(ArabicFallbackData.MarkLigatures, 1, ignoreMarks: false);
@@ -5013,9 +5019,6 @@ public static class OpenTypeTextShaper
                 _glyphs[index] = glyph;
             }
         }
-
-        private static bool IsEnabled(Dictionary<string, int> requested, string tag) =>
-            requested.TryGetValue(tag, out int value) && value != 0;
 
         private void ApplyArabicFallbackLigatures(
             ReadOnlySpan<ushort> table,
@@ -5066,11 +5069,34 @@ public static class OpenTypeTextShaper
             int canonical = UnicodeCombiningClassData.GetCanonicalClass(codePoint);
             return canonical switch
             {
-                10 => 22, 11 => 15, 12 => 16, 13 => 17, 14 => 23, 15 => 18,
-                16 => 19, 17 => 20, 18 => 21, 19 => 14, 20 => 24, 21 => 12,
-                22 => 25, 23 => 13, 24 => 10, 25 => 11,
-                27 => 28, 28 => 29, 29 => 30, 30 => 31, 31 => 32, 32 => 33,
-                33 => 27, 84 => 4, 91 => 5, 103 => 3, 130 => 132, 132 => 131,
+                10 => 22,
+                11 => 15,
+                12 => 16,
+                13 => 17,
+                14 => 23,
+                15 => 18,
+                16 => 19,
+                17 => 20,
+                18 => 21,
+                19 => 14,
+                20 => 24,
+                21 => 12,
+                22 => 25,
+                23 => 13,
+                24 => 10,
+                25 => 11,
+                27 => 28,
+                28 => 29,
+                29 => 30,
+                30 => 31,
+                31 => 32,
+                32 => 33,
+                33 => 27,
+                84 => 4,
+                91 => 5,
+                103 => 3,
+                130 => 132,
+                132 => 131,
                 _ => canonical
             };
         }
@@ -6575,9 +6601,16 @@ public static class OpenTypeTextShaper
 
         private static uint GetIndicVirama(string script) => script switch
         {
-            "deva" => 0x094D, "beng" => 0x09CD, "guru" => 0x0A4D, "gujr" => 0x0ACD,
-            "orya" => 0x0B4D, "taml" => 0x0BCD, "telu" => 0x0C4D, "knda" => 0x0CCD,
-            "mlym" => 0x0D4D, _ => 0
+            "deva" => 0x094D,
+            "beng" => 0x09CD,
+            "guru" => 0x0A4D,
+            "gujr" => 0x0ACD,
+            "orya" => 0x0B4D,
+            "taml" => 0x0BCD,
+            "telu" => 0x0C4D,
+            "knda" => 0x0CCD,
+            "mlym" => 0x0D4D,
+            _ => 0
         };
 
         private static IndicRephMode GetIndicRephMode(string script) => script switch
@@ -7392,7 +7425,7 @@ public static class OpenTypeTextShaper
                     return (GlyphClassKind)OpenTypeTextShaper.GetGlyphClass(data, classDefOffset, record.GlyphIndex);
             }
             if (IsUnicodeMark(record.CodePoint)) return GlyphClassKind.Mark;
-            return _typeface?.GetGlyph(record.GlyphIndex).GlyphClass ?? GlyphClassKind.Base;
+            return GlyphClassKind.Base;
         }
 
         private int GetMarkAttachmentClass(ushort glyph)
@@ -7869,7 +7902,6 @@ public static class OpenTypeTextShaper
         private GlyphRecord[] _glyphs;
         private int _count;
         private bool _isPooled;
-        private readonly Typeface? _typeface;
         private readonly ReadOnlyMemory<byte> _gdefTable;
         private readonly ShapingDirection _direction;
         private int _markFilteringCoverage = -1;
@@ -7882,7 +7914,6 @@ public static class OpenTypeTextShaper
             ShapingClusterLevel clusterLevel,
             ShapingBufferFlags bufferFlags)
         {
-            _typeface = font.LayoutTypeface;
             _direction = direction;
             font.TryGetTable("GDEF", out _gdefTable);
             if (OpenTypeGdefPolicy.IsBlocklisted(

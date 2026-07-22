@@ -1197,9 +1197,11 @@ public unsafe class PathAtlas : IDisposable
     public void ResetForRenderRetry()
     {
         // Algorithm: try four stable rectangle orderings against three deterministic
-        // MaxRects placement heuristics, splitting and pruning F free regions after
-        // every placement. Recovery costs O(S * (P log P + P * F^2)) time and
-        // O(P + F) space for S=12 strategies. A final exact search for at most ten
+        // MaxRects placement heuristics. Each placement splits all intersecting free
+        // regions, then compares only those new regions with the already-pruned set.
+        // Recovery costs O(S * (P log P + P * F^2)) time in the adversarial case and
+        // O(S * (P log P + P * F)) when each placement intersects a bounded number of
+        // free regions, with O(P + F) retained space for S=12 strategies. A final exact search for at most ten
         // paths is capped at 25,000 nodes and 250,000 candidate placements, so an
         // adversarial set cannot stall the render thread. Normal insertion remains
         // the allocation-free O(1) shelf path. Recovery may allocate so a live
@@ -1905,70 +1907,100 @@ public unsafe class PathAtlas : IDisposable
         List<AtlasFreeRectangle> freeRectangles,
         AtlasFreeRectangle used)
     {
-        for (int index = freeRectangles.Count - 1; index >= 0; index--)
+        int originalCount = freeRectangles.Count;
+        AtlasFreeRectangle[] generated = ArrayPool<AtlasFreeRectangle>.Shared.Rent(
+            Math.Max(4, checked(originalCount * 4)));
+        int generatedCount = 0;
+        int survivorCount = 0;
+        try
         {
-            AtlasFreeRectangle free = freeRectangles[index];
-            if (used.X >= free.Right || used.Right <= free.X ||
-                used.Y >= free.Bottom || used.Bottom <= free.Y)
+            // The incoming list is already containment-pruned. Preserve unaffected
+            // rectangles in stable order and collect only the split rectangles that
+            // can introduce new containment relationships.
+            for (int index = 0; index < originalCount; index++)
             {
-                continue;
-            }
-
-            freeRectangles.RemoveAt(index);
-            if (used.X > free.X)
-            {
-                freeRectangles.Add(new AtlasFreeRectangle(
-                    free.X,
-                    free.Y,
-                    used.X - free.X,
-                    free.Height));
-            }
-            if (used.Right < free.Right)
-            {
-                freeRectangles.Add(new AtlasFreeRectangle(
-                    used.Right,
-                    free.Y,
-                    free.Right - used.Right,
-                    free.Height));
-            }
-            if (used.Y > free.Y)
-            {
-                freeRectangles.Add(new AtlasFreeRectangle(
-                    free.X,
-                    free.Y,
-                    free.Width,
-                    used.Y - free.Y));
-            }
-            if (used.Bottom < free.Bottom)
-            {
-                freeRectangles.Add(new AtlasFreeRectangle(
-                    free.X,
-                    used.Bottom,
-                    free.Width,
-                    free.Bottom - used.Bottom));
-            }
-        }
-
-        for (int outer = freeRectangles.Count - 1; outer >= 0; outer--)
-        {
-            AtlasFreeRectangle candidate = freeRectangles[outer];
-            for (int inner = 0; inner < freeRectangles.Count; inner++)
-            {
-                if (outer == inner)
+                AtlasFreeRectangle free = freeRectangles[index];
+                if (used.X >= free.Right || used.Right <= free.X ||
+                    used.Y >= free.Bottom || used.Bottom <= free.Y)
                 {
+                    freeRectangles[survivorCount++] = free;
                     continue;
                 }
 
-                AtlasFreeRectangle container = freeRectangles[inner];
-                if (candidate.X >= container.X && candidate.Y >= container.Y &&
-                    candidate.Right <= container.Right && candidate.Bottom <= container.Bottom)
+                if (used.X > free.X)
                 {
-                    freeRectangles.RemoveAt(outer);
-                    break;
+                    generated[generatedCount++] = new AtlasFreeRectangle(
+                        free.X,
+                        free.Y,
+                        used.X - free.X,
+                        free.Height);
+                }
+                if (used.Right < free.Right)
+                {
+                    generated[generatedCount++] = new AtlasFreeRectangle(
+                        used.Right,
+                        free.Y,
+                        free.Right - used.Right,
+                        free.Height);
+                }
+                if (used.Y > free.Y)
+                {
+                    generated[generatedCount++] = new AtlasFreeRectangle(
+                        free.X,
+                        free.Y,
+                        free.Width,
+                        used.Y - free.Y);
+                }
+                if (used.Bottom < free.Bottom)
+                {
+                    generated[generatedCount++] = new AtlasFreeRectangle(
+                        free.X,
+                        used.Bottom,
+                        free.Width,
+                        free.Bottom - used.Bottom);
+                }
+            }
+
+            if (survivorCount < originalCount)
+            {
+                freeRectangles.RemoveRange(survivorCount, originalCount - survivorCount);
+            }
+
+            for (int generatedIndex = 0; generatedIndex < generatedCount; generatedIndex++)
+            {
+                AtlasFreeRectangle candidate = generated[generatedIndex];
+                bool contained = false;
+                for (int existingIndex = freeRectangles.Count - 1; existingIndex >= 0; existingIndex--)
+                {
+                    AtlasFreeRectangle existing = freeRectangles[existingIndex];
+                    if (Contains(existing, candidate))
+                    {
+                        contained = true;
+                        break;
+                    }
+                    if (Contains(candidate, existing))
+                    {
+                        freeRectangles.RemoveAt(existingIndex);
+                    }
+                }
+
+                if (!contained)
+                {
+                    freeRectangles.Add(candidate);
                 }
             }
         }
+        finally
+        {
+            ArrayPool<AtlasFreeRectangle>.Shared.Return(generated);
+        }
     }
+
+    private static bool Contains(AtlasFreeRectangle container, AtlasFreeRectangle candidate) =>
+        candidate.X >= container.X &&
+        candidate.Y >= container.Y &&
+        candidate.Right <= container.Right &&
+        candidate.Bottom <= container.Bottom;
 
     private bool HasPathsUsedInCurrentFrame()
     {

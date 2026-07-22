@@ -502,6 +502,7 @@ public class SfntFontFaceTests
         Assert.Equal((short)0, yMin);
         Assert.Equal((short)400, xMax);
         Assert.Equal((short)750, yMax);
+        Assert.False(font.IsCffFallbackLoaded);
         Assert.Equal("OTTO", Encoding.ASCII.GetString(font.FontData.Span[..4]));
     }
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using ProGPU.Fonts.Noto;
 using ProGPU.Text;
+using ProGPU.Vector;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -27,6 +28,43 @@ public sealed class NotoFontFamilyTests
     public void JapaneseFaceCoversSampleCjk(char character)
     {
         Assert.NotEqual((ushort)0, NotoFontFamily.Japanese.GetGlyphIndex(character));
+    }
+
+    [Theory]
+    [InlineData('日')]
+    [InlineData('本')]
+    [InlineData('語')]
+    [InlineData('描')]
+    public void JapaneseCffOutlinesAreDecodedOnDemandWithoutWholeFontFallback(char character)
+    {
+        TtfFont font = NotoFontFamily.Japanese;
+        ushort glyph = font.GetGlyphIndex(character);
+
+        PathGeometry outline = Assert.IsType<PathGeometry>(font.GetGlyphOutline(glyph));
+
+        Assert.NotEmpty(outline.Figures);
+        Assert.Contains(outline.Figures.SelectMany(static figure => figure.Segments),
+            static segment => segment is LineSegment or CubicBezierSegment);
+        Assert.False(font.IsCffFallbackLoaded);
+    }
+
+    [Theory]
+    [InlineData('A')]
+    [InlineData('日')]
+    [InlineData('か')]
+    [InlineData('ナ')]
+    public void JapaneseCffOnDemandOutlinesMatchEstablishedFallback(char character)
+    {
+        byte[] fontData = NotoFontFamily.Japanese.FontData.ToArray();
+        var compactFont = new TtfFont(fontData);
+        var fallbackFont = new TtfFont(fontData);
+        ushort glyph = compactFont.GetGlyphIndex(character);
+
+        PathGeometry compact = Assert.IsType<PathGeometry>(compactFont.GetGlyphOutline(glyph));
+        PathGeometry fallback = Assert.IsType<PathGeometry>(
+            fallbackFont.GetCffFallbackGlyphOutlineForTesting(glyph));
+
+        AssertGeometryEqual(fallback, compact);
     }
 
     [Theory]
@@ -65,5 +103,49 @@ public sealed class NotoFontFamilyTests
             out ushort symbolGlyph));
         Assert.Same(NotoFontFamily.Symbols, symbols);
         Assert.NotEqual((ushort)0, symbolGlyph);
+    }
+
+    private static void AssertGeometryEqual(PathGeometry expected, PathGeometry actual)
+    {
+        Assert.Equal(expected.FillRule, actual.FillRule);
+        Assert.Equal(expected.Figures.Count, actual.Figures.Count);
+        for (int figureIndex = 0; figureIndex < expected.Figures.Count; figureIndex++)
+        {
+            PathFigure expectedFigure = expected.Figures[figureIndex];
+            PathFigure actualFigure = actual.Figures[figureIndex];
+            AssertPointEqual(expectedFigure.StartPoint, actualFigure.StartPoint);
+            Assert.Equal(expectedFigure.IsClosed, actualFigure.IsClosed);
+            Assert.Equal(expectedFigure.Segments.Count, actualFigure.Segments.Count);
+            for (int segmentIndex = 0; segmentIndex < expectedFigure.Segments.Count; segmentIndex++)
+            {
+                PathSegment expectedSegment = expectedFigure.Segments[segmentIndex];
+                PathSegment actualSegment = actualFigure.Segments[segmentIndex];
+                Assert.Equal(expectedSegment.GetType(), actualSegment.GetType());
+                switch (expectedSegment, actualSegment)
+                {
+                    case (LineSegment expectedLine, LineSegment actualLine):
+                        AssertPointEqual(expectedLine.Point, actualLine.Point);
+                        break;
+                    case (QuadraticBezierSegment expectedQuadratic, QuadraticBezierSegment actualQuadratic):
+                        AssertPointEqual(expectedQuadratic.ControlPoint, actualQuadratic.ControlPoint);
+                        AssertPointEqual(expectedQuadratic.Point, actualQuadratic.Point);
+                        break;
+                    case (CubicBezierSegment expectedCubic, CubicBezierSegment actualCubic):
+                        AssertPointEqual(expectedCubic.ControlPoint1, actualCubic.ControlPoint1);
+                        AssertPointEqual(expectedCubic.ControlPoint2, actualCubic.ControlPoint2);
+                        AssertPointEqual(expectedCubic.Point, actualCubic.Point);
+                        break;
+                    default:
+                        throw new Xunit.Sdk.XunitException(
+                            $"Unexpected CFF segment type {expectedSegment.GetType().Name}.");
+                }
+            }
+        }
+    }
+
+    private static void AssertPointEqual(System.Numerics.Vector2 expected, System.Numerics.Vector2 actual)
+    {
+        Assert.InRange(MathF.Abs(expected.X - actual.X), 0f, 0.001f);
+        Assert.InRange(MathF.Abs(expected.Y - actual.Y), 0f, 0.001f);
     }
 }

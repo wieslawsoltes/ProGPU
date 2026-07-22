@@ -116,8 +116,8 @@ public partial class TtfFont : IEquatable<TtfFont>
     {
         _data = source._data;
         _face = source._face;
+        _cffOutlineSource = source._cffOutlineSource;
         _cffTypeface = source._cffTypeface;
-        _layoutTypeface = source._layoutTypeface;
         _tables = source._tables;
         _svgColorLayerCache = source._svgColorLayerCache;
 

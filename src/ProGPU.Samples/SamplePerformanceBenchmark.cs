@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Diagnostics.Tracing;
+using System.Runtime.InteropServices;
 
 namespace ProGPU.Samples;
 
@@ -13,6 +15,8 @@ internal static class SamplePerformanceBenchmark
     private const string ScrollStepVariable = "PROGPU_SAMPLE_BENCHMARK_SCROLL_STEP";
     private const string PreconditionPagesVariable = "PROGPU_SAMPLE_BENCHMARK_PRECONDITION_PAGES";
     private const string PreconditionFramesVariable = "PROGPU_SAMPLE_BENCHMARK_PRECONDITION_FRAMES";
+    private const string MemoryVariable = "PROGPU_SAMPLE_BENCHMARK_MEMORY";
+    private const string HoldMillisecondsVariable = "PROGPU_SAMPLE_BENCHMARK_HOLD_MS";
 
     private static readonly int s_warmupFrames = ReadPositiveInt(WarmupFramesVariable, 180);
     private static readonly int s_measureFrames = ReadPositiveInt(MeasureFramesVariable, 600);
@@ -36,6 +40,11 @@ internal static class SamplePerformanceBenchmark
     private static double s_presentMilliseconds;
     private static Microsoft.UI.Xaml.Window? s_window;
     private static long s_allocatedBytesAtStart;
+    private static long s_managedHeapBytesAtStart;
+    private static TimeSpan s_gcPauseDurationAtStart;
+    private static int s_gen0CollectionsAtStart;
+    private static int s_gen1CollectionsAtStart;
+    private static int s_gen2CollectionsAtStart;
     private static int s_lolsRenderedAtStart;
     private static int s_sceneCacheHitFrames;
     private static int s_glyphStateSamples;
@@ -62,6 +71,8 @@ internal static class SamplePerformanceBenchmark
     private static readonly float s_scrollStep = ReadPositiveFloat(ScrollStepVariable, 40f);
     private static readonly string[] s_preconditionPages = ReadPageList(PreconditionPagesVariable);
     private static readonly int s_preconditionFrames = ReadPositiveInt(PreconditionFramesVariable, 180);
+    private static readonly bool s_memoryWorkload = ReadOptionalBool(MemoryVariable) == true;
+    private static readonly int s_holdMilliseconds = ReadNonNegativeInt(HoldMillisecondsVariable, 0);
     private static int s_preconditionPageIndex;
     private static int s_preconditionFrame;
     private static bool s_isPreconditioning;
@@ -101,6 +112,7 @@ internal static class SamplePerformanceBenchmark
             $" scroll={s_scrollWorkload} scrollStep={s_scrollStep:F0}" +
             $" preconditionPages={string.Join(';', s_preconditionPages)}" +
             $" preconditionFrames={s_preconditionFrames}");
+        SampleBenchmarkEventSource.Log.WorkloadStarted(selectedPage);
     }
 
     public static void ObserveFrame(double deltaSeconds)
@@ -175,13 +187,24 @@ internal static class SamplePerformanceBenchmark
 
         if (s_frame == s_warmupFrames + 1)
         {
+            if (s_memoryWorkload)
+            {
+                CollectRetainedMemory();
+            }
+
             s_wallClock.Restart();
             s_allocatedBytesAtStart = GC.GetTotalAllocatedBytes(precise: false);
+            s_managedHeapBytesAtStart = GC.GetTotalMemory(forceFullCollection: false);
+            s_gcPauseDurationAtStart = GC.GetTotalPauseDuration();
+            s_gen0CollectionsAtStart = GC.CollectionCount(0);
+            s_gen1CollectionsAtStart = GC.CollectionCount(1);
+            s_gen2CollectionsAtStart = GC.CollectionCount(2);
             s_lolsRenderedAtStart = LolsPage.TotalRenderedCount;
             s_glyphAtlasGenerationAtStart = AppState._screenCompositor?.Atlas.Generation ?? 0;
             s_glyphAtlasEvictionsAtStart = AppState._screenCompositor?.Atlas.EvictionCount ?? 0;
             s_glyphAtlasClearsAtStart = AppState._screenCompositor?.Atlas.ClearCount ?? 0;
             s_pathAtlasGenerationAtStart = AppState._screenCompositor?.PathAtlas.Generation ?? 0;
+            SampleBenchmarkEventSource.Log.MeasurementStarted(RequestedPage!);
         }
 
         s_deltaSeconds += deltaSeconds;
@@ -227,6 +250,7 @@ internal static class SamplePerformanceBenchmark
         s_wallClock.Stop();
         s_finished = true;
         LolsPage.Stop();
+        SampleBenchmarkEventSource.Log.MeasurementStopped(RequestedPage!);
 
         double deltaFps = s_deltaSeconds > 0d ? measuredFrames / s_deltaSeconds : 0d;
         double wallFps = s_wallClock.Elapsed.TotalSeconds > 0d
@@ -234,8 +258,26 @@ internal static class SamplePerformanceBenchmark
             : 0d;
         double divisor = Math.Max(1, measuredFrames);
         long allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(precise: false) - s_allocatedBytesAtStart);
+        int gen0Collections = GC.CollectionCount(0) - s_gen0CollectionsAtStart;
+        int gen1Collections = GC.CollectionCount(1) - s_gen1CollectionsAtStart;
+        int gen2Collections = GC.CollectionCount(2) - s_gen2CollectionsAtStart;
+        double gcPauseMilliseconds = (GC.GetTotalPauseDuration() - s_gcPauseDurationAtStart).TotalMilliseconds;
+        if (s_memoryWorkload)
+        {
+            CollectRetainedMemory();
+        }
+
         long managedHeapBytes = GC.GetTotalMemory(forceFullCollection: false);
         var gcMemoryInfo = GC.GetGCMemoryInfo();
+        var generationInfo = gcMemoryInfo.GenerationInfo;
+        long gen0Bytes = generationInfo.Length > 0 ? generationInfo[0].SizeAfterBytes : 0;
+        long gen1Bytes = generationInfo.Length > 1 ? generationInfo[1].SizeAfterBytes : 0;
+        long gen2Bytes = generationInfo.Length > 2 ? generationInfo[2].SizeAfterBytes : 0;
+        long lohBytes = generationInfo.Length > 3 ? generationInfo[3].SizeAfterBytes : 0;
+        long pohBytes = generationInfo.Length > 4 ? generationInfo[4].SizeAfterBytes : 0;
+        using var process = Process.GetCurrentProcess();
+        process.Refresh();
+        ProcessMemorySnapshot processMemory = ProcessMemorySnapshot.Capture(process);
         var finalMetrics = AppState._screenCompositor?.Metrics;
         string workloadDetails = string.Empty;
         if (string.Equals(RequestedPage, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
@@ -356,12 +398,48 @@ internal static class SamplePerformanceBenchmark
             $" pathAtlasSize={finalMetrics?.PathAtlasSize ?? 0}/{finalMetrics?.PathAtlasMaximumSize ?? 0}" +
             $" pathRasterStagingBytes={finalMetrics?.PathRasterStagingBytes ?? 0}" +
             $" pathPeakRasterStagingBytes={finalMetrics?.PathPeakRasterStagingBytes ?? 0}" +
+            $" managedHeapStartBytes={s_managedHeapBytesAtStart}" +
             $" managedHeapBytes={managedHeapBytes}" +
+            $" managedHeapDeltaBytes={managedHeapBytes - s_managedHeapBytesAtStart}" +
+            $" gcHeapSizeBytes={gcMemoryInfo.HeapSizeBytes}" +
+            $" gcCommittedBytes={gcMemoryInfo.TotalCommittedBytes}" +
             $" managedFragmentedBytes={gcMemoryInfo.FragmentedBytes}" +
+            $" gen0Bytes={gen0Bytes}" +
+            $" gen1Bytes={gen1Bytes}" +
+            $" gen2Bytes={gen2Bytes}" +
+            $" lohBytes={lohBytes}" +
+            $" pohBytes={pohBytes}" +
+            $" gen0Collections={gen0Collections}" +
+            $" gen1Collections={gen1Collections}" +
+            $" gen2Collections={gen2Collections}" +
+            $" gcPauseMs={gcPauseMilliseconds:F3}" +
+            $" pinnedObjects={gcMemoryInfo.PinnedObjectsCount}" +
+            $" finalizationPending={gcMemoryInfo.FinalizationPendingCount}" +
+            $" processWorkingSetBytes={process.WorkingSet64}" +
+            $" processPeakWorkingSetBytes={process.PeakWorkingSet64}" +
+            $" processPrivateBytes={process.PrivateMemorySize64}" +
+            $" processVirtualBytes={process.VirtualMemorySize64}" +
+            $" processResidentBytes={processMemory.ResidentBytes}" +
+            $" processWiredBytes={processMemory.WiredBytes}" +
+            $" processPhysicalFootprintBytes={processMemory.PhysicalFootprintBytes}" +
+            $" processLifetimeMaxPhysicalFootprintBytes={processMemory.LifetimeMaxPhysicalFootprintBytes}" +
             $" pathAtlasFillCacheEntries={AppState._screenCompositor?.PathAtlas.CachedFillPathCount ?? 0}" +
             $" pathAtlasHitTestCacheEntries={AppState._screenCompositor?.PathAtlas.CachedHitTestPathCount ?? 0}");
 
+        if (s_holdMilliseconds > 0)
+        {
+            SampleBenchmarkEventSource.Log.SnapshotHoldStarted(RequestedPage!);
+            Thread.Sleep(s_holdMilliseconds);
+        }
+
         AppState._window?.Close();
+    }
+
+    private static void CollectRetainedMemory()
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
     }
 
     public static void RecordHostUpdate(TimeSpan elapsed)
@@ -490,6 +568,12 @@ internal static class SamplePerformanceBenchmark
         return int.TryParse(value, out int parsed) && parsed > 0 ? parsed : fallback;
     }
 
+    private static int ReadNonNegativeInt(string name, int fallback)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(value, out int parsed) && parsed >= 0 ? parsed : fallback;
+    }
+
     private static bool? ReadOptionalBool(string name)
     {
         string? value = Environment.GetEnvironmentVariable(name);
@@ -503,4 +587,105 @@ internal static class SamplePerformanceBenchmark
             ? parsed
             : fallback;
     }
+}
+
+internal readonly record struct ProcessMemorySnapshot(
+    long ResidentBytes,
+    long WiredBytes,
+    long PhysicalFootprintBytes,
+    long LifetimeMaxPhysicalFootprintBytes)
+{
+    public static ProcessMemorySnapshot Capture(Process process)
+    {
+        if (OperatingSystem.IsMacOS() && MacOsProcessMemory.TryCapture(process.Id, out var mac))
+            return mac;
+        return new ProcessMemorySnapshot(
+            process.WorkingSet64,
+            0,
+            process.WorkingSet64,
+            process.PeakWorkingSet64);
+    }
+}
+
+internal static unsafe class MacOsProcessMemory
+{
+    private const int RUsageInfoV4Flavor = 4;
+
+    public static bool TryCapture(int processId, out ProcessMemorySnapshot snapshot)
+    {
+        var usage = default(RUsageInfoV4);
+        if (ProcPidRUsage(processId, RUsageInfoV4Flavor, ref usage) == 0)
+        {
+            snapshot = new ProcessMemorySnapshot(
+                checked((long)usage.ResidentSize),
+                checked((long)usage.WiredSize),
+                checked((long)usage.PhysicalFootprint),
+                checked((long)usage.LifetimeMaxPhysicalFootprint));
+            return true;
+        }
+        snapshot = default;
+        return false;
+    }
+
+    [DllImport("/usr/lib/libproc.dylib", EntryPoint = "proc_pid_rusage")]
+    private static extern int ProcPidRUsage(int processId, int flavor, ref RUsageInfoV4 buffer);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RUsageInfoV4
+    {
+        public fixed byte Uuid[16];
+        public ulong UserTime;
+        public ulong SystemTime;
+        public ulong PackageIdleWakeups;
+        public ulong InterruptWakeups;
+        public ulong PageIns;
+        public ulong WiredSize;
+        public ulong ResidentSize;
+        public ulong PhysicalFootprint;
+        public ulong ProcessStartAbsoluteTime;
+        public ulong ProcessExitAbsoluteTime;
+        public ulong ChildUserTime;
+        public ulong ChildSystemTime;
+        public ulong ChildPackageIdleWakeups;
+        public ulong ChildInterruptWakeups;
+        public ulong ChildPageIns;
+        public ulong ChildElapsedAbsoluteTime;
+        public ulong DiskBytesRead;
+        public ulong DiskBytesWritten;
+        public ulong CpuTimeDefault;
+        public ulong CpuTimeMaintenance;
+        public ulong CpuTimeBackground;
+        public ulong CpuTimeUtility;
+        public ulong CpuTimeLegacy;
+        public ulong CpuTimeUserInitiated;
+        public ulong CpuTimeUserInteractive;
+        public ulong BilledSystemTime;
+        public ulong ServicedSystemTime;
+        public ulong LogicalWrites;
+        public ulong LifetimeMaxPhysicalFootprint;
+        public ulong Instructions;
+        public ulong Cycles;
+        public ulong BilledEnergy;
+        public ulong ServicedEnergy;
+        public ulong IntervalMaxPhysicalFootprint;
+        public ulong RunnableTime;
+    }
+}
+
+[EventSource(Name = "ProGPU-SampleBenchmark")]
+internal sealed class SampleBenchmarkEventSource : EventSource
+{
+    public static readonly SampleBenchmarkEventSource Log = new();
+
+    [Event(1, Level = EventLevel.Informational)]
+    public void WorkloadStarted(string page) => WriteEvent(1, page);
+
+    [Event(2, Level = EventLevel.Informational)]
+    public void MeasurementStarted(string page) => WriteEvent(2, page);
+
+    [Event(3, Level = EventLevel.Informational)]
+    public void MeasurementStopped(string page) => WriteEvent(3, page);
+
+    [Event(4, Level = EventLevel.Informational)]
+    public void SnapshotHoldStarted(string page) => WriteEvent(4, page);
 }
