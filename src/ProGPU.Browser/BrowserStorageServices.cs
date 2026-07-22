@@ -7,6 +7,7 @@ internal static partial class BrowserStorageServices
 {
     private const string OpenDirectory = "/tmp/progpu-browser-open";
     private const string SaveDirectory = "/tmp/progpu-browser-save";
+    private const string FolderDirectory = "/tmp/progpu-browser-folder";
 
     public static void Initialize()
     {
@@ -58,31 +59,84 @@ internal static partial class BrowserStorageServices
 
         if (mode == 1)
         {
-            Directory.CreateDirectory(SaveDirectory);
-            return Path.Combine(SaveDirectory, Path.GetFileName(result));
+            var selection = ParseHandleSelection(result);
+            if (selection == null) return null;
+
+            var directory = Path.Combine(SaveDirectory, selection.Value.Token);
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, selection.Value.Name);
+        }
+
+        if (mode == 2)
+        {
+            var selection = ParseHandleSelection(result);
+            if (selection == null) return null;
+            return Path.Combine(FolderDirectory, selection.Value.Token, selection.Value.Name);
         }
 
         return null;
     }
 
-    private static Task<bool> WriteTextAsync(string path, string text)
+    private static async Task<bool> WriteTextAsync(string path, string text)
     {
-        if (!path.StartsWith(SaveDirectory, StringComparison.Ordinal)) return Task.FromResult(false);
-        DownloadText(Path.GetFileName(path), text);
-        return Task.FromResult(true);
+        if (!TryGetSaveSelection(path, out var token, out var name)) return false;
+        if (token != "download" && await WritePickedStorageText(token, text)) return true;
+
+        DownloadText(name, text);
+        return true;
     }
 
-    private static Task<bool> WriteBytesAsync(string path, byte[] bytes)
+    private static async Task<bool> WriteBytesAsync(string path, byte[] bytes)
     {
-        if (!path.StartsWith(SaveDirectory, StringComparison.Ordinal)) return Task.FromResult(false);
+        if (!TryGetSaveSelection(path, out var token, out var name)) return false;
+        if (token != "download")
+        {
+            Task<bool> writeTask;
+            unsafe
+            {
+                fixed (byte* source = bytes)
+                {
+                    writeTask = WritePickedStorageBytes(token, (nint)source, bytes.Length);
+                }
+            }
+
+            if (await writeTask) return true;
+        }
+
         unsafe
         {
             fixed (byte* source = bytes)
             {
-                DownloadBytes(Path.GetFileName(path), (nint)source, bytes.Length);
+                DownloadBytes(name, (nint)source, bytes.Length);
             }
         }
-        return Task.FromResult(true);
+        return true;
+    }
+
+    private static (string Token, string Name)? ParseHandleSelection(string result)
+    {
+        int separator = result.IndexOf('\n');
+        if (separator <= 0 || separator == result.Length - 1) return null;
+
+        var token = result[..separator];
+        var name = Path.GetFileName(Uri.UnescapeDataString(result[(separator + 1)..]));
+        if (string.IsNullOrWhiteSpace(token) || Path.GetFileName(token) != token || token is "." or ".." ||
+            string.IsNullOrWhiteSpace(name)) return null;
+        return (token, name);
+    }
+
+    private static bool TryGetSaveSelection(string path, out string token, out string name)
+    {
+        token = string.Empty;
+        name = string.Empty;
+        var relative = Path.GetRelativePath(SaveDirectory, path);
+        if (Path.IsPathRooted(relative) || relative.StartsWith("..", StringComparison.Ordinal)) return false;
+
+        var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2 || parts.Any(part => part is "." or "..")) return false;
+        token = parts[0];
+        name = parts[1];
+        return true;
     }
 
     [JSImport("pickStorage", "progpu-browser")]
@@ -96,6 +150,12 @@ internal static partial class BrowserStorageServices
 
     [JSImport("clearPickedStorage", "progpu-browser")]
     private static partial void ClearPickedStorage();
+
+    [JSImport("writePickedStorageText", "progpu-browser")]
+    private static partial Task<bool> WritePickedStorageText(string token, string text);
+
+    [JSImport("writePickedStorageBytes", "progpu-browser")]
+    private static partial Task<bool> WritePickedStorageBytes(string token, nint source, int length);
 
     [JSImport("downloadText", "progpu-browser")]
     private static partial void DownloadText(string name, string text);

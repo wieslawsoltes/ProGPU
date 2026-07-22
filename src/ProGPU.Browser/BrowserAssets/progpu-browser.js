@@ -27,6 +27,9 @@ const state = {
   clipboardRtf: '',
   clipboardHtml: '',
   pickedStorageBytes: null,
+  nextStorageHandle: 1,
+  saveFileHandles: new Map(),
+  directoryHandles: new Map(),
   worker: null,
   workerRequests: new Map(),
   nextWorkerRequest: 1,
@@ -704,12 +707,38 @@ async function stagePickedFile(file) {
   return encodeURIComponent(file.name);
 }
 
-function pickStorageWithInput(filters) {
+function storagePickerTypes(filters) {
+  const extensions = String(filters || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(value => /^\.[A-Za-z0-9][A-Za-z0-9._+-]{0,15}$/.test(value));
+  return extensions.length === 0
+    ? undefined
+    : [{ description: 'Supported files', accept: { 'application/octet-stream': extensions } }];
+}
+
+function rememberStorageHandle(handles, prefix, handle) {
+  const token = `${prefix}-${state.nextStorageHandle++}`;
+  handles.set(token, handle);
+  if (handles.size > 32) handles.delete(handles.keys().next().value);
+  return token;
+}
+
+function encodeStorageSelection(token, name) {
+  return `${token}\n${encodeURIComponent(name)}`;
+}
+
+function pickStorageWithInput(filters, directory = false) {
   return new Promise(resolve => {
     const input = document.createElement('input');
     let settled = false;
     input.type = 'file';
-    input.accept = filters || '';
+    if (directory) {
+      input.multiple = true;
+      input.webkitdirectory = true;
+    } else {
+      input.accept = filters || '';
+    }
     input.style.display = 'none';
     document.body.appendChild(input);
 
@@ -721,6 +750,11 @@ function pickStorageWithInput(filters) {
       settled = true;
       cleanup();
       if (!file) { resolve(''); return; }
+      if (directory) {
+        const relativePath = file.webkitRelativePath || file.name;
+        resolve(encodeStorageSelection('virtual', relativePath.split('/')[0] || 'folder'));
+        return;
+      }
       try { resolve(await stagePickedFile(file)); }
       catch { state.pickedStorageBytes = null; resolve(''); }
     };
@@ -731,12 +765,84 @@ function pickStorageWithInput(filters) {
   });
 }
 
-async function pickStorage(mode, filters, defaultName) {
-  if (mode === 1) return Promise.resolve(defaultName || 'untitled.txt');
-  if (mode !== 0) return Promise.resolve('');
+async function pickOpenStorage(filters) {
   state.pickedStorageBytes = null;
+  if (typeof globalThis.showOpenFilePicker !== 'function') return await pickStorageWithInput(filters);
+  try {
+    const types = storagePickerTypes(filters);
+    const handles = await globalThis.showOpenFilePicker(types ? { multiple: false, types } : { multiple: false });
+    const file = await handles[0]?.getFile();
+    return file ? await stagePickedFile(file) : '';
+  } catch (error) {
+    if (error?.name !== 'AbortError') globalThis.console.error('[ProGPU] Browser open-file picker failed.', error);
+    return '';
+  }
+}
 
-  return await pickStorageWithInput(filters);
+async function pickSaveStorage(filters, defaultName) {
+  const name = defaultName || 'untitled.txt';
+  if (typeof globalThis.showSaveFilePicker !== 'function') return encodeStorageSelection('download', name);
+  try {
+    const types = storagePickerTypes(filters);
+    const options = types ? { suggestedName: name, types } : { suggestedName: name };
+    const handle = await globalThis.showSaveFilePicker(options);
+    const token = rememberStorageHandle(state.saveFileHandles, 'save', handle);
+    return encodeStorageSelection(token, handle.name || name);
+  } catch (error) {
+    if (error?.name !== 'AbortError') globalThis.console.error('[ProGPU] Browser save-file picker failed.', error);
+    return '';
+  }
+}
+
+async function pickFolderStorage() {
+  if (typeof globalThis.showDirectoryPicker !== 'function') return await pickStorageWithInput('', true);
+  try {
+    const handle = await globalThis.showDirectoryPicker({ mode: 'readwrite' });
+    const token = rememberStorageHandle(state.directoryHandles, 'folder', handle);
+    return encodeStorageSelection(token, handle.name || 'folder');
+  } catch (error) {
+    if (error?.name !== 'AbortError') globalThis.console.error('[ProGPU] Browser directory picker failed.', error);
+    return '';
+  }
+}
+
+async function pickStorage(mode, filters, defaultName) {
+  if (mode === 0) return await pickOpenStorage(filters);
+  if (mode === 1) return await pickSaveStorage(filters, defaultName);
+  if (mode === 2) return await pickFolderStorage();
+  return '';
+}
+
+async function writePickedStorageText(token, text) {
+  const handle = state.saveFileHandles.get(token);
+  if (!handle) return false;
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return true;
+  } catch (error) {
+    globalThis.console.error('[ProGPU] Browser file write failed.', error);
+    return false;
+  }
+}
+
+async function writePickedStorageBytes(token, source, length) {
+  const handle = state.saveFileHandles.get(token);
+  if (!handle) return false;
+  const heap = runtime.localHeapViewU8();
+  if (source < 0 || length < 0 || source + length > heap.byteLength) throw new RangeError('File source is outside WASM memory.');
+  // Copy before the first await because WASM memory can grow while the browser picker is open.
+  const bytes = heap.slice(source, source + length);
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    return true;
+  } catch (error) {
+    globalThis.console.error('[ProGPU] Browser file write failed.', error);
+    return false;
+  }
 }
 
 function getPickedStorageLength() {
@@ -1611,7 +1717,7 @@ if (isDispatcherWorker) {
 } else {
   initializeDiagnosticsVisibility();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;

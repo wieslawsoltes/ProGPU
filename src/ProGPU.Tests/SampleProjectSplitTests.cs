@@ -200,8 +200,16 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("DispatchImmediatePointer", browserInput, StringComparison.Ordinal);
         Assert.Contains("heap.set(bytes, destination);", browserAsset, StringComparison.Ordinal);
         Assert.DoesNotContain("bytesToBase64", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("globalThis.showOpenFilePicker", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("globalThis.showSaveFilePicker", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("globalThis.showDirectoryPicker", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("input.webkitdirectory = true;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("handle.createWritable()", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("const bytes = heap.slice(source, source + length);", browserAsset, StringComparison.Ordinal);
         Assert.Contains("CopyPickedStorage((nint)destination, length)", storageServices, StringComparison.Ordinal);
         Assert.Contains("ClearPickedStorage();", storageServices, StringComparison.Ordinal);
+        Assert.Contains("WritePickedStorageText(token, text)", storageServices, StringComparison.Ordinal);
+        Assert.Contains("WritePickedStorageBytes(token, (nint)source, bytes.Length)", storageServices, StringComparison.Ordinal);
     }
 
     [Fact]
