@@ -344,6 +344,12 @@ internal static class SamplePerformanceBenchmark
             $" glyphOutlineGpuBytes={finalMetrics?.GlyphOutlineGpuBytes ?? 0}" +
             $" glyphOutlineCompiled={finalMetrics?.GlyphOutlineCompiledCount ?? 0}" +
             $" glyphOutlineCapacity={finalMetrics?.GlyphOutlineRecordCapacity ?? 0}" +
+            $" glyphOutlineUploadWrites={finalMetrics?.GlyphOutlineUploadWrites ?? 0}" +
+            $" glyphUniformUploadWrites={finalMetrics?.GlyphUniformUploadWrites ?? 0}" +
+            $" glyphRasterBatchSubmissions={finalMetrics?.GlyphRasterBatchSubmissions ?? 0}" +
+            $" glyphRasterBindGroupCreations={finalMetrics?.GlyphRasterBindGroupCreations ?? 0}" +
+            $" glyphRasterComputePasses={finalMetrics?.GlyphRasterComputePasses ?? 0}" +
+            $" glyphLastBatchNewGlyphs={finalMetrics?.GlyphLastBatchNewGlyphCount ?? 0}" +
             $" glyphAtlasSize={finalMetrics?.GlyphAtlasSize ?? 0}/{finalMetrics?.GlyphAtlasMaximumSize ?? 0}" +
             $" colorGlyphAtlasSize={finalMetrics?.ColorGlyphAtlasSize ?? 0}/{finalMetrics?.ColorGlyphAtlasMaximumSize ?? 0}" +
             $" pathAtlasTextureBytes={finalMetrics?.PathAtlasTextureBytes ?? 0}" +

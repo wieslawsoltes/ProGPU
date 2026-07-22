@@ -35,6 +35,7 @@ public unsafe class GlyphAtlas : IDisposable
 {
     private const uint DefaultUniformRingBufferSize = 64 * 1024;
     public const uint DefaultCoverageRingBufferSize = 256 * 1024;
+    public const uint DefaultOutlineUploadChunkBytes = 256 * 1024;
     public const uint DefaultInitialAtlasSize = 512;
     public const uint DefaultInitialColorAtlasSize = 256;
     public const uint DefaultColorAtlasSize = 512;
@@ -81,26 +82,45 @@ public unsafe class GlyphAtlas : IDisposable
 
     private readonly Dictionary<TtfFont, FontGpuData> _fontGpuData = new();
     private readonly List<GpuSegment> _glyphSegmentScratch = new(InitialSegmentCapacity);
+    private readonly List<GpuGlyphRecord> _pendingRecordUploads = new(InitialRecordCapacity);
+    private readonly List<GpuSegment> _pendingSegmentUploads = new(InitialSegmentCapacity);
     private GpuBuffer _recordsBuffer;
     private GpuBuffer _segmentsBuffer;
     private int _recordCount;
     private int _segmentCount;
     private int _recordCapacity = InitialRecordCapacity;
     private int _segmentCapacity = InitialSegmentCapacity;
+    private int _pendingRecordUploadStart;
+    private int _pendingSegmentUploadStart;
     
     private readonly RenderPipelineCache _pipelineCache;
+    private readonly BindGroupLayout* _computeBindGroupLayout;
+    private readonly PipelineLayout* _computePipelineLayout;
     private readonly ComputePipeline* _computePipeline;
+    private BindGroup* _ringBindGroup;
 
     private CommandEncoder* _batchEncoder;
+    private ComputePassEncoder* _batchComputePass;
     private int _batchDepth;
     private readonly List<GpuBuffer> _batchBuffers = new();
     private readonly List<nint> _batchBindGroups = new();
+    private readonly List<PendingCoverageCopy> _batchCoverageCopies = new(256);
+
+    private readonly record struct PendingCoverageCopy(
+        uint BufferOffset,
+        uint BytesPerRow,
+        uint AtlasX,
+        uint AtlasY,
+        uint Width,
+        uint Height);
 
     private readonly GpuBuffer _uniformRingBuffer;
     private readonly GpuBuffer _coverageRingBuffer;
+    private readonly byte[] _uniformRingUpload;
     private uint _ringOffset;
     private uint _coverageRingOffset;
     private ulong _frameNumber;
+    private int _currentBatchNewGlyphCount;
 
     public void BeginBatch()
     {
@@ -110,6 +130,7 @@ public unsafe class GlyphAtlas : IDisposable
 
         TrimGpuOutlineCache();
         _frameNumber++;
+        _currentBatchNewGlyphCount = 0;
 
         CreateBatchEncoder();
     }
@@ -121,9 +142,12 @@ public unsafe class GlyphAtlas : IDisposable
             return;
         }
 
+        InvalidateRingBindGroup();
         _recordsBuffer.Dispose();
         _segmentsBuffer.Dispose();
         _fontGpuData.Clear();
+        _pendingRecordUploads.Clear();
+        _pendingSegmentUploads.Clear();
         _recordCount = 0;
         _segmentCount = 0;
         _recordCapacity = InitialRecordCapacity;
@@ -147,6 +171,8 @@ public unsafe class GlyphAtlas : IDisposable
 
         _ringOffset = 0;
         _coverageRingOffset = 0;
+        _batchComputePass = null;
+        _batchCoverageCopies.Clear();
     }
 
     public void EndBatch()
@@ -156,6 +182,7 @@ public unsafe class GlyphAtlas : IDisposable
         _batchDepth--;
         if (_batchDepth > 0) return;
         FlushBatchEncoder();
+        LastBatchNewGlyphCount = _currentBatchNewGlyphCount;
     }
 
     /// <summary>
@@ -178,15 +205,48 @@ public unsafe class GlyphAtlas : IDisposable
     {
         if (_batchEncoder == null) return;
 
+        EndBatchComputePass();
+
+        for (int copyIndex = 0; copyIndex < _batchCoverageCopies.Count; copyIndex++)
+        {
+            PendingCoverageCopy copy = _batchCoverageCopies[copyIndex];
+            GpuCoverageUpload.RecordCopy(
+                _context,
+                _batchEncoder,
+                _coverageRingBuffer,
+                copy.BufferOffset,
+                copy.BytesPerRow,
+                _atlasTexture,
+                copy.AtlasX,
+                copy.AtlasY,
+                copy.Width,
+                copy.Height);
+        }
+
+        FlushPendingOutlineUploads();
+        if (_ringOffset == 0)
+        {
+            _context.Api.CommandEncoderRelease(_batchEncoder);
+            _batchEncoder = null;
+            _batchCoverageCopies.Clear();
+            return;
+        }
+
+        _uniformRingBuffer.WriteAlignedBytes(
+            _uniformRingUpload.AsSpan(0, checked((int)_ringOffset)));
+        UniformUploadWriteCount++;
+
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Batch Command Buffer") };
         var cmdBuffer = _context.Api.CommandEncoderFinish(_batchEncoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
         _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        RasterBatchSubmissionCount++;
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(_batchEncoder);
         _batchEncoder = null;
+        _batchCoverageCopies.Clear();
 
         int batchBufferCount = _batchBuffers.Count;
         for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)
@@ -203,6 +263,38 @@ public unsafe class GlyphAtlas : IDisposable
             _context.Api.BindGroupRelease((BindGroup*)bg);
         }
         _batchBindGroups.Clear();
+    }
+
+    private ComputePassEncoder* GetOrCreateBatchComputePass()
+    {
+        if (_batchComputePass != null)
+        {
+            return _batchComputePass;
+        }
+
+        var descriptor = new ComputePassDescriptor();
+        _batchComputePass = _context.Api.CommandEncoderBeginComputePass(
+            _batchEncoder,
+            &descriptor);
+        if (_batchComputePass == null)
+        {
+            throw new InvalidOperationException("Failed to begin the glyph rasterization batch pass.");
+        }
+        _context.Api.ComputePassEncoderSetPipeline(_batchComputePass, _computePipeline);
+        RasterComputePassCount++;
+        return _batchComputePass;
+    }
+
+    private void EndBatchComputePass()
+    {
+        if (_batchComputePass == null)
+        {
+            return;
+        }
+
+        _context.Api.ComputePassEncoderEnd(_batchComputePass);
+        _context.Api.ComputePassEncoderRelease(_batchComputePass);
+        _batchComputePass = null;
     }
     
     private bool _isDisposed;
@@ -247,6 +339,18 @@ public unsafe class GlyphAtlas : IDisposable
     public ulong GpuOutlineCacheBudgetBytes => DefaultGpuOutlineCacheBudgetBytes;
 
     public ulong GpuOutlineCacheResetCount { get; private set; }
+
+    public ulong OutlineUploadWriteCount { get; private set; }
+
+    public ulong UniformUploadWriteCount { get; private set; }
+
+    public ulong RasterBatchSubmissionCount { get; private set; }
+
+    public ulong RasterBindGroupCreationCount { get; private set; }
+
+    public ulong RasterComputePassCount { get; private set; }
+
+    public int LastBatchNewGlyphCount { get; private set; }
 
     public ulong Generation { get; private set; }
 
@@ -369,8 +473,14 @@ public unsafe class GlyphAtlas : IDisposable
 
         // Compile and create the compute pipeline
         _pipelineCache = new RenderPipelineCache(_context);
+        _computeBindGroupLayout = CreateRasterizationBindGroupLayout();
+        _computePipelineLayout = CreateRasterizationPipelineLayout(_computeBindGroupLayout);
         var shaderModule = _pipelineCache.GetOrCreateShader("GlyphRasterizer", Shaders.GlyphRasterizerShader, "GlyphRasterizerShader");
-        _computePipeline = _pipelineCache.GetOrCreateComputePipeline("GlyphRasterizer", shaderModule, "cs_main");
+        _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
+            "GlyphRasterizer",
+            shaderModule,
+            "cs_main",
+            _computePipelineLayout);
 
         // Allocate a small bounded uniform ring once at startup to avoid
         // per-glyph CPU-to-GPU buffer allocation overhead.
@@ -384,11 +494,86 @@ public unsafe class GlyphAtlas : IDisposable
             coverageRingBufferSize,
             BufferUsage.Storage | BufferUsage.CopySrc,
             "Glyph Coverage Staging Ring Buffer");
+        _uniformRingUpload = new byte[uniformRingBufferSize];
         (_recordsBuffer, _segmentsBuffer) = CreateOutlineBuffers(
             _recordCapacity,
             _segmentCapacity);
         _ringOffset = 0;
         _coverageRingOffset = 0;
+    }
+
+    private BindGroupLayout* CreateRasterizationBindGroupLayout()
+    {
+        var entries = stackalloc BindGroupLayoutEntry[4];
+        entries[0] = new BindGroupLayoutEntry
+        {
+            Binding = 0,
+            Visibility = ShaderStage.Compute,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.Uniform,
+                HasDynamicOffset = true,
+                MinBindingSize = (ulong)Marshal.SizeOf<GlyphUniforms>()
+            }
+        };
+        entries[1] = new BindGroupLayoutEntry
+        {
+            Binding = 1,
+            Visibility = ShaderStage.Compute,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.ReadOnlyStorage,
+                MinBindingSize = (ulong)Marshal.SizeOf<GpuGlyphRecord>()
+            }
+        };
+        entries[2] = new BindGroupLayoutEntry
+        {
+            Binding = 2,
+            Visibility = ShaderStage.Compute,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.ReadOnlyStorage,
+                MinBindingSize = (ulong)Marshal.SizeOf<GpuSegment>()
+            }
+        };
+        entries[3] = new BindGroupLayoutEntry
+        {
+            Binding = 3,
+            Visibility = ShaderStage.Compute,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.Storage,
+                MinBindingSize = 4
+            }
+        };
+        var descriptor = new BindGroupLayoutDescriptor
+        {
+            EntryCount = 4,
+            Entries = entries
+        };
+        var layout = _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
+        if (layout == null)
+        {
+            throw new InvalidOperationException("Failed to create the glyph rasterization bind group layout.");
+        }
+        return layout;
+    }
+
+    private PipelineLayout* CreateRasterizationPipelineLayout(BindGroupLayout* bindGroupLayout)
+    {
+        var layouts = stackalloc BindGroupLayout*[1];
+        layouts[0] = bindGroupLayout;
+        var descriptor = new PipelineLayoutDescriptor
+        {
+            BindGroupLayoutCount = 1,
+            BindGroupLayouts = layouts
+        };
+        var layout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &descriptor);
+        if (layout == null)
+        {
+            throw new InvalidOperationException("Failed to create the glyph rasterization pipeline layout.");
+        }
+        return layout;
     }
 
     private static uint DivRoundUp(uint value, uint divisor) => (value + divisor - 1) / divisor;
@@ -593,7 +778,6 @@ public unsafe class GlyphAtlas : IDisposable
                                  SubpixelX = subpixelX * 0.25f
                              };
 
-                            var bindGroupLayout = _context.Api.ComputePipelineGetBindGroupLayout(_computePipeline, 0);
                             uint alignedSize = (uint)((Marshal.SizeOf<GlyphUniforms>() + 255) & ~255);
 
                             if (_batchEncoder != null)
@@ -609,10 +793,8 @@ public unsafe class GlyphAtlas : IDisposable
                                         posX,
                                         posY,
                                         gW,
-                                        gH,
-                                        bindGroupLayout);
+                                        gH);
                                     CreateBatchEncoder();
-                                    _context.Api.BindGroupLayoutRelease(bindGroupLayout);
                                     goto RasterizationComplete;
                                 }
                                 if (_ringOffset + alignedSize > _uniformRingBuffer.Size ||
@@ -624,50 +806,37 @@ public unsafe class GlyphAtlas : IDisposable
 
                                 uniforms.OutputOffsetWords = _coverageRingOffset / 4;
                                 uniforms.OutputRowWords = coverageBytesPerRow / 4;
-                                _context.Api.QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr, _ringOffset, &uniforms, (uint)Marshal.SizeOf<GlyphUniforms>());
+                                MemoryMarshal.Write(
+                                    _uniformRingUpload.AsSpan(
+                                        checked((int)_ringOffset),
+                                        Marshal.SizeOf<GlyphUniforms>()),
+                                    in uniforms);
 
-                                var entries = stackalloc BindGroupEntry[4];
-                                entries[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformRingBuffer.BufferPtr, Offset = _ringOffset, Size = (uint)Marshal.SizeOf<GlyphUniforms>() };
-                                entries[1] = new BindGroupEntry { Binding = 1, Buffer = _recordsBuffer.BufferPtr, Offset = 0, Size = _recordsBuffer.Size };
-                                entries[2] = new BindGroupEntry { Binding = 2, Buffer = _segmentsBuffer.BufferPtr, Offset = 0, Size = _segmentsBuffer.Size };
-                                entries[3] = new BindGroupEntry { Binding = 3, Buffer = _coverageRingBuffer.BufferPtr, Offset = 0, Size = _coverageRingBuffer.Size };
+                                var bg = GetOrCreateRingBindGroup();
 
-                                var bgDesc = new BindGroupDescriptor
-                                {
-                                    Layout = bindGroupLayout,
-                                    EntryCount = 4,
-                                    Entries = entries
-                                };
-                                var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
-
-                                // Batch path: Record compute pass to batch encoder, defer resource cleanup to EndBatch
-                                var passDesc = new ComputePassDescriptor();
-                                var pass = _context.Api.CommandEncoderBeginComputePass(_batchEncoder, &passDesc);
-
-                                _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
-                                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+                                // Batch path: all disjoint coverage dispatches share one
+                                // compute pass; their buffer-to-texture copies are appended
+                                // after the pass closes at the batch boundary.
+                                var pass = GetOrCreateBatchComputePass();
+                                uint dynamicUniformOffset = _ringOffset;
+                                _context.Api.ComputePassEncoderSetBindGroup(
+                                    pass,
+                                    0,
+                                    bg,
+                                    1,
+                                    &dynamicUniformOffset);
 
                                 uint workgroupsX = DivRoundUp(DivRoundUp(gW, 4), 16);
                                 uint workgroupsY = DivRoundUp(gH, 16);
                                 _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
 
-                                _context.Api.ComputePassEncoderEnd(pass);
-                                _context.Api.ComputePassEncoderRelease(pass);
-
-                                GpuCoverageUpload.RecordCopy(
-                                    _context,
-                                    _batchEncoder,
-                                    _coverageRingBuffer,
+                                _batchCoverageCopies.Add(new PendingCoverageCopy(
                                     _coverageRingOffset,
                                     coverageBytesPerRow,
-                                    _atlasTexture,
                                     posX,
                                     posY,
                                     gW,
-                                    gH);
-
-                                _batchBindGroups.Add((nint)bg);
-                                _context.Api.BindGroupLayoutRelease(bindGroupLayout);
+                                    gH));
 
                                 _ringOffset += alignedSize;
                                 _coverageRingOffset += coverageBytes;
@@ -698,11 +867,12 @@ public unsafe class GlyphAtlas : IDisposable
 
                                 var bgDesc = new BindGroupDescriptor
                                 {
-                                    Layout = bindGroupLayout,
+                                    Layout = _computeBindGroupLayout,
                                     EntryCount = 4,
                                     Entries = entries
                                 };
                                 var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
+                                RasterBindGroupCreationCount++;
 
                                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Glyph Rasterizer Encoder") };
                                 var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
@@ -712,7 +882,13 @@ public unsafe class GlyphAtlas : IDisposable
                                 var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
 
                                 _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
-                                _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
+                                uint dynamicUniformOffset = 0;
+                                _context.Api.ComputePassEncoderSetBindGroup(
+                                    pass,
+                                    0,
+                                    bg,
+                                    1,
+                                    &dynamicUniformOffset);
 
                                 uint workgroupsX = DivRoundUp(DivRoundUp(gW, 4), 16);
                                 uint workgroupsY = DivRoundUp(gH, 16);
@@ -744,7 +920,6 @@ public unsafe class GlyphAtlas : IDisposable
                                 _context.Api.CommandBufferRelease(cmdBuffer);
                                 _context.Api.CommandEncoderRelease(encoder);
                                 _context.Api.BindGroupRelease(bg);
-                                _context.Api.BindGroupLayoutRelease(bindGroupLayout);
                                 uniformsBuffer.Dispose();
                                 coverageBuffer.Dispose();
                             }
@@ -797,8 +972,7 @@ public unsafe class GlyphAtlas : IDisposable
         uint atlasX,
         uint atlasY,
         uint width,
-        uint height,
-        BindGroupLayout* bindGroupLayout)
+        uint height)
     {
         uniforms.OutputOffsetWords = 0;
         uniforms.OutputRowWords = coverageBytesPerRow / 4;
@@ -821,17 +995,24 @@ public unsafe class GlyphAtlas : IDisposable
         entries[3] = new BindGroupEntry { Binding = 3, Buffer = coverageBuffer.BufferPtr, Offset = 0, Size = coverageBuffer.Size };
         var bindGroupDescriptor = new BindGroupDescriptor
         {
-            Layout = bindGroupLayout,
+            Layout = _computeBindGroupLayout,
             EntryCount = 4,
             Entries = entries
         };
         var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+        RasterBindGroupCreationCount++;
         var encoderDescriptor = new CommandEncoderDescriptor();
         var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
         var passDescriptor = new ComputePassDescriptor();
         var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
         _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
-        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        uint dynamicUniformOffset = 0;
+        _context.Api.ComputePassEncoderSetBindGroup(
+            pass,
+            0,
+            bindGroup,
+            1,
+            &dynamicUniformOffset);
         _context.Api.ComputePassEncoderDispatchWorkgroups(
             pass,
             DivRoundUp(DivRoundUp(width, 4), 16),
@@ -1287,6 +1468,23 @@ public unsafe class GlyphAtlas : IDisposable
         int recordSize = Marshal.SizeOf<GpuGlyphRecord>();
         int segmentSize = Marshal.SizeOf<GpuSegment>();
 
+        if (requiredRecordCount > _recordCapacity || requiredSegmentCount > _segmentCapacity)
+        {
+            // Earlier dispatches in the active command encoder may still reference
+            // the current buffers. Materialize their contiguous CPU staging ranges
+            // before copying those buffers into a larger allocation.
+            FlushPendingOutlineUploads();
+        }
+
+        if ((_pendingRecordUploads.Count > 0 &&
+             checked((_pendingRecordUploads.Count + 1) * recordSize) > DefaultOutlineUploadChunkBytes) ||
+            (_pendingSegmentUploads.Count > 0 &&
+             checked((_pendingSegmentUploads.Count + _glyphSegmentScratch.Count) * segmentSize) >
+             DefaultOutlineUploadChunkBytes))
+        {
+            FlushPendingOutlineUploads();
+        }
+
         if (requiredRecordCount > _recordCapacity)
         {
             int capacity = GrowCapacity(_recordCapacity, requiredRecordCount);
@@ -1323,20 +1521,74 @@ public unsafe class GlyphAtlas : IDisposable
             _segmentCapacity = capacity;
         }
 
-        _recordsBuffer.WriteSingle(
-            record,
-            checked(recordSlot * (uint)recordSize));
+        if (_pendingRecordUploads.Count == 0)
+        {
+            _pendingRecordUploadStart = _recordCount;
+        }
+        _pendingRecordUploads.Add(record);
         if (_glyphSegmentScratch.Count > 0)
         {
-            _segmentsBuffer.Write(
-                CollectionsMarshal.AsSpan(_glyphSegmentScratch),
-                checked((uint)(_segmentCount * segmentSize)));
+            if (_pendingSegmentUploads.Count == 0)
+            {
+                _pendingSegmentUploadStart = _segmentCount;
+            }
+            _pendingSegmentUploads.AddRange(_glyphSegmentScratch);
         }
+
+        _glyphSegmentScratch.Clear();
+        ReleaseOversizedStagingCapacity(_glyphSegmentScratch, segmentSize, InitialSegmentCapacity);
 
         _recordCount = requiredRecordCount;
         _segmentCount = requiredSegmentCount;
         data.RecordSlots.Add(glyphIndex, recordSlot);
+        _currentBatchNewGlyphCount++;
+        if (_batchEncoder == null)
+        {
+            FlushPendingOutlineUploads();
+        }
         return recordSlot;
+    }
+
+    private void FlushPendingOutlineUploads()
+    {
+        if (_pendingRecordUploads.Count > 0)
+        {
+            _recordsBuffer.Write(
+                CollectionsMarshal.AsSpan(_pendingRecordUploads),
+                checked((uint)(_pendingRecordUploadStart * Marshal.SizeOf<GpuGlyphRecord>())));
+            _pendingRecordUploads.Clear();
+            ReleaseOversizedStagingCapacity(
+                _pendingRecordUploads,
+                Marshal.SizeOf<GpuGlyphRecord>(),
+                InitialRecordCapacity);
+            OutlineUploadWriteCount++;
+        }
+
+        if (_pendingSegmentUploads.Count > 0)
+        {
+            _segmentsBuffer.Write(
+                CollectionsMarshal.AsSpan(_pendingSegmentUploads),
+                checked((uint)(_pendingSegmentUploadStart * Marshal.SizeOf<GpuSegment>())));
+            _pendingSegmentUploads.Clear();
+            ReleaseOversizedStagingCapacity(
+                _pendingSegmentUploads,
+                Marshal.SizeOf<GpuSegment>(),
+                InitialSegmentCapacity);
+            OutlineUploadWriteCount++;
+        }
+    }
+
+    private static void ReleaseOversizedStagingCapacity<T>(
+        List<T> staging,
+        int elementSize,
+        int retainedCapacity)
+    {
+        if (staging.Count == 0 &&
+            checked((ulong)staging.Capacity * (uint)elementSize) >
+            DefaultOutlineUploadChunkBytes)
+        {
+            staging.Capacity = retainedCapacity;
+        }
     }
 
     private static int GrowCapacity(int current, int required)
@@ -1373,8 +1625,79 @@ public unsafe class GlyphAtlas : IDisposable
         _context.Api.CommandEncoderRelease(encoder);
     }
 
+    private BindGroup* GetOrCreateRingBindGroup()
+    {
+        if (_ringBindGroup != null)
+        {
+            return _ringBindGroup;
+        }
+
+        var entries = stackalloc BindGroupEntry[4];
+        entries[0] = new BindGroupEntry
+        {
+            Binding = 0,
+            Buffer = _uniformRingBuffer.BufferPtr,
+            Offset = 0,
+            Size = (uint)Marshal.SizeOf<GlyphUniforms>()
+        };
+        entries[1] = new BindGroupEntry
+        {
+            Binding = 1,
+            Buffer = _recordsBuffer.BufferPtr,
+            Offset = 0,
+            Size = _recordsBuffer.Size
+        };
+        entries[2] = new BindGroupEntry
+        {
+            Binding = 2,
+            Buffer = _segmentsBuffer.BufferPtr,
+            Offset = 0,
+            Size = _segmentsBuffer.Size
+        };
+        entries[3] = new BindGroupEntry
+        {
+            Binding = 3,
+            Buffer = _coverageRingBuffer.BufferPtr,
+            Offset = 0,
+            Size = _coverageRingBuffer.Size
+        };
+        var descriptor = new BindGroupDescriptor
+        {
+            Layout = _computeBindGroupLayout,
+            EntryCount = 4,
+            Entries = entries
+        };
+        _ringBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
+        if (_ringBindGroup == null)
+        {
+            throw new InvalidOperationException("Failed to create the glyph rasterization ring bind group.");
+        }
+
+        RasterBindGroupCreationCount++;
+        return _ringBindGroup;
+    }
+
+    private void InvalidateRingBindGroup()
+    {
+        if (_ringBindGroup == null)
+        {
+            return;
+        }
+
+        if (_batchEncoder != null)
+        {
+            _batchBindGroups.Add((nint)_ringBindGroup);
+        }
+        else
+        {
+            _context.Api.BindGroupRelease(_ringBindGroup);
+        }
+        _ringBindGroup = null;
+    }
+
     private void ReplaceBatchBuffer(GpuBuffer previous)
     {
+        InvalidateRingBindGroup();
         if (_batchEncoder != null)
         {
             _batchBuffers.Add(previous);
@@ -1395,14 +1718,18 @@ public unsafe class GlyphAtlas : IDisposable
             EndBatch();
         }
 
+        InvalidateRingBindGroup();
         _uniformRingBuffer.Dispose();
         _coverageRingBuffer.Dispose();
-
         _recordsBuffer.Dispose();
         _segmentsBuffer.Dispose();
         _fontGpuData.Clear();
+        _pendingRecordUploads.Clear();
+        _pendingSegmentUploads.Clear();
 
         _pipelineCache.Dispose();
+        _context.Api.PipelineLayoutRelease(_computePipelineLayout);
+        _context.Api.BindGroupLayoutRelease(_computeBindGroupLayout);
         _atlasTexture.Dispose();
         _colorAtlasTexture.Dispose();
         _glyphs.Clear();

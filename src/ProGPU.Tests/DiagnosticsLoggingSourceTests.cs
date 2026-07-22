@@ -334,6 +334,16 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("capacity + Math.Max(1, capacity / 2)", source, StringComparison.Ordinal);
         Assert.Contains("private bool TryGrowAtlas(bool colorBitmap", source, StringComparison.Ordinal);
         Assert.Contains("CopyBaseLevelRegionFrom(oldTexture, currentSize, currentSize)", source, StringComparison.Ordinal);
+        Assert.Contains("private void FlushPendingOutlineUploads()", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOversizedStagingCapacity(", source, StringComparison.Ordinal);
+        Assert.Contains("_uniformRingBuffer.WriteAlignedBytes(", source, StringComparison.Ordinal);
+        Assert.Contains("DefaultOutlineUploadChunkBytes = 256 * 1024", source, StringComparison.Ordinal);
+        Assert.Contains("HasDynamicOffset = true", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateRingBindGroup()", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchComputePass()", source, StringComparison.Ordinal);
+        Assert.Contains("_batchCoverageCopies.Add(new PendingCoverageCopy(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ComputePipelineGetBindGroupLayout", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var buffer in _batchBuffers)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _batchBindGroups)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var figure in outline.Figures)", source, StringComparison.Ordinal);

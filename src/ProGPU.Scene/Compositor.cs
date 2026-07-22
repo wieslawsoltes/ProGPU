@@ -133,6 +133,12 @@ public struct CompositorMetrics
     public uint PathAtlasMaximumSize;
     public int GlyphOutlineCompiledCount;
     public int GlyphOutlineRecordCapacity;
+    public ulong GlyphOutlineUploadWrites;
+    public ulong GlyphUniformUploadWrites;
+    public ulong GlyphRasterBatchSubmissions;
+    public ulong GlyphRasterBindGroupCreations;
+    public ulong GlyphRasterComputePasses;
+    public int GlyphLastBatchNewGlyphCount;
     public bool SceneCacheHit;
     public string? SceneCacheMissReason;
 }
@@ -3038,6 +3044,12 @@ SceneStateUploadComplete:
             PathAtlasMaximumSize = _pathAtlas.MaxAtlasSize,
             GlyphOutlineCompiledCount = _atlas.CompiledGpuGlyphCount,
             GlyphOutlineRecordCapacity = _atlas.AllocatedGpuGlyphRecordCapacity,
+            GlyphOutlineUploadWrites = _atlas.OutlineUploadWriteCount,
+            GlyphUniformUploadWrites = _atlas.UniformUploadWriteCount,
+            GlyphRasterBatchSubmissions = _atlas.RasterBatchSubmissionCount,
+            GlyphRasterBindGroupCreations = _atlas.RasterBindGroupCreationCount,
+            GlyphRasterComputePasses = _atlas.RasterComputePassCount,
+            GlyphLastBatchNewGlyphCount = _atlas.LastBatchNewGlyphCount,
             SceneCacheHit = reuseCompiledScene,
             SceneCacheMissReason = reuseCompiledScene ? null : _currentSceneCacheMissReason
         };

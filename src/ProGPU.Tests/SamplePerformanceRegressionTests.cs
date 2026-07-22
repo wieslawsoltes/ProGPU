@@ -166,6 +166,47 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void GlyphAtlasCoalescesFirstUseQueueWritesAcrossACompilationBatch()
+    {
+        TtfFont font = LoadTestFont();
+        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        const string text = "GPU text batching";
+        int uniqueGlyphCount = text.Distinct().Count(character => character != ' ');
+        ulong outlineWritesBefore = atlas.OutlineUploadWriteCount;
+        ulong uniformWritesBefore = atlas.UniformUploadWriteCount;
+        ulong submissionsBefore = atlas.RasterBatchSubmissionCount;
+        ulong bindGroupsBefore = atlas.RasterBindGroupCreationCount;
+        ulong computePassesBefore = atlas.RasterComputePassCount;
+
+        atlas.BeginBatch();
+        try
+        {
+            foreach (char character in text)
+            {
+                if (character != ' ')
+                {
+                    _ = atlas.GetOrCreateGlyph(font, character, 32f);
+                }
+            }
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        Assert.Equal(uniqueGlyphCount, atlas.LastBatchNewGlyphCount);
+        Assert.InRange(atlas.OutlineUploadWriteCount - outlineWritesBefore, 1UL, 2UL);
+        Assert.Equal(1UL, atlas.UniformUploadWriteCount - uniformWritesBefore);
+        Assert.Equal(1UL, atlas.RasterBatchSubmissionCount - submissionsBefore);
+        Assert.Equal(1UL, atlas.RasterBindGroupCreationCount - bindGroupsBefore);
+        Assert.Equal(1UL, atlas.RasterComputePassCount - computePassesBefore);
+
+        atlas.BeginBatch();
+        atlas.EndBatch();
+        Assert.Equal(submissionsBefore + 1UL, atlas.RasterBatchSubmissionCount);
+    }
+
+    [Fact]
     public void PathRasterizationReusesBoundedCoverageChunks()
     {
         using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
