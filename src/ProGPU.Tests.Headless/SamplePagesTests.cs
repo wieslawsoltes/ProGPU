@@ -80,7 +80,11 @@ public class SamplePagesTests : IDisposable
         AppState.GenerateLogItems();
     }
 
-    private void RunPageTest(FrameworkElement page, string pageName, TimeSpan? readbackTimeout = null)
+    private void RunPageTest(
+        FrameworkElement page,
+        string pageName,
+        TimeSpan? readbackTimeout = null,
+        Action<byte[]>? verifyPixels = null)
     {
         EnsureFontsAndStateLoaded();
 
@@ -113,6 +117,7 @@ public class SamplePagesTests : IDisposable
 
         Console.WriteLine($"[SamplePagesTests] Page '{pageName}' rendered {nonBgCount} non-background pixels.");
         Assert.True(nonBgCount > 100, $"Page '{pageName}' rendered blank or empty. Only {nonBgCount} non-background pixels found.");
+        verifyPixels?.Invoke(pixels);
 
         string screenshotPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"page_{pageName.Replace(" ", "_").ToLower()}.png");
         PngEncoder.SavePng(screenshotPath, pixels, window.Width, window.Height);
@@ -132,6 +137,33 @@ public class SamplePagesTests : IDisposable
     public void Test_SkiaSharpShimPage_Renders()
     {
         RunPageTest(SkiaSharpShimPage.Create(), "SkiaSharp Shim");
+    }
+
+    [Fact]
+    public void Test_Mesh3DViewerPage_Renders()
+    {
+        RunPageTest(
+            Mesh3DViewerPage.Create(),
+            "Mesh 3D Viewer",
+            verifyPixels: pixels =>
+            {
+                int brightHeaderPixels = 0;
+                for (int y = 0; y < 120; y++)
+                {
+                    for (int x = 0; x < 240; x++)
+                    {
+                        int offset = (y * 1280 + x) * 4;
+                        if (pixels[offset] > 140 && pixels[offset + 1] > 140 && pixels[offset + 2] > 140)
+                        {
+                            brightHeaderPixels++;
+                        }
+                    }
+                }
+
+                Assert.True(
+                    brightHeaderPixels > 100,
+                    $"The retained rich-text header disappeared after the stabilized second frame ({brightHeaderPixels} bright pixels).");
+            });
     }
 
     [Fact]

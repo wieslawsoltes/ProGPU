@@ -3118,6 +3118,64 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void OwnedRichTextCommandCacheRendersThroughCompositor()
+    {
+        var font = InterFontFamily.Regular;
+        using var window = new HeadlessWindow(320, 64);
+        var block = new RichTextBlock
+        {
+            Font = font,
+            FontSize = 20f,
+            Foreground = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f))
+        };
+        block.Inlines.Add(new Microsoft.UI.Xaml.Documents.Bold(
+            new Microsoft.UI.Xaml.Documents.Run("WebGPU 3D Mesh Viewer")));
+        window.Content = block;
+
+        window.Render();
+        window.Render();
+
+        Assert.Contains(
+            GetDrawCalls(window.Compositor),
+            drawCall => drawCall.Type == Compositor.DrawCallType.Text && drawCall.IndexCount > 0);
+        byte[] pixels = window.ReadPixels();
+        Assert.Contains(
+            Enumerable.Range(0, pixels.Length / 4),
+            pixel => pixels[pixel * 4] > 160 && pixels[pixel * 4 + 1] < 80);
+    }
+
+    [Fact]
+    public void NestedOwnedRichTextCommandCacheRendersThroughCompositor()
+    {
+        var block = new RichTextBlock
+        {
+            Font = InterFontFamily.Regular,
+            FontSize = 20f,
+            Foreground = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f))
+        };
+        block.Inlines.Add(new Microsoft.UI.Xaml.Documents.Bold(
+            new Microsoft.UI.Xaml.Documents.Run("Nested rich text")));
+        var stack = new StackPanel { Padding = new Thickness(12f) };
+        stack.AddChild(block);
+        var scrollViewer = new ScrollViewer { Content = stack };
+        using var window = new HeadlessWindow(320, 64);
+        window.Content = scrollViewer;
+
+        window.Render();
+        window.Render();
+
+        DrawingContext ownedCommands = ((IOwnedRenderCommandCache)block).GetOrUpdateRenderCommandCache();
+        Assert.Contains(ownedCommands.Commands, command => command.Type == RenderCommandType.DrawText);
+        Assert.Contains(
+            GetDrawCalls(window.Compositor),
+            drawCall => drawCall.Type == Compositor.DrawCallType.Text && drawCall.IndexCount > 0);
+        byte[] pixels = window.ReadPixels();
+        Assert.Contains(
+            Enumerable.Range(0, pixels.Length / 4),
+            pixel => pixels[pixel * 4] > 160 && pixels[pixel * 4 + 1] < 80);
+    }
+
+    [Fact]
     public void CompatibilityShimsReuseIsolatedCompositorScopes()
     {
         var previous = WgpuContext.Current;

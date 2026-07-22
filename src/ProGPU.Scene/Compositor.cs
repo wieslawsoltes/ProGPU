@@ -4311,6 +4311,14 @@ SceneStateUploadComplete:
                     ctx.Clear();
                     ReleaseDrawingContext();
                 }
+                else if (ownsRenderCommandCache)
+                {
+                    // The context belongs to the visual. Clearing it here discards
+                    // the visual's immutable-until-invalidated command stream while
+                    // leaving that cache marked clean, so nested text disappears on
+                    // the next compilation after its first successful frame.
+                    _retainedVisualCommands.Remove(node);
+                }
                 else if (!keepRetainedCommands)
                 {
                     _retainedVisualCommands.Remove(node);
