@@ -65,19 +65,12 @@ public static class XamlPlaygroundPage
         views.Items.Add(new PivotItem("Generated C#", generatedOutput));
         views.Items.Add(new PivotItem("Diagnostics", diagnosticsOutput));
         var inspect = new Button { Margin = new Thickness(0, 12, 0, 0), Content = "Parse and inspect" };
-        inspect.Click += (_, _) =>
+        CancellationTokenSource? inspectionCancellation = null;
+        long requestedVersion = 0;
+
+        void ApplyInspection(PlaygroundInspectionResult result)
         {
-            var source = SourceText.From(editor.Text);
-            var inspection = new XamlDocumentInspectionService().Inspect(
-                source,
-                "Playground.xaml",
-                new XamlDocumentInspectionOptions
-                {
-                    ParseOptions = new XamlParseOptions
-                    {
-                        Mode = XamlParseMode.Recovering
-                    }
-                });
+            var inspection = result.Source;
             var statistics = inspection.Statistics;
             status.Text =
                 $"Root: {inspection.SyntaxTree.GetRoot()?.QualifiedName ?? "<none>"}; " +
@@ -86,11 +79,10 @@ public static class XamlPlaygroundPage
             syntaxOutput.Text = Render(inspection.Syntax);
             tokenOutput.Text = Render(inspection.Tokens);
             infosetOutput.Text = Render(inspection.InfosetProjection);
-            var compilationHost = CompilationHost.Value;
-            if (compilationHost.Compilation == null)
+            if (result.Compilation == null)
             {
                 var unavailable = "Compilation-backed inspection is unavailable: " +
-                    compilationHost.Error;
+                    result.CompilationError;
                 boundOutput.Text = unavailable;
                 resourcesOutput.Text = unavailable;
                 irOutput.Text = unavailable;
@@ -101,20 +93,7 @@ public static class XamlPlaygroundPage
                 return;
             }
 
-            var profile = new WinUiXamlProfile();
-            var compiled = new RoslynXamlCompilationInspectionService().Inspect(
-                inspection,
-                new RoslynXamlTypeSystem(compilationHost.Compilation, profile),
-                profile,
-                new RoslynXamlCompilationInspectionOptions
-                {
-                    CompilerOptions = new XamlCompilerOptions
-                    {
-                        Framework = profile.Id,
-                        ResourceUri = "Playground.xaml",
-                        Strict = false
-                    }
-                });
+            var compiled = result.Compilation;
             boundOutput.Text = Render(compiled.Bound);
             resourcesOutput.Text = Render(compiled.Resources);
             irOutput.Text = Render(compiled.Ir);
@@ -122,12 +101,114 @@ public static class XamlPlaygroundPage
             diagnosticsOutput.Text = compiled.Diagnostics.TotalEntryCount == 0
                 ? "No diagnostics."
                 : Render(compiled.Diagnostics);
+        }
+
+        void ScheduleInspection(bool immediate)
+        {
+            var version = Interlocked.Increment(ref requestedVersion);
+            var source = editor.Text;
+            var cancellation = new CancellationTokenSource();
+            var previous = Interlocked.Exchange(
+                ref inspectionCancellation,
+                cancellation);
+            previous?.Cancel();
+            previous?.Dispose();
+            status.Text = immediate
+                ? "Compiling…"
+                : "Waiting for edits to settle…";
+            Task.Run(
+                    async () =>
+                    {
+                        if (!immediate)
+                            await Task.Delay(300, cancellation.Token)
+                                .ConfigureAwait(false);
+                        return InspectSource(source, cancellation.Token);
+                    },
+                    cancellation.Token)
+                .ContinueWith(
+                    task =>
+                    {
+                        if (task.IsCanceled ||
+                            version != Volatile.Read(ref requestedVersion))
+                            return;
+                        var dispatcher =
+                            Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue;
+                        void Complete()
+                        {
+                            if (version != Volatile.Read(ref requestedVersion))
+                                return;
+                            if (task.IsFaulted)
+                            {
+                                status.Text = "Inspection failed: " +
+                                    task.Exception!.GetBaseException().Message;
+                                return;
+                            }
+                            ApplyInspection(task.Result);
+                        }
+                        if (dispatcher == null) Complete();
+                        else dispatcher(Complete);
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+        }
+
+        inspect.Click += (_, _) => ScheduleInspection(immediate: true);
+        editor.TextChanged += (_, _) => ScheduleInspection(immediate: false);
+        root.Unloaded += (_, _) =>
+        {
+            Interlocked.Increment(ref requestedVersion);
+            var cancellation = Interlocked.Exchange(
+                ref inspectionCancellation,
+                null);
+            cancellation?.Cancel();
+            cancellation?.Dispose();
         };
         root.Children.Add(editor);
         root.Children.Add(inspect);
         root.Children.Add(status);
         root.Children.Add(views);
         return root;
+    }
+
+    private static PlaygroundInspectionResult InspectSource(
+        string source,
+        CancellationToken cancellationToken)
+    {
+        var inspection = new XamlDocumentInspectionService().Inspect(
+            SourceText.From(source),
+            "Playground.xaml",
+            new XamlDocumentInspectionOptions
+            {
+                ParseOptions = new XamlParseOptions
+                {
+                    Mode = XamlParseMode.Recovering
+                }
+            },
+            cancellationToken);
+        var compilationHost = CompilationHost.Value;
+        if (compilationHost.Compilation == null)
+            return new PlaygroundInspectionResult(
+                inspection,
+                null,
+                compilationHost.Error);
+
+        var profile = new WinUiXamlProfile();
+        var compiled = new RoslynXamlCompilationInspectionService().Inspect(
+            inspection,
+            new RoslynXamlTypeSystem(compilationHost.Compilation, profile),
+            profile,
+            new RoslynXamlCompilationInspectionOptions
+            {
+                CompilerOptions = new XamlCompilerOptions
+                {
+                    Framework = profile.Id,
+                    ResourceUri = "Playground.xaml",
+                    Strict = false
+                }
+            },
+            cancellationToken);
+        return new PlaygroundInspectionResult(inspection, compiled, null);
     }
 
     private static TextBox CreateOutput(string text) => new TextBox
@@ -263,5 +344,22 @@ public static class XamlPlaygroundPage
 
         public CSharpCompilation? Compilation { get; }
         public string? Error { get; }
+    }
+
+    private sealed class PlaygroundInspectionResult
+    {
+        public PlaygroundInspectionResult(
+            XamlDocumentInspection source,
+            RoslynXamlCompilationInspection? compilation,
+            string? compilationError)
+        {
+            Source = source;
+            Compilation = compilation;
+            CompilationError = compilationError;
+        }
+
+        public XamlDocumentInspection Source { get; }
+        public RoslynXamlCompilationInspection? Compilation { get; }
+        public string? CompilationError { get; }
     }
 }
