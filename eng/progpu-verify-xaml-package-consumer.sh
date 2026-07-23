@@ -69,6 +69,31 @@ if ! grep -Fq 'XamlResourceResolver.Resolve<object>' "${generated_source}"; then
   exit 1
 fi
 
+cli_output="${consumer_root}/cli-generated"
+"${tool_root}/progpu-xaml" compile "${consumer_root}/MainPage.xaml" \
+  --project "${project}" \
+  --output "${cli_output}" \
+  --framework WinUI \
+  --json
+cli_source="$(find "${cli_output}" -maxdepth 1 -type f -name '*.g.cs' -print -quit)"
+if [[ -z "${cli_source}" ]]; then
+  echo "The packaged standalone compiler produced no C# output." >&2
+  exit 1
+fi
+if [[ "$(basename "${generated_source}")" != "$(basename "${cli_source}")" ]]; then
+  echo "Generator and CLI hint names differ." >&2
+  exit 1
+fi
+if ! cmp -s "${generated_source}" "${cli_source}"; then
+  echo "Generator and CLI C# output is not byte-identical." >&2
+  exit 1
+fi
+generated_prefix="$(LC_ALL=C head -c 3 "${generated_source}" | od -An -tx1 | tr -d ' \n')"
+if [[ "${generated_prefix}" == "efbbbf" ]]; then
+  echo "Generated C# unexpectedly contains a UTF-8 byte-order mark." >&2
+  exit 1
+fi
+
 missing_facade_log="${consumer_root}/missing-facade.log"
 if "${dotnet}" build "${project}" \
   --configuration "${configuration}" \
