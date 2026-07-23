@@ -44,13 +44,15 @@ No Roslyn symbol appears here.
 
 Attribute/text values that select markup syntax are parsed by a second, reusable language service in the `netstandard2.0` core. It consumes a Roslyn `SourceText` slice and produces a lossless immutable token stream plus recursive extension/value syntax. Tokens retain absolute spans into the owning XAML document and materialize text only on demand. The standard lexer is an index-based single pass with bounded recursion, cancellation, and configurable limits; it uses no regular expressions and performs no framework binding.
 
-The standard grammar owns braces, separators, assignments, quoting, escaping, trivia, positional/named arguments, nesting, missing/skipped tokens, and recovery. Framework and user packages contribute deterministic registrations at later seams:
+The standard grammar owns braces, separators, assignments, quoting, escaping, trivia, positional/named arguments, nesting, missing/skipped tokens, and recovery. `XamlMarkupLanguage` is the immutable source-generator-safe registry for genuinely new root value languages. Each `IXamlMarkupSyntaxPlugin` declares contract/implementation versions, trigger characters, contexts, precedence, associativity, conflict policy, and capabilities. Token recognizers are folded into the same trigger index. A recognized custom form must project into the canonical `XamlMarkupExtension` tree; the normal infoset and Roslyn-backed compiler pipeline therefore remain unchanged. Higher priority is deterministic, incompatible equal-priority matches are `PGXAML1154`, explicitly coalescible equivalent projections may share a result, and custom generator output is reparsed and structurally compared before publication. Framework and user packages contribute deterministic registrations at later seams:
 
 1. trigger-indexed token or value recognizers for genuinely new lexical forms;
 2. parser rules with declared context, precedence, version, and conflict behavior;
 3. binders resolving syntax to Roslyn-backed schema symbols;
 4. validation/lowering rules for resources, bindings, template binding, compiled expressions, or custom extensions;
 5. formatter, generator, and conservative inverse-edit rules.
+
+The current registry implements token recognition, root parsing, canonical projection, infoset dispatch, inverse formatting, and grammar-validated generation. Custom nested-node kinds, operator parser rules, semantic binder/validator registration, lowering/emitter plugins, project package discovery, and inverse document edits remain later versioned seams; callers must not infer those capabilities from syntax registration alone.
 
 WinUI `Binding`, `x:Bind`, `StaticResource`, and `ThemeResource`; WPF/Avalonia binding paths; MAUI markup extensions; and third-party syntax therefore share tokenization, trees, diagnostics, editing, and tests while retaining distinct semantics. Source-generator hosts load only the core parser. Workspace formatting and document editing remain separate so they do not inflate analyzer startup.
 

@@ -82,6 +82,7 @@ This record lists public contracts and concepts consulted. It does not authorize
 ## Concepts adopted
 
 - additive incremental generation with deterministic per-unit outputs;
+- an original immutable custom markup-language registry with trigger-indexed dispatch, explicit version/context/precedence/associativity/capability/conflict declarations, canonical AST projection, and parse-validated inverse formatting rather than framework parser forks;
 - separate source discovery, parsing, semantic binding, cross-file graphing, per-unit emission, and shared emission;
 - explicit XAML schema and instance information sets;
 - framework-neutral construction IR with profile lowering;
