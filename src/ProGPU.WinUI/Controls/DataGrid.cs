@@ -1712,9 +1712,11 @@ public class DataGrid : Control
         public override void OnVisualStateChanged()
         {
             base.OnVisualStateChanged();
-            if (!IsFocused && _owner._editingRow != -1)
+            // TextBox construction can apply its default style and invoke this virtual
+            // callback before this derived constructor assigns the owner.
+            if (!IsFocused && _owner is { _editingRow: not -1 } owner)
             {
-                _owner.CancelEdit();
+                owner.CancelEdit();
             }
         }
     }
