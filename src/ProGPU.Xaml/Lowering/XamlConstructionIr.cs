@@ -162,19 +162,22 @@ public sealed class XamlIrOperation
         XamlBoundMemberReference member,
         ImmutableArray<XamlIrValue> values,
         TextSpan sourceSpan,
-        ulong stableId)
+        ulong stableId,
+        Infoset.XamlNamespaceCondition? condition = null)
     {
         Kind = kind;
         Member = member ?? throw new ArgumentNullException(nameof(member));
         Values = values;
         SourceSpan = sourceSpan;
         StableId = stableId;
+        Condition = condition;
     }
     public XamlIrOperationKind Kind { get; }
     public XamlBoundMemberReference Member { get; }
     public ImmutableArray<XamlIrValue> Values { get; }
     public TextSpan SourceSpan { get; }
     public ulong StableId { get; }
+    public Infoset.XamlNamespaceCondition? Condition { get; }
 }
 
 public sealed class XamlIrObject : XamlIrValue
@@ -184,14 +187,16 @@ public sealed class XamlIrObject : XamlIrValue
         XamlBoundTypeReference type,
         ImmutableArray<XamlIrOperation> operations,
         TextSpan sourceSpan,
-        ulong stableId)
+        ulong stableId,
+        Infoset.XamlNamespaceCondition? condition = null)
         : this(
             kind,
             XamlIrInitializationMode.BottomUp,
             type,
             operations,
             sourceSpan,
-            stableId)
+            stableId,
+            condition)
     {
     }
 
@@ -201,18 +206,21 @@ public sealed class XamlIrObject : XamlIrValue
         XamlBoundTypeReference type,
         ImmutableArray<XamlIrOperation> operations,
         TextSpan sourceSpan,
-        ulong stableId)
+        ulong stableId,
+        Infoset.XamlNamespaceCondition? condition = null)
         : base(sourceSpan, stableId)
     {
         Kind = kind;
         InitializationMode = initializationMode;
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Operations = operations;
+        Condition = condition;
     }
     public XamlIrObjectKind Kind { get; }
     public XamlIrInitializationMode InitializationMode { get; }
     public XamlBoundTypeReference Type { get; }
     public ImmutableArray<XamlIrOperation> Operations { get; }
+    public Infoset.XamlNamespaceCondition? Condition { get; }
 }
 
 public sealed class XamlConstructionProgram
@@ -336,7 +344,8 @@ public sealed class XamlConstructionLowerer
                 member.Member,
                 values.ToImmutable(),
                 member.SourceSpan,
-                member.StableId));
+                member.StableId,
+                member.Condition));
         }
         var hasInitializationText = operations.Any(static operation =>
             operation.Kind == XamlIrOperationKind.ApplyDirective &&
@@ -368,7 +377,8 @@ public sealed class XamlConstructionLowerer
             value.Type,
             operations.ToImmutable(),
             value.SourceSpan,
-            value.StableId);
+            value.StableId,
+            value.Condition);
     }
 
     private static XamlIrValue LowerObjectValue(

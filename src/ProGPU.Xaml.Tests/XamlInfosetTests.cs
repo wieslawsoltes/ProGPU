@@ -10,6 +10,39 @@ namespace ProGPU.Xaml.Tests;
 public sealed class XamlInfosetTests
 {
     [Fact]
+    public void ConditionalNamespacesRetainPredicateAndNormalizeSchemaNamespace()
+    {
+        const string presentation =
+            "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        const string source = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:contract="http://schemas.microsoft.com/winfx/2006/xaml/presentation?IsApiContractPresent(Windows.Foundation.UniversalApiContract, 8)"
+      contract:Title="modern">
+  <contract:Grid />
+</Page>
+""";
+        var syntax = XamlParser.Parse(SourceText.From(source), "Conditional.xaml").Document;
+        var document = new XamlInfosetConverter().Convert(syntax);
+
+        Assert.False(document.HasErrors);
+        var root = Assert.IsType<XamlInfosetObject>(document.Root);
+        var title = Assert.Single(root.Members, member => member.Name.LocalName == "Title");
+        Assert.Equal(presentation, title.Name.NamespaceUri);
+        Assert.Equal("IsApiContractPresent", title.Name.Condition?.Method);
+        Assert.Equal(
+            new[] { "Windows.Foundation.UniversalApiContract", "8" },
+            title.Name.Condition?.Arguments);
+        var grid = Assert.Single(
+            Assert.Single(root.Members, member => member.Name.IsImplicit)
+                .Values.OfType<XamlInfosetObject>());
+        Assert.Equal(presentation, grid.TypeName.NamespaceUri);
+        Assert.Equal("IsApiContractPresent", grid.TypeName.Condition?.Method);
+        Assert.Equal(
+            "http://schemas.microsoft.com/winfx/2006/xaml/presentation?IsApiContractPresent(Windows.Foundation.UniversalApiContract, 8)",
+            grid.TypeName.Condition?.OriginalNamespaceUri);
+    }
+
+    [Fact]
     public void ConvertsObjectsMembersMarkupAndNamespaceSnapshotsWithParentLinks()
     {
         const string source = """

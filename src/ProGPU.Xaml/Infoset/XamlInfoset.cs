@@ -24,26 +24,112 @@ public enum XamlMemberOrigin
     Directive
 }
 
+/// <summary>
+/// One framework-neutral conditional-XAML namespace predicate. The compiler preserves the
+/// method and arguments as declarative data; a framework profile owns runtime evaluation.
+/// </summary>
+public sealed class XamlNamespaceCondition : IEquatable<XamlNamespaceCondition>
+{
+    private XamlNamespaceCondition(
+        string originalNamespaceUri,
+        string baseNamespaceUri,
+        string method,
+        ImmutableArray<string> arguments)
+    {
+        OriginalNamespaceUri = originalNamespaceUri ?? throw new ArgumentNullException(nameof(originalNamespaceUri));
+        BaseNamespaceUri = baseNamespaceUri ?? throw new ArgumentNullException(nameof(baseNamespaceUri));
+        Method = method ?? throw new ArgumentNullException(nameof(method));
+        Arguments = arguments.IsDefault ? ImmutableArray<string>.Empty : arguments;
+    }
+
+    public string OriginalNamespaceUri { get; }
+    public string BaseNamespaceUri { get; }
+    public string Method { get; }
+    public ImmutableArray<string> Arguments { get; }
+
+    public static bool TryParse(string namespaceUri, out XamlNamespaceCondition? condition)
+    {
+        condition = null;
+        if (string.IsNullOrEmpty(namespaceUri)) return false;
+        var question = namespaceUri.LastIndexOf('?');
+        if (question <= 0 || question == namespaceUri.Length - 1) return false;
+        var open = namespaceUri.IndexOf('(', question + 1);
+        if (open <= question + 1 ||
+            namespaceUri[namespaceUri.Length - 1] != ')' ||
+            namespaceUri.IndexOf(')', open + 1) != namespaceUri.Length - 1)
+            return false;
+
+        var method = namespaceUri.Substring(question + 1, open - question - 1);
+        if (!IsIdentifier(method)) return false;
+        var argumentText = namespaceUri.Substring(open + 1, namespaceUri.Length - open - 2);
+        var arguments = ImmutableArray.CreateBuilder<string>();
+        if (argumentText.Length != 0)
+        {
+            var start = 0;
+            while (start <= argumentText.Length)
+            {
+                var comma = argumentText.IndexOf(',', start);
+                var end = comma < 0 ? argumentText.Length : comma;
+                var argument = argumentText.Substring(start, end - start).Trim();
+                if (argument.Length == 0) return false;
+                arguments.Add(argument);
+                if (comma < 0) break;
+                start = comma + 1;
+            }
+        }
+
+        condition = new XamlNamespaceCondition(
+            namespaceUri,
+            namespaceUri.Substring(0, question),
+            method,
+            arguments.ToImmutable());
+        return true;
+    }
+
+    private static bool IsIdentifier(string value)
+    {
+        if (value.Length == 0 || !(char.IsLetter(value[0]) || value[0] == '_')) return false;
+        for (var index = 1; index < value.Length; index++)
+            if (!(char.IsLetterOrDigit(value[index]) || value[index] == '_')) return false;
+        return true;
+    }
+
+    public bool Equals(XamlNamespaceCondition? other) =>
+        other != null &&
+        string.Equals(OriginalNamespaceUri, other.OriginalNamespaceUri, StringComparison.Ordinal);
+    public override bool Equals(object? obj) => Equals(obj as XamlNamespaceCondition);
+    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(OriginalNamespaceUri);
+    public override string ToString() => OriginalNamespaceUri;
+}
+
 public readonly struct XamlQualifiedName : IEquatable<XamlQualifiedName>
 {
-    public XamlQualifiedName(string namespaceUri, string localName, string prefix = "")
+    public XamlQualifiedName(
+        string namespaceUri,
+        string localName,
+        string prefix = "",
+        XamlNamespaceCondition? condition = null)
     {
         NamespaceUri = namespaceUri ?? string.Empty;
         LocalName = localName ?? throw new ArgumentNullException(nameof(localName));
         Prefix = prefix ?? string.Empty;
+        Condition = condition;
     }
 
     public string NamespaceUri { get; }
     public string LocalName { get; }
     public string Prefix { get; }
+    public XamlNamespaceCondition? Condition { get; }
     public string DisplayName => Prefix.Length == 0 ? LocalName : Prefix + ":" + LocalName;
     public bool Equals(XamlQualifiedName other) =>
         string.Equals(NamespaceUri, other.NamespaceUri, StringComparison.Ordinal) &&
-        string.Equals(LocalName, other.LocalName, StringComparison.Ordinal);
+        string.Equals(LocalName, other.LocalName, StringComparison.Ordinal) &&
+        Equals(Condition, other.Condition);
     public override bool Equals(object? obj) => obj is XamlQualifiedName other && Equals(other);
     public override int GetHashCode() => unchecked(
-        (StringComparer.Ordinal.GetHashCode(NamespaceUri) * 397) ^
-        StringComparer.Ordinal.GetHashCode(LocalName));
+        ((StringComparer.Ordinal.GetHashCode(NamespaceUri) * 397) ^
+         StringComparer.Ordinal.GetHashCode(LocalName)) * 397 ^
+        (Condition?.GetHashCode() ?? 0));
     public override string ToString() => DisplayName;
 }
 
@@ -55,7 +141,8 @@ public readonly struct XamlInfosetMemberName : IEquatable<XamlInfosetMemberName>
         string prefix = "",
         string? ownerTypeName = null,
         bool isDirective = false,
-        bool isImplicit = false)
+        bool isImplicit = false,
+        XamlNamespaceCondition? condition = null)
     {
         NamespaceUri = namespaceUri ?? string.Empty;
         LocalName = localName ?? throw new ArgumentNullException(nameof(localName));
@@ -63,6 +150,7 @@ public readonly struct XamlInfosetMemberName : IEquatable<XamlInfosetMemberName>
         OwnerTypeName = ownerTypeName;
         IsDirective = isDirective;
         IsImplicit = isImplicit;
+        Condition = condition;
     }
 
     public string NamespaceUri { get; }
@@ -71,6 +159,7 @@ public readonly struct XamlInfosetMemberName : IEquatable<XamlInfosetMemberName>
     public string? OwnerTypeName { get; }
     public bool IsDirective { get; }
     public bool IsImplicit { get; }
+    public XamlNamespaceCondition? Condition { get; }
     public string DisplayName => OwnerTypeName == null
         ? (Prefix.Length == 0 ? LocalName : Prefix + ":" + LocalName)
         : (Prefix.Length == 0 ? OwnerTypeName + "." + LocalName : Prefix + ":" + OwnerTypeName + "." + LocalName);
@@ -79,7 +168,8 @@ public readonly struct XamlInfosetMemberName : IEquatable<XamlInfosetMemberName>
         string.Equals(NamespaceUri, other.NamespaceUri, StringComparison.Ordinal) &&
         string.Equals(LocalName, other.LocalName, StringComparison.Ordinal) &&
         string.Equals(OwnerTypeName, other.OwnerTypeName, StringComparison.Ordinal) &&
-        IsDirective == other.IsDirective && IsImplicit == other.IsImplicit;
+        IsDirective == other.IsDirective && IsImplicit == other.IsImplicit &&
+        Equals(Condition, other.Condition);
     public override bool Equals(object? obj) => obj is XamlInfosetMemberName other && Equals(other);
     public override int GetHashCode()
     {
@@ -89,7 +179,8 @@ public readonly struct XamlInfosetMemberName : IEquatable<XamlInfosetMemberName>
             hash = (hash * 397) ^ StringComparer.Ordinal.GetHashCode(LocalName);
             hash = (hash * 397) ^ (OwnerTypeName == null ? 0 : StringComparer.Ordinal.GetHashCode(OwnerTypeName));
             hash = (hash * 397) ^ IsDirective.GetHashCode();
-            return (hash * 397) ^ IsImplicit.GetHashCode();
+            hash = (hash * 397) ^ IsImplicit.GetHashCode();
+            return (hash * 397) ^ (Condition?.GetHashCode() ?? 0);
         }
     }
     public override string ToString() => DisplayName;

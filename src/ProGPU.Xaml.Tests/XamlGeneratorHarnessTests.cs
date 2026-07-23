@@ -18,6 +18,159 @@ namespace ProGPU.Xaml.Tests;
 public sealed class XamlGeneratorHarnessTests
 {
     [Fact]
+    public void ConditionalWinUiAttributeEmitsStructuredRuntimeIfStatement()
+    {
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  public static class ConditionalXaml {
+    public static bool IsEnabled(string method, params string[] arguments) => true;
+  }
+}
+namespace Microsoft.UI.Xaml.HotReload {
+  public interface IHotReloadable { void Reload(HotReloadContext context); }
+  public sealed class HotReloadContext { }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  public class Page { public string? Title { get; set; } }
+}
+namespace Demo { public partial class MainPage : Microsoft.UI.Xaml.Controls.Page { } }
+""";
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:contract="http://schemas.microsoft.com/winfx/2006/xaml/presentation?IsApiContractPresent(Windows.Foundation.UniversalApiContract, 8)"
+      x:Class="Demo.MainPage"
+      Title="fallback"
+      contract:Title="modern" />
+""";
+        var compilation = CSharpCompilation.Create(
+            "ConditionalXamlHarness",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            generators: new[] { new ProGpuXamlSourceGenerator().AsSourceGenerator() },
+            additionalTexts: new AdditionalText[]
+            {
+                new InMemoryAdditionalText("MainPage.xaml", xaml)
+            },
+            parseOptions: CSharpParseOptions.Default);
+
+        driver = driver.RunGeneratorsAndUpdateCompilation(
+            compilation,
+            out var output,
+            out var generatorDiagnostics);
+
+        Assert.DoesNotContain(
+            generatorDiagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.DoesNotContain(
+            output.GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var generated = Assert.Single(
+            Assert.Single(driver.GetRunResult().Results).GeneratedSources);
+        var root = generated.SyntaxTree.GetRoot();
+        var conditional = Assert.Single(
+            root.DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>());
+        var invocation = Assert.IsType<
+            Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>(
+            conditional.Condition);
+        Assert.EndsWith(
+            "ConditionalXaml.IsEnabled",
+            invocation.Expression.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            new[]
+            {
+                "\"IsApiContractPresent\"",
+                "\"Windows.Foundation.UniversalApiContract\"",
+                "\"8\""
+            },
+            invocation.ArgumentList.Arguments
+                .Select(argument => argument.Expression.ToString()));
+        Assert.Contains(
+            conditional.Statement.DescendantNodes()
+                .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax>(),
+            assignment => assignment.Left.ToString() == "this.Title" &&
+                assignment.Right.ToString() == "\"modern\"");
+    }
+
+    [Fact]
+    public void ConditionalWinUiRejectsUnknownPredicatesAndElementLifetimes()
+    {
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  public static class ConditionalXaml {
+    public static bool IsEnabled(string method, params string[] arguments) => true;
+  }
+}
+namespace Microsoft.UI.Xaml.HotReload {
+  public interface IHotReloadable { void Reload(HotReloadContext context); }
+  public sealed class HotReloadContext { }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  public class Page { public string? Title { get; set; } public object? Content { get; set; } }
+  public class Grid { public string? Name { get; set; } }
+}
+namespace Demo {
+  public partial class ConditionalPage : Microsoft.UI.Xaml.Controls.Page { }
+  public partial class ConditionalNamePage : Microsoft.UI.Xaml.Controls.Page { }
+  public partial class UnknownPage : Microsoft.UI.Xaml.Controls.Page { }
+}
+""";
+        var conditionalElement = new InMemoryAdditionalText(
+            "ConditionalPage.xaml",
+            """
+<conditional:Page xmlns:conditional="http://schemas.microsoft.com/winfx/2006/xaml/presentation?IsTypePresent(Microsoft.UI.Xaml.Controls.Page)"
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                  x:Class="Demo.ConditionalPage" />
+""");
+        var conditionalName = new InMemoryAdditionalText(
+            "ConditionalNamePage.xaml",
+            """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:conditional="http://schemas.microsoft.com/winfx/2006/xaml/presentation?IsTypePresent(Microsoft.UI.Xaml.Controls.Grid)"
+      x:Class="Demo.ConditionalNamePage">
+  <conditional:Page.Content>
+    <Grid x:Name="ConditionalGrid" />
+  </conditional:Page.Content>
+</Page>
+""");
+        var unknownPredicate = new InMemoryAdditionalText(
+            "UnknownPage.xaml",
+            """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:unknown="http://schemas.microsoft.com/winfx/2006/xaml/presentation?UnknownPredicate(value)"
+      x:Class="Demo.UnknownPage"
+      unknown:Title="unsafe" />
+""");
+        var compilation = CSharpCompilation.Create(
+            "ConditionalXamlDiagnosticsHarness",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            generators: new[] { new ProGpuXamlSourceGenerator().AsSourceGenerator() },
+            additionalTexts: new AdditionalText[]
+            {
+                conditionalElement,
+                conditionalName,
+                unknownPredicate
+            },
+            parseOptions: CSharpParseOptions.Default);
+
+        driver = driver.RunGenerators(compilation);
+        var diagnostics = Assert.Single(driver.GetRunResult().Results).Diagnostics;
+
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "PGXAML3055");
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "PGXAML3056");
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Id == "PGXAML3057");
+    }
+
+    [Fact]
     public void UnchangedRunCachesParseAndInfosetStage()
     {
         const string program = "namespace Demo { public sealed class Placeholder { } }";

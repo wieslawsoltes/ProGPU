@@ -371,7 +371,9 @@ public sealed class XamlSemanticBinder
             var bound = BindMember(member, typeReference, value);
             if (member.Origin == XamlMemberOrigin.ImplicitContent && bound.Values.IsEmpty)
                 continue;
-            if (!bound.Member.IsError && !identities.Add(bound.Member.Identity))
+            var conditionalIdentity = bound.Member.Identity + "\0" +
+                (bound.Condition?.OriginalNamespaceUri ?? string.Empty);
+            if (!bound.Member.IsError && !identities.Add(conditionalIdentity))
             {
                 Error(
                     "PGXAML2010",
@@ -390,7 +392,8 @@ public sealed class XamlSemanticBinder
             value.IsRetrieved,
             value.IsMarkupExtension,
             value.SourceSpan,
-            value.StableId);
+            value.StableId,
+            value.TypeName.Condition);
         ValidateIntrinsicObject(result);
         ValidateConstruction(result);
         return result;
@@ -563,9 +566,15 @@ public sealed class XamlSemanticBinder
     private static string ResolveNamespace(string prefix, ImmutableArray<XamlNamespaceMapping> mappings)
     {
         foreach (var mapping in mappings)
-            if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal)) return mapping.NamespaceUri;
+            if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal))
+                return NormalizeConditionalNamespace(mapping.NamespaceUri);
         return string.Empty;
     }
+
+    private static string NormalizeConditionalNamespace(string namespaceUri) =>
+        XamlNamespaceCondition.TryParse(namespaceUri, out var condition)
+            ? condition!.BaseNamespaceUri
+            : namespaceUri;
 
     private void ValidateConstruction(XamlBoundObject value)
     {
@@ -795,7 +804,8 @@ public sealed class XamlSemanticBinder
                 true,
                 retrievedCandidate.IsMarkupExtension,
                 retrievedCandidate.SourceSpan,
-                retrievedCandidate.StableId);
+                retrievedCandidate.StableId,
+                retrievedCandidate.Condition);
         }
 
         if (memberReference.Symbol != null)
@@ -940,7 +950,8 @@ public sealed class XamlSemanticBinder
             value.Origin,
             values.ToImmutable(),
             value.SourceSpan,
-            value.StableId);
+            value.StableId,
+            value.Name.Condition);
     }
 
     private XamlBoundValue BindBinding(
@@ -2427,7 +2438,7 @@ public sealed class XamlSemanticBinder
         {
             if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal))
             {
-                namespaceUri = mapping.NamespaceUri;
+                namespaceUri = NormalizeConditionalNamespace(mapping.NamespaceUri);
                 break;
             }
         }
@@ -2466,7 +2477,7 @@ public sealed class XamlSemanticBinder
         {
             if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal))
             {
-                namespaceUri = mapping.NamespaceUri;
+                namespaceUri = NormalizeConditionalNamespace(mapping.NamespaceUri);
                 break;
             }
         }
@@ -2522,7 +2533,11 @@ public sealed class XamlSemanticBinder
             var localName = prefixSeparator < 0 ? ownerText : ownerText.Substring(prefixSeparator + 1);
             var namespaceUri = string.Empty;
             foreach (var mapping in parentObject.NamespaceMappings)
-                if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal)) { namespaceUri = mapping.NamespaceUri; break; }
+                if (string.Equals(mapping.Prefix, prefix, StringComparison.Ordinal))
+                {
+                    namespaceUri = NormalizeConditionalNamespace(mapping.NamespaceUri);
+                    break;
+                }
             owner = _typeSystem.ResolveType(namespaceUri, localName);
         }
         var argumentCount = parentObject.Members
@@ -3329,7 +3344,8 @@ public sealed class XamlSemanticBinder
                     member.Origin,
                     values.ToImmutable(),
                     member.SourceSpan,
-                    member.StableId));
+                    member.StableId,
+                    member.Condition));
                 changed = true;
             }
             else
@@ -3345,7 +3361,8 @@ public sealed class XamlSemanticBinder
                 value.IsRetrieved,
                 value.IsMarkupExtension,
                 value.SourceSpan,
-                value.StableId)
+                value.StableId,
+                value.Condition)
             : value;
     }
 
@@ -3397,7 +3414,8 @@ public sealed class XamlSemanticBinder
                     member.Origin,
                     values.ToImmutable(),
                     member.SourceSpan,
-                    member.StableId));
+                    member.StableId,
+                    member.Condition));
                 changed = true;
             }
             else
@@ -3413,7 +3431,8 @@ public sealed class XamlSemanticBinder
                 value.IsRetrieved,
                 value.IsMarkupExtension,
                 value.SourceSpan,
-                value.StableId)
+                value.StableId,
+                value.Condition)
             : value;
     }
 

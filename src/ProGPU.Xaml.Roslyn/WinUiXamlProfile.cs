@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using ProGPU.Xaml.Binding;
+using ProGPU.Xaml.Infoset;
 using ProGPU.Xaml.Parsing;
 using ProGPU.Xaml.Lowering;
 using ProGPU.Xaml.Schema;
@@ -51,6 +52,17 @@ public interface IRoslynXamlContextualMarkupExpressionProfile
         XamlIrObject extension,
         XamlTypeInfo targetType,
         ExpressionSyntax lookupRoot,
+        out ExpressionSyntax expression);
+}
+
+/// <summary>
+/// Optional structured runtime lowering for a framework-owned conditional-XAML predicate.
+/// The compiler owns the surrounding <c>if</c> statement and never emits C# as text.
+/// </summary>
+public interface IRoslynXamlConditionalNamespaceProfile
+{
+    bool TryCreateConditionalNamespaceExpression(
+        XamlNamespaceCondition condition,
         out ExpressionSyntax expression);
 }
 
@@ -405,7 +417,7 @@ public interface IRoslynXamlMarkupExtensionReceiverProfile
         out StatementSyntax statement);
 }
 
-public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlNameScopeProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy, IXamlDeferredContentContextTypePolicy, IXamlIrDeferredContentContextTypePolicy
+public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlConditionalNamespaceProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlNameScopeProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy, IXamlDeferredContentContextTypePolicy, IXamlIrDeferredContentContextTypePolicy
 {
     private static readonly string[] Extensions = { ".xaml" };
     private static readonly string[] PresentationNamespaces =
@@ -439,7 +451,8 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
         XamlFrameworkCapabilities.Resources |
         XamlFrameworkCapabilities.Bindings |
         XamlFrameworkCapabilities.Templates |
-        XamlFrameworkCapabilities.HotReload;
+        XamlFrameworkCapabilities.HotReload |
+        XamlFrameworkCapabilities.ConditionalNamespaces;
     public IReadOnlyList<string> FileExtensions => Extensions;
     public IReadOnlyList<string> DictionaryKeyDirectiveAliases => DictionaryKeyAliases;
     public ProGPU.Xaml.Binding.XamlCompiledBindingMode DefaultCompiledBindingMode =>
@@ -547,6 +560,55 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
         string.Equals(xamlNamespaceUri, XamlNamespaces.Presentation2006, StringComparison.Ordinal)
             ? PresentationNamespaces
             : Array.Empty<string>();
+
+    public bool TryCreateConditionalNamespaceExpression(
+        XamlNamespaceCondition condition,
+        out ExpressionSyntax expression)
+    {
+        if (condition == null) throw new ArgumentNullException(nameof(condition));
+        var valid = condition.Method switch
+        {
+            "IsApiContractPresent" or "IsApiContractNotPresent" =>
+                (condition.Arguments.Length == 2 ||
+                 condition.Arguments.Length == 3) &&
+                ushort.TryParse(
+                    condition.Arguments[1],
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out _) &&
+                (condition.Arguments.Length == 2 ||
+                 ushort.TryParse(
+                     condition.Arguments[2],
+                     NumberStyles.None,
+                     CultureInfo.InvariantCulture,
+                     out _)),
+            "IsTypePresent" or "IsTypeNotPresent" =>
+                condition.Arguments.Length == 1,
+            "IsPropertyPresent" or "IsPropertyNotPresent" =>
+                condition.Arguments.Length == 2,
+            _ => false
+        };
+        if (!valid)
+        {
+            expression = null!;
+            return false;
+        }
+        var arguments = new List<ArgumentSyntax>(condition.Arguments.Length + 1)
+        {
+            SyntaxFactory.Argument(StringLiteral(condition.Method))
+        };
+        arguments.AddRange(condition.Arguments.Select(argument =>
+            SyntaxFactory.Argument(StringLiteral(argument))));
+        expression = SyntaxFactory.InvocationExpression(
+                SyntaxFactory.MemberAccessExpression(
+                    SyntaxKind.SimpleMemberAccessExpression,
+                    RoslynTypeSyntaxFactory.CreateGlobalName(
+                        "Microsoft", "UI", "Xaml", "Markup", "ConditionalXaml"),
+                    SyntaxFactory.IdentifierName("IsEnabled")))
+            .WithArgumentList(SyntaxFactory.ArgumentList(
+                SyntaxFactory.SeparatedList(arguments)));
+        return true;
+    }
 
     private static XamlSyntheticTypeDefinition Extension(
         string name,

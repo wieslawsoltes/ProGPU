@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using ProGPU.Xaml.Binding;
 using ProGPU.Xaml.Diagnostics;
+using ProGPU.Xaml.Infoset;
 using ProGPU.Xaml.Lowering;
 using ProGPU.Xaml.Schema;
 
@@ -524,9 +526,10 @@ public sealed class RoslynXamlExtensionHost
         if (candidate.StableId != original.StableId ||
             candidate.SourceSpan != original.SourceSpan ||
             candidate.Kind != original.Kind ||
-            !ReferenceEquals(candidate.Type, original.Type))
+            !ReferenceEquals(candidate.Type, original.Type) ||
+            !Equals(candidate.Condition, original.Condition))
         {
-            error = "the compilation-unit root identity, span, kind, or type changed.";
+            error = "the compilation-unit root identity, span, kind, type, or condition changed.";
             return false;
         }
 
@@ -554,15 +557,17 @@ public sealed class RoslynXamlExtensionHost
 
             if (value is XamlIrObject objectValue)
             {
-                if (objectValue.Operations.IsDefault)
+                if (objectValue.Operations.IsDefault ||
+                    !IsValidCondition(objectValue.Condition))
                 {
-                    error = "a transformed IR object has a default operation array.";
+                    error = "a transformed IR object has invalid operations or condition data.";
                     return false;
                 }
                 foreach (var operation in objectValue.Operations)
                 {
                     if (operation == null ||
                         operation.Values.IsDefault ||
+                        !IsValidCondition(operation.Condition) ||
                         !IsInSource(operation.SourceSpan, sourceLength))
                     {
                         error = "a transformed IR operation is null, incomplete, or out of source.";
@@ -610,9 +615,10 @@ public sealed class RoslynXamlExtensionHost
             candidate.SourceSpan != original.SourceSpan ||
             !ReferenceEquals(candidate.Type, original.Type) ||
             candidate.IsRetrieved != original.IsRetrieved ||
-            candidate.IsMarkupExtension != original.IsMarkupExtension)
+            candidate.IsMarkupExtension != original.IsMarkupExtension ||
+            !Equals(candidate.Condition, original.Condition))
         {
-            error = "the document root identity, span, type, or construction role changed.";
+            error = "the document root identity, span, type, construction role, or condition changed.";
             return false;
         }
 
@@ -641,9 +647,10 @@ public sealed class RoslynXamlExtensionHost
 
             if (value is XamlBoundObject objectValue)
             {
-                if (objectValue.Members.IsDefault)
+                if (objectValue.Members.IsDefault ||
+                    !IsValidCondition(objectValue.Condition))
                 {
-                    error = "a transformed bound object has a default member array.";
+                    error = "a transformed bound object has invalid members or condition data.";
                     return false;
                 }
                 foreach (var member in objectValue.Members)
@@ -658,6 +665,7 @@ public sealed class RoslynXamlExtensionHost
                     if (member == null ||
                         member.Member == null ||
                         member.Values.IsDefault ||
+                        !IsValidCondition(member.Condition) ||
                         !IsInSource(member.SourceSpan, sourceLength))
                     {
                         error =
@@ -686,6 +694,23 @@ public sealed class RoslynXamlExtensionHost
         }
         error = null;
         return true;
+    }
+
+    private static bool IsValidCondition(XamlNamespaceCondition? condition)
+    {
+        if (condition == null) return true;
+        return XamlNamespaceCondition.TryParse(
+                condition.OriginalNamespaceUri,
+                out var reparsed) &&
+            string.Equals(
+                reparsed!.BaseNamespaceUri,
+                condition.BaseNamespaceUri,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                reparsed.Method,
+                condition.Method,
+                StringComparison.Ordinal) &&
+            reparsed.Arguments.SequenceEqual(condition.Arguments);
     }
 
     private static bool TryCreateIssueDiagnostic(

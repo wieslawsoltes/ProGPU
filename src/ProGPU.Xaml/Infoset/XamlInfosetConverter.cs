@@ -78,7 +78,7 @@ public sealed class XamlInfosetConverter
 
         var namespaceMap = MergeNamespaces(inheritedNamespaces, syntax.NamespaceDeclarations);
         var namespaceSnapshot = Snapshot(namespaceMap);
-        var typeName = new XamlQualifiedName(syntax.NamespaceUri, syntax.LocalName, syntax.Prefix);
+        var typeName = CreateQualifiedName(syntax.NamespaceUri, syntax.LocalName, syntax.Prefix);
         var members = new List<GreenXamlInfosetMember>();
 
         foreach (var attribute in syntax.Attributes)
@@ -182,15 +182,20 @@ public sealed class XamlInfosetConverter
     {
         if (!ReserveNode(memberSyntax.Span)) return null;
         SplitDottedName(memberSyntax.LocalName, out var ownerName, out var memberName);
+        var requestedNamespace = memberSyntax.NamespaceUri.Length == 0
+            ? parentSyntax.NamespaceUri
+            : memberSyntax.NamespaceUri;
+        var namespaceUri = NormalizeNamespace(requestedNamespace, out var condition);
         var name = new XamlInfosetMemberName(
-            memberSyntax.NamespaceUri.Length == 0 ? parentSyntax.NamespaceUri : memberSyntax.NamespaceUri,
+            namespaceUri,
             memberName,
             memberSyntax.Prefix,
             ownerName,
             isDirective: XamlIntrinsicSchema.TryGetDirective(
-                memberSyntax.NamespaceUri,
+                namespaceUri,
                 memberName,
-                out _));
+                out _),
+            condition: condition);
         var memberNamespaces = MergeNamespaces(namespaceMap, memberSyntax.NamespaceDeclarations);
         var values = ImmutableArray.CreateBuilder<GreenXamlInfosetValue>();
         foreach (var child in memberSyntax.Children)
@@ -307,7 +312,10 @@ public sealed class XamlInfosetConverter
         string? markupText = null)
     {
         SplitQualifiedName(extension.Name, out var prefix, out var localName);
-        var namespaceUri = namespaceMap.TryGetValue(prefix, out var mapping) ? mapping.NamespaceUri : string.Empty;
+        var requestedNamespace = namespaceMap.TryGetValue(prefix, out var mapping)
+            ? mapping.NamespaceUri
+            : string.Empty;
+        var namespaceUri = NormalizeNamespace(requestedNamespace, out var condition);
         var members = ImmutableArray.CreateBuilder<GreenXamlInfosetMember>();
         if (extension.PositionalArguments.Count != 0)
         {
@@ -334,7 +342,7 @@ public sealed class XamlInfosetConverter
                 CombineStableId(stableId, "markup", argument.Name, index + 1)));
         }
         return new GreenXamlInfosetObject(
-            new XamlQualifiedName(namespaceUri, localName, prefix),
+            new XamlQualifiedName(namespaceUri, localName, prefix, condition),
             members.ToImmutable(),
             Snapshot(namespaceMap),
             isRetrieved: false,
@@ -413,6 +421,9 @@ public sealed class XamlInfosetConverter
         var namespaceUri = attribute.NamespaceUri.Length == 0
             ? containingType.NamespaceUri
             : attribute.NamespaceUri;
+        XamlNamespaceCondition? condition = null;
+        if (attribute.NamespaceUri.Length != 0)
+            namespaceUri = NormalizeNamespace(namespaceUri, out condition);
         SplitDottedName(attribute.LocalName, out var ownerName, out var memberName);
         // XML default namespaces do not apply to unprefixed attributes. Conversion projects
         // those attributes into the owner type's XAML namespace, but they remain ordinary
@@ -424,7 +435,27 @@ public sealed class XamlInfosetConverter
             memberName,
             attribute.Prefix,
             ownerName,
-            isDirective: isDirective);
+            isDirective: isDirective,
+            condition: condition);
+    }
+
+    private static XamlQualifiedName CreateQualifiedName(
+        string namespaceUri,
+        string localName,
+        string prefix)
+    {
+        var normalized = NormalizeNamespace(namespaceUri, out var condition);
+        return new XamlQualifiedName(normalized, localName, prefix, condition);
+    }
+
+    private static string NormalizeNamespace(
+        string namespaceUri,
+        out XamlNamespaceCondition? condition)
+    {
+        if (XamlNamespaceCondition.TryParse(namespaceUri, out condition))
+            return condition!.BaseNamespaceUri;
+        condition = null;
+        return namespaceUri;
     }
 
     private static bool IsMemberElement(XamlObjectSyntax syntax)

@@ -1145,6 +1145,16 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         private ExpressionSyntax? EmitObjectDeclaration(XamlIrObject value)
         {
             if (value.Type.Symbol == null) return null;
+            if (value.Condition != null)
+            {
+                AddError(
+                    "PGXAML3056",
+                    $"Profile '{_framework.Id}' does not provide structured " +
+                    "conditional-element lifetime lowering.",
+                    value.SourceSpan,
+                    "EXT-006");
+                return null;
+            }
             var variableName = "__xamlObject" + (++_nextObjectId).ToString(CultureInfo.InvariantCulture);
             var variable = SyntaxFactory.IdentifierName(variableName);
             var construction = CreateConstructionExpression(value);
@@ -1258,25 +1268,49 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
 
         private void EmitOperations(XamlIrObject owner, ExpressionSyntax ownerExpression, bool isRoot)
         {
+            if (owner.Condition != null)
+            {
+                AddError(
+                    "PGXAML3056",
+                    $"Profile '{_framework.Id}' does not provide structured " +
+                    "conditional-element lifetime lowering.",
+                    owner.SourceSpan,
+                    "EXT-006");
+                return;
+            }
             foreach (var operation in owner.Operations)
             {
-                if (operation.Kind == XamlIrOperationKind.ApplyDirective)
+                if (operation.Condition != null &&
+                    ContainsDeclaredName(operation.Values))
                 {
-                    EmitDirective(owner, ownerExpression, operation, isRoot);
+                    AddError(
+                        "PGXAML3057",
+                        "A conditional member cannot construct an x:Name object until the " +
+                        $"profile '{_framework.Id}' provides conditional namescope lifetime lowering.",
+                        operation.SourceSpan,
+                        "EXT-006");
                     continue;
                 }
-                if (operation.Kind == XamlIrOperationKind.Error) continue;
-                if (operation.Kind == XamlIrOperationKind.SetDeferredContent)
+                var statementStart = Statements.Count;
+                try
                 {
-                    EmitDeferredContent(owner, ownerExpression, operation);
-                    continue;
-                }
-                if (operation.Member.Symbol == null &&
-                    operation.Kind != XamlIrOperationKind.AddCollectionItem &&
-                    operation.Kind != XamlIrOperationKind.AddDictionaryItem) continue;
+                    if (operation.Kind == XamlIrOperationKind.ApplyDirective)
+                    {
+                        EmitDirective(owner, ownerExpression, operation, isRoot);
+                        continue;
+                    }
+                    if (operation.Kind == XamlIrOperationKind.Error) continue;
+                    if (operation.Kind == XamlIrOperationKind.SetDeferredContent)
+                    {
+                        EmitDeferredContent(owner, ownerExpression, operation);
+                        continue;
+                    }
+                    if (operation.Member.Symbol == null &&
+                        operation.Kind != XamlIrOperationKind.AddCollectionItem &&
+                        operation.Kind != XamlIrOperationKind.AddDictionaryItem) continue;
 
-                switch (operation.Kind)
-                {
+                    switch (operation.Kind)
+                    {
                     case XamlIrOperationKind.SubscribeEvent:
                         EmitEvent(ownerExpression, operation);
                         break;
@@ -1591,8 +1625,85 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                             MemberAccess(ownerExpression, retrievedMember.CSharpName),
                             isRoot: false);
                         break;
+                    }
+                }
+                finally
+                {
+                    WrapConditionalStatements(operation, statementStart);
                 }
             }
+        }
+
+        private void WrapConditionalStatements(
+            XamlIrOperation operation,
+            int statementStart)
+        {
+            var condition = operation.Condition;
+            if (condition == null || Statements.Count == statementStart) return;
+            if (_framework is not IRoslynXamlConditionalNamespaceProfile conditionalProfile ||
+                !conditionalProfile.TryCreateConditionalNamespaceExpression(
+                    condition,
+                    out var expression))
+            {
+                Statements.RemoveRange(
+                    statementStart,
+                    Statements.Count - statementStart);
+                AddError(
+                    "PGXAML3055",
+                    $"Profile '{_framework.Id}' cannot emit conditional XAML namespace " +
+                    $"predicate '{condition.Method}'.",
+                    operation.SourceSpan,
+                    "EXT-006");
+                return;
+            }
+
+            var statements = Statements.GetRange(
+                statementStart,
+                Statements.Count - statementStart);
+            Statements.RemoveRange(
+                statementStart,
+                Statements.Count - statementStart);
+            AddStatement(
+                SyntaxFactory.IfStatement(
+                    expression,
+                    SyntaxFactory.Block(statements)),
+                operation.SourceSpan,
+                operation.StableId);
+        }
+
+        private static bool ContainsDeclaredName(
+            ImmutableArray<XamlIrValue> values)
+        {
+            var stack = new List<XamlIrValue>(values);
+            var visited = new HashSet<XamlIrValue>();
+            while (stack.Count != 0)
+            {
+                var last = stack.Count - 1;
+                var value = stack[last];
+                stack.RemoveAt(last);
+                if (!visited.Add(value)) continue;
+                if (value is XamlIrObject objectValue)
+                {
+                    if (!string.IsNullOrWhiteSpace(
+                            GetDirectiveText(
+                                objectValue,
+                                XamlNamespaces.Language2006,
+                                "Name")))
+                        return true;
+                    foreach (var operation in objectValue.Operations)
+                        foreach (var child in operation.Values)
+                            stack.Add(child);
+                }
+                else if (value is XamlIrBinding binding)
+                {
+                    stack.Add(binding.Extension);
+                }
+                else if (value is XamlIrCompiledBinding compiledBinding)
+                {
+                    stack.Add(compiledBinding.Extension);
+                }
+            }
+            return false;
         }
 
         private void EmitDeferredContent(XamlIrObject owner, ExpressionSyntax ownerExpression, XamlIrOperation operation)

@@ -484,13 +484,15 @@ public sealed class XamlBoundMember
         XamlMemberOrigin origin,
         ImmutableArray<XamlBoundValue> values,
         TextSpan sourceSpan,
-        ulong stableId)
+        ulong stableId,
+        XamlNamespaceCondition? condition = null)
     {
         Member = member ?? throw new ArgumentNullException(nameof(member));
         Origin = origin;
         Values = values;
         SourceSpan = sourceSpan;
         StableId = stableId;
+        Condition = condition;
     }
 
     public XamlBoundMemberReference Member { get; }
@@ -498,6 +500,7 @@ public sealed class XamlBoundMember
     public ImmutableArray<XamlBoundValue> Values { get; }
     public TextSpan SourceSpan { get; }
     public ulong StableId { get; }
+    public XamlNamespaceCondition? Condition { get; }
 }
 
 public sealed class XamlBoundObject : XamlBoundValue
@@ -508,19 +511,22 @@ public sealed class XamlBoundObject : XamlBoundValue
         bool isRetrieved,
         bool isMarkupExtension,
         TextSpan sourceSpan,
-        ulong stableId)
+        ulong stableId,
+        XamlNamespaceCondition? condition = null)
         : base(sourceSpan, stableId)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Members = members;
         IsRetrieved = isRetrieved;
         IsMarkupExtension = isMarkupExtension;
+        Condition = condition;
     }
 
     public XamlBoundTypeReference Type { get; }
     public ImmutableArray<XamlBoundMember> Members { get; }
     public bool IsRetrieved { get; }
     public bool IsMarkupExtension { get; }
+    public XamlNamespaceCondition? Condition { get; }
 }
 
 public sealed class XamlBoundDocument
