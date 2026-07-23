@@ -52,7 +52,7 @@ The standard grammar owns braces, separators, assignments, quoting, escaping, tr
 4. validation/lowering rules for resources, bindings, template binding, compiled expressions, or custom extensions;
 5. formatter, generator, and conservative inverse-edit rules.
 
-The current registry implements token recognition, root parsing, canonical projection, infoset dispatch, inverse formatting, and grammar-validated generation. Custom nested-node kinds, operator parser rules, semantic binder/validator registration, lowering/emitter plugins, project package discovery, and inverse document edits remain later versioned seams; callers must not infer those capabilities from syntax registration alone.
+The current registry implements token recognition, root parsing, canonical projection, infoset dispatch, inverse formatting, and grammar-validated generation. The first independent downstream seam is the Roslyn markup-expression extension host described under construction IR. Custom nested-node kinds, operator parser rules, semantic binder/validator registration, general IR transforms, statement/unit/shared-output emitters, project package discovery, and inverse document edits remain later versioned seams; callers must not infer those capabilities from syntax registration alone.
 
 WinUI `Binding`, `x:Bind`, `StaticResource`, and `ThemeResource`; WPF/Avalonia binding paths; MAUI markup extensions; and third-party syntax therefore share tokenization, trees, diagnostics, editing, and tests while retaining distinct semantics. Source-generator hosts load only the core parser. Workspace formatting and document editing remain separate so they do not inflate analyzer startup.
 
@@ -165,6 +165,16 @@ The IR makes evaluation order and ownership visible. Representative operations a
 - publish root and hot-reload identity.
 
 Emitters consume IR only. They never reparse markup. The C# emitter uses Roslyn `SyntaxFactory`/`SyntaxGenerator`; generated nodes carry XAML projection annotations before deterministic formatting and serialization.
+
+### 5A. Roslyn compiler extension host
+
+`RoslynXamlExtensionHost` is the first user-owned semantic/emission seam after canonical binding and construction lowering. It is immutable and targets `netstandard2.0`. Registrations declare a stable ID, host-contract and implementation versions, priority, capabilities, and conflict policy; the host snapshots those values so later mutation cannot change ordering. Duplicate IDs, incompatible contract versions, non-positive implementation versions, unknown capabilities, and capability/interface mismatches fail at composition time.
+
+The initial `MarkupExtensionExpression` capability receives an immutable `XamlIrObject` already classified as `InvokeMarkupExtension`, its canonical target type and member, structured target and lookup-root expressions, the project-logical resource URI, and cancellation. A handler either declines or returns an `ExpressionSyntax`. It cannot return source text. The compiler applies its standard projection annotation to a handled node, so source maps, generated-tree inspection, formatting, and future reverse projection remain compiler-owned.
+
+Handlers run in descending priority before framework fallback markup/object-expression lowering. Once a priority wins, lower priorities are not invoked. Multiple winners at that priority are legal only when every winner explicitly selects `CoalesceEquivalent` and the returned Roslyn nodes are structurally equivalent; otherwise emission reports `PGXAML3050`. A plugin exception or null handled result reports `PGXAML3051`, while `OperationCanceledException` propagates. No match follows the unchanged framework profile path. Reserved intrinsic name-reference resolution remains ahead of the user host.
+
+The current host is explicitly a direct compiler API. Binder/validator providers, general IR transforms, statement/declaration/shared emitters, analyzer-safe package discovery, dependency ordering, and generator/MSBuild selection remain future capabilities; no source-generator package-loading behavior is implied by constructing the host manually.
 
 Object initialization order is typed IR data. A valid inherited usable-during-initialization descriptor selects top-down scheduling only for an ordinary created child: declare the child, publish it through the canonical property/attached/collection/dictionary operation, then populate its members. Explicit `false`, unannotated types, retrieved values, markup extensions, arrays, initialization-text values, deferred factories, and constructor arguments retain their established schedule.
 
