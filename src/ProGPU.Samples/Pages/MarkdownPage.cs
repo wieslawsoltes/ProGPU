@@ -340,9 +340,11 @@ namespace ProGPU.Samples
             // Preset Switching
             presetCombo.SelectionChanged += (s, e) =>
             {
-                if (presetCombo.SelectedItem != null && _editorControl != null && _previewControl != null)
+                if (presetCombo.SelectedItem is ComboBoxItem selectedItem &&
+                    _editorControl != null &&
+                    _previewControl != null)
                 {
-                    string template = presetCombo.SelectedItem.Text switch
+                    string template = selectedItem.Text switch
                     {
                         "Syntax & Feature Guide" => GetDefaultTemplateText(),
                         "Compositor ReadMe Spec" => GetCompositorSpecText(),
@@ -355,7 +357,7 @@ namespace ProGPU.Samples
                     _previewControl.Markdown = template;
 
                     _statusText?.Inlines.Clear();
-                    _statusText?.Inlines.Add(new Run($"Successfully loaded preset: {presetCombo.SelectedItem.Text}"));
+                    _statusText?.Inlines.Add(new Run($"Successfully loaded preset: {selectedItem.Text}"));
                     _statusText?.Invalidate();
                 }
             };
@@ -365,7 +367,7 @@ namespace ProGPU.Samples
             {
                 if (_previewControl != null)
                 {
-                    _previewControl.Font = fontCombo.SelectedItem?.Text switch
+                    _previewControl.Font = (fontCombo.SelectedItem as ComboBoxItem)?.Text switch
                     {
                         "Inter (UI Default)" => AppState.GetFont()!,
                         "Arial" => AppState.GetFontArial() ?? AppState.GetFont()!,
@@ -375,9 +377,9 @@ namespace ProGPU.Samples
                         _ => AppState.GetFont()!
                     };
 
-                    _previewControl.FontSize = sizeSlider.Value;
+                    _previewControl.FontSize = (float)sizeSlider.Value;
                     _previewControl.ColumnCount = (int)colSlider.Value;
-                    _previewControl.ColumnGap = gapSlider.Value;
+                    _previewControl.ColumnGap = (float)gapSlider.Value;
                     _previewControl.Invalidate();
 
                     sizeLbl.Inlines.Clear();

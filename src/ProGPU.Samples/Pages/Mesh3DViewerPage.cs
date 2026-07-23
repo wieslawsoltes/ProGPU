@@ -381,7 +381,7 @@ public static class Mesh3DViewerPage
         shapeCombo.Items.Add(new ComboBoxItem { Text = "OBJ: Spacecraft" });
         shapeCombo.Items.Add(new ComboBoxItem { Text = "OBJ: Faceted Jewel" });
         shapeCombo.Items.Add(new ComboBoxItem { Text = "OBJ: Custom Path" });
-        shapeCombo.SelectedItem = shapeCombo.Items[2]; // Default to Torus
+        shapeCombo.SelectedItem = (ComboBoxItem)shapeCombo.Items[2]; // Default to Torus
 
         // Combobox for Render Mode selection
         var renderModeHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
@@ -395,13 +395,13 @@ public static class Mesh3DViewerPage
         renderModeCombo.Items.Add(new ComboBoxItem { Text = "Solid Shaded" });
         renderModeCombo.Items.Add(new ComboBoxItem { Text = "Wireframe Only" });
         renderModeCombo.Items.Add(new ComboBoxItem { Text = "Solid + Wireframe" });
-        renderModeCombo.SelectedItem = renderModeCombo.Items[2]; // Default to Solid + Wireframe
+        renderModeCombo.SelectedItem = (ComboBoxItem)renderModeCombo.Items[2]; // Default to Solid + Wireframe
 
         renderModeCombo.SelectionChanged += (s, e) =>
         {
-            if (renderModeCombo.SelectedItem != null)
+            if (renderModeCombo.SelectedItem is ComboBoxItem selectedItem)
             {
-                _selectedRenderMode = renderModeCombo.SelectedItem.Text switch
+                _selectedRenderMode = selectedItem.Text switch
                 {
                     "Solid Shaded" => RenderMode3D.Solid,
                     "Wireframe Only" => RenderMode3D.Wireframe,
@@ -428,13 +428,13 @@ public static class Mesh3DViewerPage
         shadingModeCombo.Items.Add(new ComboBoxItem { Text = "Shades of Gray" });
         shadingModeCombo.Items.Add(new ComboBoxItem { Text = "X-Ray Mode" });
         shadingModeCombo.Items.Add(new ComboBoxItem { Text = "Normals Diagnostic" });
-        shadingModeCombo.SelectedItem = shadingModeCombo.Items[0]; // Default to Realistic
+        shadingModeCombo.SelectedItem = (ComboBoxItem)shadingModeCombo.Items[0]; // Default to Realistic
 
         shadingModeCombo.SelectionChanged += (s, e) =>
         {
-            if (shadingModeCombo.SelectedItem != null)
+            if (shadingModeCombo.SelectedItem is ComboBoxItem selectedItem)
             {
-                _selectedShadingMode = shadingModeCombo.SelectedItem.Text switch
+                _selectedShadingMode = selectedItem.Text switch
                 {
                     "Realistic (PBR GGX)" => ShadingMode3D.Realistic,
                     "Conceptual (Gooch)" => ShadingMode3D.Conceptual,
@@ -487,7 +487,7 @@ public static class Mesh3DViewerPage
                 try
                 {
                     _customObjPath = pathTextBox.Text;
-                    shapeCombo.SelectedItem = shapeCombo.Items[6]; // OBJ: Custom Path
+                    shapeCombo.SelectedItem = (ComboBoxItem)shapeCombo.Items[6]; // OBJ: Custom Path
                     _selectedMeshType = "OBJ: Custom Path";
                     _activeLoadedModel = ObjReader.LoadObj(_customObjPath);
                     _activeMeshGeometry = ObjReader.MergeParts(_activeLoadedModel);
@@ -521,9 +521,9 @@ public static class Mesh3DViewerPage
         
         shapeCombo.SelectionChanged += (s, e) =>
         {
-            if (shapeCombo.SelectedItem != null)
+            if (shapeCombo.SelectedItem is ComboBoxItem selectedItem)
             {
-                _selectedMeshType = shapeCombo.SelectedItem.Text;
+                _selectedMeshType = selectedItem.Text;
                 
                 pathErrorText.Visibility = Visibility.Collapsed;
                 
@@ -545,7 +545,7 @@ public static class Mesh3DViewerPage
                     pathErrorText.Visibility = Visibility.Collapsed;
                     
                     _customObjPath = file.Path;
-                    shapeCombo.SelectedItem = shapeCombo.Items[6]; // OBJ: Custom Path
+                    shapeCombo.SelectedItem = (ComboBoxItem)shapeCombo.Items[6]; // OBJ: Custom Path
                     _selectedMeshType = "OBJ: Custom Path";
                     
                     _activeLoadedModel = ObjReader.LoadObj(file.Path);
@@ -664,15 +664,15 @@ public static class Mesh3DViewerPage
         sidebarStack.AddChild(lightingHeader);
 
         var lightXSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = -2f, Maximum = 2f, Value = 0.5f, Margin = new Thickness(0, 0, 0, 8f) };
-        lightXSlider.ValueChanged += (s, e) => { _lightDirection.X = lightXSlider.Value; SyncLighting(); };
+        lightXSlider.ValueChanged += (s, e) => { _lightDirection.X = (float)lightXSlider.Value; SyncLighting(); };
         sidebarStack.AddChild(lightXSlider);
 
         var lightYSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0.1f, Maximum = 3f, Value = 1.0f, Margin = new Thickness(0, 0, 0, 8f) };
-        lightYSlider.ValueChanged += (s, e) => { _lightDirection.Y = lightYSlider.Value; SyncLighting(); };
+        lightYSlider.ValueChanged += (s, e) => { _lightDirection.Y = (float)lightYSlider.Value; SyncLighting(); };
         sidebarStack.AddChild(lightYSlider);
 
         var lightZSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = -2f, Maximum = 2f, Value = -0.5f, Margin = new Thickness(0, 0, 0, 16f) };
-        lightZSlider.ValueChanged += (s, e) => { _lightDirection.Z = lightZSlider.Value; SyncLighting(); };
+        lightZSlider.ValueChanged += (s, e) => { _lightDirection.Z = (float)lightZSlider.Value; SyncLighting(); };
         sidebarStack.AddChild(lightZSlider);
 
         // Intensity settings
@@ -681,7 +681,7 @@ public static class Mesh3DViewerPage
         sidebarStack.AddChild(intensityHeader);
 
         var intensitySlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 2f, Value = 1.0f, Margin = new Thickness(0, 0, 0, 16f) };
-        intensitySlider.ValueChanged += (s, e) => { _lightIntensity = intensitySlider.Value; SyncLighting(); };
+        intensitySlider.ValueChanged += (s, e) => { _lightIntensity = (float)intensitySlider.Value; SyncLighting(); };
         sidebarStack.AddChild(intensitySlider);
 
         var ambientHeader = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 4) };
@@ -689,7 +689,7 @@ public static class Mesh3DViewerPage
         sidebarStack.AddChild(ambientHeader);
 
         var ambientSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 1f, Value = 0.25f, Margin = new Thickness(0, 0, 0, 20f) };
-        ambientSlider.ValueChanged += (s, e) => { _ambientIntensity = ambientSlider.Value; SyncLighting(); };
+        ambientSlider.ValueChanged += (s, e) => { _ambientIntensity = (float)ambientSlider.Value; SyncLighting(); };
         sidebarStack.AddChild(ambientSlider);
 
         // Animation toggle checkbox

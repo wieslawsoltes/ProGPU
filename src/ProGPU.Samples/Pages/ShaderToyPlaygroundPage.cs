@@ -291,9 +291,9 @@ namespace ProGPU.Samples
             // Handle dropdown Preset changes
             presetCombo.SelectionChanged += (s, e) =>
             {
-                if (presetCombo.SelectedItem != null)
+                if (presetCombo.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    string code = presetCombo.SelectedItem.Text switch
+                    string code = selectedItem.Text switch
                     {
                         "Cosmic Waves" => Preset1_CosmicWaves,
                         "Star Nest Journey" => Preset2_StarNest,

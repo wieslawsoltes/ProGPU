@@ -593,9 +593,11 @@ public static class DxfViewerPage
         };
         _layoutCombo.SelectionChanged += (s, e) =>
         {
-            if (_layoutCombo.SelectedItem != null && _canvas != null && _canvas.Document != null)
+            if (_layoutCombo.SelectedItem is ComboBoxItem selectedItem &&
+                _canvas != null &&
+                _canvas.Document != null)
             {
-                string selectedLayout = _layoutCombo.SelectedItem.Text;
+                string selectedLayout = selectedItem.Text;
                 if (_canvas.Document.Layouts.Contains(selectedLayout))
                 {
                     _canvas.Document.ActiveLayout = selectedLayout;
@@ -865,7 +867,7 @@ public static class DxfViewerPage
         }
         else if (_layoutCombo.Items.Count > 0)
         {
-            _layoutCombo.SelectedItem = _layoutCombo.Items[0];
+            _layoutCombo.SelectedItem = (ComboBoxItem)_layoutCombo.Items[0];
         }
     }
 

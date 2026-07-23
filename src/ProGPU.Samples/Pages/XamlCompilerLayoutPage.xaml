@@ -1,0 +1,13 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerLayoutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Margin="24" Orientation="Horizontal">
+        <Border Padding="16" Margin="0,0,12,0" Background="{ThemeResource CardBackground}">
+            <TextBlock Text="ThemeResource lowered through the WinUI profile" />
+        </Border>
+        <Border Padding="16" Background="{ThemeResource CardBackground}">
+            <TextBlock Text="Typed Thickness, enum, and content-property conversion" />
+        </Border>
+    </StackPanel>
+</Page>

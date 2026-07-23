@@ -1,0 +1,19 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerWelcomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ProGPU.Samples">
+    <StackPanel Margin="24" Orientation="Vertical">
+        <TextBlock FontSize="24" Text="Compiled ProGPU XAML" />
+        <TextBlock Margin="0,8,0,16" Text="{x:Bind CompilerMessage}" />
+        <Button x:Name="ActionButton" Click="{x:Bind OnActionClick}" Content="Run generated compiled-event hookup" />
+        <TextBlock x:Name="StatusText" Margin="0,12,0,0" Text="Ready" />
+        <ContentControl Content="{x:Bind PreviewItem}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="local:XamlCompilerPreviewItem">
+                    <TextBlock Text="{x:Bind Title}" />
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+    </StackPanel>
+</Page>

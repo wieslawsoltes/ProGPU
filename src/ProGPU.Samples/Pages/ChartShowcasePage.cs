@@ -9,6 +9,7 @@ using ProGPU.Vector;
 using ProGPU.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
 
 using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
@@ -1727,7 +1728,8 @@ namespace ProGPU.Samples
             {
                 int.TryParse(pointCountInput.Text, out _benchmarkPointsCount);
                 int.TryParse(seriesCountInput.Text, out _benchmarkSeriesCount);
-                _benchmarkDataType = typeCombo.SelectedItem?.Text?.ToLowerInvariant() ?? "line";
+                _benchmarkDataType =
+                    (typeCombo.SelectedItem as ComboBoxItem)?.Text.ToLowerInvariant() ?? "line";
                 _totalFrameDrops = 0;
                 _consecutiveFrameDrops = 0;
 
@@ -1739,7 +1741,8 @@ namespace ProGPU.Samples
                 btnStream.Content = "Stop Streaming";
                 int.TryParse(streamRateInput.Text, out _benchmarkStreamRate);
                 int.TryParse(streamDurationInput.Text, out _benchmarkStreamDuration);
-                _benchmarkDataType = typeCombo.SelectedItem?.Text?.ToLowerInvariant() ?? "line";
+                _benchmarkDataType =
+                    (typeCombo.SelectedItem as ComboBoxItem)?.Text.ToLowerInvariant() ?? "line";
                 StartBenchmarkStreaming();
             };
 

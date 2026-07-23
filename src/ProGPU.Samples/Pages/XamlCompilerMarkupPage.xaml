@@ -1,0 +1,10 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerMarkupPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Margin="24">
+        <TextBlock FontSize="22" Text="Shared markup-value language service" />
+        <TextBlock Margin="0,8,0,0" Text="The same netstandard2.0 tokenizer and recursive syntax model serves WinUI, WPF, Avalonia, MAUI, and custom profiles." />
+        <TextBlock Margin="0,8,0,0" Text="Try nested markup and formatting in the XAML Playground page." />
+    </StackPanel>
+</Page>

@@ -193,12 +193,12 @@ public static class GlyphRunShowcasePage
         fontCombo.Items.Add(new ComboBoxItem("Georgia"));
         fontCombo.Items.Add(new ComboBoxItem("Courier New"));
         fontCombo.Items.Add(new ComboBoxItem("Comic Sans"));
-        fontCombo.SelectedItem = fontCombo.Items[0];
+        fontCombo.SelectedItem = (ComboBoxItem)fontCombo.Items[0];
         fontCombo.SelectionChanged += (s, e) =>
         {
-            if (fontCombo.SelectedItem != null)
+            if (fontCombo.SelectedItem is ComboBoxItem selectedItem)
             {
-                visual.TargetFont = (fontCombo.SelectedItem.Text switch
+                visual.TargetFont = (selectedItem.Text switch
                 {
                     "Inter (UI Default)" => AppState._font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont,
                     "Arial" => AppState._fontArial ?? AppState._font ?? Microsoft.UI.Xaml.Controls.PopupService.DefaultFont,
@@ -221,12 +221,12 @@ public static class GlyphRunShowcasePage
         var modeCombo = new ComboBox { Font = AppState._font, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         modeCombo.Items.Add(new ComboBoxItem("Wave Text (Instanced Run)"));
         modeCombo.Items.Add(new ComboBoxItem("Circular Text (Per-Glyph Rotation)"));
-        modeCombo.SelectedItem = modeCombo.Items[0];
+        modeCombo.SelectedItem = (ComboBoxItem)modeCombo.Items[0];
         modeCombo.SelectionChanged += (s, e) =>
         {
-            if (modeCombo.SelectedItem != null)
+            if (modeCombo.SelectedItem is ComboBoxItem selectedItem)
             {
-                visual.LayoutMode = modeCombo.SelectedItem.Text.Contains("Wave") ? "Wave" : "Circular";
+                visual.LayoutMode = selectedItem.Text.Contains("Wave") ? "Wave" : "Circular";
                 visual.Invalidate();
             }
         };

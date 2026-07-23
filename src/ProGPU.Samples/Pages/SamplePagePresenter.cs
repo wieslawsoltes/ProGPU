@@ -343,7 +343,7 @@ public static class SamplePagePresenter
         
         var strokeSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0.1f, Maximum = 5.0f, Value = 1.0f, Margin = new Thickness(0, 0, 0, 8) };
         strokeSlider.ValueChanged += (s, e) => {
-            visual.StrokeThicknessMultiplier = strokeSlider.Value;
+            visual.StrokeThicknessMultiplier = (float)strokeSlider.Value;
             visual.UpdateCachedPens();
             strokeLabel.Inlines.Clear();
             strokeLabel.Inlines.Add(new Bold(new Run($"Stroke Scale: {strokeSlider.Value:F1}x")));
@@ -358,7 +358,7 @@ public static class SamplePagePresenter
         
         var splitSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0.0f, Maximum = 1.0f, Value = 0.5f, Margin = new Thickness(0, 0, 0, 8) };
         splitSlider.ValueChanged += (s, e) => {
-            visual.SplitProbability = splitSlider.Value;
+            visual.SplitProbability = (float)splitSlider.Value;
             splitLabel.Inlines.Clear();
             splitLabel.Inlines.Add(new Bold(new Run($"Segment Split Chance: {(int)(splitSlider.Value * 100)}%")));
             splitLabel.Invalidate();
@@ -376,8 +376,8 @@ public static class SamplePagePresenter
         colorCombo.Items.Add(new ComboBoxItem("Rainbow / Hue Wave"));
         colorCombo.Items.Add(new ComboBoxItem("Monochrome Dark"));
         colorCombo.SelectionChanged += (s, e) => {
-            if (colorCombo.SelectedItem != null) {
-                visual.ColorMode = colorCombo.SelectedItem.Text switch {
+            if (colorCombo.SelectedItem is ComboBoxItem selectedItem) {
+                visual.ColorMode = selectedItem.Text switch {
                     "Standard Classical" => 0,
                     "Fluent Vibrant" => 1,
                     "Rainbow / Hue Wave" => 2,
@@ -678,7 +678,7 @@ public static class SamplePagePresenter
         // Dynamic Settings Hookups
         Action updateVisuals = () =>
         {
-            TtfFont f = fontCombo.SelectedItem?.Text switch
+            TtfFont f = (fontCombo.SelectedItem as ComboBoxItem)?.Text switch
             {
                 "Inter (UI Default)" => AppState.GetFont()!,
                 "Arial" => AppState.GetFontArial() ?? AppState.GetFont()!,
@@ -689,12 +689,12 @@ public static class SamplePagePresenter
                 _ => AppState.GetFont()!
             };
 
-            float sz = sizeSlider.Value;
+            float sz = (float)sizeSlider.Value;
             sizeLabel.Inlines.Clear();
             sizeLabel.Inlines.Add(new Bold(new Run($"Global Font Size: {sz:F0}")));
             sizeLabel.Invalidate();
 
-            Microsoft.UI.Xaml.TextAlignment align = alignCombo.SelectedItem?.Text switch
+            Microsoft.UI.Xaml.TextAlignment align = (alignCombo.SelectedItem as ComboBoxItem)?.Text switch
             {
                 "Left" => Microsoft.UI.Xaml.TextAlignment.Left,
                 "Center" => Microsoft.UI.Xaml.TextAlignment.Center,
@@ -703,12 +703,12 @@ public static class SamplePagePresenter
                 _ => Microsoft.UI.Xaml.TextAlignment.Left
             };
 
-            Compositor.DefaultTextContrast = contrastSlider.Value;
+            Compositor.DefaultTextContrast = (float)contrastSlider.Value;
             contrastLabel.Inlines.Clear();
             contrastLabel.Inlines.Add(new Bold(new Run($"Font Contrast/Dilation: {Compositor.DefaultTextContrast:F2}")));
             contrastLabel.Invalidate();
 
-            Compositor.DefaultTextGamma = gammaSlider.Value;
+            Compositor.DefaultTextGamma = (float)gammaSlider.Value;
             gammaLabel.Inlines.Clear();
             gammaLabel.Inlines.Add(new Bold(new Run($"Font Gamma: {Compositor.DefaultTextGamma:F2}")));
             gammaLabel.Invalidate();

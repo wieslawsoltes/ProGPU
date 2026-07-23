@@ -260,7 +260,7 @@ public static class VectorShapesPage
         // Rotation
         rotSlider.ValueChanged += (s, ev) =>
         {
-            float val = rotSlider.Value;
+            float val = (float)rotSlider.Value;
             starRotate.Angle = val;
             rotValText.Text = $"{val:F0}°";
             path.Invalidate();
@@ -270,7 +270,7 @@ public static class VectorShapesPage
         // Skew
         skewSlider.ValueChanged += (s, ev) =>
         {
-            float val = skewSlider.Value;
+            float val = (float)skewSlider.Value;
             rectSkew.AngleX = val;
             skewValText.Text = $"{val:F0}°";
             rect.Invalidate();
@@ -280,7 +280,7 @@ public static class VectorShapesPage
         // Scale
         scaleSlider.ValueChanged += (s, ev) =>
         {
-            float val = scaleSlider.Value;
+            float val = (float)scaleSlider.Value;
             ellipseScale.ScaleX = val;
             ellipseScale.ScaleY = val;
             starScale.ScaleX = val;
@@ -294,7 +294,7 @@ public static class VectorShapesPage
         // Stroke Thickness
         strokeSlider.ValueChanged += (s, ev) =>
         {
-            float thick = strokeSlider.Value;
+            float thick = (float)strokeSlider.Value;
             strokeValText.Text = $"{thick:F1}px";
 
             line.StrokeThickness = thick;

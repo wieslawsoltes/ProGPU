@@ -1,11 +1,17 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.HotReload;
+using ProGPU.WinUI.Themes.Fluent;
 
 namespace ProGPU.Samples;
 
 public class App : Application, IHotReloadable
 {
     private Window? _window;
+
+    public App()
+    {
+        FluentThemeResources.Apply(this);
+    }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {

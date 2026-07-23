@@ -44,7 +44,7 @@ public static class ComputeFxPage
             var blurSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 20f, Value = AppState._blurRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             blurSlider.ValueChanged += (s, e) =>
             {
-                AppState._blurRadius = blurSlider.Value;
+                AppState._blurRadius = (float)blurSlider.Value;
                 blurLabel.Inlines.Clear();
                 blurLabel.Inlines.Add(new Bold(new Run($"Backdrop Blur: {AppState._blurRadius:F1} px")));
                 blurLabel.Invalidate();
@@ -58,7 +58,7 @@ public static class ComputeFxPage
             var shadowSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 20f, Value = AppState._shadowRadius, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             shadowSlider.ValueChanged += (s, e) =>
             {
-                AppState._shadowRadius = shadowSlider.Value;
+                AppState._shadowRadius = (float)shadowSlider.Value;
                 shadowLabel.Inlines.Clear();
                 shadowLabel.Inlines.Add(new Bold(new Run($"Shadow Radius: {AppState._shadowRadius:F1} px")));
                 shadowLabel.Invalidate();
@@ -72,7 +72,7 @@ public static class ComputeFxPage
             var offsetXSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = -20f, Maximum = 20f, Value = AppState._shadowOffset.X, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             offsetXSlider.ValueChanged += (s, e) =>
             {
-                AppState._shadowOffset.X = offsetXSlider.Value;
+                AppState._shadowOffset.X = (float)offsetXSlider.Value;
                 offsetXLabel.Inlines.Clear();
                 offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {AppState._shadowOffset.X:F1} px")));
                 offsetXLabel.Invalidate();
@@ -86,7 +86,7 @@ public static class ComputeFxPage
             var offsetYSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = -20f, Maximum = 20f, Value = AppState._shadowOffset.Y, Width = 250f, Margin = new Thickness(0, 0, 0, 15) };
             offsetYSlider.ValueChanged += (s, e) =>
             {
-                AppState._shadowOffset.Y = offsetYSlider.Value;
+                AppState._shadowOffset.Y = (float)offsetYSlider.Value;
                 offsetYLabel.Inlines.Clear();
                 offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {AppState._shadowOffset.Y:F1} px")));
                 offsetYLabel.Invalidate();

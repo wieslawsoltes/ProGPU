@@ -13,6 +13,7 @@ using ProGPU.Compute;
 using ProGPU.Virtualization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
@@ -90,9 +91,9 @@ public static class ImageRepeatShowcasePage
     
             stretchCombo.SelectionChanged += (s, e) =>
             {
-                if (stretchCombo.SelectedItem != null)
+                if (stretchCombo.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    testImage.Stretch = stretchCombo.SelectedItem.Text switch
+                    testImage.Stretch = selectedItem.Text switch
                     {
                         "None" => Stretch.None,
                         "Fill" => Stretch.Fill,

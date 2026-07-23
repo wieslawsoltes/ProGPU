@@ -212,7 +212,7 @@ public static class TouchGesturesPage
 
         public override void OnRender(DrawingContext context)
         {
-            context.DrawRoundedRectangle(_background, _border, new Rect(Vector2.Zero, Size), CornerRadius);
+            context.DrawRoundedRectangle(_background, _border, new Rect(Vector2.Zero, Size), (float)CornerRadius.TopLeft);
 
             var center = Size * 0.5f + _translation * 0.2f;
             var radius = 34f * _scale;

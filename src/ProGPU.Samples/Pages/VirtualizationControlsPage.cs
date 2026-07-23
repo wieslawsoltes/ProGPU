@@ -120,11 +120,11 @@ public static class VirtualizationControlsPage
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
-        itemsControl.ItemsPanel = virtualGridPanel;
+        itemsControl.ItemsHost = virtualGridPanel;
 
         sizeCombo.SelectionChanged += (s, e) =>
         {
-            if (sizeCombo.SelectedItem?.Tag is Vector2 dims)
+            if ((sizeCombo.SelectedItem as ComboBoxItem)?.Tag is Vector2 dims)
             {
                 virtualGridPanel.ItemWidth = dims.X;
                 virtualGridPanel.ItemHeight = dims.Y;
@@ -133,7 +133,7 @@ public static class VirtualizationControlsPage
         };
 
         // Wire container template & binder
-        itemsControl.ItemTemplate = () =>
+        itemsControl.ItemVisualFactory = () =>
         {
             var cardBorder = new Border
             {
@@ -286,7 +286,7 @@ public static class VirtualizationControlsPage
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
-        itemsControl.ItemsPanel = virtualStack;
+        itemsControl.ItemsHost = virtualStack;
 
         orientBtn.Click += (s, e) =>
         {
@@ -306,7 +306,7 @@ public static class VirtualizationControlsPage
         };
 
         // Container visual template
-        itemsControl.ItemTemplate = () =>
+        itemsControl.ItemVisualFactory = () =>
         {
             var rowBorder = new Border
             {

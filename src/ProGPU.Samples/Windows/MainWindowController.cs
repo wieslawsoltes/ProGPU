@@ -329,6 +329,13 @@ public static unsafe class MainWindowController
         var fontGlyphBrowserItem = PageItem("Font Glyph Browser", "🔤", FontGlyphBrowserPage.Create);
         var mesh3DViewerItem = PageItem("3D Mesh Viewer", "🧊", Mesh3DViewerPage.Create);
         var shaderToyPlaygroundItem = PageItem("ShaderToy Playground", "🔮", ShaderToyPlaygroundPage.Create);
+        var xamlWelcomeItem = PageItem("Compiled XAML", "✦", XamlCompilerWelcomePage.Create);
+        var xamlBindingsItem = PageItem("XAML Bindings", "⇄", XamlCompilerBindingsPage.Create);
+        var xamlFunctionsItem = PageItem("XAML Functions", "ƒ", XamlCompilerFunctionsPage.Create);
+        var xamlResourcesItem = PageItem("XAML Resources", "◆", XamlCompilerResourcesPage.Create);
+        var xamlLayoutItem = PageItem("XAML Layout", "▦", XamlCompilerLayoutPage.Create);
+        var xamlMarkupItem = PageItem("Markup Syntax", "{}", XamlCompilerMarkupPage.Create);
+        var xamlPlaygroundItem = PageItem("XAML Playground", "</>", XamlPlaygroundPage.Create);
 
         var wrapPanelItem = PageItem("Wrap Panel", "🔲", WrapPanelPage.Create);
         var dockPanelItem = PageItem("Dock Panel", "🪟", DockPanelPage.Create);
@@ -385,6 +392,13 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(pictureCachingItem);
         AppState._navigationView.MenuItems.Add(mesh3DViewerItem);
         AppState._navigationView.MenuItems.Add(shaderToyPlaygroundItem);
+        AppState._navigationView.MenuItems.Add(xamlWelcomeItem);
+        AppState._navigationView.MenuItems.Add(xamlBindingsItem);
+        AppState._navigationView.MenuItems.Add(xamlFunctionsItem);
+        AppState._navigationView.MenuItems.Add(xamlResourcesItem);
+        AppState._navigationView.MenuItems.Add(xamlLayoutItem);
+        AppState._navigationView.MenuItems.Add(xamlMarkupItem);
+        AppState._navigationView.MenuItems.Add(xamlPlaygroundItem);
 
         AppState._navigationView.SelectionChanged += (s, e) =>
         {

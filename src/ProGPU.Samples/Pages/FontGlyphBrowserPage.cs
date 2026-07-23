@@ -470,7 +470,7 @@ public static class FontGlyphBrowserPage
 
         fontCombo.SelectionChanged += (s, e) =>
         {
-            if (fontCombo.SelectedItem?.Tag is FontInfo info)
+            if ((fontCombo.SelectedItem as ComboBoxItem)?.Tag is FontInfo info)
             {
                 LoadFontFile(info.FilePath);
             }
@@ -640,10 +640,10 @@ public static class FontGlyphBrowserPage
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        _itemsControl.ItemsPanel = _virtualGrid;
+        _itemsControl.ItemsHost = _virtualGrid;
 
         // Wire virtualized recycling delegates on ItemsControl
-        _itemsControl.ItemTemplate = static () => new GlyphBrowserItem();
+        _itemsControl.ItemVisualFactory = static () => new GlyphBrowserItem();
 
         _itemsControl.BindVisualCallback = (vis, itemObj, idx) =>
         {

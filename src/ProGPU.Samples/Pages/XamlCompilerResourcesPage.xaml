@@ -1,0 +1,27 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerResourcesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Page.Resources>
+        <ResourceDictionary>
+            <Style x:Key="CompilerFeatureButtonStyle" TargetType="Button">
+                <Setter Property="Margin" Value="0,8,0,0" />
+                <Setter Property="Padding" Value="12,8" />
+                <Setter Property="Background"
+                        Value="{ThemeResource ButtonBackground}" />
+            </Style>
+        </ResourceDictionary>
+    </Page.Resources>
+    <StackPanel Margin="24" Orientation="Vertical">
+        <TextBlock FontSize="24" Text="Resources and styles showcase" />
+        <TextBlock Margin="0,8,0,16"
+                   Text="Local static lookup and retained theme lookup use distinct compiler IR." />
+        <Border Padding="16" Background="{ThemeResource CardBackground}">
+            <StackPanel Orientation="Vertical">
+                <TextBlock Text="This card follows the active Fluent theme." />
+                <Button Style="{StaticResource CompilerFeatureButtonStyle}"
+                        Content="Style resolved from the page resource scope" />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</Page>

@@ -337,12 +337,12 @@ public static class PathOpsPage
         comboA.Items.Add(new ComboBoxItem("Circle"));
         comboA.Items.Add(new ComboBoxItem("Rectangle"));
         comboA.Items.Add(new ComboBoxItem("Star"));
-        comboA.SelectedItem = comboA.Items[0];
+        comboA.SelectedItem = (ComboBoxItem)comboA.Items[0];
         comboA.SelectionChanged += (s, e) =>
         {
-            if (comboA.SelectedItem != null)
+            if (comboA.SelectedItem is ComboBoxItem selectedItem)
             {
-                visualPreview.ShapeA = comboA.SelectedItem.Text;
+                visualPreview.ShapeA = selectedItem.Text;
             }
         };
         controlsStack.AddChild(comboA);
@@ -356,12 +356,12 @@ public static class PathOpsPage
         comboB.Items.Add(new ComboBoxItem("Circle"));
         comboB.Items.Add(new ComboBoxItem("Rectangle"));
         comboB.Items.Add(new ComboBoxItem("Star"));
-        comboB.SelectedItem = comboB.Items[1];
+        comboB.SelectedItem = (ComboBoxItem)comboB.Items[1];
         comboB.SelectionChanged += (s, e) =>
         {
-            if (comboB.SelectedItem != null)
+            if (comboB.SelectedItem is ComboBoxItem selectedItem)
             {
-                visualPreview.ShapeB = comboB.SelectedItem.Text;
+                visualPreview.ShapeB = selectedItem.Text;
             }
         };
         controlsStack.AddChild(comboB);
@@ -377,12 +377,12 @@ public static class PathOpsPage
         comboOp.Items.Add(new ComboBoxItem("Union"));
         comboOp.Items.Add(new ComboBoxItem("XOR"));
         comboOp.Items.Add(new ComboBoxItem("Reverse Difference"));
-        comboOp.SelectedItem = comboOp.Items[2]; // Default Union
+        comboOp.SelectedItem = (ComboBoxItem)comboOp.Items[2]; // Default Union
         comboOp.SelectionChanged += (s, e) =>
         {
-            if (comboOp.SelectedItem != null)
+            if (comboOp.SelectedItem is ComboBoxItem selectedItem)
             {
-                visualPreview.Operation = comboOp.SelectedItem.Text switch
+                visualPreview.Operation = selectedItem.Text switch
                 {
                     "Difference" => 0,
                     "Intersect" => 1,
@@ -410,7 +410,7 @@ public static class PathOpsPage
         };
         slider.ValueChanged += (s, e) =>
         {
-            visualPreview.OverlapOffset = slider.Value;
+            visualPreview.OverlapOffset = (float)slider.Value;
         };
         controlsStack.AddChild(slider);
 

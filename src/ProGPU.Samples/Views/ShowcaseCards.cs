@@ -338,8 +338,8 @@ public class ExpressionTrackingShowcaseCard : Border, IAnimatedElement
 
         Child = stack;
 
-        _scaleExpression = new ExpressionAnimation(() => 0.6f + (_slider.Value / 100f) * 0.8f);
-        _rotationExpression = new ExpressionAnimation(() => (_slider.Value / 100f) * (float)Math.PI * 2f);
+        _scaleExpression = new ExpressionAnimation(() => 0.6f + ((float)_slider.Value / 100f) * 0.8f);
+        _rotationExpression = new ExpressionAnimation(() => ((float)_slider.Value / 100f) * (float)Math.PI * 2f);
     }
 
     public void Update(float delta)

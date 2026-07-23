@@ -1,0 +1,46 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerFunctionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ProGPU.Samples"
+    x:DefaultBindMode="OneWay">
+    <StackPanel Margin="24" Orientation="Vertical">
+        <TextBlock FontSize="24" Text="Compiled function bindings" />
+        <TextBlock Margin="0,8,0,16"
+                   Text="Every call and argument is bound to exact Roslyn symbols. OneWay calls track and rewire each argument path." />
+
+        <TextBlock Text="Edit the argument paths" />
+        <TextBox Margin="0,6,0,0"
+                 Text="{x:Bind Item.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        <TextBox Margin="0,6,0,0"
+                 Text="{x:Bind Item.Suffix, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="Instance call with path, string, number, and x:Boolean arguments" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind Compose(Item.Title, ' / literal', 3, x:True), Mode=OneWay}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="Method owner path and independently tracked argument paths" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind Formatter.Compose(Item.Title, Item.Suffix), Mode=OneWay}" />
+
+        <TextBlock Margin="0,16,0,0" Text="Static function call" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind local:XamlCompilerFunctionStatics.Compose(Item.Title, Item.Suffix), Mode=OneWay}" />
+
+        <Button Margin="0,16,0,0"
+                Click="{x:Bind ReplaceItem}"
+                Content="Replace the argument object and verify rewiring" />
+        <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+            <Button Click="{x:Bind StopCompiledBindings}"
+                    Content="Bindings.StopTracking()" />
+            <Button Margin="8,0,0,0"
+                    Click="{x:Bind UpdateCompiledBindings}"
+                    Content="Bindings.Update()" />
+        </StackPanel>
+        <TextBlock x:Name="LifecycleStatus"
+                   Margin="0,8,0,0"
+                   Text="Generated Bindings lifecycle is active." />
+    </StackPanel>
+</Page>

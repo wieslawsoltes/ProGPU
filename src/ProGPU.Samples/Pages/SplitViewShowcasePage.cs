@@ -119,9 +119,9 @@ public static class SplitViewShowcasePage
             
             modeCombo.SelectionChanged += (s, e) =>
             {
-                if (modeCombo.SelectedItem != null)
+                if (modeCombo.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    splitView.DisplayMode = modeCombo.SelectedItem.Text switch
+                    splitView.DisplayMode = selectedItem.Text switch
                     {
                         "Inline" => SplitViewDisplayMode.Inline,
                         "Overlay" => SplitViewDisplayMode.Overlay,
@@ -147,9 +147,9 @@ public static class SplitViewShowcasePage
     
             placeCombo.SelectionChanged += (s, e) =>
             {
-                if (placeCombo.SelectedItem != null)
+                if (placeCombo.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    splitView.PanePlacement = placeCombo.SelectedItem.Text switch
+                    splitView.PanePlacement = selectedItem.Text switch
                     {
                         "Left" => PanePlacement.Left,
                         "Right" => PanePlacement.Right,

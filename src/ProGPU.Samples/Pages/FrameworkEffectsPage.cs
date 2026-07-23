@@ -210,7 +210,7 @@ public static class FrameworkEffectsPage
             // ================= Interactivity Hookups =================
             blurSlider.ValueChanged += (s, e) =>
             {
-                AppState._fxBlurRadius = blurSlider.Value;
+                AppState._fxBlurRadius = (float)blurSlider.Value;
                 blurLabel.Inlines.Clear();
                 blurLabel.Inlines.Add(new Bold(new Run($"Glass Blur Radius: {AppState._fxBlurRadius:F1} px")));
                 blurLabel.Invalidate();
@@ -221,7 +221,7 @@ public static class FrameworkEffectsPage
     
             shadowBlurSlider.ValueChanged += (s, e) =>
             {
-                AppState._fxShadowRadius = shadowBlurSlider.Value;
+                AppState._fxShadowRadius = (float)shadowBlurSlider.Value;
                 shadowBlurLabel.Inlines.Clear();
                 shadowBlurLabel.Inlines.Add(new Bold(new Run($"Shadow Blur: {AppState._fxShadowRadius:F1} px")));
                 shadowBlurLabel.Invalidate();
@@ -234,7 +234,7 @@ public static class FrameworkEffectsPage
     
             offsetXSlider.ValueChanged += (s, e) =>
             {
-                AppState._fxShadowOffset.X = offsetXSlider.Value;
+                AppState._fxShadowOffset.X = (float)offsetXSlider.Value;
                 offsetXLabel.Inlines.Clear();
                 offsetXLabel.Inlines.Add(new Bold(new Run($"Shadow Offset X: {AppState._fxShadowOffset.X:F1} px")));
                 offsetXLabel.Invalidate();
@@ -245,7 +245,7 @@ public static class FrameworkEffectsPage
     
             offsetYSlider.ValueChanged += (s, e) =>
             {
-                AppState._fxShadowOffset.Y = offsetYSlider.Value;
+                AppState._fxShadowOffset.Y = (float)offsetYSlider.Value;
                 offsetYLabel.Inlines.Clear();
                 offsetYLabel.Inlines.Add(new Bold(new Run($"Shadow Offset Y: {AppState._fxShadowOffset.Y:F1} px")));
                 offsetYLabel.Invalidate();

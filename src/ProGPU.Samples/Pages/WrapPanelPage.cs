@@ -140,7 +140,7 @@ public static class WrapPanelPage
         var horizSlider = new Slider { Minimum = 0f, Maximum = 40f, Value = 8f, WidthConstraint = 100f };
         horizSlider.ValueChanged += (s, e) =>
         {
-            wrapPanel.HorizontalSpacing = horizSlider.Value;
+            wrapPanel.HorizontalSpacing = (float)horizSlider.Value;
             horizLabel.Inlines.Clear();
             horizLabel.Inlines.Add(new Run($"H-Spacing: {(int)horizSlider.Value}"));
             horizLabel.Invalidate();
@@ -156,7 +156,7 @@ public static class WrapPanelPage
         var vertSlider = new Slider { Minimum = 0f, Maximum = 40f, Value = 8f, WidthConstraint = 100f };
         vertSlider.ValueChanged += (s, e) =>
         {
-            wrapPanel.VerticalSpacing = vertSlider.Value;
+            wrapPanel.VerticalSpacing = (float)vertSlider.Value;
             vertLabel.Inlines.Clear();
             vertLabel.Inlines.Add(new Run($"V-Spacing: {(int)vertSlider.Value}"));
             vertLabel.Invalidate();

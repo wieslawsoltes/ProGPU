@@ -10,8 +10,13 @@
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.Virtualization\ProGPU.Virtualization.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
+    <ProjectReference Include="..\ProGPU.Xaml\ProGPU.Xaml.csproj" />
+    <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ProGPU.Dxf\ProGPU.Dxf.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Noto\ProGPU.Fonts.Noto.csproj" />
@@ -22,6 +27,19 @@
 
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input.Common" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Pages\*.xaml"
+                     ProGpuXamlCompile="true"
+                     ProGpuXamlLogicalPath="%(Identity)" />
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="ProGpuXamlCompile" />
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="ProGpuXamlLogicalPath" />
+    <!-- Project-reference analyzer dependencies; the NuGet package places the same files
+         together under analyzers/dotnet/cs. -->
+    <Analyzer Include="..\ProGPU.Xaml\bin\$(Configuration)\netstandard2.0\ProGPU.Xaml.dll" />
+    <Analyzer Include="..\ProGPU.Xaml.Roslyn\bin\$(Configuration)\netstandard2.0\ProGPU.Xaml.Roslyn.dll" />
   </ItemGroup>
 
   <PropertyGroup>

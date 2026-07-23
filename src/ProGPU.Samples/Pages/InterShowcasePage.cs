@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
@@ -450,9 +451,9 @@ public static class InterShowcasePage
 
         void UpdatePreview()
         {
-            float resolvedWeight = MathF.Round(weight.Slider.Value);
-            float resolvedOpticalSize = MathF.Round(opticalSize.Slider.Value * 2f) / 2f;
-            float resolvedFontSize = MathF.Round(fontSize.Slider.Value);
+            float resolvedWeight = MathF.Round((float)weight.Slider.Value);
+            float resolvedOpticalSize = MathF.Round((float)opticalSize.Slider.Value * 2f) / 2f;
+            float resolvedFontSize = MathF.Round((float)fontSize.Slider.Value);
             FontSlant slant = italic.IsChecked ? FontSlant.Italic : FontSlant.Upright;
 
             preview.Font = InterFontFamily.GetVariableFont(resolvedWeight, resolvedOpticalSize, slant);

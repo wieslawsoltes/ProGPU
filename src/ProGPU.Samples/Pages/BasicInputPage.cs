@@ -93,7 +93,7 @@ public static class BasicInputPage
             var accentSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 100f, Value = AppState._sliderValue, Width = 300f, Margin = new Thickness(0, 0, 0, 15) };
             accentSlider.ValueChanged += (s, e) =>
             {
-                AppState._sliderValue = accentSlider.Value;
+                AppState._sliderValue = (float)accentSlider.Value;
                 sliderTitle.Inlines.Clear();
                 sliderTitle.Inlines.Add(new Bold(new Run($"Accent Glow Intensity: {AppState._sliderValue:F0}%")));
                 sliderTitle.Invalidate();
@@ -134,10 +134,10 @@ public static class BasicInputPage
             comboStatus.Inlines.Add(new Run("Selected theme: Segoe Blue (Default)"));
             customCombo.SelectionChanged += (s, e) =>
             {
-                if (customCombo.SelectedItem != null)
+                if (customCombo.SelectedItem is ComboBoxItem selectedItem)
                 {
                     comboStatus.Inlines.Clear();
-                    comboStatus.Inlines.Add(new Run($"Selected theme: {customCombo.SelectedItem.Text}"));
+                    comboStatus.Inlines.Add(new Run($"Selected theme: {selectedItem.Text}"));
                     comboStatus.Invalidate();
                 }
             };

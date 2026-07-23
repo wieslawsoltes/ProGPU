@@ -353,9 +353,9 @@ public static class TextShapingShowcasePage
             if (!TryCreateRequest(
                     scriptInput.Text,
                     languageInput.Text,
-                    direction.SelectedItem?.Tag,
-                    clusters.SelectedItem?.Tag,
-                    ignorables.SelectedItem?.Tag,
+                    (direction.SelectedItem as ComboBoxItem)?.Tag,
+                    (clusters.SelectedItem as ComboBoxItem)?.Tag,
+                    (ignorables.SelectedItem as ComboBoxItem)?.Tag,
                     featuresInput.Text,
                     preContextInput.Text,
                     postContextInput.Text,
@@ -408,7 +408,8 @@ public static class TextShapingShowcasePage
 
         preset.SelectionChanged += (_, _) =>
         {
-            if (preset.SelectedItem?.Tag is ShapingPreset selected) ApplyPreset(selected);
+            if ((preset.SelectedItem as ComboBoxItem)?.Tag is ShapingPreset selected)
+                ApplyPreset(selected);
         };
         direction.SelectionChanged += (_, _) => UpdateShape();
         clusters.SelectionChanged += (_, _) => UpdateShape();
@@ -420,7 +421,7 @@ public static class TextShapingShowcasePage
         preContextInput.TextChanged += (_, _) => UpdateShape();
         postContextInput.TextChanged += (_, _) => UpdateShape();
 
-        preset.SelectedItem = preset.Items[0];
+        preset.SelectedItem = (ComboBoxItem)preset.Items[0];
         ApplyPreset(Presets[0]);
         return panel;
     }
@@ -722,9 +723,10 @@ public static class TextShapingShowcasePage
     {
         for (var index = 0; index < combo.Items.Count; index++)
         {
-            if (Equals(combo.Items[index].Tag, value))
+            if (combo.Items[index] is ComboBoxItem item &&
+                Equals(item.Tag, value))
             {
-                combo.SelectedItem = combo.Items[index];
+                combo.SelectedItem = item;
                 return;
             }
         }

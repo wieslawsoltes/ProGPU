@@ -1,0 +1,67 @@
+<Page
+    x:Class="ProGPU.Samples.XamlCompilerBindingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ProGPU.Samples"
+    x:DefaultBindMode="OneWay">
+    <Page.Resources>
+        <ResourceDictionary>
+            <DataTemplate x:Key="TrackedItemTemplate"
+                          x:DataType="local:XamlCompilerBindingItem">
+                <TextBlock Margin="8,6"
+                           Text="{x:Bind Title, Mode=OneWay}" />
+            </DataTemplate>
+        </ResourceDictionary>
+    </Page.Resources>
+    <StackPanel Margin="24" Orientation="Vertical">
+        <TextBlock FontSize="24" Text="Compiled binding showcase" />
+        <TextBlock Margin="0,8,0,16"
+                   Text="Every expression below is symbol-bound and emitted as Roslyn syntax." />
+
+        <TextBlock Text="Integer IList&lt;T&gt; indexer with collection and item tracking" />
+        <TextBox Margin="0,6,0,4"
+                 Text="{x:Bind Items[0].Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        <TextBlock Text="{x:Bind Items[0].Title}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="String IDictionary&lt;string,T&gt; indexer" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind Entries['primary'].Title, Mode=OneTime}" />
+
+        <TextBlock Margin="0,16,0,0" Text="C#-style cast over an object source" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind ((local:XamlCompilerBindingItem)SelectedItem).Title}" />
+
+        <TextBlock Margin="0,16,0,0" Text="Attached Grid.Row getter and setter" />
+        <TextBox Margin="0,6,0,0"
+                 Text="{x:Bind AttachedSource.(Grid.Row), Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="Tracked instance function with path, string, number, and Boolean arguments" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind FormatBindingSummary(Items[0].Title, ' live', 2, x:True), Mode=OneWay}" />
+
+        <TextBlock Margin="0,16,0,0" Text="Static function binding" />
+        <TextBlock Margin="0,6,0,0"
+                   Text="{x:Bind local:XamlCompilerBindingFormatter.Format(Items[0].Title, ' static'), Mode=OneWay}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="Two independently tracked DataTemplate instances over one item" />
+        <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+            <ContentControl x:Name="FirstTemplateHost"
+                            Content="{x:Bind Items[0]}"
+                            ContentTemplate="{StaticResource TrackedItemTemplate}" />
+            <ContentControl x:Name="SecondTemplateHost"
+                            Margin="12,0,0,0"
+                            Content="{x:Bind Items[0]}"
+                            ContentTemplate="{StaticResource TrackedItemTemplate}" />
+        </StackPanel>
+
+        <Button Margin="0,16,0,0"
+                Click="{x:Bind ReplaceFirstItem}"
+                Content="Replace indexed item" />
+        <TextBlock x:Name="BindingStatus"
+                   Margin="0,8,0,0"
+                   Text="Waiting for generated event hookup." />
+    </StackPanel>
+</Page>

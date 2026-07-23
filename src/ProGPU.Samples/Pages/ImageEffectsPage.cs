@@ -48,7 +48,7 @@ public static class ImageEffectsPage
         var brightnessSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = -1f, Maximum = 1f, Value = previewImage.Brightness, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         brightnessSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Brightness = brightnessSlider.Value;
+            previewImage.Brightness = (float)brightnessSlider.Value;
             brightnessLabel.Inlines.Clear();
             brightnessLabel.Inlines.Add(new Run($"Brightness: {previewImage.Brightness * 100f:F0}%"));
             brightnessLabel.Invalidate();
@@ -63,7 +63,7 @@ public static class ImageEffectsPage
         var contrastSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 2f, Value = previewImage.Contrast, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         contrastSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Contrast = contrastSlider.Value;
+            previewImage.Contrast = (float)contrastSlider.Value;
             contrastLabel.Inlines.Clear();
             contrastLabel.Inlines.Add(new Run($"Contrast: {previewImage.Contrast * 100f:F0}%"));
             contrastLabel.Invalidate();
@@ -78,7 +78,7 @@ public static class ImageEffectsPage
         var saturationSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 2f, Value = previewImage.Saturation, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         saturationSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Saturation = saturationSlider.Value;
+            previewImage.Saturation = (float)saturationSlider.Value;
             saturationLabel.Inlines.Clear();
             saturationLabel.Inlines.Add(new Run($"Saturation: {previewImage.Saturation * 100f:F0}%"));
             saturationLabel.Invalidate();
@@ -93,7 +93,7 @@ public static class ImageEffectsPage
         var grayscaleSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 1f, Value = previewImage.Grayscale, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         grayscaleSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Grayscale = grayscaleSlider.Value;
+            previewImage.Grayscale = (float)grayscaleSlider.Value;
             grayscaleLabel.Inlines.Clear();
             grayscaleLabel.Inlines.Add(new Run($"Grayscale: {previewImage.Grayscale * 100f:F0}%"));
             grayscaleLabel.Invalidate();
@@ -108,7 +108,7 @@ public static class ImageEffectsPage
         var sepiaSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 1f, Value = previewImage.Sepia, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         sepiaSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Sepia = sepiaSlider.Value;
+            previewImage.Sepia = (float)sepiaSlider.Value;
             sepiaLabel.Inlines.Clear();
             sepiaLabel.Inlines.Add(new Run($"Sepia: {previewImage.Sepia * 100f:F0}%"));
             sepiaLabel.Invalidate();
@@ -123,7 +123,7 @@ public static class ImageEffectsPage
         var invertSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 1f, Value = previewImage.Invert, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         invertSlider.ValueChanged += (s, e) =>
         {
-            previewImage.Invert = invertSlider.Value;
+            previewImage.Invert = (float)invertSlider.Value;
             invertLabel.Inlines.Clear();
             invertLabel.Inlines.Add(new Run($"Invert: {previewImage.Invert * 100f:F0}%"));
             invertLabel.Invalidate();
@@ -138,7 +138,7 @@ public static class ImageEffectsPage
         var blurSlider = new Microsoft.UI.Xaml.Controls.Slider { Minimum = 0f, Maximum = 8f, Value = previewImage.BlurSigma, Width = 260f, Margin = new Thickness(0, 0, 0, 15) };
         blurSlider.ValueChanged += (s, e) =>
         {
-            previewImage.BlurSigma = blurSlider.Value;
+            previewImage.BlurSigma = (float)blurSlider.Value;
             blurLabel.Inlines.Clear();
             blurLabel.Inlines.Add(new Run($"Blur Sigma: {previewImage.BlurSigma:F1}"));
             blurLabel.Invalidate();

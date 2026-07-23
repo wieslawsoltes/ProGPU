@@ -57,8 +57,8 @@ public class SpringInteractiveCardWidget : Border, IAnimatedElement
         var slider = new Slider { Minimum = 0.5f, Maximum = 2.0f, Value = 1.0f, Margin = new Thickness(0, 0, 0, 8f) };
         slider.ValueChanged += (s, e) =>
         {
-            _springX.TargetValue = slider.Value;
-            _springY.TargetValue = slider.Value;
+            _springX.TargetValue = (float)slider.Value;
+            _springY.TargetValue = (float)slider.Value;
         };
         controlsStack.AddChild(slider);
 
