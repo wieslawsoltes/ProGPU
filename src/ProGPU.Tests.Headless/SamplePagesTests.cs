@@ -243,7 +243,7 @@ public class SamplePagesTests : IDisposable
         Assert.False(itemsControl.IsPointerOver);
 
         var activeVisualsField = typeof(UniformVirtualizingGridPanel).GetField("_activeVisuals", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var activeVisuals = (System.Collections.IDictionary?)activeVisualsField?.GetValue(itemsControl.ItemsPanel);
+        var activeVisuals = (System.Collections.IDictionary?)activeVisualsField?.GetValue(itemsControl.ItemsHost);
         Assert.NotNull(activeVisuals);
         Assert.NotEmpty(activeVisuals);
 

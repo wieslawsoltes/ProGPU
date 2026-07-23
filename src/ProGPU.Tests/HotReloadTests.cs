@@ -149,6 +149,28 @@ public sealed class HotReloadTests : IDisposable
     }
 
     [Fact]
+    public void FailedInPlaceReloadRestoresCapturedStateAndFocus()
+    {
+        var element = new FailingInPlaceElement();
+        element.Editor.Text = "user value";
+        element.Editor.CaretIndex = 3;
+        var root = new Grid();
+        root.AddChild(element);
+        InputSystem.SetFocus(element.Editor);
+        using var rootRegistration = HotReloadManager.RegisterRoot(root);
+
+        HotReloadManager.RequestUpdate(typeof(FailingInPlaceElement));
+        UIThread.RunPending();
+
+        Assert.Same(element, Assert.Single(root.Children));
+        Assert.Equal("user value", element.Editor.Text);
+        Assert.Equal(3, element.Editor.CaretIndex);
+        Assert.Same(element.Editor, InputSystem.FocusedElement);
+        Assert.Equal(0, HotReloadManager.LastResult.ReloadedElements);
+        Assert.Equal(1, HotReloadManager.LastResult.FailedElements);
+    }
+
+    [Fact]
     public void StaticNavigationPageFactoryIsReinvokedWithoutLosingPageState()
     {
         FactoryPageOwner.Version = 1;
@@ -394,6 +416,24 @@ public sealed class HotReloadTests : IDisposable
     private sealed class RequiredConstructorElement(string marker) : Grid
     {
         public string Marker { get; } = marker;
+    }
+
+    private sealed class FailingInPlaceElement : Grid, IHotReloadable
+    {
+        public FailingInPlaceElement()
+        {
+            Editor = new TextBox { Name = "editor" };
+            AddChild(Editor);
+        }
+
+        public TextBox Editor { get; }
+
+        public void Reload(HotReloadContext context)
+        {
+            Editor.Text = "transient reload value";
+            Editor.CaretIndex = 0;
+            throw new InvalidOperationException("Expected reload failure.");
+        }
     }
 
     private sealed class EmbeddedRootOriginal : Grid

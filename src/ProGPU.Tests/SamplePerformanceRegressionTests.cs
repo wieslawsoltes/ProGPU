@@ -708,7 +708,7 @@ public sealed class SamplePerformanceRegressionTests
         var items = new ThrowingIndexedList(65_535);
         var control = new ItemsControl
         {
-            ItemsPanel = new UniformVirtualizingGridPanel(),
+            ItemsHost = new UniformVirtualizingGridPanel(),
             ItemsSource = items,
         };
 
