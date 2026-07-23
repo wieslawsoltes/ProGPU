@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.HotReload;
+using ProGPU.Xaml.Workspaces;
 
 namespace ProGPU.WinUI.Designer;
 
@@ -52,7 +53,68 @@ public sealed class WinUiXamlLivePreviewSession : IDisposable
     public WinUiXamlLivePreviewResult TryUpdate(
         byte[] peImage,
         string qualifiedTypeName,
-        Action<FrameworkElement> publish)
+        Action<FrameworkElement> publish) =>
+        TryUpdateCore(
+            peImage,
+            qualifiedTypeName,
+            publish,
+            beforePublish: null);
+
+    /// <summary>
+    /// Applies an accepted framework-neutral project delta. Metadata coordination runs
+    /// only after the candidate assembly has loaded, activated, and passed its typed-root
+    /// check, but before canonical state transfer commits the replacement.
+    /// </summary>
+    public WinUiXamlLivePreviewResult TryApplyProjectDelta(
+        RoslynXamlProjectDeltaPlan plan,
+        Action<FrameworkElement> publish,
+        Action? coordinateMetadataUpdate = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(publish);
+        switch (plan.Action)
+        {
+            case RoslynXamlReloadAction.None:
+                return new WinUiXamlLivePreviewResult(
+                    success: true,
+                    "The accepted project delta does not affect the published preview root.",
+                    _currentRoot);
+            case RoslynXamlReloadAction.RetainLastGood:
+                return Failure(
+                    plan.FailureMessage ??
+                    "The project delta was rejected; the last good tree was retained.");
+            case RoslynXamlReloadAction
+                .CoordinateMetadataAndReplaceTarget
+                when coordinateMetadataUpdate == null:
+                return Failure(
+                    "The project delta requires a metadata-update coordinator; the last good tree was retained.");
+        }
+
+        if (!plan.TryGetExecutableUpdate(
+                out var peImage,
+                out var typeName))
+        {
+            return Failure(
+                "The project delta has no accepted executable artifact; the last good tree was retained.");
+        }
+
+        return TryUpdateCore(
+            peImage,
+            typeName,
+            publish,
+            plan.Action ==
+            RoslynXamlReloadAction
+                .CoordinateMetadataAndReplaceTarget
+                ? coordinateMetadataUpdate
+                : null);
+    }
+
+    private WinUiXamlLivePreviewResult TryUpdateCore(
+        byte[] peImage,
+        string qualifiedTypeName,
+        Action<FrameworkElement> publish,
+        Action? beforePublish)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(peImage);
@@ -83,6 +145,7 @@ public sealed class WinUiXamlLivePreviewSession : IDisposable
         var published = false;
         try
         {
+            beforePublish?.Invoke();
             published = previousRoot == null
                 ? PublishFirst(candidate.Root, publish)
                 : HotReloadManager.ReloadElement(

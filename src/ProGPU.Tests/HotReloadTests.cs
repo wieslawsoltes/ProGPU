@@ -1,10 +1,16 @@
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.HotReload;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.WinUI.Designer;
+using ProGPU.Xaml.Roslyn;
+using ProGPU.Xaml.Schema;
+using ProGPU.Xaml.Workspaces;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -435,6 +441,149 @@ public sealed class HotReloadTests : IDisposable
         session.Reset();
     }
 
+    [Fact]
+    public async Task LivePreviewSessionAppliesAcceptedProjectDeltaAfterMetadataCoordination()
+    {
+        const string baselineXaml = """
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="DeltaPreview.Root">
+  <TextBox x:Name="editor" Text="baseline" />
+</Grid>
+""";
+        const string changedXaml = """
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="DeltaPreview.Root">
+  <TextBox x:Name="editor" Text="changed" />
+</Grid>
+""";
+        using var fixture =
+            CreateDeltaPreviewProject(baselineXaml);
+        var baseline = await CompileDeltaPreviewAsync(
+            fixture.Project,
+            fixture.XamlDocumentId);
+        var changedProject = fixture.Project.Solution
+            .WithAdditionalDocumentText(
+                fixture.XamlDocumentId,
+                SourceText.From(changedXaml),
+                PreservationMode.PreserveIdentity)
+            .GetProject(fixture.Project.Id)!;
+        var changed = await CompileDeltaPreviewAsync(
+            changedProject,
+            fixture.XamlDocumentId);
+        var deltaService =
+            new RoslynXamlProjectDeltaService();
+        var xamlPlan = deltaService.CreatePlan(
+            baseline,
+            changed);
+        Assert.Equal(
+            RoslynXamlReloadAction.ReplaceTarget,
+            xamlPlan.Action);
+
+        FrameworkElement? published = null;
+        using var session =
+            new WinUiXamlLivePreviewSession();
+        var initial = session.TryUpdate(
+            baseline.Artifact!.PeImage.ToArray(),
+            baseline.QualifiedTypeName!,
+            replacement => published = replacement);
+        Assert.True(initial.Success, initial.Message);
+        var originalRoot =
+            Assert.IsAssignableFrom<FrameworkElement>(
+                published);
+        Assert.IsType<TextBox>(
+                FindByName(originalRoot, "editor"))
+            .Text = "user state";
+
+        var applied = session.TryApplyProjectDelta(
+            xamlPlan,
+            replacement => published = replacement);
+        Assert.True(applied.Success, applied.Message);
+        var xamlReplacement =
+            Assert.IsAssignableFrom<FrameworkElement>(
+                published);
+        Assert.NotSame(originalRoot, xamlReplacement);
+        Assert.Equal(
+            "user state",
+            Assert.IsType<TextBox>(
+                    FindByName(
+                        xamlReplacement,
+                        "editor"))
+                .Text);
+
+        var codeDocument = changedProject.GetDocument(
+            fixture.CodeDocumentId)!;
+        var code = await codeDocument.GetTextAsync();
+        var metadataProject = changedProject.Solution
+            .WithDocumentText(
+                codeDocument.Id,
+                code.WithChanges(
+                    new TextChange(
+                        new TextSpan(code.Length, 0),
+                        Environment.NewLine +
+                        "public sealed class MetadataMarker { }" +
+                        Environment.NewLine)))
+            .GetProject(changedProject.Id)!;
+        var metadataChanged =
+            await CompileDeltaPreviewAsync(
+                metadataProject,
+                fixture.XamlDocumentId);
+        var metadataPlan = deltaService.CreatePlan(
+            changed,
+            metadataChanged);
+        Assert.Equal(
+            RoslynXamlReloadAction
+                .CoordinateMetadataAndReplaceTarget,
+            metadataPlan.Action);
+
+        var missingCoordinator =
+            session.TryApplyProjectDelta(
+                metadataPlan,
+                replacement => published = replacement);
+        Assert.False(missingCoordinator.Success);
+        Assert.Same(xamlReplacement, published);
+
+        var coordinatorCalled = false;
+        var failedCoordinator =
+            session.TryApplyProjectDelta(
+                metadataPlan,
+                replacement => published = replacement,
+                () =>
+                {
+                    coordinatorCalled = true;
+                    throw new InvalidOperationException(
+                        "metadata rejected");
+                });
+        Assert.True(coordinatorCalled);
+        Assert.False(failedCoordinator.Success);
+        Assert.Same(xamlReplacement, published);
+
+        var successfulCoordinationCount = 0;
+        var metadataApplied =
+            session.TryApplyProjectDelta(
+                metadataPlan,
+                replacement => published = replacement,
+                () =>
+                    successfulCoordinationCount++);
+        Assert.True(
+            metadataApplied.Success,
+            metadataApplied.Message);
+        Assert.Equal(1, successfulCoordinationCount);
+        Assert.NotSame(xamlReplacement, published);
+        Assert.Equal(
+            "user state",
+            Assert.IsType<TextBox>(
+                    FindByName(
+                        Assert.IsAssignableFrom<
+                            FrameworkElement>(published),
+                        "editor"))
+                .Text);
+
+        published = null;
+        session.Reset();
+    }
+
     public void Dispose()
     {
         DrainDispatcher();
@@ -459,6 +608,114 @@ public sealed class HotReloadTests : IDisposable
     {
         UIThread.RunPending();
         UIThread.RunPending();
+    }
+
+    private static DeltaPreviewProjectFixture
+        CreateDeltaPreviewProject(string xaml)
+    {
+        const string code = """
+namespace DeltaPreview;
+
+public partial class Root : global::Microsoft.UI.Xaml.Controls.Grid
+{
+    public Root()
+    {
+        InitializeComponent();
+    }
+}
+""";
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var codeDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var xamlDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var references = ((string?)AppContext.GetData(
+                "TRUSTED_PLATFORM_ASSEMBLIES") ??
+            string.Empty)
+            .Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Append(
+                typeof(FrameworkElement).Assembly.Location)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(
+                static path =>
+                    MetadataReference.CreateFromFile(path));
+        var solution = workspace.CurrentSolution
+            .AddProject(
+                ProjectInfo.Create(
+                    projectId,
+                    VersionStamp.Create(),
+                    "DeltaPreview",
+                    "DeltaPreview",
+                    LanguageNames.CSharp,
+                    compilationOptions:
+                        new CSharpCompilationOptions(
+                            OutputKind
+                                .DynamicallyLinkedLibrary),
+                    parseOptions:
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview)))
+            .AddMetadataReferences(projectId, references)
+            .AddDocument(
+                codeDocumentId,
+                "Root.cs",
+                SourceText.From(code))
+            .AddAdditionalDocument(
+                xamlDocumentId,
+                "Root.xaml",
+                SourceText.From(xaml),
+                folders: new[] { "Views" });
+        return new DeltaPreviewProjectFixture(
+            workspace,
+            solution.GetProject(projectId)!,
+            codeDocumentId,
+            xamlDocumentId);
+    }
+
+    private static Task<RoslynXamlProjectPreview>
+        CompileDeltaPreviewAsync(
+            Project project,
+            DocumentId documentId) =>
+        new RoslynXamlProjectPreviewService().CompileAsync(
+            project,
+            documentId,
+            new WinUiXamlProfile(),
+            new RoslynXamlProjectPreviewOptions
+            {
+                InspectionOptions =
+                    new RoslynXamlCompilationInspectionOptions
+                    {
+                        CompilerOptions =
+                            new XamlCompilerOptions
+                            {
+                                Strict = true
+                            }
+                    }
+            });
+
+    private sealed class DeltaPreviewProjectFixture :
+        IDisposable
+    {
+        public DeltaPreviewProjectFixture(
+            AdhocWorkspace workspace,
+            Project project,
+            DocumentId codeDocumentId,
+            DocumentId xamlDocumentId)
+        {
+            Workspace = workspace;
+            Project = project;
+            CodeDocumentId = codeDocumentId;
+            XamlDocumentId = xamlDocumentId;
+        }
+
+        public AdhocWorkspace Workspace { get; }
+        public Project Project { get; }
+        public DocumentId CodeDocumentId { get; }
+        public DocumentId XamlDocumentId { get; }
+
+        public void Dispose() => Workspace.Dispose();
     }
 
     private sealed class FactoryElement : Grid, IHotReloadStateful
