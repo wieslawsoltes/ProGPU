@@ -2114,13 +2114,13 @@ public class SamplePagesTests : IDisposable
         FindTranspileBtn(page);
         Assert.NotNull(transpileBtn);
 
-        // 3. Trigger Click on transpile button via reflection
-        var clickField = typeof(Button).GetField("Click", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        Assert.NotNull(clickField);
-        var clickDelegate = (EventHandler?)clickField.GetValue(transpileBtn);
-        Assert.NotNull(clickDelegate);
-
-        clickDelegate.Invoke(transpileBtn, EventArgs.Empty);
+        // 3. Trigger the same protected click path used by button input.
+        var onClick = typeof(Button).GetMethod(
+            "OnClick",
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(onClick);
+        onClick.Invoke(transpileBtn, null);
 
         // 4. Verify that editor content is translated to WGSL (which uses `fn mainImage` instead of `void mainImage`)
         string translatedText = editor.Text;
