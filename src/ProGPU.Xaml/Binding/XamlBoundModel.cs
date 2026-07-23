@@ -195,6 +195,20 @@ public interface IXamlCompiledBindingPolicy
     IReadOnlyDictionary<char, char> CompiledBindingPathBracketPairs { get; }
 }
 
+/// <summary>
+/// Framework-neutral semantic policy for deriving the exact data source type owned by a
+/// deferred-content boundary, such as a control template target type.
+/// </summary>
+public interface IXamlDeferredContentContextTypePolicy
+{
+    bool IsDeferredContentContextSource(XamlBoundBinding binding);
+
+    bool TryGetDeferredContentContextType(
+        XamlBoundObject owner,
+        XamlBoundMember deferredMember,
+        out XamlTypeInfo contextType);
+}
+
 public sealed class XamlCompiledBindingPathSegment
 {
     public XamlCompiledBindingPathSegment(
@@ -369,7 +383,8 @@ public enum XamlBindingSourceKind
     ExplicitValue,
     ExplicitStaticMember,
     RelativeSelf,
-    ElementName
+    ElementName,
+    RelativeTemplatedParent
 }
 
 /// <summary>

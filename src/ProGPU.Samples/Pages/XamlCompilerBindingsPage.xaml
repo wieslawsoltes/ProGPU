@@ -14,6 +14,12 @@
                                Text="{Binding Path=Title, Mode=OneWay}" />
                 </StackPanel>
             </DataTemplate>
+            <ControlTemplate x:Key="TemplatedParentBindingTemplate"
+                             TargetType="local:XamlCompilerTemplateHost">
+                <TextBlock x:Name="TemplatedParentText"
+                           Text="{Binding Path=Caption,
+                                          RelativeSource={RelativeSource TemplatedParent}}" />
+            </ControlTemplate>
         </ResourceDictionary>
     </Page.Resources>
     <StackPanel Margin="24" Orientation="Vertical">
@@ -40,6 +46,14 @@
         <TextBlock x:Name="ElementNameText"
                    Margin="0,4,0,0"
                    Text="{Binding Path=Text, ElementName=NamedElementSource}" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Text="Ordinary Binding with a typed TemplatedParent source" />
+        <local:XamlCompilerTemplateHost
+            x:Name="TemplatedParentHost"
+            Margin="0,6,0,0"
+            Caption="Templated parent source"
+            Template="{StaticResource TemplatedParentBindingTemplate}" />
 
         <TextBlock Margin="0,16,0,0"
                    Text="Ordinary Binding with generated IList&lt;T&gt; indexer plan" />

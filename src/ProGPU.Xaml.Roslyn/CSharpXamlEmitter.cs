@@ -1301,6 +1301,16 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             {
                 bindingLifecycle = createdBindingLifecycle;
             }
+            XamlTypeInfo? contextType = null;
+            if (_framework is
+                    IXamlIrDeferredContentContextTypePolicy contextPolicy &&
+                contextPolicy.TryGetDeferredContentContextType(
+                    owner,
+                    operation,
+                    out var resolvedContextType))
+            {
+                contextType = resolvedContextType;
+            }
             var nested = new EmitContext(
                 _program,
                 _framework,
@@ -1308,7 +1318,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 _diagnostics,
                 isClassBacked: false,
                 contextExpression: templateContext,
-                contextType: FindTemplateTargetType(owner),
+                contextType: contextType,
                 deferredLifetimeOwnerExpression: markupLifecycle?.RegistrationOwner,
                 compiledBindingOwnerExpression: bindingLifecycle?.RegistrationOwner);
             var rootExpression = nested.EmitDeferredRoot(deferredRoot);
@@ -1460,17 +1470,6 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                         registration.Key,
                         registration.Value);
             }
-        }
-
-        private static XamlTypeInfo? FindTemplateTargetType(XamlIrObject template)
-        {
-            foreach (var operation in template.Operations)
-            {
-                if (!string.Equals(operation.Member.Symbol?.Name, "TargetType", StringComparison.Ordinal)) continue;
-                var type = operation.Values.OfType<XamlIrType>().FirstOrDefault()?.Type.Symbol;
-                if (type != null) return type;
-            }
-            return null;
         }
 
         private ExpressionSyntax? EmitDeferredRoot(XamlIrObject root)

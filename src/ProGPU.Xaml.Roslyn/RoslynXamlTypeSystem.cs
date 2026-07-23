@@ -21,7 +21,8 @@ public sealed class RoslynXamlTypeSystem :
     IXamlSymbolTypeResolver,
     IXamlSymbolConversionService,
     IXamlSymbolAccessibilityService,
-    IXamlCompiledBindingPolicy
+    IXamlCompiledBindingPolicy,
+    IXamlDeferredContentContextTypePolicy
 {
     private static readonly SymbolDisplayFormat FullyQualifiedFormat =
         SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
@@ -69,6 +70,25 @@ public sealed class RoslynXamlTypeSystem :
     public IReadOnlyDictionary<char, char> CompiledBindingPathBracketPairs =>
         (_profile as IXamlCompiledBindingPolicy)?.CompiledBindingPathBracketPairs ??
         EmptyCompiledBindingBracketPairs;
+
+    public bool TryGetDeferredContentContextType(
+        XamlBoundObject owner,
+        XamlBoundMember deferredMember,
+        out XamlTypeInfo contextType)
+    {
+        if (_profile is IXamlDeferredContentContextTypePolicy policy)
+            return policy.TryGetDeferredContentContextType(
+                owner,
+                deferredMember,
+                out contextType);
+        contextType = null!;
+        return false;
+    }
+
+    public bool IsDeferredContentContextSource(
+        XamlBoundBinding binding) =>
+        _profile is IXamlDeferredContentContextTypePolicy policy &&
+        policy.IsDeferredContentContextSource(binding);
 
     public bool TryValidateTextValue(XamlTypeInfo targetType, string text, out bool isValid)
     {

@@ -50,6 +50,16 @@ public partial class XamlCompilerBindingsPage : Page
         set => NamedElementSource.Text = value ?? string.Empty;
     }
 
+    public string? TemplatedParentTextValue =>
+        (TemplatedParentHost.GetTemplateChild(
+            "TemplatedParentText") as TextBlock)?.Text;
+
+    public string TemplatedParentCaptionValue
+    {
+        get => TemplatedParentHost.Caption;
+        set => TemplatedParentHost.Caption = value;
+    }
+
     public string? OrdinaryIndexerTextValue
     {
         get => OrdinaryIndexerText.Text;
@@ -112,6 +122,22 @@ public static class XamlCompilerBindingSources
 
     public static ObservableCollection<XamlCompilerBindingItem> Items { get; } =
         new() { new XamlCompilerBindingItem("Ordinary indexed item") };
+}
+
+public sealed class XamlCompilerTemplateHost : Control
+{
+    public static readonly DependencyProperty CaptionProperty =
+        DependencyProperty.Register(
+            nameof(Caption),
+            typeof(string),
+            typeof(XamlCompilerTemplateHost),
+            new PropertyMetadata(string.Empty));
+
+    public string Caption
+    {
+        get => GetValue(CaptionProperty) as string ?? string.Empty;
+        set => SetValue(CaptionProperty, value ?? string.Empty);
+    }
 }
 
 public sealed class XamlCompilerBindingItem : INotifyPropertyChanged

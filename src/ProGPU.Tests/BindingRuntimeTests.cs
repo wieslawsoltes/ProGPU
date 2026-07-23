@@ -645,6 +645,14 @@ public sealed class BindingRuntimeTests
         Assert.Equal("Named element source", page.ElementNameTextValue);
         page.NamedElementSourceValue = "Named element update";
         Assert.Equal("Named element update", page.ElementNameTextValue);
+        Assert.Equal(
+            "Templated parent source",
+            page.TemplatedParentTextValue);
+        page.TemplatedParentCaptionValue =
+            "Templated parent update";
+        Assert.Equal(
+            "Templated parent update",
+            page.TemplatedParentTextValue);
         Assert.Equal("Ordinary indexed item", page.OrdinaryIndexerTextValue);
         ProGPU.Samples.XamlCompilerBindingSources.Items[0].Title =
             "Ordinary indexed update";

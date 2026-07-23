@@ -6343,6 +6343,85 @@ namespace Demo {
     }
 
     [Fact]
+    public void OrdinaryBindingTemplatedParentUsesProfileDeferredContextType()
+    {
+        const string additions = """
+namespace Demo {
+  public sealed class TemplateOwner : Microsoft.UI.Xaml.FrameworkElement {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty SourceProperty = new();
+    public string? Source { get; set; }
+  }
+  public sealed class TemplateChild : Microsoft.UI.Xaml.FrameworkElement {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty TargetProperty = new();
+    public string? Target { get; set; }
+  }
+}
+""";
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <ControlTemplate TargetType="local:TemplateOwner">
+    <local:TemplateChild
+        Target="{Binding Path=Source,
+                         RelativeSource={RelativeSource TemplatedParent}}" />
+  </ControlTemplate>
+</Page>
+""";
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText(additions));
+        var profile = new WinUiXamlProfile();
+        var bound = new XamlSemanticBinder().Bind(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile));
+
+        Assert.False(
+            bound.HasErrors,
+            string.Join(Environment.NewLine, bound.Diagnostics));
+        var binding = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundBinding>());
+        Assert.Equal(
+            XamlBindingSourceKind.RelativeTemplatedParent,
+            binding.SourceKind);
+        Assert.Equal(
+            "Demo.TemplateOwner",
+            binding.SourceType!.MetadataName);
+        Assert.Equal(
+            "Source",
+            Assert.Single(binding.Accessors).Member.Name);
+
+        var emitted = new CSharpXamlEmitter().Emit(
+            bound.Infoset,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity ==
+                          DiagnosticSeverity.Error);
+        var tree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        Assert.Single(
+            tree.GetRoot().DescendantNodes()
+                .OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString().StartsWith(
+                "global::Microsoft.UI.Xaml.Data.BindingMemberAccessorRegistry.Register",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            tree.GetRoot().DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>(),
+            assignment =>
+                assignment.Left.ToString() == "RelativeSource" &&
+                assignment.Right.ToString().Contains(
+                    "RelativeSourceMode.TemplatedParent",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(tree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity ==
+                          DiagnosticSeverity.Error);
+    }
+
+    [Fact]
     public void WinUiDataTemplateXDataTypeSuppliesTypedCompiledBindingContext()
     {
         const string additions = """

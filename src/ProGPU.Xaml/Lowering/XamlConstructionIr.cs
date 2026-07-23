@@ -10,6 +10,18 @@ using ProGPU.Xaml.Schema;
 
 namespace ProGPU.Xaml.Lowering;
 
+/// <summary>
+/// Framework-neutral IR policy for carrying an exact deferred-factory context type into
+/// structured emission without rediscovering a framework member by name in the compiler core.
+/// </summary>
+public interface IXamlIrDeferredContentContextTypePolicy
+{
+    bool TryGetDeferredContentContextType(
+        XamlIrObject owner,
+        XamlIrOperation deferredOperation,
+        out XamlTypeInfo contextType);
+}
+
 public enum XamlIrObjectKind
 {
     ExistingRoot,

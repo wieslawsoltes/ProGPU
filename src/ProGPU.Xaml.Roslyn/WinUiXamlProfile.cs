@@ -375,7 +375,7 @@ public interface IRoslynXamlMarkupExtensionReceiverProfile
         out StatementSyntax statement);
 }
 
-public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy
+public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy, IXamlDeferredContentContextTypePolicy, IXamlIrDeferredContentContextTypePolicy
 {
     private static readonly string[] Extensions = { ".xaml" };
     private static readonly string[] PresentationNamespaces =
@@ -1188,6 +1188,112 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
             SyntaxFactory.InvocationExpression(setter)
                 .WithArgumentList(Arguments(receiver, factory)));
         return true;
+    }
+
+    public bool TryGetDeferredContentContextType(
+        XamlBoundObject owner,
+        XamlBoundMember deferredMember,
+        out XamlTypeInfo contextType)
+    {
+        contextType = null!;
+        if (deferredMember.Member.Symbol?.Kind !=
+                XamlMemberKind.DeferredContent ||
+            !string.Equals(
+                deferredMember.Member.Symbol.SyntheticSemantic,
+                XamlSchemaSemantics.TemplateContent,
+                StringComparison.Ordinal))
+            return false;
+
+        foreach (var member in owner.Members)
+        {
+            if (!string.Equals(
+                    member.Member.Symbol?.Name,
+                    "TargetType",
+                    StringComparison.Ordinal))
+                continue;
+            var type = member.Values
+                .OfType<XamlBoundTypeValue>()
+                .FirstOrDefault()?
+                .Type
+                .Symbol;
+            if (type == null)
+                continue;
+            contextType = type;
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool IsDeferredContentContextSource(
+        XamlBoundBinding binding)
+    {
+        if (FindBoundMember(binding.Extension, "Source") != null)
+            return false;
+        var elementName = FindBoundMember(
+            binding.Extension,
+            "ElementName");
+        if (elementName?.Values.OfType<XamlBoundText>().Any(
+                static value =>
+                    !string.IsNullOrWhiteSpace(value.Text)) == true)
+            return false;
+        var relativeSource = FindBoundMember(
+                binding.Extension,
+                "RelativeSource")?
+            .Values
+            .OfType<XamlBoundObject>()
+            .SingleOrDefault();
+        if (relativeSource == null)
+            return false;
+        var mode = FirstBoundText(
+            FindBoundMember(relativeSource, "Mode")) ??
+            FirstBoundText(
+                relativeSource.Members.FirstOrDefault(member =>
+                    member.Member.Kind ==
+                        XamlBoundReferenceKind.Directive &&
+                    string.Equals(
+                        member.Member.RequestedName.LocalName,
+                        "PositionalParameters",
+                        StringComparison.Ordinal)));
+        return string.Equals(
+            mode?.Trim(),
+            "TemplatedParent",
+            StringComparison.Ordinal);
+    }
+
+    public bool TryGetDeferredContentContextType(
+        XamlIrObject owner,
+        XamlIrOperation deferredOperation,
+        out XamlTypeInfo contextType)
+    {
+        contextType = null!;
+        if (deferredOperation.Member.Symbol?.Kind !=
+                XamlMemberKind.DeferredContent ||
+            !string.Equals(
+                deferredOperation.Member.Symbol.SyntheticSemantic,
+                XamlSchemaSemantics.TemplateContent,
+                StringComparison.Ordinal))
+            return false;
+
+        foreach (var operation in owner.Operations)
+        {
+            if (!string.Equals(
+                    operation.Member.Symbol?.Name,
+                    "TargetType",
+                    StringComparison.Ordinal))
+                continue;
+            var type = operation.Values
+                .OfType<XamlIrType>()
+                .FirstOrDefault()?
+                .Type
+                .Symbol;
+            if (type == null)
+                continue;
+            contextType = type;
+            return true;
+        }
+
+        return false;
     }
 
     public bool TryCreateMarkupExtensionAssignment(
@@ -3032,4 +3138,20 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
         }
         return null;
     }
+
+    private static XamlBoundMember? FindBoundMember(
+        XamlBoundObject value,
+        string memberName) =>
+        value.Members.FirstOrDefault(member =>
+            string.Equals(
+                member.Member.Symbol?.Name ??
+                member.Member.RequestedName.LocalName,
+                memberName,
+                StringComparison.Ordinal));
+
+    private static string? FirstBoundText(
+        XamlBoundMember? member) =>
+        member?.Values.OfType<XamlBoundText>()
+            .FirstOrDefault()?
+            .Text;
 }
