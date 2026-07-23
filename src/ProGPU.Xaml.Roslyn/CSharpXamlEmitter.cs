@@ -115,7 +115,8 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     wasSkipped: true);
             }
         }
-        var bound = new XamlSemanticBinder().Bind(
+        var binder = new XamlSemanticBinder();
+        var bound = binder.Bind(
             infoset,
             typeSystem,
             new XamlSemanticBindingOptions { Strict = options.Strict });
@@ -124,6 +125,12 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             options.ResourceDependencies,
             options.StaticResourceForwardReferenceMode ==
             XamlStaticResourceForwardReferenceMode.Reorder);
+        bound = binder.EnrichResourceBindingSources(
+            bound,
+            resourceGraph,
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = options.Strict });
+        resourceGraph = resourceGraph.WithDocument(bound);
         var program = new XamlConstructionLowerer().Lower(bound, resourceGraph);
         return EmitProgramCore(program, roslynFramework, options, buildMetadata);
     }

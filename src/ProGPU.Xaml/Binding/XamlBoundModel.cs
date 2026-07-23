@@ -382,6 +382,7 @@ public enum XamlBindingSourceKind
     LexicalDataType,
     ExplicitValue,
     ExplicitStaticMember,
+    ExplicitResource,
     RelativeSelf,
     ElementName,
     RelativeTemplatedParent

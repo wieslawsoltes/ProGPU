@@ -94,6 +94,14 @@ public sealed class XamlResourceGraph
     public ImmutableArray<XamlResourceDefinitionInfo> Definitions { get; }
     public ImmutableArray<XamlResourceReferenceInfo> References { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
+
+    public XamlResourceGraph WithDocument(XamlBoundDocument document) =>
+        new XamlResourceGraph(
+            document ?? throw new ArgumentNullException(nameof(document)),
+            Scopes,
+            Definitions,
+            References,
+            Diagnostics);
 }
 
 /// <summary>Builds deterministic lexical resource scopes without framework runtime objects.</summary>

@@ -86,6 +86,64 @@ public sealed class XamlSemanticBinder
             _rootClassType);
     }
 
+    /// <summary>
+    /// Immutably enriches ordinary bindings whose explicit Source is a resource reference
+    /// after lexical resource resolution has established one exact Roslyn value type.
+    /// Resource values and markup extensions are never constructed or invoked.
+    /// </summary>
+    public XamlBoundDocument EnrichResourceBindingSources(
+        XamlBoundDocument document,
+        XamlResourceGraph resourceGraph,
+        IXamlTypeSystem typeSystem,
+        XamlSemanticBindingOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (document == null) throw new ArgumentNullException(nameof(document));
+        if (resourceGraph == null) throw new ArgumentNullException(nameof(resourceGraph));
+        if (typeSystem == null) throw new ArgumentNullException(nameof(typeSystem));
+        if (document.Root == null) return document;
+
+        _document = document.Infoset;
+        _typeSystem = typeSystem;
+        _options = options ?? new XamlSemanticBindingOptions();
+        _cancellationToken = cancellationToken;
+        _diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+
+        var valueTypes = XamlResourceTypeEvidence.CreateValueTypeIndex(
+            document.Root,
+            resourceGraph,
+            ResolveExternalResourceType);
+        var references = resourceGraph.References.ToDictionary(
+            static reference => reference.StableId);
+        var root = RewriteResourceBindingSources(
+            document.Root,
+            references,
+            valueTypes);
+        if (ReferenceEquals(root, document.Root) && _diagnostics.Count == 0)
+            return document;
+
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>(
+            document.Diagnostics.Length + _diagnostics.Count);
+        diagnostics.AddRange(document.Diagnostics);
+        diagnostics.AddRange(_diagnostics);
+        return new XamlBoundDocument(
+            document.Infoset,
+            root,
+            diagnostics.ToImmutable(),
+            document.DictionaryKeyDirectiveAliases,
+            document.RootClassType);
+    }
+
+    private XamlTypeInfo? ResolveExternalResourceType(string typeName)
+    {
+        var separator = typeName.IndexOf('|');
+        if (separator > 0 && separator < typeName.Length - 1)
+            return _typeSystem.ResolveType(
+                typeName.Substring(0, separator),
+                typeName.Substring(separator + 1));
+        return (_typeSystem as IXamlMetadataTypeResolver)?.ResolveMetadataType(typeName);
+    }
+
     private XamlTypeInfo? ResolveRootClassType(XamlInfosetDocument document)
     {
         var className = document.Root?.Members.FirstOrDefault(member =>
@@ -3289,6 +3347,103 @@ public sealed class XamlSemanticBinder
                 value.SourceSpan,
                 value.StableId)
             : value;
+    }
+
+    private XamlBoundObject RewriteResourceBindingSources(
+        XamlBoundObject value,
+        IReadOnlyDictionary<ulong, XamlResourceReferenceInfo> references,
+        IReadOnlyDictionary<ulong, XamlTypeInfo> valueTypes)
+    {
+        var members = ImmutableArray.CreateBuilder<XamlBoundMember>(
+            value.Members.Length);
+        var changed = false;
+        foreach (var member in value.Members)
+        {
+            var values = ImmutableArray.CreateBuilder<XamlBoundValue>(
+                member.Values.Length);
+            var memberChanged = false;
+            foreach (var child in member.Values)
+            {
+                XamlBoundValue rewritten = child;
+                if (child is XamlBoundBinding binding &&
+                    TryGetExplicitResourceSource(
+                        binding,
+                        references,
+                        valueTypes,
+                        out var sourceType))
+                {
+                    rewritten = BindBinding(
+                        binding.Extension,
+                        targetObjectType: null,
+                        resolvedSourceType: sourceType,
+                        resolvedSourceKind: XamlBindingSourceKind.ExplicitResource);
+                }
+                else if (child is XamlBoundObject childObject)
+                {
+                    rewritten = RewriteResourceBindingSources(
+                        childObject,
+                        references,
+                        valueTypes);
+                }
+
+                memberChanged |= !ReferenceEquals(rewritten, child);
+                values.Add(rewritten);
+            }
+
+            if (memberChanged)
+            {
+                members.Add(new XamlBoundMember(
+                    member.Member,
+                    member.Origin,
+                    values.ToImmutable(),
+                    member.SourceSpan,
+                    member.StableId));
+                changed = true;
+            }
+            else
+            {
+                members.Add(member);
+            }
+        }
+
+        return changed
+            ? new XamlBoundObject(
+                value.Type,
+                members.ToImmutable(),
+                value.IsRetrieved,
+                value.IsMarkupExtension,
+                value.SourceSpan,
+                value.StableId)
+            : value;
+    }
+
+    private static bool TryGetExplicitResourceSource(
+        XamlBoundBinding binding,
+        IReadOnlyDictionary<ulong, XamlResourceReferenceInfo> references,
+        IReadOnlyDictionary<ulong, XamlTypeInfo> valueTypes,
+        out XamlTypeInfo sourceType)
+    {
+        sourceType = null!;
+        if (binding.SourceKind != XamlBindingSourceKind.Unknown)
+            return false;
+
+        var sourceMember = FindBindingMember(binding.Extension, "Source");
+        if (sourceMember == null ||
+            FindBindingMember(binding.Extension, "RelativeSource") != null)
+            return false;
+        var elementNameMember = FindBindingMember(binding.Extension, "ElementName");
+        if (elementNameMember?.Values.OfType<XamlBoundText>().Any(
+                value => !string.IsNullOrWhiteSpace(value.Text)) == true)
+            return false;
+
+        foreach (var value in sourceMember.Values)
+        {
+            if (value is XamlBoundObject sourceObject &&
+                references.ContainsKey(sourceObject.StableId) &&
+                valueTypes.TryGetValue(sourceObject.StableId, out sourceType))
+                return true;
+        }
+        return false;
     }
 
     private void ValidateDocumentSemantics(XamlBoundObject root)

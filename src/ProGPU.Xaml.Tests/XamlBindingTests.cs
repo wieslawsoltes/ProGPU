@@ -5975,6 +5975,181 @@ namespace MetadataModel {
     }
 
     [Fact]
+    public void OrdinaryBindingSourceUsesExactStaticResourceValueType()
+    {
+        const string additions = """
+namespace Demo {
+  public sealed class Item {
+    public string Title { get; set; } = "resource item";
+  }
+  public sealed class BindingTarget : Microsoft.UI.Xaml.FrameworkElement {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty ValueProperty = new();
+    public string? Value { get; set; }
+  }
+}
+""";
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <Page.Resources>
+    <local:Item x:Key="BindingSource" />
+  </Page.Resources>
+  <local:BindingTarget
+      Value="{Binding Path=Title, Source={StaticResource BindingSource}}" />
+</Page>
+""";
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText(additions));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var binder = new XamlSemanticBinder();
+        var initiallyBound = binder.Bind(Convert(xaml), typeSystem);
+        var initialBinding = Assert.Single(
+            DescendantValues(initiallyBound.Root).OfType<XamlBoundBinding>());
+        Assert.Equal(XamlBindingSourceKind.Unknown, initialBinding.SourceKind);
+        Assert.Empty(initialBinding.Accessors);
+
+        var graph = new XamlResourceGraphBuilder().Build(initiallyBound);
+        var bound = binder.EnrichResourceBindingSources(
+            initiallyBound,
+            graph,
+            typeSystem);
+        Assert.False(bound.HasErrors, string.Join(Environment.NewLine, bound.Diagnostics));
+        var binding = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundBinding>());
+        Assert.Equal(XamlBindingSourceKind.ExplicitResource, binding.SourceKind);
+        Assert.Equal("Demo.Item", binding.SourceType!.MetadataName);
+        var accessor = Assert.Single(binding.Accessors);
+        Assert.Equal("Title", accessor.Member.Name);
+        Assert.Equal("Demo.Item", accessor.SourceType.ToDisplayString());
+        Assert.Equal("string", accessor.ValueType.ToDisplayString());
+
+        var emitted = new CSharpXamlEmitter().Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var tree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        var registration = Assert.Single(
+            tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString().StartsWith(
+                "global::Microsoft.UI.Xaml.Data.BindingMemberAccessorRegistry.Register",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            "Register<global::Demo.Item, string>",
+            registration.Expression.ToString(),
+            StringComparison.Ordinal);
+        var setBinding = Assert.Single(
+            tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => string.Equals(
+                invocation.Expression.ToString(),
+                "global::Microsoft.UI.Xaml.Data.BindingOperations.SetBindingWithPath",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            setBinding.ArgumentList.Arguments,
+            argument => argument.Expression.ToString().Contains(
+                "XamlResourceResolver.Resolve<object>",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(tree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void OrdinaryBindingSourceUsesExactExternalResourceValueType()
+    {
+        const string pagePath = "/project/MainPage.xaml";
+        const string providerPath = "/project/Themes/BindingSources.xaml";
+        const string additions = """
+namespace Demo {
+  public sealed class Item {
+    public string Title { get; set; } = "external resource item";
+  }
+  public sealed class BindingTarget : Microsoft.UI.Xaml.FrameworkElement {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty ValueProperty = new();
+    public string? Value { get; set; }
+  }
+}
+""";
+        var provider = ConvertAt(providerPath, """
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:Demo">
+  <local:Item x:Key="BindingSource" />
+</ResourceDictionary>
+""");
+        var page = ConvertAt(pagePath, """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <Page.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Themes/BindingSources.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Page.Resources>
+  <local:BindingTarget
+      Value="{Binding Path=Title, Source={StaticResource BindingSource}}" />
+</Page>
+""");
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText(additions));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var providerBound = new XamlSemanticBinder().Bind(provider, typeSystem);
+        var pageBound = new XamlSemanticBinder().Bind(page, typeSystem);
+        var raw = new XamlResourceDocumentManifestBuilder();
+        var semantic = new XamlResourceSemanticManifestBuilder();
+        var dependencies = new XamlResourceProjectIndex(new[]
+        {
+            semantic.Build(raw.Build(provider), providerBound),
+            semantic.Build(raw.Build(page), pageBound)
+        }).GetDependencySlice(pagePath);
+        var graph = new XamlResourceGraphBuilder().Build(pageBound, dependencies);
+        var reference = Assert.Single(graph.References);
+        Assert.Equal(XamlResourceResolutionKind.ResolvedExternal, reference.Resolution);
+        Assert.Equal(
+            "using:Demo|Item",
+            Assert.Single(reference.ExternalCandidates).TypeName);
+
+        var binder = new XamlSemanticBinder();
+        var enriched = binder.EnrichResourceBindingSources(
+            pageBound,
+            graph,
+            typeSystem);
+        var binding = Assert.Single(
+            DescendantValues(enriched.Root).OfType<XamlBoundBinding>());
+        Assert.Equal(XamlBindingSourceKind.ExplicitResource, binding.SourceKind);
+        Assert.Equal("Demo.Item", binding.SourceType!.MetadataName);
+        Assert.Equal("Title", Assert.Single(binding.Accessors).Member.Name);
+
+        var emitted = new CSharpXamlEmitter().Emit(
+            page,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions { ResourceDependencies = dependencies });
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var tree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        Assert.Contains(
+            tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString().Contains(
+                "Register<global::Demo.Item, string>",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(tree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
     public void OrdinaryBindingSourceInferenceUsesExactRuntimeSelectorEvidence()
     {
         const string additions = """
