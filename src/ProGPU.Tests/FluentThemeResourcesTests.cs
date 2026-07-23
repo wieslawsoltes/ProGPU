@@ -213,6 +213,228 @@ public sealed class FluentThemeResourcesTests
     }
 
     [Fact]
+    public void EveryGeneratedImplicitFluentStyleConstructsAndLaysOutItsControl()
+    {
+        var previousApplication = Application.Current;
+        var previousTheme = ThemeManager.CurrentTheme;
+        var previousHighContrast =
+            ThemeManager.IsHighContrast;
+        try
+        {
+            ThemeManager.CurrentTheme =
+                ElementTheme.Light;
+            ThemeManager.IsHighContrast = false;
+            var application = new Application();
+            Application.Current = application;
+            var dictionary =
+                FluentThemeResources.Apply(
+                    application);
+            var failures = new List<string>();
+            var controls = 0;
+            var templates = 0;
+
+            foreach (var pair in dictionary
+                         .OrderBy(
+                             static pair =>
+                                 pair.Key is Type type
+                                     ? type.FullName
+                                     : pair.Key.ToString(),
+                             StringComparer.Ordinal))
+            {
+                if (pair.Key is not Type type ||
+                    pair.Value is not Style style ||
+                    !typeof(FrameworkElement)
+                        .IsAssignableFrom(type))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var element =
+                        Assert.IsAssignableFrom<
+                            FrameworkElement>(
+                            Activator.CreateInstance(
+                                type));
+                    element.Style = style;
+                    controls++;
+                    if (element is Control control &&
+                        control.Template != null)
+                    {
+                        Assert.True(
+                            control.ApplyTemplate());
+                        Assert.True(
+                            control.HasTemplate);
+                        templates++;
+                    }
+
+                    element.Measure(
+                        new System.Numerics.Vector2(
+                            640f,
+                            480f));
+                    element.Arrange(
+                        new ProGPU.Scene.Rect(
+                            0f,
+                            0f,
+                            MathF.Max(
+                                1f,
+                                element.DesiredSize.X),
+                            MathF.Max(
+                                1f,
+                                element.DesiredSize.Y)));
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(
+                        type.FullName +
+                        ": " +
+                        exception.GetBaseException()
+                            .Message);
+                }
+            }
+
+            Assert.True(
+                controls >= 60,
+                "Expected at least 60 implicit Fluent control styles, but constructed " +
+                controls +
+                ".");
+            Assert.True(
+                templates >= 50,
+                "Expected at least 50 implicit Fluent control templates, but materialized " +
+                templates +
+                ".");
+            Assert.True(
+                failures.Count == 0,
+                string.Join(
+                    Environment.NewLine,
+                    failures));
+        }
+        finally
+        {
+            Application.Current =
+                previousApplication;
+            ThemeManager.CurrentTheme =
+                previousTheme;
+            ThemeManager.IsHighContrast =
+                previousHighContrast;
+        }
+    }
+
+    [Fact]
+    public void EveryGeneratedFluentStyleCanApplyToAndLayOutItsDeclaredTarget()
+    {
+        var previousApplication = Application.Current;
+        var previousTheme = ThemeManager.CurrentTheme;
+        var previousHighContrast =
+            ThemeManager.IsHighContrast;
+        try
+        {
+            ThemeManager.CurrentTheme =
+                ElementTheme.Light;
+            ThemeManager.IsHighContrast = false;
+            var application = new Application();
+            Application.Current = application;
+            var dictionary =
+                FluentThemeResources.Apply(
+                    application);
+            var visitedDictionaries =
+                new HashSet<ResourceDictionary>(
+                    ReferenceEqualityComparer.Instance);
+            var visitedStyles =
+                new HashSet<Style>(
+                    ReferenceEqualityComparer.Instance);
+            var failures = new List<string>();
+            var styleCount = 0;
+            var templateCount = 0;
+
+            foreach (var (key, style) in
+                     EnumerateStyles(
+                         dictionary,
+                         visitedDictionaries))
+            {
+                if (!visitedStyles.Add(style) ||
+                    style.TargetType is not
+                        { } targetType ||
+                    targetType.IsAbstract ||
+                    !typeof(FrameworkElement)
+                        .IsAssignableFrom(
+                            targetType))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var element =
+                        Assert.IsAssignableFrom<
+                            FrameworkElement>(
+                            Activator.CreateInstance(
+                                targetType));
+                    element.Style = style;
+                    styleCount++;
+                    if (element is Control control &&
+                        control.Template != null)
+                    {
+                        Assert.True(
+                            control.ApplyTemplate());
+                        templateCount++;
+                    }
+
+                    element.Measure(
+                        new System.Numerics.Vector2(
+                            640f,
+                            480f));
+                    element.Arrange(
+                        new ProGPU.Scene.Rect(
+                            0f,
+                            0f,
+                            MathF.Max(
+                                1f,
+                                element.DesiredSize.X),
+                            MathF.Max(
+                                1f,
+                                element.DesiredSize.Y)));
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(
+                        key +
+                        " -> " +
+                        targetType.FullName +
+                        ": " +
+                        exception.GetBaseException()
+                            .Message);
+                }
+            }
+
+            Assert.True(
+                styleCount >= 100,
+                "Expected at least 100 Fluent styles to reach template materialization, but reached " +
+                styleCount +
+                ".");
+            Assert.True(
+                templateCount >= 50,
+                "Expected at least 50 distinct Fluent templates, but materialized " +
+                templateCount +
+                ".");
+            Assert.True(
+                failures.Count == 0,
+                string.Join(
+                    Environment.NewLine,
+                    failures));
+        }
+        finally
+        {
+            Application.Current =
+                previousApplication;
+            ThemeManager.CurrentTheme =
+                previousTheme;
+            ThemeManager.IsHighContrast =
+                previousHighContrast;
+        }
+    }
+
+    [Fact]
     public void GeneratedComboBoxTemplateActivatesFluentBindings()
     {
         var previousApplication = Application.Current;
@@ -397,6 +619,51 @@ public sealed class FluentThemeResourcesTests
             Application.Current = previousApplication;
             ThemeManager.CurrentTheme = previousTheme;
             ThemeManager.IsHighContrast = previousHighContrast;
+        }
+    }
+
+    private static IEnumerable<(object Key, Style Style)>
+        EnumerateStyles(
+            ResourceDictionary dictionary,
+            ISet<ResourceDictionary> visited)
+    {
+        if (!visited.Add(dictionary))
+            yield break;
+        foreach (var pair in dictionary)
+        {
+            if (pair.Value is Style style)
+                yield return (pair.Key, style);
+        }
+
+        foreach (var merged in
+                 dictionary.MergedDictionaries)
+        {
+            foreach (var item in
+                     EnumerateStyles(
+                         merged,
+                         visited))
+            {
+                yield return item;
+            }
+        }
+
+        foreach (var value in
+                 dictionary.ThemeDictionaries
+                     .Values)
+        {
+            if (value is not
+                ResourceDictionary theme)
+            {
+                continue;
+            }
+
+            foreach (var item in
+                     EnumerateStyles(
+                         theme,
+                         visited))
+            {
+                yield return item;
+            }
         }
     }
 }

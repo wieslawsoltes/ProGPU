@@ -67,6 +67,7 @@ Required evidence:
 - `ProGPU.WinUI.Themes.Fluent` links the external theme input unchanged and compiles it without diagnostic suppression.
 - Generated Fluent dictionaries construct Default, Light, and HighContrast partitions.
 - Representative Button, CheckBox, and ComboBox templates construct and exercise selected bindings and visual states.
+- Every reachable publicly constructible Fluent style target applies, materializes its generated template when present, and completes layout in corpus-wide implicit and declared-target gates.
 - Missing object-model surface is added as typed public API rather than hidden through dynamic lookup, reflection, or diagnostic suppression.
 
 ### M2 — Project preview, watch, and host protocol
