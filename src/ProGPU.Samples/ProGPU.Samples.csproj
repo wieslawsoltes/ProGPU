@@ -14,6 +14,7 @@
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml\ProGPU.Xaml.csproj" />
+    <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
@@ -28,6 +29,7 @@
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input.Common" />
     <PackageReference Include="Microsoft.CodeAnalysis.Common" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
