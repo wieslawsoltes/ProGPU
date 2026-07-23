@@ -81,6 +81,83 @@ public sealed class BindingRuntimeTests
     }
 
     [Fact]
+    public void OrdinaryBindingTypedIndexersTrackAndWriteWithoutRuntimeParsing()
+    {
+        BindingMemberAccessorRegistry.RegisterIndexer<
+            ObservableCollection<BindingChild>,
+            BindingChild>(
+            0,
+            static values => values[0],
+            static (values, value) => values[0] = value);
+        BindingMemberAccessorRegistry.Register<BindingChild, string?>(
+            nameof(BindingChild.Name),
+            static source => source.Name,
+            static (source, value) => source.Name = value);
+
+        var first = new BindingChild { Name = "first" };
+        var values = new ObservableCollection<BindingChild> { first };
+        var target = new TextBlock();
+        var expression = BindingOperations.SetBindingWithPath(
+            target,
+            nameof(TextBlock.Text),
+            new Binding
+            {
+                Source = values,
+                Path = "[0].Name",
+                Mode = BindingMode.TwoWay
+            },
+            new[]
+            {
+                BindingPathSegment.Indexer(0),
+                BindingPathSegment.Member(nameof(BindingChild.Name))
+            });
+
+        Assert.Equal("first", target.Text);
+        first.Name = "item";
+        Assert.Equal("item", target.Text);
+
+        var replacement = new BindingChild { Name = "replacement" };
+        values[0] = replacement;
+        Assert.Equal("replacement", target.Text);
+        first.Name = "detached";
+        Assert.Equal("replacement", target.Text);
+
+        target.Text = "written";
+        Assert.Equal("written", replacement.Name);
+        Assert.Equal(BindingExpressionStatus.Active, expression.Status);
+
+        BindingMemberAccessorRegistry.RegisterIndexer<
+            Dictionary<string, BindingChild>,
+            BindingChild>(
+            "primary",
+            static entries => entries["primary"],
+            static (entries, value) => entries["primary"] = value);
+        var entries = new Dictionary<string, BindingChild>
+        {
+            ["primary"] = new BindingChild { Name = "dictionary" }
+        };
+        var dictionaryTarget = new TextBlock();
+        BindingOperations.SetBindingWithPath(
+            dictionaryTarget,
+            nameof(TextBlock.Text),
+            new Binding
+            {
+                Source = entries,
+                Path = "['primary'].Name",
+                Mode = BindingMode.TwoWay
+            },
+            new[]
+            {
+                BindingPathSegment.Indexer("primary"),
+                BindingPathSegment.Member(nameof(BindingChild.Name))
+            });
+
+        Assert.Equal("dictionary", dictionaryTarget.Text);
+        dictionaryTarget.Text = "dictionary-written";
+        Assert.Equal("dictionary-written", entries["primary"].Name);
+    }
+
+    [Fact]
     public void ExplicitTwoWayConverterFallbackAndTargetNullAreApplied()
     {
         BindingMemberAccessorRegistry.Register<NumericViewModel, int>(
@@ -544,6 +621,8 @@ public sealed class BindingRuntimeTests
     {
         ProGPU.Samples.XamlCompilerBindingSources.Current.Title =
             "Static source item";
+        ProGPU.Samples.XamlCompilerBindingSources.Items[0].Title =
+            "Ordinary indexed item";
         var page = new ProGPU.Samples.XamlCompilerBindingsPage();
         var firstRoot = Assert.IsType<StackPanel>(
             page.FirstMaterializedTemplate);
@@ -563,6 +642,14 @@ public sealed class BindingRuntimeTests
         ProGPU.Samples.XamlCompilerBindingSources.Current.Title =
             "Static source update";
         Assert.Equal("Static source update", page.StaticSourceTextValue);
+        Assert.Equal("Ordinary indexed item", page.OrdinaryIndexerTextValue);
+        ProGPU.Samples.XamlCompilerBindingSources.Items[0].Title =
+            "Ordinary indexed update";
+        Assert.Equal("Ordinary indexed update", page.OrdinaryIndexerTextValue);
+        page.OrdinaryIndexerTextValue = "Ordinary indexed write";
+        Assert.Equal(
+            "Ordinary indexed write",
+            ProGPU.Samples.XamlCompilerBindingSources.Items[0].Title);
 
         Assert.NotSame(firstRoot, secondRoot);
         Assert.Equal(page.Items[0].Title, firstCompiled.Text);

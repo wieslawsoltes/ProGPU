@@ -33,6 +33,12 @@
                    Text="{Binding Path=Title, Source={x:Static local:XamlCompilerBindingSources.Current}}" />
 
         <TextBlock Margin="0,16,0,0"
+                   Text="Ordinary Binding with generated IList&lt;T&gt; indexer plan" />
+        <TextBox x:Name="OrdinaryIndexerText"
+                 Margin="0,6,0,0"
+                 Text="{Binding Path=[0].Title, Source={x:Static local:XamlCompilerBindingSources.Items}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBlock Margin="0,16,0,0"
                    Text="Integer IList&lt;T&gt; indexer with collection and item tracking" />
         <TextBox Margin="0,6,0,4"
                  Text="{x:Bind Items[0].Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />

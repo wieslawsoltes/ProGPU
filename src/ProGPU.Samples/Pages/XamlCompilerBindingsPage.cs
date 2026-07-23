@@ -42,6 +42,12 @@ public partial class XamlCompilerBindingsPage : Page
 
     public string? StaticSourceTextValue => StaticSourceText.Text;
 
+    public string? OrdinaryIndexerTextValue
+    {
+        get => OrdinaryIndexerText.Text;
+        set => OrdinaryIndexerText.Text = value ?? string.Empty;
+    }
+
     public ObservableCollection<XamlCompilerBindingItem> Items { get; } =
         new() { new XamlCompilerBindingItem("Editable indexed item") };
 
@@ -95,6 +101,9 @@ public static class XamlCompilerBindingSources
 {
     public static XamlCompilerBindingItem Current { get; } =
         new("Static source item");
+
+    public static ObservableCollection<XamlCompilerBindingItem> Items { get; } =
+        new() { new XamlCompilerBindingItem("Ordinary indexed item") };
 }
 
 public sealed class XamlCompilerBindingItem : INotifyPropertyChanged

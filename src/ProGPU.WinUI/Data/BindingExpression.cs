@@ -1,8 +1,80 @@
 using Microsoft.UI.Xaml.Markup;
 using System.Collections.Concurrent;
+using System.Collections.Specialized;
 using System.ComponentModel;
 
 namespace Microsoft.UI.Xaml.Data;
+
+public enum BindingPathSegmentKind
+{
+    Member,
+    IntegerIndexer,
+    StringIndexer
+}
+
+/// <summary>
+/// One immutable ordinary-binding path step. Generated XAML supplies these steps from the
+/// framework-neutral compiler syntax tree, so the runtime never reparses generated paths.
+/// </summary>
+public readonly struct BindingPathSegment : IEquatable<BindingPathSegment>
+{
+    private BindingPathSegment(
+        BindingPathSegmentKind kind,
+        string? text,
+        int integerIndex)
+    {
+        Kind = kind;
+        Text = text;
+        IntegerIndex = integerIndex;
+    }
+
+    public BindingPathSegmentKind Kind { get; }
+    public string? Text { get; }
+    public int IntegerIndex { get; }
+
+    public static BindingPathSegment Member(string memberName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+        return new BindingPathSegment(
+            BindingPathSegmentKind.Member,
+            memberName,
+            0);
+    }
+
+    public static BindingPathSegment Indexer(int index) =>
+        new(BindingPathSegmentKind.IntegerIndexer, null, index);
+
+    public static BindingPathSegment Indexer(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return new BindingPathSegment(
+            BindingPathSegmentKind.StringIndexer,
+            key,
+            0);
+    }
+
+    public bool Equals(BindingPathSegment other) =>
+        Kind == other.Kind &&
+        IntegerIndex == other.IntegerIndex &&
+        string.Equals(Text, other.Text, StringComparison.Ordinal);
+
+    public override bool Equals(object? obj) =>
+        obj is BindingPathSegment other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(
+        (int)Kind,
+        IntegerIndex,
+        Text == null ? 0 : StringComparer.Ordinal.GetHashCode(Text));
+
+    public override string ToString() => Kind switch
+    {
+        BindingPathSegmentKind.IntegerIndexer =>
+            "[" + IntegerIndex.ToString(
+                System.Globalization.CultureInfo.InvariantCulture) + "]",
+        BindingPathSegmentKind.StringIndexer => "['" + Text + "']",
+        _ => Text ?? string.Empty
+    };
+}
 
 /// <summary>
 /// A reflection-free accessor for one CLR binding-path segment. Source generators and
@@ -14,8 +86,10 @@ public interface IBindingMemberAccessor
     Type SourceType { get; }
     Type ValueType { get; }
     bool CanWrite { get; }
+    BindingPathSegment Segment { get; }
     object? GetValue(object source);
     void SetValue(object source, object? value);
+    Action? Subscribe(object source, Action changed);
 }
 
 /// <summary>
@@ -24,7 +98,9 @@ public interface IBindingMemberAccessor
 /// </summary>
 public static class BindingMemberAccessorRegistry
 {
-    private static readonly ConcurrentDictionary<(Type SourceType, string MemberName), IBindingMemberAccessor>
+    private static readonly ConcurrentDictionary<
+        (Type SourceType, BindingPathSegment Segment),
+        IBindingMemberAccessor>
         Accessors = new();
 
     public static void Register<TSource, TValue>(
@@ -34,20 +110,61 @@ public static class BindingMemberAccessorRegistry
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
         ArgumentNullException.ThrowIfNull(getter);
-        Accessors[(typeof(TSource), memberName)] =
-            new BindingMemberAccessor<TSource, TValue>(getter, setter);
+        var segment = BindingPathSegment.Member(memberName);
+        Accessors[(typeof(TSource), segment)] =
+            new BindingMemberAccessor<TSource, TValue>(
+                segment,
+                getter,
+                setter);
+    }
+
+    public static void RegisterIndexer<TSource, TValue>(
+        int index,
+        Func<TSource, TValue> getter,
+        Action<TSource, TValue>? setter = null)
+    {
+        ArgumentNullException.ThrowIfNull(getter);
+        var segment = BindingPathSegment.Indexer(index);
+        Accessors[(typeof(TSource), segment)] =
+            new BindingIndexerAccessor<TSource, TValue>(
+                segment,
+                getter,
+                setter);
+    }
+
+    public static void RegisterIndexer<TSource, TValue>(
+        string key,
+        Func<TSource, TValue> getter,
+        Action<TSource, TValue>? setter = null)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(getter);
+        var segment = BindingPathSegment.Indexer(key);
+        Accessors[(typeof(TSource), segment)] =
+            new BindingIndexerAccessor<TSource, TValue>(
+                segment,
+                getter,
+                setter);
     }
 
     public static bool TryGetAccessor(
         Type sourceType,
         string memberName,
+        out IBindingMemberAccessor accessor) =>
+        TryGetAccessor(
+            sourceType,
+            BindingPathSegment.Member(memberName),
+            out accessor);
+
+    public static bool TryGetAccessor(
+        Type sourceType,
+        BindingPathSegment segment,
         out IBindingMemberAccessor accessor)
     {
         ArgumentNullException.ThrowIfNull(sourceType);
-        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
         for (var current = sourceType; current != null; current = current.BaseType)
         {
-            if (Accessors.TryGetValue((current, memberName), out accessor!))
+            if (Accessors.TryGetValue((current, segment), out accessor!))
                 return true;
         }
 
@@ -58,7 +175,7 @@ public static class BindingMemberAccessorRegistry
                 string.CompareOrdinal(left.FullName, right.FullName));
         for (var index = 0; index < interfaces.Length; index++)
         {
-            if (Accessors.TryGetValue((interfaces[index], memberName), out accessor!))
+            if (Accessors.TryGetValue((interfaces[index], segment), out accessor!))
                 return true;
         }
 
@@ -72,9 +189,11 @@ public static class BindingMemberAccessorRegistry
         private readonly Action<TSource, TValue>? _setter;
 
         public BindingMemberAccessor(
+            BindingPathSegment segment,
             Func<TSource, TValue> getter,
             Action<TSource, TValue>? setter)
         {
+            Segment = segment;
             _getter = getter;
             _setter = setter;
         }
@@ -82,6 +201,7 @@ public static class BindingMemberAccessorRegistry
         public Type SourceType => typeof(TSource);
         public Type ValueType => typeof(TValue);
         public bool CanWrite => _setter != null;
+        public BindingPathSegment Segment { get; }
 
         public object? GetValue(object source) => _getter((TSource)source);
 
@@ -92,6 +212,83 @@ public static class BindingMemberAccessorRegistry
                     $"Binding member on '{typeof(TSource).FullName}' is read-only.");
             var converted = XamlValueConverter.ConvertTo(typeof(TValue), value);
             _setter((TSource)source, (TValue)converted!);
+        }
+
+        public Action? Subscribe(object source, Action changed)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(changed);
+            if (source is not INotifyPropertyChanged notifier) return null;
+            PropertyChangedEventHandler handler = (_, args) =>
+            {
+                if (string.IsNullOrEmpty(args.PropertyName) ||
+                    string.Equals(
+                        args.PropertyName,
+                        Segment.Text,
+                        StringComparison.Ordinal))
+                    changed();
+            };
+            notifier.PropertyChanged += handler;
+            return () => notifier.PropertyChanged -= handler;
+        }
+    }
+
+    private sealed class BindingIndexerAccessor<TSource, TValue> :
+        IBindingMemberAccessor
+    {
+        private readonly Func<TSource, TValue> _getter;
+        private readonly Action<TSource, TValue>? _setter;
+
+        public BindingIndexerAccessor(
+            BindingPathSegment segment,
+            Func<TSource, TValue> getter,
+            Action<TSource, TValue>? setter)
+        {
+            Segment = segment;
+            _getter = getter;
+            _setter = setter;
+        }
+
+        public Type SourceType => typeof(TSource);
+        public Type ValueType => typeof(TValue);
+        public bool CanWrite => _setter != null;
+        public BindingPathSegment Segment { get; }
+
+        public object? GetValue(object source) => _getter((TSource)source);
+
+        public void SetValue(object source, object? value)
+        {
+            if (_setter == null)
+                throw new InvalidOperationException(
+                    $"Binding indexer on '{typeof(TSource).FullName}' is read-only.");
+            var converted = XamlValueConverter.ConvertTo(typeof(TValue), value);
+            _setter((TSource)source, (TValue)converted!);
+        }
+
+        public Action? Subscribe(object source, Action changed)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(changed);
+            if (source is INotifyCollectionChanged collection)
+            {
+                NotifyCollectionChangedEventHandler collectionHandler =
+                    (_, _) => changed();
+                collection.CollectionChanged += collectionHandler;
+                return () => collection.CollectionChanged -= collectionHandler;
+            }
+            if (source is not INotifyPropertyChanged notifier) return null;
+            PropertyChangedEventHandler propertyHandler = (_, args) =>
+            {
+                if (string.IsNullOrEmpty(args.PropertyName) ||
+                    string.Equals(args.PropertyName, "Item[]", StringComparison.Ordinal) ||
+                    string.Equals(
+                        args.PropertyName,
+                        Segment.ToString(),
+                        StringComparison.Ordinal))
+                    changed();
+            };
+            notifier.PropertyChanged += propertyHandler;
+            return () => notifier.PropertyChanged -= propertyHandler;
         }
     }
 }
@@ -116,6 +313,7 @@ public sealed class BindingExpression : IDisposable
     private readonly DependencyProperty _targetProperty;
     private readonly object? _context;
     private readonly object? _lookupRoot;
+    private readonly IReadOnlyList<BindingPathSegment> _pathSegments;
     private readonly List<Action> _sourceUnsubscribe = new();
     private long _targetCallbackToken;
     private bool _updating;
@@ -132,6 +330,7 @@ public sealed class BindingExpression : IDisposable
         Binding binding,
         object? context,
         object? lookupRoot,
+        IReadOnlyList<BindingPathSegment>? pathSegments = null,
         bool initialize = true)
     {
         _target = target;
@@ -139,6 +338,7 @@ public sealed class BindingExpression : IDisposable
         ParentBinding = binding;
         _context = context;
         _lookupRoot = lookupRoot;
+        _pathSegments = pathSegments ?? CreateLegacyMemberPath(binding.Path);
         Status = BindingExpressionStatus.Inactive;
 
         if (initialize)
@@ -321,20 +521,22 @@ public sealed class BindingExpression : IDisposable
             return current != null;
         }
 
-        var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        for (var index = 0; index < segments.Length; index++)
+        for (var index = 0; index < _pathSegments.Count; index++)
         {
+            var segment = _pathSegments[index];
             if (current == null)
             {
                 value = null;
-                Error = $"Binding path '{path}' reached null before '{segments[index]}'.";
+                Error = $"Binding path '{path}' reached null before '{segment}'.";
                 return false;
             }
 
-            var segment = segments[index].Trim();
-            var isLeaf = index == segments.Length - 1;
-            if (current is DependencyObject dependencySource &&
-                DependencyProperty.Lookup(dependencySource.GetType(), segment) is { } property)
+            var isLeaf = index == _pathSegments.Count - 1;
+            if (segment.Kind == BindingPathSegmentKind.Member &&
+                current is DependencyObject dependencySource &&
+                DependencyProperty.Lookup(
+                    dependencySource.GetType(),
+                    segment.Text!) is { } property)
             {
                 if (subscribe)
                 {
@@ -360,20 +562,12 @@ public sealed class BindingExpression : IDisposable
             {
                 value = null;
                 Error =
-                    $"No typed binding accessor is registered for '{current.GetType().FullName}.{segment}'.";
+                    $"No typed binding accessor is registered for " +
+                    $"'{current.GetType().FullName}.{segment}'.";
                 return false;
             }
-            if (subscribe && current is INotifyPropertyChanged notifier)
-            {
-                PropertyChangedEventHandler handler = (_, args) =>
-                {
-                    if (string.IsNullOrEmpty(args.PropertyName) ||
-                        string.Equals(args.PropertyName, segment, StringComparison.Ordinal))
-                        UpdateTarget();
-                };
-                notifier.PropertyChanged += handler;
-                _sourceUnsubscribe.Add(() => notifier.PropertyChanged -= handler);
-            }
+            if (subscribe && accessor.Subscribe(current, UpdateTarget) is { } unsubscribe)
+                _sourceUnsubscribe.Add(unsubscribe);
             if (isLeaf)
             {
                 _leafSource = current;
@@ -384,6 +578,22 @@ public sealed class BindingExpression : IDisposable
 
         value = current;
         return true;
+    }
+
+    private static IReadOnlyList<BindingPathSegment> CreateLegacyMemberPath(
+        string? path)
+    {
+        path = path?.Trim();
+        if (string.IsNullOrEmpty(path) || path == ".")
+            return Array.Empty<BindingPathSegment>();
+        var names = path.Split(
+            '.',
+            StringSplitOptions.RemoveEmptyEntries |
+            StringSplitOptions.TrimEntries);
+        var result = new BindingPathSegment[names.Length];
+        for (var index = 0; index < names.Length; index++)
+            result[index] = BindingPathSegment.Member(names[index]);
+        return result;
     }
 
     private object? ResolveSource(bool subscribe)

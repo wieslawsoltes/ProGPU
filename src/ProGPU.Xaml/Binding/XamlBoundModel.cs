@@ -318,29 +318,48 @@ public sealed class XamlCompiledBindingFunction
     public bool IsStatic => Method.IsStatic;
 }
 
-/// <summary>
-/// One canonical CLR member required by a typed ordinary-binding path. Unlike compiled-binding
-/// executable segments, this descriptor authorizes publication into a framework accessor
-/// registry while ordinary binding retains its runtime path semantics.
-/// </summary>
-public sealed class XamlBindingMemberAccessor
+public enum XamlBindingPathAccessorKind
 {
-    public XamlBindingMemberAccessor(
+    Member,
+    IntegerIndexer,
+    StringIndexer
+}
+
+/// <summary>
+/// One canonical CLR member or constant indexer required by a typed ordinary-binding path.
+/// Unlike compiled-binding executable segments, this descriptor authorizes publication into a
+/// framework accessor registry while ordinary binding retains its runtime source semantics.
+/// </summary>
+public sealed class XamlBindingPathAccessor
+{
+    public XamlBindingPathAccessor(
+        XamlBindingPathAccessorKind kind,
         ISymbol member,
         ITypeSymbol sourceType,
         ITypeSymbol valueType,
-        bool canWrite)
+        bool canWrite,
+        int integerIndex = 0,
+        string? stringIndex = null)
     {
+        if (kind == XamlBindingPathAccessorKind.StringIndexer &&
+            stringIndex == null)
+            throw new ArgumentNullException(nameof(stringIndex));
         Member = member ?? throw new ArgumentNullException(nameof(member));
+        Kind = kind;
         SourceType = sourceType ?? throw new ArgumentNullException(nameof(sourceType));
         ValueType = valueType ?? throw new ArgumentNullException(nameof(valueType));
         CanWrite = canWrite;
+        IntegerIndex = integerIndex;
+        StringIndex = stringIndex;
     }
 
+    public XamlBindingPathAccessorKind Kind { get; }
     public ISymbol Member { get; }
     public ITypeSymbol SourceType { get; }
     public ITypeSymbol ValueType { get; }
     public bool CanWrite { get; }
+    public int IntegerIndex { get; }
+    public string? StringIndex { get; }
 }
 
 public enum XamlBindingSourceKind
@@ -364,7 +383,7 @@ public sealed class XamlBoundBinding : XamlBoundValue
         XamlBindingSourceKind sourceKind,
         string path,
         XamlBindingPathSyntax? pathSyntax,
-        ImmutableArray<XamlBindingMemberAccessor> accessors,
+        ImmutableArray<XamlBindingPathAccessor> accessors,
         TextSpan sourceSpan,
         ulong stableId)
         : base(sourceSpan, stableId)
@@ -375,7 +394,7 @@ public sealed class XamlBoundBinding : XamlBoundValue
         Path = path ?? string.Empty;
         PathSyntax = pathSyntax;
         Accessors = accessors.IsDefault
-            ? ImmutableArray<XamlBindingMemberAccessor>.Empty
+            ? ImmutableArray<XamlBindingPathAccessor>.Empty
             : accessors;
     }
 
@@ -384,7 +403,7 @@ public sealed class XamlBoundBinding : XamlBoundValue
     public XamlBindingSourceKind SourceKind { get; }
     public string Path { get; }
     public XamlBindingPathSyntax? PathSyntax { get; }
-    public ImmutableArray<XamlBindingMemberAccessor> Accessors { get; }
+    public ImmutableArray<XamlBindingPathAccessor> Accessors { get; }
 }
 
 /// <summary>

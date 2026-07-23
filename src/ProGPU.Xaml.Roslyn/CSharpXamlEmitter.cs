@@ -1036,17 +1036,40 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                             }
                             if (value is XamlIrBinding binding)
                             {
-                                if (_framework is IRoslynXamlMarkupExtensionAssignmentProfile ordinaryBindingAssignments &&
-                                    ordinaryBindingAssignments.TryCreateMarkupExtensionAssignment(
-                                        binding.Extension,
+                                StatementSyntax ordinaryBindingStatement =
+                                    SyntaxFactory.EmptyStatement();
+                                var bindingUsesDeferredLifetime = false;
+                                var handled =
+                                    _framework is IRoslynXamlOrdinaryBindingAssignmentProfile
+                                        canonicalBindingAssignments &&
+                                    canonicalBindingAssignments.TryCreateBindingAssignment(
+                                        binding,
                                         setMember,
                                         ownerExpression,
                                         _contextExpression,
                                         _contextType,
                                         _lookupRootExpression,
                                         _deferredLifetimeOwnerExpression,
-                                        out var ordinaryBindingStatement,
-                                        out var bindingUsesDeferredLifetime))
+                                        out ordinaryBindingStatement,
+                                        out bindingUsesDeferredLifetime);
+                                if (!handled &&
+                                    _framework is IRoslynXamlMarkupExtensionAssignmentProfile
+                                        ordinaryBindingAssignments)
+                                {
+                                    handled =
+                                        ordinaryBindingAssignments
+                                            .TryCreateMarkupExtensionAssignment(
+                                                binding.Extension,
+                                                setMember,
+                                                ownerExpression,
+                                                _contextExpression,
+                                                _contextType,
+                                                _lookupRootExpression,
+                                                _deferredLifetimeOwnerExpression,
+                                                out ordinaryBindingStatement,
+                                                out bindingUsesDeferredLifetime);
+                                }
+                                if (handled)
                                 {
                                     if (bindingUsesDeferredLifetime)
                                         _hasDeferredLifetimeRegistrations = true;
@@ -1356,7 +1379,17 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     accessor.SourceType.ToDisplayString(
                         SymbolDisplayFormat.FullyQualifiedFormat) +
                     "\0" +
-                    accessor.Member.MetadataName +
+                    accessor.Kind.ToString() +
+                    "\0" +
+                    (accessor.Kind switch
+                    {
+                        XamlBindingPathAccessorKind.IntegerIndexer =>
+                            accessor.IntegerIndex.ToString(
+                                CultureInfo.InvariantCulture),
+                        XamlBindingPathAccessorKind.StringIndexer =>
+                            accessor.StringIndex,
+                        _ => accessor.Member.MetadataName
+                    }) +
                     "\0" +
                     accessor.ValueType.ToDisplayString(
                         SymbolDisplayFormat.FullyQualifiedFormat);

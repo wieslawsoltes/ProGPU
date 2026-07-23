@@ -124,6 +124,24 @@ public interface IRoslynXamlMarkupExtensionAssignmentProfile
 }
 
 /// <summary>
+/// Structured lowering for canonical ordinary bindings. The profile receives the bound path
+/// and its original runtime descriptor so it can publish a framework-native pre-tokenized plan.
+/// </summary>
+public interface IRoslynXamlOrdinaryBindingAssignmentProfile
+{
+    bool TryCreateBindingAssignment(
+        XamlIrBinding binding,
+        XamlMemberInfo member,
+        ExpressionSyntax receiver,
+        ExpressionSyntax? context,
+        XamlTypeInfo? contextType,
+        ExpressionSyntax lookupRoot,
+        ExpressionSyntax? deferredLifetimeOwner,
+        out StatementSyntax statement,
+        out bool usesDeferredLifetime);
+}
+
+/// <summary>
 /// Optional structured lifecycle shared by markup-extension assignments emitted inside one
 /// deferred-factory invocation. The compiler core owns aggregation and ordering; the framework
 /// profile owns creation and publication of its per-materialization registration owner.
@@ -148,7 +166,7 @@ public interface IRoslynXamlDeferredMarkupExtensionLifecycleProfile
 public interface IRoslynXamlBindingAccessorRegistrationProfile
 {
     bool TryCreateBindingAccessorRegistration(
-        XamlBindingMemberAccessor accessor,
+        XamlBindingPathAccessor accessor,
         out StatementSyntax statement);
 }
 
@@ -357,7 +375,7 @@ public interface IRoslynXamlMarkupExtensionReceiverProfile
         out StatementSyntax statement);
 }
 
-public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy
+public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy
 {
     private static readonly string[] Extensions = { ".xaml" };
     private static readonly string[] PresentationNamespaces =
@@ -1285,16 +1303,118 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
         return true;
     }
 
+    public bool TryCreateBindingAssignment(
+        XamlIrBinding binding,
+        XamlMemberInfo member,
+        ExpressionSyntax receiver,
+        ExpressionSyntax? context,
+        XamlTypeInfo? contextType,
+        ExpressionSyntax lookupRoot,
+        ExpressionSyntax? deferredLifetimeOwner,
+        out StatementSyntax statement,
+        out bool usesDeferredLifetime)
+    {
+        statement = SyntaxFactory.EmptyStatement();
+        usesDeferredLifetime = false;
+        if (!IsDependencyObject(member.DeclaringType.Symbol))
+            return false;
+        if (binding.Binding.PathSyntax != null &&
+            binding.Binding.Accessors.Length !=
+            binding.Binding.PathSyntax.Steps.Length)
+            return false;
+        if (!TryCreateBindingExpression(
+                binding.Extension,
+                lookupRoot,
+                out var descriptor))
+            return false;
+
+        var setBinding = SyntaxFactory.MemberAccessExpression(
+            SyntaxKind.SimpleMemberAccessExpression,
+            (ExpressionSyntax)RoslynTypeSyntaxFactory.CreateGlobalName(
+                "Microsoft", "UI", "Xaml", "Data", "BindingOperations"),
+            SyntaxFactory.IdentifierName("SetBindingWithPath"));
+        var path = CreateOrdinaryBindingPath(binding.Binding.Accessors);
+        var arguments = deferredLifetimeOwner == null
+            ? Arguments(
+                receiver,
+                StringLiteral(member.Name),
+                descriptor,
+                path,
+                context ?? SyntaxFactory.LiteralExpression(
+                    SyntaxKind.NullLiteralExpression),
+                lookupRoot)
+            : Arguments(
+                receiver,
+                StringLiteral(member.Name),
+                descriptor,
+                path,
+                context ?? SyntaxFactory.LiteralExpression(
+                    SyntaxKind.NullLiteralExpression),
+                lookupRoot,
+                deferredLifetimeOwner);
+        statement = SyntaxFactory.ExpressionStatement(
+            SyntaxFactory.InvocationExpression(setBinding)
+                .WithArgumentList(arguments));
+        usesDeferredLifetime = context != null;
+        return true;
+    }
+
+    private static ExpressionSyntax CreateOrdinaryBindingPath(
+        ImmutableArray<XamlBindingPathAccessor> accessors)
+    {
+        var segmentType = SyntaxFactory.QualifiedName(
+            RoslynTypeSyntaxFactory.CreateGlobalName(
+                "Microsoft", "UI", "Xaml", "Data"),
+            SyntaxFactory.IdentifierName("BindingPathSegment"));
+        var elements = new List<ExpressionSyntax>(accessors.Length);
+        foreach (var accessor in accessors)
+        {
+            var factoryName = accessor.Kind ==
+                XamlBindingPathAccessorKind.Member
+                    ? "Member"
+                    : "Indexer";
+            ExpressionSyntax value = accessor.Kind switch
+            {
+                XamlBindingPathAccessorKind.IntegerIndexer =>
+                    SyntaxFactory.LiteralExpression(
+                        SyntaxKind.NumericLiteralExpression,
+                        SyntaxFactory.Literal(accessor.IntegerIndex)),
+                XamlBindingPathAccessorKind.StringIndexer =>
+                    StringLiteral(accessor.StringIndex!),
+                _ => StringLiteral(accessor.Member.Name)
+            };
+            elements.Add(
+                SyntaxFactory.InvocationExpression(
+                        SyntaxFactory.MemberAccessExpression(
+                            SyntaxKind.SimpleMemberAccessExpression,
+                            segmentType,
+                            SyntaxFactory.IdentifierName(factoryName)))
+                    .WithArgumentList(Arguments(value)));
+        }
+
+        return SyntaxFactory.ArrayCreationExpression(
+                SyntaxFactory.ArrayType(segmentType)
+                    .WithRankSpecifiers(
+                        SyntaxFactory.SingletonList(
+                            SyntaxFactory.ArrayRankSpecifier(
+                                SyntaxFactory.SingletonSeparatedList<
+                                    ExpressionSyntax>(
+                                    SyntaxFactory.OmittedArraySizeExpression())))))
+            .WithInitializer(
+                SyntaxFactory.InitializerExpression(
+                    SyntaxKind.ArrayInitializerExpression,
+                    SyntaxFactory.SeparatedList(elements)));
+    }
+
     public bool TryCreateBindingAccessorRegistration(
-        XamlBindingMemberAccessor accessor,
+        XamlBindingPathAccessor accessor,
         out StatementSyntax statement)
     {
         var source = SyntaxFactory.IdentifierName("source");
         var value = SyntaxFactory.IdentifierName("value");
-        var member = SyntaxFactory.MemberAccessExpression(
-            SyntaxKind.SimpleMemberAccessExpression,
-            source,
-            SyntaxFactory.IdentifierName(EscapeIdentifier(accessor.Member.Name)));
+        var member = CreateOrdinaryBindingAccessorAccess(
+            accessor,
+            source);
         var getter = SyntaxFactory.ParenthesizedLambdaExpression()
             .WithModifiers(
                 SyntaxFactory.TokenList(
@@ -1334,7 +1454,10 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
             (ExpressionSyntax)RoslynTypeSyntaxFactory.CreateGlobalName(
                 "Microsoft", "UI", "Xaml", "Data",
                 "BindingMemberAccessorRegistry"),
-            SyntaxFactory.GenericName("Register")
+            SyntaxFactory.GenericName(
+                    accessor.Kind == XamlBindingPathAccessorKind.Member
+                        ? "Register"
+                        : "RegisterIndexer")
                 .WithTypeArgumentList(
                     SyntaxFactory.TypeArgumentList(
                         SyntaxFactory.SeparatedList(
@@ -1345,14 +1468,59 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
                                 RoslynTypeSyntaxFactory.Create(
                                     accessor.ValueType)
                             }))));
+        ExpressionSyntax key = accessor.Kind switch
+        {
+            XamlBindingPathAccessorKind.IntegerIndexer =>
+                SyntaxFactory.LiteralExpression(
+                    SyntaxKind.NumericLiteralExpression,
+                    SyntaxFactory.Literal(accessor.IntegerIndex)),
+            XamlBindingPathAccessorKind.StringIndexer =>
+                StringLiteral(accessor.StringIndex!),
+            _ => StringLiteral(accessor.Member.Name)
+        };
         statement = SyntaxFactory.ExpressionStatement(
             SyntaxFactory.InvocationExpression(register)
                 .WithArgumentList(
                     Arguments(
-                        StringLiteral(accessor.Member.Name),
+                        key,
                         getter,
                         setter)));
         return true;
+    }
+
+    private static ExpressionSyntax CreateOrdinaryBindingAccessorAccess(
+        XamlBindingPathAccessor accessor,
+        ExpressionSyntax source)
+    {
+        if (accessor.Kind == XamlBindingPathAccessorKind.Member)
+        {
+            return SyntaxFactory.MemberAccessExpression(
+                SyntaxKind.SimpleMemberAccessExpression,
+                source,
+                SyntaxFactory.IdentifierName(
+                    EscapeIdentifier(accessor.Member.Name)));
+        }
+
+        ExpressionSyntax receiver = source;
+        if (accessor.Member.ContainingType != null)
+        {
+            receiver = SyntaxFactory.ParenthesizedExpression(
+                SyntaxFactory.CastExpression(
+                    RoslynTypeSyntaxFactory.Create(
+                        accessor.Member.ContainingType),
+                    source));
+        }
+        ExpressionSyntax key = accessor.Kind ==
+            XamlBindingPathAccessorKind.IntegerIndexer
+                ? SyntaxFactory.LiteralExpression(
+                    SyntaxKind.NumericLiteralExpression,
+                    SyntaxFactory.Literal(accessor.IntegerIndex))
+                : StringLiteral(accessor.StringIndex!);
+        return SyntaxFactory.ElementAccessExpression(receiver)
+            .WithArgumentList(
+                SyntaxFactory.BracketedArgumentList(
+                    SyntaxFactory.SingletonSeparatedList(
+                        SyntaxFactory.Argument(key))));
     }
 
     public bool TryCreateCompiledBindingAssignment(

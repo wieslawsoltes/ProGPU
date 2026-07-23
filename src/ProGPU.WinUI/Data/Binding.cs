@@ -104,7 +104,60 @@ public static class BindingOperations
         Binding binding,
         object? context = null,
         object? lookupRoot = null,
+        IXamlTemplateLifetime? lifetime = null) =>
+        SetBindingCore(
+            target,
+            targetProperty,
+            binding,
+            pathSegments: null,
+            context,
+            lookupRoot,
+            lifetime);
+
+    /// <summary>
+    /// Activates generated ordinary binding using compiler-owned immutable path steps. The
+    /// runtime consumes the steps directly and does not tokenize or reinterpret generated text.
+    /// </summary>
+    public static BindingExpression SetBindingWithPath(
+        DependencyObject target,
+        string targetPropertyName,
+        Binding binding,
+        IReadOnlyList<BindingPathSegment> pathSegments,
+        object? context = null,
+        object? lookupRoot = null,
         IXamlTemplateLifetime? lifetime = null)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentException.ThrowIfNullOrEmpty(targetPropertyName);
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(pathSegments);
+
+        var targetProperty = DependencyProperty.Lookup(
+            target.GetType(),
+            targetPropertyName);
+        if (targetProperty == null)
+            throw new InvalidOperationException(
+                $"Dependency property '{targetPropertyName}' was not registered for " +
+                $"'{target.GetType().FullName}'.");
+
+        return SetBindingCore(
+            target,
+            targetProperty,
+            binding,
+            pathSegments,
+            context,
+            lookupRoot,
+            lifetime);
+    }
+
+    private static BindingExpression SetBindingCore(
+        DependencyObject target,
+        DependencyProperty targetProperty,
+        Binding binding,
+        IReadOnlyList<BindingPathSegment>? pathSegments,
+        object? context,
+        object? lookupRoot,
+        IXamlTemplateLifetime? lifetime)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(targetProperty);
@@ -124,6 +177,7 @@ public static class BindingOperations
             binding,
             context,
             lookupRoot,
+            pathSegments,
             initialize: lifetimeStore == null || !lifetimeStore.DeferInitialization);
         store.Expressions.Add(targetProperty, expression);
         if (lifetimeStore != null)

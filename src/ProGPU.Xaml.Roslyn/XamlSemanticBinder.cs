@@ -905,18 +905,22 @@ public sealed class XamlSemanticBinder
                 source.Kind,
                 path,
                 syntax,
-                ImmutableArray<XamlBindingMemberAccessor>.Empty,
+                ImmutableArray<XamlBindingPathAccessor>.Empty,
                 extension.SourceSpan,
                 extension.StableId);
         }
 
         if (syntax.HasErrors ||
             syntax.Steps.Any(static step =>
-                step.Kind != XamlBindingPathStepKind.Member))
+                step.Kind is not (
+                    XamlBindingPathStepKind.Member or
+                    XamlBindingPathStepKind.IntegerIndexer or
+                    XamlBindingPathStepKind.StringIndexer)))
         {
             Error(
                 "PGXAML2130",
-                $"Typed ordinary-binding path '{path}' currently requires a dotted CLR member path.",
+                $"Typed ordinary-binding path '{path}' currently requires CLR members and " +
+                "constant integer or string indexers.",
                 extension.SourceSpan,
                 "EXT-004");
             return new XamlBoundBinding(
@@ -925,17 +929,51 @@ public sealed class XamlSemanticBinder
                 source.Kind,
                 path,
                 syntax,
-                ImmutableArray<XamlBindingMemberAccessor>.Empty,
+                ImmutableArray<XamlBindingPathAccessor>.Empty,
                 extension.SourceSpan,
                 extension.StableId);
         }
 
-        var accessors = ImmutableArray.CreateBuilder<XamlBindingMemberAccessor>(
+        var accessors = ImmutableArray.CreateBuilder<XamlBindingPathAccessor>(
             syntax.Steps.Length);
         var currentType = sourceType.Symbol;
         for (var index = 0; index < syntax.Steps.Length; index++)
         {
-            var memberName = syntax.Steps[index].ValueToken.Text;
+            var step = syntax.Steps[index];
+            if (step.Kind is
+                XamlBindingPathStepKind.IntegerIndexer or
+                XamlBindingPathStepKind.StringIndexer)
+            {
+                var indexer = ResolveCompiledBindingIndexer(
+                    currentType,
+                    step.Kind);
+                if (indexer == null)
+                {
+                    Error(
+                        "PGXAML2132",
+                        $"Typed ordinary-binding indexer '{step.ValueToken.Text}' was not found " +
+                        $"uniquely on '{currentType.ToDisplayString()}'.",
+                        extension.SourceSpan,
+                        "EXT-004");
+                    break;
+                }
+
+                accessors.Add(new XamlBindingPathAccessor(
+                    step.Kind == XamlBindingPathStepKind.IntegerIndexer
+                        ? XamlBindingPathAccessorKind.IntegerIndexer
+                        : XamlBindingPathAccessorKind.StringIndexer,
+                    indexer,
+                    currentType,
+                    indexer.Type,
+                    indexer.SetMethod != null &&
+                    IsAccessibleFromGeneratedClass(indexer.SetMethod),
+                    step.IntegerValue,
+                    step.StringValue));
+                currentType = indexer.Type;
+                continue;
+            }
+
+            var memberName = step.ValueToken.Text;
             var member = ResolveCompiledBindingMember(currentType, memberName);
             if (member == null)
             {
@@ -962,7 +1000,8 @@ public sealed class XamlSemanticBinder
                 valueType = field.Type;
                 canWrite = !field.IsReadOnly && !field.IsConst;
             }
-            accessors.Add(new XamlBindingMemberAccessor(
+            accessors.Add(new XamlBindingPathAccessor(
+                XamlBindingPathAccessorKind.Member,
                 member,
                 currentType,
                 valueType,

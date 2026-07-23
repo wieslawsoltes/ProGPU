@@ -1121,6 +1121,19 @@ namespace Microsoft.UI.Xaml.Data {
       string memberName,
       System.Func<TSource, TValue> getter,
       System.Action<TSource, TValue>? setter = null) { }
+    public static void RegisterIndexer<TSource, TValue>(
+      int index,
+      System.Func<TSource, TValue> getter,
+      System.Action<TSource, TValue>? setter = null) { }
+    public static void RegisterIndexer<TSource, TValue>(
+      string key,
+      System.Func<TSource, TValue> getter,
+      System.Action<TSource, TValue>? setter = null) { }
+  }
+  public readonly struct BindingPathSegment {
+    public static BindingPathSegment Member(string memberName) => default;
+    public static BindingPathSegment Indexer(int index) => default;
+    public static BindingPathSegment Indexer(string key) => default;
   }
   public sealed class TestBindingLifetime :
       Microsoft.UI.Xaml.Markup.IXamlTemplateLifetime {
@@ -1134,6 +1147,15 @@ namespace Microsoft.UI.Xaml.Data {
       Microsoft.UI.Xaml.DependencyObject target,
       string property,
       Binding binding,
+      object? context,
+      object? root,
+      Microsoft.UI.Xaml.Markup.IXamlTemplateLifetime lifetime) =>
+      new object();
+    public static object SetBindingWithPath(
+      Microsoft.UI.Xaml.DependencyObject target,
+      string property,
+      Binding binding,
+      System.Collections.Generic.IReadOnlyList<BindingPathSegment> path,
       object? context,
       object? root,
       Microsoft.UI.Xaml.Markup.IXamlTemplateLifetime lifetime) =>
@@ -1288,7 +1310,7 @@ namespace Demo {
                 Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>(),
             invocation => string.Equals(
                 invocation.Expression.ToString(),
-                "global::Microsoft.UI.Xaml.Data.BindingOperations.SetBinding",
+                "global::Microsoft.UI.Xaml.Data.BindingOperations.SetBindingWithPath",
                 StringComparison.Ordinal));
         var ordinaryAttach = Assert.Single(
             factory.DescendantNodes().OfType<
@@ -1296,10 +1318,10 @@ namespace Demo {
             invocation => invocation.Expression.ToString().EndsWith(
                 "XamlTemplateFactory.AttachLifetime",
                 StringComparison.Ordinal));
-        Assert.Equal(6, ordinarySet.ArgumentList.Arguments.Count);
+        Assert.Equal(7, ordinarySet.ArgumentList.Arguments.Count);
         Assert.Equal(
             "__templateLifetime",
-            ordinarySet.ArgumentList.Arguments[5].Expression.ToString());
+            ordinarySet.ArgumentList.Arguments[6].Expression.ToString());
         Assert.Equal(
             "__templateLifetime",
             ordinaryAttach.ArgumentList.Arguments[1].Expression.ToString());
