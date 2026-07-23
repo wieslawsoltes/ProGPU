@@ -83,6 +83,7 @@ This record lists public contracts and concepts consulted. It does not authorize
 ## Concepts adopted
 
 - additive incremental generation with deterministic per-unit outputs;
+- explicit compile-time analyzer facades over immutable versioned profile registries, reusing one catalog across semantic and emission stages instead of discovering executable plugins from directories or loaded assemblies;
 - an original immutable custom markup-language registry with trigger-indexed dispatch, explicit version/context/precedence/associativity/capability/conflict declarations, canonical AST projection, and parse-validated inverse formatting rather than framework parser forks;
 - an independent immutable Roslyn extension host with snapshotted version/priority/capability/conflict metadata, deterministic all-validator composition over one canonical enriched bound/resource snapshot, host-owned source-location materialization, ordered construction-IR transforms guarded by ownership/root invariants and a bounded iterative structural audit, canonical IR input, structured-syntax-only output, priority short-circuiting for expression selection, explicit structural coalescing, isolated diagnostics, and profile-package contribution through explicit immutable contracts rather than source-text generation, analyzer scanning, or reflection-based plugin discovery;
 - separate source discovery, parsing, semantic binding, cross-file graphing, per-unit emission, and shared emission;
