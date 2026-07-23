@@ -25,6 +25,18 @@ namespace ProGPU.Xaml.Roslyn;
 /// </summary>
 public sealed class CSharpXamlEmitter : IXamlCodeEmitter
 {
+    private readonly RoslynXamlExtensionHost _extensions;
+
+    public CSharpXamlEmitter()
+        : this(RoslynXamlExtensionHost.Empty)
+    {
+    }
+
+    public CSharpXamlEmitter(RoslynXamlExtensionHost extensions)
+    {
+        _extensions = extensions ?? throw new ArgumentNullException(nameof(extensions));
+    }
+
     public XamlCompilationResult Emit(
         XamlDocumentSyntax document,
         IXamlTypeSystem typeSystem,
@@ -183,7 +195,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             return new XamlCompilationResult(document, sources, diagnostics, buildMetadata);
         }
 
-        var context = new EmitContext(program, framework, options, diagnostics);
+        var context = new EmitContext(program, framework, _extensions, options, diagnostics);
         context.EmitExistingRoot(program.Root, SyntaxFactory.ThisExpression());
         var unformattedUnit = BuildCompilationUnit(namespaceName, typeName, context)
             .WithLeadingTrivia(
@@ -204,7 +216,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         return new XamlCompilationResult(document, sources, diagnostics, buildMetadata);
     }
 
-    private static XamlCompilationResult EmitCompiledResource(
+    private XamlCompilationResult EmitCompiledResource(
         XamlConstructionProgram program,
         IRoslynXamlFrameworkProfile framework,
         XamlCompilerOptions options,
@@ -230,7 +242,13 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         }
 
         var artifact = CreateCompiledResourceArtifact(options.ResourceUri ?? document.Path);
-        var context = new EmitContext(program, framework, options, diagnostics, isClassBacked: false);
+        var context = new EmitContext(
+            program,
+            framework,
+            _extensions,
+            options,
+            diagnostics,
+            isClassBacked: false);
         context.EmitExistingRoot(root, SyntaxFactory.IdentifierName("target"));
         if ((framework.Capabilities & XamlFrameworkCapabilities.Resources) == 0 ||
             framework is not IRoslynXamlCompiledResourceProfile resourceFramework ||
@@ -396,6 +414,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
     {
         private readonly XamlConstructionProgram _program;
         private readonly IRoslynXamlFrameworkProfile _framework;
+        private readonly RoslynXamlExtensionHost _extensions;
         private readonly List<Diagnostic> _diagnostics;
         private readonly string _checksum;
         private readonly bool _isClassBacked;
@@ -416,6 +435,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         public EmitContext(
             XamlConstructionProgram program,
             IRoslynXamlFrameworkProfile framework,
+            RoslynXamlExtensionHost extensions,
             XamlCompilerOptions options,
             List<Diagnostic> diagnostics,
             bool isClassBacked = true,
@@ -426,6 +446,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         {
             _program = program;
             _framework = framework;
+            _extensions = extensions;
             Options = options;
             _diagnostics = diagnostics;
             _checksum = ToHex(program.BoundDocument.Infoset.SourceText.GetChecksum());
@@ -620,16 +641,48 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             }
 
             var objectValue = valueObject ?? (XamlIrObject)value;
-            if (_framework is IRoslynXamlObjectExpressionProfile objectExpressions &&
-                objectExpressions.TryCreateObjectExpression(
-                    objectValue,
-                    _lookupRootExpression,
-                    out var objectExpression))
-                return objectExpression;
             if (TryGetNameReference(objectValue, out var nameReference))
                 return ResolveNameReference(nameReference);
             if (objectValue.Kind == XamlIrObjectKind.InvokeMarkupExtension)
             {
+                var extensionResolution = _extensions.ResolveMarkupExtensionExpression(
+                    new RoslynXamlMarkupExtensionExpressionContext(
+                        objectValue,
+                        targetType,
+                        _lookupRootExpression,
+                        targetObject,
+                        targetMember,
+                        Options.ResourceUri));
+                if (extensionResolution.Kind == RoslynXamlExtensionResolutionKind.Handled)
+                {
+                    return AnnotateExpression(
+                        extensionResolution.Expression!,
+                        objectValue.SourceSpan,
+                        objectValue.StableId,
+                        member,
+                        XamlProjectionKind.Construction);
+                }
+                if (extensionResolution.Kind == RoslynXamlExtensionResolutionKind.Conflict)
+                {
+                    AddError(
+                        "PGXAML3050",
+                        extensionResolution.Message ??
+                        "Multiple Roslyn XAML extensions handled the same markup expression.",
+                        objectValue.SourceSpan,
+                        "EXT-004");
+                    return null;
+                }
+                if (extensionResolution.Kind == RoslynXamlExtensionResolutionKind.Error)
+                {
+                    AddError(
+                        "PGXAML3051",
+                        extensionResolution.Message ??
+                        "A Roslyn XAML extension failed while lowering a markup expression.",
+                        objectValue.SourceSpan,
+                        "EXT-004");
+                    return null;
+                }
+
                 if (objectValue.Type.Symbol?.MarkupExtensionOptionSelector is { IsValid: true } selector &&
                     _framework is IRoslynXamlMarkupExtensionOptionProfile optionProfile &&
                     optionProfile.TryCreateMarkupExtensionOptionExpression(
@@ -677,6 +730,12 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     objectValue.SourceSpan, "8.6.7.2");
                 return null;
             }
+            if (_framework is IRoslynXamlObjectExpressionProfile objectExpressions &&
+                objectExpressions.TryCreateObjectExpression(
+                    objectValue,
+                    _lookupRootExpression,
+                    out var objectExpression))
+                return objectExpression;
             if (objectValue.Kind == XamlIrObjectKind.CreateArray)
                 return EmitArray(objectValue);
             if (objectValue.Kind == XamlIrObjectKind.InitializeFromText)
@@ -1321,6 +1380,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             var nested = new EmitContext(
                 _program,
                 _framework,
+                _extensions,
                 Options,
                 _diagnostics,
                 isClassBacked: false,

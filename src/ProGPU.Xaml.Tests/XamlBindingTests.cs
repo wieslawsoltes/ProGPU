@@ -484,6 +484,10 @@ namespace Demo {
     public string? Path { get; set; }
     protected override object? ProvideValue() => this;
   }
+  public sealed class UpperExtension : Microsoft.UI.Xaml.Markup.MarkupExtension {
+    public string? Value { get; set; }
+    protected override object? ProvideValue() => Value;
+  }
   public static class BindingAttachedOwner {
     public static object? GetAssigned(BindingHost target) => null;
     [Avalonia.Data.AssignBinding]
@@ -9003,6 +9007,199 @@ namespace Demo {
             diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }
 
+    [Fact]
+    public void CustomMarkupLanguageFlowsThroughCanonicalIrIntoRoslynExtension()
+    {
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="@Customer.Name" />
+</Page>
+""";
+        var language = XamlMarkupLanguage.Create(
+            new IXamlMarkupSyntaxPlugin[] { new AtUpperSyntaxPlugin() });
+        var syntax = XamlParser.Parse(
+            SourceText.From(xaml),
+            "CustomMarkup.xaml",
+            new XamlParseOptions { Mode = XamlParseMode.Recovering }).Document;
+        var infoset = new XamlInfosetConverter().Convert(
+            syntax,
+            new XamlInfosetConversionOptions
+            {
+                Mode = XamlParseMode.Recovering,
+                MarkupOptions = new XamlMarkupParseOptions { SyntaxLanguage = language }
+            });
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        var host = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension(
+                    "test.binding-expression",
+                    priority: 10,
+                    emittedValue: "plugin-result")
+            });
+
+        var emitted = new CSharpXamlEmitter(host).Emit(
+            infoset,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var tree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        Assert.Contains(
+            tree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     token.ValueText == "plugin-result");
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(tree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void RoslynExtensionHostUsesPriorityAndCoalescesEquivalentStructuredSyntax()
+    {
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="{local:Upper Value=Customer.Name}" />
+</Page>
+""";
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        var priorityHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension("test.low", 10, "low"),
+                new TestMarkupExpressionExtension("test.high", 20, "high")
+            });
+
+        var priorityResult = new CSharpXamlEmitter(priorityHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+
+        Assert.DoesNotContain(
+            priorityResult.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var priorityTree = Assert.Single(priorityResult.Sources).GeneratedSyntaxTree!;
+        Assert.Contains(
+            priorityTree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     token.ValueText == "high");
+        Assert.DoesNotContain(
+            priorityTree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     token.ValueText == "low");
+
+        var coalescingHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension(
+                    "test.a",
+                    20,
+                    "same",
+                    RoslynXamlExtensionConflictPolicy.CoalesceEquivalent),
+                new TestMarkupExpressionExtension(
+                    "test.b",
+                    20,
+                    "same",
+                    RoslynXamlExtensionConflictPolicy.CoalesceEquivalent)
+            });
+        var coalesced = new CSharpXamlEmitter(coalescingHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+
+        Assert.DoesNotContain(
+            coalesced.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(Assert.Single(coalesced.Sources).GeneratedSyntaxTree!)
+                .GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void RoslynExtensionHostReportsConflictsAndPluginFailures()
+    {
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="{local:Upper Value=Customer.Name}" />
+</Page>
+""";
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        var conflictHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension("test.a", 20, "a"),
+                new TestMarkupExpressionExtension("test.b", 20, "b")
+            });
+        var conflict = new CSharpXamlEmitter(conflictHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+
+        Assert.Contains(conflict.Diagnostics, diagnostic => diagnostic.Id == "PGXAML3050");
+
+        var failingHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension(
+                    "test.throwing",
+                    20,
+                    "unused",
+                    throwOnInvoke: true)
+            });
+        var failure = new CSharpXamlEmitter(failingHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+
+        Assert.Contains(failure.Diagnostics, diagnostic => diagnostic.Id == "PGXAML3051");
+    }
+
+    [Fact]
+    public void RoslynExtensionRegistrationSnapshotsMetadataAndRejectsInvalidContracts()
+    {
+        var extension = new TestMarkupExpressionExtension("test.mutable", 10, "value");
+        var host = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[] { extension });
+
+        extension.Priority = 100;
+
+        Assert.Equal(RoslynXamlExtensionHost.CurrentContractVersion, host.ContractVersion);
+        Assert.Equal(10, Assert.Single(host.Extensions).Priority);
+        Assert.Throws<ArgumentException>(() => RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[] { extension, extension }));
+        Assert.Throws<ArgumentException>(() => RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestMarkupExpressionExtension(
+                    "test.wrong-contract",
+                    10,
+                    "value",
+                    contractVersion: RoslynXamlExtensionHost.CurrentContractVersion + 1)
+            }));
+        Assert.Throws<ArgumentException>(() => RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[] { new InvalidRoslynExtension() }));
+    }
+
     private static XamlInfosetDocument Convert(string source)
         => ConvertAt("Binding.xaml", source);
 
@@ -10107,6 +10304,117 @@ namespace Demo {
                 lookupRoot,
                 bindingOwner,
                 out statement);
+    }
+
+    private sealed class AtUpperSyntaxPlugin : IXamlMarkupSyntaxPlugin
+    {
+        public string Id => "test.at-upper";
+        public int ContractVersion => XamlMarkupLanguage.CurrentContractVersion;
+        public int Version => 1;
+        public int Priority => 10;
+        public XamlMarkupSyntaxContexts Contexts => XamlMarkupSyntaxContexts.AttributeValue;
+        public XamlMarkupSyntaxAssociativity Associativity =>
+            XamlMarkupSyntaxAssociativity.None;
+        public XamlMarkupSyntaxConflictPolicy ConflictPolicy =>
+            XamlMarkupSyntaxConflictPolicy.Diagnose;
+        public XamlMarkupSyntaxCapabilities Capabilities =>
+            XamlMarkupSyntaxCapabilities.Parse |
+            XamlMarkupSyntaxCapabilities.CanonicalProjection;
+        public IReadOnlyList<char> TriggerCharacters { get; } = new[] { '@' };
+        public IXamlMarkupTokenRecognizer? TokenRecognizer => null;
+
+        public XamlMarkupSyntaxPluginResult Parse(XamlMarkupSyntaxPluginContext context)
+        {
+            if (context.Span.Length < 2 || context.Source[context.Span.Start] != '@')
+                return XamlMarkupSyntaxPluginResult.NotRecognized;
+            var valueSpan = new TextSpan(context.Span.Start + 1, context.Span.Length - 1);
+            return XamlMarkupSyntaxPluginResult.Success(
+                new XamlMarkupExtension(
+                    "local:Upper",
+                    Array.Empty<XamlMarkupValue>(),
+                    new[]
+                    {
+                        new XamlMarkupNamedArgument(
+                            "Value",
+                            new XamlMarkupTextValue(
+                                context.Source.ToString(valueSpan),
+                                valueSpan),
+                            context.Span)
+                    },
+                    context.Span));
+        }
+
+        public bool TryFormat(XamlMarkupExtension extension, out string text)
+        {
+            text = string.Empty;
+            return false;
+        }
+    }
+
+    private sealed class TestMarkupExpressionExtension :
+        IRoslynXamlMarkupExtensionExpressionExtension
+    {
+        private readonly string _emittedValue;
+        private readonly bool _throwOnInvoke;
+
+        public TestMarkupExpressionExtension(
+            string id,
+            int priority,
+            string emittedValue,
+            RoslynXamlExtensionConflictPolicy conflictPolicy =
+                RoslynXamlExtensionConflictPolicy.Diagnose,
+            bool throwOnInvoke = false,
+            int contractVersion = RoslynXamlExtensionHost.CurrentContractVersion)
+        {
+            Id = id;
+            Priority = priority;
+            _emittedValue = emittedValue;
+            ConflictPolicy = conflictPolicy;
+            _throwOnInvoke = throwOnInvoke;
+            ContractVersion = contractVersion;
+        }
+
+        public string Id { get; }
+        public int ContractVersion { get; }
+        public int Version => 1;
+        public int Priority { get; set; }
+        public RoslynXamlExtensionCapabilities Capabilities =>
+            RoslynXamlExtensionCapabilities.MarkupExtensionExpression;
+        public RoslynXamlExtensionConflictPolicy ConflictPolicy { get; }
+
+        public bool TryCreateExpression(
+            RoslynXamlMarkupExtensionExpressionContext context,
+            out ExpressionSyntax expression)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            if (!string.Equals(
+                    context.Extension.Type.Symbol?.MetadataName,
+                    "Demo.UpperExtension",
+                    StringComparison.Ordinal) ||
+                !string.Equals(context.TargetMember?.Name, "Text", StringComparison.Ordinal))
+            {
+                expression = null!;
+                return false;
+            }
+            if (_throwOnInvoke)
+                throw new InvalidOperationException("Expected extension failure.");
+            expression = SyntaxFactory.LiteralExpression(
+                SyntaxKind.StringLiteralExpression,
+                SyntaxFactory.Literal(_emittedValue));
+            return true;
+        }
+    }
+
+    private sealed class InvalidRoslynExtension : IRoslynXamlExtension
+    {
+        public string Id => "test.invalid";
+        public int ContractVersion => RoslynXamlExtensionHost.CurrentContractVersion;
+        public int Version => 1;
+        public int Priority => 0;
+        public RoslynXamlExtensionCapabilities Capabilities =>
+            RoslynXamlExtensionCapabilities.MarkupExtensionExpression;
+        public RoslynXamlExtensionConflictPolicy ConflictPolicy =>
+            RoslynXamlExtensionConflictPolicy.Diagnose;
     }
 
     private static CSharpCompilation CreateCompilation() => CSharpCompilation.Create(
