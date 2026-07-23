@@ -81,57 +81,33 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
                         resourceInput.Manifest,
                         resourceInput.Input.LogicalPath);
                 var typeSystem = new RoslynXamlTypeSystem(input.Left.Right, profile!);
-                var buildMetadata = typeSystem.ResolveDocumentBuildMetadata(
-                    resourceInput.Input.Path,
-                    GetDirectiveText(resourceInput.Input.Infoset.Root, "Class"));
-                var resourceUri = buildMetadata.ResourceIdentity?.IsValid == true
-                    ? buildMetadata.ResourceIdentity.ResourceId!
-                    : resourceInput.Input.LogicalPath;
-                var rawManifest = string.Equals(
-                    resourceUri,
-                    resourceInput.Input.LogicalPath,
-                    StringComparison.Ordinal)
-                    ? resourceInput.Manifest
-                    : new XamlResourceDocumentManifestBuilder().Build(
-                        resourceInput.Input.Infoset,
-                        resourceUri);
-                var bound = new XamlSemanticBinder().Bind(
-                    resourceInput.Input.Infoset,
-                    typeSystem,
-                    new XamlSemanticBindingOptions { Strict = input.Right.Strict },
-                    cancellationToken);
-                if (profile is IRoslynXamlExtensionProvider extensionProvider)
+                try
                 {
-                    try
-                    {
-                        var extensionHost = extensionProvider.RoslynExtensionHost;
-                        if (extensionHost != null)
-                        {
-                            bound = extensionHost.ApplyBoundDocumentTransforms(
-                                new RoslynXamlBoundDocumentTransformContext(
-                                    bound,
-                                    typeSystem,
-                                    profile.Id,
-                                    resourceUri,
-                                    input.Right.Strict,
-                                    cancellationToken));
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch
-                    {
-                        // Final per-document emission owns provider-composition diagnostics.
-                        // Preserve the canonical binder result for dependency slicing here.
-                    }
+                    var semantic = new RoslynXamlSemanticManifestCompiler().Compile(
+                        resourceInput.Input.Infoset,
+                        typeSystem,
+                        profile!,
+                        resourceInput.Input.LogicalPath,
+                        input.Right.Strict,
+                        cancellationToken);
+                    return new SemanticResourceParsedXamlInput(
+                        resourceInput.Input,
+                        semantic.Manifest,
+                        semantic.ResourceUri);
                 }
-                var manifest = new XamlResourceSemanticManifestBuilder().Build(rawManifest, bound);
-                return new SemanticResourceParsedXamlInput(
-                    resourceInput.Input,
-                    manifest,
-                    resourceUri);
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Final per-document emission owns provider-composition diagnostics.
+                    // Preserve the compilation-independent manifest for dependency slicing.
+                    return new SemanticResourceParsedXamlInput(
+                        resourceInput.Input,
+                        resourceInput.Manifest,
+                        resourceInput.Input.LogicalPath);
+                }
             })
             .WithTrackingName("XamlSemanticResourceManifest");
         var resourceIndex = semanticResourceInputs.Select(static (input, _) => input.Manifest)
@@ -243,7 +219,9 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
         {
             context.AddSource(
                 result.Sources[index].HintName,
-                SourceText.From(result.Sources[index].Source, System.Text.Encoding.UTF8));
+                SourceText.From(
+                    result.Sources[index].Source,
+                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false)));
         }
     }
 
@@ -269,16 +247,6 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
             ? value
             : file.Path;
     }
-
-    private static string? GetDirectiveText(XamlInfosetObject? value, string name) =>
-        value?.Members.FirstOrDefault(member =>
-                member.Name.IsDirective &&
-                string.Equals(
-                    member.Name.NamespaceUri,
-                    XamlNamespaces.Language2006,
-                    StringComparison.Ordinal) &&
-                string.Equals(member.Name.LocalName, name, StringComparison.Ordinal))?
-            .Values.OfType<XamlInfosetText>().FirstOrDefault()?.Text;
 
     private sealed class XamlInput : IEquatable<XamlInput>
     {

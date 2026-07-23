@@ -9368,6 +9368,79 @@ namespace Demo {
     }
 
     [Fact]
+    public void SemanticManifestCompilerSharesBoundTransformsWithProjectHosts()
+    {
+        const string xaml = """
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:String x:Key="Before">Value</x:String>
+</ResourceDictionary>
+""";
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var host = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestBoundDocumentTransform(
+                    "test.semantic-manifest-transform",
+                    priority: 10,
+                    from: "Before",
+                    to: "After",
+                    expectedResourceUri: "Themes/Shared.xaml")
+            });
+        var infoset = ConvertAt("Themes/Shared.xaml", xaml);
+
+        var result = new RoslynXamlSemanticManifestCompiler(host).Compile(
+            infoset,
+            typeSystem,
+            profile,
+            "Themes/Shared.xaml",
+            strict: true);
+
+        Assert.Equal("Themes/Shared.xaml", result.ResourceUri);
+        var definition = Assert.Single(result.Manifest.Definitions);
+        Assert.Equal("After", definition.Key);
+        var key = Assert.Single(result.BoundDocument.Root!.Members
+            .SelectMany(member => member.Values)
+            .OfType<XamlBoundObject>()
+            .SelectMany(value => value.Members)
+            .Where(member => member.Member.RequestedName.LocalName == "Key")
+            .SelectMany(member => member.Values)
+            .OfType<XamlBoundText>());
+        Assert.Equal("After", key.Text);
+    }
+
+    [Fact]
+    public void WorkspaceHostRemovesOnlyPriorProGpuXamlGeneratorTrees()
+    {
+        var userTree = CSharpSyntaxTree.ParseText(
+            "namespace Demo { public partial class Page { } }",
+            path: "/project/Page.cs");
+        var generatedXamlTree = CSharpSyntaxTree.ParseText(
+            "namespace Demo { public partial class Page { public object Bindings => null!; } }",
+            path: "Demo_Page.1234.ProGPU.Xaml.g.cs");
+        var unrelatedGeneratedTree = CSharpSyntaxTree.ParseText(
+            "namespace Demo { public static class OtherGenerated { } }",
+            path: "/project/obj/Other.g.cs");
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            userTree,
+            generatedXamlTree,
+            unrelatedGeneratedTree);
+
+        var filtered =
+            RoslynXamlHostCompilation.WithoutGeneratedXamlTrees(compilation);
+
+        Assert.Contains(userTree, filtered.SyntaxTrees);
+        Assert.Contains(unrelatedGeneratedTree, filtered.SyntaxTrees);
+        Assert.DoesNotContain(generatedXamlTree, filtered.SyntaxTrees);
+        Assert.Same(
+            filtered,
+            RoslynXamlHostCompilation.WithoutGeneratedXamlTrees(filtered));
+    }
+
+    [Fact]
     public void BoundDocumentTransformFailuresAreBoundedAndCancellationPropagates()
     {
         const string xaml = """

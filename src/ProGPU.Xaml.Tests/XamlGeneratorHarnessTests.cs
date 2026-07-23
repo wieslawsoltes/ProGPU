@@ -751,6 +751,27 @@ namespace Demo { public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
             .ToArray();
         Assert.Contains("After", stringLiterals);
         Assert.DoesNotContain("Before", stringLiterals);
+
+        Assert.True(registry.TryCreate("PackageProfile", out var directProfile));
+        var directDocument = XamlParser.Parse(
+            SourceText.From(xaml),
+            "PackagePage.xaml").Document;
+        var directResult = new CSharpXamlEmitter().Emit(
+            directDocument,
+            new RoslynXamlTypeSystem(compilation, directProfile!),
+            directProfile!,
+            new XamlCompilerOptions
+            {
+                Framework = directProfile!.Id,
+                ResourceUri = "PackagePage.xaml",
+                Strict = true,
+                EmitHotReloadHooks = true,
+                EmitSourceComments = true
+            });
+        var directSource = Assert.Single(directResult.Sources);
+        Assert.Equal(directSource.Source, generated.SourceText.ToString());
+        Assert.NotNull(generated.SourceText.Encoding);
+        Assert.Empty(generated.SourceText.Encoding!.GetPreamble());
     }
 
     [Fact]

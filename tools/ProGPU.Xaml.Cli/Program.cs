@@ -1,6 +1,7 @@
 using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
+using Microsoft.CodeAnalysis.Text;
 using ProGPU.Xaml.Binding;
 using ProGPU.Xaml.Infoset;
 using ProGPU.Xaml.Lowering;
@@ -126,14 +127,23 @@ internal static class Program
         var project = await OpenProjectAsync(Path.GetFullPath(projectPath!));
         var compilation = await project.GetCompilationAsync() ??
             throw new InvalidOperationException("Roslyn did not produce a compilation for " + projectPath + ".");
+        compilation = RoslynXamlHostCompilation.WithoutGeneratedXamlTrees(
+            compilation);
         var syntax = ParseFile(file);
         var infoset = new XamlInfosetConverter().Convert(syntax);
         var profile = GetProfile(args);
-        var bound = new XamlSemanticBinder().Bind(
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var semantic = new RoslynXamlSemanticManifestCompiler().Compile(
             infoset,
-            new RoslynXamlTypeSystem(compilation, profile));
-        var resourceGraph = new XamlResourceGraphBuilder().Build(bound);
-        var program = new XamlConstructionLowerer().Lower(bound, resourceGraph);
+            typeSystem,
+            profile,
+            file,
+            strict: true);
+        var resourceGraph = new XamlResourceGraphBuilder().Build(
+            semantic.BoundDocument);
+        var program = new XamlConstructionLowerer().Lower(
+            semantic.BoundDocument,
+            resourceGraph);
         var diagnostics = program.Diagnostics
             .GroupBy(static diagnostic => diagnostic.ToString(), StringComparer.Ordinal)
             .Select(static group => group.First())
@@ -144,7 +154,7 @@ internal static class Program
             path = file,
             syntax = new { root = syntax.Root?.QualifiedName, elements = CountObjects(syntax.Root), tokens = syntax.SyntaxTree.Tokens.Length },
             infoset = DescribeInfoset(infoset.Root),
-            bound = DescribeBound(bound.Root),
+            bound = DescribeBound(semantic.BoundDocument.Root),
             resources = DescribeResources(resourceGraph),
             ir = DescribeIr(program.Root),
             diagnostics = ProjectDiagnostics(diagnostics)
@@ -208,8 +218,9 @@ internal static class Program
         IRoslynXamlFrameworkProfile profile,
         string? resourceRoot)
     {
+        compilation = RoslynXamlHostCompilation.WithoutGeneratedXamlTrees(
+            compilation);
         var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
-        var parser = new XamlXmlParser();
         var emitter = new CSharpXamlEmitter();
         var converter = new XamlInfosetConverter();
         var errors = 0;
@@ -217,28 +228,27 @@ internal static class Program
         var inputs = new List<object>();
         var parsedFiles = files.Select(file =>
         {
-            var syntax = parser.Parse(file, File.ReadAllText(file));
-            var infoset = converter.Convert(syntax);
+            var syntax = XamlParser.Parse(
+                SourceText.From(File.ReadAllText(file)),
+                file,
+                new XamlParseOptions { Mode = XamlParseMode.Strict }).Document;
+            var infoset = converter.Convert(
+                syntax,
+                new XamlInfosetConversionOptions { Mode = XamlParseMode.Strict });
             var hostResourceUri = resourceRoot == null
                 ? file
                 : Path.GetRelativePath(resourceRoot, file);
-            var buildMetadata = typeSystem.ResolveDocumentBuildMetadata(
-                file,
-                GetInfosetDirectiveText(infoset.Root, "Class"));
-            var resourceUri = buildMetadata.ResourceIdentity?.IsValid == true
-                ? buildMetadata.ResourceIdentity.ResourceId!
-                : hostResourceUri;
-            var rawManifest = new XamlResourceDocumentManifestBuilder().Build(infoset, resourceUri);
-            var bound = new XamlSemanticBinder().Bind(
+            var semantic = new RoslynXamlSemanticManifestCompiler().Compile(
                 infoset,
                 typeSystem,
-                new XamlSemanticBindingOptions { Strict = true });
-            var manifest = new XamlResourceSemanticManifestBuilder().Build(rawManifest, bound);
+                profile,
+                hostResourceUri,
+                strict: true);
             return (
                 File: file,
                 Infoset: infoset,
-                Manifest: manifest,
-                ResourceUri: resourceUri);
+                Manifest: semantic.Manifest,
+                ResourceUri: semantic.ResourceUri);
         }).ToArray();
         var resourceIndex = new XamlResourceProjectIndex(parsedFiles.Select(static input => input.Manifest));
 
@@ -253,7 +263,8 @@ internal static class Program
                 {
                     Framework = profile.Id,
                     ResourceUri = parsed.ResourceUri,
-                    ResourceDependencies = resourceIndex.GetDependencySlice(file)
+                    ResourceDependencies = resourceIndex.GetDependencySlice(file),
+                    Strict = true
                 });
             if (!json) PrintDiagnostics(result.Diagnostics);
             if (result.Diagnostics.Any(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
@@ -334,18 +345,6 @@ internal static class Program
         }
         return errors == 0 ? 0 : 1;
     }
-
-    private static string? GetInfosetDirectiveText(
-        XamlInfosetObject? value,
-        string name) =>
-        value?.Members.FirstOrDefault(member =>
-                member.Name.IsDirective &&
-                string.Equals(
-                    member.Name.NamespaceUri,
-                    XamlNamespaces.Language2006,
-                    StringComparison.Ordinal) &&
-                string.Equals(member.Name.LocalName, name, StringComparison.Ordinal))?
-            .Values.OfType<XamlInfosetText>().FirstOrDefault()?.Text;
 
     private static void WriteArtifactsTransactionally(
         string outputDirectory,
