@@ -59,9 +59,12 @@ public static class XamlResourceTypeEvidence
                     XamlResourceResolutionKind.ResolvedConditional))
                 return null;
 
-            IEnumerable<ulong> candidateIds = reference.DefinitionStableId.HasValue
-                ? new[] { reference.DefinitionStableId.Value }
-                : reference.CandidateDefinitionStableIds;
+            IEnumerable<ulong> candidateIds =
+                reference.Resolution == XamlResourceResolutionKind.ResolvedConditional
+                    ? reference.CandidateDefinitionStableIds
+                    : reference.DefinitionStableId.HasValue
+                        ? new[] { reference.DefinitionStableId.Value }
+                        : reference.CandidateDefinitionStableIds;
             XamlTypeInfo? commonType = null;
             var hasCandidate = false;
             foreach (var candidateId in candidateIds.Distinct())

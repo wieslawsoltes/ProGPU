@@ -421,9 +421,12 @@ public sealed class XamlConstructionLowerer
         if (!visiting.Add(reference.StableId)) return reference.ResourceKey;
         try
         {
-            IEnumerable<ulong> definitionIds = reference.DefinitionStableId.HasValue
-                ? new[] { reference.DefinitionStableId.Value }
-                : reference.CandidateDefinitionStableIds;
+            IEnumerable<ulong> definitionIds =
+                reference.Resolution == XamlResourceResolutionKind.ResolvedConditional
+                    ? reference.CandidateDefinitionStableIds
+                    : reference.DefinitionStableId.HasValue
+                        ? new[] { reference.DefinitionStableId.Value }
+                        : reference.CandidateDefinitionStableIds;
             XamlResourceKeyInfo? common = null;
             var hasAlias = false;
             foreach (var definitionId in definitionIds.Distinct())

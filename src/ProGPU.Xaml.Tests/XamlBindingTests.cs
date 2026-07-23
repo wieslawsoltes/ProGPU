@@ -5994,10 +5994,14 @@ namespace Demo {
       xmlns:local="using:Demo"
       x:Class="Demo.MainPage">
   <Page.Resources>
-    <local:Item x:Key="BindingSource" />
+    <ResourceDictionary>
+      <local:Item x:Key="BindingSource" />
+      <StaticResource x:Key="BindingSourceAlias"
+                      ResourceKey="BindingSource" />
+    </ResourceDictionary>
   </Page.Resources>
   <local:BindingTarget
-      Value="{Binding Path=Title, Source={StaticResource BindingSource}}" />
+      Value="{Binding Path=Title, Source={StaticResource BindingSourceAlias}}" />
 </Page>
 """;
         var compilation = CreateCompilation().AddSyntaxTrees(
@@ -6058,6 +6062,81 @@ namespace Demo {
         Assert.DoesNotContain(
             compilation.AddSyntaxTrees(tree).GetDiagnostics(),
             diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void OrdinaryBindingResourceSourceRejectsNonExactGraphEvidence()
+    {
+        const string additions = """
+namespace Demo {
+  public sealed class Item {
+    public string Title { get; set; } = "item";
+  }
+  public sealed class OtherItem {
+    public string Title { get; set; } = "other";
+  }
+  public sealed class BindingTarget : Microsoft.UI.Xaml.FrameworkElement {
+    public static readonly Microsoft.UI.Xaml.DependencyProperty ValueProperty = new();
+    public string? Value { get; set; }
+  }
+}
+""";
+        const string mixedVariants = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.MainPage">
+  <Page.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <local:Item x:Key="BindingSource" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <local:OtherItem x:Key="BindingSource" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Page.Resources>
+  <local:BindingTarget
+      Value="{Binding Path=Title, Source={ThemeResource BindingSource}}" />
+</Page>
+""";
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText(additions));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+
+        XamlBoundBinding EnrichAndGet(string xaml)
+        {
+            var binder = new XamlSemanticBinder();
+            var bound = binder.Bind(
+                Convert(xaml),
+                typeSystem,
+                new XamlSemanticBindingOptions { Strict = false });
+            var graph = new XamlResourceGraphBuilder().Build(bound);
+            var enriched = binder.EnrichResourceBindingSources(
+                bound,
+                graph,
+                typeSystem,
+                new XamlSemanticBindingOptions { Strict = false });
+            return Assert.Single(
+                DescendantValues(enriched.Root).OfType<XamlBoundBinding>());
+        }
+
+        var mixed = EnrichAndGet(mixedVariants);
+        Assert.Equal(XamlBindingSourceKind.Unknown, mixed.SourceKind);
+        Assert.Null(mixed.SourceType);
+        Assert.Empty(mixed.Accessors);
+
+        var unresolved = EnrichAndGet(mixedVariants
+            .Replace(
+                "ThemeResource BindingSource",
+                "StaticResource MissingSource",
+                StringComparison.Ordinal));
+        Assert.Equal(XamlBindingSourceKind.Unknown, unresolved.SourceKind);
+        Assert.Null(unresolved.SourceType);
+        Assert.Empty(unresolved.Accessors);
     }
 
     [Fact]
