@@ -438,22 +438,20 @@ public partial class FrameworkElement
         }
     }
 
+    public static readonly DependencyProperty StyleProperty =
+        DependencyProperty.Register(
+            nameof(Style),
+            typeof(Style),
+            typeof(FrameworkElement),
+            new PropertyMetadata(null, OnStyleChanged));
+
     private Style? _style;
     private bool _isUsingDefaultStyle = false;
 
     public Style? Style
     {
-        get => _style;
-        set
-        {
-            if (_style != value)
-            {
-                _style = value;
-                _isUsingDefaultStyle = false;
-                ApplyStyle();
-                OnPropertyChanged();
-            }
-        }
+        get => (Style?)GetValue(StyleProperty);
+        set => SetValue(StyleProperty, value);
     }
 
     public void SetDefaultStyle(Style defaultStyle)
@@ -461,6 +459,17 @@ public partial class FrameworkElement
         _style = defaultStyle;
         _isUsingDefaultStyle = true;
         ApplyStyle();
+    }
+
+    private static void OnStyleChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args)
+    {
+        var element = (FrameworkElement)dependencyObject;
+        element._style = args.NewValue as Style;
+        element._isUsingDefaultStyle = false;
+        element.ApplyStyle();
+        element.OnPropertyChanged(nameof(Style));
     }
 
     protected override void OnThemeChanged()

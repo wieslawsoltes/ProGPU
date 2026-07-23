@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.UI.Xaml.Markup;
 
 namespace Microsoft.UI.Xaml;
 
@@ -44,8 +45,17 @@ public static class XamlResourceResolver
             throw new KeyNotFoundException($"XAML resource '{key}' was not found.");
         if (value is T typed) return typed;
         if (value == null && default(T) == null) return default!;
-        throw new InvalidCastException(
-            $"XAML resource '{key}' has type '{value?.GetType().FullName ?? "null"}', not '{typeof(T).FullName}'.");
+        try
+        {
+            return (T)XamlValueConverter.ConvertTo(typeof(T), value)!;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidCastException(
+                $"XAML resource '{key}' with type '{value?.GetType().FullName ?? "null"}' " +
+                $"cannot be converted to '{typeof(T).FullName}'.",
+                exception);
+        }
     }
 
     public static object? ResolveTheme(

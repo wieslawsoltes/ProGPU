@@ -190,41 +190,69 @@ namespace Microsoft.UI.Xaml.Controls
 
         private TtfFont? ActiveFont => GetActiveFont();
 
+        public static readonly DependencyProperty FontSizeProperty =
+            DependencyProperty.Register(
+                nameof(FontSize),
+                typeof(float),
+                typeof(RichTextBlock),
+                new PropertyMetadata(14f, OnTypographyPropertyChanged)
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
+
         public float FontSize
         {
-            get => _fontSize;
-            set
-            {
-                if (_fontSize != value)
-                {
-                    _fontSize = value;
-                    _isLayoutDirty = true;
-                    Invalidate();
-                }
-            }
+            get => (float)(GetValue(FontSizeProperty) ?? 14f);
+            set => SetValue(FontSizeProperty, value);
         }
+
+        public static readonly DependencyProperty FontFamilyProperty =
+            DependencyProperty.Register(
+                nameof(FontFamily),
+                typeof(FontFamily),
+                typeof(RichTextBlock),
+                new PropertyMetadata(FontFamily.XamlAutoFontFamily, OnTypographyPropertyChanged)
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
 
         public FontFamily FontFamily
         {
-            get => _fontFamily;
-            set
-            {
-                ArgumentNullException.ThrowIfNull(value);
-                if (_fontFamily.Equals(value)) return;
-                _fontFamily = value;
-                InvalidateLayout();
-            }
+            get => (FontFamily)(GetValue(FontFamilyProperty) ?? FontFamily.XamlAutoFontFamily);
+            set => SetValue(FontFamilyProperty, value ?? throw new ArgumentNullException(nameof(value)));
         }
+
+        public static readonly DependencyProperty FontWeightProperty =
+            DependencyProperty.Register(
+                nameof(FontWeight),
+                typeof(FontWeight),
+                typeof(RichTextBlock),
+                new PropertyMetadata(Microsoft.UI.Text.FontWeights.Normal, OnTypographyPropertyChanged)
+                {
+                    AffectsMeasure = true,
+                    AffectsRender = true
+                });
 
         public FontWeight FontWeight
         {
-            get => _fontWeight;
-            set
-            {
-                if (_fontWeight == value) return;
-                _fontWeight = value;
-                InvalidateLayout();
-            }
+            get => (FontWeight)(GetValue(FontWeightProperty) ?? Microsoft.UI.Text.FontWeights.Normal);
+            set => SetValue(FontWeightProperty, value);
+        }
+
+        private static void OnTypographyPropertyChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            var text = (RichTextBlock)dependencyObject;
+            if (args.Property == FontSizeProperty)
+                text._fontSize = (float)(args.NewValue ?? 14f);
+            else if (args.Property == FontFamilyProperty)
+                text._fontFamily = (FontFamily)(args.NewValue ?? FontFamily.XamlAutoFontFamily);
+            else if (args.Property == FontWeightProperty)
+                text._fontWeight = (FontWeight)(args.NewValue ?? Microsoft.UI.Text.FontWeights.Normal);
+            text.InvalidateLayout();
         }
 
         public static readonly DependencyProperty FontStyleProperty =

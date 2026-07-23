@@ -16,6 +16,20 @@ public class Slider : RangeBase
 {
     private bool _isDragging;
 
+    public static readonly DependencyProperty HeaderProperty =
+        DependencyProperty.Register(
+            nameof(Header),
+            typeof(object),
+            typeof(Slider),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty HeaderTemplateProperty =
+        DependencyProperty.Register(
+            nameof(HeaderTemplate),
+            typeof(DataTemplate),
+            typeof(Slider),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
     public static readonly DependencyProperty IsThumbToolTipEnabledProperty =
         DependencyProperty.Register(
             nameof(IsThumbToolTipEnabled), typeof(bool), typeof(Slider),
@@ -25,6 +39,18 @@ public class Slider : RangeBase
     {
         get => (bool)(GetValue(IsThumbToolTipEnabledProperty) ?? true);
         set => SetValue(IsThumbToolTipEnabledProperty, value);
+    }
+
+    public object? Header
+    {
+        get => GetValue(HeaderProperty);
+        set => SetValue(HeaderProperty, value);
+    }
+
+    public DataTemplate? HeaderTemplate
+    {
+        get => GetValue(HeaderTemplateProperty) as DataTemplate;
+        set => SetValue(HeaderTemplateProperty, value);
     }
 
     public Slider()

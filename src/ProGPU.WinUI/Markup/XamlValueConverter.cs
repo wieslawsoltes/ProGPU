@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Numerics;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using ProGPU.Vector;
 
 namespace Microsoft.UI.Xaml.Markup;
@@ -62,21 +64,102 @@ internal static class XamlValueConverter
             return fontWeight;
         }
 
+        if (conversionType == typeof(FontFamily) && value is string fontFamilyText)
+            return new FontFamily(fontFamilyText);
+
+        if (conversionType == typeof(GridLength))
+        {
+            if (value is string gridLengthText)
+                return ParseGridLength(gridLengthText);
+            if (value is float singleGridLength)
+                return new GridLength(singleGridLength);
+            if (value is double doubleGridLength)
+                return new GridLength((float)doubleGridLength);
+            if (value is int integerGridLength)
+                return new GridLength(integerGridLength);
+        }
+
+        if (conversionType == typeof(Duration) && value is string durationText)
+            return ParseDuration(durationText);
+
+        if (conversionType == typeof(KeyTime) && value is string keyTimeText)
+            return KeyTime.FromTimeSpan(ParseTimeSpan(keyTimeText, nameof(KeyTime)));
+
+        if (conversionType == typeof(TimeSpan) && value is string timeSpanText)
+            return ParseTimeSpan(timeSpanText, nameof(TimeSpan));
+
         if (conversionType == typeof(Brush) && value is string brushText)
             return ParseBrush(brushText);
 
         if (conversionType == typeof(Vector4) && value is string colorText)
             return ParseColor(colorText);
 
+        if (conversionType == typeof(Windows.UI.Color) && value is Color vectorColor)
+            return Windows.UI.Color.FromArgb(
+                vectorColor.A,
+                vectorColor.R,
+                vectorColor.G,
+                vectorColor.B);
+
+        if (conversionType == typeof(Color) && value is Windows.UI.Color windowsColor)
+            return Color.FromArgb(
+                windowsColor.A,
+                windowsColor.R,
+                windowsColor.G,
+                windowsColor.B);
+
         if (conversionType == typeof(float))
-            return System.Convert.ToSingle(value, CultureInfo.InvariantCulture);
+        {
+            if (value is string singleText &&
+                singleText.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+                return float.NaN;
+            try
+            {
+                return System.Convert.ToSingle(value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception exception)
+            {
+                throw CreateInvalidCast(conversionType, value, exception);
+            }
+        }
         if (conversionType == typeof(double))
-            return System.Convert.ToDouble(value, CultureInfo.InvariantCulture);
+        {
+            if (value is string doubleText &&
+                doubleText.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+                return double.NaN;
+            try
+            {
+                return System.Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception exception)
+            {
+                throw CreateInvalidCast(conversionType, value, exception);
+            }
+        }
         if (conversionType == typeof(int))
             return System.Convert.ToInt32(value, CultureInfo.InvariantCulture);
 
-        return System.Convert.ChangeType(value, conversionType, CultureInfo.InvariantCulture);
+        if (conversionType == typeof(Visibility) && value is bool booleanVisibility)
+            return booleanVisibility ? Visibility.Visible : Visibility.Collapsed;
+
+        try
+        {
+            return System.Convert.ChangeType(value, conversionType, CultureInfo.InvariantCulture);
+        }
+        catch (Exception exception)
+        {
+            throw CreateInvalidCast(conversionType, value, exception);
+        }
     }
+
+    private static InvalidCastException CreateInvalidCast(
+        Type targetType,
+        object value,
+        Exception exception) =>
+        new(
+            $"XAML value '{value}' with type '{value.GetType().FullName}' cannot be converted to " +
+            $"'{targetType.FullName}'.",
+            exception);
 
     private static CornerRadius ParseCornerRadius(string text)
     {
@@ -91,6 +174,47 @@ internal static class XamlValueConverter
                 ParseDouble(parts[3])),
             _ => throw new FormatException($"'{text}' is not a valid CornerRadius value.")
         };
+    }
+
+    private static GridLength ParseGridLength(string text)
+    {
+        text = text.Trim();
+        if (text.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+            return GridLength.Auto;
+        if (text.EndsWith("*", StringComparison.Ordinal))
+        {
+            var weightText = text.Substring(0, text.Length - 1);
+            return GridLength.Star(
+                weightText.Length == 0
+                    ? 1f
+                    : float.Parse(
+                        weightText,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture));
+        }
+
+        return new GridLength(
+            float.Parse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture));
+    }
+
+    private static Duration ParseDuration(string text)
+    {
+        text = text.Trim();
+        if (text.Equals("Automatic", StringComparison.OrdinalIgnoreCase))
+            return Duration.Automatic;
+        if (text.Equals("Forever", StringComparison.OrdinalIgnoreCase))
+            return Duration.Forever;
+        return new Duration(ParseTimeSpan(text, nameof(Duration)));
+    }
+
+    private static TimeSpan ParseTimeSpan(string text, string targetName)
+    {
+        if (TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var value))
+            return value;
+        throw new FormatException($"'{text}' is not a valid {targetName} value.");
     }
 
     private static Brush ParseBrush(string text)

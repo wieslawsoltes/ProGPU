@@ -264,16 +264,24 @@ public sealed class DropTargetItemThemeAnimation : Timeline
 
 public sealed class DragOverThemeAnimation : Timeline
 {
+    public static readonly DependencyProperty ToOffsetProperty = DependencyProperty.Register(
+        nameof(ToOffset), typeof(double), typeof(DragOverThemeAnimation), new PropertyMetadata(0d));
+
     public string TargetName { get; set; } = string.Empty;
-    public double ToOffset { get; set; }
+    public double ToOffset { get => (double)(GetValue(ToOffsetProperty) ?? 0d); set => SetValue(ToOffsetProperty, value); }
     public global::Microsoft.UI.Xaml.Controls.Primitives.AnimationDirection Direction { get; set; }
 }
 
 public sealed class RepositionThemeAnimation : Timeline
 {
+    public static readonly DependencyProperty FromHorizontalOffsetProperty = DependencyProperty.Register(
+        nameof(FromHorizontalOffset), typeof(double), typeof(RepositionThemeAnimation), new PropertyMetadata(0d));
+    public static readonly DependencyProperty FromVerticalOffsetProperty = DependencyProperty.Register(
+        nameof(FromVerticalOffset), typeof(double), typeof(RepositionThemeAnimation), new PropertyMetadata(0d));
+
     public string TargetName { get; set; } = string.Empty;
-    public double FromHorizontalOffset { get; set; }
-    public double FromVerticalOffset { get; set; }
+    public double FromHorizontalOffset { get => (double)(GetValue(FromHorizontalOffsetProperty) ?? 0d); set => SetValue(FromHorizontalOffsetProperty, value); }
+    public double FromVerticalOffset { get => (double)(GetValue(FromVerticalOffsetProperty) ?? 0d); set => SetValue(FromVerticalOffsetProperty, value); }
 }
 
 public sealed class SplitOpenThemeAnimation : Timeline

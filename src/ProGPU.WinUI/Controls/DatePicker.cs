@@ -14,9 +14,22 @@ namespace Microsoft.UI.Xaml.Controls;
 public class DatePicker : Control
 {
     private DateTime? _selectedDate;
-    private string _header = "Select Date";
     private CalendarView? _popupCalendar;
     private bool _isHovered;
+
+    public static readonly DependencyProperty HeaderProperty =
+        DependencyProperty.Register(
+            nameof(Header),
+            typeof(object),
+            typeof(DatePicker),
+            new PropertyMetadata("Select Date") { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty HeaderTemplateProperty =
+        DependencyProperty.Register(
+            nameof(HeaderTemplate),
+            typeof(DataTemplate),
+            typeof(DatePicker),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
 
     public DateTime? SelectedDate
     {
@@ -32,10 +45,16 @@ public class DatePicker : Control
         }
     }
 
-    public string Header
+    public object? Header
     {
-        get => _header;
-        set { _header = value; Invalidate(); }
+        get => GetValue(HeaderProperty);
+        set => SetValue(HeaderProperty, value);
+    }
+
+    public DataTemplate? HeaderTemplate
+    {
+        get => GetValue(HeaderTemplateProperty) as DataTemplate;
+        set => SetValue(HeaderTemplateProperty, value);
     }
 
     public event EventHandler? SelectedDateChanged;

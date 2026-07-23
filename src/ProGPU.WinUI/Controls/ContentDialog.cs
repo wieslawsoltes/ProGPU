@@ -20,14 +20,16 @@ public enum ContentDialogResult
     Close
 }
 
+public enum ContentDialogButton
+{
+    None,
+    Primary,
+    Secondary,
+    Close
+}
+
 public class ContentDialog : Control
 {
-    private string _title = "Dialog Title";
-    private object? _content;
-    private string _primaryButtonText = string.Empty;
-    private string _secondaryButtonText = string.Empty;
-    private string _closeButtonText = "Close";
-
     private TaskCompletionSource<ContentDialogResult>? _tcs;
 
     private Button? _btnPrimary;
@@ -36,34 +38,186 @@ public class ContentDialog : Control
     private Border _cardBorder;
     private StackPanel _cardStack;
 
-    public string Title
+    public static readonly DependencyProperty TitleProperty =
+        DependencyProperty.Register(
+            nameof(Title),
+            typeof(object),
+            typeof(ContentDialog),
+            new PropertyMetadata("Dialog Title") { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty TitleTemplateProperty =
+        DependencyProperty.Register(
+            nameof(TitleTemplate),
+            typeof(DataTemplate),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty ContentTemplateProperty =
+        DependencyProperty.Register(
+            nameof(ContentTemplate),
+            typeof(DataTemplate),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty ContentProperty =
+        DependencyProperty.Register(
+            nameof(Content),
+            typeof(object),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty PrimaryButtonTextProperty =
+        DependencyProperty.Register(
+            nameof(PrimaryButtonText),
+            typeof(string),
+            typeof(ContentDialog),
+            new PropertyMetadata(string.Empty) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty SecondaryButtonTextProperty =
+        DependencyProperty.Register(
+            nameof(SecondaryButtonText),
+            typeof(string),
+            typeof(ContentDialog),
+            new PropertyMetadata(string.Empty) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty CloseButtonTextProperty =
+        DependencyProperty.Register(
+            nameof(CloseButtonText),
+            typeof(string),
+            typeof(ContentDialog),
+            new PropertyMetadata("Close") { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty IsPrimaryButtonEnabledProperty =
+        DependencyProperty.Register(
+            nameof(IsPrimaryButtonEnabled),
+            typeof(bool),
+            typeof(ContentDialog),
+            new PropertyMetadata(true) { AffectsRender = true });
+
+    public static readonly DependencyProperty IsSecondaryButtonEnabledProperty =
+        DependencyProperty.Register(
+            nameof(IsSecondaryButtonEnabled),
+            typeof(bool),
+            typeof(ContentDialog),
+            new PropertyMetadata(true) { AffectsRender = true });
+
+    public static readonly DependencyProperty PrimaryButtonStyleProperty =
+        DependencyProperty.Register(
+            nameof(PrimaryButtonStyle),
+            typeof(Style),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty SecondaryButtonStyleProperty =
+        DependencyProperty.Register(
+            nameof(SecondaryButtonStyle),
+            typeof(Style),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty CloseButtonStyleProperty =
+        DependencyProperty.Register(
+            nameof(CloseButtonStyle),
+            typeof(Style),
+            typeof(ContentDialog),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty DefaultButtonProperty =
+        DependencyProperty.Register(
+            nameof(DefaultButton),
+            typeof(ContentDialogButton),
+            typeof(ContentDialog),
+            new PropertyMetadata(ContentDialogButton.None) { AffectsRender = true });
+
+    public static readonly DependencyProperty FullSizeDesiredProperty =
+        DependencyProperty.Register(
+            nameof(FullSizeDesired),
+            typeof(bool),
+            typeof(ContentDialog),
+            new PropertyMetadata(false) { AffectsMeasure = true });
+
+    public object? Title
     {
-        get => _title;
-        set { _title = value; Invalidate(); }
+        get => GetValue(TitleProperty);
+        set => SetValue(TitleProperty, value);
+    }
+
+    public DataTemplate? TitleTemplate
+    {
+        get => GetValue(TitleTemplateProperty) as DataTemplate;
+        set => SetValue(TitleTemplateProperty, value);
+    }
+
+    public DataTemplate? ContentTemplate
+    {
+        get => GetValue(ContentTemplateProperty) as DataTemplate;
+        set => SetValue(ContentTemplateProperty, value);
     }
 
     public object? Content
     {
-        get => _content;
-        set { _content = value; Invalidate(); }
+        get => GetValue(ContentProperty);
+        set => SetValue(ContentProperty, value);
     }
 
     public string PrimaryButtonText
     {
-        get => _primaryButtonText;
-        set { _primaryButtonText = value; Invalidate(); }
+        get => (string)(GetValue(PrimaryButtonTextProperty) ?? string.Empty);
+        set => SetValue(PrimaryButtonTextProperty, value ?? string.Empty);
     }
 
     public string SecondaryButtonText
     {
-        get => _secondaryButtonText;
-        set { _secondaryButtonText = value; Invalidate(); }
+        get => (string)(GetValue(SecondaryButtonTextProperty) ?? string.Empty);
+        set => SetValue(SecondaryButtonTextProperty, value ?? string.Empty);
     }
 
     public string CloseButtonText
     {
-        get => _closeButtonText;
-        set { _closeButtonText = value; Invalidate(); }
+        get => (string)(GetValue(CloseButtonTextProperty) ?? string.Empty);
+        set => SetValue(CloseButtonTextProperty, value ?? string.Empty);
+    }
+
+    public bool IsPrimaryButtonEnabled
+    {
+        get => (bool)(GetValue(IsPrimaryButtonEnabledProperty) ?? true);
+        set => SetValue(IsPrimaryButtonEnabledProperty, value);
+    }
+
+    public bool IsSecondaryButtonEnabled
+    {
+        get => (bool)(GetValue(IsSecondaryButtonEnabledProperty) ?? true);
+        set => SetValue(IsSecondaryButtonEnabledProperty, value);
+    }
+
+    public Style? PrimaryButtonStyle
+    {
+        get => GetValue(PrimaryButtonStyleProperty) as Style;
+        set => SetValue(PrimaryButtonStyleProperty, value);
+    }
+
+    public Style? SecondaryButtonStyle
+    {
+        get => GetValue(SecondaryButtonStyleProperty) as Style;
+        set => SetValue(SecondaryButtonStyleProperty, value);
+    }
+
+    public Style? CloseButtonStyle
+    {
+        get => GetValue(CloseButtonStyleProperty) as Style;
+        set => SetValue(CloseButtonStyleProperty, value);
+    }
+
+    public ContentDialogButton DefaultButton
+    {
+        get => (ContentDialogButton)(GetValue(DefaultButtonProperty) ?? ContentDialogButton.None);
+        set => SetValue(DefaultButtonProperty, value);
+    }
+
+    public bool FullSizeDesired
+    {
+        get => (bool)(GetValue(FullSizeDesiredProperty) ?? false);
+        set => SetValue(FullSizeDesiredProperty, value);
     }
 
     public ContentDialog()
@@ -108,7 +262,7 @@ public class ContentDialog : Control
             Foreground = new ThemeResourceBrush("TextPrimary"),
             Margin = new Thickness(0f, 0f, 0f, 16f)
         };
-        titleBlock.Inlines.Add(new Run { Text = Title });
+        titleBlock.Inlines.Add(new Run { Text = Title?.ToString() ?? string.Empty });
         _cardStack.AddChild(titleBlock);
 
         // Content

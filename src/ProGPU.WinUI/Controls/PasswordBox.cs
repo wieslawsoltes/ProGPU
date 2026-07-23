@@ -18,6 +18,27 @@ namespace Microsoft.UI.Xaml.Controls;
 
 public class PasswordBox : Control, ITextInputClient
 {
+    public static readonly DependencyProperty HeaderProperty =
+        DependencyProperty.Register(
+            nameof(Header),
+            typeof(object),
+            typeof(PasswordBox),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty HeaderTemplateProperty =
+        DependencyProperty.Register(
+            nameof(HeaderTemplate),
+            typeof(DataTemplate),
+            typeof(PasswordBox),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
+    public static readonly DependencyProperty DescriptionProperty =
+        DependencyProperty.Register(
+            nameof(Description),
+            typeof(object),
+            typeof(PasswordBox),
+            new PropertyMetadata(null) { AffectsMeasure = true, AffectsRender = true });
+
     public static readonly DependencyProperty PasswordProperty =
         DependencyProperty.Register(
             "Password",
@@ -63,6 +84,24 @@ public class PasswordBox : Control, ITextInputClient
     {
         get => (string)(GetValue(PasswordProperty) ?? string.Empty);
         set => SetValue(PasswordProperty, value ?? string.Empty);
+    }
+
+    public object? Header
+    {
+        get => GetValue(HeaderProperty);
+        set => SetValue(HeaderProperty, value);
+    }
+
+    public DataTemplate? HeaderTemplate
+    {
+        get => GetValue(HeaderTemplateProperty) as DataTemplate;
+        set => SetValue(HeaderTemplateProperty, value);
+    }
+
+    public object? Description
+    {
+        get => GetValue(DescriptionProperty);
+        set => SetValue(DescriptionProperty, value);
     }
 
     public string PlaceholderText

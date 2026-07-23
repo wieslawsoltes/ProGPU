@@ -63,6 +63,69 @@ public sealed class ScrollViewerViewChangedEventArgs : EventArgs
 [ContentProperty(Name = "Content")]
 public class ScrollViewer : ContentControl
 {
+    public static readonly DependencyProperty ZoomModeProperty =
+        DependencyProperty.Register(
+            nameof(ZoomMode),
+            typeof(ZoomMode),
+            typeof(ScrollViewer),
+            new PropertyMetadata(ZoomMode.Disabled));
+
+    public static readonly DependencyProperty ScrollableHeightProperty =
+        DependencyProperty.Register(
+            nameof(ScrollableHeight),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f));
+
+    public static readonly DependencyProperty ScrollableWidthProperty =
+        DependencyProperty.Register(
+            nameof(ScrollableWidth),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f));
+
+    public static readonly DependencyProperty ComputedVerticalScrollBarVisibilityProperty =
+        DependencyProperty.Register(
+            nameof(ComputedVerticalScrollBarVisibility),
+            typeof(Visibility),
+            typeof(ScrollViewer),
+            new PropertyMetadata(Visibility.Collapsed));
+
+    public static readonly DependencyProperty ComputedHorizontalScrollBarVisibilityProperty =
+        DependencyProperty.Register(
+            nameof(ComputedHorizontalScrollBarVisibility),
+            typeof(Visibility),
+            typeof(ScrollViewer),
+            new PropertyMetadata(Visibility.Collapsed));
+
+    public static readonly DependencyProperty VerticalOffsetProperty =
+        DependencyProperty.Register(
+            nameof(VerticalOffset),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f, OnVerticalOffsetChanged) { AffectsRender = true });
+
+    public static readonly DependencyProperty HorizontalOffsetProperty =
+        DependencyProperty.Register(
+            nameof(HorizontalOffset),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f, OnHorizontalOffsetChanged) { AffectsRender = true });
+
+    public static readonly DependencyProperty ViewportHeightProperty =
+        DependencyProperty.Register(
+            nameof(ViewportHeight),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f));
+
+    public static readonly DependencyProperty ViewportWidthProperty =
+        DependencyProperty.Register(
+            nameof(ViewportWidth),
+            typeof(float),
+            typeof(ScrollViewer),
+            new PropertyMetadata(0f));
+
     public static readonly DependencyProperty HorizontalScrollBarVisibilityProperty = DependencyProperty.RegisterAttached(
         nameof(HorizontalScrollBarVisibility), typeof(ScrollBarVisibility), typeof(ScrollViewer),
         new PropertyMetadata(ScrollBarVisibility.Disabled));
@@ -176,50 +239,62 @@ public class ScrollViewer : ContentControl
 
     public float VerticalOffset
     {
-        get => _verticalOffset;
+        get => (float)(GetValue(VerticalOffsetProperty) ?? 0f);
         set
         {
             float maxScroll = Math.Max(0f, ContentHeight - Size.Y);
             float clamped = Math.Clamp(value, 0f, maxScroll);
-            if (_verticalOffset != clamped)
-            {
-                _verticalOffset = clamped;
-                if (!IsInsidePopup())
-                {
-                    PopupService.DismissNonDialogPopups();
-                }
-                NotifyVirtualizingContent();
-                UpdateContentTranslation();
-                Invalidate();
-                OnPropertyChanged();
-            }
+            SetValue(VerticalOffsetProperty, clamped);
         }
     }
 
     public float HorizontalOffset
     {
-        get => _horizontalOffset;
+        get => (float)(GetValue(HorizontalOffsetProperty) ?? 0f);
         set
         {
             float maxScroll = Math.Max(0f, ContentWidth - Size.X);
             float clamped = Math.Clamp(value, 0f, maxScroll);
-            if (_horizontalOffset != clamped)
-            {
-                _horizontalOffset = clamped;
-                if (!IsInsidePopup())
-                {
-                    PopupService.DismissNonDialogPopups();
-                }
-                NotifyVirtualizingContent();
-                UpdateContentTranslation();
-                Invalidate();
-                OnPropertyChanged();
-            }
+            SetValue(HorizontalOffsetProperty, clamped);
         }
+    }
+
+    private static void OnVerticalOffsetChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args)
+    {
+        var viewer = (ScrollViewer)dependencyObject;
+        viewer._verticalOffset = (float)(args.NewValue ?? 0f);
+        viewer.OnOffsetChanged();
+    }
+
+    private static void OnHorizontalOffsetChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args)
+    {
+        var viewer = (ScrollViewer)dependencyObject;
+        viewer._horizontalOffset = (float)(args.NewValue ?? 0f);
+        viewer.OnOffsetChanged();
+    }
+
+    private void OnOffsetChanged()
+    {
+        if (!IsInsidePopup())
+            PopupService.DismissNonDialogPopups();
+        NotifyVirtualizingContent();
+        UpdateContentTranslation();
     }
 
     public float ContentHeight => (Content?.DesiredSize.Y ?? Size.Y) * ZoomFactor;
     public float ContentWidth => (Content?.DesiredSize.X ?? Size.X) * ZoomFactor;
+    public float ScrollableHeight => (float)(GetValue(ScrollableHeightProperty) ?? 0f);
+    public float ScrollableWidth => (float)(GetValue(ScrollableWidthProperty) ?? 0f);
+    public Visibility ComputedVerticalScrollBarVisibility =>
+        (Visibility)(GetValue(ComputedVerticalScrollBarVisibilityProperty) ?? Visibility.Collapsed);
+    public Visibility ComputedHorizontalScrollBarVisibility =>
+        (Visibility)(GetValue(ComputedHorizontalScrollBarVisibilityProperty) ?? Visibility.Collapsed);
+    public float ViewportHeight => (float)(GetValue(ViewportHeightProperty) ?? 0f);
+    public float ViewportWidth => (float)(GetValue(ViewportWidthProperty) ?? 0f);
     public ScrollMode HorizontalScrollMode
     {
         get => GetHorizontalScrollMode(this);
@@ -387,7 +462,11 @@ public class ScrollViewer : ContentControl
 
     public static void SetIsScrollInertiaEnabled(DependencyObject element, bool value) =>
         element.SetValue(IsScrollInertiaEnabledProperty, value);
-    public ZoomMode ZoomMode { get; set; } = ZoomMode.Disabled;
+    public ZoomMode ZoomMode
+    {
+        get => (ZoomMode)(GetValue(ZoomModeProperty) ?? ZoomMode.Disabled);
+        set => SetValue(ZoomModeProperty, value);
+    }
     public float MinZoomFactor { get; set; } = 0.1f;
     public float MaxZoomFactor { get; set; } = 10f;
     public float ZoomFactor
@@ -398,8 +477,8 @@ public class ScrollViewer : ContentControl
             var clamped = Math.Clamp(value, Math.Max(0.01f, MinZoomFactor), Math.Max(MinZoomFactor, MaxZoomFactor));
             if (MathF.Abs(_zoomFactor - clamped) < 0.0001f) return;
             _zoomFactor = clamped;
-            _horizontalOffset = Math.Clamp(_horizontalOffset, 0f, Math.Max(0f, ContentWidth - Size.X));
-            _verticalOffset = Math.Clamp(_verticalOffset, 0f, Math.Max(0f, ContentHeight - Size.Y));
+            HorizontalOffset = Math.Clamp(_horizontalOffset, 0f, Math.Max(0f, ContentWidth - Size.X));
+            VerticalOffset = Math.Clamp(_verticalOffset, 0f, Math.Max(0f, ContentHeight - Size.Y));
             UpdateContentTranslation();
             Invalidate();
         }
@@ -740,6 +819,7 @@ public class ScrollViewer : ContentControl
         if (HasTemplate)
         {
             base.ArrangeOverride(arrangeRect);
+            UpdateScrollableExtents();
             return;
         }
         
@@ -764,7 +844,28 @@ public class ScrollViewer : ContentControl
             NotifyVirtualizingContent();
             UpdateContentTranslation();
         }
+        UpdateScrollableExtents();
         ClipBounds = new Rect(0f, 0f, Size.X, Size.Y);
+    }
+
+    private void UpdateScrollableExtents()
+    {
+        var scrollableHeight = MathF.Max(0f, ContentHeight - Size.Y);
+        var scrollableWidth = MathF.Max(0f, ContentWidth - Size.X);
+        SetValue(ScrollableHeightProperty, scrollableHeight);
+        SetValue(ScrollableWidthProperty, scrollableWidth);
+        SetValue(ViewportHeightProperty, Size.Y);
+        SetValue(ViewportWidthProperty, Size.X);
+        SetValue(
+            ComputedVerticalScrollBarVisibilityProperty,
+            scrollableHeight > 0f && VerticalScrollBarVisibility != ScrollBarVisibility.Hidden
+                ? Visibility.Visible
+                : Visibility.Collapsed);
+        SetValue(
+            ComputedHorizontalScrollBarVisibilityProperty,
+            scrollableWidth > 0f && HorizontalScrollBarVisibility != ScrollBarVisibility.Hidden
+                ? Visibility.Visible
+                : Visibility.Collapsed);
     }
 
     private void UpdateContentTranslation()

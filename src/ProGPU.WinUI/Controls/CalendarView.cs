@@ -23,6 +23,13 @@ public class CalendarView : Control
 {
     public CalendarViewTemplateSettings TemplateSettings { get; } = new();
 
+    public static readonly DependencyProperty CalendarItemForegroundProperty =
+        DependencyProperty.Register(
+            nameof(CalendarItemForeground),
+            typeof(Brush),
+            typeof(CalendarView),
+            new PropertyMetadata(null) { AffectsRender = true });
+
     private static readonly DateTimeOffset DefaultMinDate = DateTimeOffset.Now.AddYears(-100);
     private static readonly DateTimeOffset DefaultMaxDate = DateTimeOffset.Now.AddYears(100);
 
@@ -143,6 +150,12 @@ public class CalendarView : Control
     {
         get => (bool)(GetValue(IsGroupLabelVisibleProperty) ?? false);
         set => SetValue(IsGroupLabelVisibleProperty, value);
+    }
+
+    public Brush? CalendarItemForeground
+    {
+        get => GetValue(CalendarItemForegroundProperty) as Brush;
+        set => SetValue(CalendarItemForegroundProperty, value);
     }
 
     public DateTime DisplayDate

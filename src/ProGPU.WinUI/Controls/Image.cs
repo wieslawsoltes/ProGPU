@@ -75,6 +75,28 @@ public sealed class EncodedImageSource
 
 public class Image : FrameworkElement
 {
+    public static readonly DependencyProperty SourceProperty =
+        DependencyProperty.Register(
+            nameof(Source),
+            typeof(object),
+            typeof(Image),
+            new PropertyMetadata(null, OnSourceChanged)
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            });
+
+    public static readonly DependencyProperty StretchProperty =
+        DependencyProperty.Register(
+            nameof(Stretch),
+            typeof(Stretch),
+            typeof(Image),
+            new PropertyMetadata(Stretch.Uniform, OnStretchChanged)
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            });
+
     private object? _source;
     private GpuTexture? _loadedTexture;
     private Stretch _stretch = Stretch.Uniform;
@@ -134,49 +156,49 @@ public class Image : FrameworkElement
 
     public object? Source
     {
-        get => _source;
-        set
+        get => GetValue(SourceProperty);
+        set => SetValue(SourceProperty, value);
+    }
+
+    private static void OnSourceChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args)
+    {
+        var image = (Image)dependencyObject;
+        image._source = args.NewValue;
+
+        if (image._loadedTexture != null)
         {
-            if (_source != value)
+            image._loadedTexture.Dispose();
+            image._loadedTexture = null;
+        }
+
+        if (image._source is string path)
+        {
+            try
             {
-                _source = value;
-                
-                if (_loadedTexture != null)
-                {
-                    _loadedTexture.Dispose();
-                    _loadedTexture = null;
-                }
-
-                if (_source is string path)
-                {
-                    try
-                    {
-                        _loadedTexture = LoadBmp(path);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[Image] Failed to load BMP: {ex.Message}");
-                    }
-                }
-
-                InvalidateMeasure();
-                Invalidate();
+                image._loadedTexture = LoadBmp(path);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Image] Failed to load BMP: {ex.Message}");
             }
         }
+
+        image.InvalidateMeasure();
+        image.Invalidate();
     }
 
     public Stretch Stretch
     {
-        get => _stretch;
-        set
-        {
-            if (_stretch != value)
-            {
-                _stretch = value;
-                Invalidate();
-            }
-        }
+        get => (Stretch)(GetValue(StretchProperty) ?? Stretch.Uniform);
+        set => SetValue(StretchProperty, value);
     }
+
+    private static void OnStretchChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args) =>
+        ((Image)dependencyObject)._stretch = (Stretch)(args.NewValue ?? Stretch.Uniform);
 
     private GpuTexture? ActiveTexture => _source is GpuTexture tex ? tex : _loadedTexture;
 
