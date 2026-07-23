@@ -538,9 +538,11 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     animatedTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                _animatedValues[i] = property == null
-                    ? resolved
-                    : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+                _animatedValues[i] =
+                    ConvertAnimatedThemeResourceValue(
+                        property,
+                        resolved,
+                        animatedTr);
                 hasThemeResource = true;
             }
             
@@ -648,7 +650,10 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     ? familyElement.ActualThemeFamily
                     : ThemeManager.CurrentThemeFamily);
             _animatedValues[idx] =
-                XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+                ConvertAnimatedThemeResourceValue(
+                    dp,
+                    resolved,
+                    themeResource);
         }
         else if (value is ProGPU.Vector.ThemeResourceBrush themeBrush)
         {
@@ -666,7 +671,10 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     ? familyElement.ActualThemeFamily
                     : ThemeManager.CurrentThemeFamily);
             _animatedValues[idx] =
-                XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+                ConvertAnimatedThemeResourceValue(
+                    dp,
+                    resolved,
+                    themeResourceValue);
         }
         else
         {
@@ -675,6 +683,26 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         }
 
         UpdateEffectiveValue(dp, idx, oldValue);
+    }
+
+    private static object? ConvertAnimatedThemeResourceValue(
+        DependencyProperty? property,
+        object? resolved,
+        ThemeResource resource)
+    {
+        object? converted = property == null
+            ? resolved
+            : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+        if (resource is not ThemeColorBrushResource colorBrushResource ||
+            converted is not ProGPU.Vector.SolidColorBrush colorBrush)
+        {
+            return converted;
+        }
+
+        return new ProGPU.Vector.SolidColorBrush(colorBrush.Color)
+        {
+            Opacity = colorBrushResource.Opacity
+        };
     }
 
     internal void ClearAnimatedValue(DependencyProperty dp)

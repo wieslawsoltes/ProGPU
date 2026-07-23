@@ -114,8 +114,43 @@ internal static class XamlValueConverter
         if (conversionType == typeof(Brush) && value is string brushText)
             return ParseBrush(brushText);
 
+        if (conversionType == typeof(Brush) && value is Vector4 brushColor)
+            return new SolidColorBrush(brushColor);
+
+        if (conversionType == typeof(Brush) &&
+            value is Windows.UI.Color windowsBrushColor)
+        {
+            return new SolidColorBrush(
+                new Vector4(
+                    windowsBrushColor.R / 255f,
+                    windowsBrushColor.G / 255f,
+                    windowsBrushColor.B / 255f,
+                    windowsBrushColor.A / 255f));
+        }
+
+        if (conversionType == typeof(Brush) &&
+            value is Color vectorBrushColor)
+        {
+            return new SolidColorBrush(
+                new Vector4(
+                    vectorBrushColor.R / 255f,
+                    vectorBrushColor.G / 255f,
+                    vectorBrushColor.B / 255f,
+                    vectorBrushColor.A / 255f));
+        }
+
         if (conversionType == typeof(Vector4) && value is string colorText)
             return ParseColor(colorText);
+
+        if (conversionType == typeof(Vector4) &&
+            value is Windows.UI.Color windowsVectorColor)
+        {
+            return new Vector4(
+                windowsVectorColor.R / 255f,
+                windowsVectorColor.G / 255f,
+                windowsVectorColor.B / 255f,
+                windowsVectorColor.A / 255f);
+        }
 
         if (conversionType == typeof(Windows.UI.Color) && value is Color vectorColor)
             return Windows.UI.Color.FromArgb(

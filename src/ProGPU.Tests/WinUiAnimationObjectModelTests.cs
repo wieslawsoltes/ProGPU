@@ -16,6 +16,10 @@ namespace ProGPU.Tests;
 
 public sealed class WinUiAnimationObjectModelTests
 {
+    private sealed class UnsupportedTimeline : Timeline
+    {
+    }
+
     private sealed class ContextMarkupExtension : MarkupExtension
     {
         public object? SeenTarget { get; private set; }
@@ -334,6 +338,354 @@ public sealed class WinUiAnimationObjectModelTests
         Assert.Equal(3f, clip.Rect.Width);
         Assert.Equal(4f, clip.Rect.Height);
         XamlTemplateFactory.Release(control);
+    }
+
+    [Fact]
+    public void VisualStateResolvesTheNearestGeneratedNameScopeFromAChildStateRoot()
+    {
+        var control = new Button();
+        Border? presenter = null;
+        control.Template = new ControlTemplate(
+            typeof(Button),
+            _ =>
+            {
+                var templateRoot = new Grid();
+                var stateRoot = new Grid();
+                presenter = new Border { Opacity = 0.25d };
+                templateRoot.Children.Add(stateRoot);
+                templateRoot.Children.Add(presenter);
+                XamlTemplateFactory.BeginNameScope(templateRoot);
+                XamlTemplateFactory.RegisterName(
+                    templateRoot,
+                    "Presenter",
+                    presenter);
+
+                var animation = new DoubleAnimation { To = 0.75d };
+                Storyboard.SetTargetName(animation, "Presenter");
+                Storyboard.SetTargetProperty(
+                    animation,
+                    nameof(UIElement.Opacity));
+                var storyboard = new Storyboard();
+                storyboard.Children.Add(animation);
+                var active = new VisualState
+                {
+                    Name = "Active",
+                    Storyboard = storyboard
+                };
+                var group = new VisualStateGroup { Name = "CommonStates" };
+                group.States.Add(active);
+                VisualStateManager.GetVisualStateGroups(stateRoot).Add(group);
+                return templateRoot;
+            });
+
+        Assert.True(control.ApplyTemplate());
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Equal(0.75d, Assert.IsType<Border>(presenter).Opacity);
+    }
+
+    [Fact]
+    public void VisualStateSetterCanTargetItsTemplateOwnerByTypeName()
+    {
+        var expected =
+            new SolidColorBrush(new Vector4(0.2f, 0.4f, 0.6f, 1f));
+        var control = new TextBox();
+        control.Template = new ControlTemplate(
+            typeof(TextBox),
+            _ =>
+            {
+                var templateRoot = new Grid();
+                XamlTemplateFactory.BeginNameScope(templateRoot);
+                var active = new VisualState { Name = "Active" };
+                active.Setters.Add(
+                    new Setter
+                    {
+                        Target = new TargetPropertyPath
+                        {
+                            Path = new PropertyPath(
+                                "TextBox.BorderBrush")
+                        },
+                        Value = expected
+                    });
+                var group = new VisualStateGroup { Name = "CommonStates" };
+                group.States.Add(active);
+                VisualStateManager.GetVisualStateGroups(templateRoot).Add(group);
+                return templateRoot;
+            });
+
+        Assert.True(control.ApplyTemplate());
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Same(expected, control.BorderBrush);
+    }
+
+    [Fact]
+    public void VisualStateSetterResolvesNamedAttachedPropertyPaths()
+    {
+        var control = new Button();
+        var target = new Border();
+        XamlTemplateFactory.BeginNameScope(control);
+        XamlTemplateFactory.RegisterName(control, "Target", target);
+        var active = new VisualState { Name = "Active" };
+        active.Setters.Add(
+            new Setter
+            {
+                Target = new TargetPropertyPath
+                {
+                    Path = new PropertyPath(
+                        "Target.(Grid.Row)")
+                },
+                Value = "3"
+            });
+        active.Setters.Add(
+            new Setter
+            {
+                Target = new TargetPropertyPath
+                {
+                    Target = target,
+                    Path = new PropertyPath(
+                        nameof(UIElement.Opacity))
+                },
+                Value = "0.75"
+            });
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Equal(3, Grid.GetRow(target));
+        Assert.Equal(0.75d, target.Opacity);
+        XamlTemplateFactory.Release(control);
+    }
+
+    [Fact]
+    public void SystemFocusVisualsOwnLegacyTemplateFocusAnimationTargets()
+    {
+        var control = new Button { UseSystemFocusVisuals = true };
+        control.Template = new ControlTemplate(
+            typeof(Button),
+            _ =>
+            {
+                var templateRoot = new Grid();
+                XamlTemplateFactory.BeginNameScope(templateRoot);
+                var animation = new DoubleAnimation { To = 1d };
+                Storyboard.SetTargetName(
+                    animation,
+                    "FocusVisualWhite");
+                Storyboard.SetTargetProperty(
+                    animation,
+                    nameof(UIElement.Opacity));
+                var storyboard = new Storyboard();
+                storyboard.Children.Add(animation);
+                var focused = new VisualState
+                {
+                    Name = "Focused",
+                    Storyboard = storyboard
+                };
+                var group = new VisualStateGroup { Name = "FocusStates" };
+                group.States.Add(focused);
+                VisualStateManager.GetVisualStateGroups(templateRoot).Add(group);
+                return templateRoot;
+            });
+
+        Assert.True(control.ApplyTemplate());
+        Assert.True(VisualStateManager.GoToState(control, "Focused", false));
+    }
+
+    [Fact]
+    public void UnresolvedVisualStateTargetsFailOutsideExplicitCompatibilityRules()
+    {
+        var control = new Button();
+        var animation = new DoubleAnimation { To = 1d };
+        Storyboard.SetTargetName(animation, "Missing");
+        Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        var active = new VisualState
+        {
+            Name = "Active",
+            Storyboard = storyboard
+        };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.Throws<InvalidOperationException>(
+            () => VisualStateManager.GoToState(control, "Active", false));
+
+        var unsupportedStoryboard = new Storyboard();
+        unsupportedStoryboard.Children.Add(new UnsupportedTimeline());
+        var unsupported = new VisualState
+        {
+            Name = "Unsupported",
+            Storyboard = unsupportedStoryboard
+        };
+        group.States.Add(unsupported);
+        Assert.Throws<NotSupportedException>(
+            () => VisualStateManager.GoToState(
+                control,
+                "Unsupported",
+                false));
+    }
+
+    [Fact]
+    public void ThemeColorAnimationPreservesBrushOpacityAndReevaluates()
+    {
+        var original = new SolidColorBrush(
+            new Vector4(0.1f, 0.2f, 0.3f, 1f))
+        {
+            Opacity = 0.35f
+        };
+        var target = new Control
+        {
+            Background = original,
+            RequestedTheme = ElementTheme.Light
+        };
+        target.Resources.ThemeDictionaries["Light"] = new ResourceDictionary
+        {
+            ["AnimatedColor"] = Windows.UI.Color.FromArgb(
+                255,
+                32,
+                64,
+                96)
+        };
+        target.Resources.ThemeDictionaries["Dark"] = new ResourceDictionary
+        {
+            ["AnimatedColor"] = Windows.UI.Color.FromArgb(
+                255,
+                160,
+                128,
+                64)
+        };
+        XamlTemplateFactory.BeginNameScope(target);
+        XamlTemplateFactory.RegisterName(target, "Target", target);
+
+        var animation = new ColorAnimation();
+        animation.SetValue(
+            ColorAnimation.ToProperty,
+            new ThemeResource(target, "AnimatedColor"));
+        Storyboard.SetTargetName(animation, "Target");
+        Storyboard.SetTargetProperty(
+            animation,
+            "(Control.Background).(SolidColorBrush.Color)");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        var active = new VisualState
+        {
+            Name = "Active",
+            Storyboard = storyboard
+        };
+        var normal = new VisualState { Name = "Normal" };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        group.States.Add(normal);
+        VisualStateManager.GetVisualStateGroups(target).Add(group);
+
+        Assert.True(VisualStateManager.GoToState(target, "Active", false));
+        var lightBrush = Assert.IsType<SolidColorBrush>(target.Background);
+        Assert.Equal(32f / 255f, lightBrush.Color.X);
+        Assert.Equal(64f / 255f, lightBrush.Color.Y);
+        Assert.Equal(96f / 255f, lightBrush.Color.Z);
+        Assert.Equal(0.35f, lightBrush.Opacity);
+
+        target.RequestedTheme = ElementTheme.Dark;
+        var darkBrush = Assert.IsType<SolidColorBrush>(target.Background);
+        Assert.Equal(160f / 255f, darkBrush.Color.X);
+        Assert.Equal(128f / 255f, darkBrush.Color.Y);
+        Assert.Equal(64f / 255f, darkBrush.Color.Z);
+        Assert.Equal(0.35f, darkBrush.Opacity);
+
+        Assert.True(VisualStateManager.GoToState(target, "Normal", false));
+        Assert.Same(original, target.Background);
+        XamlTemplateFactory.Release(target);
+    }
+
+    [Fact]
+    public void FadeThemeAnimationsApplyAndRestoreAnimationPrecedence()
+    {
+        var control = new Button();
+        var target = new Border { Opacity = 0.4d };
+        XamlTemplateFactory.BeginNameScope(control);
+        XamlTemplateFactory.RegisterName(control, "Target", target);
+        var fadedOut = new VisualState
+        {
+            Name = "FadedOut",
+            Storyboard = new Storyboard()
+        };
+        fadedOut.Storyboard.Children.Add(
+            new FadeOutThemeAnimation { TargetName = "Target" });
+        var fadedIn = new VisualState
+        {
+            Name = "FadedIn",
+            Storyboard = new Storyboard()
+        };
+        fadedIn.Storyboard.Children.Add(
+            new FadeInThemeAnimation { TargetName = "Target" });
+        var normal = new VisualState { Name = "Normal" };
+        var group = new VisualStateGroup { Name = "FadeStates" };
+        group.States.Add(fadedOut);
+        group.States.Add(fadedIn);
+        group.States.Add(normal);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.True(VisualStateManager.GoToState(control, "FadedOut", false));
+        Assert.Equal(0d, target.Opacity);
+        Assert.True(VisualStateManager.GoToState(control, "FadedIn", false));
+        Assert.Equal(1d, target.Opacity);
+        target.Opacity = 0.65d;
+        Assert.Equal(1d, target.Opacity);
+        Assert.True(VisualStateManager.GoToState(control, "Normal", false));
+        Assert.Equal(0.65d, target.Opacity);
+        XamlTemplateFactory.Release(control);
+    }
+
+    [Fact]
+    public void FluentStateTargetPropertiesUseCanonicalDependencyProperties()
+    {
+        Assert.Same(
+            UIElement.IsHitTestVisibleProperty,
+            DependencyProperty.Lookup(
+                typeof(Button),
+                nameof(UIElement.IsHitTestVisible)));
+        Assert.Same(
+            UIElement.TabFocusNavigationProperty,
+            DependencyProperty.Lookup(
+                typeof(Grid),
+                nameof(UIElement.TabFocusNavigation)));
+        Assert.Same(
+            UIElement.IsTabStopProperty,
+            DependencyProperty.Lookup(
+                typeof(TextBox),
+                nameof(UIElement.IsTabStop)));
+        Assert.Same(
+            FrameworkElement.FocusVisualSecondaryBrushProperty,
+            DependencyProperty.Lookup(
+                typeof(Button),
+                nameof(FrameworkElement.FocusVisualSecondaryBrush)));
+        Assert.Same(
+            RowDefinition.MinHeightProperty,
+            DependencyProperty.Lookup(
+                typeof(RowDefinition),
+                nameof(RowDefinition.MinHeight)));
+        Assert.Same(
+            ColumnDefinition.MaxWidthProperty,
+            DependencyProperty.Lookup(
+                typeof(ColumnDefinition),
+                nameof(ColumnDefinition.MaxWidth)));
+
+        Assert.True(new Button().IsHitTestVisible);
+        Assert.Equal(
+            KeyboardNavigationMode.Local,
+            new Grid().TabFocusNavigation);
+        Assert.True(new TextBox().IsTabStop);
+        Assert.Equal(
+            new Thickness(2f),
+            new Button().FocusVisualPrimaryThickness);
+        Assert.Equal(
+            new Thickness(1f),
+            new Button().FocusVisualSecondaryThickness);
+        Assert.Equal(0d, new RowDefinition().MinHeight);
+        Assert.Equal(
+            double.PositiveInfinity,
+            new ColumnDefinition().MaxWidth);
     }
 
     [Fact]

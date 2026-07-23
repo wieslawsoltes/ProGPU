@@ -38,6 +38,27 @@ public partial class UIElement
     public static readonly DependencyProperty IsAccessKeyScopeProperty = DependencyProperty.Register(
         nameof(IsAccessKeyScope), typeof(bool), typeof(UIElement), new PropertyMetadata(false));
 
+    public static readonly DependencyProperty IsHitTestVisibleProperty =
+        DependencyProperty.Register(
+            nameof(IsHitTestVisible),
+            typeof(bool),
+            typeof(UIElement),
+            new PropertyMetadata(true));
+
+    public static readonly DependencyProperty IsTabStopProperty =
+        DependencyProperty.Register(
+            nameof(IsTabStop),
+            typeof(bool),
+            typeof(UIElement),
+            new PropertyMetadata(true));
+
+    public static readonly DependencyProperty TabFocusNavigationProperty =
+        DependencyProperty.Register(
+            nameof(TabFocusNavigation),
+            typeof(KeyboardNavigationMode),
+            typeof(UIElement),
+            new PropertyMetadata(KeyboardNavigationMode.Local));
+
     public static readonly DependencyProperty TabIndexProperty = DependencyProperty.Register(
         nameof(TabIndex), typeof(int), typeof(UIElement), new PropertyMetadata(int.MaxValue));
 
@@ -75,6 +96,26 @@ public partial class UIElement
     {
         get => (bool)(GetValue(IsAccessKeyScopeProperty) ?? false);
         set => SetValue(IsAccessKeyScopeProperty, value);
+    }
+
+    public bool IsHitTestVisible
+    {
+        get => (bool)(GetValue(IsHitTestVisibleProperty) ?? true);
+        set => SetValue(IsHitTestVisibleProperty, value);
+    }
+
+    public bool IsTabStop
+    {
+        get => (bool)(GetValue(IsTabStopProperty) ?? true);
+        set => SetValue(IsTabStopProperty, value);
+    }
+
+    public KeyboardNavigationMode TabFocusNavigation
+    {
+        get => (KeyboardNavigationMode)(
+            GetValue(TabFocusNavigationProperty) ??
+            KeyboardNavigationMode.Local);
+        set => SetValue(TabFocusNavigationProperty, value);
     }
 
     public int TabIndex

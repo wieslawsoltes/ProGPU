@@ -107,6 +107,32 @@ public static class XamlTemplateFactory
         NameScopes.TryGetValue(root, out _);
 
     /// <summary>
+    /// Resolves a name from the nearest generated namescope that contains an element.
+    /// A namescope boundary is authoritative even when the requested name is absent, so
+    /// lookup never leaks into an outer template instance.
+    /// </summary>
+    internal static bool TryFindNameInNearestScope(
+        FrameworkElement element,
+        string name,
+        out object? value)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        for (FrameworkElement? current = element;
+             current != null;
+             current = current.Parent as FrameworkElement)
+        {
+            if (!NameScopes.TryGetValue(current, out var scope))
+                continue;
+            value = scope.Find(name);
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    /// <summary>
     /// Commits one generated compiled-binding group to its materialized template root while
     /// preserving other lifetimes already owned by that root. Initialization occurs only after
     /// the complete root has been constructed. If activation fails, every root lifetime is

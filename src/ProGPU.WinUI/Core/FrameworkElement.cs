@@ -380,13 +380,6 @@ public partial class FrameworkElement
         set { if (_tag != value) { _tag = value; OnPropertyChanged(); } }
     }
 
-    private bool _isHitTestVisible = true;
-    public bool IsHitTestVisible
-    {
-        get => _isHitTestVisible;
-        set { if (_isHitTestVisible != value) { _isHitTestVisible = value; OnPropertyChanged(); } }
-    }
-
     public static readonly Microsoft.UI.Xaml.DependencyProperty IsEnabledProperty =
         Microsoft.UI.Xaml.DependencyProperty.Register(
             "IsEnabled",

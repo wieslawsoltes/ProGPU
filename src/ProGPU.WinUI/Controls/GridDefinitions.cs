@@ -10,14 +10,36 @@ public sealed class ColumnDefinition : DependencyObject
             typeof(GridLength),
             typeof(ColumnDefinition),
             new PropertyMetadata(GridLength.Star()));
+    public static readonly DependencyProperty MinWidthProperty =
+        DependencyProperty.Register(
+            nameof(MinWidth),
+            typeof(double),
+            typeof(ColumnDefinition),
+            new PropertyMetadata(0d));
+    public static readonly DependencyProperty MaxWidthProperty =
+        DependencyProperty.Register(
+            nameof(MaxWidth),
+            typeof(double),
+            typeof(ColumnDefinition),
+            new PropertyMetadata(double.PositiveInfinity));
 
     public GridLength Width
     {
         get => (GridLength)(GetValue(WidthProperty) ?? GridLength.Star());
         set => SetValue(WidthProperty, value);
     }
-    public double MinWidth { get; set; }
-    public double MaxWidth { get; set; } = double.PositiveInfinity;
+    public double MinWidth
+    {
+        get => (double)(GetValue(MinWidthProperty) ?? 0d);
+        set => SetValue(MinWidthProperty, value);
+    }
+    public double MaxWidth
+    {
+        get => (double)(
+            GetValue(MaxWidthProperty) ??
+            double.PositiveInfinity);
+        set => SetValue(MaxWidthProperty, value);
+    }
     public double ActualWidth { get; internal set; }
 
     internal float Value => Width.Value;
@@ -34,14 +56,36 @@ public sealed class RowDefinition : DependencyObject
             typeof(GridLength),
             typeof(RowDefinition),
             new PropertyMetadata(GridLength.Star()));
+    public static readonly DependencyProperty MinHeightProperty =
+        DependencyProperty.Register(
+            nameof(MinHeight),
+            typeof(double),
+            typeof(RowDefinition),
+            new PropertyMetadata(0d));
+    public static readonly DependencyProperty MaxHeightProperty =
+        DependencyProperty.Register(
+            nameof(MaxHeight),
+            typeof(double),
+            typeof(RowDefinition),
+            new PropertyMetadata(double.PositiveInfinity));
 
     public GridLength Height
     {
         get => (GridLength)(GetValue(HeightProperty) ?? GridLength.Star());
         set => SetValue(HeightProperty, value);
     }
-    public double MinHeight { get; set; }
-    public double MaxHeight { get; set; } = double.PositiveInfinity;
+    public double MinHeight
+    {
+        get => (double)(GetValue(MinHeightProperty) ?? 0d);
+        set => SetValue(MinHeightProperty, value);
+    }
+    public double MaxHeight
+    {
+        get => (double)(
+            GetValue(MaxHeightProperty) ??
+            double.PositiveInfinity);
+        set => SetValue(MaxHeightProperty, value);
+    }
     public double ActualHeight { get; internal set; }
 
     internal float Value => Height.Value;

@@ -265,13 +265,6 @@ public class Control : FrameworkElement, ITemplatedControl
     internal bool IsKeyboardFocusVisualVisible =>
         IsFocused && InputSystem.IsKeyboardFocusActive && UseSystemFocusVisuals;
 
-    private bool _isTabStop = true;
-    public bool IsTabStop
-    {
-        get => _isTabStop;
-        set { if (_isTabStop != value) { _isTabStop = value; OnPropertyChanged(); } }
-    }
-
     public bool ApplyTemplate()
     {
         if (_templateRoot != null)

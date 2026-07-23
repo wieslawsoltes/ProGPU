@@ -238,7 +238,11 @@ public static class VisualStateManager
             foreach (var setter in state.Setters)
             {
                 if (!TryResolveSetter(root, setter, out var target, out var property))
-                    continue;
+                {
+                    throw new InvalidOperationException(
+                        $"Visual-state setter target '{setter.Target?.Path?.Path ?? setter.Property}' " +
+                        $"could not be resolved from '{root.GetType().FullName}'.");
+                }
                 assignments.Add(new VisualStateAssignment(target, property, setter.Value));
             }
             if (state.Storyboard != null)
@@ -443,13 +447,15 @@ public static class VisualStateManager
                 continue;
             }
 
-            if (!TryResolveTimelineTarget(root, timeline, out var target, out var property))
-                continue;
-
             switch (timeline)
             {
                 case ObjectAnimationUsingKeyFrames objectAnimation:
                 {
+                    ResolveTimelineTargetOrThrow(
+                        root,
+                        timeline,
+                        out var target,
+                        out var property);
                     var frame = GetLastKeyFrame(objectAnimation.KeyFrames);
                     if (frame != null)
                     {
@@ -462,6 +468,24 @@ public static class VisualStateManager
                 }
                 case DoubleAnimation doubleAnimation:
                 {
+                    if (!TryResolveTimelineTarget(
+                            root,
+                            timeline,
+                            out var target,
+                            out var property))
+                    {
+                        if (IsSystemFocusVisualCompatibilityTarget(
+                                root,
+                                timeline))
+                        {
+                            break;
+                        }
+                        ResolveTimelineTargetOrThrow(
+                            root,
+                            timeline,
+                            out target,
+                            out property);
+                    }
                     object? value = GetDoubleAnimationFinalValue(target, property, doubleAnimation);
                     if (value != null)
                         assignments.Add(new VisualStateAssignment(target, property, value));
@@ -469,6 +493,11 @@ public static class VisualStateManager
                 }
                 case DoubleAnimationUsingKeyFrames keyFrameAnimation:
                 {
+                    ResolveTimelineTargetOrThrow(
+                        root,
+                        timeline,
+                        out var target,
+                        out var property);
                     var frame = GetLastKeyFrame(keyFrameAnimation.KeyFrames);
                     if (frame != null)
                         assignments.Add(new VisualStateAssignment(target, property, frame.Value));
@@ -477,11 +506,193 @@ public static class VisualStateManager
                 case ColorAnimation colorAnimation:
                 {
                     object? value = GetColorAnimationFinalValue(colorAnimation);
-                    if (value != null)
+                    if (value == null)
+                        break;
+                    if (TryResolveTimelineTarget(
+                            root,
+                            timeline,
+                            out var target,
+                            out var property))
+                    {
                         assignments.Add(new VisualStateAssignment(target, property, value));
+                        break;
+                    }
+                    if (TryResolveSolidColorBrushTarget(
+                            root,
+                            timeline,
+                            value,
+                            out target,
+                            out property,
+                            out var brushValue))
+                    {
+                        assignments.Add(
+                            new VisualStateAssignment(
+                                target,
+                                property,
+                                brushValue));
+                        break;
+                    }
+                    ResolveTimelineTargetOrThrow(
+                        root,
+                        timeline,
+                        out _,
+                        out _);
                     break;
                 }
+                case FadeInThemeAnimation fadeIn:
+                    CollectFadeAssignment(root, fadeIn, 1d, assignments);
+                    break;
+                case FadeOutThemeAnimation fadeOut:
+                    CollectFadeAssignment(root, fadeOut, 0d, assignments);
+                    break;
+                case PointerDownThemeAnimation pointerDown:
+                    ValidateThemeTarget(root, pointerDown, pointerDown.TargetName);
+                    break;
+                case PointerUpThemeAnimation pointerUp:
+                    ValidateThemeTarget(root, pointerUp, pointerUp.TargetName);
+                    break;
+                case DragItemThemeAnimation dragItem:
+                    ValidateThemeTarget(root, dragItem, dragItem.TargetName);
+                    break;
+                case DropTargetItemThemeAnimation dropTarget:
+                    ValidateThemeTarget(root, dropTarget, dropTarget.TargetName);
+                    break;
+                case DragOverThemeAnimation dragOver:
+                    ValidateThemeTarget(root, dragOver, dragOver.TargetName);
+                    break;
+                case RepositionThemeAnimation reposition:
+                    ValidateThemeTarget(root, reposition, reposition.TargetName);
+                    break;
+                case SplitOpenThemeAnimation splitOpen:
+                    ValidateSplitTargets(root, splitOpen);
+                    break;
+                case SplitCloseThemeAnimation splitClose:
+                    ValidateSplitTargets(root, splitClose);
+                    break;
+                default:
+                    throw new NotSupportedException(
+                        $"Visual-state timeline '{timeline.GetType().FullName}' is not supported.");
             }
+        }
+    }
+
+    private static void ResolveTimelineTargetOrThrow(
+        FrameworkElement root,
+        Timeline timeline,
+        out DependencyObject target,
+        out DependencyProperty property)
+    {
+        if (TryResolveTimelineTarget(root, timeline, out target, out property))
+            return;
+        throw new InvalidOperationException(
+            $"Storyboard target '{Storyboard.GetTargetName(timeline)}' and property path " +
+            $"'{Storyboard.GetTargetProperty(timeline)}' on '{timeline.GetType().FullName}' " +
+            $"could not be resolved from '{root.GetType().FullName}'.");
+    }
+
+    private static bool IsSystemFocusVisualCompatibilityTarget(
+        FrameworkElement root,
+        Timeline timeline)
+    {
+        if (XamlTemplateFactory.FindTemplateContext(root) is not Control
+            {
+                UseSystemFocusVisuals: true
+            })
+        {
+            return false;
+        }
+
+        string targetName = Storyboard.GetTargetName(timeline);
+        if (!string.Equals(
+                targetName,
+                "FocusVisualWhite",
+                StringComparison.Ordinal) &&
+            !string.Equals(
+                targetName,
+                "FocusVisualBlack",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            Storyboard.GetTargetProperty(timeline).Trim(),
+            nameof(UIElement.Opacity),
+            StringComparison.Ordinal);
+    }
+
+    private static void CollectFadeAssignment<TFade>(
+        FrameworkElement root,
+        TFade timeline,
+        double opacity,
+        List<VisualStateAssignment> assignments)
+        where TFade : Timeline
+    {
+        string targetName = timeline switch
+        {
+            FadeInThemeAnimation fadeIn => fadeIn.TargetName,
+            FadeOutThemeAnimation fadeOut => fadeOut.TargetName,
+            _ => string.Empty
+        };
+        var target = ValidateThemeTarget(root, timeline, targetName);
+        if (target is not UIElement)
+        {
+            throw new InvalidOperationException(
+                $"Theme animation target '{targetName}' is not a UIElement and cannot animate Opacity.");
+        }
+        assignments.Add(
+            new VisualStateAssignment(
+                target,
+                UIElement.OpacityProperty,
+                opacity));
+    }
+
+    private static DependencyObject ValidateThemeTarget(
+        FrameworkElement root,
+        Timeline timeline,
+        string declaredTargetName)
+    {
+        string targetName = string.IsNullOrWhiteSpace(declaredTargetName)
+            ? Storyboard.GetTargetName(timeline)
+            : declaredTargetName;
+        if (string.IsNullOrWhiteSpace(targetName))
+            return root;
+        if (FindName(root, targetName) is DependencyObject target)
+            return target;
+        throw new InvalidOperationException(
+            $"Theme-animation target '{targetName}' on '{timeline.GetType().FullName}' " +
+            $"could not be resolved from '{root.GetType().FullName}'.");
+    }
+
+    private static void ValidateSplitTargets(
+        FrameworkElement root,
+        SplitOpenThemeAnimation animation)
+    {
+        _ = animation.OpenedTarget ??
+            ValidateThemeTarget(root, animation, animation.OpenedTargetName);
+        _ = animation.ClosedTarget ??
+            ValidateThemeTarget(root, animation, animation.ClosedTargetName);
+        if (animation.ContentTarget != null ||
+            !string.IsNullOrWhiteSpace(animation.ContentTargetName))
+        {
+            _ = animation.ContentTarget ??
+                ValidateThemeTarget(root, animation, animation.ContentTargetName);
+        }
+    }
+
+    private static void ValidateSplitTargets(
+        FrameworkElement root,
+        SplitCloseThemeAnimation animation)
+    {
+        _ = animation.OpenedTarget ??
+            ValidateThemeTarget(root, animation, animation.OpenedTargetName);
+        _ = animation.ClosedTarget ??
+            ValidateThemeTarget(root, animation, animation.ClosedTargetName);
+        if (animation.ContentTarget != null ||
+            !string.IsNullOrWhiteSpace(animation.ContentTargetName))
+        {
+            _ = animation.ContentTarget ??
+                ValidateThemeTarget(root, animation, animation.ContentTargetName);
         }
     }
 
@@ -519,6 +730,95 @@ public static class VisualStateManager
         if (animation.IsPropertySetLocally(ColorAnimation.ToProperty))
             return animation.GetLocalXamlValue(ColorAnimation.ToProperty);
         return animation.From ?? animation.By;
+    }
+
+    private static bool TryResolveSolidColorBrushTarget(
+        FrameworkElement root,
+        Timeline timeline,
+        object colorValue,
+        out DependencyObject target,
+        out DependencyProperty property,
+        out object brushValue)
+    {
+        target = null!;
+        property = null!;
+        brushValue = null!;
+        string path = Storyboard.GetTargetProperty(timeline).Trim();
+        var segments = path.Split(
+            new[] { ").(" },
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length != 2)
+            return false;
+
+        var colorSegment = segments[1].Trim().Trim('(', ')');
+        var colorSeparator = colorSegment.LastIndexOf('.');
+        if (colorSeparator <= 0 ||
+            !string.Equals(
+                colorSegment[(colorSeparator + 1)..],
+                nameof(ProGPU.Vector.SolidColorBrush.Color),
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                colorSegment[..colorSeparator],
+                nameof(ProGPU.Vector.SolidColorBrush),
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string targetName = Storyboard.GetTargetName(timeline);
+        var resolvedTarget = string.IsNullOrWhiteSpace(targetName)
+            ? root
+            : FindName(root, targetName) as DependencyObject;
+        if (resolvedTarget == null)
+            return false;
+        target = resolvedTarget;
+
+        var brushSegment = segments[0].Trim().Trim('(', ')');
+        var brushSeparator = brushSegment.LastIndexOf('.');
+        var owner = brushSeparator < 0
+            ? null
+            : brushSegment[..brushSeparator];
+        var name = brushSeparator < 0
+            ? brushSegment
+            : brushSegment[(brushSeparator + 1)..];
+        property =
+            DependencyProperty.Lookup(target.GetType(), name) ??
+            (owner == null
+                ? null
+                : DependencyProperty.LookupRegisteredOwner(owner, name))!;
+        if (property == null ||
+            target.GetValue(property) is not ProGPU.Vector.SolidColorBrush currentBrush)
+        {
+            return false;
+        }
+
+        if (colorValue is ThemeResource themeResource)
+        {
+            brushValue = new ThemeColorBrushResource(
+                themeResource.LookupRoot,
+                themeResource.ResourceKey,
+                currentBrush.Opacity);
+            return true;
+        }
+
+        if (colorValue is ProGPU.Vector.ThemeResourceBrush themeBrush)
+        {
+            brushValue = new ThemeColorBrushResource(
+                themeBrush.LookupRoot,
+                themeBrush.ResourceKey,
+                currentBrush.Opacity);
+            return true;
+        }
+
+        var color = (System.Numerics.Vector4)
+            XamlValueConverter.ConvertTo(
+                typeof(System.Numerics.Vector4),
+                colorValue)!;
+        brushValue = new ProGPU.Vector.SolidColorBrush(color)
+        {
+            Opacity = currentBrush.Opacity
+        };
+        return true;
     }
 
     private static TFrame? GetLastKeyFrame<TFrame>(IList<TFrame> frames)
@@ -624,29 +924,87 @@ public static class VisualStateManager
         return false;
     }
 
-    private static bool TryResolveSetter(FrameworkElement root, Setter setter, out DependencyObject target, out DependencyProperty property)
+    private static bool TryResolveSetter(
+        FrameworkElement root,
+        Setter setter,
+        out DependencyObject target,
+        out DependencyProperty property)
     {
         target = root;
         property = null!;
         var setterPath = setter.Target?.Path?.Path ?? setter.Property;
-        if (string.IsNullOrWhiteSpace(setterPath)) return false;
-        var separator = setterPath.LastIndexOf('.');
-        var propertyName = separator < 0 ? setterPath : setterPath[(separator + 1)..];
-        if (separator > 0)
+        if (string.IsNullOrWhiteSpace(setterPath))
+            return false;
+        var propertyPath = setterPath.Trim();
+        if (setter.Target != null)
         {
-            var targetName = setterPath[..separator];
-            var named = FindName(root, targetName) as DependencyObject;
-            if (named == null) return false;
-            target = named;
+            if (setter.Target.Target is DependencyObject directTarget)
+            {
+                target = directTarget;
+            }
+            else
+            {
+                var separator = FindTopLevelSeparator(propertyPath);
+                if (separator <= 0)
+                    return false;
+                var targetName = propertyPath[..separator];
+                var named = FindName(root, targetName) as DependencyObject;
+                if (named == null)
+                {
+                    var templateContext =
+                        XamlTemplateFactory.FindTemplateContext(root);
+                    if (templateContext is not DependencyObject templateOwner ||
+                        !IsTypeName(templateOwner.GetType(), targetName))
+                    {
+                        return false;
+                    }
+                    named = templateOwner;
+                }
+                target = named;
+                propertyPath = propertyPath[(separator + 1)..];
+            }
         }
-        property = DependencyProperty.Lookup(target.GetType(), propertyName)!;
-        return property != null;
+        return TryResolvePropertyPath(
+            target,
+            propertyPath,
+            out target,
+            out property);
+    }
+
+    private static bool IsTypeName(Type type, string candidate) =>
+        string.Equals(type.Name, candidate, StringComparison.Ordinal) ||
+        string.Equals(type.FullName, candidate, StringComparison.Ordinal);
+
+    private static int FindTopLevelSeparator(string path)
+    {
+        var parenthesisDepth = 0;
+        for (var index = 0; index < path.Length; index++)
+        {
+            switch (path[index])
+            {
+                case '(':
+                    parenthesisDepth++;
+                    break;
+                case ')':
+                    if (parenthesisDepth > 0)
+                        parenthesisDepth--;
+                    break;
+                case '.' when parenthesisDepth == 0:
+                    return index;
+            }
+        }
+        return -1;
     }
 
     private static object? FindName(FrameworkElement root, string name)
     {
-        if (Microsoft.UI.Xaml.Markup.XamlTemplateFactory.HasNameScope(root))
-            return Microsoft.UI.Xaml.Markup.XamlTemplateFactory.FindName(root, name);
+        if (Microsoft.UI.Xaml.Markup.XamlTemplateFactory.TryFindNameInNearestScope(
+                root,
+                name,
+                out var scopedValue))
+        {
+            return scopedValue;
+        }
         if (string.Equals(root.Name, name, StringComparison.Ordinal)) return root;
         if (root is not ContainerVisual container) return null;
         IReadOnlyList<Visual> children = container.Children;

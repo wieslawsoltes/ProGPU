@@ -34,6 +34,20 @@ public class ThemeResource
     }
 }
 
+internal sealed class ThemeColorBrushResource : ThemeResource
+{
+    public ThemeColorBrushResource(
+        object? lookupRoot,
+        object resourceKey,
+        float opacity)
+        : base(lookupRoot, resourceKey)
+    {
+        Opacity = opacity;
+    }
+
+    public float Opacity { get; }
+}
+
 public static class ThemeResourceOperations
 {
     public static void SetResource(
