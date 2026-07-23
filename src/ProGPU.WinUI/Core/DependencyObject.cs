@@ -262,16 +262,20 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     public const byte SourceDefaultStyle = 1;
     public const byte SourceStyle = 2;
     public const byte SourceLocal = 3;
+    public const byte SourceAnimation = 4;
 
     private object?[] _localValues = Array.Empty<object?>();
     private object?[] _styleValues = Array.Empty<object?>();
     private object?[] _defaultStyleValues = Array.Empty<object?>();
+    private object?[] _animatedValues = Array.Empty<object?>();
+    private bool[] _hasAnimatedValues = Array.Empty<bool>();
     private object?[] _effectiveValues = Array.Empty<object?>();
     private byte[] _valueSources = Array.Empty<byte>();
 
     private ThemeResource?[] _localThemeResources = Array.Empty<ThemeResource?>();
     private ThemeResource?[] _styleThemeResources = Array.Empty<ThemeResource?>();
     private ThemeResource?[] _defaultStyleThemeResources = Array.Empty<ThemeResource?>();
+    private ThemeResource?[] _animatedThemeResources = Array.Empty<ThemeResource?>();
 
     private void EnsureSize(int index)
     {
@@ -281,11 +285,14 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
             Array.Resize(ref _localValues, newSize);
             Array.Resize(ref _styleValues, newSize);
             Array.Resize(ref _defaultStyleValues, newSize);
+            Array.Resize(ref _animatedValues, newSize);
+            Array.Resize(ref _hasAnimatedValues, newSize);
             Array.Resize(ref _effectiveValues, newSize);
             
             Array.Resize(ref _localThemeResources, newSize);
             Array.Resize(ref _styleThemeResources, newSize);
             Array.Resize(ref _defaultStyleThemeResources, newSize);
+            Array.Resize(ref _animatedThemeResources, newSize);
             
             int oldSize = _valueSources.Length;
             Array.Resize(ref _valueSources, newSize);
@@ -363,14 +370,22 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     }
 
     private bool HasEffectiveValue(DependencyProperty property) =>
-        property.Index < _effectiveValues.Length && _effectiveValues[property.Index] is not null;
+        property.Index < _effectiveValues.Length &&
+        (_effectiveValues[property.Index] is not null ||
+         _valueSources[property.Index] == SourceAnimation);
 
     private static object? ResolveInheritedValue(DependencyProperty property, DependencyObject? parent)
     {
         for (DependencyObject? current = parent; current is not null; current = current.Parent as DependencyObject)
         {
             int index = property.Index;
-            if (index < current._effectiveValues.Length && current._effectiveValues[index] is { } value)
+            if (index < current._effectiveValues.Length &&
+                current._valueSources[index] == SourceAnimation)
+            {
+                return current._effectiveValues[index];
+            }
+            if (index < current._effectiveValues.Length &&
+                current._effectiveValues[index] is { } value)
             {
                 return value;
             }
@@ -515,6 +530,19 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
                 hasThemeResource = true;
             }
+            if (i < _animatedThemeResources.Length && _animatedThemeResources[i] is ThemeResource animatedTr)
+            {
+                var resolved = XamlResourceResolver.ResolveTheme(
+                    animatedTr.LookupRoot,
+                    this,
+                    animatedTr.ResourceKey,
+                    activeTheme,
+                    activeFamily);
+                _animatedValues[i] = property == null
+                    ? resolved
+                    : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+                hasThemeResource = true;
+            }
             
             if (hasThemeResource && property != null)
             {
@@ -534,6 +562,8 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         int idx = dp.Index;
         if (idx < _effectiveValues.Length)
         {
+            if (_valueSources[idx] == SourceAnimation)
+                return _effectiveValues[idx];
             var val = _effectiveValues[idx];
             if (val != null) return val;
         }
@@ -595,6 +625,76 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
             _localValues[idx] = null;
             UpdateEffectiveValue(dp, idx, oldValue);
         }
+    }
+
+    internal void SetAnimatedValue(DependencyProperty dp, object? value)
+    {
+        int idx = dp.Index;
+        EnsureSize(idx);
+        object? oldValue = GetValue(dp);
+        _hasAnimatedValues[idx] = true;
+
+        if (value is ThemeResource themeResource)
+        {
+            _animatedThemeResources[idx] = themeResource;
+            var resolved = XamlResourceResolver.ResolveTheme(
+                themeResource.LookupRoot,
+                this,
+                themeResource.ResourceKey,
+                this is FrameworkElement element
+                    ? element.ActualTheme
+                    : ThemeManager.CurrentTheme,
+                this is FrameworkElement familyElement
+                    ? familyElement.ActualThemeFamily
+                    : ThemeManager.CurrentThemeFamily);
+            _animatedValues[idx] =
+                XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+        }
+        else if (value is ProGPU.Vector.ThemeResourceBrush themeBrush)
+        {
+            var themeResourceValue =
+                new ThemeResource(themeBrush.LookupRoot, themeBrush.ResourceKey);
+            _animatedThemeResources[idx] = themeResourceValue;
+            var resolved = XamlResourceResolver.ResolveTheme(
+                themeResourceValue.LookupRoot,
+                this,
+                themeResourceValue.ResourceKey,
+                this is FrameworkElement element
+                    ? element.ActualTheme
+                    : ThemeManager.CurrentTheme,
+                this is FrameworkElement familyElement
+                    ? familyElement.ActualThemeFamily
+                    : ThemeManager.CurrentThemeFamily);
+            _animatedValues[idx] =
+                XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+        }
+        else
+        {
+            _animatedThemeResources[idx] = null;
+            _animatedValues[idx] = value;
+        }
+
+        UpdateEffectiveValue(dp, idx, oldValue);
+    }
+
+    internal void ClearAnimatedValue(DependencyProperty dp)
+    {
+        int idx = dp.Index;
+        if (idx >= _hasAnimatedValues.Length || !_hasAnimatedValues[idx])
+            return;
+        object? oldValue = GetValue(dp);
+        _hasAnimatedValues[idx] = false;
+        _animatedValues[idx] = null;
+        _animatedThemeResources[idx] = null;
+        UpdateEffectiveValue(dp, idx, oldValue);
+    }
+
+    internal object? GetAnimatedXamlValue(DependencyProperty dp)
+    {
+        int idx = dp.Index;
+        if (idx >= _hasAnimatedValues.Length || !_hasAnimatedValues[idx])
+            return null;
+        return _animatedThemeResources[idx] ?? _animatedValues[idx];
     }
 
     public void SetStyleValue(DependencyProperty dp, object? value)
@@ -694,7 +794,12 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         object? newValue;
         byte source;
 
-        if (_localValues[idx] != null)
+        if (_hasAnimatedValues[idx])
+        {
+            newValue = _animatedValues[idx];
+            source = SourceAnimation;
+        }
+        else if (_localValues[idx] != null)
         {
             newValue = _localValues[idx];
             source = SourceLocal;
@@ -718,7 +823,9 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         _effectiveValues[idx] = newValue;
         _valueSources[idx] = source;
 
-        var finalValue = newValue ?? ResolveInheritedValue(dp, Parent as DependencyObject);
+        var finalValue = source == SourceAnimation
+            ? newValue
+            : newValue ?? ResolveInheritedValue(dp, Parent as DependencyObject);
         if (!Equals(oldValue, finalValue))
         {
             OnPropertyChanged(dp, oldValue, finalValue);

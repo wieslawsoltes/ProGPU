@@ -67,6 +67,29 @@ internal static class XamlValueConverter
         if (conversionType == typeof(FontFamily) && value is string fontFamilyText)
             return new FontFamily(fontFamilyText);
 
+        if (conversionType == typeof(Geometry) && value is string geometryText)
+            return Microsoft.UI.Xaml.Media.PathGeometry.Parse(geometryText);
+
+        if (conversionType == typeof(ProGPU.Scene.Rect) &&
+            value is Windows.Foundation.Rect foundationRect)
+        {
+            return new ProGPU.Scene.Rect(
+                (float)foundationRect.X,
+                (float)foundationRect.Y,
+                (float)foundationRect.Width,
+                (float)foundationRect.Height);
+        }
+
+        if (conversionType == typeof(Windows.Foundation.Rect) &&
+            value is ProGPU.Scene.Rect sceneRect)
+        {
+            return new Windows.Foundation.Rect(
+                sceneRect.X,
+                sceneRect.Y,
+                sceneRect.Width,
+                sceneRect.Height);
+        }
+
         if (conversionType == typeof(GridLength))
         {
             if (value is string gridLengthText)

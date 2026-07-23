@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Numerics;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media.Animation;
 using ProGPU.Scene;
@@ -62,14 +63,106 @@ public sealed class VisualStateGroup
     public VisualState? CurrentState { get; internal set; }
     public event EventHandler<VisualStateChangedEventArgs>? CurrentStateChanged;
 
-    internal List<SetterSnapshot> Snapshots { get; } = new();
+    internal List<VisualStateAppliedProperty> AppliedProperties { get; } = new();
+    internal List<VisualStateBindingRegistration> BindingRegistrations { get; } = new();
 
     internal void RaiseCurrentStateChanged(VisualState? oldState, VisualState? newState) =>
         CurrentStateChanged?.Invoke(this, new VisualStateChangedEventArgs(oldState, newState));
 }
 
-internal readonly record struct SetterSnapshot(DependencyObject Target, DependencyProperty Property, bool HadLocalValue, object? Value);
 internal readonly record struct VisualStateAssignment(DependencyObject Target, DependencyProperty Property, object? Value);
+internal readonly record struct VisualStateAppliedProperty(
+    DependencyObject Target,
+    DependencyProperty Property);
+
+internal sealed class VisualStateBindingProxy : DependencyObject
+{
+    public static readonly DependencyProperty ValueProperty =
+        DependencyProperty.Register(
+            nameof(Value),
+            typeof(object),
+            typeof(VisualStateBindingProxy),
+            new PropertyMetadata(
+                null,
+                static (dependencyObject, args) =>
+                    ((VisualStateBindingProxy)dependencyObject)
+                    .ValueChanged(args.NewValue)));
+
+    private readonly Action<object?> _valueChanged;
+
+    public VisualStateBindingProxy(Action<object?> valueChanged) =>
+        _valueChanged = valueChanged;
+
+    public object? Value
+    {
+        get => GetValue(ValueProperty);
+        set => SetValue(ValueProperty, value);
+    }
+
+    public void PublishCurrentValue() =>
+        _valueChanged(GetValue(ValueProperty));
+
+    private void ValueChanged(object? value) =>
+        _valueChanged(value);
+}
+
+internal sealed class VisualStateBindingRegistration : IDisposable
+{
+    private readonly FrameworkElement _root;
+    private readonly object? _context;
+    private readonly DependencyObject _target;
+    private readonly DependencyProperty _property;
+    private readonly Binding _binding;
+    private readonly VisualStateBindingProxy _proxy;
+    private bool _disposed;
+
+    private VisualStateBindingRegistration(
+        FrameworkElement root,
+        object? context,
+        DependencyObject target,
+        DependencyProperty property,
+        Binding binding)
+    {
+        _root = root;
+        _context = context;
+        _target = target;
+        _property = property;
+        _binding = binding;
+        _proxy = new VisualStateBindingProxy(
+            value => VisualStateManager.SetAnimatedXamlValue(
+                _target,
+                _property,
+                value));
+        BindingOperations.SetBinding(
+            _proxy,
+            VisualStateBindingProxy.ValueProperty,
+            binding,
+            context,
+            lookupRoot: root);
+        _proxy.PublishCurrentValue();
+    }
+
+    public static VisualStateBindingRegistration Create(
+        FrameworkElement root,
+        object? context,
+        DependencyObject target,
+        DependencyProperty property,
+        Binding binding) =>
+        new(root, context, target, property, binding);
+
+    public VisualStateBindingRegistration Recreate() =>
+        Create(_root, _context, _target, _property, _binding);
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        BindingOperations.ClearBinding(
+            _proxy,
+            VisualStateBindingProxy.ValueProperty);
+    }
+}
 
 public static class VisualStateManager
 {
@@ -151,47 +244,74 @@ public static class VisualStateManager
             if (state.Storyboard != null)
                 CollectStoryboardAssignments(root, state.Storyboard, assignments);
         }
+        assignments = KeepLastAssignmentPerProperty(assignments);
 
         var oldState = group.CurrentState;
-        var oldSnapshots = group.Snapshots.ToArray();
-        var oldAppliedValues = new object?[oldSnapshots.Length];
-        for (int index = 0; index < oldSnapshots.Length; index++)
+        var bindingContext =
+            XamlTemplateFactory.FindTemplateContext(root) ??
+            root;
+        var oldProperties = group.AppliedProperties.ToArray();
+        var oldValues = new object?[oldProperties.Length];
+        for (int index = 0; index < oldProperties.Length; index++)
         {
-            var snapshot = oldSnapshots[index];
-            oldAppliedValues[index] = snapshot.Target.GetLocalXamlValue(snapshot.Property);
+            var oldProperty = oldProperties[index];
+            oldValues[index] =
+                oldProperty.Target.GetAnimatedXamlValue(oldProperty.Property);
         }
+        var oldBindings = group.BindingRegistrations.ToArray();
+        DisposeBindings(oldBindings);
+        ClearAnimatedValues(oldProperties);
+        group.AppliedProperties.Clear();
+        group.BindingRegistrations.Clear();
 
-        RestoreSnapshots(group.Snapshots);
-        group.Snapshots.Clear();
-
-        var captured = new HashSet<(DependencyObject Target, DependencyProperty Property)>();
+        var applied = new HashSet<(DependencyObject Target, DependencyProperty Property)>();
         try
         {
             foreach (var assignment in assignments)
             {
                 var key = (assignment.Target, assignment.Property);
-                if (captured.Add(key))
+                if (applied.Add(key))
                 {
-                    bool hadLocalValue = assignment.Target.IsPropertySetLocally(assignment.Property);
-                    group.Snapshots.Add(new SetterSnapshot(
+                    group.AppliedProperties.Add(new VisualStateAppliedProperty(
+                        assignment.Target,
+                        assignment.Property));
+                }
+                if (assignment.Value is Binding binding)
+                {
+                    group.BindingRegistrations.Add(
+                        VisualStateBindingRegistration.Create(
+                            root,
+                            bindingContext,
+                            assignment.Target,
+                            assignment.Property,
+                            binding));
+                }
+                else
+                {
+                    SetAnimatedXamlValue(
                         assignment.Target,
                         assignment.Property,
-                        hadLocalValue,
-                        hadLocalValue ? assignment.Target.GetLocalXamlValue(assignment.Property) : null));
+                        assignment.Value);
                 }
-                SetXamlValue(assignment.Target, assignment.Property, assignment.Value);
             }
         }
         catch
         {
-            RestoreSnapshots(group.Snapshots);
-            group.Snapshots.Clear();
-            for (int index = 0; index < oldSnapshots.Length; index++)
+            DisposeBindings(group.BindingRegistrations);
+            ClearAnimatedValues(group.AppliedProperties);
+            group.BindingRegistrations.Clear();
+            group.AppliedProperties.Clear();
+            for (int index = 0; index < oldProperties.Length; index++)
             {
-                var snapshot = oldSnapshots[index];
-                SetXamlValue(snapshot.Target, snapshot.Property, oldAppliedValues[index]);
-                group.Snapshots.Add(snapshot);
+                var oldProperty = oldProperties[index];
+                SetAnimatedXamlValue(
+                    oldProperty.Target,
+                    oldProperty.Property,
+                    oldValues[index]);
+                group.AppliedProperties.Add(oldProperty);
             }
+            for (int index = 0; index < oldBindings.Length; index++)
+                group.BindingRegistrations.Add(oldBindings[index].Recreate());
             throw;
         }
 
@@ -199,30 +319,73 @@ public static class VisualStateManager
         group.RaiseCurrentStateChanged(oldState, state);
     }
 
-    private static void RestoreSnapshots(IReadOnlyList<SetterSnapshot> snapshots)
+    private static List<VisualStateAssignment> KeepLastAssignmentPerProperty(
+        List<VisualStateAssignment> assignments)
     {
-        for (int index = snapshots.Count - 1; index >= 0; index--)
+        if (assignments.Count < 2)
+            return assignments;
+
+        var result = new List<VisualStateAssignment>(assignments.Count);
+        var indexes =
+            new Dictionary<
+                (DependencyObject Target, DependencyProperty Property),
+                int>();
+        for (int index = 0; index < assignments.Count; index++)
         {
-            var snapshot = snapshots[index];
-            if (snapshot.HadLocalValue)
-                SetXamlValue(snapshot.Target, snapshot.Property, snapshot.Value);
+            var assignment = assignments[index];
+            var key = (assignment.Target, assignment.Property);
+            if (indexes.TryGetValue(key, out var resultIndex))
+                result[resultIndex] = assignment;
             else
-                snapshot.Target.ClearValue(snapshot.Property);
+            {
+                indexes.Add(key, result.Count);
+                result.Add(assignment);
+            }
+        }
+        return result;
+    }
+
+    private static void ClearAnimatedValues(
+        IReadOnlyList<VisualStateAppliedProperty> properties)
+    {
+        for (int index = properties.Count - 1; index >= 0; index--)
+        {
+            var property = properties[index];
+            property.Target.ClearAnimatedValue(property.Property);
         }
     }
 
-    private static void SetXamlValue(
+    private static void DisposeBindings(
+        IReadOnlyList<VisualStateBindingRegistration> registrations)
+    {
+        for (int index = registrations.Count - 1; index >= 0; index--)
+            registrations[index].Dispose();
+    }
+
+    internal static void SetAnimatedXamlValue(
         DependencyObject target,
         DependencyProperty property,
         object? value)
     {
-        if (value is ThemeResource or ProGPU.Vector.ThemeResourceBrush)
+        try
         {
-            target.SetValue(property, value);
-            return;
-        }
+            if (value is ThemeResource or ProGPU.Vector.ThemeResourceBrush)
+            {
+                target.SetAnimatedValue(property, value);
+                return;
+            }
 
-        target.SetValue(property, XamlValueConverter.ConvertTo(property.PropertyType, value));
+            target.SetAnimatedValue(
+                property,
+                XamlValueConverter.ConvertTo(property.PropertyType, value));
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"Visual-state value '{value}' ({value?.GetType().FullName ?? "null"}) could not be assigned to " +
+                $"'{target.GetType().FullName}.{property.Name}' ({property.PropertyType.FullName}).",
+                exception);
+        }
     }
 
     private static bool TryFindState(
@@ -331,9 +494,21 @@ public static class VisualStateManager
             return animation.GetLocalXamlValue(DoubleAnimation.ToProperty);
         if (animation.By is double by)
         {
-            double current = Convert.ToDouble(
-                target.GetValue(property) ?? 0d,
-                System.Globalization.CultureInfo.InvariantCulture);
+            object? currentValue = target.GetValue(property);
+            double current;
+            try
+            {
+                current = Convert.ToDouble(
+                    currentValue ?? 0d,
+                    System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(
+                    $"The current value '{currentValue}' ({currentValue?.GetType().FullName ?? "null"}) of " +
+                    $"'{target.GetType().FullName}.{property.Name}' cannot be used as a DoubleAnimation base value.",
+                    exception);
+            }
             return current + by;
         }
         return animation.From;

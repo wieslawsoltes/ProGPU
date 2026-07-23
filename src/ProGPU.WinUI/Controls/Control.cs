@@ -285,7 +285,15 @@ public class Control : FrameworkElement, ITemplatedControl
 
         var generatedTemplateRoot = Microsoft.UI.Xaml.Markup.XamlTemplateFactory.Build(Template, this);
         if (generatedTemplateRoot == null && Template?.Factory is { } templateFactory)
+        {
             generatedTemplateRoot = templateFactory(this);
+            if (generatedTemplateRoot != null)
+            {
+                Microsoft.UI.Xaml.Markup.XamlTemplateFactory.SetTemplateContext(
+                    generatedTemplateRoot,
+                    this);
+            }
+        }
         if (generatedTemplateRoot != null)
         {
             _templateRoot = generatedTemplateRoot;

@@ -27,6 +27,9 @@ public static class XamlTemplateFactory
     private static readonly ConditionalWeakTable<
         object,
         XamlNameScope> NameScopes = new();
+    private static readonly ConditionalWeakTable<
+        FrameworkElement,
+        TemplateContext> TemplateContexts = new();
 
     public static void SetFactory(FrameworkTemplate template, Func<object?, FrameworkElement> factory)
     {
@@ -35,8 +38,37 @@ public static class XamlTemplateFactory
         template.DeferredFactory = factory;
     }
 
-    public static FrameworkElement? Build(FrameworkTemplate? template, object? context = null) =>
-        template?.DeferredFactory?.Invoke(context);
+    public static FrameworkElement? Build(
+        FrameworkTemplate? template,
+        object? context = null)
+    {
+        var root = template?.DeferredFactory?.Invoke(context);
+        if (root != null)
+            SetTemplateContext(root, context);
+        return root;
+    }
+
+    internal static void SetTemplateContext(
+        FrameworkElement root,
+        object? context)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        TemplateContexts.Remove(root);
+        TemplateContexts.Add(root, new TemplateContext(context));
+    }
+
+    internal static object? FindTemplateContext(FrameworkElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        for (FrameworkElement? current = element;
+             current != null;
+             current = current.Parent as FrameworkElement)
+        {
+            if (TemplateContexts.TryGetValue(current, out var context))
+                return context.Value;
+        }
+        return null;
+    }
 
     /// <summary>Starts one independent namescope for a generated XAML root.</summary>
     public static void BeginNameScope(object root)
@@ -145,6 +177,7 @@ public static class XamlTemplateFactory
         if (root == null)
             return;
         NameScopes.Remove(root);
+        TemplateContexts.Remove(root);
         if (!Instances.TryGetValue(root, out var instance))
             return;
         Instances.Remove(root);
@@ -202,6 +235,14 @@ public static class XamlTemplateFactory
     private sealed class TemplateInstance
     {
         public List<IXamlTemplateLifetime> Lifetimes { get; } = new();
+    }
+
+    private sealed class TemplateContext
+    {
+        public TemplateContext(object? value) =>
+            Value = value;
+
+        public object? Value { get; }
     }
 
     private sealed class XamlNameScope

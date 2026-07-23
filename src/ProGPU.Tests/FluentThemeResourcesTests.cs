@@ -622,6 +622,186 @@ public sealed class FluentThemeResourcesTests
         }
     }
 
+    [Fact]
+    public void EveryGeneratedFluentVisualStateCanBeActivated()
+    {
+        var previousApplication =
+            Application.Current;
+        var previousTheme =
+            ThemeManager.CurrentTheme;
+        var previousHighContrast =
+            ThemeManager.IsHighContrast;
+        try
+        {
+            ThemeManager.CurrentTheme =
+                ElementTheme.Light;
+            ThemeManager.IsHighContrast =
+                false;
+            var application = new Application();
+            Application.Current = application;
+            var dictionary =
+                FluentThemeResources.Apply(
+                    application);
+            var visitedDictionaries =
+                new HashSet<ResourceDictionary>(
+                    ReferenceEqualityComparer.Instance);
+            var visitedStyles =
+                new HashSet<Style>(
+                    ReferenceEqualityComparer.Instance);
+            var failures = new List<string>();
+            var stateCount = 0;
+
+            foreach (var (key, style) in
+                     EnumerateStyles(
+                         dictionary,
+                         visitedDictionaries))
+            {
+                if (!visitedStyles.Add(style) ||
+                    style.TargetType is not
+                        { } targetType ||
+                    targetType.IsAbstract ||
+                    !typeof(Control)
+                        .IsAssignableFrom(
+                            targetType))
+                {
+                    continue;
+                }
+
+                Control? control = null;
+                var phase = "construction";
+                try
+                {
+                    control =
+                        Assert.IsAssignableFrom<
+                            Control>(
+                            Activator.CreateInstance(
+                                targetType));
+                    phase = "style application";
+                    control.Style = style;
+                    if (control.Template != null)
+                    {
+                        phase = "template reapplication";
+                        Assert.True(
+                            control.ApplyTemplate());
+                    }
+
+                    phase = "state discovery";
+                    var stateNames =
+                        EnumerateVisualTree(control)
+                            .SelectMany(
+                                element =>
+                                    VisualStateManager
+                                        .GetVisualStateGroups(
+                                            element))
+                            .SelectMany(
+                                group =>
+                                    group.States)
+                            .Select(
+                                state =>
+                                    state.Name)
+                            .Where(
+                                name =>
+                                    !string.IsNullOrWhiteSpace(
+                                        name))
+                            .Distinct(
+                                StringComparer.Ordinal)
+                            .ToArray();
+                    foreach (var stateName in
+                             stateNames)
+                    {
+                        phase =
+                            "state " +
+                            stateName;
+                        if (!VisualStateManager.GoToState(
+                                control,
+                                stateName,
+                                false))
+                        {
+                            failures.Add(
+                                key +
+                                " -> " +
+                                targetType.FullName +
+                                "." +
+                                stateName +
+                                ": state was not found from its control root.");
+                            continue;
+                        }
+                        stateCount++;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(
+                        key +
+                        " -> " +
+                        targetType.FullName +
+                        " (" +
+                        phase +
+                        ")" +
+                        ": " +
+                        exception);
+                }
+                finally
+                {
+                    if (control != null)
+                        Microsoft.UI.Xaml.Markup.XamlTemplateFactory
+                            .ReleaseSubtree(
+                                control);
+                }
+            }
+
+            Assert.True(
+                stateCount >= 100,
+                "Expected at least 100 generated Fluent visual states, but activated " +
+                stateCount +
+                ".");
+            Assert.True(
+                failures.Count == 0,
+                string.Join(
+                    Environment.NewLine,
+                    failures));
+        }
+        finally
+        {
+            Application.Current =
+                previousApplication;
+            ThemeManager.CurrentTheme =
+                previousTheme;
+            ThemeManager.IsHighContrast =
+                previousHighContrast;
+        }
+    }
+
+    private static IEnumerable<FrameworkElement>
+        EnumerateVisualTree(
+            FrameworkElement root)
+    {
+        var pending =
+            new Stack<FrameworkElement>();
+        pending.Push(root);
+        while (pending.Count != 0)
+        {
+            var current = pending.Pop();
+            yield return current;
+            if (current is not
+                ProGPU.Scene.ContainerVisual container)
+            {
+                continue;
+            }
+            for (var index =
+                     container.Children.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                if (container.Children[index] is
+                    FrameworkElement child)
+                {
+                    pending.Push(child);
+                }
+            }
+        }
+    }
+
     private static IEnumerable<(object Key, Style Style)>
         EnumerateStyles(
             ResourceDictionary dictionary,

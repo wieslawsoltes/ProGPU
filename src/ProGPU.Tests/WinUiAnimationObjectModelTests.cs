@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Shapes;
@@ -164,8 +165,175 @@ public sealed class WinUiAnimationObjectModelTests
         XamlTemplateFactory.Release(siblingRoot);
         Assert.Null(
             XamlTemplateFactory.FindName(
-                control,
-                "Transform"));
+            control,
+            "Transform"));
+    }
+
+    [Fact]
+    public void VisualStateAnimationValuesPreserveTheUnderlyingLocalValue()
+    {
+        var control = new Button
+        {
+            Opacity = 0.4d,
+            Content = "base"
+        };
+        var animation = new DoubleAnimation { To = 0.8d };
+        Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        var active = new VisualState
+        {
+            Name = "Active",
+            Storyboard = storyboard
+        };
+        active.Setters.Add(
+            new Setter(
+                nameof(ContentControl.Content),
+                null));
+        var normal = new VisualState { Name = "Normal" };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        group.States.Add(normal);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Equal(0.8d, control.Opacity);
+        Assert.Null(control.Content);
+
+        control.Opacity = 0.6d;
+        control.Content = "changed";
+        Assert.Equal(0.8d, control.Opacity);
+        Assert.Null(control.Content);
+
+        Assert.True(VisualStateManager.GoToState(control, "Normal", false));
+        Assert.Equal(0.6d, control.Opacity);
+        Assert.Equal("changed", control.Content);
+    }
+
+    [Fact]
+    public void VisualStateBindingTracksItsTemplatedParentAndDetachesOnExit()
+    {
+        var initial = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));
+        var first = new SolidColorBrush(new Vector4(0f, 1f, 0f, 1f));
+        var second = new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f));
+        var control = new Button { Foreground = first };
+        TextBlock? presenter = null;
+        control.Template = new ControlTemplate(
+            typeof(Button),
+            _ =>
+            {
+                var templateRoot = new Grid();
+                presenter = new TextBlock { Foreground = initial };
+                XamlTemplateFactory.BeginNameScope(templateRoot);
+                XamlTemplateFactory.RegisterName(
+                    templateRoot,
+                    "Presenter",
+                    presenter);
+                var animation = new ObjectAnimationUsingKeyFrames();
+                animation.KeyFrames.Add(new DiscreteObjectKeyFrame
+                {
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+                    Value = new Binding
+                    {
+                        Path = nameof(Control.Foreground),
+                        RelativeSource = new RelativeSource
+                        {
+                            Mode = RelativeSourceMode.TemplatedParent
+                        }
+                    }
+                });
+                Storyboard.SetTargetName(animation, "Presenter");
+                Storyboard.SetTargetProperty(
+                    animation,
+                    nameof(TextBlock.Foreground));
+                var storyboard = new Storyboard();
+                storyboard.Children.Add(animation);
+                var active = new VisualState
+                {
+                    Name = "Active",
+                    Storyboard = storyboard
+                };
+                var normal = new VisualState { Name = "Normal" };
+                var group = new VisualStateGroup { Name = "CommonStates" };
+                group.States.Add(active);
+                group.States.Add(normal);
+                VisualStateManager
+                    .GetVisualStateGroups(templateRoot)
+                    .Add(group);
+                return templateRoot;
+            });
+        var firstPresenter = Assert.IsType<TextBlock>(presenter);
+
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Same(first, firstPresenter.Foreground);
+
+        control.Foreground = second;
+        Assert.Same(second, firstPresenter.Foreground);
+
+        Assert.True(VisualStateManager.GoToState(control, "Normal", false));
+        Assert.Same(initial, firstPresenter.Foreground);
+
+        control.Foreground = first;
+        Assert.Same(initial, firstPresenter.Foreground);
+
+        Assert.True(VisualStateManager.GoToState(control, "Active", false));
+        Assert.Same(first, firstPresenter.Foreground);
+        Assert.True(control.ApplyTemplate());
+        var replacementPresenter = Assert.IsType<TextBlock>(presenter);
+        Assert.NotSame(firstPresenter, replacementPresenter);
+
+        control.Foreground = second;
+        Assert.Same(first, firstPresenter.Foreground);
+        Assert.Same(initial, replacementPresenter.Foreground);
+    }
+
+    [Fact]
+    public void VisualStateObjectValuesConvertPathDataAndWinUiRectangles()
+    {
+        var control = new Button();
+        var path = new Microsoft.UI.Xaml.Shapes.Path();
+        var clip = new RectangleGeometry();
+        XamlTemplateFactory.BeginNameScope(control);
+        XamlTemplateFactory.RegisterName(control, "Path", path);
+        XamlTemplateFactory.RegisterName(control, "Clip", clip);
+
+        var pathAnimation = new ObjectAnimationUsingKeyFrames();
+        pathAnimation.KeyFrames.Add(new DiscreteObjectKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+            Value = "M 0 0 L 8 0 L 8 8 Z"
+        });
+        Storyboard.SetTargetName(pathAnimation, "Path");
+        Storyboard.SetTargetProperty(
+            pathAnimation,
+            nameof(Microsoft.UI.Xaml.Shapes.Path.Data));
+        var rectAnimation = new ObjectAnimationUsingKeyFrames();
+        rectAnimation.KeyFrames.Add(new DiscreteObjectKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+            Value = new Windows.Foundation.Rect(1, 2, 3, 4)
+        });
+        Storyboard.SetTargetName(rectAnimation, "Clip");
+        Storyboard.SetTargetProperty(rectAnimation, nameof(RectangleGeometry.Rect));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(pathAnimation);
+        storyboard.Children.Add(rectAnimation);
+        var state = new VisualState
+        {
+            Name = "Converted",
+            Storyboard = storyboard
+        };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(state);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.True(VisualStateManager.GoToState(control, "Converted", false));
+        Assert.IsType<Microsoft.UI.Xaml.Media.PathGeometry>(path.Data);
+        Assert.Equal(1f, clip.Rect.X);
+        Assert.Equal(2f, clip.Rect.Y);
+        Assert.Equal(3f, clip.Rect.Width);
+        Assert.Equal(4f, clip.Rect.Height);
+        XamlTemplateFactory.Release(control);
     }
 
     [Fact]
