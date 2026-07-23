@@ -84,7 +84,7 @@ This record lists public contracts and concepts consulted. It does not authorize
 
 - additive incremental generation with deterministic per-unit outputs;
 - an original immutable custom markup-language registry with trigger-indexed dispatch, explicit version/context/precedence/associativity/capability/conflict declarations, canonical AST projection, and parse-validated inverse formatting rather than framework parser forks;
-- an independent immutable Roslyn extension host with snapshotted version/priority/capability/conflict metadata, deterministic all-validator composition over one canonical enriched bound/resource snapshot, host-owned source-location materialization, canonical IR input, structured-syntax-only output, priority short-circuiting for expression selection, explicit structural coalescing, and isolated diagnostics rather than source-text generation or reflection-based plugin discovery;
+- an independent immutable Roslyn extension host with snapshotted version/priority/capability/conflict metadata, deterministic all-validator composition over one canonical enriched bound/resource snapshot, host-owned source-location materialization, ordered construction-IR transforms guarded by ownership/root invariants and a bounded iterative structural audit, canonical IR input, structured-syntax-only output, priority short-circuiting for expression selection, explicit structural coalescing, and isolated diagnostics rather than source-text generation or reflection-based plugin discovery;
 - separate source discovery, parsing, semantic binding, cross-file graphing, per-unit emission, and shared emission;
 - explicit XAML schema and instance information sets;
 - framework-neutral construction IR with profile lowering;
