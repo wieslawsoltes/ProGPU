@@ -460,35 +460,30 @@ public sealed class HotReloadTests : IDisposable
 """;
         using var fixture =
             CreateDeltaPreviewProject(baselineXaml);
-        var baseline = await CompileDeltaPreviewAsync(
-            fixture.Project,
-            fixture.XamlDocumentId);
+        var coordinator =
+            CreateDeltaPreviewCoordinator();
+        var baselineUpdate =
+            await coordinator.PrepareAsync(
+                fixture.Project,
+                fixture.XamlDocumentId);
         var changedProject = fixture.Project.Solution
             .WithAdditionalDocumentText(
                 fixture.XamlDocumentId,
                 SourceText.From(changedXaml),
                 PreservationMode.PreserveIdentity)
             .GetProject(fixture.Project.Id)!;
-        var changed = await CompileDeltaPreviewAsync(
-            changedProject,
-            fixture.XamlDocumentId);
-        var deltaService =
-            new RoslynXamlProjectDeltaService();
-        var xamlPlan = deltaService.CreatePlan(
-            baseline,
-            changed);
-        Assert.Equal(
-            RoslynXamlReloadAction.ReplaceTarget,
-            xamlPlan.Action);
-
         FrameworkElement? published = null;
         using var session =
             new WinUiXamlLivePreviewSession();
-        var initial = session.TryUpdate(
-            baseline.Artifact!.PeImage.ToArray(),
-            baseline.QualifiedTypeName!,
-            replacement => published = replacement);
-        Assert.True(initial.Success, initial.Message);
+        var initial =
+            await session.ApplyProjectUpdateAsync(
+                coordinator,
+                baselineUpdate,
+                replacement =>
+                    published = replacement);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            initial);
         var originalRoot =
             Assert.IsAssignableFrom<FrameworkElement>(
                 published);
@@ -496,10 +491,23 @@ public sealed class HotReloadTests : IDisposable
                 FindByName(originalRoot, "editor"))
             .Text = "user state";
 
-        var applied = session.TryApplyProjectDelta(
-            xamlPlan,
-            replacement => published = replacement);
-        Assert.True(applied.Success, applied.Message);
+        var changedUpdate =
+            await coordinator.PrepareAsync(
+                changedProject,
+                fixture.XamlDocumentId);
+        var xamlPlan = changedUpdate.Delta!;
+        Assert.Equal(
+            RoslynXamlReloadAction.ReplaceTarget,
+            xamlPlan.Action);
+        var applied =
+            await session.ApplyProjectUpdateAsync(
+                coordinator,
+                changedUpdate,
+                replacement =>
+                    published = replacement);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            applied);
         var xamlReplacement =
             Assert.IsAssignableFrom<FrameworkElement>(
                 published);
@@ -525,29 +533,32 @@ public sealed class HotReloadTests : IDisposable
                         "public sealed class MetadataMarker { }" +
                         Environment.NewLine)))
             .GetProject(changedProject.Id)!;
-        var metadataChanged =
-            await CompileDeltaPreviewAsync(
+        var metadataUpdate =
+            await coordinator.PrepareAsync(
                 metadataProject,
                 fixture.XamlDocumentId);
-        var metadataPlan = deltaService.CreatePlan(
-            changed,
-            metadataChanged);
+        var metadataPlan = metadataUpdate.Delta!;
         Assert.Equal(
             RoslynXamlReloadAction
                 .CoordinateMetadataAndReplaceTarget,
             metadataPlan.Action);
 
         var missingCoordinator =
-            session.TryApplyProjectDelta(
-                metadataPlan,
+            await session.ApplyProjectUpdateAsync(
+                coordinator,
+                metadataUpdate,
                 replacement => published = replacement);
-        Assert.False(missingCoordinator.Success);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult
+                .RejectedPublication,
+            missingCoordinator);
         Assert.Same(xamlReplacement, published);
 
         var coordinatorCalled = false;
         var failedCoordinator =
-            session.TryApplyProjectDelta(
-                metadataPlan,
+            await session.ApplyProjectUpdateAsync(
+                coordinator,
+                metadataUpdate,
                 replacement => published = replacement,
                 () =>
                 {
@@ -556,20 +567,25 @@ public sealed class HotReloadTests : IDisposable
                         "metadata rejected");
                 });
         Assert.True(coordinatorCalled);
-        Assert.False(failedCoordinator.Success);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult
+                .RejectedPublication,
+            failedCoordinator);
         Assert.Same(xamlReplacement, published);
 
         var successfulCoordinationCount = 0;
         var metadataApplied =
-            session.TryApplyProjectDelta(
-                metadataPlan,
+            await session.ApplyProjectUpdateAsync(
+                coordinator,
+                metadataUpdate,
                 replacement => published = replacement,
                 () =>
                     successfulCoordinationCount++);
-        Assert.True(
-            metadataApplied.Success,
-            metadataApplied.Message);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            metadataApplied);
         Assert.Equal(1, successfulCoordinationCount);
+        Assert.Equal(3, coordinator.Generation);
         Assert.NotSame(xamlReplacement, published);
         Assert.Equal(
             "user state",
@@ -674,13 +690,9 @@ public partial class Root : global::Microsoft.UI.Xaml.Controls.Grid
             xamlDocumentId);
     }
 
-    private static Task<RoslynXamlProjectPreview>
-        CompileDeltaPreviewAsync(
-            Project project,
-            DocumentId documentId) =>
-        new RoslynXamlProjectPreviewService().CompileAsync(
-            project,
-            documentId,
+    private static RoslynXamlProjectPreviewCoordinator
+        CreateDeltaPreviewCoordinator() =>
+        new RoslynXamlProjectPreviewCoordinator(
             new WinUiXamlProfile(),
             new RoslynXamlProjectPreviewOptions
             {

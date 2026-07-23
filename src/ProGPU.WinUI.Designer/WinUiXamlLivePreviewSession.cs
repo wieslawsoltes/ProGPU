@@ -110,6 +110,56 @@ public sealed class WinUiXamlLivePreviewSession : IDisposable
                 : null);
     }
 
+    /// <summary>
+    /// Serializes framework publication with the Workspaces coordinator's last-good
+    /// compiler baseline. A rejected WinUI update cannot advance later delta comparisons.
+    /// </summary>
+    public Task<RoslynXamlProjectCommitResult>
+        ApplyProjectUpdateAsync(
+            RoslynXamlProjectPreviewCoordinator coordinator,
+            RoslynXamlProjectPreviewUpdate update,
+            Action<FrameworkElement> publish,
+            Action? coordinateMetadataUpdate = null,
+            CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(update);
+        ArgumentNullException.ThrowIfNull(publish);
+        return coordinator.ApplyAsync(
+            update,
+            (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                WinUiXamlLivePreviewResult result;
+                if (update.Delta != null)
+                {
+                    result = TryApplyProjectDelta(
+                        update.Delta,
+                        publish,
+                        coordinateMetadataUpdate);
+                }
+                else if (update.TryGetExecutableUpdate(
+                             out var peImage,
+                             out var typeName))
+                {
+                    result = TryUpdate(
+                        peImage,
+                        typeName,
+                        publish);
+                }
+                else
+                {
+                    result = Failure(
+                        update.FailureMessage ??
+                        "The initial project preview has no accepted executable artifact.");
+                }
+
+                return Task.FromResult(result.Success);
+            },
+            cancellationToken);
+    }
+
     private WinUiXamlLivePreviewResult TryUpdateCore(
         byte[] peImage,
         string qualifiedTypeName,
