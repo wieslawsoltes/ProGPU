@@ -173,6 +173,15 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             new XamlSemanticBindingOptions { Strict = options.Strict },
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
+        bound = extensions.ApplyBoundDocumentTransforms(
+            new RoslynXamlBoundDocumentTransformContext(
+                bound,
+                typeSystem,
+                roslynFramework.Id,
+                options.ResourceUri,
+                options.Strict,
+                cancellationToken));
+        cancellationToken.ThrowIfCancellationRequested();
         var resourceGraph = new XamlResourceGraphBuilder().Build(
             bound,
             options.ResourceDependencies,

@@ -9294,9 +9294,191 @@ namespace Demo {
             new IRoslynXamlExtension[] { new InvalidBoundValidatorExtension() }));
         Assert.Throws<ArgumentException>(() => RoslynXamlExtensionHost.Create(
             new IRoslynXamlExtension[] { new InvalidConstructionTransformExtension() }));
+        Assert.Throws<ArgumentException>(() => RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[] { new InvalidBoundTransformExtension() }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RoslynXamlExtensionHost.Create(
+            Array.Empty<IRoslynXamlExtension>(),
+            new RoslynXamlExtensionHostOptions { MaximumTransformedBoundNodes = 0 }));
         Assert.Throws<ArgumentOutOfRangeException>(() => RoslynXamlExtensionHost.Create(
             Array.Empty<IRoslynXamlExtension>(),
             new RoslynXamlExtensionHostOptions { MaximumTransformedIrNodes = 0 }));
+    }
+
+    [Fact]
+    public void BoundDocumentTransformsComposeBeforeLoweringAndEmitRewrittenTree()
+    {
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="Hello" />
+</Page>
+""";
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        using var cancellationSource = new CancellationTokenSource();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var host = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.low",
+                    priority: 10,
+                    from: "High",
+                    to: "Final",
+                    diagnosticId: "TESTBT0001",
+                    expectedResourceUri: "Views/BoundTransform.xaml"),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.high",
+                    priority: 20,
+                    from: "Hello",
+                    to: "High",
+                    expectedTypeSystem: typeSystem,
+                    expectedCancellationToken: cancellationSource.Token,
+                    expectedResourceUri: "Views/BoundTransform.xaml")
+            });
+
+        var result = new CSharpXamlEmitter(host).Emit(
+            ConvertAt("BoundTransform.xaml", xaml),
+            typeSystem,
+            profile,
+            new XamlCompilerOptions
+            {
+                ResourceUri = "Views/BoundTransform.xaml",
+                Strict = true
+            },
+            cancellationSource.Token);
+
+        var diagnostic = Assert.Single(
+            result.Diagnostics,
+            item => item.Id == "TESTBT0001");
+        Assert.Equal("BoundTransform.xaml", diagnostic.Location.GetLineSpan().Path);
+        var tree = Assert.Single(result.Sources).GeneratedSyntaxTree!;
+        Assert.Contains(
+            tree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     token.ValueText == "Final");
+        Assert.DoesNotContain(
+            tree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     (token.ValueText == "Hello" || token.ValueText == "High"));
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(tree).GetDiagnostics(),
+            item => item.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void BoundDocumentTransformFailuresAreBoundedAndCancellationPropagates()
+    {
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="Hello" />
+</Page>
+""";
+        var compilation = CreateCompilation();
+        var profile = new WinUiXamlProfile();
+        var failingHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.invalid-root",
+                    60,
+                    "Hello",
+                    "unused",
+                    returnInvalidRoot: true),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.null-result",
+                    50,
+                    "Hello",
+                    "unused",
+                    returnNullResult: true),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.null-root",
+                    40,
+                    "Hello",
+                    "unused",
+                    returnNullRoot: true),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.default-members",
+                    30,
+                    "Hello",
+                    "unused",
+                    returnDefaultMembers: true),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.throwing",
+                    20,
+                    "Hello",
+                    "unused",
+                    throwOnInvoke: true),
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.continues",
+                    10,
+                    "Hello",
+                    "Continued",
+                    diagnosticId: "TESTBT1000")
+            });
+
+        var failure = new CSharpXamlEmitter(failingHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions { Strict = false });
+
+        Assert.Single(
+            failure.Diagnostics,
+            diagnostic => diagnostic.Id == "PGXAML2135");
+        Assert.Equal(
+            4,
+            failure.Diagnostics.Count(diagnostic => diagnostic.Id == "PGXAML2136"));
+        Assert.Single(
+            failure.Diagnostics,
+            diagnostic => diagnostic.Id == "TESTBT1000");
+        var tree = Assert.Single(failure.Sources).GeneratedSyntaxTree!;
+        Assert.Contains(
+            tree.GetRoot().DescendantTokens(),
+            token => token.IsKind(SyntaxKind.StringLiteralToken) &&
+                     token.ValueText == "Continued");
+
+        var boundedHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.bounded",
+                    10,
+                    "unmatched",
+                    "unused")
+            },
+            new RoslynXamlExtensionHostOptions
+            {
+                MaximumTransformedBoundNodes = 2
+            });
+        var bounded = new CSharpXamlEmitter(boundedHost).Emit(
+            Convert(xaml),
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.Contains(
+            bounded.Diagnostics,
+            diagnostic => diagnostic.Id == "PGXAML2136");
+
+        var cancellationHost = RoslynXamlExtensionHost.Create(
+            new IRoslynXamlExtension[]
+            {
+                new TestBoundDocumentTransform(
+                    "test.bound-transform.cancellation",
+                    10,
+                    "Hello",
+                    "unused",
+                    cancelOnInvoke: true)
+            });
+        Assert.Throws<OperationCanceledException>(() =>
+            new CSharpXamlEmitter(cancellationHost).Emit(
+                Convert(xaml),
+                new RoslynXamlTypeSystem(compilation, profile),
+                profile,
+                new XamlCompilerOptions()));
     }
 
     [Fact]
@@ -11067,6 +11249,162 @@ namespace Demo {
         }
     }
 
+    private sealed class TestBoundDocumentTransform :
+        IRoslynXamlBoundDocumentTransformExtension
+    {
+        private readonly string _from;
+        private readonly string _to;
+        private readonly string? _diagnosticId;
+        private readonly bool _throwOnInvoke;
+        private readonly bool _returnInvalidRoot;
+        private readonly bool _returnNullResult;
+        private readonly bool _returnNullRoot;
+        private readonly bool _returnDefaultMembers;
+        private readonly bool _cancelOnInvoke;
+        private readonly IXamlTypeSystem? _expectedTypeSystem;
+        private readonly CancellationToken? _expectedCancellationToken;
+        private readonly string? _expectedResourceUri;
+
+        public TestBoundDocumentTransform(
+            string id,
+            int priority,
+            string from,
+            string to,
+            string? diagnosticId = null,
+            bool throwOnInvoke = false,
+            bool returnInvalidRoot = false,
+            bool returnNullResult = false,
+            bool returnNullRoot = false,
+            bool returnDefaultMembers = false,
+            bool cancelOnInvoke = false,
+            IXamlTypeSystem? expectedTypeSystem = null,
+            CancellationToken? expectedCancellationToken = null,
+            string? expectedResourceUri = null)
+        {
+            Id = id;
+            Priority = priority;
+            _from = from;
+            _to = to;
+            _diagnosticId = diagnosticId;
+            _throwOnInvoke = throwOnInvoke;
+            _returnInvalidRoot = returnInvalidRoot;
+            _returnNullResult = returnNullResult;
+            _returnNullRoot = returnNullRoot;
+            _returnDefaultMembers = returnDefaultMembers;
+            _cancelOnInvoke = cancelOnInvoke;
+            _expectedTypeSystem = expectedTypeSystem;
+            _expectedCancellationToken = expectedCancellationToken;
+            _expectedResourceUri = expectedResourceUri;
+        }
+
+        public string Id { get; }
+        public int ContractVersion => RoslynXamlExtensionHost.CurrentContractVersion;
+        public int Version => 1;
+        public int Priority { get; }
+        public RoslynXamlExtensionCapabilities Capabilities =>
+            RoslynXamlExtensionCapabilities.BoundDocumentTransform;
+        public RoslynXamlExtensionConflictPolicy ConflictPolicy =>
+            RoslynXamlExtensionConflictPolicy.Diagnose;
+
+        public RoslynXamlBoundDocumentTransformResult Transform(
+            RoslynXamlBoundDocumentTransformContext context)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            if (_expectedTypeSystem != null &&
+                !ReferenceEquals(context.TypeSystem, _expectedTypeSystem))
+                throw new InvalidOperationException(
+                    "The transform did not receive the canonical type system.");
+            if (_expectedCancellationToken is { } expected &&
+                context.CancellationToken != expected)
+                throw new InvalidOperationException(
+                    "The transform did not receive the emitter cancellation token.");
+            if (!string.Equals(context.FrameworkId, "WinUI", StringComparison.Ordinal) ||
+                !string.Equals(context.ResourceUri, _expectedResourceUri, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    "The transform did not receive compiler identity/options.");
+            if (_throwOnInvoke)
+                throw new InvalidOperationException("Expected bound transform failure.");
+            if (_cancelOnInvoke)
+                throw new OperationCanceledException();
+            if (_returnNullResult)
+                return null!;
+
+            var root = context.Document.Root == null
+                ? null
+                : RewriteObject(context.Document.Root);
+            if (_returnNullRoot)
+                root = null;
+            if (_returnInvalidRoot && root != null)
+            {
+                root = new XamlBoundObject(
+                    root.Type,
+                    root.Members,
+                    root.IsRetrieved,
+                    root.IsMarkupExtension,
+                    root.SourceSpan,
+                    root.StableId + 1);
+            }
+            if (_returnDefaultMembers && root != null)
+            {
+                root = new XamlBoundObject(
+                    root.Type,
+                    default,
+                    root.IsRetrieved,
+                    root.IsMarkupExtension,
+                    root.SourceSpan,
+                    root.StableId);
+            }
+            var issues = _diagnosticId == null || root == null
+                ? Array.Empty<RoslynXamlValidationIssue>()
+                : new[]
+                {
+                    new RoslynXamlValidationIssue(
+                        _diagnosticId,
+                        DiagnosticSeverity.Warning,
+                        "Bound transform result.",
+                        root.SourceSpan,
+                        "EXT-004")
+                };
+            return new RoslynXamlBoundDocumentTransformResult(root, issues);
+        }
+
+        private XamlBoundObject RewriteObject(XamlBoundObject value)
+        {
+            var members = value.Members.Select(member =>
+                new XamlBoundMember(
+                    member.Member,
+                    member.Origin,
+                    member.Values.Select(RewriteValue).ToImmutableArray(),
+                    member.SourceSpan,
+                    member.StableId)).ToImmutableArray();
+            return new XamlBoundObject(
+                value.Type,
+                members,
+                value.IsRetrieved,
+                value.IsMarkupExtension,
+                value.SourceSpan,
+                value.StableId);
+        }
+
+        private XamlBoundValue RewriteValue(XamlBoundValue value)
+        {
+            if (value is XamlBoundText text &&
+                string.Equals(text.Text, _from, StringComparison.Ordinal))
+            {
+                return new XamlBoundText(
+                    _to,
+                    text.IsCData,
+                    text.SourceSpan,
+                    text.StableId,
+                    text.TextSyntax,
+                    text.OriginalText);
+            }
+            return value is XamlBoundObject objectValue
+                ? RewriteObject(objectValue)
+                : value;
+        }
+    }
+
     private sealed class TestConstructionTransform :
         IRoslynXamlConstructionProgramTransformExtension
     {
@@ -11271,6 +11609,18 @@ namespace Demo {
         public int Priority => 0;
         public RoslynXamlExtensionCapabilities Capabilities =>
             RoslynXamlExtensionCapabilities.ConstructionProgramTransform;
+        public RoslynXamlExtensionConflictPolicy ConflictPolicy =>
+            RoslynXamlExtensionConflictPolicy.Diagnose;
+    }
+
+    private sealed class InvalidBoundTransformExtension : IRoslynXamlExtension
+    {
+        public string Id => "test.invalid-bound-transform";
+        public int ContractVersion => RoslynXamlExtensionHost.CurrentContractVersion;
+        public int Version => 1;
+        public int Priority => 0;
+        public RoslynXamlExtensionCapabilities Capabilities =>
+            RoslynXamlExtensionCapabilities.BoundDocumentTransform;
         public RoslynXamlExtensionConflictPolicy ConflictPolicy =>
             RoslynXamlExtensionConflictPolicy.Diagnose;
     }

@@ -72,7 +72,7 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
                 new XamlResourceDocumentManifestBuilder().Build(input.Infoset, input.LogicalPath)))
             .WithTrackingName("XamlResourceManifest");
         var semanticResourceInputs = resourceInputs.Combine(context.CompilationProvider).Combine(options)
-            .Select((input, _) =>
+            .Select((input, cancellationToken) =>
             {
                 var resourceInput = input.Left.Left;
                 if (!profiles.TryCreate(input.Right.Framework, out var profile))
@@ -98,7 +98,35 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
                 var bound = new XamlSemanticBinder().Bind(
                     resourceInput.Input.Infoset,
                     typeSystem,
-                    new XamlSemanticBindingOptions { Strict = input.Right.Strict });
+                    new XamlSemanticBindingOptions { Strict = input.Right.Strict },
+                    cancellationToken);
+                if (profile is IRoslynXamlExtensionProvider extensionProvider)
+                {
+                    try
+                    {
+                        var extensionHost = extensionProvider.RoslynExtensionHost;
+                        if (extensionHost != null)
+                        {
+                            bound = extensionHost.ApplyBoundDocumentTransforms(
+                                new RoslynXamlBoundDocumentTransformContext(
+                                    bound,
+                                    typeSystem,
+                                    profile.Id,
+                                    resourceUri,
+                                    input.Right.Strict,
+                                    cancellationToken));
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        // Final per-document emission owns provider-composition diagnostics.
+                        // Preserve the canonical binder result for dependency slicing here.
+                    }
+                }
                 var manifest = new XamlResourceSemanticManifestBuilder().Build(rawManifest, bound);
                 return new SemanticResourceParsedXamlInput(
                     resourceInput.Input,

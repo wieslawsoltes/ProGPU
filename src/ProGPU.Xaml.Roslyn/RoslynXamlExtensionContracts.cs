@@ -8,7 +8,8 @@ public enum RoslynXamlExtensionCapabilities
     None = 0,
     MarkupExtensionExpression = 1 << 0,
     BoundDocumentValidation = 1 << 1,
-    ConstructionProgramTransform = 1 << 2
+    ConstructionProgramTransform = 1 << 2,
+    BoundDocumentTransform = 1 << 3
 }
 
 public enum RoslynXamlExtensionConflictPolicy
@@ -39,6 +40,9 @@ public interface IRoslynXamlExtensionProvider
 
 public sealed class RoslynXamlExtensionHostOptions
 {
+    public int MaximumTransformedBoundNodes { get; set; } =
+        RoslynXamlExtensionHost.DefaultMaximumTransformedBoundNodes;
+
     public int MaximumTransformedIrNodes { get; set; } =
         RoslynXamlExtensionHost.DefaultMaximumTransformedIrNodes;
 }

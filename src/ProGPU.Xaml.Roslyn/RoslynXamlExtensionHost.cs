@@ -4,8 +4,10 @@ using System.Collections.Immutable;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using ProGPU.Xaml.Binding;
 using ProGPU.Xaml.Diagnostics;
 using ProGPU.Xaml.Lowering;
+using ProGPU.Xaml.Schema;
 
 namespace ProGPU.Xaml.Roslyn;
 
@@ -15,18 +17,22 @@ namespace ProGPU.Xaml.Roslyn;
 /// </summary>
 public sealed class RoslynXamlExtensionHost
 {
+    public const int DefaultMaximumTransformedBoundNodes = 4 * 1024 * 1024;
     public const int DefaultMaximumTransformedIrNodes = 4 * 1024 * 1024;
 
     public const int CurrentContractVersion = 1;
 
     private readonly ImmutableArray<IRoslynXamlExtension> _extensions;
+    private readonly int _maximumTransformedBoundNodes;
     private readonly int _maximumTransformedIrNodes;
 
     private RoslynXamlExtensionHost(
         ImmutableArray<IRoslynXamlExtension> extensions,
+        int maximumTransformedBoundNodes,
         int maximumTransformedIrNodes)
     {
         _extensions = extensions;
+        _maximumTransformedBoundNodes = maximumTransformedBoundNodes;
         _maximumTransformedIrNodes = maximumTransformedIrNodes;
     }
 
@@ -45,6 +51,13 @@ public sealed class RoslynXamlExtensionHost
         RoslynXamlExtensionHostOptions? options)
     {
         if (extensions == null) throw new ArgumentNullException(nameof(extensions));
+        var maximumTransformedBoundNodes =
+            options?.MaximumTransformedBoundNodes ??
+            DefaultMaximumTransformedBoundNodes;
+        if (maximumTransformedBoundNodes <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The transformed bound-node limit must be positive.");
         var maximumTransformedIrNodes =
             options?.MaximumTransformedIrNodes ??
             DefaultMaximumTransformedIrNodes;
@@ -69,13 +82,14 @@ public sealed class RoslynXamlExtensionHost
         ordered.Sort(CompareExtensions);
         return new RoslynXamlExtensionHost(
             ordered.ToImmutableArray(),
+            maximumTransformedBoundNodes,
             maximumTransformedIrNodes);
     }
 
     /// <summary>
     /// Combines independently validated extension hosts using the same global deterministic
-    /// ordering as registration. Duplicate IDs are rejected and the strictest transformed-IR
-    /// node limit is retained.
+    /// ordering as registration. Duplicate IDs are rejected and the strictest transformed
+    /// bound-tree and IR node limits are retained.
     /// </summary>
     public static RoslynXamlExtensionHost Compose(
         RoslynXamlExtensionHost first,
@@ -84,17 +98,31 @@ public sealed class RoslynXamlExtensionHost
         if (first == null) throw new ArgumentNullException(nameof(first));
         if (second == null) throw new ArgumentNullException(nameof(second));
         if (first._extensions.IsEmpty)
-            return second._maximumTransformedIrNodes <= first._maximumTransformedIrNodes
+            return second._maximumTransformedBoundNodes <=
+                   first._maximumTransformedBoundNodes &&
+                   second._maximumTransformedIrNodes <= first._maximumTransformedIrNodes
                 ? second
                 : new RoslynXamlExtensionHost(
                     second._extensions,
-                    first._maximumTransformedIrNodes);
+                    Math.Min(
+                        first._maximumTransformedBoundNodes,
+                        second._maximumTransformedBoundNodes),
+                    Math.Min(
+                        first._maximumTransformedIrNodes,
+                        second._maximumTransformedIrNodes));
         if (second._extensions.IsEmpty)
-            return first._maximumTransformedIrNodes <= second._maximumTransformedIrNodes
+            return first._maximumTransformedBoundNodes <=
+                   second._maximumTransformedBoundNodes &&
+                   first._maximumTransformedIrNodes <= second._maximumTransformedIrNodes
                 ? first
                 : new RoslynXamlExtensionHost(
                     first._extensions,
-                    second._maximumTransformedIrNodes);
+                    Math.Min(
+                        first._maximumTransformedBoundNodes,
+                        second._maximumTransformedBoundNodes),
+                    Math.Min(
+                        first._maximumTransformedIrNodes,
+                        second._maximumTransformedIrNodes));
 
         var combined = new List<IRoslynXamlExtension>(
             first._extensions.Length + second._extensions.Length);
@@ -104,6 +132,9 @@ public sealed class RoslynXamlExtensionHost
         combined.Sort(CompareExtensions);
         return new RoslynXamlExtensionHost(
             combined.ToImmutableArray(),
+            Math.Min(
+                first._maximumTransformedBoundNodes,
+                second._maximumTransformedBoundNodes),
             Math.Min(
                 first._maximumTransformedIrNodes,
                 second._maximumTransformedIrNodes));
@@ -188,6 +219,102 @@ public sealed class RoslynXamlExtensionHost
                 winningExpression,
                 matchingIds.ToImmutable(),
                 null);
+    }
+
+    public XamlBoundDocument ApplyBoundDocumentTransforms(
+        RoslynXamlBoundDocumentTransformContext context)
+    {
+        if (context == null) throw new ArgumentNullException(nameof(context));
+        var current = context.Document;
+        foreach (var extension in _extensions)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            if ((extension.Capabilities &
+                 RoslynXamlExtensionCapabilities.BoundDocumentTransform) == 0)
+                continue;
+            if (extension is not IRoslynXamlBoundDocumentTransformExtension transform)
+            {
+                current = AppendBoundDiagnostic(
+                    current,
+                    CreateBoundTransformHostDiagnostic(
+                        current,
+                        "PGXAML2135",
+                        $"Roslyn XAML extension '{extension.Id}' declares bound-document " +
+                        "transform capability without implementing its contract."));
+                continue;
+            }
+
+            RoslynXamlBoundDocumentTransformResult result;
+            try
+            {
+                result = transform.Transform(
+                    new RoslynXamlBoundDocumentTransformContext(
+                        current,
+                        context.TypeSystem,
+                        context.FrameworkId,
+                        context.ResourceUri,
+                        context.Strict,
+                        context.CancellationToken));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                current = AppendBoundDiagnostic(
+                    current,
+                    CreateBoundTransformHostDiagnostic(
+                        current,
+                        "PGXAML2135",
+                        $"Roslyn XAML extension '{extension.Id}' failed while transforming " +
+                        $"the bound document: {exception.Message}"));
+                continue;
+            }
+
+            string? validationError = null;
+            if (result == null ||
+                !TryValidateTransformedBoundRoot(
+                    current,
+                    result.Root,
+                    _maximumTransformedBoundNodes,
+                    out validationError))
+            {
+                current = AppendBoundDiagnostic(
+                    current,
+                    CreateBoundTransformHostDiagnostic(
+                        current,
+                        "PGXAML2136",
+                        $"Roslyn XAML extension '{extension.Id}' returned an invalid bound " +
+                        $"document: {validationError ?? "the result was null."}"));
+                continue;
+            }
+
+            var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>(
+                current.Diagnostics.Length + result.Issues.Length);
+            diagnostics.AddRange(current.Diagnostics);
+            foreach (var issue in result.Issues)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                if (!TryCreateBoundIssueDiagnostic(current, issue, out var diagnostic))
+                {
+                    diagnostics.Add(CreateBoundTransformHostDiagnostic(
+                        current,
+                        "PGXAML2136",
+                        $"Roslyn XAML extension '{extension.Id}' returned an invalid " +
+                        "bound-transform issue."));
+                    continue;
+                }
+                diagnostics.Add(diagnostic!);
+            }
+            current = new XamlBoundDocument(
+                current.Infoset,
+                result.Root,
+                diagnostics.ToImmutable(),
+                current.DictionaryKeyDirectiveAliases,
+                current.RootClassType);
+        }
+        return current;
     }
 
     public ImmutableArray<Diagnostic> ValidateBoundDocument(
@@ -465,6 +592,102 @@ public sealed class RoslynXamlExtensionHost
         return true;
     }
 
+    private static bool TryValidateTransformedBoundRoot(
+        XamlBoundDocument document,
+        XamlBoundObject? candidate,
+        int maximumTransformedBoundNodes,
+        out string? error)
+    {
+        var original = document.Root;
+        if (original == null || candidate == null)
+        {
+            error = original == null && candidate == null
+                ? null
+                : "the transform changed whether the document has a root.";
+            return error == null;
+        }
+        if (candidate.StableId != original.StableId ||
+            candidate.SourceSpan != original.SourceSpan ||
+            !ReferenceEquals(candidate.Type, original.Type) ||
+            candidate.IsRetrieved != original.IsRetrieved ||
+            candidate.IsMarkupExtension != original.IsMarkupExtension)
+        {
+            error = "the document root identity, span, type, or construction role changed.";
+            return false;
+        }
+
+        var sourceLength = document.Infoset.SourceText.Length;
+        var stack = new List<XamlBoundValue> { candidate };
+        var visited = new HashSet<XamlBoundValue>();
+        var count = 0;
+        while (stack.Count != 0)
+        {
+            var last = stack.Count - 1;
+            var value = stack[last];
+            stack.RemoveAt(last);
+            if (!visited.Add(value)) continue;
+            count++;
+            if (count > maximumTransformedBoundNodes)
+            {
+                error =
+                    $"the transformed bound document exceeds {maximumTransformedBoundNodes} nodes.";
+                return false;
+            }
+            if (!IsInSource(value.SourceSpan, sourceLength))
+            {
+                error = "a transformed bound value has an out-of-document source span.";
+                return false;
+            }
+
+            if (value is XamlBoundObject objectValue)
+            {
+                if (objectValue.Members.IsDefault)
+                {
+                    error = "a transformed bound object has a default member array.";
+                    return false;
+                }
+                foreach (var member in objectValue.Members)
+                {
+                    count++;
+                    if (count > maximumTransformedBoundNodes)
+                    {
+                        error =
+                            $"the transformed bound document exceeds {maximumTransformedBoundNodes} nodes.";
+                        return false;
+                    }
+                    if (member == null ||
+                        member.Member == null ||
+                        member.Values.IsDefault ||
+                        !IsInSource(member.SourceSpan, sourceLength))
+                    {
+                        error =
+                            "a transformed bound member is null, incomplete, or out of source.";
+                        return false;
+                    }
+                    foreach (var child in member.Values)
+                    {
+                        if (child == null)
+                        {
+                            error = "a transformed bound member contains a null value.";
+                            return false;
+                        }
+                        stack.Add(child);
+                    }
+                }
+            }
+            else if (value is XamlBoundBinding binding)
+            {
+                stack.Add(binding.Extension);
+            }
+            else if (value is XamlBoundCompiledBinding compiledBinding)
+            {
+                stack.Add(compiledBinding.Extension);
+            }
+        }
+        error = null;
+        return true;
+    }
+
     private static bool TryCreateIssueDiagnostic(
         XamlConstructionProgram program,
         RoslynXamlValidationIssue? issue,
@@ -485,6 +708,55 @@ public sealed class RoslynXamlExtensionHost
             issue.SourceSpan,
             issue.SpecificationSection);
         return true;
+    }
+
+    private static bool TryCreateBoundIssueDiagnostic(
+        XamlBoundDocument document,
+        RoslynXamlValidationIssue? issue,
+        out Diagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (issue == null ||
+            !IsInSource(issue.SourceSpan, document.Infoset.SourceText.Length))
+            return false;
+        diagnostic = XamlDiagnostics.Create(
+            issue.Id,
+            issue.Severity,
+            issue.Message,
+            document.Infoset.Path,
+            document.Infoset.SourceText,
+            issue.SourceSpan,
+            issue.SpecificationSection);
+        return true;
+    }
+
+    private static Diagnostic CreateBoundTransformHostDiagnostic(
+        XamlBoundDocument document,
+        string id,
+        string message) =>
+        XamlDiagnostics.Create(
+            id,
+            DiagnosticSeverity.Error,
+            message,
+            document.Infoset.Path,
+            document.Infoset.SourceText,
+            document.Root?.SourceSpan ?? default,
+            "EXT-004");
+
+    private static XamlBoundDocument AppendBoundDiagnostic(
+        XamlBoundDocument document,
+        Diagnostic diagnostic)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>(
+            document.Diagnostics.Length + 1);
+        diagnostics.AddRange(document.Diagnostics);
+        diagnostics.Add(diagnostic);
+        return new XamlBoundDocument(
+            document.Infoset,
+            document.Root,
+            diagnostics.ToImmutable(),
+            document.DictionaryKeyDirectiveAliases,
+            document.RootClassType);
     }
 
     private static bool IsInSource(Microsoft.CodeAnalysis.Text.TextSpan span, int sourceLength) =>
@@ -538,7 +810,8 @@ public sealed class RoslynXamlExtensionHost
         if ((extension.Capabilities &
              ~(RoslynXamlExtensionCapabilities.MarkupExtensionExpression |
                RoslynXamlExtensionCapabilities.BoundDocumentValidation |
-               RoslynXamlExtensionCapabilities.ConstructionProgramTransform)) != 0)
+               RoslynXamlExtensionCapabilities.ConstructionProgramTransform |
+               RoslynXamlExtensionCapabilities.BoundDocumentTransform)) != 0)
             throw new ArgumentException(
                 $"Roslyn XAML extension '{extension.Id}' declares unsupported capabilities.",
                 nameof(extension));
@@ -562,6 +835,13 @@ public sealed class RoslynXamlExtensionHost
             throw new ArgumentException(
                 $"Roslyn XAML extension '{extension.Id}' declares construction-program " +
                 "transform capability without implementing its contract.",
+                nameof(extension));
+        if ((extension.Capabilities &
+             RoslynXamlExtensionCapabilities.BoundDocumentTransform) != 0 &&
+            extension is not IRoslynXamlBoundDocumentTransformExtension)
+            throw new ArgumentException(
+                $"Roslyn XAML extension '{extension.Id}' declares bound-document transform " +
+                "capability without implementing its contract.",
                 nameof(extension));
     }
 
@@ -592,7 +872,8 @@ public sealed class RoslynXamlExtensionHost
     private sealed class RegisteredExtension :
         IRoslynXamlMarkupExtensionExpressionExtension,
         IRoslynXamlBoundDocumentValidatorExtension,
-        IRoslynXamlConstructionProgramTransformExtension
+        IRoslynXamlConstructionProgramTransformExtension,
+        IRoslynXamlBoundDocumentTransformExtension
     {
         private readonly IRoslynXamlExtension _extension;
 
@@ -628,6 +909,11 @@ public sealed class RoslynXamlExtensionHost
         public RoslynXamlConstructionTransformResult Transform(
             RoslynXamlConstructionTransformContext context) =>
             ((IRoslynXamlConstructionProgramTransformExtension)_extension)
+                .Transform(context);
+
+        public RoslynXamlBoundDocumentTransformResult Transform(
+            RoslynXamlBoundDocumentTransformContext context) =>
+            ((IRoslynXamlBoundDocumentTransformExtension)_extension)
                 .Transform(context);
     }
 }
