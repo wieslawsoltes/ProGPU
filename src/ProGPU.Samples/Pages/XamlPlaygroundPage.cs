@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.HotReload;
 using ProGPU.Xaml.Parsing;
 using ProGPU.Xaml.Roslyn;
 using ProGPU.Xaml.Schema;
@@ -55,6 +56,10 @@ public static class XamlPlaygroundPage
         var irOutput = CreateOutput("Construction IR details will appear here.");
         var generatedOutput = CreateOutput("Generated Roslyn C# will appear here.");
         var diagnosticsOutput = CreateOutput("Diagnostics will appear here.");
+        var hotReloadOutput = CreateOutput(RenderHotReloadStatus(
+            "ready",
+            HotReloadManager.LastResult,
+            null));
         var views = new Pivot { Margin = new Thickness(0, 8, 0, 0), Height = 300 };
         views.Items.Add(new PivotItem("Syntax", syntaxOutput));
         views.Items.Add(new PivotItem("Tokens", tokenOutput));
@@ -64,9 +69,41 @@ public static class XamlPlaygroundPage
         views.Items.Add(new PivotItem("IR", irOutput));
         views.Items.Add(new PivotItem("Generated C#", generatedOutput));
         views.Items.Add(new PivotItem("Diagnostics", diagnosticsOutput));
+        views.Items.Add(new PivotItem("Hot Reload", hotReloadOutput));
         var inspect = new Button { Margin = new Thickness(0, 12, 0, 0), Content = "Parse and inspect" };
         CancellationTokenSource? inspectionCancellation = null;
         long requestedVersion = 0;
+        HotReloadDiagnostic? latestHotReloadDiagnostic = null;
+
+        void PublishHotReloadStatus(string phase, HotReloadResult result)
+        {
+            void Publish() => hotReloadOutput.Text = RenderHotReloadStatus(
+                phase,
+                result,
+                latestHotReloadDiagnostic);
+            var dispatcher =
+                Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue;
+            if (dispatcher == null) Publish();
+            else dispatcher(Publish);
+        }
+
+        void OnHotReloadStarted(HotReloadContext context) =>
+            PublishHotReloadStatus(
+                "applying generation " + context.Generation,
+                HotReloadManager.LastResult);
+
+        void OnHotReloadCompleted(HotReloadResult result) =>
+            PublishHotReloadStatus("completed", result);
+
+        void OnHotReloadDiagnostic(HotReloadDiagnostic diagnostic)
+        {
+            latestHotReloadDiagnostic = diagnostic;
+            PublishHotReloadStatus("diagnostic", HotReloadManager.LastResult);
+        }
+
+        HotReloadManager.UpdateStarted += OnHotReloadStarted;
+        HotReloadManager.UpdateCompleted += OnHotReloadCompleted;
+        HotReloadManager.Diagnostic += OnHotReloadDiagnostic;
 
         void ApplyInspection(PlaygroundInspectionResult result)
         {
@@ -163,6 +200,9 @@ public static class XamlPlaygroundPage
                 null);
             cancellation?.Cancel();
             cancellation?.Dispose();
+            HotReloadManager.UpdateStarted -= OnHotReloadStarted;
+            HotReloadManager.UpdateCompleted -= OnHotReloadCompleted;
+            HotReloadManager.Diagnostic -= OnHotReloadDiagnostic;
         };
         root.Children.Add(editor);
         root.Children.Add(inspect);
@@ -254,6 +294,36 @@ public static class XamlPlaygroundPage
             builder.AppendLine(source.GeneratedSyntaxTree?
                 .GetRoot()
                 .ToFullString() ?? source.Source);
+        }
+        return builder.ToString();
+    }
+
+    private static string RenderHotReloadStatus(
+        string phase,
+        HotReloadResult result,
+        HotReloadDiagnostic? diagnostic)
+    {
+        var builder = new StringBuilder();
+        builder.Append("host = ").AppendLine(HotReloadManager.HostName);
+        builder.Append("enabled = ").AppendLine(HotReloadManager.IsEnabled.ToString());
+        builder.Append("runtimeMetadataUpdates = ")
+            .AppendLine(HotReloadManager.IsRuntimeSupported.ToString());
+        builder.Append("phase = ").AppendLine(phase);
+        builder.Append("generation = ").AppendLine(result.Generation.ToString());
+        builder.Append("updatedTypes = ").AppendLine(result.UpdatedTypes.Count.ToString());
+        builder.Append("replacedElements = ").AppendLine(result.ReplacedElements.ToString());
+        builder.Append("reloadedElements = ").AppendLine(result.ReloadedElements.ToString());
+        builder.Append("refreshedFactories = ").AppendLine(result.RefreshedFactories.ToString());
+        builder.Append("invalidatedElements = ").AppendLine(result.InvalidatedElements.ToString());
+        builder.Append("failedElements = ").AppendLine(result.FailedElements.ToString());
+        builder.Append("durationMs = ")
+            .AppendLine(result.Duration.TotalMilliseconds.ToString("F1"));
+        if (diagnostic != null)
+        {
+            builder.Append("lastDiagnostic = ")
+                .Append(diagnostic.Severity)
+                .Append(": ")
+                .AppendLine(diagnostic.Message);
         }
         return builder.ToString();
     }
