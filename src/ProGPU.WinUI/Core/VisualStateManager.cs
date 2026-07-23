@@ -375,14 +375,16 @@ public static class VisualStateManager
         out DependencyProperty property)
     {
         string targetName = Storyboard.GetTargetName(timeline);
-        target = string.IsNullOrEmpty(targetName)
+        var resolvedTarget = string.IsNullOrEmpty(targetName)
             ? root
-            : FindName(root, targetName)!;
-        if (target == null)
+            : FindName(root, targetName) as DependencyObject;
+        if (resolvedTarget == null)
         {
+            target = null!;
             property = null!;
             return false;
         }
+        target = resolvedTarget;
 
         string path = Storyboard.GetTargetProperty(timeline);
         if (string.IsNullOrWhiteSpace(path))
@@ -391,35 +393,60 @@ public static class VisualStateManager
             return false;
         }
 
-        return TryResolvePropertyPath(target, path, out property);
+        return TryResolvePropertyPath(
+            target,
+            path,
+            out target,
+            out property);
     }
 
     private static bool TryResolvePropertyPath(
-        DependencyObject target,
+        DependencyObject initialTarget,
         string path,
+        out DependencyObject target,
         out DependencyProperty property)
     {
         string normalized = path.Trim();
-        if (normalized.StartsWith("(", StringComparison.Ordinal) &&
-            normalized.EndsWith(")", StringComparison.Ordinal) &&
-            normalized.IndexOf(").(", StringComparison.Ordinal) < 0)
+        target = initialTarget;
+        property = null!;
+        if (normalized.Length == 0)
+            return false;
+
+        var segments = normalized.IndexOf(").(", StringComparison.Ordinal) >= 0
+            ? normalized.Split(
+                new[] { ").(" },
+                StringSplitOptions.RemoveEmptyEntries)
+            : new[] { normalized };
+        for (var index = 0; index < segments.Length; index++)
         {
-            normalized = normalized.Substring(1, normalized.Length - 2);
+            var segment = segments[index].Trim().Trim('(', ')');
+            var separator = segment.LastIndexOf('.');
+            var owner = separator < 0
+                ? null
+                : segment.Substring(0, separator).Trim('(', ')');
+            var name = separator < 0
+                ? segment
+                : segment.Substring(separator + 1).Trim('(', ')');
+            var resolved =
+                DependencyProperty.Lookup(target.GetType(), name) ??
+                (owner == null
+                    ? null
+                    : DependencyProperty.LookupRegisteredOwner(owner, name));
+            if (resolved == null)
+                return false;
+
+            if (index == segments.Length - 1)
+            {
+                property = resolved;
+                return true;
+            }
+
+            if (target.GetValue(resolved) is not DependencyObject next)
+                return false;
+            target = next;
         }
 
-        int separator = normalized.LastIndexOf('.');
-        if (separator < 0)
-        {
-            property = DependencyProperty.Lookup(target.GetType(), normalized)!;
-            return property != null;
-        }
-
-        string owner = normalized.Substring(0, separator).Trim('(', ')');
-        string name = normalized.Substring(separator + 1).Trim('(', ')');
-        property =
-            DependencyProperty.Lookup(target.GetType(), name) ??
-            DependencyProperty.LookupRegisteredOwner(owner, name)!;
-        return property != null;
+        return false;
     }
 
     private static bool TryResolveSetter(FrameworkElement root, Setter setter, out DependencyObject target, out DependencyProperty property)
@@ -433,7 +460,7 @@ public static class VisualStateManager
         if (separator > 0)
         {
             var targetName = setterPath[..separator];
-            var named = FindName(root, targetName);
+            var named = FindName(root, targetName) as DependencyObject;
             if (named == null) return false;
             target = named;
         }
@@ -441,8 +468,10 @@ public static class VisualStateManager
         return property != null;
     }
 
-    private static FrameworkElement? FindName(FrameworkElement root, string name)
+    private static object? FindName(FrameworkElement root, string name)
     {
+        if (Microsoft.UI.Xaml.Markup.XamlTemplateFactory.HasNameScope(root))
+            return Microsoft.UI.Xaml.Markup.XamlTemplateFactory.FindName(root, name);
         if (string.Equals(root.Name, name, StringComparison.Ordinal)) return root;
         if (root is not ContainerVisual container) return null;
         IReadOnlyList<Visual> children = container.Children;

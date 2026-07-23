@@ -314,6 +314,10 @@ public class Control : FrameworkElement, ITemplatedControl
     public FrameworkElement? GetTemplateChild(string name)
     {
         if (_templateRoot == null) return null;
+        if (Microsoft.UI.Xaml.Markup.XamlTemplateFactory.FindName(
+                _templateRoot,
+                name) is FrameworkElement named)
+            return named;
         return FindNameInTree(_templateRoot, name);
     }
 

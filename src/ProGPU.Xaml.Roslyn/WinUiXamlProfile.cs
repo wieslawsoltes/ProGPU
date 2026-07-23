@@ -106,6 +106,36 @@ public interface IRoslynXamlDeferredContentProfile
 }
 
 /// <summary>
+/// Optional structured publication of one compiler-owned XAML namescope. The compiler core
+/// supplies the exact name/object expressions for one construction scope; the framework owns
+/// only the runtime registration statements.
+/// </summary>
+public interface IRoslynXamlNameScopeProfile
+{
+    bool TryCreateNameScopeFinalization(
+        ExpressionSyntax root,
+        ImmutableArray<RoslynXamlNameRegistrationSyntax> registrations,
+        out ImmutableArray<StatementSyntax> statements);
+}
+
+public sealed class RoslynXamlNameRegistrationSyntax
+{
+    public RoslynXamlNameRegistrationSyntax(
+        string name,
+        ExpressionSyntax expression)
+    {
+        Name = string.IsNullOrWhiteSpace(name)
+            ? throw new ArgumentException("A XAML name is required.", nameof(name))
+            : name;
+        Expression = expression ??
+            throw new ArgumentNullException(nameof(expression));
+    }
+
+    public string Name { get; }
+    public ExpressionSyntax Expression { get; }
+}
+
+/// <summary>
 /// Optional structured lowering for markup extensions whose meaning is an operation on the
 /// receiving member rather than a value assignable to that member's CLR type.
 /// </summary>
@@ -375,7 +405,7 @@ public interface IRoslynXamlMarkupExtensionReceiverProfile
         out StatementSyntax statement);
 }
 
-public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy, IXamlDeferredContentContextTypePolicy, IXamlIrDeferredContentContextTypePolicy
+public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlContextualMarkupExpressionProfile, IRoslynXamlObjectExpressionProfile, IRoslynXamlCompiledResourceProfile, IRoslynXamlResourceAssignmentProfile, IRoslynXamlDeferredContentProfile, IRoslynXamlNameScopeProfile, IRoslynXamlMarkupExtensionAssignmentProfile, IRoslynXamlOrdinaryBindingAssignmentProfile, IRoslynXamlDeferredMarkupExtensionLifecycleProfile, IRoslynXamlBindingAccessorRegistrationProfile, IRoslynXamlCompiledBindingAssignmentProfile, IRoslynXamlCompiledBindingLifecycleProfile, IRoslynXamlDeferredCompiledBindingLifecycleProfile, IRoslynXamlCompiledEventBindingProfile, IRoslynXamlMarkupExtensionInvocationProfile, IXamlSchemaMetadataProvider, IXamlSyntheticSchemaProvider, IXamlDialectDirectiveProvider, IXamlTextValuePolicy, IXamlDictionaryKeyDirectivePolicy, ProGPU.Xaml.Binding.IXamlCompiledBindingPolicy, IXamlDeferredContentContextTypePolicy, IXamlIrDeferredContentContextTypePolicy
 {
     private static readonly string[] Extensions = { ".xaml" };
     private static readonly string[] PresentationNamespaces =
@@ -1187,6 +1217,48 @@ public sealed class WinUiXamlProfile : IRoslynXamlFrameworkProfile, IRoslynXamlC
         statement = SyntaxFactory.ExpressionStatement(
             SyntaxFactory.InvocationExpression(setter)
                 .WithArgumentList(Arguments(receiver, factory)));
+        return true;
+    }
+
+    public bool TryCreateNameScopeFinalization(
+        ExpressionSyntax root,
+        ImmutableArray<RoslynXamlNameRegistrationSyntax> registrations,
+        out ImmutableArray<StatementSyntax> statements)
+    {
+        if (registrations.IsDefaultOrEmpty)
+        {
+            statements = ImmutableArray<StatementSyntax>.Empty;
+            return true;
+        }
+
+        var factory = (ExpressionSyntax)RoslynTypeSyntaxFactory.CreateGlobalName(
+            "Microsoft", "UI", "Xaml", "Markup", "XamlTemplateFactory");
+        var builder = ImmutableArray.CreateBuilder<StatementSyntax>(
+            registrations.Length + 1);
+        builder.Add(
+            SyntaxFactory.ExpressionStatement(
+                SyntaxFactory.InvocationExpression(
+                        SyntaxFactory.MemberAccessExpression(
+                            SyntaxKind.SimpleMemberAccessExpression,
+                            factory,
+                            SyntaxFactory.IdentifierName("BeginNameScope")))
+                    .WithArgumentList(Arguments(root))));
+        foreach (var registration in registrations)
+        {
+            builder.Add(
+                SyntaxFactory.ExpressionStatement(
+                    SyntaxFactory.InvocationExpression(
+                            SyntaxFactory.MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                factory,
+                                SyntaxFactory.IdentifierName("RegisterName")))
+                        .WithArgumentList(Arguments(
+                            root,
+                            StringLiteral(registration.Name),
+                            registration.Expression))));
+        }
+
+        statements = builder.MoveToImmutable();
         return true;
     }
 

@@ -37,6 +37,8 @@ namespace Microsoft.UI.Xaml.Markup {
   public interface IXamlTemplateLifetime : System.IDisposable { void Initialize(); }
   public static class XamlTemplateFactory {
     public static void SetFactory(Microsoft.UI.Xaml.FrameworkTemplate template, System.Func<object?, Microsoft.UI.Xaml.FrameworkElement> factory) { }
+    public static void BeginNameScope(Microsoft.UI.Xaml.FrameworkElement root) { }
+    public static void RegisterName(Microsoft.UI.Xaml.FrameworkElement root, string name, object value) { }
     public static void AttachBindings(Microsoft.UI.Xaml.FrameworkElement root, object bindings) { }
     public static void AttachLifetime(Microsoft.UI.Xaml.FrameworkElement root, IXamlTemplateLifetime lifetime) { }
   }
@@ -8788,7 +8790,25 @@ namespace Demo {
         var root = tree.GetRoot();
         Assert.Contains(root.DescendantNodes().OfType<ParenthesizedLambdaExpressionSyntax>(),
             lambda => lambda.ParameterList.Parameters.Single().Identifier.ValueText == "__templateContext");
-        Assert.Contains("global::Microsoft.UI.Xaml.Markup.XamlTemplateFactory.SetFactory", tree.GetText().ToString(), StringComparison.Ordinal);
+        var invocations = root.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Select(invocation => invocation.Expression.ToString())
+            .ToArray();
+        Assert.Contains(
+            invocations,
+            expression => expression.EndsWith(
+                "XamlTemplateFactory.BeginNameScope",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            invocations,
+            expression => expression.EndsWith(
+                "XamlTemplateFactory.RegisterName",
+                StringComparison.Ordinal));
+        var generated = tree.GetText().ToString();
+        Assert.Contains("global::Microsoft.UI.Xaml.Markup.XamlTemplateFactory.SetFactory", generated, StringComparison.Ordinal);
+        Assert.True(
+            generated.IndexOf("XamlTemplateFactory.BeginNameScope", StringComparison.Ordinal) <
+            generated.IndexOf("XamlTemplateFactory.RegisterName", StringComparison.Ordinal));
         Assert.DoesNotContain(compilation.AddSyntaxTrees(tree).GetDiagnostics(),
             diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }

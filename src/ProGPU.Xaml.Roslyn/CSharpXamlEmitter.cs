@@ -670,6 +670,8 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         private readonly List<StatementSyntax> _pendingFieldAssignments = new List<StatementSyntax>();
         private readonly List<Action> _pendingNameReferenceActions = new List<Action>();
         private readonly Dictionary<string, ExpressionSyntax> _nameExpressions = new Dictionary<string, ExpressionSyntax>(StringComparer.Ordinal);
+        private readonly List<RoslynXamlNameRegistrationSyntax> _nameRegistrations =
+            new List<RoslynXamlNameRegistrationSyntax>();
         private readonly SortedDictionary<string, StatementSyntax> _bindingAccessorRegistrations =
             new SortedDictionary<string, StatementSyntax>(StringComparer.Ordinal);
         private readonly ExpressionSyntax? _contextExpression;
@@ -747,6 +749,25 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             EmitOperations(root, expression, isRoot: true);
             foreach (var action in _pendingNameReferenceActions) action();
             Statements.AddRange(_pendingFieldAssignments);
+            if (_nameRegistrations.Count != 0)
+            {
+                if (_framework is not IRoslynXamlNameScopeProfile nameScopeProfile ||
+                    !nameScopeProfile.TryCreateNameScopeFinalization(
+                        expression,
+                        _nameRegistrations.ToImmutableArray(),
+                        out var nameScopeFinalization))
+                {
+                    AddError(
+                        "PGXAML3052",
+                        $"Profile '{_framework.Id}' cannot publish the class-backed XAML namescope.",
+                        root.SourceSpan,
+                        "6.2.2.4");
+                }
+                else
+                {
+                    Statements.AddRange(nameScopeFinalization);
+                }
+            }
             if (_hasDeferredLifetimeRegistrations)
             {
                 if (rootMarkupLifecycle == null ||
@@ -1677,6 +1698,23 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 bodyStatements.AddRange(bindingLifecycle.PrepareStatements);
             }
             bodyStatements.AddRange(nested.Statements);
+            if (nested._nameRegistrations.Count != 0)
+            {
+                if (_framework is not IRoslynXamlNameScopeProfile nameScopeProfile ||
+                    !nameScopeProfile.TryCreateNameScopeFinalization(
+                        rootExpression,
+                        nested._nameRegistrations.ToImmutableArray(),
+                        out var nameScopeFinalization))
+                {
+                    AddError(
+                        "PGXAML3052",
+                        $"Profile '{_framework.Id}' cannot publish the deferred XAML namescope.",
+                        operation.SourceSpan,
+                        "6.2.2.4");
+                    return;
+                }
+                bodyStatements.AddRange(nameScopeFinalization);
+            }
             if (nested._hasDeferredLifetimeRegistrations)
             {
                 if (!markupLifecycleProfile!.TryCreateDeferredMarkupExtensionFinalization(
@@ -2010,7 +2048,13 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
         {
             var name = GetDirectiveText(value, XamlNamespaces.Language2006, "Name");
             if (!string.IsNullOrWhiteSpace(name) && !_nameExpressions.ContainsKey(name!))
+            {
                 _nameExpressions.Add(name!, expression);
+                _nameRegistrations.Add(
+                    new RoslynXamlNameRegistrationSyntax(
+                        name!,
+                        expression));
+            }
         }
 
         private ExpressionSyntax? ResolveNameReference(XamlIrNameReference reference)

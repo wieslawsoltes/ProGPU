@@ -106,6 +106,69 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void GeneratedNameScopeResolvesNonVisualStoryboardTargetsAndNestedPaths()
+    {
+        var control = new Button();
+        var transform = new CompositeTransform();
+        control.RenderTransform = transform;
+        XamlTemplateFactory.BeginNameScope(control);
+        XamlTemplateFactory.RegisterName(
+            control,
+            "Transform",
+            transform);
+        var siblingRoot = new Button();
+        var siblingTransform = new CompositeTransform();
+        XamlTemplateFactory.BeginNameScope(siblingRoot);
+        XamlTemplateFactory.RegisterName(
+            siblingRoot,
+            "Transform",
+            siblingTransform);
+        Assert.Throws<InvalidOperationException>(
+            () => XamlTemplateFactory.RegisterName(
+                control,
+                "Transform",
+                new CompositeTransform()));
+
+        var directAnimation = new DoubleAnimation { To = 2d };
+        Storyboard.SetTargetName(directAnimation, "Transform");
+        Storyboard.SetTargetProperty(directAnimation, "ScaleX");
+        var nestedAnimation = new DoubleAnimation { To = 3d };
+        Storyboard.SetTargetProperty(
+            nestedAnimation,
+            "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(directAnimation);
+        storyboard.Children.Add(nestedAnimation);
+        var state = new VisualState
+        {
+            Name = "Scaled",
+            Storyboard = storyboard
+        };
+        var group = new VisualStateGroup { Name = "ScaleStates" };
+        group.States.Add(state);
+        VisualStateManager.GetVisualStateGroups(control).Add(group);
+
+        Assert.Same(transform, control.FindName("Transform"));
+        Assert.Same(
+            siblingTransform,
+            siblingRoot.FindName("Transform"));
+        Assert.True(
+            VisualStateManager.GoToState(
+                control,
+                "Scaled",
+                false));
+        Assert.Equal(2d, transform.ScaleX);
+        Assert.Equal(3d, transform.ScaleY);
+
+        XamlTemplateFactory.Release(control);
+        XamlTemplateFactory.Release(siblingRoot);
+        Assert.Null(
+            XamlTemplateFactory.FindName(
+                control,
+                "Transform"));
+    }
+
+    [Fact]
     public void TypographyValueObjectsPreservePublicSourcesAndWeights()
     {
         var family = new FontFamily("Segoe UI, Arial");

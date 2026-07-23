@@ -24,6 +24,10 @@ public partial class FrameworkElement
     public object? FindName(string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
+        if (Microsoft.UI.Xaml.Markup.XamlTemplateFactory.HasNameScope(this))
+        {
+            return Microsoft.UI.Xaml.Markup.XamlTemplateFactory.FindName(this, name);
+        }
         if (string.Equals(Name, name, StringComparison.Ordinal))
         {
             return this;

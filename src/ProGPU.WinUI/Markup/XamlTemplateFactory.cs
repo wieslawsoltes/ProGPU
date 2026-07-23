@@ -24,6 +24,9 @@ public static class XamlTemplateFactory
     private static readonly ConditionalWeakTable<
         FrameworkElement,
         TemplateInstance> Instances = new();
+    private static readonly ConditionalWeakTable<
+        object,
+        XamlNameScope> NameScopes = new();
 
     public static void SetFactory(FrameworkTemplate template, Func<object?, FrameworkElement> factory)
     {
@@ -34,6 +37,42 @@ public static class XamlTemplateFactory
 
     public static FrameworkElement? Build(FrameworkTemplate? template, object? context = null) =>
         template?.DeferredFactory?.Invoke(context);
+
+    /// <summary>Starts one independent namescope for a generated XAML root.</summary>
+    public static void BeginNameScope(object root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        NameScopes.Remove(root);
+        NameScopes.Add(root, new XamlNameScope());
+    }
+
+    /// <summary>Registers one generated name, including non-visual dependency objects.</summary>
+    public static void RegisterName(
+        object root,
+        string name,
+        object value)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentNullException.ThrowIfNull(value);
+        if (!NameScopes.TryGetValue(root, out var scope))
+            throw new InvalidOperationException(
+                "BeginNameScope must be called before registering generated XAML names.");
+        scope.Register(name, value);
+    }
+
+    /// <summary>Resolves a name only within the generated root's own XAML namescope.</summary>
+    public static object? FindName(object root, string name)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        return NameScopes.TryGetValue(root, out var scope)
+            ? scope.Find(name)
+            : null;
+    }
+
+    internal static bool HasNameScope(object root) =>
+        NameScopes.TryGetValue(root, out _);
 
     /// <summary>
     /// Commits one generated compiled-binding group to its materialized template root while
@@ -103,8 +142,10 @@ public static class XamlTemplateFactory
     /// </summary>
     public static void Release(FrameworkElement? root)
     {
-        if (root == null ||
-            !Instances.TryGetValue(root, out var instance))
+        if (root == null)
+            return;
+        NameScopes.Remove(root);
+        if (!Instances.TryGetValue(root, out var instance))
             return;
         Instances.Remove(root);
         root.Unloaded -= OnRootUnloaded;
@@ -161,6 +202,24 @@ public static class XamlTemplateFactory
     private sealed class TemplateInstance
     {
         public List<IXamlTemplateLifetime> Lifetimes { get; } = new();
+    }
+
+    private sealed class XamlNameScope
+    {
+        private readonly Dictionary<string, object> _values =
+            new(StringComparer.Ordinal);
+
+        public void Register(string name, object value)
+        {
+            if (!_values.TryAdd(name, value))
+                throw new InvalidOperationException(
+                    $"The XAML name '{name}' is already registered in this namescope.");
+        }
+
+        public object? Find(string name) =>
+            _values.TryGetValue(name, out var value)
+                ? value
+                : null;
     }
 
     private sealed class CompiledBindingsLifetime : IXamlTemplateLifetime

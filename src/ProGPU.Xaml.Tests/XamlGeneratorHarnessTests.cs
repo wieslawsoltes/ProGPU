@@ -48,7 +48,14 @@ public sealed class XamlGeneratorHarnessTests
     public void ResourceDependencySlicesDoNotInvalidateUnrelatedGeneratorOutputs()
     {
         const string program = """
-namespace Microsoft.UI.Xaml.Markup { [System.AttributeUsage(System.AttributeTargets.Class)] public sealed class ContentPropertyAttribute : System.Attribute { public string? Name { get; set; } } }
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute { public string? Name { get; set; } }
+  public static class XamlTemplateFactory {
+    public static void BeginNameScope(object root) { }
+    public static void RegisterName(object root, string name, object value) { }
+  }
+}
 namespace Microsoft.UI.Xaml.HotReload { public interface IHotReloadable { void Reload(HotReloadContext context); } public sealed class HotReloadContext { } }
 namespace Microsoft.UI.Xaml {
   public class FrameworkElement { public string? Name { get; set; } }
@@ -778,7 +785,14 @@ namespace Demo { public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
     public void IncrementalGeneratorEmitsCompilableStructuredCSharp()
     {
         const string program = """
-namespace Microsoft.UI.Xaml.Markup { [System.AttributeUsage(System.AttributeTargets.Class)] public sealed class ContentPropertyAttribute : System.Attribute { public string? Name { get; set; } } }
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute { public string? Name { get; set; } }
+  public static class XamlTemplateFactory {
+    public static void BeginNameScope(object root) { }
+    public static void RegisterName(object root, string name, object value) { }
+  }
+}
 namespace Microsoft.UI.Xaml.HotReload { public interface IHotReloadable { void Reload(HotReloadContext context); } public sealed class HotReloadContext { } }
 namespace Microsoft.UI.Xaml { public class FrameworkElement { public string? Name { get; set; } public void RegisterName(string name, object value) { } } }
 namespace Microsoft.UI.Xaml.Controls {
@@ -933,6 +947,8 @@ namespace Microsoft.UI.Xaml.Markup {
     void Initialize();
   }
   public static class XamlTemplateFactory {
+    public static void BeginNameScope(Microsoft.UI.Xaml.FrameworkElement root) { }
+    public static void RegisterName(Microsoft.UI.Xaml.FrameworkElement root, string name, object value) { }
     public static void AttachLifetime(
       Microsoft.UI.Xaml.FrameworkElement root,
       IXamlTemplateLifetime lifetime) { }
@@ -1272,6 +1288,8 @@ namespace Microsoft.UI.Xaml.Markup {
     public static void SetFactory(
       Microsoft.UI.Xaml.FrameworkTemplate template,
       System.Func<object?, Microsoft.UI.Xaml.FrameworkElement> factory) { }
+    public static void BeginNameScope(Microsoft.UI.Xaml.FrameworkElement root) { }
+    public static void RegisterName(Microsoft.UI.Xaml.FrameworkElement root, string name, object value) { }
     public static void AttachBindings(
       Microsoft.UI.Xaml.FrameworkElement root,
       Microsoft.UI.Xaml.Data.ICompiledBindings bindings) { }
