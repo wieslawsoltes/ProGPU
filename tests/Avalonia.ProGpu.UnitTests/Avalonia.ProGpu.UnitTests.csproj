@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="BitmapGlyphCacheTests.cs" />
+    <Compile Include="CombinedGeometryImplTests.cs" />
+    <Compile Include="DrawingContextImplTests.cs" />
+    <Compile Include="Media\ProGpuFontManagerImplTests.cs" />
+    <Compile Include="ProGpuPackagingContractTests.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="StreamGeometryImplTests.cs" />
+    <Compile Include="TwoLevelCacheTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\**\*.ttf" />
+    <None Remove="Fonts\**\*.ttf" />
+    <EmbeddedResource Include="Fonts\**\*.ttf" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\Avalonia.ProGpu.csproj" />
+  </ItemGroup>
+</Project>

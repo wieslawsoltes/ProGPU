@@ -1,0 +1,13 @@
+PORTING NOTICE
+
+This test project was ported and adapted from:
+
+Repository: https://github.com/wieslawsoltes/Avalonia.git
+Branch: feature/progpu
+Commit: 5378af03f17a4d9d2845882229ffed7f67350037
+Original path: tests/Avalonia.ProGpu.UnitTests
+
+The tests were decoupled from Avalonia's repository-wide test infrastructure
+and extended with contracts for the standalone ProGPU packaging layout.
+
+No Git history or commits were imported from the source repository.

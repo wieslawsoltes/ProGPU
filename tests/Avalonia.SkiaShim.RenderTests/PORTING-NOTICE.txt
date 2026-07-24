@@ -1,0 +1,15 @@
+PORTING NOTICE
+
+This compatibility-test project was created in the ProGPU repository to verify
+the upstream source imported from:
+
+Repository: https://github.com/AvaloniaUI/Avalonia.git
+Tag: 12.0.5
+Commit: fee9c561ce036e8a3e8cee2397c75ca599b4790d
+Original path: src/Skia/Avalonia.Skia
+
+The project itself is locally authored. It checks that all 54 imported C#
+implementation files remain byte-identical to that upstream revision and
+exercises the backend against the ProGPU SkiaSharp shim.
+
+No Git history or commits were imported from the source repository.

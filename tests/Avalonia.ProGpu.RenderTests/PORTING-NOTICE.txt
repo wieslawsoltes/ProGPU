@@ -1,0 +1,13 @@
+PORTING NOTICE
+
+This render-test project and its imported baseline set were ported from:
+
+Repository: https://github.com/wieslawsoltes/Avalonia.git
+Branch: feature/progpu
+Commit: 5378af03f17a4d9d2845882229ffed7f67350037
+Original path: tests/Avalonia.ProGpu.RenderTests
+
+The project was adapted to validate the standalone baseline inventory outside
+the Avalonia source tree.
+
+No Git history or commits were imported from the source repository.
