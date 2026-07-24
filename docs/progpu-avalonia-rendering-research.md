@@ -113,3 +113,34 @@ The smoke checks establish startup and continuous frame-loop viability. They do
 not claim a comparative FPS or frame-time improvement; this migration preserves
 the existing rendering algorithms rather than introducing a performance
 optimization.
+
+## Atlas-copy and rounded-border follow-up
+
+The ControlCatalog validation follow-up used these additional primary contracts:
+
+- [WebGPU image-copy validation](https://www.w3.org/TR/webgpu/#abstract-opdef-validating-texture-copy-range)
+  requires the copy origin plus extent to remain within the selected texture
+  subresource. ProGPU now rejects an atlas allocation that cannot fit before it
+  becomes pending GPU work, and `GpuCoverageUpload` independently validates the
+  source and destination ranges before recording the command.
+- [Skia `SkPath`](https://api.skia.org/classSkPath.html) documents that open and
+  closed contours have the same fill result while retaining different stroke
+  behavior. The [SVG 2 fill contract](https://www.w3.org/TR/SVG2/painting.html)
+  likewise treats an open filled subpath as implicitly closed.
+- [Direct2D path geometry](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview)
+  keeps typed figures, segments, fill mode, and explicit open/closed state.
+
+The adopted behavior is to preserve the original rounded-rectangle contours for
+a contained difference, express the hole with even-odd fill, and send that
+recognized topology through the bounded direct triangle path. This avoids both
+an unnecessary boolean-path readback and a page-width atlas allocation.
+Arbitrary intersecting path operations still use the general solver. The
+ControlCatalog transition mark was separately traced to its source path data,
+not the rasterizer, and was replaced with two explicit closed arrow contours.
+
+Focused validation covers a single raster wider than the configured atlas,
+source/destination copy invariants, implicit open-figure fill closure, exact
+contained rounded-rectangle differences, and a partial rounded border with a
+zero-width bottom edge. The native ControlCatalog then remained active on the
+Window Customizations page without WebGPU validation output; the title border
+rendered without the former diagonal fill.
