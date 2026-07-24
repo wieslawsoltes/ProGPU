@@ -5304,19 +5304,13 @@ public class SKCanvas : IDisposable
 
     private GpuTexture RetainImageTexture(SKImage image, bool generateMipmaps = false)
     {
-        var source = image.Texture;
         var currentContext = WgpuContext.Current;
         var targetContext = _gpuContext != null && !_gpuContext.IsDisposed
             ? _gpuContext
             : currentContext != null && !currentContext.IsDisposed
                 ? currentContext
-                : source.Context;
-        if (!ReferenceEquals(source.Context, targetContext))
-        {
-            throw new InvalidOperationException(
-                "SKCanvas.DrawImage cannot draw an SKImage from a different WebGPU context. " +
-                "Create the image in the same GRContext/SKSurface context before recording the draw.");
-        }
+                : image.Texture.Context;
+        var source = image.GetTextureForContext(targetContext);
 
         var mipLevelCount = generateMipmaps
             ? CalculateMipLevelCount(source.Width, source.Height)

@@ -1,8 +1,10 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using ProGPU.Backend;
 using Silk.NET.WebGPU;
 
@@ -13,6 +15,11 @@ public partial class SKImage : SKObject
     internal GpuTexture Texture { get; }
     private readonly bool _ownsTexture;
     private readonly SKImageInfo _info;
+    private readonly byte[]? _portableRgbaPixels;
+    private readonly object _portableTextureLock = new();
+    private Dictionary<WgpuContext, GpuTexture>? _portableTextures;
+    private WgpuContext? _lastPortableContext;
+    private GpuTexture? _lastPortableTexture;
     public int Width => (int)Texture.Width;
     public int Height => (int)Texture.Height;
     public SKImageInfo Info => _info;
@@ -24,15 +31,20 @@ public partial class SKImage : SKObject
     public bool IsTextureBacked => true;
 
     internal SKImage(GpuTexture texture)
-        : this(texture, ownsTexture: false, CreateTextureInfo(texture))
+        : this(texture, ownsTexture: false, CreateTextureInfo(texture), portableRgbaPixels: null)
     {
     }
 
-    private SKImage(GpuTexture texture, bool ownsTexture, SKImageInfo info)
+    private SKImage(
+        GpuTexture texture,
+        bool ownsTexture,
+        SKImageInfo info,
+        byte[]? portableRgbaPixels)
         : base(SKObjectHandle.Create(), owns: true)
     {
         Texture = texture;
         _ownsTexture = ownsTexture;
+        _portableRgbaPixels = portableRgbaPixels;
         _info = new SKImageInfo(
             (int)texture.Width,
             (int)texture.Height,
@@ -45,13 +57,19 @@ public partial class SKImage : SKObject
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         var ctx = SKContextHelper.GetContext();
-        var texture = CreateTextureFromBitmap(
-            bitmap,
+        byte[] pixels = CopyBitmapPixels(bitmap);
+        var texture = CreateTextureFromRgbaPixels(
+            bitmap.Info,
+            pixels,
             ctx,
             generateMipmaps: false,
             "SKImage Texture");
 
-        return new SKImage(texture, ownsTexture: true, bitmap.Info);
+        return new SKImage(
+            texture,
+            ownsTexture: true,
+            bitmap.Info,
+            portableRgbaPixels: pixels);
     }
 
     internal static GpuTexture CreateTextureFromBitmap(
@@ -61,6 +79,32 @@ public partial class SKImage : SKObject
         string label)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
+        return CreateTextureFromRgbaPixels(
+            bitmap.Info,
+            CopyBitmapPixels(bitmap),
+            context,
+            generateMipmaps,
+            label);
+    }
+
+    private static byte[] CopyBitmapPixels(SKBitmap bitmap)
+    {
+        byte[] pixels = bitmap.CopyRgba8888Rows();
+        if (bitmap.AlphaType == SKAlphaType.Opaque)
+        {
+            ForceOpaqueAlpha(pixels);
+        }
+
+        return pixels;
+    }
+
+    private static GpuTexture CreateTextureFromRgbaPixels(
+        SKImageInfo info,
+        ReadOnlySpan<byte> pixels,
+        WgpuContext context,
+        bool generateMipmaps,
+        string label)
+    {
         ArgumentNullException.ThrowIfNull(context);
         var usage = TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc;
         if (generateMipmaps)
@@ -70,27 +114,21 @@ public partial class SKImage : SKObject
 
         var texture = new GpuTexture(
             context,
-            (uint)bitmap.Width,
-            (uint)bitmap.Height,
+            (uint)info.Width,
+            (uint)info.Height,
             TextureFormat.Rgba8Unorm,
             usage,
             label,
-            alphaMode: bitmap.AlphaType == SKAlphaType.Unpremul
+            alphaMode: info.AlphaType == SKAlphaType.Unpremul
                 ? GpuTextureAlphaMode.Straight
                 : GpuTextureAlphaMode.Premultiplied,
             mipLevelCount: generateMipmaps
-                ? CalculateMipLevelCount((uint)bitmap.Width, (uint)bitmap.Height)
+                ? CalculateMipLevelCount((uint)info.Width, (uint)info.Height)
                 : 1u);
 
         try
         {
-            byte[] buffer = bitmap.CopyRgba8888Rows();
-            if (bitmap.AlphaType == SKAlphaType.Opaque)
-            {
-                ForceOpaqueAlpha(buffer);
-            }
-
-            texture.WritePixels(new ReadOnlySpan<byte>(buffer));
+            texture.WritePixels(pixels);
             if (generateMipmaps)
             {
                 texture.GenerateMipmaps2DLinear();
@@ -207,7 +245,8 @@ public partial class SKImage : SKObject
         return new SKImage(
             gpuTexture,
             ownsTexture: true,
-            new SKImageInfo(texture.Width, texture.Height, colorType, alphaType));
+            new SKImageInfo(texture.Width, texture.Height, colorType, alphaType),
+            portableRgbaPixels: null);
     }
 
     public static SKImage? FromAdoptedTexture(
@@ -225,7 +264,11 @@ public partial class SKImage : SKObject
                 "Textures wrapped by SKImage.FromTexture must include TextureUsage.CopySrc so SKCanvas.DrawImage can retain a copy for deferred rendering.");
         }
 
-        return new SKImage(texture, ownsTexture: false, CreateTextureInfo(texture));
+        return new SKImage(
+            texture,
+            ownsTexture: false,
+            CreateTextureInfo(texture),
+            portableRgbaPixels: null);
     }
 
     private static void ForceOpaqueAlpha(byte[] rgbaPixels)
@@ -238,12 +281,20 @@ public partial class SKImage : SKObject
 
     internal static SKImage FromOwnedTexture(GpuTexture texture, SKImageInfo? info = null)
     {
-        return new SKImage(texture, ownsTexture: true, info ?? CreateTextureInfo(texture));
+        return new SKImage(
+            texture,
+            ownsTexture: true,
+            info ?? CreateTextureInfo(texture),
+            portableRgbaPixels: null);
     }
 
     internal static SKImage FromBorrowedTexture(GpuTexture texture, SKImageInfo info)
     {
-        return new SKImage(texture, ownsTexture: false, info);
+        return new SKImage(
+            texture,
+            ownsTexture: false,
+            info,
+            portableRgbaPixels: null);
     }
 
     private static uint CalculateMipLevelCount(uint width, uint height)
@@ -270,7 +321,74 @@ public partial class SKImage : SKObject
             "SKImage Shader Retained Texture",
             alphaMode: Texture.AlphaMode);
         texture.CopyFrom(Texture);
-        return FromOwnedTexture(texture, _info);
+        return new SKImage(
+            texture,
+            ownsTexture: true,
+            _info,
+            _portableRgbaPixels);
+    }
+
+    internal GpuTexture GetTextureForContext(WgpuContext requiredContext)
+    {
+        ArgumentNullException.ThrowIfNull(requiredContext);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+        if (ReferenceEquals(Texture.Context, requiredContext))
+        {
+            return Texture;
+        }
+
+        if (_portableRgbaPixels is null)
+        {
+            throw new InvalidOperationException(
+                "SKCanvas.DrawImage cannot draw an SKImage from a different WebGPU context. " +
+                "Only immutable images created from CPU bitmap pixels can be materialized for another context.");
+        }
+
+        if (!requiredContext.IsInitialized || requiredContext.IsDisposed)
+        {
+            throw new ObjectDisposedException(
+                nameof(requiredContext),
+                "The target WebGPU context is not available for image materialization.");
+        }
+
+        if (ReferenceEquals(Volatile.Read(ref _lastPortableContext), requiredContext))
+        {
+            var lastTexture = Volatile.Read(ref _lastPortableTexture);
+            if (lastTexture is not null && !lastTexture.IsDisposed)
+            {
+                return lastTexture;
+            }
+        }
+
+        lock (_portableTextureLock)
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+            _portableTextures ??= new Dictionary<WgpuContext, GpuTexture>();
+            if (_portableTextures.TryGetValue(requiredContext, out var cachedTexture))
+            {
+                if (!cachedTexture.IsDisposed)
+                {
+                    Volatile.Write(ref _lastPortableTexture, cachedTexture);
+                    Volatile.Write(ref _lastPortableContext, requiredContext);
+                    return cachedTexture;
+                }
+
+                _portableTextures.Remove(requiredContext);
+            }
+
+            var texture = CreateTextureFromRgbaPixels(
+                _info,
+                _portableRgbaPixels,
+                requiredContext,
+                generateMipmaps: false,
+                "SKImage Context-local Texture");
+            _portableTextures.Add(requiredContext, texture);
+            Volatile.Write(ref _lastPortableTexture, texture);
+            Volatile.Write(ref _lastPortableContext, requiredContext);
+            return texture;
+        }
     }
 
     public SKShader ToShader(
@@ -421,6 +539,22 @@ public partial class SKImage : SKObject
 
     protected override void DisposeManaged()
     {
+        lock (_portableTextureLock)
+        {
+            Volatile.Write(ref _lastPortableContext, null);
+            Volatile.Write(ref _lastPortableTexture, null);
+            if (_portableTextures is not null)
+            {
+                foreach (var texture in _portableTextures.Values)
+                {
+                    texture.Dispose();
+                }
+
+                _portableTextures.Clear();
+                _portableTextures = null;
+            }
+        }
+
         if (_ownsTexture)
         {
             Texture.Dispose();

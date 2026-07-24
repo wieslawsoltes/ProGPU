@@ -2409,6 +2409,48 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void DrawImageMaterializesBitmapBackedImageOncePerTargetContext()
+    {
+        using var sourceContext = new WgpuContext();
+        sourceContext.Initialize(null);
+        using var targetContext = new WgpuContext();
+        targetContext.Initialize(null);
+        var previous = WgpuContext.Current;
+
+        try
+        {
+            WgpuContext.Current = sourceContext;
+            using var bitmap = new SKBitmap(
+                new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+            bitmap.Erase(new SKColor(12, 34, 56, 255));
+            using var image = SKImage.FromBitmap(bitmap);
+
+            var firstContextTexture = image.GetTextureForContext(targetContext);
+            var secondContextTexture = image.GetTextureForContext(targetContext);
+            Assert.Same(firstContextTexture, secondContextTexture);
+            Assert.Same(targetContext, firstContextTexture.Context);
+            Assert.Equal(new byte[] { 12, 34, 56, 255 }, firstContextTexture.ReadPixels());
+
+            var context = new DrawingContext();
+            using var canvas = new SKCanvas(context, 16f, 16f, targetContext);
+            canvas.DrawImage(
+                image,
+                new SKRect(0f, 0f, 1f, 1f),
+                new SKRect(0f, 0f, 16f, 16f),
+                null!);
+
+            var command = GetDrawTextureCommand(context.Commands);
+            Assert.Same(targetContext, command.Texture!.Context);
+            Assert.Equal(new byte[] { 12, 34, 56, 255 }, command.Texture.ReadPixels());
+            Assert.Equal(1, context.RetainedResourceCount);
+        }
+        finally
+        {
+            WgpuContext.Current = previous;
+        }
+    }
+
+    [Fact]
     public void DrawImageUsesCurrentContextForDeferredDrawingContext()
     {
         using var sourceContext = new WgpuContext();
