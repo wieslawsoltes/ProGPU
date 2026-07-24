@@ -35,8 +35,8 @@ shim projects are intentionally not packed.
 | `ProGPU.Xaml.Workspaces` | Roslyn Workspace editing, formatting, and bidirectional XAML services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Xaml.Workspaces.svg)](https://www.nuget.org/packages/ProGPU.Xaml.Workspaces/) |
 | `ProGPU.Xaml.Cli` | Standalone XAML compiler and Roslyn/MSBuild workspace command-line tool. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Xaml.Cli.svg)](https://www.nuget.org/packages/ProGPU.Xaml.Cli/) |
 | `ProGPU.Avalonia` | Avalonia integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.svg)](https://www.nuget.org/packages/ProGPU.Avalonia/) |
-| `ProGPU.Avalonia.Rendering` | GPU-first ProGPU/WebGPU rendering backend for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
-| `ProGPU.Avalonia.SilkNet` | Cross-platform Silk.NET windowing, input, surfaces, and WebGPU integration for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
+| `ProGPU.Avalonia.Rendering` | GPU-first ProGPU/WebGPU rendering backend shipped as separate versioned packages for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
+| `ProGPU.Avalonia.SilkNet` | Cross-platform windowing, input, surfaces, and WebGPU integration shipped as separate versioned packages for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
 | `ProGPU.Uno` | Uno/WinUI integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Uno.svg)](https://www.nuget.org/packages/ProGPU.Uno/) |
 | `ProGPU.Dxf` | DXF import/rendering support for ProGPU vector scenes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Dxf.svg)](https://www.nuget.org/packages/ProGPU.Dxf/) |
 | `ProGPU.SkiaSharp` | ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
@@ -354,12 +354,21 @@ Avalonia renderer.
 | `ProGPU.Avalonia.Rendering` | ProGPU and WebGPU rendering platform for Avalonia. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
 | `ProGPU.Avalonia.SilkNet` | Cross-platform Silk.NET windowing platform for Avalonia. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
 
-The package IDs are shared by two exact Avalonia compatibility lanes:
+Each compatibility lane produces its own `.nupkg` and `.snupkg` artifacts from
+separate project files. The v11 and v12 artifacts intentionally share the same
+two NuGet package IDs and are distinguished by their package versions:
 
 | Avalonia | Rendering package | Silk.NET package |
 | --- | --- | --- |
 | 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.19` | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.19` |
 | 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.1` | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.1` |
+
+The Avalonia 12 artifacts are built from
+`src/ProGPU.Avalonia.Rendering` and `src/ProGPU.Avalonia.SilkNet`. The Avalonia
+11 artifacts are built separately from the thin
+`src/ProGPU.Avalonia.Rendering.V11` and `src/ProGPU.Avalonia.SilkNet.V11`
+projects, which source-link the shared implementation and define
+`AVALONIA11`.
 
 Install the Avalonia 12 packages with:
 
