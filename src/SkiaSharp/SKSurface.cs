@@ -7,7 +7,7 @@ using Silk.NET.WebGPU;
 
 namespace SkiaSharp;
 
-public class SKSurface : IDisposable
+public class SKSurface : IDisposable, IGpuFramebufferPresenter
 {
     private static readonly object s_compositorCacheScope = new();
     private readonly WgpuContext _context;
@@ -25,6 +25,7 @@ public class SKSurface : IDisposable
     private GpuTextureReadbackBuffer? _readbackBuffer;
     private byte[]? _readbackPixels;
     private bool _hasTextureContents;
+    private bool _disposed;
 
     public SKCanvas Canvas { get; }
 
@@ -94,6 +95,7 @@ public class SKSurface : IDisposable
             }
             _gpuTexture.WritePixels<byte>(temp);
             _hasTextureContents = true;
+            GpuFramebufferPresentationRegistry.Register(_pixels, this);
         }
     }
 
@@ -295,6 +297,11 @@ public class SKSurface : IDisposable
 
     public void Flush()
     {
+        FlushCore(copyToCpu: true);
+    }
+
+    private void FlushCore(bool copyToCpu)
+    {
         if (_gpuTexture == null) return;
 
         // Skip compiling if no commands have been recorded
@@ -326,7 +333,7 @@ public class SKSurface : IDisposable
             _hasTextureContents = true;
 
             // If CPU-backed surface, read pixels back and copy to memory pointer
-            if (_pixels != IntPtr.Zero)
+            if (copyToCpu && _pixels != IntPtr.Zero)
             {
                 int readbackByteCount = checked(_width * _height * 4);
                 if (_readbackPixels == null || _readbackPixels.Length != readbackByteCount)
@@ -350,6 +357,27 @@ public class SKSurface : IDisposable
             // Clear recorded commands and dispose command-retained source/save-layer textures.
             _drawingContext.Clear();
             Canvas.ReleaseLayerTexturesAfterFlush();
+        }
+    }
+
+    void IGpuFramebufferPresenter.Present(WgpuContext context, IntPtr surfaceHandle)
+    {
+        if (_disposed || _gpuTexture is null || _gpuTexture.IsDisposed)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(context, _context))
+        {
+            throw new InvalidOperationException(
+                "The framebuffer presentation surface belongs to a different ProGPU context.");
+        }
+
+        using var currentScope = WgpuContext.PushCurrent(context);
+        FlushCore(copyToCpu: false);
+        if (_hasTextureContents)
+        {
+            GpuTextureSurfacePresenter.Present(_gpuTexture, surfaceHandle);
         }
     }
 
@@ -661,9 +689,20 @@ public class SKSurface : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (_pixels != IntPtr.Zero)
+        {
+            GpuFramebufferPresentationRegistry.Unregister(_pixels, this);
+        }
+
         try
         {
-            Flush();
+            FlushCore(copyToCpu: true);
         }
         finally
         {
