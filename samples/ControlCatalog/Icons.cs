@@ -159,7 +159,7 @@ namespace ControlCatalog
         public const string Tooltip = "M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4A2,2 0 0,1 4,2M11,15H13V13H11V15M11,11H13V5H11V11Z";
 
         // Animation/Transition
-        public const string Transition = "M3,3H16V1L22,6L16,11V9H3ZM21,21H8V23L2,18L8,13V15H21Z";
+        public const string Transition = "M2,5.27L3.28,4L20,20.72L18.73,22L12.73,16H7V19L3,15L7,11V14H9.73L5,9.27V14H3V5.27M21,9L17,5V8H14V10H17V13L21,9M17,17V14H15V17H17Z";
 
         // Tree/Hierarchy
         public const string Tree = "M15,20A1,1 0 0,0 16,19V4H8V19A1,1 0 0,0 9,20H2V22H22V20H15Z";

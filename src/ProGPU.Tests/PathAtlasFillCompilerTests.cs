@@ -44,6 +44,38 @@ public class PathAtlasFillCompilerTests
     }
 
     [Fact]
+    public void TransitionMaskedIconPreservesAllContoursAndImplicitFillClosures()
+    {
+        PathGeometry path = PathGeometry.Parse(
+            "M2,5.27L3.28,4L20,20.72L18.73,22L12.73,16H7V19L3,15L7,11V14H9.73L5,9.27V14H3V5.27" +
+            "M21,9L17,5V8H14V10H17V13L21,9" +
+            "M17,17V14H15V17H17Z");
+
+        var (records, segments) = PathAtlas.CompileFillPath(
+            path,
+            out float minX,
+            out float minY,
+            out float maxX,
+            out float maxY);
+
+        Assert.Equal(3, path.Figures.Count);
+        Assert.False(path.Figures[0].IsClosed);
+        Assert.False(path.Figures[1].IsClosed);
+        Assert.True(path.Figures[2].IsClosed);
+        Assert.Equal(26, segments.Length);
+        Assert.Equal(26u, Assert.Single(records).SegmentCount);
+        Assert.Equal(new Vector2(3f, 5.27f), segments[14].P0);
+        Assert.Equal(new Vector2(2f, 5.27f), segments[14].P1);
+        Assert.Equal(0u, segments[14].SegmentType);
+        Assert.Equal(new Vector2(21f, 9f), segments[21].P1);
+        Assert.Equal(new Vector2(17f, 17f), segments[25].P1);
+        Assert.Equal(2f, minX);
+        Assert.Equal(4f, minY);
+        Assert.Equal(21f, maxX);
+        Assert.Equal(22f, maxY);
+    }
+
+    [Fact]
     public void ContainedRoundedRectangleDifferencePreservesExactEvenOddContours()
     {
         PathGeometry outer = CreateTopRoundedRectangle(
