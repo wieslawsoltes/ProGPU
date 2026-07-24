@@ -148,3 +148,41 @@ multi-contour path, and a partial rounded border with a zero-width bottom edge.
 The native ControlCatalog then remained active on the Window Customizations
 page without WebGPU validation output; the title border rendered without the
 former diagonal fill.
+
+### Performance validation
+
+Commit `b682d0cdc92d6716d9a1c9be80b33334fca41043` was compared directly with
+its parent `1f52aa13` in detached worktrees using the same
+`microsoft-ui-xaml` submodule revision. Both revisions were built in Release
+with .NET SDK 10.0.201 and measured on an Apple M3 Pro running macOS 26.
+
+The headless harness used the same 160x112 WebGPU target and ran four
+alternating processes for each revision. Each process warmed 40 frames, then
+measured 600 unchanged frames, 600 invalidated ordinary-path frames, and 80
+unique partial-rounded-border differences. Values below are the median of the
+four per-process medians; allocations are total managed allocations divided by
+frames.
+
+| Workload | Parent frame median | Commit frame median | Parent allocation/frame | Commit allocation/frame |
+| --- | ---: | ---: | ---: | ---: |
+| Unchanged compiled-scene replay | 0.0287 ms | 0.0254 ms | 390 B | 389 B |
+| Invalidated ordinary path | 1.4235 ms | 1.4051 ms | 2,646 B | 2,656 B |
+| Changing rounded-border difference | 15.3218 ms | 1.4791 ms | 26,476 B | 7,240 B |
+
+Every unchanged frame was a compiled-scene cache hit on both revisions. The
+ordinary-path difference is within run-to-run noise: the added combined-path
+test is a branch and performs no allocation for ordinary paths. For the fixed
+rounded-border workload, median frame time decreased by 90.3%, average
+visual-tree compilation decreased from a four-run median of 6.8087 ms to
+0.2068 ms (97.0%), and managed allocation decreased by 72.7%. The direct
+recognizer is bounded to canonical four-to-eight-segment contours and avoids
+the former GPU boolean-operation readback.
+
+The repository's Release `Vector Shapes` sample benchmark was also run for
+four 300-frame processes per revision with VSync disabled. GPU surface-acquire
+time varied materially between processes, so wall FPS is not used as a
+causality claim. Its median compositor time nevertheless moved from 0.2512 ms
+to 0.1682 ms and median compilation from 0.0325 ms to 0.0190 ms, with no
+compile frame over budget after the change. Release IL increased by 7,168
+bytes in `ProGPU.Vector` and 512 bytes in `ProGPU.Scene`; `ProGPU.Backend` was
+unchanged in size.
