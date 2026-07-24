@@ -16,9 +16,11 @@ public sealed class AvaloniaSkiaCompatibilityTests
         "b449fb8ed977fcafa9ebc006f0a38f9229d7f78ce4a1986ceccc8fd1cbaf2d2f";
 
     [Fact]
-    public void AvaloniaSkiaSourcesMatchTheUnmodified1205Release()
+    public void EffectiveAvaloniaSkiaSourcesMatchTheUnmodified1205Release()
     {
-        var sourceRoot = FindRepositoryPath("src", "ProGPU.Avalonia.SkiaShim");
+        var sourceRoot = FindRepositoryPath(
+            "external", "Avalonia", "src", "Skia", "Avalonia.Skia");
+        var overrideRoot = FindRepositoryPath("src", "ProGPU.Avalonia.SkiaShim");
         var files = Directory
             .EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
             .Where(path => !HasPathSegment(path, "bin") && !HasPathSegment(path, "obj"))
@@ -32,16 +34,27 @@ public sealed class AvaloniaSkiaCompatibilityTests
             var relativePath = Path
                 .GetRelativePath(sourceRoot, file)
                 .Replace(Path.DirectorySeparatorChar, '/');
+            var effectiveFile = relativePath == "GlyphRunImpl.cs"
+                ? Path.Combine(overrideRoot, "GlyphRunImpl.cs")
+                : file;
             hash.AppendData(Encoding.UTF8.GetBytes(relativePath));
             hash.AppendData(new byte[] { 0 });
-            hash.AppendData(File.ReadAllBytes(file));
+            hash.AppendData(File.ReadAllBytes(effectiveFile));
         }
 
         Assert.Equal(
             ExpectedSourceHash,
             Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
-        Assert.False(File.Exists(Path.Combine(sourceRoot, "OutOfTreeAdapters.cs")));
-        Assert.False(File.Exists(Path.Combine(sourceRoot, "WebGpuFramebufferTarget.cs")));
+        Assert.Equal(
+            new[] { "GlyphRunImpl.cs" },
+            Directory
+                .EnumerateFiles(overrideRoot, "*.cs", SearchOption.AllDirectories)
+                .Where(path => !HasPathSegment(path, "bin") && !HasPathSegment(path, "obj"))
+                .Select(path => Path.GetRelativePath(overrideRoot, path))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray());
+        Assert.False(File.Exists(Path.Combine(overrideRoot, "OutOfTreeAdapters.cs")));
+        Assert.False(File.Exists(Path.Combine(overrideRoot, "WebGpuFramebufferTarget.cs")));
     }
 
     [Fact]

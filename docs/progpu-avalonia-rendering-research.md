@@ -90,11 +90,13 @@ Validation is performed against the final source state:
 - Avalonia 12 renderer and Silk.NET projects build on .NET 10.
 - Avalonia 11 renderer and Silk.NET projects build from the same shared sources
   with `AVALONIA11` conditionals.
-- 56 focused renderer unit/contract tests pass.
+- 57 focused renderer unit/contract tests pass.
 - 34 focused Silk.NET dispatcher, input, cursor, icon, timer, and framebuffer tests
   pass.
-- 2 Avalonia Skia compatibility/source-integrity tests pass. The 54 upstream
-  `.cs` files match Avalonia `12.0.5` commit
+- 2 Avalonia Skia compatibility/source-integrity tests pass. The project links
+  53 files from the pinned Avalonia fork submodule and keeps only the original
+  `GlyphRunImpl.cs` override locally; the effective 54-file set matches
+  Avalonia `12.0.5` commit
   `fee9c561ce036e8a3e8cee2397c75ca599b4790d` byte-for-byte.
 - 274 expected render baselines and 10 input images decode successfully.
 - Four NuGet package/version entries and their symbol packages build; archive

@@ -1,15 +1,16 @@
 PORTING NOTICE
 
 This compatibility-test project was created in the ProGPU repository to verify
-the upstream source imported from:
+the effective Avalonia Skia source linked from:
 
-Repository: https://github.com/AvaloniaUI/Avalonia.git
-Tag: 12.0.5
-Commit: fee9c561ce036e8a3e8cee2397c75ca599b4790d
+Repository: https://github.com/wieslawsoltes/Avalonia.git
+Tag: progpu-avalonia-v12.0.5-preview.19
+Commit: 5378af03f17a4d9d2845882229ffed7f67350037
+Submodule path: external/Avalonia
 Original path: src/Skia/Avalonia.Skia
 
-The project itself is locally authored. It checks that all 54 imported C#
-implementation files remain byte-identical to that upstream revision and
-exercises the backend against the ProGPU SkiaSharp shim.
-
-No Git history or commits were imported from the source repository.
+The project itself is locally authored. It substitutes the local
+GlyphRunImpl.cs override and checks that the effective 54-file implementation
+remains byte-identical to the Avalonia 12.0.5 release at commit
+fee9c561ce036e8a3e8cee2397c75ca599b4790d, then exercises that backend against
+the ProGPU SkiaSharp shim.

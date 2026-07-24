@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace Avalonia.ProGpu.UnitTests
@@ -73,10 +74,68 @@ namespace Avalonia.ProGpu.UnitTests
             Assert.Contains("FlushCore(copyToCpu: false)", skSurface, StringComparison.Ordinal);
             Assert.Contains("GpuTextureSurfacePresenter.Present", skSurface, StringComparison.Ordinal);
             Assert.Contains("GpuFramebufferPresentationRegistry.TryPresent", lockedFramebuffer, StringComparison.Ordinal);
+            Assert.Contains("external/Avalonia", provenance, StringComparison.Ordinal);
+            Assert.Contains("5378af03f17a4d9d2845882229ffed7f67350037", provenance, StringComparison.Ordinal);
             Assert.Contains("fee9c561ce036e8a3e8cee2397c75ca599b4790d", provenance, StringComparison.Ordinal);
-            Assert.Contains("without modification", provenance, StringComparison.Ordinal);
+            Assert.Contains("effective 54-file source set therefore remains unmodified", provenance, StringComparison.Ordinal);
             Assert.Contains("private static AppBuilder BuildSkiaShimApp()", program, StringComparison.Ordinal);
             Assert.Contains(".UseSilkNet()", program, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AvaloniaDerivedProjectsLinkPinnedForkSourcesAndKeepOnlyOverrides()
+        {
+            var modules = ReadRepoFile(".gitmodules");
+            var skiaProject = ReadRepoFile(
+                "src", "ProGPU.Avalonia.SkiaShim", "Avalonia.Skia.csproj");
+            var skiaNotice = ReadRepoFile(
+                "src", "ProGPU.Avalonia.SkiaShim", "PORTING-NOTICE.txt");
+            var catalogProject = ReadRepoFile(
+                "samples", "ControlCatalog", "ControlCatalog.csproj");
+            var renderDemoProject = ReadRepoFile(
+                "samples", "RenderDemo", "RenderDemo.csproj");
+
+            Assert.Contains("path = external/Avalonia", modules, StringComparison.Ordinal);
+            Assert.Contains(
+                "url = https://github.com/wieslawsoltes/Avalonia.git",
+                modules,
+                StringComparison.Ordinal);
+            Assert.Contains(@"external\Avalonia", skiaProject, StringComparison.Ordinal);
+            Assert.Contains(@"external\Avalonia", catalogProject, StringComparison.Ordinal);
+            Assert.Contains(@"external\Avalonia", renderDemoProject, StringComparison.Ordinal);
+            Assert.Contains(
+                "progpu-avalonia-v12.0.5-preview.19",
+                skiaNotice,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "5378af03f17a4d9d2845882229ffed7f67350037",
+                skiaNotice,
+                StringComparison.Ordinal);
+
+            AssertLocalSourceOverrides(
+                Path.Combine("src", "ProGPU.Avalonia.SkiaShim"),
+                "GlyphRunImpl.cs");
+            AssertLocalSourceOverrides(
+                Path.Combine("samples", "ControlCatalog"),
+                Path.Combine("Pages", "DialogsPage.xaml.cs"),
+                Path.Combine("ViewModels", "PlatformInformationViewModel.cs"));
+            AssertLocalSourceOverrides(
+                Path.Combine("samples", "RenderDemo"),
+                "App.xaml.cs",
+                Path.Combine("Controls", "LineBoundsDemoControl.cs"),
+                "MainWindow.xaml.cs",
+                Path.Combine("Pages", "AnimationsPage.xaml.cs"),
+                Path.Combine("Pages", "BrushesPage.axaml.cs"),
+                Path.Combine("Pages", "ClippingPage.xaml.cs"),
+                Path.Combine("Pages", "CustomAnimatorPage.xaml.cs"),
+                Path.Combine("Pages", "DrawingPage.xaml.cs"),
+                Path.Combine("Pages", "FormattedTextPage.axaml.cs"),
+                Path.Combine("Pages", "GlyphRunPage.xaml.cs"),
+                Path.Combine("Pages", "LineBoundsPage.xaml.cs"),
+                Path.Combine("Pages", "SpringAnimationsPage.xaml.cs"),
+                Path.Combine("Pages", "TextFormatterPage.axaml.cs"),
+                Path.Combine("Pages", "Transform3DPage.axaml.cs"),
+                Path.Combine("Pages", "TransitionsPage.xaml.cs"));
         }
 
         [Fact]
@@ -160,17 +219,48 @@ namespace Avalonia.ProGpu.UnitTests
 
         private static string ReadRepoFile(params string[] path)
         {
+            var candidate = Path.Combine(FindRepositoryRoot().FullName, Path.Combine(path));
+            if (File.Exists(candidate))
+                return File.ReadAllText(candidate);
+
+            throw new FileNotFoundException($"Could not locate repository file '{Path.Combine(path)}'.");
+        }
+
+        private static void AssertLocalSourceOverrides(
+            string projectPath,
+            params string[] expectedFiles)
+        {
+            var projectRoot = Path.Combine(FindRepositoryRoot().FullName, projectPath);
+            var actualFiles = Directory
+                .EnumerateFiles(projectRoot, "*.cs", SearchOption.AllDirectories)
+                .Where(path =>
+                    !HasPathSegment(path, "bin") &&
+                    !HasPathSegment(path, "obj"))
+                .Select(path => Path.GetRelativePath(projectRoot, path))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            var expected = expectedFiles
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(expected, actualFiles);
+        }
+
+        private static bool HasPathSegment(string path, string segment) =>
+            path.Split(Path.DirectorySeparatorChar)
+                .Contains(segment, StringComparer.Ordinal);
+
+        private static DirectoryInfo FindRepositoryRoot()
+        {
             var directory = new DirectoryInfo(AppContext.BaseDirectory);
             while (directory is not null)
             {
-                var candidate = Path.Combine(directory.FullName, Path.Combine(path));
-                if (File.Exists(candidate))
-                    return File.ReadAllText(candidate);
+                if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")))
+                    return directory;
 
                 directory = directory.Parent;
             }
 
-            throw new FileNotFoundException($"Could not locate repository file '{Path.Combine(path)}'.");
+            throw new DirectoryNotFoundException("Could not locate the ProGPU repository root.");
         }
     }
 }
