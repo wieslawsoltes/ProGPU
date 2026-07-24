@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Avalonia.Skia</AssemblyName>
+    <RootNamespace>Avalonia.Skia</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyOriginatorKeyFile>..\..\eng\Avalonia.snk</AssemblyOriginatorKeyFile>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\NoiseAsset_256X256_PNG.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj" />
+    <PackageReference Include="Avalonia" />
+  </ItemGroup>
+  <ItemGroup Label="InternalsVisibleTo">
+    <InternalsVisibleTo Include="Avalonia.SkiaShim.RenderTests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+</Project>

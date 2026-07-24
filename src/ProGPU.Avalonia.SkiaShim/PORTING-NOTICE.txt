@@ -1,0 +1,16 @@
+PORTING NOTICE
+
+The C# implementation files in this project are unchanged upstream Avalonia
+12.0.5 source from:
+
+Repository: https://github.com/AvaloniaUI/Avalonia.git
+Tag: 12.0.5
+Commit: fee9c561ce036e8a3e8cee2397c75ca599b4790d
+Original path: src/Skia/Avalonia.Skia
+
+The local project file is an integration adapter that builds those unchanged
+sources against the ProGPU SkiaSharp shim. ProGPU-specific framebuffer and GPU
+presentation behavior is implemented outside this directory.
+
+AVALONIA-SOURCE.md contains the detailed source-integrity and licensing record.
+No Git history or commits were imported from the source repository.
