@@ -135,12 +135,16 @@ a contained difference, express the hole with even-odd fill, and send that
 recognized topology through the bounded direct triangle path. This avoids both
 an unnecessary boolean-path readback and a page-width atlas allocation.
 Arbitrary intersecting path operations still use the general solver. The
-ControlCatalog transition mark was separately traced to its source path data,
-not the rasterizer, and was replaced with two explicit closed arrow contours.
+ControlCatalog transition mark was separately compared with Avalonia `main`
+at `fb09d611062b199f70551e9c26b2316f0173ff09` using the native Skia backend.
+Both backends render the same three-contour transition-masked silhouette; the
+two open contours are implicitly closed for fill and the original path data
+remains unchanged.
 
 Focused validation covers a single raster wider than the configured atlas,
 source/destination copy invariants, implicit open-figure fill closure, exact
-contained rounded-rectangle differences, and a partial rounded border with a
-zero-width bottom edge. The native ControlCatalog then remained active on the
-Window Customizations page without WebGPU validation output; the title border
-rendered without the former diagonal fill.
+contained rounded-rectangle differences, the original transition-masked
+multi-contour path, and a partial rounded border with a zero-width bottom edge.
+The native ControlCatalog then remained active on the Window Customizations
+page without WebGPU validation output; the title border rendered without the
+former diagonal fill.
