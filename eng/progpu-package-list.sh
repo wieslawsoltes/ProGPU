@@ -14,9 +14,11 @@ progpu_portable_package_ids=(
   ProGPU.Fonts.Inter
   ProGPU.Fonts.Noto
   ProGPU.Scene
+  ProGPU.Voxel
   ProGPU.Layout
   ProGPU.Virtualization
   ProGPU.WinUI
+  ProGPU.Voxel.WinUI
   ProGPU.WinUI.Themes.Fluent
   ProGPU.WinUI.Charts
   ProGPU.WinUI.Designer
@@ -45,9 +47,11 @@ progpu_portable_package_projects=(
   src/ProGPU.Fonts.Inter/ProGPU.Fonts.Inter.csproj
   src/ProGPU.Fonts.Noto/ProGPU.Fonts.Noto.csproj
   src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/ProGPU.Voxel/ProGPU.Voxel.csproj
   src/ProGPU.Layout/ProGPU.Layout.csproj
   src/ProGPU.Virtualization/ProGPU.Virtualization.csproj
   src/ProGPU.WinUI/ProGPU.WinUI.csproj
+  src/ProGPU.Voxel.WinUI/ProGPU.Voxel.WinUI.csproj
   src/ProGPU.WinUI.Themes.Fluent/ProGPU.WinUI.Themes.Fluent.csproj
   src/ProGPU.WinUI.Charts/ProGPU.WinUI.Charts.csproj
   src/ProGPU.WinUI.Designer/ProGPU.WinUI.Designer.csproj
@@ -76,9 +80,11 @@ progpu_portable_package_purposes=(
   "Official Inter font assets and typed accessors for deterministic UI typography."
   "Official Noto fallback assets and typed accessors for CJK and symbol coverage."
   "Scene graph, compositor commands, retained visuals, effects, and presentation primitives."
+  "Chunked voxel worlds, greedy meshing, collision, terrain generation, and grid ray casting."
   "Measure/arrange layout substrate shared by higher-level UI adapters."
   "Virtualization helpers for large retained visual and item surfaces."
   "WinUI-shaped controls and app model implemented on ProGPU."
+  "Playable WinUI voxel control with first-person input and retained ProGPU rendering."
   "Source-generated unchanged WinUI Fluent theme resources and inspectable XAML content."
   "Chart controls and chart rendering primitives for the WinUI-shaped layer."
   "Designer/editor controls and diagnostics for ProGPU WinUI surfaces."
@@ -128,6 +134,7 @@ progpu_nonshipping_projects=(
   src/ProGPU.Samples/ProGPU.Samples.csproj
   src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj
   src/ProGPU.Tests/ProGPU.Tests.csproj
+  src/ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj
   src/ProGPU.Xaml.Tests/ProGPU.Xaml.Tests.csproj
   src/WindowsBase/WindowsBase.csproj
 )
@@ -144,6 +151,7 @@ progpu_nonshipping_reasons=(
   "Shared sample gallery."
   "Headless test project."
   "Test project."
+  "Voxel engine test project."
   "XAML compiler and source-generator test project."
   "Framework implementation shim; shipped through consuming compatibility packages."
 )
