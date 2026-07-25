@@ -19,9 +19,11 @@ from `scripts/progpu-package-list.sh`.
 - `ProGPU.Fonts.Inter`
 - `ProGPU.Fonts.Noto`
 - `ProGPU.Scene`
+- `ProGPU.Voxel`
 - `ProGPU.Layout`
 - `ProGPU.Virtualization`
 - `ProGPU.WinUI`
+- `ProGPU.Voxel.WinUI`
 - `ProGPU.WinUI.Themes.Fluent`
 - `ProGPU.WinUI.Charts`
 - `ProGPU.WinUI.Designer`
