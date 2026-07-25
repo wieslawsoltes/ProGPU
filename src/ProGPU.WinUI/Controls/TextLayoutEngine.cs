@@ -24,7 +24,6 @@ namespace Microsoft.UI.Xaml.Controls
             CreateCommonShapingOptions(ShapingDirection.LeftToRight);
         private static readonly TextShapingOptions[] CommonRightToLeftShapingOptions =
             CreateCommonShapingOptions(ShapingDirection.RightToLeft);
-
         public static void AccumulateInlines(
             Inline inline,
             List<RichChar> list,
@@ -256,16 +255,18 @@ namespace Microsoft.UI.Xaml.Controls
                 defaultIsItalic);
         }
 
-        private static int GetInlinesLength(IEnumerable<Inline> inlines)
+        private static int GetInlinesLength(RichElementCollection<Inline> inlines)
         {
-            int len = 0;
-            foreach (var inline in inlines)
+            int length = 0;
+            for (int index = 0; index < inlines.Count; index++)
             {
-                if (inline is Run run) len += run.Text.Length;
-                else if (inline is Span span) len += GetInlinesLength(span.Inlines);
-                else if (inline is LineBreak) len += 1;
+                Inline inline = inlines[index];
+                if (inline is Run run) length += run.Text.Length;
+                else if (inline is Span span) length += GetInlinesLength(span.Inlines);
+                else if (inline is LineBreak) length++;
             }
-            return len;
+
+            return length;
         }
 
         private static int GetBlockTextLength(Block block) => block switch
@@ -292,14 +293,16 @@ namespace Microsoft.UI.Xaml.Controls
             cache.RebaseTextPositions(logicalTextOffset);
         }
 
-        private static int CountLineBreaks(IEnumerable<Inline> inlines)
+        private static int CountLineBreaks(RichElementCollection<Inline> inlines)
         {
             int count = 0;
-            foreach (var inline in inlines)
+            for (int index = 0; index < inlines.Count; index++)
             {
+                Inline inline = inlines[index];
                 if (inline is LineBreak) count++;
                 else if (inline is Span span) count += CountLineBreaks(span.Inlines);
             }
+
             return count;
         }
 
@@ -691,12 +694,19 @@ namespace Microsoft.UI.Xaml.Controls
             return metrics;
         }
 
-        private static sbyte[] GetLineBidiLevels(
+        private static void GetLineBidiLevels(
             IReadOnlyList<PositionedRichChar> line,
             ParagraphShapingMetrics metrics,
+            Span<sbyte> levels,
             out sbyte paragraphLevel)
         {
-            var levels = new sbyte[line.Count];
+            if (levels.Length != line.Count)
+            {
+                throw new ArgumentException(
+                    "Line-level storage must match the positioned character count.",
+                    nameof(levels));
+            }
+
             paragraphLevel = 0;
             for (int index = 0; index < line.Count; index++)
             {
@@ -708,7 +718,6 @@ namespace Microsoft.UI.Xaml.Controls
             // UAX #9 L1 resets trailing whitespace on each already-broken line.
             for (int index = line.Count - 1; index >= 0 && char.IsWhiteSpace(line[index].Info.Character); index--)
                 levels[index] = paragraphLevel;
-            return levels;
         }
 
         private static bool IsClusterBoundaryBefore(ParagraphShapingMetrics metrics, int textPosition)
@@ -721,28 +730,39 @@ namespace Microsoft.UI.Xaml.Controls
             return metrics.BreakSafety[textPosition] != 0;
         }
 
-        private static float EstimateBlockHeight(Block block, float availableWidth, float baseFontSize, TtfFont activeFont)
+        private static float EstimateBlockHeight(
+            Block block,
+            float availableWidth,
+            float baseFontSize,
+            TtfFont activeFont)
         {
             float scale = baseFontSize / activeFont.UnitsPerEm;
-            float lineSpacing = (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * scale;
+            float lineSpacing =
+                (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * scale;
 
             if (block is Paragraph paragraph)
             {
                 int charCount = GetInlinesLength(paragraph.Inlines);
                 if (charCount == 0) return block.MarginBottom;
 
-                // Detect the maximum font size in children runs/spans
+                // Preserve the existing one-level font-size scan used by the
+                // virtualization estimate while avoiding boxed collection enumerators.
                 float maxFontSize = baseFontSize;
-                foreach (var inline in paragraph.Inlines)
+                for (int inlineIndex = 0;
+                     inlineIndex < paragraph.Inlines.Count;
+                     inlineIndex++)
                 {
+                    Inline inline = paragraph.Inlines[inlineIndex];
                     if (inline.FontSize.HasValue)
                     {
                         maxFontSize = Math.Max(maxFontSize, inline.FontSize.Value);
                     }
+
                     if (inline is Span span)
                     {
-                        foreach (var sub in span.Inlines)
+                        for (int subIndex = 0; subIndex < span.Inlines.Count; subIndex++)
                         {
+                            Inline sub = span.Inlines[subIndex];
                             if (sub.FontSize.HasValue)
                             {
                                 maxFontSize = Math.Max(maxFontSize, sub.FontSize.Value);
@@ -758,39 +778,53 @@ namespace Microsoft.UI.Xaml.Controls
                 int lineBreaks = CountLineBreaks(paragraph.Inlines);
                 estimatedLines = Math.Max(estimatedLines, lineBreaks + 1);
 
-                float blockLineSpacing = (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) * (maxFontSize / activeFont.UnitsPerEm);
+                float blockLineSpacing =
+                    (activeFont.Ascender - activeFont.Descender + activeFont.LineGap) *
+                    (maxFontSize / activeFont.UnitsPerEm);
 
                 float embeddedHeight = 0f;
-                foreach (var inline in paragraph.Inlines)
+                for (int inlineIndex = 0;
+                     inlineIndex < paragraph.Inlines.Count;
+                     inlineIndex++)
                 {
-                    if (inline is InlineUIContainer uic && uic.Child != null)
+                    Inline inline = paragraph.Inlines[inlineIndex];
+                    if (inline is not InlineUIContainer { Child: not null } uic)
                     {
-                        if (uic.Child.HeightConstraint.HasValue)
+                        continue;
+                    }
+
+                    if (uic.Child.HeightConstraint.HasValue)
+                    {
+                        embeddedHeight += uic.Child.HeightConstraint.Value;
+                    }
+                    else if (uic.Child is Border border &&
+                             border.Child is RichTextBlock rtb)
+                    {
+                        int codeChars = GetInlinesLength(rtb.Inlines);
+                        embeddedHeight +=
+                            Math.Max(40f, (codeChars / 50f) * blockLineSpacing + 20f);
+                    }
+                    else if (uic.Child is Border border2 &&
+                             border2.Child is StackPanel quoteStack)
+                    {
+                        float quoteHeight = 10f;
+                        foreach (var quoteChild in quoteStack.Children)
                         {
-                            embeddedHeight += uic.Child.HeightConstraint.Value;
-                        }
-                        else if (uic.Child is Border border && border.Child is RichTextBlock rtb)
-                        {
-                            int codeChars = GetInlinesLength(rtb.Inlines);
-                            embeddedHeight += Math.Max(40f, (codeChars / 50f) * blockLineSpacing + 20f);
-                        }
-                        else if (uic.Child is Border border2 && border2.Child is StackPanel quoteStack)
-                        {
-                            float quoteHeight = 10f;
-                            foreach (var quoteChild in quoteStack.Children)
+                            if (quoteChild is RichTextBlock qRtb)
                             {
-                                if (quoteChild is RichTextBlock qRtb)
-                                {
-                                    int quoteChars = GetInlinesLength(qRtb.Inlines);
-                                    quoteHeight += Math.Max(20f, (quoteChars / 60f) * blockLineSpacing + 6f);
-                                }
+                                int quoteChars = GetInlinesLength(qRtb.Inlines);
+                                quoteHeight +=
+                                    Math.Max(
+                                        20f,
+                                        (quoteChars / 60f) * blockLineSpacing + 6f);
                             }
-                            embeddedHeight += quoteHeight;
                         }
-                        else
-                        {
-                            embeddedHeight += 100f;
-                        }
+
+                        embeddedHeight += quoteHeight;
+                    }
+                    else
+                    {
+                        embeddedHeight += 100f;
                     }
                 }
 
@@ -801,37 +835,55 @@ namespace Microsoft.UI.Xaml.Controls
 
                 return estimatedLines * blockLineSpacing + block.MarginBottom;
             }
-            else if (block is ListBlock listBlock)
+
+            if (block is ListBlock listBlock)
             {
                 float listHeight = 0f;
-                foreach (var item in listBlock.Items)
+                for (int itemIndex = 0; itemIndex < listBlock.Items.Count; itemIndex++)
                 {
+                    ListItem item = listBlock.Items[itemIndex];
                     int itemCharCount = GetInlinesLength(item.Inlines);
                     float avgCharWidth = baseFontSize * 0.49f;
-                    float charsPerLine = Math.Max(10f, (availableWidth - listBlock.Indentation) / avgCharWidth);
-                    int estimatedLines = (int)Math.Ceiling(itemCharCount / charsPerLine);
+                    float charsPerLine =
+                        Math.Max(
+                            10f,
+                            (availableWidth - listBlock.Indentation) / avgCharWidth);
+                    int estimatedLines =
+                        (int)Math.Ceiling(itemCharCount / charsPerLine);
                     listHeight += Math.Max(1, estimatedLines) * lineSpacing;
                 }
+
                 return listHeight + block.MarginBottom;
             }
-            else if (block is Table table)
+
+            if (block is Table table)
             {
                 float tableHeight = 10f;
-                foreach (var row in table.Rows)
+                for (int rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
                 {
+                    TableRow row = table.Rows[rowIndex];
                     float rowHeight = baseFontSize + table.CellPadding * 2f;
                     int maxCellChars = 0;
-                    foreach (var cell in row.Cells)
+                    for (int cellIndex = 0; cellIndex < row.Cells.Count; cellIndex++)
                     {
-                        maxCellChars = Math.Max(maxCellChars, GetInlinesLength(cell.Inlines));
+                        TableCell cell = row.Cells[cellIndex];
+                        maxCellChars =
+                            Math.Max(maxCellChars, GetInlinesLength(cell.Inlines));
                     }
+
                     float cellWidth = availableWidth / Math.Max(1, row.Cells.Count);
-                    float charsPerLine = Math.Max(5f, cellWidth / (baseFontSize * 0.49f));
+                    float charsPerLine =
+                        Math.Max(5f, cellWidth / (baseFontSize * 0.49f));
                     int cellLines = (int)Math.Ceiling(maxCellChars / charsPerLine);
-                    rowHeight = Math.Max(rowHeight, Math.Max(1, cellLines) * lineSpacing + table.CellPadding * 2f);
+                    rowHeight =
+                        Math.Max(
+                            rowHeight,
+                            Math.Max(1, cellLines) * lineSpacing +
+                            table.CellPadding * 2f);
 
                     tableHeight += rowHeight;
                 }
+
                 return tableHeight + block.MarginBottom;
             }
 
@@ -1055,7 +1107,13 @@ namespace Microsoft.UI.Xaml.Controls
                     pc.Position.Y = cursorY + (completedLineHeight - h) / 2f - pc.Info.BaselineOffset;
                 }
 
-                sbyte[] lineLevels = GetLineBidiLevels(line, shapingMetrics, out sbyte paragraphLevel);
+                sbyte[]? heapLineLevels = line.Count > 256
+                    ? new sbyte[line.Count]
+                    : null;
+                Span<sbyte> lineLevels = heapLineLevels is not null
+                    ? heapLineLevels
+                    : stackalloc sbyte[line.Count];
+                GetLineBidiLevels(line, shapingMetrics, lineLevels, out sbyte paragraphLevel);
                 ApplyShapedClusterMetrics(line, lineLevels, activeFont, ignoreTrailingCharacterSpacing);
                 float logicalCursor = line.Min(static character => character.Position.X);
                 for (int logicalIndex = 0; logicalIndex < line.Count; logicalIndex++)
@@ -1073,12 +1131,12 @@ namespace Microsoft.UI.Xaml.Controls
                     }
                     logicalCursor += logical.ShapedAdvance;
                 }
-                int[] visualOrder = BidiParagraph.GetVisualOrder(lineLevels);
+                int[]? visualOrder = BidiParagraph.GetVisualOrderIfNeeded(lineLevels);
                 float visualCursorX = line.Min(static character => character.Position.X);
                 float visualLineOrigin = visualCursorX;
-                for (int visualIndex = 0; visualIndex < visualOrder.Length; visualIndex++)
+                for (int visualIndex = 0; visualIndex < line.Count; visualIndex++)
                 {
-                    int logicalIndex = visualOrder[visualIndex];
+                    int logicalIndex = visualOrder?[visualIndex] ?? visualIndex;
                     PositionedRichChar character = line[logicalIndex];
                     character.Position.X = visualCursorX;
                     visualCursorX += character.ShapedAdvance;
@@ -1127,9 +1185,10 @@ namespace Microsoft.UI.Xaml.Controls
                         float extraW = availableWidth - lineW;
                         float spaceAddition = extraW / spaceCount;
                         float runningAddition = 0f;
-                        for (int k = 0; k < visualOrder.Length; k++)
+                        for (int k = 0; k < line.Count; k++)
                         {
-                            var pc = line[visualOrder[k]];
+                            int logicalIndex = visualOrder?[k] ?? k;
+                            var pc = line[logicalIndex];
                             pc.Position.X += runningAddition;
                             if (pc.Info.Character == ' ')
                             {
@@ -2507,13 +2566,20 @@ namespace Microsoft.UI.Xaml.Controls
                     pc.Position.Y = cursorY + (completedLineHeight - h) / 2f - pc.Info.BaselineOffset;
                 }
 
-                sbyte[] lineLevels = GetLineBidiLevels(line, shapingMetrics, out _);
+                sbyte[]? heapLineLevels = line.Count > 256
+                    ? new sbyte[line.Count]
+                    : null;
+                Span<sbyte> lineLevels = heapLineLevels is not null
+                    ? heapLineLevels
+                    : stackalloc sbyte[line.Count];
+                GetLineBidiLevels(line, shapingMetrics, lineLevels, out _);
                 ApplyShapedClusterMetrics(line, lineLevels, activeFont, ignoreTrailingCharacterSpacing);
-                int[] visualOrder = BidiParagraph.GetVisualOrder(lineLevels);
+                int[]? visualOrder = BidiParagraph.GetVisualOrderIfNeeded(lineLevels);
                 float visualCursorX = cellPadding;
-                for (int visualIndex = 0; visualIndex < visualOrder.Length; visualIndex++)
+                for (int visualIndex = 0; visualIndex < line.Count; visualIndex++)
                 {
-                    PositionedRichChar character = line[visualOrder[visualIndex]];
+                    int logicalIndex = visualOrder?[visualIndex] ?? visualIndex;
+                    PositionedRichChar character = line[logicalIndex];
                     character.Position.X = visualCursorX;
                     visualCursorX += character.ShapedAdvance;
                 }
@@ -2764,7 +2830,7 @@ namespace Microsoft.UI.Xaml.Controls
                 }
                 float[] shapedAdvances = shapingMetrics.Advances;
 
-                var paragraphLines = new List<(List<PositionedRichChar> Chars, float ColumnX, int[] VisualOrder, sbyte ParagraphLevel)>();
+                var paragraphLines = new List<(List<PositionedRichChar> Chars, float ColumnX, int[]? VisualOrder, sbyte ParagraphLevel)>();
                 int i = 0;
                 bool hasResetLineIndent = false;
 
@@ -2894,7 +2960,17 @@ namespace Microsoft.UI.Xaml.Controls
                             runningX += advance;
                         }
 
-                        sbyte[] lineLevels = GetLineBidiLevels(currentLine, shapingMetrics, out sbyte paragraphLevel);
+                        sbyte[]? heapLineLevels = currentLine.Count > 256
+                            ? new sbyte[currentLine.Count]
+                            : null;
+                        Span<sbyte> lineLevels = heapLineLevels is not null
+                            ? heapLineLevels
+                            : stackalloc sbyte[currentLine.Count];
+                        GetLineBidiLevels(
+                            currentLine,
+                            shapingMetrics,
+                            lineLevels,
+                            out sbyte paragraphLevel);
                         ApplyShapedClusterMetrics(currentLine, lineLevels, activeFont);
                         float logicalCursor = 0f;
                         for (int logicalIndex = 0; logicalIndex < currentLine.Count; logicalIndex++)
@@ -2912,11 +2988,12 @@ namespace Microsoft.UI.Xaml.Controls
                             }
                             logicalCursor += logical.ShapedAdvance;
                         }
-                        int[] visualOrder = BidiParagraph.GetVisualOrder(lineLevels);
+                        int[]? visualOrder = BidiParagraph.GetVisualOrderIfNeeded(lineLevels);
                         float visualCursorX = currentLine.Min(static character => character.Position.X);
-                        for (int visualIndex = 0; visualIndex < visualOrder.Length; visualIndex++)
+                        for (int visualIndex = 0; visualIndex < currentLine.Count; visualIndex++)
                         {
-                            PositionedRichChar character = currentLine[visualOrder[visualIndex]];
+                            int logicalIndex = visualOrder?[visualIndex] ?? visualIndex;
+                            PositionedRichChar character = currentLine[logicalIndex];
                             character.Position.X = visualCursorX;
                             visualCursorX += character.ShapedAdvance;
                         }
@@ -2974,9 +3051,10 @@ namespace Microsoft.UI.Xaml.Controls
                             float extraW = colWidth - lineW;
                             float spaceAddition = extraW / spaceCount;
                             float runningAddition = 0f;
-                            for (int k = 0; k < visualOrder.Length; k++)
+                            for (int k = 0; k < line.Count; k++)
                             {
-                                var pc = line[visualOrder[k]];
+                                int logicalIndex = visualOrder?[k] ?? k;
+                                var pc = line[logicalIndex];
                                 pc.Position.X += runningAddition;
                                 if (pc.Info.Character == ' ')
                                 {

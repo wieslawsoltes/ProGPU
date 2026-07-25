@@ -40,6 +40,16 @@ public class BidiAndFlowDirectionTests
     }
 
     [Fact]
+    public void BidiParagraphOmitsOnlyIdentityVisualOrderStorage()
+    {
+        Assert.Null(BidiParagraph.GetVisualOrderIfNeeded([0, 0, 0]));
+        Assert.Null(BidiParagraph.GetVisualOrderIfNeeded([2, 2, 2]));
+        Assert.Equal(
+            new[] { 0, 1, 2, 3, 6, 5, 4 },
+            BidiParagraph.GetVisualOrderIfNeeded([0, 0, 0, 0, 1, 1, 1]));
+    }
+
+    [Fact]
     public void BidiParagraphAppliesInlineDirectionAsAnIsolateWithoutChangingTextLength()
     {
         const string text = "abc";
@@ -85,6 +95,63 @@ public class BidiAndFlowDirectionTests
     }
 
     [Fact]
+    public void BidiParagraphAsciiFastPathMatchesUax9ForEveryPair()
+    {
+        Span<char> text = stackalloc char[2];
+        foreach (ShapingDirection direction in new[]
+                 {
+                     ShapingDirection.LeftToRight,
+                     ShapingDirection.Unspecified
+                 })
+        {
+            for (int first = 0; first <= 0x7F; first++)
+            {
+                text[0] = (char)first;
+                for (int second = 0; second <= 0x7F; second++)
+                {
+                    text[1] = (char)second;
+                    AssertMatchesStandardResolver(text, direction);
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Font Glyph Browser")]
+    [InlineData("()[]{} 0123 +-$\t")]
+    [InlineData("\0\u0001\u0009\u000A\u000D\u001B\u001F\u007F")]
+    public void BidiParagraphAsciiFastPathPreservesResultOwnership(string text)
+    {
+        BidiParagraph first = BidiParagraph.Resolve(text, ShapingDirection.LeftToRight);
+        BidiParagraph second = BidiParagraph.Resolve(text, ShapingDirection.LeftToRight);
+
+        AssertMatchesStandardResolver(text, ShapingDirection.LeftToRight);
+        if (text.Length == 0)
+        {
+            Assert.Same(first, second);
+        }
+        else
+        {
+            Assert.NotSame(first, second);
+            Assert.NotSame(first.Utf16Levels, second.Utf16Levels);
+            Assert.NotSame(first.Runs, second.Runs);
+        }
+    }
+
+    [Fact]
+    public void BidiParagraphExplicitRtlAsciiStillUsesStandardLevels()
+    {
+        const string text = "abc 123";
+
+        BidiParagraph paragraph = BidiParagraph.Resolve(text, ShapingDirection.RightToLeft);
+
+        AssertMatchesStandardResolver(text, ShapingDirection.RightToLeft);
+        Assert.Equal(1, paragraph.ParagraphLevel);
+        Assert.Contains(paragraph.Utf16Levels, static level => level != 0);
+    }
+
+    [Fact]
     public void TextLayoutShapesLogicalRunsAndPlacesThemInVisualOrder()
     {
         var layout = new TextLayout(
@@ -96,6 +163,51 @@ public class BidiAndFlowDirectionTests
         Assert.Equal(new[] { 0, 1, 2, 3, 6, 5, 4 }, layout.Glyphs.Select(static glyph => glyph.Cluster));
         Assert.Equal(new sbyte[] { 0, 0, 0, 0, 1, 1, 1 }, layout.Glyphs.Select(static glyph => glyph.BidiLevel));
         Assert.True(layout.Glyphs.Zip(layout.Glyphs.Skip(1), static (left, right) => left.Position.X <= right.Position.X).All(static value => value));
+    }
+
+    private static void AssertMatchesStandardResolver(
+        ReadOnlySpan<char> text,
+        ShapingDirection direction)
+    {
+        sbyte requestedLevel = direction switch
+        {
+            ShapingDirection.LeftToRight => 0,
+            ShapingDirection.RightToLeft => 1,
+            _ => 2
+        };
+        (sbyte expectedParagraphLevel, Uax9Resolver.ScalarLevel[] scalarLevels) =
+            Uax9Resolver.Resolve(text, requestedLevel);
+        var expectedLevels = new sbyte[text.Length];
+        for (int index = 0; index < scalarLevels.Length; index++)
+        {
+            Uax9Resolver.ScalarLevel scalar = scalarLevels[index];
+            expectedLevels.AsSpan(scalar.Utf16Start, scalar.Utf16Length).Fill(scalar.Level);
+        }
+
+        BidiParagraph actual = BidiParagraph.Resolve(text, direction);
+        Assert.Equal(expectedParagraphLevel, actual.ParagraphLevel);
+        Assert.Equal(expectedLevels, actual.Utf16Levels);
+
+        var expectedRuns = new List<BidiRun>();
+        if (expectedLevels.Length > 0)
+        {
+            int start = 0;
+            for (int index = 1; index <= expectedLevels.Length; index++)
+            {
+                if (index < expectedLevels.Length &&
+                    expectedLevels[index] == expectedLevels[start])
+                {
+                    continue;
+                }
+
+                expectedRuns.Add(new BidiRun(
+                    start,
+                    index - start,
+                    expectedLevels[start]));
+                start = index;
+            }
+        }
+        Assert.Equal(expectedRuns, actual.Runs);
     }
 
     [Fact]

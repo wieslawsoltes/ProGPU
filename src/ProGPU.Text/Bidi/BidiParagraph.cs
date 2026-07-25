@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using ProGPU.Text.Shaping;
 
 namespace ProGPU.Text.Bidi;
@@ -14,6 +13,11 @@ internal readonly record struct BidiRun(int Start, int Length, sbyte Level)
 /// </summary>
 internal sealed class BidiParagraph
 {
+    private static readonly BidiParagraph s_emptyLeftToRight =
+        new(0, Array.Empty<sbyte>(), Array.Empty<BidiRun>());
+    private static readonly BidiParagraph s_emptyRightToLeft =
+        new(1, Array.Empty<sbyte>(), Array.Empty<BidiRun>());
+
     private BidiParagraph(sbyte paragraphLevel, sbyte[] utf16Levels, BidiRun[] runs)
     {
         ParagraphLevel = paragraphLevel;
@@ -27,6 +31,27 @@ internal sealed class BidiParagraph
 
     public static BidiParagraph Resolve(ReadOnlySpan<char> text, ShapingDirection baseDirection)
     {
+        if (text.IsEmpty)
+        {
+            return baseDirection == ShapingDirection.RightToLeft
+                ? s_emptyRightToLeft
+                : s_emptyLeftToRight;
+        }
+
+        // UAX #9 P2-P3, W1-W7, N0-N2, I1, and L1 resolve every ASCII
+        // code point to level zero in a level-zero paragraph. Scanning is O(N)
+        // time and O(1) workspace; the retained level and run arrays are the
+        // only O(N) output. Explicit RTL and every non-ASCII paragraph continue
+        // through the complete resolver.
+        if (baseDirection != ShapingDirection.RightToLeft &&
+            IsAscii(text))
+        {
+            return new BidiParagraph(
+                0,
+                new sbyte[text.Length],
+                [new BidiRun(0, text.Length, 0)]);
+        }
+
         sbyte requestedLevel = baseDirection switch
         {
             ShapingDirection.LeftToRight => 0,
@@ -105,17 +130,42 @@ internal sealed class BidiParagraph
     /// <summary>Applies UAX #9 rule L2 to logical units on one already-broken line.</summary>
     public static int[] GetVisualOrder(ReadOnlySpan<sbyte> levels)
     {
-        var order = new int[levels.Length];
+        int[]? order = GetVisualOrderIfNeeded(levels);
+        if (order is not null)
+        {
+            return order;
+        }
+
+        order = new int[levels.Length];
+        for (int index = 0; index < order.Length; index++)
+        {
+            order[index] = index;
+        }
+
+        return order;
+    }
+
+    /// <summary>
+    /// Applies UAX #9 rule L2 and returns a visual-to-logical map only when the
+    /// input contains an odd embedding level. A null result is the identity map.
+    /// </summary>
+    public static int[]? GetVisualOrderIfNeeded(ReadOnlySpan<sbyte> levels)
+    {
         sbyte maximum = 0;
         sbyte lowestOdd = sbyte.MaxValue;
         for (int index = 0; index < levels.Length; index++)
         {
-            order[index] = index;
             sbyte level = levels[index];
             maximum = Math.Max(maximum, level);
             if ((level & 1) != 0) lowestOdd = Math.Min(lowestOdd, level);
         }
-        if (lowestOdd == sbyte.MaxValue) return order;
+        if (lowestOdd == sbyte.MaxValue) return null;
+
+        var order = new int[levels.Length];
+        for (int index = 0; index < order.Length; index++)
+        {
+            order[index] = index;
+        }
 
         for (int level = maximum; level >= lowestOdd; level--)
         {
@@ -135,20 +185,54 @@ internal sealed class BidiParagraph
     private static BidiParagraph Create(sbyte paragraphLevel, sbyte[] levels)
     {
         if (levels.Length == 0)
-            return new BidiParagraph(paragraphLevel, levels, Array.Empty<BidiRun>());
+        {
+            return paragraphLevel == 1
+                ? s_emptyRightToLeft
+                : s_emptyLeftToRight;
+        }
 
-        var runs = new List<BidiRun>();
-        int start = 0;
-        sbyte level = levels[0];
+        int runCount = 1;
         for (int index = 1; index < levels.Length; index++)
         {
-            if (levels[index] == level) continue;
-            runs.Add(new BidiRun(start, index - start, level));
-            start = index;
-            level = levels[index];
+            if (levels[index] != levels[index - 1])
+            {
+                runCount++;
+            }
         }
-        runs.Add(new BidiRun(start, levels.Length - start, level));
-        return new BidiParagraph(paragraphLevel, levels, runs.ToArray());
+
+        var runs = new BidiRun[runCount];
+        int runIndex = 0;
+        int start = 0;
+        sbyte level = levels[0];
+        for (int index = 1; index <= levels.Length; index++)
+        {
+            if (index < levels.Length && levels[index] == level)
+            {
+                continue;
+            }
+
+            runs[runIndex++] = new BidiRun(start, index - start, level);
+            if (index < levels.Length)
+            {
+                start = index;
+                level = levels[index];
+            }
+        }
+
+        return new BidiParagraph(paragraphLevel, levels, runs);
+    }
+
+    private static bool IsAscii(ReadOnlySpan<char> text)
+    {
+        for (int index = 0; index < text.Length; index++)
+        {
+            if (text[index] > '\u007F')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static ShapingDirection NormalizeInlineDirection(ShapingDirection direction) => direction switch
