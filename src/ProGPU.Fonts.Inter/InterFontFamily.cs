@@ -165,12 +165,6 @@ public static class InterFontFamily
             () => Load(ResourcePrefix + fileName),
             LazyThreadSafetyMode.ExecutionAndPublication);
 
-    private static TtfFont Load(string resourceName)
-    {
-        using var stream = typeof(InterFontFamily).Assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"The embedded Inter font '{resourceName}' is missing.");
-        var data = new byte[checked((int)stream.Length)];
-        stream.ReadExactly(data);
-        return new TtfFont(data);
-    }
+    private static TtfFont Load(string resourceName) =>
+        TtfFont.LoadEmbeddedResource(typeof(InterFontFamily).Assembly, resourceName);
 }

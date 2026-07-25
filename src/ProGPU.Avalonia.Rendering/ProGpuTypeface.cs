@@ -14,8 +14,99 @@ namespace Avalonia.ProGpu
         IPlatformTypeface
 #endif
     {
+        private sealed class FontDataStream : Stream
+        {
+            private readonly ReadOnlyMemory<byte> _data;
+            private int _position;
+            private bool _disposed;
+
+            public FontDataStream(ReadOnlyMemory<byte> data)
+            {
+                _data = data;
+            }
+
+            public override bool CanRead => !_disposed;
+            public override bool CanSeek => !_disposed;
+            public override bool CanWrite => false;
+            public override long Length
+            {
+                get
+                {
+                    ThrowIfDisposed();
+                    return _data.Length;
+                }
+            }
+
+            public override long Position
+            {
+                get
+                {
+                    ThrowIfDisposed();
+                    return _position;
+                }
+                set
+                {
+                    ThrowIfDisposed();
+                    if (value < 0 || value > _data.Length)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(value));
+                    }
+
+                    _position = checked((int)value);
+                }
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                ArgumentNullException.ThrowIfNull(buffer);
+                return Read(buffer.AsSpan(offset, count));
+            }
+
+            public override int Read(Span<byte> buffer)
+            {
+                ThrowIfDisposed();
+                int count = Math.Min(buffer.Length, _data.Length - _position);
+                _data.Span.Slice(_position, count).CopyTo(buffer);
+                _position += count;
+                return count;
+            }
+
+            public override long Seek(long offset, SeekOrigin origin)
+            {
+                ThrowIfDisposed();
+                long position = origin switch
+                {
+                    SeekOrigin.Begin => offset,
+                    SeekOrigin.Current => _position + offset,
+                    SeekOrigin.End => _data.Length + offset,
+                    _ => throw new ArgumentOutOfRangeException(nameof(origin))
+                };
+                Position = position;
+                return position;
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                _disposed = true;
+                base.Dispose(disposing);
+            }
+
+            private void ThrowIfDisposed() =>
+                ObjectDisposedException.ThrowIf(_disposed, this);
+        }
+
         public TtfFont Font { get; }
-        private readonly byte[] _fontData;
+        private readonly ReadOnlyMemory<byte> _fontData;
 #if AVALONIA11
         private readonly HarfBuzzSharp.Blob _shapingBlob;
         private readonly HarfBuzzSharp.Face _shapingFace;
@@ -31,17 +122,17 @@ namespace Avalonia.ProGpu
         public FontMetrics Metrics { get; }
 #endif
 
-        public ProGpuTypeface(TtfFont font, byte[] fontData, string familyName, FontWeight weight, FontStyle style, FontStretch stretch, FontSimulations fontSimulations = FontSimulations.None)
+        public ProGpuTypeface(TtfFont font, ReadOnlyMemory<byte> fontData, string familyName, FontWeight weight, FontStyle style, FontStretch stretch, FontSimulations fontSimulations = FontSimulations.None)
         {
             Font = font ?? throw new ArgumentNullException(nameof(font));
-            _fontData = fontData ?? throw new ArgumentNullException(nameof(fontData));
+            _fontData = fontData;
             FamilyName = familyName;
             Weight = weight;
             Style = style;
             Stretch = stretch;
             FontSimulations = fontSimulations;
 #if AVALONIA11
-            _shapingBlob = HarfBuzzSharp.Blob.FromStream(new MemoryStream(_fontData, writable: false));
+            _shapingBlob = HarfBuzzSharp.Blob.FromStream(new FontDataStream(_fontData));
             _shapingFace = new HarfBuzzSharp.Face(_shapingBlob, font.FaceIndex);
             ShapingFont = new HarfBuzzSharp.Font(_shapingFace);
             ShapingFont.SetFunctionsOpenType();
@@ -168,7 +259,7 @@ namespace Avalonia.ProGpu
         {
             try
             {
-                stream = new MemoryStream(_fontData);
+                stream = new FontDataStream(_fontData);
                 return true;
             }
             catch

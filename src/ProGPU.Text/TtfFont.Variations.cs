@@ -21,6 +21,7 @@ public partial class TtfFont : IEquatable<TtfFont>
 
     private OpenTypeVariationData? _variationData;
     private bool _variationDataInitialized;
+    private bool _hasVariationTables;
     private OpenTypeVariationInstance? _variationInstance;
     private TtfFont? _variationRoot;
     private readonly object _variationCacheLock = new();
@@ -98,11 +99,14 @@ public partial class TtfFont : IEquatable<TtfFont>
         {
             if (!_variationDataInitialized)
             {
-                _variationData = OpenTypeVariationData.TryCreate(
-                    _data,
-                    _tables,
-                    nameId => _face.TryGetName(nameId, out string? name) ? name : null,
-                    NumGlyphs);
+                if (_hasVariationTables)
+                {
+                    _variationData = OpenTypeVariationData.TryCreate(
+                        _ownedFontData ?? _data.ToArray(),
+                        _tables,
+                        nameId => _face.TryGetName(nameId, out string? name) ? name : null,
+                        NumGlyphs);
+                }
                 Volatile.Write(ref _variationDataInitialized, true);
             }
             return _variationData;
@@ -115,7 +119,12 @@ public partial class TtfFont : IEquatable<TtfFont>
         OpenTypeVariationInstance variationInstance)
     {
         _data = source._data;
+        _ownedFontData = source._ownedFontData;
+        _fontDataOwner = source._fontDataOwner;
+        _externalDataAddress = source._externalDataAddress;
         _face = source._face;
+        _glyphBitmapSource = source._glyphBitmapSource;
+        _residentSbixGlyphIndex = source._residentSbixGlyphIndex;
         _cffOutlineSource = source._cffOutlineSource;
         _cffTypeface = source._cffTypeface;
         _tables = source._tables;
@@ -170,6 +179,7 @@ public partial class TtfFont : IEquatable<TtfFont>
         _numLayerRecords = source._numLayerRecords;
 
         _variationRoot = source;
+        _hasVariationTables = source._hasVariationTables;
         _variationData = variationData;
         _variationDataInitialized = true;
         _variationInstance = variationInstance;

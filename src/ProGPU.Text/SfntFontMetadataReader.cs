@@ -70,6 +70,64 @@ internal static class SfntFontMetadataReader
         }
     }
 
+    public static bool TryReadGlyphSbix(
+        string file,
+        int faceIndex,
+        ushort glyphIndex,
+        out byte[] sbix)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentOutOfRangeException.ThrowIfNegative(faceIndex);
+
+        try
+        {
+            using var stream = new FileStream(
+                file,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.RandomAccess);
+            uint[] faceOffsets = ReadFaceOffsets(stream);
+            if ((uint)faceIndex >= (uint)faceOffsets.Length)
+            {
+                sbix = Array.Empty<byte>();
+                return false;
+            }
+
+            List<SourceTable> tables = ReadSourceTables(stream, faceOffsets[faceIndex], out _);
+            int sbixIndex = tables.FindIndex(static table => table.Tag == "sbix");
+            int maxpIndex = tables.FindIndex(static table => table.Tag == "maxp");
+            if (sbixIndex < 0 || maxpIndex < 0 || tables[sbixIndex].Length < 8)
+            {
+                sbix = Array.Empty<byte>();
+                return false;
+            }
+
+            byte[] maxp = ReadTable(stream, tables[maxpIndex]);
+            if (maxp.Length < 6)
+            {
+                sbix = Array.Empty<byte>();
+                return false;
+            }
+
+            ushort glyphCount = ReadUShort(maxp, 4);
+            if (glyphIndex >= glyphCount)
+            {
+                sbix = Array.Empty<byte>();
+                return false;
+            }
+
+            return TryBuildGlyphSbix(stream, tables[sbixIndex], glyphCount, glyphIndex, out sbix);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or
+                                   ArgumentException or OverflowException)
+        {
+            sbix = Array.Empty<byte>();
+            return false;
+        }
+    }
+
     public static bool TryCreateGlyphResidentFont(
         string file,
         int faceIndex,

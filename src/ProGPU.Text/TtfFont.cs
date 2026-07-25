@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -126,8 +127,37 @@ public partial class TtfFont
     public const uint PngBitmapGraphicType = 0x706E6720;
     public const uint TiffBitmapGraphicType = 0x74696666;
 
-    private readonly byte[] _data;
+    private sealed class FontDataStorage
+    {
+        public FontDataStorage(
+            ReadOnlyMemory<byte> data,
+            byte[]? ownedData,
+            object? externalOwner)
+        {
+            Data = data;
+            OwnedData = ownedData;
+            ExternalOwner = externalOwner;
+            ExternalDataAddress = externalOwner switch
+            {
+                MappedFontData mapped => mapped.DataAddress,
+                EmbeddedFontData embedded => embedded.DataAddress,
+                _ => 0
+            };
+        }
+
+        public ReadOnlyMemory<byte> Data { get; }
+        public byte[]? OwnedData { get; }
+        public object? ExternalOwner { get; }
+        public nint ExternalDataAddress { get; }
+    }
+
+    private readonly ReadOnlyMemory<byte> _data;
+    private readonly byte[]? _ownedFontData;
+    private readonly object? _fontDataOwner;
+    private readonly nint _externalDataAddress;
     private readonly SfntFontFace _face;
+    private readonly GlyphBitmapSource? _glyphBitmapSource;
+    private readonly ushort? _residentSbixGlyphIndex;
     private readonly Lazy<Cff1OutlineSource?>? _cffOutlineSource;
     private readonly Lazy<Typeface?>? _cffTypeface;
     private readonly object _asciiGlyphCacheLock = new();
@@ -169,6 +199,9 @@ public partial class TtfFont
     public short? CapHeight { get; private set; }
     public ushort NumGlyphs { get; private set; }
     public ReadOnlyMemory<byte> FontData => _data;
+    internal byte[]? OwnedFontData => _ownedFontData;
+    internal bool UsesMappedFileStorage => _fontDataOwner is MappedFontData;
+    internal bool UsesExternalStorage => _fontDataOwner is not null;
     private short _indexToLocFormat; // 0 = short (16-bit), 1 = long (32-bit)
 
     // hmtx metrics
@@ -204,10 +237,24 @@ public partial class TtfFont
     }
 
     public TtfFont(byte[] fontData, int faceIndex)
+        : this(CreateOwnedStorage(fontData), faceIndex, null, null)
     {
-        ArgumentNullException.ThrowIfNull(fontData);
+    }
+
+    private TtfFont(
+        FontDataStorage storage,
+        int faceIndex,
+        GlyphBitmapSource? glyphBitmapSource,
+        ushort? residentSbixGlyphIndex)
+    {
+        ArgumentNullException.ThrowIfNull(storage);
         ArgumentOutOfRangeException.ThrowIfNegative(faceIndex);
-        _data = SfntFontContainer.Normalize(fontData);
+        _data = storage.Data;
+        _ownedFontData = storage.OwnedData;
+        _fontDataOwner = storage.ExternalOwner;
+        _externalDataAddress = storage.ExternalDataAddress;
+        _glyphBitmapSource = glyphBitmapSource;
+        _residentSbixGlyphIndex = residentSbixGlyphIndex;
         FaceIndex = faceIndex;
         _face = SfntFontFace.Load(_data, faceIndex);
         FamilyName = GetName(SfntNameIds.PreferredFamilyName, SfntNameIds.FamilyName) ?? string.Empty;
@@ -215,10 +262,12 @@ public partial class TtfFont
         FullName = GetName(SfntNameIds.FullName) ?? FamilyName;
         PostScriptName = GetName(SfntNameIds.PostScriptName) ?? string.Empty;
         ParseTableDirectory();
+        _hasVariationTables = _tables.ContainsKey("fvar");
         HasBitmapGlyphs =
             _tables.ContainsKey("sbix") ||
             (_tables.ContainsKey("CBLC") && _tables.ContainsKey("CBDT")) ||
-            (_tables.ContainsKey("bloc") && _tables.ContainsKey("bdat"));
+            (_tables.ContainsKey("bloc") && _tables.ContainsKey("bdat")) ||
+            _glyphBitmapSource is not null;
         HasColorGlyphs =
             (_tables.ContainsKey("COLR") && _tables.ContainsKey("CPAL")) ||
             _tables.ContainsKey("SVG ");
@@ -243,7 +292,9 @@ public partial class TtfFont
 
     private Typeface? LoadCffTypeface()
     {
-        byte[] data = _face.BaseOffset == 0 ? _data : _face.CreateStandaloneFontData();
+        byte[] data = _face.BaseOffset == 0 && _ownedFontData is not null
+            ? _ownedFontData
+            : _face.CreateStandaloneFontData();
         return TryLoadCffTypeface(data);
     }
 
@@ -256,40 +307,136 @@ public partial class TtfFont
 
     public IReadOnlyList<string> GetOpenTypeFeatureTags() => OpenTypeTextShaper.GetFeatureTags(this);
 
-    public TtfFont(string filePath) : this(File.ReadAllBytes(filePath))
+    public TtfFont(string filePath) : this(CreateFileStorage(filePath), 0, null, null)
     {
     }
 
-    public TtfFont(string filePath, int faceIndex) : this(File.ReadAllBytes(filePath), faceIndex)
+    public TtfFont(string filePath, int faceIndex) : this(CreateFileStorage(filePath), faceIndex, null, null)
     {
     }
+
+    public static TtfFont LoadEmbeddedResource(
+        Assembly assembly,
+        string resourceName,
+        int faceIndex = 0) =>
+        new(CreateEmbeddedStorage(assembly, resourceName), faceIndex, null, null);
 
     internal static TtfFont LoadGlyphResidentFile(string filePath, int faceIndex, ushort glyphIndex)
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ArgumentOutOfRangeException.ThrowIfNegative(faceIndex);
         return SfntFontMetadataReader.TryCreateGlyphResidentFont(filePath, faceIndex, glyphIndex, out byte[] fontData)
-            ? new TtfFont(fontData)
+            ? new TtfFont(
+                CreateOwnedStorage(fontData),
+                0,
+                new GlyphBitmapSource(filePath, faceIndex),
+                glyphIndex)
             : new TtfFont(filePath, faceIndex);
     }
 
+    internal long GlyphResidentBitmapCacheBytes => _glyphBitmapSource?.CachedBytes ?? 0;
+
+    private static FontDataStorage CreateOwnedStorage(byte[] fontData)
+    {
+        ArgumentNullException.ThrowIfNull(fontData);
+        byte[] normalized = SfntFontContainer.Normalize(fontData);
+        return new FontDataStorage(normalized, normalized, null);
+    }
+
+    private static FontDataStorage CreateFileStorage(string filePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+
+        Span<byte> signature = stackalloc byte[4];
+        using (var stream = new FileStream(
+                   filePath,
+                   FileMode.Open,
+                   FileAccess.Read,
+                   FileShare.ReadWrite | FileShare.Delete,
+                   bufferSize: 1,
+                   FileOptions.SequentialScan))
+        {
+            stream.ReadExactly(signature);
+        }
+
+        bool requiresNormalization =
+            signature.SequenceEqual("wOFF"u8) ||
+            signature.SequenceEqual("wOF2"u8);
+        if (!requiresNormalization &&
+            MappedFontData.TryOpen(filePath, out MappedFontData? mappedData))
+        {
+            return new FontDataStorage(mappedData!.Memory, null, mappedData);
+        }
+
+        return CreateOwnedStorage(File.ReadAllBytes(filePath));
+    }
+
+    private static FontDataStorage CreateEmbeddedStorage(
+        Assembly assembly,
+        string resourceName)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentException.ThrowIfNullOrWhiteSpace(resourceName);
+
+        if (EmbeddedFontData.TryOpen(assembly, resourceName, out EmbeddedFontData? embeddedData))
+        {
+            ReadOnlySpan<byte> data = embeddedData!.Memory.Span;
+            bool requiresNormalization =
+                data.Length >= 4 &&
+                (data[..4].SequenceEqual("wOFF"u8) ||
+                 data[..4].SequenceEqual("wOF2"u8));
+            if (!requiresNormalization)
+            {
+                return new FontDataStorage(embeddedData.Memory, null, embeddedData);
+            }
+
+            byte[] compressedData = embeddedData.Memory.ToArray();
+            ((IDisposable)embeddedData).Dispose();
+            return CreateOwnedStorage(compressedData);
+        }
+
+        using Stream stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException(
+                $"The embedded font '{resourceName}' is missing from '{assembly.FullName}'.");
+        var ownedData = new byte[checked((int)stream.Length)];
+        stream.ReadExactly(ownedData);
+        return CreateOwnedStorage(ownedData);
+    }
+
     #region Big-Endian Readers
-    private ushort ReadUShort(uint offset)
+    private unsafe ushort ReadUShort(uint offset)
     {
-        return (ushort)((_data[offset] << 8) | _data[offset + 1]);
+        int index = checked((int)offset);
+        if (_ownedFontData is { } ownedData)
+        {
+            return (ushort)((ownedData[index] << 8) | ownedData[index + 1]);
+        }
+
+        byte* data = (byte*)_externalDataAddress;
+        return (ushort)((data[index] << 8) | data[index + 1]);
     }
 
-    private short ReadShort(uint offset)
+    private unsafe short ReadShort(uint offset)
     {
-        return (short)((_data[offset] << 8) | _data[offset + 1]);
+        return unchecked((short)ReadUShort(offset));
     }
 
-    private uint ReadUInt(uint offset)
+    private unsafe uint ReadUInt(uint offset)
     {
-        return (uint)((_data[offset] << 24) |
-                      (_data[offset + 1] << 16) |
-                      (_data[offset + 2] << 8) |
-                      _data[offset + 3]);
+        int index = checked((int)offset);
+        if (_ownedFontData is { } ownedData)
+        {
+            return (uint)((ownedData[index] << 24) |
+                          (ownedData[index + 1] << 16) |
+                          (ownedData[index + 2] << 8) |
+                          ownedData[index + 3]);
+        }
+
+        byte* data = (byte*)_externalDataAddress;
+        return (uint)((data[index] << 24) |
+                      (data[index + 1] << 16) |
+                      (data[index + 2] << 8) |
+                      data[index + 3]);
     }
 
     private static ushort ReadUShort(ReadOnlySpan<byte> data, int offset)
@@ -610,15 +757,34 @@ public partial class TtfFont
         float targetPixelsPerEm,
         out BitmapGlyphData glyph)
     {
-        glyph = default;
-        if (!TryGetTable("sbix", out var sbixMemory))
+        if ((!_residentSbixGlyphIndex.HasValue || _residentSbixGlyphIndex.Value == glyphIndex) &&
+            TryGetTable("sbix", out var sbixMemory) &&
+            TryGetSbixBitmapGlyph(sbixMemory, glyphIndex, targetPixelsPerEm, out glyph))
         {
-            return false;
+            return true;
         }
 
+        if (_glyphBitmapSource is not null &&
+            _glyphBitmapSource.TryGetGlyphData(glyphIndex, out sbixMemory) &&
+            TryGetSbixBitmapGlyph(sbixMemory, glyphIndex, targetPixelsPerEm, out glyph))
+        {
+            return true;
+        }
+
+        glyph = default;
+        return false;
+    }
+
+    private bool TryGetSbixBitmapGlyph(
+        ReadOnlyMemory<byte> sbixMemory,
+        ushort glyphIndex,
+        float targetPixelsPerEm,
+        out BitmapGlyphData glyph)
+    {
         var sbix = sbixMemory.Span;
         if (sbix.Length < 12 || ReadUShort(sbix, 0) != 1)
         {
+            glyph = default;
             return false;
         }
 
@@ -626,6 +792,7 @@ public partial class TtfFont
         if (strikeCount == 0 || strikeCount > int.MaxValue ||
             8L + strikeCount * 4L > sbix.Length)
         {
+            glyph = default;
             return false;
         }
 
@@ -660,6 +827,118 @@ public partial class TtfFont
 
         glyph = best;
         return found;
+    }
+
+    private sealed class GlyphBitmapSource
+    {
+        private const long MaxCachedBytes = 16L * 1024L * 1024L;
+
+        private sealed class CacheEntry
+        {
+            public CacheEntry(byte[] data, LinkedListNode<ushort> node)
+            {
+                Data = data;
+                Node = node;
+            }
+
+            public byte[] Data { get; }
+            public LinkedListNode<ushort> Node { get; }
+        }
+
+        private readonly object _sync = new();
+        private readonly string _filePath;
+        private readonly int _faceIndex;
+        private readonly Dictionary<ushort, CacheEntry> _entries = new();
+        private readonly LinkedList<ushort> _recency = new();
+        private long _cachedBytes;
+        private ushort _lastGlyphIndex;
+        private byte[]? _lastGlyphData;
+
+        public GlyphBitmapSource(string filePath, int faceIndex)
+        {
+            _filePath = filePath;
+            _faceIndex = faceIndex;
+        }
+
+        public long CachedBytes
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _cachedBytes;
+                }
+            }
+        }
+
+        public bool TryGetGlyphData(ushort glyphIndex, out ReadOnlyMemory<byte> sbix)
+        {
+            var lastData = Volatile.Read(ref _lastGlyphData);
+            if (lastData is not null && _lastGlyphIndex == glyphIndex)
+            {
+                sbix = lastData;
+                return true;
+            }
+
+            lock (_sync)
+            {
+                if (_entries.TryGetValue(glyphIndex, out var cached))
+                {
+                    _recency.Remove(cached.Node);
+                    _recency.AddFirst(cached.Node);
+                    _lastGlyphIndex = glyphIndex;
+                    Volatile.Write(ref _lastGlyphData, cached.Data);
+                    sbix = cached.Data;
+                    return true;
+                }
+            }
+
+            if (!SfntFontMetadataReader.TryReadGlyphSbix(
+                    _filePath,
+                    _faceIndex,
+                    glyphIndex,
+                    out byte[] loaded))
+            {
+                sbix = default;
+                return false;
+            }
+
+            if (loaded.LongLength <= MaxCachedBytes)
+            {
+                lock (_sync)
+                {
+                    if (_entries.TryGetValue(glyphIndex, out var cached))
+                    {
+                        _recency.Remove(cached.Node);
+                        _recency.AddFirst(cached.Node);
+                        _lastGlyphIndex = glyphIndex;
+                        Volatile.Write(ref _lastGlyphData, cached.Data);
+                        sbix = cached.Data;
+                        return true;
+                    }
+
+                    while (_cachedBytes + loaded.LongLength > MaxCachedBytes &&
+                           _recency.Last is { } oldest)
+                    {
+                        ushort oldestGlyph = oldest.Value;
+                        _recency.RemoveLast();
+                        if (_entries.Remove(oldestGlyph, out var removed))
+                        {
+                            _cachedBytes -= removed.Data.LongLength;
+                        }
+                    }
+
+                    var node = _recency.AddFirst(glyphIndex);
+                    _entries.Add(glyphIndex, new CacheEntry(loaded, node));
+                    _cachedBytes += loaded.LongLength;
+                    _lastGlyphIndex = glyphIndex;
+                    Volatile.Write(ref _lastGlyphData, loaded);
+                }
+            }
+
+            sbix = loaded;
+            return true;
+        }
     }
 
     private bool TryGetBitmapGlyphFromStrike(
@@ -1671,6 +1950,7 @@ public partial class TtfFont
 
     private ParsedGlyph? ParseGlyphOutline(ushort glyphIndex, HashSet<ushort> ancestors, int depth)
     {
+        ReadOnlySpan<byte> data = _data.Span;
         uint startOffset = 0;
         uint endOffset = 0;
 
@@ -1722,13 +2002,13 @@ public partial class TtfFont
         // Read Flags
         for (int i = 0; i < totalPoints; i++)
         {
-            byte flag = _data[offset++];
+            byte flag = data[(int)offset++];
             flags[i] = flag;
 
             // Check if flag repeats
             if ((flag & 8) != 0)
             {
-                byte repeatCount = _data[offset++];
+                byte repeatCount = data[(int)offset++];
                 for (int r = 0; r < repeatCount; r++)
                 {
                     flags[++i] = flag;
@@ -1747,7 +2027,7 @@ public partial class TtfFont
 
             if ((flag & 2) != 0) // X Short Vector
             {
-                byte val = _data[offset++];
+                byte val = data[(int)offset++];
                 xValue = ((flag & 16) != 0) ? val : -val;
             }
             else
@@ -1775,7 +2055,7 @@ public partial class TtfFont
 
             if ((flag & 4) != 0) // Y Short Vector
             {
-                byte val = _data[offset++];
+                byte val = data[(int)offset++];
                 yValue = ((flag & 32) != 0) ? val : -val;
             }
             else
@@ -1833,6 +2113,7 @@ public partial class TtfFont
         HashSet<ushort> ancestors,
         int depth)
     {
+        ReadOnlySpan<byte> data = _data.Span;
         const ushort ArgumentsAreWords = 0x0001;
         const ushort ArgumentsAreXyValues = 0x0002;
         const ushort RoundXyToGrid = 0x0004;
@@ -1886,13 +2167,13 @@ public partial class TtfFont
 
                 if ((flags & ArgumentsAreXyValues) != 0)
                 {
-                    argument1 = unchecked((sbyte)_data[offset]);
-                    argument2 = unchecked((sbyte)_data[offset + 1]);
+                    argument1 = unchecked((sbyte)data[(int)offset]);
+                    argument2 = unchecked((sbyte)data[(int)offset + 1]);
                 }
                 else
                 {
-                    argument1 = _data[offset];
-                    argument2 = _data[offset + 1];
+                    argument1 = data[(int)offset];
+                    argument2 = data[(int)offset + 1];
                 }
                 offset += 2;
             }
@@ -2150,14 +2431,15 @@ public partial class TtfFont
 
             // Check first palette record index
             ushort firstPaletteRecordIndex = ReadUShort(_cpalOffset + 12);
+            ReadOnlySpan<byte> data = _data.Span;
 
             for (int i = 0; i < _numPaletteEntries; i++)
             {
                 uint recordOffset = _colorRecordsOffset + (uint)((firstPaletteRecordIndex + i) * 4);
-                byte b = _data[recordOffset];
-                byte g = _data[recordOffset + 1];
-                byte r = _data[recordOffset + 2];
-                byte a = _data[recordOffset + 3];
+                byte b = data[(int)recordOffset];
+                byte g = data[(int)recordOffset + 1];
+                byte r = data[(int)recordOffset + 2];
+                byte a = data[(int)recordOffset + 3];
 
                 _colorPalette[i] = new Vector4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
             }
