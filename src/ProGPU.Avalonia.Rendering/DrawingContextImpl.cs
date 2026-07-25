@@ -8,6 +8,7 @@ using Silk.NET.WebGPU;
 using ProGPU.Backend;
 using ProGPU.Vector;
 using ProGPU.Scene;
+using ProGPU.Text;
 
 namespace Avalonia.ProGpu
 {
@@ -27,15 +28,11 @@ namespace Avalonia.ProGpu
         private Matrix _currentTransform = Matrix.Identity;
         private double _currentOpacity = 1.0;
         private Vector4 _clearColor = new Vector4(1f, 1f, 1f, 1f);
-        private readonly Stack<double> _opacityStack = new();
+        private DrawingContextState? _state;
         private int _opacityMaskDepth;
         private bool _leased;
         private bool _disposed;
-        private readonly Stack<ClipKind> _clipStack = new();
-        private readonly Stack<Avalonia.Media.RenderOptions> _renderOptionsStack = new();
-#if !AVALONIA11
-        private readonly Stack<Avalonia.Media.TextOptions> _textOptionsStack = new();
-#endif
+        private bool _recordingContextReturned;
 
         private enum ClipKind
         {
@@ -43,12 +40,54 @@ namespace Avalonia.ProGpu
             Geometry
         }
 
+        private sealed class DrawingContextState
+        {
+            internal const int MaximumRetainedDepth = 64;
+
+            internal readonly Stack<double> OpacityStack = new();
+            internal readonly Stack<ClipKind> ClipStack = new();
+            internal readonly Stack<Avalonia.Media.RenderOptions> RenderOptionsStack = new();
+#if !AVALONIA11
+            internal readonly Stack<Avalonia.Media.TextOptions> TextOptionsStack = new();
+#endif
+            internal DrawingContextState? Next;
+
+            internal void Clear()
+            {
+                OpacityStack.Clear();
+                ClipStack.Clear();
+                RenderOptionsStack.Clear();
+#if !AVALONIA11
+                TextOptionsStack.Clear();
+#endif
+            }
+
+            internal bool CanRetain()
+            {
+                return OpacityStack.EnsureCapacity(0) <= MaximumRetainedDepth &&
+                       ClipStack.EnsureCapacity(0) <= MaximumRetainedDepth &&
+                       RenderOptionsStack.EnsureCapacity(0) <= MaximumRetainedDepth
+#if !AVALONIA11
+                       && TextOptionsStack.EnsureCapacity(0) <= MaximumRetainedDepth
+#endif
+                    ;
+            }
+        }
+
+        [ThreadStatic]
+        private static DrawingContextState? s_drawingContextStatePool;
+
+        [ThreadStatic]
+        private static int s_drawingContextStatePoolCount;
+
+        private const int MaximumPooledDrawingContextStates = 4;
+
         public Avalonia.Media.RenderOptions RenderOptions { get; private set; }
 #if !AVALONIA11
         public Avalonia.Media.TextOptions TextOptions { get; private set; }
 #endif
 
-        public ProGPU.Scene.DrawingContext DrawingContext { get; private set; } = new();
+        public ProGPU.Scene.DrawingContext DrawingContext { get; private set; }
         public Vector Dpi { get; }
 
         public struct CreateInfo
@@ -169,6 +208,9 @@ namespace Avalonia.ProGpu
             _preserveRecordedCommandsOnDispose = createInfo.PreserveRecordedCommandsOnDispose;
             _disableSubpixelTextRendering = createInfo.DisableSubpixelTextRendering;
             _offscreenCache = (createInfo.CacheHolder as OffscreenTextureCache) ?? GetFallbackCache();
+            DrawingContext = _preserveRecordedCommandsOnDispose
+                ? new ProGPU.Scene.DrawingContext()
+                : _offscreenCache.RentRecordingContext();
             if (createInfo.ScaleDrawingToDpi &&
                 TryGetDpiScale(createInfo.Dpi, out double scaleX, out double scaleY) &&
                 (!NearlyEqual(scaleX, 1.0) || !NearlyEqual(scaleY, 1.0)))
@@ -220,6 +262,7 @@ namespace Avalonia.ProGpu
             EnsureGpuContext(_framebuffer, preferredFormat);
             _gpuContext = s_wgpuContext ??
                 throw new InvalidOperationException("ProGPU did not initialize a WebGPU context.");
+            _state = RentDrawingContextState();
         }
 
         private void CheckLease()
@@ -227,6 +270,44 @@ namespace Avalonia.ProGpu
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_leased)
                 throw new InvalidOperationException("The underlying ProGPU API is currently leased.");
+        }
+
+        private DrawingContextState State =>
+            _state ?? throw new ObjectDisposedException(nameof(DrawingContextImpl));
+
+        private static DrawingContextState RentDrawingContextState()
+        {
+            var state = s_drawingContextStatePool;
+            if (state == null)
+            {
+                return new DrawingContextState();
+            }
+
+            s_drawingContextStatePool = state.Next;
+            state.Next = null;
+            s_drawingContextStatePoolCount--;
+            return state;
+        }
+
+        private void ReturnDrawingContextState()
+        {
+            var state = _state;
+            if (state == null)
+            {
+                return;
+            }
+
+            _state = null;
+            state.Clear();
+            if (!state.CanRetain() ||
+                s_drawingContextStatePoolCount >= MaximumPooledDrawingContextStates)
+            {
+                return;
+            }
+
+            state.Next = s_drawingContextStatePool;
+            s_drawingContextStatePool = state;
+            s_drawingContextStatePoolCount++;
         }
 
         private Matrix RenderTransform => _postTransform.HasValue
@@ -238,13 +319,8 @@ namespace Avalonia.ProGpu
             CheckLease();
             _currentTransform = Matrix.Identity;
             _currentOpacity = 1.0;
-            _opacityStack.Clear();
+            State.Clear();
             _opacityMaskDepth = 0;
-            _clipStack.Clear();
-            _renderOptionsStack.Clear();
-#if !AVALONIA11
-            _textOptionsStack.Clear();
-#endif
             DrawingContext.Clear();
         }
 
@@ -322,13 +398,28 @@ namespace Avalonia.ProGpu
                 {
                     if (pPen != null)
                     {
-                        DrawingContext.DrawPath(null, pPen, geomImpl.Path, ToMatrix4x4(RenderTransform));
+                        DrawingContext.DrawPath(
+                            null,
+                            pPen,
+                            geomImpl.Path,
+                            ToMatrix4x4(RenderTransform),
+                            geomImpl.GetRenderCommandGeometryCache());
                     }
                     return;
                 }
 
                 var pBrush = ConvertBrush(brush, bounds);
-                DrawingContext.DrawPath(pBrush, pPen, geomImpl.Path, ToMatrix4x4(RenderTransform));
+                if (pBrush == null && pPen == null)
+                {
+                    return;
+                }
+
+                DrawingContext.DrawPath(
+                    pBrush,
+                    pPen,
+                    geomImpl.Path,
+                    ToMatrix4x4(RenderTransform),
+                    geomImpl.GetRenderCommandGeometryCache());
             }
         }
 
@@ -402,23 +493,30 @@ namespace Avalonia.ProGpu
             CheckLease();
             var pPen = ConvertPen(pen, rect.Rect);
             var localRect = ToLocalProGpuRect(rect.Rect);
-            var clipPath = rect.IsRounded
-                ? PrimitivePathGeometry.CreateRoundedRectangle(
-                    localRect.X,
-                    localRect.Y,
-                    localRect.Width,
-                    localRect.Height,
-                    (float)rect.RadiiTopLeft.X,
-                    (float)rect.RadiiTopLeft.Y)
-                : PrimitivePathGeometry.CreateRectangle(localRect.X, localRect.Y, localRect.Width, localRect.Height);
-            if (TryDrawSceneBrush(brush, rect.Rect, clipPath, useGeometryClip: false) ||
-                TryDrawImageBrush(brush, rect.Rect, clipPath))
+            if (RequiresBrushClipPath(brush))
             {
-                if (pPen != null)
+                var clipPath = rect.IsRounded
+                    ? PrimitivePathGeometry.CreateRoundedRectangle(
+                        localRect.X,
+                        localRect.Y,
+                        localRect.Width,
+                        localRect.Height,
+                        (float)rect.RadiiTopLeft.X,
+                        (float)rect.RadiiTopLeft.Y)
+                    : PrimitivePathGeometry.CreateRectangle(
+                        localRect.X,
+                        localRect.Y,
+                        localRect.Width,
+                        localRect.Height);
+                if (TryDrawSceneBrush(brush, rect.Rect, clipPath, useGeometryClip: false) ||
+                    TryDrawImageBrush(brush, rect.Rect, clipPath))
                 {
-                    DrawingContext.DrawPath(null, pPen, clipPath, ToMatrix4x4(RenderTransform));
+                    if (pPen != null)
+                    {
+                        DrawingContext.DrawPath(null, pPen, clipPath, ToMatrix4x4(RenderTransform));
+                    }
+                    return;
                 }
-                return;
             }
 
             var pBrush = ConvertBrush(brush, rect.Rect);
@@ -464,16 +562,19 @@ namespace Avalonia.ProGpu
             var center = new Vector2((float)rect.Center.X, (float)rect.Center.Y);
             var radiusX = (float)(rect.Width / 2.0);
             var radiusY = (float)(rect.Height / 2.0);
-            var clipPath = PrimitivePathGeometry.CreateEllipse(center, radiusX, radiusY);
             var pPen = ConvertPen(pen, rect);
-            if (TryDrawSceneBrush(brush, rect, clipPath) ||
-                TryDrawImageBrush(brush, rect, clipPath))
+            if (RequiresBrushClipPath(brush))
             {
-                if (pPen != null)
+                var clipPath = PrimitivePathGeometry.CreateEllipse(center, radiusX, radiusY);
+                if (TryDrawSceneBrush(brush, rect, clipPath) ||
+                    TryDrawImageBrush(brush, rect, clipPath))
                 {
-                    DrawingContext.DrawPath(null, pPen, clipPath, ToMatrix4x4(RenderTransform));
+                    if (pPen != null)
+                    {
+                        DrawingContext.DrawPath(null, pPen, clipPath, ToMatrix4x4(RenderTransform));
+                    }
+                    return;
                 }
-                return;
             }
 
             var pBrush = ConvertBrush(brush, rect);
@@ -628,13 +729,13 @@ namespace Avalonia.ProGpu
         {
             CheckLease();
             DrawingContext.PushClip(ToProGpuRect(clip));
-            _clipStack.Push(ClipKind.Rectangle);
+            State.ClipStack.Push(ClipKind.Rectangle);
         }
         public void PushClip(RoundedRect clip)
         {
             CheckLease();
             DrawingContext.PushClip(ToProGpuRect(clip.Rect));
-            _clipStack.Push(ClipKind.Rectangle);
+            State.ClipStack.Push(ClipKind.Rectangle);
         }
         public void PushClip(IPlatformRenderInterfaceRegion region)
         {
@@ -644,18 +745,19 @@ namespace Avalonia.ProGpu
             {
                 var rect = rects.Count == 0 ? default : rects[0];
                 DrawingContext.PushClip(ToProGpuRect(rect));
-                _clipStack.Push(ClipKind.Rectangle);
+                State.ClipStack.Push(ClipKind.Rectangle);
             }
             else
             {
                 DrawingContext.PushGeometryClip(CreateRegionGeometry(rects));
-                _clipStack.Push(ClipKind.Geometry);
+                State.ClipStack.Push(ClipKind.Geometry);
             }
         }
         public void PopClip()
         {
             CheckLease();
-            if (_clipStack.Count == 0 || _clipStack.Pop() == ClipKind.Rectangle)
+            var clipStack = State.ClipStack;
+            if (clipStack.Count == 0 || clipStack.Pop() == ClipKind.Rectangle)
                 DrawingContext.PopClip();
             else
                 DrawingContext.PopGeometryClip();
@@ -675,7 +777,7 @@ namespace Avalonia.ProGpu
         public void PushOpacity(double opacity, Avalonia.Rect? bounds)
         {
             CheckLease();
-            _opacityStack.Push(_currentOpacity);
+            State.OpacityStack.Push(_currentOpacity);
             _currentOpacity *= opacity;
             DrawingContext.PushOpacity((float)opacity);
         }
@@ -683,9 +785,10 @@ namespace Avalonia.ProGpu
         public void PopOpacity()
         {
             CheckLease();
-            if (_opacityStack.Count > 0)
+            var opacityStack = State.OpacityStack;
+            if (opacityStack.Count > 0)
             {
-                _currentOpacity = _opacityStack.Pop();
+                _currentOpacity = opacityStack.Pop();
                 DrawingContext.PopOpacity();
             }
         }
@@ -764,28 +867,28 @@ namespace Avalonia.ProGpu
         public void PushRenderOptions(Avalonia.Media.RenderOptions renderOptions)
         {
             CheckLease();
-            _renderOptionsStack.Push(RenderOptions);
+            State.RenderOptionsStack.Push(RenderOptions);
             RenderOptions = RenderOptions.MergeWith(renderOptions);
         }
 
         public void PopRenderOptions()
         {
             CheckLease();
-            RenderOptions = _renderOptionsStack.Pop();
+            RenderOptions = State.RenderOptionsStack.Pop();
         }
 
 #if !AVALONIA11
         public void PushTextOptions(Avalonia.Media.TextOptions textOptions)
         {
             CheckLease();
-            _textOptionsStack.Push(TextOptions);
+            State.TextOptionsStack.Push(TextOptions);
             TextOptions = TextOptions.MergeWith(textOptions);
         }
 
         public void PopTextOptions()
         {
             CheckLease();
-            TextOptions = _textOptionsStack.Pop();
+            TextOptions = State.TextOptionsStack.Pop();
         }
 #endif
 
@@ -810,6 +913,16 @@ namespace Avalonia.ProGpu
         private static WgpuContext? s_wgpuContext;
         private static readonly object s_initLock = new();
         private static readonly Dictionary<WgpuContext, Dictionary<TextureFormat, Compositor>> s_compositors = new();
+        internal static CompositorOptions BackendCompositorOptions { get; } =
+            CompositorOptions.Default with
+            {
+                InitialVertexCount = 1024,
+                InitialIndexCount = 1536,
+                InitialColorGlyphAtlasSize = 64,
+                GlyphUniformStagingBytes = 16 * 1024,
+                GlyphCoverageStagingBytes = GlyphAtlas.DefaultCoverageRingBufferSize,
+                EnableGpuHitTesting = false
+            };
 
         private static Compositor GetCompositor(WgpuContext context, TextureFormat format)
         {
@@ -823,7 +936,7 @@ namespace Avalonia.ProGpu
 
                 if (!dict.TryGetValue(format, out var compositor))
                 {
-                    compositor = new Compositor(context, format);
+                    compositor = new Compositor(context, format, BackendCompositorOptions);
                     dict[format] = compositor;
                 }
 
@@ -885,16 +998,16 @@ namespace Avalonia.ProGpu
         {
             if (TryGetSurfacePointer(framebuffer, out var surfacePtr))
             {
-                lock (s_initLock)
+                var current = WgpuContext.Current;
+                if (current is { IsDisposed: false } &&
+                    (IntPtr)current.Surface == surfacePtr)
                 {
-                    foreach (var context in WgpuContext.ActiveContexts)
-                    {
-                        if ((IntPtr)context.Surface == surfacePtr)
-                        {
-                            return context;
-                        }
-                    }
+                    return current;
                 }
+
+                return WgpuContext.TryGetActiveContextForSurface(surfacePtr, out var context)
+                    ? context
+                    : null;
             }
             return null;
         }
@@ -927,11 +1040,7 @@ namespace Avalonia.ProGpu
                     current = WgpuContext.Current;
                     if (current == null)
                     {
-                        var activeContexts = WgpuContext.ActiveContexts;
-                        if (activeContexts.Count > 0)
-                        {
-                            current = activeContexts[0];
-                        }
+                        WgpuContext.TryGetFirstActiveContext(out current);
                     }
                 }
 
@@ -1010,26 +1119,22 @@ namespace Avalonia.ProGpu
                 var (texture, readbackBuffer) = GetOffscreenResources(_offscreenCache, context, width, height, preferredFormat);
                 var hostFrame = CreateHostFrame(width, height);
 
-                var drawingVisual = new DrawingVisual();
+                var drawingVisual = new RecordedDrawingVisual(DrawingContext);
                 drawingVisual.Size = hostFrame.LogicalSize;
-                drawingVisual.Context.Append(DrawingContext);
 
-                try
-                {
-                    compositor.RenderOffscreen(
-                        drawingVisual,
-                        hostFrame,
-                        texture,
-                        0.0f,
-                        _clearColor,
-                        loadExistingContents: false
-                    );
-                    _offscreenCache.IsTextureFresh = false;
-                }
-                finally
-                {
-                    drawingVisual.Context.Clear();
-                }
+                compositor.RenderOffscreen(
+                    drawingVisual,
+                    hostFrame,
+                    texture,
+                    0.0f,
+                    _clearColor,
+                    loadExistingContents: false
+                );
+                var metrics = compositor.Metrics;
+                metrics.RecordedCommandCount = DrawingContext.Commands.Count;
+                metrics.RecordedCommandCapacity = DrawingContext.Commands.Capacity;
+                ProGpuRenderingDiagnostics.ReportFrame(metrics);
+                _offscreenCache.IsTextureFresh = false;
 
                 if (TryGetSurfacePointer(_framebuffer, out var surfacePointer))
                 {
@@ -1094,7 +1199,7 @@ namespace Avalonia.ProGpu
                 {
                     if (!_preserveRecordedCommandsOnDispose)
                     {
-                        DrawingContext.Clear();
+                        ReturnRecordingContext();
                     }
 
                     if (_disposables != null)
@@ -1108,8 +1213,20 @@ namespace Avalonia.ProGpu
                 finally
                 {
                     _disposed = true;
+                    ReturnDrawingContextState();
                 }
             }
+        }
+
+        private void ReturnRecordingContext()
+        {
+            if (_recordingContextReturned)
+            {
+                return;
+            }
+
+            _recordingContextReturned = true;
+            _offscreenCache.ReturnRecordingContext(DrawingContext);
         }
 
         private Vector2 TransformPoint(Point pt)
@@ -1388,6 +1505,9 @@ namespace Avalonia.ProGpu
             return true;
         }
 
+        private static bool RequiresBrushClipPath(IBrush? brush)
+            => brush is ISceneBrush or ISceneBrushContent or IImageBrush;
+
         private ProGPU.Vector.Brush? ConvertBrush(IBrush? avaloniaBrush, Avalonia.Rect? targetRect = null)
         {
             if (avaloniaBrush == null) return null;
@@ -1397,8 +1517,7 @@ namespace Avalonia.ProGpu
             if (avaloniaBrush is ISolidColorBrush solid)
             {
                 var c = solid.Color;
-                var vecColor = new Vector4(c.R / 255.0f, c.G / 255.0f, c.B / 255.0f, c.A / 255.0f);
-                return new ProGPU.Vector.SolidColorBrush(vecColor) { Opacity = opacity };
+                return _offscreenCache.GetSolidBrush(c.R, c.G, c.B, c.A, opacity);
             }
             else if (avaloniaBrush is ILinearGradientBrush linear)
             {
@@ -1480,6 +1599,21 @@ namespace Avalonia.ProGpu
                 Avalonia.Media.PenLineCap.Square => ProGPU.Vector.PenLineCap.Square,
                 _ => ProGPU.Vector.PenLineCap.Flat
             };
+
+            if (dashArray == null && avaloniaPen.Brush is ISolidColorBrush solid)
+            {
+                var color = solid.Color;
+                return _offscreenCache.GetSolidPen(
+                    color.R,
+                    color.G,
+                    color.B,
+                    color.A,
+                    (float)avaloniaPen.Brush.Opacity,
+                    (float)avaloniaPen.Thickness,
+                    lineJoin,
+                    (float)avaloniaPen.MiterLimit,
+                    lineCap);
+            }
 
             return new ProGPU.Vector.Pen(
                 brush,
@@ -1605,26 +1739,30 @@ namespace Avalonia.ProGpu
                 var compositor = GetCompositor(context, texture.Format);
                 var hostFrame = CreateHostFrame(texture.Width, texture.Height);
 
-                var drawingVisual = new DrawingVisual();
+                var drawingVisual = new RecordedDrawingVisual(sourceContext);
                 drawingVisual.Size = hostFrame.LogicalSize;
-                drawingVisual.Context.Append(sourceContext);
 
-                try
-                {
-                    compositor.RenderOffscreen(
-                        drawingVisual,
-                        hostFrame,
-                        texture,
-                        0.0f,
-                        new Vector4(0f, 0f, 0f, 0f), // Transparent clear color for layers
-                        loadExistingContents: !isTextureFresh
-                    );
-                }
-                finally
-                {
-                    drawingVisual.Context.Clear();
-                }
+                compositor.RenderOffscreen(
+                    drawingVisual,
+                    hostFrame,
+                    texture,
+                    0.0f,
+                    new Vector4(0f, 0f, 0f, 0f), // Transparent clear color for layers
+                    loadExistingContents: !isTextureFresh
+                );
             }
+        }
+
+        private sealed class RecordedDrawingVisual : ProGPU.Scene.Visual, IOwnedRenderCommandCache
+        {
+            private readonly ProGPU.Scene.DrawingContext _context;
+
+            public RecordedDrawingVisual(ProGPU.Scene.DrawingContext context)
+            {
+                _context = context;
+            }
+
+            public ProGPU.Scene.DrawingContext GetOrUpdateRenderCommandCache() => _context;
         }
     }
 }
