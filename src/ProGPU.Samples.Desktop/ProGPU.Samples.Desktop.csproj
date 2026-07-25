@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
