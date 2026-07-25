@@ -70,7 +70,7 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
-    public void CoverageAtlasesGrowOneAxisWithoutMovingTexelCoordinatesOrChangingGeneration()
+    public void CoverageAtlasesGrowOneAxisWithoutMovingTexelCoordinatesAndAdvanceUvGeneration()
     {
         using var pathAtlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
         PathAtlas.PathInfo first = pathAtlas.GetOrCreatePath(
@@ -103,7 +103,7 @@ public sealed class SamplePerformanceRegressionTests
         Assert.Equal(first.Width, pathAtlas.PeakRasterWidth);
         Assert.Equal(first.Height, pathAtlas.PeakRasterHeight);
         Assert.True(pathAtlas.TextureRevision > revision);
-        Assert.Equal(generation, pathAtlas.Generation);
+        Assert.True(pathAtlas.Generation > generation);
         Assert.Equal(first.X, repeated.X);
         Assert.Equal(first.Y, repeated.Y);
         Assert.Equal(first.Width, repeated.Width);

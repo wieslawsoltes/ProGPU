@@ -2523,6 +2523,7 @@ public unsafe class PathAtlas : IDisposable
 
         RefreshNormalizedTextureCoordinates();
         TextureRevision++;
+        Generation++;
         CapacityExceeded = false;
         return true;
     }

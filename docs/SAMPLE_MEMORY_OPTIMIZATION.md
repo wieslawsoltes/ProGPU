@@ -1088,19 +1088,24 @@ height grows first; after height reaches its configured maximum, width may grow 
 the right-hand strip. The per-axis maximum remains 2,048, so this does not expand the
 renderer's previous memory bound.
 
-Growth copies the old rectangular texel region without moving it. Existing integer atlas
-coordinates, texture generation, and cached coverage therefore remain stable; only the
-texture revision advances so concrete GPU bindings are refreshed. Normalized coordinates
-use the width reciprocal for X and the height reciprocal for Y. The deterministic
-MaxRects recovery path likewise uses independent extents, area, coordinate candidates,
-free rectangles, compatibility bounds, and placement signatures. A capacity miss still
-aborts compilation, resets once, and retries the same frame. A live set that cannot fit
-after that retry still fails explicitly rather than looping or dropping paths.
+Growth copies the old rectangular texel region without moving it, so existing integer
+atlas coordinates and cached coverage remain stable. Both the texture revision and atlas
+generation advance: the revision refreshes concrete GPU bindings, while the generation
+invalidates vertices whose normalized UVs were compiled against the previous dimensions.
+The compositor then uses its bounded reset/recompile path in the same frame, preventing
+partially stale path output when a later entry grows the other axis. Normalized
+coordinates use the width reciprocal for X and the height reciprocal for Y. The
+deterministic MaxRects recovery path likewise uses independent extents, area, coordinate
+candidates, free rectangles, compatibility bounds, and placement signatures. A capacity
+miss or UV-generation change still aborts compilation, resets once, and retries the same
+frame. A live set that cannot fit after that retry still fails explicitly rather than
+looping or dropping paths.
 
 The new regressions cover:
 
-- 512×512 to 512×1,024 height-only growth with unchanged texel coordinates, generation,
-  and coverage for already resident paths;
+- 512×512 to 512×1,024 height-only growth with unchanged texel coordinates and coverage
+  for already resident paths, plus an advanced generation that forces same-frame UV
+  recompilation;
 - separate X/Y UV normalization after rectangular growth;
 - rectangular reset/recovery with non-overlapping bounds and visible raster output; and
 - a 900-pixel-tall rounded path rendered visibly on the first 64×1,024 frame, followed by
