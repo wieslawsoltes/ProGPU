@@ -53,6 +53,12 @@ public unsafe class RenderPipelineCache : IDisposable
         _context = context;
     }
 
+    public int ShaderCount => _shaders.Count;
+
+    public int RenderPipelineCount => _renderPipelines.Count;
+
+    public int ComputePipelineCount => _computePipelines.Count;
+
     public ShaderModule* GetOrCreateShader(string key, string wgslCode, string label = "ShaderModule")
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(RenderPipelineCache));

@@ -90,16 +90,9 @@ public static class GpuFramebufferPresentationRegistry
             return current;
         }
 
-        var activeContexts = WgpuContext.ActiveContexts;
-        for (var index = 0; index < activeContexts.Count; index++)
-        {
-            if (MatchesSurface(activeContexts[index], surfaceHandle))
-            {
-                return activeContexts[index];
-            }
-        }
-
-        return null;
+        return WgpuContext.TryGetActiveContextForSurface(surfaceHandle, out var context)
+            ? context
+            : null;
     }
 
     private static unsafe bool MatchesSurface(WgpuContext? context, IntPtr surfaceHandle)

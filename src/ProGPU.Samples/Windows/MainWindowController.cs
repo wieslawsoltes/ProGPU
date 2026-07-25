@@ -635,7 +635,10 @@ public static unsafe class MainWindowController
             return;
         }
 
-        AppState._offscreenCompositor ??= new Compositor(context, TextureFormat.Rgba8Unorm)
+        AppState._offscreenCompositor ??= new Compositor(
+            context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = false })
         {
             VectorEngine = AppState.VectorEngine
         };

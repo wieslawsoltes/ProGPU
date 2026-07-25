@@ -725,7 +725,10 @@ public class SamplePagesTests : IDisposable
         EnsureFontsAndStateLoaded();
 
         var context = HeadlessWindow.Shared.Context;
-        AppState._offscreenCompositor = new Compositor(context, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm);
+        AppState._offscreenCompositor = new Compositor(
+            context,
+            Silk.NET.WebGPU.TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = false });
         AppState._compute = new ProGPU.Compute.ComputeAccelerator(context);
 
         AppState._canvasSourceTexture = new ProGPU.Backend.GpuTexture(context, 600, 600, Silk.NET.WebGPU.TextureFormat.Rgba8Unorm,
@@ -766,6 +769,8 @@ public class SamplePagesTests : IDisposable
             AppState._canvasShadowTexture.Resize(canvasW, canvasH);
 
             AppState._offscreenCompositor.RenderScene(AppState._gearCanvasVisual, canvasW, canvasH, AppState._canvasSourceTexture.ViewPtr);
+            Assert.Null(AppState._offscreenCompositor.LastHitTestIndex);
+            Assert.Null(AppState._offscreenCompositor.LastHitTestDeviceIndex);
 
             if (AppState._shadowRadius > 0 && AppState._blurRadius > 0)
             {

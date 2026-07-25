@@ -1135,6 +1135,36 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    /// <summary>
+    /// Records a transformed retained path using a cache previously created for the same
+    /// geometry. The transform remains command-local and does not affect cache identity.
+    /// </summary>
+    public void DrawPath(
+        Brush? brush,
+        Pen? pen,
+        PathGeometry path,
+        Matrix4x4 transform,
+        RenderCommandGeometryCache geometryCache)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(geometryCache);
+        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
+            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
+        {
+            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            Transform = transform,
+            GeometryCache = geometryCache
+        });
+    }
+
     public void DrawText(
         string text,
         TtfFont font,
@@ -1464,8 +1494,10 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             Position = p1,
             Position2 = p2,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreateLinePath(p1, p2))
+            GeometryCache = pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForStrokePath(
+                    RenderCommandGeometryCache.CreateLinePath(p1, p2))
+                : null
         });
     }
 
