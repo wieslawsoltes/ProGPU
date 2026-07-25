@@ -104,7 +104,9 @@ public sealed class WindowsDpiAwarenessTests
         string devTools = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "Windows", "DevToolsWindowController.cs"));
 
         Assert.Contains("PointerPositionTransform", inputSystem, StringComparison.Ordinal);
-        Assert.Contains("OnMouseMove(NormalizeInputPosition(state, new Vector2(pos.X, pos.Y)))", inputSystem, StringComparison.Ordinal);
+        Assert.Contains("var platformPosition = new Vector2(pos.X, pos.Y);", inputSystem, StringComparison.Ordinal);
+        Assert.Contains("RelativePointerCapture.ProcessPlatformMouseMove(state, platformPosition)", inputSystem, StringComparison.Ordinal);
+        Assert.Contains("OnMouseMove(NormalizeInputPosition(state, platformPosition));", inputSystem, StringComparison.Ordinal);
         Assert.Contains("InputSystem.Initialize(inputContext, _renderRoot, NormalizePointerPosition)", window, StringComparison.Ordinal);
         Assert.Contains("OperatingSystem.IsWindows()", window, StringComparison.Ordinal);
         Assert.Contains("InputSystem.NormalizePointerPositionForDpi", window, StringComparison.Ordinal);
