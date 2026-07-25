@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Silk.NET.Input;
 using Windows.Devices.Input;
 using ProGPU.Scene;
+using ProGPU.WinUI.Input;
 
 namespace ProGPU.Browser;
 
@@ -28,12 +29,14 @@ public static partial class BrowserInputDispatcher
         s_attachedState = state;
         state.CursorChanged = cursor => SetCanvasCursor(ToCssCursor(cursor));
         state.FocusChanged = OnFocusChanged;
+        RelativePointerCapture.ConfigureHost(state, RequestCanvasPointerLock, ExitCanvasPointerLock);
     }
 
     public static void Detach(WindowInputState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         if (!ReferenceEquals(s_attachedState, state)) return;
+        RelativePointerCapture.ClearHost(state);
         state.CursorChanged = null;
         state.FocusChanged = null;
         HideTextInput();
@@ -160,6 +163,14 @@ public static partial class BrowserInputDispatcher
                 break;
             case BrowserInputKind.FocusLost:
                 InputSystem.InjectFocusLost();
+                break;
+            case BrowserInputKind.RelativePointerMove:
+                RelativePointerCapture.InjectHostMovement(new Vector2(
+                    ReadSingle(record, 12),
+                    ReadSingle(record, 16)));
+                break;
+            case BrowserInputKind.PointerLockLost:
+                RelativePointerCapture.NotifyHostCaptureLost();
                 break;
         }
     }
@@ -354,6 +365,12 @@ public static partial class BrowserInputDispatcher
     [JSImport("setCanvasCursor", "progpu-browser")]
     private static partial void SetCanvasCursor(string cursor);
 
+    [JSImport("requestCanvasPointerLock", "progpu-browser")]
+    private static partial bool RequestCanvasPointerLock();
+
+    [JSImport("exitCanvasPointerLock", "progpu-browser")]
+    private static partial void ExitCanvasPointerLock();
+
     [JSImport("configureTextInput", "progpu-browser")]
     private static partial void ConfigureTextInput(
         string inputMode,
@@ -380,7 +397,9 @@ public static partial class BrowserInputDispatcher
         KeyUp = 6,
         Text = 7,
         FocusLost = 8,
-        PointerCancel = 9
+        PointerCancel = 9,
+        RelativePointerMove = 10,
+        PointerLockLost = 11
     }
 
     private enum BrowserKey : uint
