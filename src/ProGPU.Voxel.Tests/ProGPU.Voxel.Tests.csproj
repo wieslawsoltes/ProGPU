@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Voxel\ProGPU.Voxel.csproj" />
+  </ItemGroup>
+</Project>
