@@ -20,6 +20,7 @@ namespace ControlCatalog.Desktop
             {
                 App.InitialPage = args[pageArgumentIndex + 1];
             }
+            using var benchmark = ControlCatalogBenchmark.TryStart("ProGPU", App.InitialPage);
 
             if (args.Contains("--wait-for-attach"))
             {
@@ -45,6 +46,7 @@ namespace ControlCatalog.Desktop
             var builder = useSkiaShim
                 ? BuildSkiaShimApp()
                 : BuildAvaloniaApp();
+            builder.AfterSetup(_ => benchmark?.Attach());
 
             return builder.StartWithClassicDesktopLifetime(args);
         }

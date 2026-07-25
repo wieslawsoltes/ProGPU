@@ -452,6 +452,31 @@ public unsafe class WgpuContext : IDisposable
         return false;
     }
 
+    public static unsafe bool TryGetActiveContextForSurface(
+        IntPtr surfaceHandle,
+        [NotNullWhen(true)] out WgpuContext? context)
+    {
+        if (surfaceHandle != IntPtr.Zero)
+        {
+            lock (_activeContexts)
+            {
+                for (var i = 0; i < _activeContexts.Count; i++)
+                {
+                    var active = _activeContexts[i];
+                    if (!active.IsDisposed &&
+                        (IntPtr)active.Surface == surfaceHandle)
+                    {
+                        context = active;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        context = null;
+        return false;
+    }
+
     [ThreadStatic]
     private static WgpuContext? _current;
 

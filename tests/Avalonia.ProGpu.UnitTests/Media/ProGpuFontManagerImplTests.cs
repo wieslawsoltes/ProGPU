@@ -116,6 +116,86 @@ namespace Avalonia.ProGpu.UnitTests.Media
         }
 
         [Fact]
+        public void MatchCharacterChecksCompactCoverageBeforeLoadingLargeCandidate()
+        {
+            byte[] digitsData = ReadFont("DF7segHMI.ttf");
+            byte[] fallbackData = ReadFont("DejaVuSans.ttf");
+            var digitsFont = new TtfFont(digitsData);
+            var fallbackFont = new TtfFont(fallbackData);
+            string digitsPath = WriteTemporaryFont(digitsData, ".ttf");
+            string fallbackPath = WriteTemporaryFont(fallbackData, ".ttf");
+            try
+            {
+                using (var stream = new FileStream(digitsPath, FileMode.Open, FileAccess.Write, FileShare.Read))
+                {
+                    stream.SetLength(32L * 1024L * 1024L);
+                }
+
+                var manager = new FontManagerImpl(() =>
+                [
+                    CreateFontInfo(digitsFont, digitsPath),
+                    CreateFontInfo(fallbackFont, fallbackPath)
+                ]);
+
+                Assert.True(manager.TryMatchCharacter(
+                    'Ω',
+                    FontStyle.Normal,
+                    FontWeight.Normal,
+                    FontStretch.Normal,
+                    digitsFont.FamilyName,
+                    null,
+                    out var match));
+
+                Assert.Equal(fallbackFont.FamilyName, match.FamilyName);
+                Assert.Equal(0, manager.CachedFontDataBytes);
+            }
+            finally
+            {
+                File.Delete(digitsPath);
+                File.Delete(fallbackPath);
+            }
+        }
+
+        [Fact]
+        public void AppleColorEmojiFallbackKeepsCompactFaceAndLoadsOtherGlyphsOnDemand()
+        {
+            const string fontPath = "/System/Library/Fonts/Apple Color Emoji.ttc";
+            if (!OperatingSystem.IsMacOS() || !File.Exists(fontPath))
+            {
+                return;
+            }
+
+            var manager = new FontManagerImpl(() =>
+            [
+                new FontInfo
+                {
+                    Name = "Apple Color Emoji",
+                    FamilyName = "Apple Color Emoji",
+                    FilePath = fontPath,
+                    FaceIndex = 0
+                }
+            ]);
+
+            Assert.True(manager.TryMatchCharacter(
+                0x1F600,
+                FontStyle.Normal,
+                FontWeight.Normal,
+                FontStretch.Normal,
+                null,
+                null,
+                out var platformTypeface));
+
+            var typeface = Assert.IsType<ProGpuTypeface>(platformTypeface);
+            Assert.InRange(typeface.Font.FontData.Length, 1, 16 * 1024 * 1024);
+            Assert.InRange(manager.CachedFontDataBytes, 1, 16L * 1024L * 1024L);
+
+            ushort secondGlyph = typeface.Font.GetGlyphIndex(0x1F44D);
+            Assert.NotEqual(0, secondGlyph);
+            Assert.True(typeface.Font.TryGetBitmapGlyph(secondGlyph, 64, out var bitmap));
+            Assert.NotEmpty(bitmap.Data.ToArray());
+        }
+
+        [Fact]
         public void SystemFontCatalogCanBePreloadedOnTheThreadPool()
         {
             using var providerCalled = new ManualResetEventSlim();

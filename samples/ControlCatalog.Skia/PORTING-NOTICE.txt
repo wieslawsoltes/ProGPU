@@ -1,0 +1,15 @@
+PORTING NOTICE
+
+This comparison host source-links the ControlCatalog from:
+
+Repository: https://github.com/wieslawsoltes/Avalonia.git
+Tag: progpu-avalonia-v12.0.5-preview.19
+Commit: 5378af03f17a4d9d2845882229ffed7f67350037
+Submodule path: external/Avalonia
+Original path: samples/ControlCatalog
+
+Only the host project and startup entry point are kept locally. They run the
+same linked catalog with the native Avalonia Skia renderer so memory,
+performance, and rendering output can be compared with the ProGPU host.
+
+No Git history or commits were imported from the source repository.

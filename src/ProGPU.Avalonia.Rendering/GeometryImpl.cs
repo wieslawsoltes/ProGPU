@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using Avalonia.Media;
 using Avalonia.Platform;
+using ProGPU.Scene;
 using PathGeometry = ProGPU.Vector.PathGeometry;
 using PathSegment = ProGPU.Vector.PathSegment;
 using LineSegment = ProGPU.Vector.LineSegment;
@@ -16,10 +18,28 @@ namespace Avalonia.ProGpu
 {
     internal abstract class GeometryImpl : IGeometryImpl
     {
+        private RenderCommandGeometryCache? _renderCommandGeometryCache;
+
         public abstract ProGPU.Vector.PathGeometry Path { get; }
 
         protected void InvalidateCaches()
         {
+            Volatile.Write(ref _renderCommandGeometryCache, null);
+        }
+
+        internal RenderCommandGeometryCache GetRenderCommandGeometryCache()
+        {
+            var cache = Volatile.Read(ref _renderCommandGeometryCache);
+            if (cache != null)
+            {
+                return cache;
+            }
+
+            var created = RenderCommandGeometryCache.ForPath(Path);
+            return Interlocked.CompareExchange(
+                ref _renderCommandGeometryCache,
+                created,
+                null) ?? created;
         }
 
         public Rect Bounds => CalculateBounds(Path);

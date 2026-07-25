@@ -10,12 +10,29 @@ using Avalonia.Platform;
 using Avalonia.Platform.Surfaces;
 using ProGPU.Backend;
 using ProGPU.Scene;
+using ProGPU.Text;
 using Xunit;
 
 namespace Avalonia.ProGpu.UnitTests
 {
     public class DrawingContextImplTests
     {
+        [Fact]
+        public void Backend_Compositor_Uses_Compact_Core_Reservations_Without_Gpu_Hit_Testing()
+        {
+            CompositorOptions options = DrawingContextImpl.BackendCompositorOptions;
+
+            Assert.Equal(1024u, options.InitialVertexCount);
+            Assert.Equal(1536u, options.InitialIndexCount);
+            Assert.Equal(64u, options.InitialBrushCount);
+            Assert.Equal(512u, options.InitialGradientStopCount);
+            Assert.Equal(260u, options.InitialGlyphAtlasSize);
+            Assert.Equal(64u, options.InitialColorGlyphAtlasSize);
+            Assert.Equal(16u * 1024u, options.GlyphUniformStagingBytes);
+            Assert.Equal(GlyphAtlas.DefaultCoverageRingBufferSize, options.GlyphCoverageStagingBytes);
+            Assert.False(options.EnableGpuHitTesting);
+        }
+
         [Fact]
         public void Framebuffer_Render_Target_Supports_Direct_Rendering()
         {
@@ -45,6 +62,18 @@ namespace Avalonia.ProGpu.UnitTests
         }
 
         [Fact]
+        public void DrawLine_With_Solid_Pen_Does_Not_Create_A_General_Path_Cache()
+        {
+            using var target = CreateTarget();
+
+            target.DrawLine(new Pen(Brushes.Black, 3), new Point(0, 0), new Point(10, 10));
+
+            var command = Assert.Single(target.DrawingContext.Commands);
+            Assert.Equal(RenderCommandType.DrawLine, command.Type);
+            Assert.Null(command.GeometryCache);
+        }
+
+        [Fact]
         public void DrawLine_Preserves_Pen_Stroke_Style()
         {
             using var target = CreateTarget();
@@ -68,6 +97,45 @@ namespace Avalonia.ProGpu.UnitTests
             Assert.Equal(7, nativePen.MiterLimit);
             Assert.Equal(new[] { 2.0, 4.0 }, nativePen.DashArray);
             Assert.Equal(1.5, nativePen.DashOffset);
+            Assert.NotNull(command.GeometryCache);
+        }
+
+        [Fact]
+        public void DrawGeometry_Reuses_Cache_Until_Stream_Geometry_Changes()
+        {
+            var geometry = new StreamGeometryImpl();
+            using (var geometryContext = geometry.Open())
+            {
+                geometryContext.BeginFigure(new Point(0, 0));
+                geometryContext.LineTo(new Point(10, 0));
+                geometryContext.LineTo(new Point(10, 10));
+                geometryContext.EndFigure(isClosed: false);
+            }
+
+            using var firstTarget = CreateTarget();
+            firstTarget.DrawGeometry(null, new Pen(Brushes.Black, 2), geometry);
+            var firstCache = Assert.Single(firstTarget.DrawingContext.Commands).GeometryCache;
+
+            using var secondTarget = CreateTarget();
+            secondTarget.DrawGeometry(null, new Pen(Brushes.Black, 2), geometry);
+            var secondCache = Assert.Single(secondTarget.DrawingContext.Commands).GeometryCache;
+
+            Assert.NotNull(firstCache);
+            Assert.Same(firstCache, secondCache);
+
+            using (var geometryContext = geometry.Open())
+            {
+                geometryContext.BeginFigure(new Point(0, 0));
+                geometryContext.LineTo(new Point(20, 0));
+                geometryContext.EndFigure(isClosed: false);
+            }
+
+            using var changedTarget = CreateTarget();
+            changedTarget.DrawGeometry(null, new Pen(Brushes.Black, 2), geometry);
+            var changedCache = Assert.Single(changedTarget.DrawingContext.Commands).GeometryCache;
+
+            Assert.NotNull(changedCache);
+            Assert.NotSame(firstCache, changedCache);
         }
 
         [Fact]
@@ -267,6 +335,72 @@ namespace Avalonia.ProGpu.UnitTests
         }
 
         [Fact]
+        public void Solid_Primitive_Draws_Do_Not_Allocate_Temporary_Path_Graphs()
+        {
+            using var target = CreateTarget();
+            const int drawCount = 256;
+            target.DrawingContext.EnsureCommandCapacity(drawCount * 2);
+            target.DrawRectangle(
+                Brushes.Red,
+                null,
+                new RoundedRect(new Rect(0, 0, 30, 40), new CornerRadius(4)));
+            target.DrawingContext.Clear();
+
+            long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0; index < drawCount; index++)
+            {
+                target.DrawRectangle(
+                    Brushes.Red,
+                    null,
+                    new RoundedRect(new Rect(index, 2, 30, 40), new CornerRadius(4)));
+                target.DrawEllipse(Brushes.Blue, null, new Rect(index, 4, 20, 12));
+            }
+            long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+
+            Assert.True(
+                allocatedBytes < 48 * 1024,
+                $"Primitive recording allocated {allocatedBytes:N0} bytes.");
+            Assert.All(
+                target.DrawingContext.Commands,
+                command => Assert.NotEqual(RenderCommandType.DrawPath, command.Type));
+        }
+
+        [Fact]
+        public void Repeated_Solid_Styles_Reuse_Converted_Brushes_And_Pens()
+        {
+            using var target = CreateTarget();
+            var brush = new SolidColorBrush(Colors.CornflowerBlue) { Opacity = 0.75 };
+            var pen = new Pen(brush, 2, lineCap: PenLineCap.Round);
+
+            target.DrawRectangle(brush, pen, new RoundedRect(new Rect(0, 0, 20, 10)));
+            target.DrawRectangle(brush, pen, new RoundedRect(new Rect(30, 0, 20, 10)));
+
+            Assert.Equal(2, target.DrawingContext.Commands.Count);
+            Assert.Same(target.DrawingContext.Commands[0].Brush, target.DrawingContext.Commands[1].Brush);
+            Assert.Same(target.DrawingContext.Commands[0].Pen, target.DrawingContext.Commands[1].Pen);
+        }
+
+        [Fact]
+        public void Mutated_Solid_Style_Uses_A_New_Converted_Value()
+        {
+            using var target = CreateTarget();
+            var brush = new SolidColorBrush(Colors.Red);
+
+            target.DrawRectangle(brush, null, new RoundedRect(new Rect(0, 0, 20, 10)));
+            brush.Color = Colors.Blue;
+            target.DrawRectangle(brush, null, new RoundedRect(new Rect(30, 0, 20, 10)));
+
+            Assert.Equal(2, target.DrawingContext.Commands.Count);
+            Assert.NotSame(target.DrawingContext.Commands[0].Brush, target.DrawingContext.Commands[1].Brush);
+            Assert.Equal(
+                new System.Numerics.Vector4(1, 0, 0, 1),
+                Assert.IsType<ProGPU.Vector.SolidColorBrush>(target.DrawingContext.Commands[0].Brush).Color);
+            Assert.Equal(
+                new System.Numerics.Vector4(0, 0, 1, 1),
+                Assert.IsType<ProGPU.Vector.SolidColorBrush>(target.DrawingContext.Commands[1].Brush).Color);
+        }
+
+        [Fact]
         public void Rotated_Rectangle_Clip_Uses_All_Four_Corners()
         {
             var target = CreateTarget();
@@ -459,6 +593,30 @@ namespace Avalonia.ProGpu.UnitTests
             target.Clear(Colors.Transparent);
         }
 
+        [Fact]
+        public void Offscreen_Cache_Reuses_Cleared_Recording_Context_And_Its_Capacity()
+        {
+            using var cache = new OffscreenTextureCache();
+            var first = cache.RentRecordingContext();
+            var retainedResource = new TrackingDisposable();
+            first.EnsureCommandCapacity(512);
+            first.Commands.Add(default);
+            first.RetainResource(retainedResource);
+
+            cache.ReturnRecordingContext(first);
+
+            Assert.True(retainedResource.IsDisposed);
+            Assert.Empty(first.Commands);
+            Assert.True(first.Commands.Capacity >= 512);
+
+            var second = cache.RentRecordingContext();
+
+            Assert.Same(first, second);
+            Assert.Empty(second.Commands);
+            Assert.True(second.Commands.Capacity >= 512);
+            cache.ReturnRecordingContext(second);
+        }
+
         private static DrawingContextImpl CreateTarget()
         {
             return CreateTarget(new Vector(96, 96), scaleDrawingToDpi: false);
@@ -514,6 +672,16 @@ namespace Avalonia.ProGpu.UnitTests
 
                 return new FuncFramebufferRenderTarget(
                     () => throw new InvalidOperationException("The retention capability test does not lock the surface."));
+            }
+        }
+
+        private sealed class TrackingDisposable : IDisposable
+        {
+            public bool IsDisposed { get; private set; }
+
+            public void Dispose()
+            {
+                IsDisposed = true;
             }
         }
     }

@@ -96,11 +96,13 @@ namespace Avalonia.ProGpu
             public StreamContext(StreamGeometryImpl geometryImpl)
             {
                 _geometryImpl = geometryImpl;
+                _geometryImpl.InvalidateCaches();
                 _geometryImpl.Path.Figures.Clear();
             }
 
             public void BeginFigure(Point startPoint, bool isFilled = true)
             {
+                _geometryImpl.InvalidateCaches();
                 _currentFigure = new ProGPU.Vector.PathFigure(new Vector2((float)startPoint.X, (float)startPoint.Y))
                 {
                     IsFilled = isFilled
@@ -112,12 +114,14 @@ namespace Avalonia.ProGpu
             {
                 if (_currentFigure != null)
                 {
+                    _geometryImpl.InvalidateCaches();
                     _currentFigure.IsClosed = isClosed;
                 }
             }
 
             public void SetFillRule(Avalonia.Media.FillRule fillRule)
             {
+                _geometryImpl.InvalidateCaches();
                 _geometryImpl.Path.FillRule = fillRule == Avalonia.Media.FillRule.EvenOdd
                     ? ProGPU.Vector.FillRule.EvenOdd
                     : ProGPU.Vector.FillRule.Nonzero;
@@ -126,6 +130,7 @@ namespace Avalonia.ProGpu
             public void LineTo(Point point, bool isStroked = true)
             {
                 if (_currentFigure == null) return;
+                _geometryImpl.InvalidateCaches();
                 _currentFigure.Segments.Add(new LineSegment(
                     new Vector2((float)point.X, (float)point.Y),
                     isStroked: isStroked));
@@ -152,6 +157,7 @@ namespace Avalonia.ProGpu
             public void ArcTo(Point point, Size size, double rotationAngle, bool isLargeArc, Avalonia.Media.SweepDirection sweepDirection, bool isStroked = true)
             {
                 if (_currentFigure == null) return;
+                _geometryImpl.InvalidateCaches();
                 var endPoint = new Vector2((float)point.X, (float)point.Y);
                 var radii = new Vector2((float)size.Width, (float)size.Height);
                 var direction = sweepDirection == Avalonia.Media.SweepDirection.Clockwise
@@ -175,6 +181,7 @@ namespace Avalonia.ProGpu
             public void CubicBezierTo(Point point1, Point point2, Point point3, bool isStroked = true)
             {
                 if (_currentFigure == null) return;
+                _geometryImpl.InvalidateCaches();
                 _currentFigure.Segments.Add(new CubicBezierSegment(
                     new Vector2((float)point1.X, (float)point1.Y),
                     new Vector2((float)point2.X, (float)point2.Y),
@@ -191,6 +198,7 @@ namespace Avalonia.ProGpu
             public void QuadraticBezierTo(Point point1, Point point2, bool isStroked = true)
             {
                 if (_currentFigure == null) return;
+                _geometryImpl.InvalidateCaches();
                 _currentFigure.Segments.Add(new QuadraticBezierSegment(
                     new Vector2((float)point1.X, (float)point1.Y),
                     new Vector2((float)point2.X, (float)point2.Y),

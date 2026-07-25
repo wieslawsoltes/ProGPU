@@ -14,6 +14,7 @@ public sealed class InterFontFamilyTests
     public void RegularFaceIsUnmodifiedOfficialInter41Asset()
     {
         var font = InterFontFamily.Regular;
+        Assert.True(font.UsesExternalStorage);
         var hash = Convert.ToHexString(SHA256.HashData(font.FontData.Span)).ToLowerInvariant();
 
         Assert.Equal("4.1", InterFontFamily.Version);

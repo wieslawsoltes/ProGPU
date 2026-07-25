@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Platform;
@@ -18,6 +19,7 @@ namespace Avalonia.SilkNet
         public static SilkNetPlatform Instance => s_instance;
 
         private readonly List<WindowImpl> _windows = new();
+        private WindowImpl[] _windowSnapshot = Array.Empty<WindowImpl>();
         private SilkNetDispatcherImpl? _dispatcher;
         private static Compositor? s_compositor;
 
@@ -63,6 +65,7 @@ namespace Avalonia.SilkNet
             lock (_windows)
             {
                 _windows.Add(window);
+                _windowSnapshot = _windows.ToArray();
             }
         }
 
@@ -71,18 +74,15 @@ namespace Avalonia.SilkNet
             lock (_windows)
             {
                 _windows.Remove(window);
+                _windowSnapshot = _windows.ToArray();
             }
         }
 
         public void DoEvents()
         {
-            WindowImpl[] windowsToProcess;
-            lock (_windows)
-            {
-                windowsToProcess = _windows.ToArray();
-            }
-
-            foreach (var win in windowsToProcess)
+            // Registration is rare; event pumping is continuous. Publish an immutable
+            // copy-on-write snapshot so the steady-state pump is O(W) with no allocation.
+            foreach (var win in Volatile.Read(ref _windowSnapshot))
             {
                 if (!win.IsDisposed && win.SilkWindow != null && win.SilkWindow.IsInitialized)
                 {

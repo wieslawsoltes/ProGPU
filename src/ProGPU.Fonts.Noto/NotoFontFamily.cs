@@ -42,12 +42,6 @@ public static class NotoFontFamily
     private static Lazy<TtfFont> CreateLazy(string resourceName) =>
         new(() => Load(resourceName), LazyThreadSafetyMode.ExecutionAndPublication);
 
-    private static TtfFont Load(string resourceName)
-    {
-        using var stream = typeof(NotoFontFamily).Assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"The embedded Noto font '{resourceName}' is missing.");
-        var data = new byte[checked((int)stream.Length)];
-        stream.ReadExactly(data);
-        return new TtfFont(data);
-    }
+    private static TtfFont Load(string resourceName) =>
+        TtfFont.LoadEmbeddedResource(typeof(NotoFontFamily).Assembly, resourceName);
 }

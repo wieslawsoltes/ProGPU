@@ -13,6 +13,10 @@ namespace Avalonia.ProGpu
 {
     internal class FontManagerImpl : IFontManagerImpl
     {
+        private const long GlyphResidentFontFileSizeThreshold = 16L * 1024L * 1024L;
+        private const string WholeSystemFontFilesDiagnosticSwitch =
+            "ProGPU.Avalonia.Diagnostics.UseWholeSystemFontFiles";
+
         private readonly record struct FontLocation(string FilePath, int FaceIndex);
 
         private readonly record struct TypefaceRequest(
@@ -30,18 +34,16 @@ namespace Avalonia.ProGpu
 
         private sealed class CachedFont
         {
-            public CachedFont(FontLocation location, FontInfo info, TtfFont font, byte[] data)
+            public CachedFont(FontLocation location, FontInfo info, TtfFont font)
             {
                 Location = location;
                 Info = info;
                 Font = font;
-                Data = data;
             }
 
             public FontLocation Location { get; }
             public FontInfo Info { get; }
             public TtfFont Font { get; }
-            public byte[] Data { get; }
         }
 
         private sealed class SystemFontCatalog
@@ -104,8 +106,6 @@ namespace Avalonia.ProGpu
         private readonly Func<IReadOnlyList<FontInfo>> _systemFontProvider;
         private readonly IReadOnlyList<FontInfo> _preferredFonts;
         private readonly Dictionary<FontLocation, CachedFont> _fontCache = new();
-        private readonly Dictionary<string, byte[]> _fontDataCache =
-            new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<FontLocation> _failedFonts = new();
         private readonly Dictionary<TypefaceRequest, ProGpuTypeface> _typefaceCache = new();
         private readonly Dictionary<CharacterRequest, ProGpuTypeface> _characterCache = new();
@@ -249,7 +249,8 @@ namespace Avalonia.ProGpu
 
             foreach (var candidate in GetCharacterCandidates(request.FamilyName))
             {
-                if (!TryLoadFont(candidate, out var cachedFont) ||
+                if (!FontApi.TryGetGlyphIndex(candidate, (uint)codepoint, out ushort glyphIndex) ||
+                    !TryLoadFont(candidate, glyphIndex, out var cachedFont) ||
                     !cachedFont.Font.HasGlyph((uint)codepoint))
                 {
                     continue;
@@ -481,10 +482,17 @@ namespace Avalonia.ProGpu
             }
         }
 
-        private bool TryLoadFont(FontInfo info, [NotNullWhen(true)] out CachedFont? cachedFont)
+        private bool TryLoadFont(
+            FontInfo info,
+            [NotNullWhen(true)] out CachedFont? cachedFont) =>
+            TryLoadFont(info, null, out cachedFont);
+
+        private bool TryLoadFont(
+            FontInfo info,
+            ushort? residentGlyphIndex,
+            [NotNullWhen(true)] out CachedFont? cachedFont)
         {
             var location = new FontLocation(info.FilePath, info.FaceIndex);
-            byte[]? data;
             lock (_sync)
             {
                 if (_fontCache.TryGetValue(location, out cachedFont))
@@ -497,14 +505,18 @@ namespace Avalonia.ProGpu
                     cachedFont = null;
                     return false;
                 }
-
-                _fontDataCache.TryGetValue(info.FilePath, out data);
             }
 
             try
             {
-                data ??= File.ReadAllBytes(info.FilePath);
-                var font = new TtfFont(data, info.FaceIndex);
+                bool glyphResident = ShouldUseGlyphResidentFont(info.FilePath);
+                TtfFont font = glyphResident
+                    ? TtfFont.LoadGlyphResidentFile(
+                        info.FilePath,
+                        info.FaceIndex,
+                        residentGlyphIndex ?? 0)
+                    : new TtfFont(info.FilePath, info.FaceIndex);
+
                 if (!IsRenderable(font))
                 {
                     lock (_sync)
@@ -515,7 +527,7 @@ namespace Avalonia.ProGpu
                     return false;
                 }
 
-                var created = new CachedFont(location, info, font, data);
+                var created = new CachedFont(location, info, font);
                 lock (_sync)
                 {
                     if (_fontCache.TryGetValue(location, out cachedFont))
@@ -523,7 +535,6 @@ namespace Avalonia.ProGpu
                         return true;
                     }
 
-                    _fontDataCache[info.FilePath] = data;
                     _fontCache[location] = created;
                     cachedFont = created;
                     return true;
@@ -536,6 +547,43 @@ namespace Avalonia.ProGpu
                     _failedFonts.Add(location);
                 }
                 cachedFont = null;
+                return false;
+            }
+        }
+
+        internal long CachedFontDataBytes
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    long total = 0;
+                    foreach (var cached in _fontCache.Values)
+                    {
+                        if (!cached.Font.UsesMappedFileStorage)
+                        {
+                            total += cached.Font.FontData.Length;
+                        }
+                    }
+                    return total;
+                }
+            }
+        }
+
+        private static bool ShouldUseGlyphResidentFont(string filePath)
+        {
+            if (AppContext.TryGetSwitch(WholeSystemFontFilesDiagnosticSwitch, out bool useWholeFonts) &&
+                useWholeFonts)
+            {
+                return false;
+            }
+
+            try
+            {
+                return new FileInfo(filePath).Length > GlyphResidentFontFileSizeThreshold;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
                 return false;
             }
         }
@@ -577,7 +625,7 @@ namespace Avalonia.ProGpu
                     : font.FamilyName;
                 var typeface = new ProGpuTypeface(
                     font,
-                    cachedFont.Data,
+                    font.FontData,
                     familyName,
                     actualWeight,
                     actualStyle,

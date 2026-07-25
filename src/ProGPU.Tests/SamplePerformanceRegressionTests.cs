@@ -39,7 +39,7 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
-    public void SampleAtlasConfigurationStartsAtThreePercentOfLegacyResidency()
+    public void SampleAtlasConfigurationStartsBelowTwoPercentOfLegacyResidency()
     {
         const ulong glyphSize = 2_560;
         const ulong pathSize = 2_048;
@@ -53,12 +53,24 @@ public sealed class SamplePerformanceRegressionTests
             PathAtlas.DefaultInitialAtlasSize * PathAtlas.DefaultInitialAtlasSize;
 
         Assert.Equal(42_991_616UL, legacyBytes);
-        Assert.Equal(1_048_576UL, initialBytes);
-        Assert.True(initialBytes * 100UL / legacyBytes <= 3UL);
+        Assert.Equal(608_272UL, initialBytes);
+        Assert.True(initialBytes * 100UL / legacyBytes <= 2UL);
     }
 
     [Fact]
-    public void CoverageAtlasesGrowWithoutMovingTexelCoordinatesOrChangingGeneration()
+    public void GlyphOutlineBuffersStartAtMeasuredCompactCapacity()
+    {
+        using var atlas = new GlyphAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 1024);
+
+        Assert.Equal(48, atlas.AllocatedGpuGlyphRecordCapacity);
+        Assert.Equal(896, atlas.AllocatedGpuSegmentCapacity);
+        Assert.Equal(44_544UL, atlas.AllocatedGpuOutlineBytes);
+    }
+
+    [Fact]
+    public void CoverageAtlasesGrowOneAxisWithoutMovingTexelCoordinatesAndAdvanceUvGeneration()
     {
         using var pathAtlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
         PathAtlas.PathInfo first = pathAtlas.GetOrCreatePath(
@@ -69,7 +81,7 @@ public sealed class SamplePerformanceRegressionTests
         uint initialLocalX = checked((uint)(20 - (int)first.MinX));
         uint initialLocalY = checked((uint)(20 - (int)first.MinY));
         int initialCoverageOffset = checked((int)(
-            (first.Y + initialLocalY) * pathAtlas.AtlasSize + first.X + initialLocalX));
+            (first.Y + initialLocalY) * pathAtlas.AtlasWidth + first.X + initialLocalX));
         Assert.True(initialPixels[initialCoverageOffset] > 200);
         ulong generation = pathAtlas.Generation;
         ulong revision = pathAtlas.TextureRevision;
@@ -85,21 +97,30 @@ public sealed class SamplePerformanceRegressionTests
             PrimitivePathGeometry.CreateRectangle(0f, 0f, 72f, 72f),
             scale: 1f);
         Assert.Equal(1024u, pathAtlas.AtlasSize);
+        Assert.Equal(512u, pathAtlas.AtlasWidth);
+        Assert.Equal(1024u, pathAtlas.AtlasHeight);
+        Assert.Equal(512UL * 1024UL, pathAtlas.PersistentTextureBytes);
+        Assert.Equal(first.Width, pathAtlas.PeakRasterWidth);
+        Assert.Equal(first.Height, pathAtlas.PeakRasterHeight);
         Assert.True(pathAtlas.TextureRevision > revision);
-        Assert.Equal(generation, pathAtlas.Generation);
+        Assert.True(pathAtlas.Generation > generation);
         Assert.Equal(first.X, repeated.X);
         Assert.Equal(first.Y, repeated.Y);
         Assert.Equal(first.Width, repeated.Width);
         Assert.Equal(first.Height, repeated.Height);
         Assert.Equal(
-            repeated.X / (float)pathAtlas.AtlasSize,
+            repeated.X / (float)pathAtlas.AtlasWidth,
             repeated.TexCoordMin.X,
+            precision: 6);
+        Assert.Equal(
+            repeated.Y / (float)pathAtlas.AtlasHeight,
+            repeated.TexCoordMin.Y,
             precision: 6);
         byte[] grownPixels = pathAtlas.AtlasTexture.ReadPixels();
         uint grownLocalX = checked((uint)(20 - (int)repeated.MinX));
         uint grownLocalY = checked((uint)(20 - (int)repeated.MinY));
         int grownCoverageOffset = checked((int)(
-            (repeated.Y + grownLocalY) * pathAtlas.AtlasSize + repeated.X + grownLocalX));
+            (repeated.Y + grownLocalY) * pathAtlas.AtlasWidth + repeated.X + grownLocalX));
         Assert.Equal(initialPixels[initialCoverageOffset], grownPixels[grownCoverageOffset]);
     }
 
@@ -107,7 +128,15 @@ public sealed class SamplePerformanceRegressionTests
     public void GlyphAtlasGrowthPreservesResidentCoverageAndStableTexelCoordinates()
     {
         TtfFont font = LoadTestFont();
-        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        using var atlas = new GlyphAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 1024,
+            initialAtlasSize: 260,
+            colorAtlasSize: 512,
+            initialColorAtlasSize: 64,
+            uniformRingBufferSize: 16 * 1024,
+            coverageRingBufferSize: 256 * 1024);
+        Assert.Equal(260u, atlas.AtlasSize);
         ushort glyph = font.GetGlyphIndex('A');
         atlas.BeginBatch();
         GlyphInfo first;
@@ -143,7 +172,7 @@ public sealed class SamplePerformanceRegressionTests
         atlas.BeginBatch();
         try
         {
-            for (byte phase = 1; phase < 64 && atlas.AtlasSize == GlyphAtlas.DefaultInitialAtlasSize; phase++)
+            for (byte phase = 1; phase < 64 && atlas.AtlasSize == 260u; phase++)
             {
                 _ = atlas.GetOrCreateGlyphByIndex(font, glyph, 128f, phase);
             }
@@ -154,7 +183,7 @@ public sealed class SamplePerformanceRegressionTests
         }
 
         GlyphInfo repeated = atlas.GetOrCreateGlyphByIndex(font, glyph, 128f, subpixelX: 0);
-        Assert.Equal(1024u, atlas.AtlasSize);
+        Assert.Equal(512u, atlas.AtlasSize);
         Assert.True(atlas.TextureRevision > 0);
         Assert.Equal(generation, atlas.Generation);
         Assert.Equal(first.X, repeated.X);
@@ -169,7 +198,13 @@ public sealed class SamplePerformanceRegressionTests
     public void GlyphAtlasCoalescesFirstUseQueueWritesAcrossACompilationBatch()
     {
         TtfFont font = LoadTestFont();
-        using var atlas = new GlyphAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        using var atlas = new GlyphAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 1024,
+            colorAtlasSize: 512,
+            initialColorAtlasSize: 64,
+            uniformRingBufferSize: 16 * 1024,
+            coverageRingBufferSize: 256 * 1024);
         const string text = "GPU text batching";
         int uniqueGlyphCount = text.Distinct().Count(character => character != ' ');
         ulong outlineWritesBefore = atlas.OutlineUploadWriteCount;

@@ -414,9 +414,18 @@ public class DiagnosticsLoggingSourceTests
         string systemDrawingGpuProvider = ReadSource("src", "System.Drawing.Common", "GpuProvider.cs");
         string skiaSharp = ReadSource("src", "SkiaSharp", "SkiaSharp.cs");
         string avaloniaHost = ReadSource("src", "ProGPU.Avalonia", "ProGpuHostControl.cs");
+        string avaloniaDrawingContext = ReadSource(
+            "src",
+            "ProGPU.Avalonia.Rendering",
+            "DrawingContextImpl.cs");
+        string framebufferPresentationRegistry = ReadSource(
+            "src",
+            "ProGPU.Backend",
+            "GpuFramebufferPresentationRegistry.cs");
 
         Assert.Contains("using System.Diagnostics.CodeAnalysis;", source, StringComparison.Ordinal);
         Assert.Contains("public static bool TryGetFirstActiveContext([NotNullWhen(true)] out WgpuContext? context)", source, StringComparison.Ordinal);
+        Assert.Contains("public static unsafe bool TryGetActiveContextForSurface(", source, StringComparison.Ordinal);
         Assert.Contains("for (var i = 0; i < _activeContexts.Count; i++)", source, StringComparison.Ordinal);
         Assert.Contains("var active = _activeContexts[i];", source, StringComparison.Ordinal);
         Assert.Contains("if (active.IsInitialized)", source, StringComparison.Ordinal);
@@ -435,6 +444,55 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("var active = WgpuContext.ActiveContexts;", skiaSharp, StringComparison.Ordinal);
         Assert.Contains("WgpuContext.TryGetFirstActiveContext(out var context);", avaloniaHost, StringComparison.Ordinal);
         Assert.DoesNotContain("var active = WgpuContext.ActiveContexts;", avaloniaHost, StringComparison.Ordinal);
+        Assert.Contains("WgpuContext.TryGetActiveContextForSurface(surfacePtr, out var context)", avaloniaDrawingContext, StringComparison.Ordinal);
+        Assert.Contains("WgpuContext.TryGetFirstActiveContext(out current);", avaloniaDrawingContext, StringComparison.Ordinal);
+        Assert.DoesNotContain("WgpuContext.ActiveContexts", avaloniaDrawingContext, StringComparison.Ordinal);
+        Assert.Contains("WgpuContext.TryGetActiveContextForSurface(surfaceHandle, out var context)", framebufferPresentationRegistry, StringComparison.Ordinal);
+        Assert.DoesNotContain("WgpuContext.ActiveContexts", framebufferPresentationRegistry, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompositorCommandLabelsAvoidPerFrameStringMarshalling()
+    {
+        string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
+
+        Assert.Contains("CreateCommandEncoder(\"Compositor Command Encoder\\0\"u8)", source, StringComparison.Ordinal);
+        Assert.Contains("\"Compositor Command Buffer\\0\"u8", source, StringComparison.Ordinal);
+        Assert.Contains("CreateCommandEncoder(\"Offscreen Compositor Encoder\\0\"u8)", source, StringComparison.Ordinal);
+        Assert.Contains("\"Offscreen Compositor Command Buffer\\0\"u8", source, StringComparison.Ordinal);
+        Assert.Contains("private CommandEncoder* CreateCommandEncoder(ReadOnlySpan<byte> label)", source, StringComparison.Ordinal);
+        Assert.Contains("private CommandBuffer* FinishCommandEncoder(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("StringToPtr(\"Compositor Command", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("StringToPtr(\"Offscreen Compositor", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlyphRasterizerCommandLabelsAvoidPerBatchStringMarshalling()
+    {
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
+
+        Assert.Contains("CreateCommandEncoder(\"Glyph Rasterizer Batch Encoder\\0\"u8)", source, StringComparison.Ordinal);
+        Assert.Contains("\"Glyph Rasterizer Batch Command Buffer\\0\"u8", source, StringComparison.Ordinal);
+        Assert.Contains("CreateCommandEncoder(\"Glyph Rasterizer Encoder\\0\"u8)", source, StringComparison.Ordinal);
+        Assert.Contains("\"Glyph Rasterizer Command Buffer\\0\"u8", source, StringComparison.Ordinal);
+        Assert.Contains("private CommandEncoder* CreateCommandEncoder(ReadOnlySpan<byte> label)", source, StringComparison.Ordinal);
+        Assert.Contains("private CommandBuffer* FinishCommandEncoder(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SilkMarshal.StringToPtr(\"Glyph Rasterizer", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompositorTextVertexCapacityUsesGeometricListGrowth()
+    {
+        string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
+
+        Assert.Contains(
+            "_textVerticesList.EnsureCapacity(requiredCapacity);",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_textVerticesList.Capacity = requiredCapacity;",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -661,7 +719,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var entry in _allocatedLayerTextures)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var cachedBg in _persistentTextureBindGroups.Values)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var bg in _maskBindGroups.Values)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("foreach (var bg in _maskBindGroupsOffscreen.Values)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_maskBindGroupsOffscreen", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var ext in _registeredExtensions)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var figure in cmd.Path.Figures)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var figure in source.Figures)", source, StringComparison.Ordinal);
@@ -688,7 +746,6 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var effectTextureEnumerator = _effectTextures.Values.GetEnumerator();", source, StringComparison.Ordinal);
         Assert.Contains("var allocatedLayerTextureEnumerator = _allocatedLayerTextures.GetEnumerator();", source, StringComparison.Ordinal);
         Assert.Contains("var cachedBindGroupEnumerator = _persistentTextureBindGroups.Values.GetEnumerator();", source, StringComparison.Ordinal);
-        Assert.Contains("var offscreenMaskBindGroupEnumerator = _maskBindGroupsOffscreen.Values.GetEnumerator();", source, StringComparison.Ordinal);
         Assert.Contains("private void DisposeMaskTexturePool()", source, StringComparison.Ordinal);
         Assert.Contains("var pooledMaskTextures = RentListSnapshot(_maskTexturePool", source, StringComparison.Ordinal);
         Assert.Contains("_clipStack.Dispose();", source, StringComparison.Ordinal);
@@ -907,6 +964,25 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("new List<int>", source, StringComparison.Ordinal);
         Assert.DoesNotContain("FindContainingChild(primitive.BoundsMin, primitive.BoundsMax, min, max, center)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("for (int i = 0; i < 4; i++)\n            {\n                var child = GetChildBounds(i, nodeMin, nodeMax, center);", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SampleOffscreenEffectsDoNotBuildUnconsumedGpuHitTestIndexes()
+    {
+        string source = ReadSource("src", "ProGPU.Samples", "Windows/MainWindowController.cs");
+
+        Assert.Contains(
+            "CompositorOptions.Default with { EnableGpuHitTesting = false }",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AppState._offscreenCompositor!.RenderScene(",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AppState._offscreenCompositor ??= new Compositor(context, TextureFormat.Rgba8Unorm)",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
