@@ -12,6 +12,9 @@
   <Project Path="ProGPU.Fonts.Noto/ProGPU.Fonts.Noto.csproj" />
   <Project Path="ProGPU.Compute/ProGPU.Compute.csproj" />
   <Project Path="ProGPU.Scene/ProGPU.Scene.csproj" />
+  <Project Path="ProGPU.Voxel/ProGPU.Voxel.csproj" />
+  <Project Path="ProGPU.Voxel.WinUI/ProGPU.Voxel.WinUI.csproj" />
+  <Project Path="ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj" />
   <Project Path="ProGPU.Wpf.Interop/ProGPU.Wpf.Interop.csproj" />
   <Project Path="System.Drawing.Common/System.Drawing.Common.csproj" />
   <Project Path="PresentationCore/PresentationCore.csproj" />
@@ -57,5 +60,6 @@
   <Project Path="../tools/TtfDiag/TtfDiag.csproj" />
   <Project Path="../tools/DxfDiag/DxfDiag.csproj" />
   <Project Path="../tools/HarfBuzzParity/HarfBuzzParity.csproj" />
+  <Project Path="../tools/ProGPU.Voxel.Benchmarks/ProGPU.Voxel.Benchmarks.csproj" />
   <Project Path="../tools/ProGPU.Xaml.Cli/ProGPU.Xaml.Cli.csproj" />
 </Solution>

@@ -30,6 +30,8 @@
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Android'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.iOS'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Scene'">true</IsPackable>
+    <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Voxel'">true</IsPackable>
+    <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Voxel.WinUI'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Layout'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.Virtualization'">true</IsPackable>
     <IsPackable Condition="'$(MSBuildProjectName)' == 'ProGPU.WinUI'">true</IsPackable>
