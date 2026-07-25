@@ -328,6 +328,7 @@ public static unsafe class MainWindowController
         var pictureCachingItem = PageItem("Picture Caching", "🖼️", PictureShowcasePage.Create);
         var fontGlyphBrowserItem = PageItem("Font Glyph Browser", "🔤", FontGlyphBrowserPage.Create);
         var mesh3DViewerItem = PageItem("3D Mesh Viewer", "🧊", Mesh3DViewerPage.Create);
+        var voxelGameItem = PageItem("Voxel Game", "⛏️", MinecraftGamePage.Create);
         var shaderToyPlaygroundItem = PageItem("ShaderToy Playground", "🔮", ShaderToyPlaygroundPage.Create);
         var xamlWelcomeItem = PageItem("Compiled XAML", "✦", XamlCompilerWelcomePage.Create);
         var xamlBindingsItem = PageItem("XAML Bindings", "⇄", XamlCompilerBindingsPage.Create);
@@ -391,6 +392,7 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(visualDesignerItem);
         AppState._navigationView.MenuItems.Add(pictureCachingItem);
         AppState._navigationView.MenuItems.Add(mesh3DViewerItem);
+        AppState._navigationView.MenuItems.Add(voxelGameItem);
         AppState._navigationView.MenuItems.Add(shaderToyPlaygroundItem);
         AppState._navigationView.MenuItems.Add(xamlWelcomeItem);
         AppState._navigationView.MenuItems.Add(xamlBindingsItem);
