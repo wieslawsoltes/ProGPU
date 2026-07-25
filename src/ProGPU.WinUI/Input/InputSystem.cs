@@ -10,6 +10,7 @@ using System.Diagnostics;
 using Silk.NET.Input;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using ProGPU.WinUI.Input;
 using Windows.Devices.Input;
 
 namespace Microsoft.UI.Xaml.Input;
@@ -35,6 +36,7 @@ public class WindowInputState
     public bool IsRightButtonPressed;
     public Action<StandardCursor>? CursorChanged;
     internal FrameworkElement? ComposingElement;
+    internal RelativePointerCaptureState RelativePointerCapture { get; } = new();
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
     internal Dictionary<uint, FrameworkElement> CapturedElements { get; } = new();
     internal Dictionary<FrameworkElement, ManipulationSession> Manipulations { get; } = new();
@@ -384,7 +386,11 @@ public static class InputSystem
         {
             mouse.MouseMove += (m, pos) => {
                 _currentState = state;
-                OnMouseMove(NormalizeInputPosition(state, new Vector2(pos.X, pos.Y)));
+                var platformPosition = new Vector2(pos.X, pos.Y);
+                if (!RelativePointerCapture.ProcessPlatformMouseMove(state, platformPosition))
+                {
+                    OnMouseMove(NormalizeInputPosition(state, platformPosition));
+                }
             };
             mouse.MouseDown += (m, btn) => {
                 _currentState = state;
@@ -1845,6 +1851,7 @@ public static class InputSystem
 
     private static void OnFocusLost()
     {
+        RelativePointerCapture.ReleaseCurrent();
         foreach (var contact in Current.PointerContacts.Values.ToArray())
         {
             InjectPointer(contact.LastEvent with
