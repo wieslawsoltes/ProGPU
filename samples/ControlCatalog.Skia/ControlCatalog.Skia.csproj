@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ControlCatalog</AssemblyName>
+    <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>..\ControlCatalog.Desktop\app.manifest</ApplicationManifest>
+    <AvaloniaForkRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\external\Avalonia'))</AvaloniaForkRoot>
+    <AvaloniaControlCatalogSourceRoot>$(AvaloniaForkRoot)\samples\ControlCatalog</AvaloniaControlCatalogSourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\ControlCatalog.Desktop\ControlCatalogBenchmark.cs"
+             Link="ControlCatalogBenchmark.cs" />
+    <Compile Include="..\ControlCatalog\Pages\DialogsPage.xaml.cs"
+             Link="Pages\DialogsPage.xaml.cs" />
+    <Compile Include="..\ControlCatalog\ViewModels\PlatformInformationViewModel.cs"
+             Link="ViewModels\PlatformInformationViewModel.cs" />
+    <Compile Include="$(AvaloniaControlCatalogSourceRoot)\**\*.cs"
+             Exclude="$(AvaloniaControlCatalogSourceRoot)\Pages\DialogsPage.xaml.cs;$(AvaloniaControlCatalogSourceRoot)\ViewModels\PlatformInformationViewModel.cs">
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Update="$(AvaloniaControlCatalogSourceRoot)\**\*.xaml.cs">
+      <DependentUpon>%(Filename)</DependentUpon>
+    </Compile>
+    <AvaloniaXaml Include="$(AvaloniaControlCatalogSourceRoot)\**\*.xaml;$(AvaloniaControlCatalogSourceRoot)\**\*.axaml">
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <SubType>Designer</SubType>
+    </AvaloniaXaml>
+    <AvaloniaResource Include="$(AvaloniaControlCatalogSourceRoot)\Assets\**\*">
+      <Link>Assets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AvaloniaResource>
+    <EmbeddedResource Include="$(AvaloniaControlCatalogSourceRoot)\Assets\Fonts\SourceSansPro-Bold.ttf"
+                      Link="Assets\Fonts\SourceSansPro-Bold.ttf" />
+    <EmbeddedResource Include="$(AvaloniaControlCatalogSourceRoot)\Assets\Fonts\SourceSansPro-BoldItalic.ttf"
+                      Link="Assets\Fonts\SourceSansPro-BoldItalic.ttf" />
+    <EmbeddedResource Include="$(AvaloniaControlCatalogSourceRoot)\Assets\Fonts\SourceSansPro-Italic.ttf"
+                      Link="Assets\Fonts\SourceSansPro-Italic.ttf" />
+    <EmbeddedResource Include="$(AvaloniaControlCatalogSourceRoot)\Assets\Fonts\SourceSansPro-Regular.ttf"
+                      Link="Assets\Fonts\SourceSansPro-Regular.ttf" />
+    <EmbeddedResource Include="$(AvaloniaControlCatalogSourceRoot)\Pages\teapot.bin"
+                      Link="Pages\teapot.bin" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Avalonia.HarfBuzz" />
+    <PackageReference Include="Avalonia.Skia" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Themes.Simple" />
+    <ProjectReference Include="..\MiniMvvm\MiniMvvm.csproj" />
+    <ProjectReference Include="..\SampleControls\ControlSamples.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaXaml Update="$(AvaloniaControlCatalogSourceRoot)\NavHeaderItem.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </AvaloniaXaml>
+  </ItemGroup>
+  <Target Name="ValidateAvaloniaForkSources" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(AvaloniaControlCatalogSourceRoot)\App.xaml.cs')"
+           Text="The pinned Avalonia source submodule is missing. Run 'git submodule update --init external/Avalonia'." />
+  </Target>
+</Project>

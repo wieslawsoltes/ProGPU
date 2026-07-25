@@ -6,6 +6,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <DefineConstants>$(DefineConstants);AVALONIA_SKIA_SHIM</DefineConstants>
+    <DefineConstants>$(DefineConstants);PROGPU_AVALONIA_BACKEND</DefineConstants>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
