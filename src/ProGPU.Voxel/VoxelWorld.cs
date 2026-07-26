@@ -11,6 +11,8 @@ public sealed class VoxelWorld
 
     public int ChunkCount => _chunks.Count;
 
+    public int ContentVersion { get; private set; }
+
     public VoxelBlock GetBlock(int x, int y, int z)
     {
         var chunkPosition = ToChunkPosition(x, y, z);
@@ -48,6 +50,10 @@ public sealed class VoxelWorld
         if (localZ == 0) MarkChunkMeshDirty(new(chunkPosition.X, chunkPosition.Y, chunkPosition.Z - 1));
         if (localZ == VoxelChunk.Size - 1) MarkChunkMeshDirty(new(chunkPosition.X, chunkPosition.Y, chunkPosition.Z + 1));
 
+        unchecked
+        {
+            ContentVersion++;
+        }
         return true;
     }
 

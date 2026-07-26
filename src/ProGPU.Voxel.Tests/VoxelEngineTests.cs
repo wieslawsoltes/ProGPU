@@ -208,4 +208,55 @@ public sealed class VoxelEngineTests
         Assert.Contains("@" + "fragment", source, StringComparison.Ordinal);
         Assert.DoesNotContain("var<storage", source, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void RayTracingVolumeUsesXThenZThenYLayoutAndVersionsMutations()
+    {
+        var volume = new VoxelRayTracingVolume
+        {
+            Blocks = new uint[2 * 3 * 4],
+            OriginX = -1,
+            OriginY = 5,
+            OriginZ = 9,
+            Width = 2,
+            Height = 4,
+            Depth = 3,
+            ContentVersion = 7
+        };
+
+        Assert.True(volume.TrySetBlock(0, 7, 11, (uint)VoxelBlock.Wood));
+        Assert.Equal((uint)VoxelBlock.Wood, volume.Blocks[1 + 2 * (2 + 3 * 2)]);
+        Assert.Equal(8, volume.ContentVersion);
+        Assert.False(volume.TrySetBlock(1, 7, 11, (uint)VoxelBlock.Stone));
+        Assert.Equal(8, volume.ContentVersion);
+    }
+
+    [Fact]
+    public void RayTracingAndMaterialShadersExposeBoundedPublicContracts()
+    {
+        var rayTracing = ShaderResource.Load(
+            typeof(VoxelTerrainCompilationPayload),
+            "VoxelRayTracing.wgsl");
+        var material = ShaderResource.Load(
+            typeof(VoxelTerrainCompilationPayload),
+            "VoxelMaterialDynamicEnvironment.wgsl");
+
+        Assert.Contains("stepIndex < 512u", rayTracing, StringComparison.Ordinal);
+        Assert.Contains("var<storage, read> blocks", rayTracing, StringComparison.Ordinal);
+        Assert.Contains("fn progpu_voxel_deform", material, StringComparison.Ordinal);
+        Assert.Contains("fn progpu_voxel_shade", material, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WorldContentVersionChangesOnlyForEffectiveMutations()
+    {
+        var world = new VoxelWorld();
+
+        Assert.True(world.SetBlock(1, 2, 3, VoxelBlock.Stone));
+        var version = world.ContentVersion;
+        Assert.False(world.SetBlock(1, 2, 3, VoxelBlock.Stone));
+        Assert.Equal(version, world.ContentVersion);
+        Assert.True(world.SetBlock(1, 2, 3, VoxelBlock.Air));
+        Assert.Equal(version + 1, world.ContentVersion);
+    }
 }

@@ -1,5 +1,5 @@
-// Algorithm: Transform indexed greedy-chunk vertices and shade procedural voxel materials with directional light, target highlighting, and distance fog.
-// Time complexity: O(1) per vertex and fragment; each fragment performs a fixed material branch, bounded hash work, and one directional-light evaluation.
+// Algorithm: Transform indexed greedy-chunk vertices through a caller-selectable WGSL material hook and shade procedural voxel materials with environment lighting, selection, and fog.
+// Time complexity: O(1) base work per vertex and fragment plus the documented cost of the selected material hook.
 // Space complexity: O(1) private storage per invocation with one uniform read per vertex; no storage-buffer or texture samples.
 struct VoxelUniforms {
     projection: mat4x4<f32>,
@@ -9,6 +9,8 @@ struct VoxelUniforms {
     skyColorAndFogStart: vec4<f32>,
     fogEndAndAmbient: vec4<f32>,
     selectedBlock: vec4<f32>,
+    windAndDeformation: vec4<f32>,
+    weatherAndTimeOfDay: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: VoxelUniforms;
@@ -27,6 +29,15 @@ struct VertexOutput {
     @location(3) faceLight: f32,
     @location(4) @interpolate(flat) material: u32,
     @location(5) @interpolate(flat) face: u32,
+};
+
+struct ProGpuVoxelMaterialInput {
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    uv: vec2<f32>,
+    material: u32,
+    face: u32,
+    time: f32,
 };
 
 fn face_normal(face: u32) -> vec3<f32> {
@@ -97,15 +108,24 @@ fn material_color(material: u32, face: u32, uv: vec2<f32>, worldPosition: vec3<f
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
-    let worldPosition = input.position;
     let face = (input.material >> 8u) & 7u;
+    let material = input.material & 255u;
+    let normal = face_normal(face);
+    let materialInput = ProGpuVoxelMaterialInput(
+        input.position,
+        normal,
+        input.textureCoordinate,
+        material,
+        face,
+        uniforms.cameraAndTime.w);
+    let worldPosition = progpu_voxel_deform(materialInput);
     var output: VertexOutput;
     output.position = uniforms.projection * uniforms.view * vec4<f32>(worldPosition, 1.0);
     output.worldPosition = worldPosition;
     output.textureCoordinate = input.textureCoordinate;
-    output.normal = face_normal(face);
+    output.normal = normal;
     output.faceLight = f32((input.material >> 16u) & 255u) / 255.0;
-    output.material = input.material & 255u;
+    output.material = material;
     output.face = face;
     return output;
 }
@@ -113,6 +133,14 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = material_color(input.material, input.face, input.textureCoordinate, input.worldPosition);
+    let materialInput = ProGpuVoxelMaterialInput(
+        input.worldPosition,
+        input.normal,
+        input.textureCoordinate,
+        input.material,
+        input.face,
+        uniforms.cameraAndTime.w);
+    color = progpu_voxel_shade(materialInput, color);
     let sun = normalize(uniforms.sunDirectionAndIntensity.xyz);
     let direct = max(dot(input.normal, sun), 0.0) * uniforms.sunDirectionAndIntensity.w;
     let skyAmbient = mix(uniforms.fogEndAndAmbient.z, uniforms.fogEndAndAmbient.y, input.normal.y * 0.5 + 0.5);
