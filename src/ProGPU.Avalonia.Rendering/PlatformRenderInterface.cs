@@ -10,8 +10,10 @@ using Avalonia.Platform;
 namespace Avalonia.ProGpu
 {
     internal class PlatformRenderInterface :
-        IPlatformRenderInterface,
-        IPlatformRenderInterfaceNativeSurfaceFeature
+        IPlatformRenderInterface
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        , IPlatformRenderInterfaceNativeSurfaceFeature
+#endif
     {
         private readonly bool _requireNativeCompositionScene;
         private readonly bool _useDawnMetalPresentation;
