@@ -12,7 +12,7 @@ public static class MinecraftGamePage
     public static FrameworkElement Create()
     {
         var root = new Grid { Margin = new Thickness(12f) };
-        root.RowDefinitions.Add(new GridLength(82f, GridUnitType.Absolute));
+        root.RowDefinitions.Add(new GridLength(118f, GridUnitType.Absolute));
         root.RowDefinitions.Add(new GridLength(1f, GridUnitType.Star));
 
         var header = new Border
@@ -31,7 +31,7 @@ public static class MinecraftGamePage
             FontSize = 16f
         };
         title.Inlines.Add(new Bold(new Run("ProGPU Voxel Game")));
-        title.Inlines.Add(new Run("  •  pure WGSL chunk rendering"));
+        title.Inlines.Add(new Run("  •  pure WGSL raster, ray traversal, materials, and VFX"));
         headerLayout.AddChild(title);
 
         var statusRun = new Run("Generating deterministic terrain and greedy chunk meshes…");
@@ -44,9 +44,6 @@ public static class MinecraftGamePage
         };
         status.Inlines.Add(statusRun);
         headerLayout.AddChild(status);
-        header.Child = headerLayout;
-        root.AddChild(header);
-        Grid.SetRow(header, 0);
 
         var game = new VoxelGameView
         {
@@ -55,14 +52,38 @@ public static class MinecraftGamePage
             RenderDistanceInChunks = 6
         };
 
+        var toggles = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 6f, 0, 0)
+        };
+        var rayTracingToggle = CreateToggle("Ray tracing (R)", game.EnableRayTracing);
+        var rainToggle = CreateToggle("Rain (T)", game.EnableRain);
+        var motionBlurToggle = CreateToggle("Motion blur (M)", game.EnableMotionBlur);
+        var voxelEffectsToggle = CreateToggle("Voxel deformation (V)", game.EnableVoxelEffects);
+        toggles.AddChild(rayTracingToggle);
+        toggles.AddChild(rainToggle);
+        toggles.AddChild(motionBlurToggle);
+        toggles.AddChild(voxelEffectsToggle);
+        headerLayout.AddChild(toggles);
+        header.Child = headerLayout;
+        root.AddChild(header);
+        Grid.SetRow(header, 0);
+
+        rayTracingToggle.Toggled += (_, _) => game.EnableRayTracing = rayTracingToggle.IsOn;
+        rainToggle.Toggled += (_, _) => game.EnableRain = rainToggle.IsOn;
+        motionBlurToggle.Toggled += (_, _) => game.EnableMotionBlur = motionBlurToggle.IsOn;
+        voxelEffectsToggle.Toggled += (_, _) => game.EnableVoxelEffects = voxelEffectsToggle.IsOn;
+
         void UpdateStatus()
         {
             var capture = game.IsMouseLookActive
                 ? "Mouse captured — Esc release"
                 : "Click game to capture mouse";
             var name = VoxelBlockCatalog.Get(game.SelectedBlock).Name;
+            var renderer = game.EnableRayTracing ? "WGSL DDA ray tracing" : "greedy-mesh raster";
             statusRun.Text =
-                $"{capture} • WASD move, Shift sprint, Space jump, F fly • " +
+                $"{capture} • {renderer} • WASD move, Shift sprint, Space jump, F fly • " +
                 $"Left mine, right place, wheel/1–7 select • Selected: {name}";
         }
 
@@ -72,6 +93,14 @@ public static class MinecraftGamePage
         };
         game.SelectedBlockChanged += (_, _) => UpdateStatus();
         game.MouseLookActiveChanged += (_, _) => UpdateStatus();
+        game.RenderOptionsChanged += (_, _) =>
+        {
+            rayTracingToggle.IsOn = game.EnableRayTracing;
+            rainToggle.IsOn = game.EnableRain;
+            motionBlurToggle.IsOn = game.EnableMotionBlur;
+            voxelEffectsToggle.IsOn = game.EnableVoxelEffects;
+            UpdateStatus();
+        };
 
         var gameFrame = new Border
         {
@@ -85,5 +114,21 @@ public static class MinecraftGamePage
         Grid.SetRow(gameFrame, 1);
         game.StartNewWorld(seed: 1337, chunkRadius: 3);
         return root;
+    }
+
+    private static ToggleSwitch CreateToggle(string text, bool isOn)
+    {
+        var label = new RichTextBlock
+        {
+            Font = AppState.GetFont(),
+            FontSize = 11f
+        };
+        label.Inlines.Add(new Run(text));
+        return new ToggleSwitch
+        {
+            IsOn = isOn,
+            Content = label,
+            Margin = new Thickness(0, 0, 14f, 0)
+        };
     }
 }

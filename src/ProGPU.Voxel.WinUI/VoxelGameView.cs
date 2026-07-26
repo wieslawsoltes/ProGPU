@@ -34,6 +34,9 @@ public sealed class VoxelGameView : Control
     private readonly Brush _accentBrush = new ThemeResourceBrush("SystemAccentColor");
     private readonly Pen _crosshairPen;
     private readonly Pen _focusPen;
+    private readonly float[] _postEffectConstants = new float[32];
+    private readonly WgslEffectParameters _postEffect =
+        new(WgslEffectShaders.VoxelWeather);
     private Task<VoxelWorld>? _worldTask;
     private GpuTexture? _colorTexture;
     private GpuTexture? _msaaColorTexture;
@@ -41,12 +44,24 @@ public sealed class VoxelGameView : Control
     private uint _textureSampleCount;
     private bool _jumpRequested;
     private bool _animateMaterials;
+    private bool _enableRayTracing;
+    private bool _enableRain;
+    private bool _enableMotionBlur;
+    private bool _enableVoxelEffects = true;
     private float _time;
+    private float _lastYaw;
+    private float _lastPitch;
+    private Vector2 _cameraMotion;
+    private VoxelRayTracingVolume? _rayTracingVolume;
     private VoxelRaycastHit? _target;
     private Exception? _loadError;
 
     public VoxelGameView()
     {
+        _enableRayTracing = ReadBooleanEnvironment("PROGPU_VOXEL_RAY_TRACING");
+        _enableRain = ReadBooleanEnvironment("PROGPU_VOXEL_RAIN");
+        _enableMotionBlur = ReadBooleanEnvironment("PROGPU_VOXEL_MOTION_BLUR");
+        _enableVoxelEffects = !ReadBooleanEnvironment("PROGPU_VOXEL_DISABLE_MATERIAL_EFFECTS");
         _crosshairPen = new Pen(_hudBrush, 2f);
         _focusPen = new Pen(_accentBrush, 2f);
         HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -76,11 +91,37 @@ public sealed class VoxelGameView : Control
 
     public Exception? LoadError => _loadError;
 
+    public bool EnableRayTracing
+    {
+        get => _enableRayTracing;
+        set => SetRenderOption(ref _enableRayTracing, value);
+    }
+
+    public bool EnableRain
+    {
+        get => _enableRain;
+        set => SetRenderOption(ref _enableRain, value);
+    }
+
+    public bool EnableMotionBlur
+    {
+        get => _enableMotionBlur;
+        set => SetRenderOption(ref _enableMotionBlur, value);
+    }
+
+    public bool EnableVoxelEffects
+    {
+        get => _enableVoxelEffects;
+        set => SetRenderOption(ref _enableVoxelEffects, value);
+    }
+
     public event EventHandler? WorldReady;
 
     public event EventHandler? SelectedBlockChanged;
 
     public event EventHandler? MouseLookActiveChanged;
+
+    public event EventHandler? RenderOptionsChanged;
 
     public void StartNewWorld(int seed = 1337, int chunkRadius = 3)
     {
@@ -92,6 +133,7 @@ public sealed class VoxelGameView : Control
         World = null;
         _loadError = null;
         _transferGeometry.Clear();
+        _rayTracingVolume = null;
         _worldTask = Task.Run(() =>
             VoxelTerrainGenerator.Generate(
                 new VoxelTerrainSettings(seed, chunkRadius, BuildMeshes: true)));
@@ -131,10 +173,18 @@ public sealed class VoxelGameView : Control
             SpawnPlayer(World);
         }
 
-        if (_animateMaterials)
+        if (_animateMaterials || EnableRain || EnableVoxelEffects)
         {
             _time += Math.Clamp(elapsedSeconds, 0f, 0.1f);
         }
+        var yawDelta = NormalizeAngle(_player.Yaw - _lastYaw);
+        var pitchDelta = _player.Pitch - _lastPitch;
+        _cameraMotion = Vector2.Lerp(
+            _cameraMotion,
+            new Vector2(-yawDelta, pitchDelta) * 0.055f,
+            Math.Clamp(elapsedSeconds * 18f, 0f, 1f));
+        _lastYaw = _player.Yaw;
+        _lastPitch = _player.Pitch;
         UpdateTarget();
         Invalidate();
     }
@@ -157,7 +207,7 @@ public sealed class VoxelGameView : Control
         var dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(wgpuContext.Window);
         var width = (uint)Math.Max(1, Size.X * dpiScale);
         var height = (uint)Math.Max(1, Size.Y * dpiScale);
-        var sampleCount = dpiScale >= 1.5f ? 1u : 4u;
+        var sampleCount = EnableRayTracing ? 1u : dpiScale >= 1.5f ? 1u : 4u;
         EnsureTextures(wgpuContext, width, height, sampleCount);
 
         var aspect = Size.X / Math.Max(1f, Size.Y);
@@ -174,7 +224,7 @@ public sealed class VoxelGameView : Control
         var viewProjection = view * projection;
 
         PreparePayload(viewProjection, farPlane);
-        if (_payload.Chunks.Count > 0)
+        if (_payload.Chunks.Count > 0 || EnableRayTracing)
         {
             context.Commands.Add(new RenderCommand
             {
@@ -185,12 +235,20 @@ public sealed class VoxelGameView : Control
                 Transform = projection,
                 DataParam = _payload
             });
-            context.Commands.Add(new RenderCommand
+            if (EnableRain || EnableMotionBlur)
             {
-                Type = RenderCommandType.DrawTexture,
-                Rect = new Rect(Vector2.Zero, Size),
-                Texture = _colorTexture
-            });
+                UpdatePostEffectParameters();
+                context.DrawWgslEffect(_postEffect);
+            }
+            else
+            {
+                context.Commands.Add(new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Rect = new Rect(Vector2.Zero, Size),
+                    Texture = _colorTexture
+                });
+            }
         }
 
         DrawHud(context);
@@ -218,6 +276,22 @@ public sealed class VoxelGameView : Control
             else if (!wasPressed && e.Key == Key.F)
             {
                 _player.ToggleFlying();
+            }
+            else if (!wasPressed && e.Key == Key.R)
+            {
+                EnableRayTracing = !EnableRayTracing;
+            }
+            else if (!wasPressed && e.Key == Key.T)
+            {
+                EnableRain = !EnableRain;
+            }
+            else if (!wasPressed && e.Key == Key.M)
+            {
+                EnableMotionBlur = !EnableMotionBlur;
+            }
+            else if (!wasPressed && e.Key == Key.V)
+            {
+                EnableVoxelEffects = !EnableVoxelEffects;
             }
             else if (!wasPressed && TrySelectBlock(e.Key, out var selected))
             {
@@ -317,6 +391,7 @@ public sealed class VoxelGameView : Control
         {
             World = _worldTask.Result;
             _animateMaterials = World.ContainsBlock(VoxelBlock.Water);
+            _rayTracingVolume = BuildRayTracingVolume(World);
             SpawnPlayer(World);
             WorldReady?.Invoke(this, EventArgs.Empty);
         }
@@ -344,10 +419,23 @@ public sealed class VoxelGameView : Control
         _payload.DepthTexture = _depthTexture;
         _payload.SampleCount = _textureSampleCount;
         _payload.CameraPosition = _player.EyePosition;
+        _payload.CameraForward = _player.LookDirection;
+        _payload.AspectRatio = Math.Max(0.01f, Size.X / Math.Max(1f, Size.Y));
+        _payload.VerticalFieldOfView = 70f * MathF.PI / 180f;
         _payload.Time = _time;
         _payload.FogStart = farPlane * 0.55f;
         _payload.FogEnd = farPlane * 0.92f;
         _payload.HasSelectedBlock = _target.HasValue;
+        _payload.RenderMode = EnableRayTracing ? VoxelRenderMode.RayTraced : VoxelRenderMode.Rasterized;
+        _payload.RayTracingVolume = _rayTracingVolume;
+        _payload.MaterialEffect = EnableVoxelEffects
+            ? VoxelMaterialEffects.DynamicEnvironment
+            : VoxelMaterialEffects.None;
+        _payload.WindStrength = EnableRain ? 0.9f : 0.35f;
+        _payload.DeformationStrength = EnableVoxelEffects ? 1f : 0f;
+        _payload.RainIntensity = EnableRain ? 0.82f : 0f;
+        _payload.Wetness = EnableRain ? 0.9f : 0f;
+        _payload.TimeOfDay = 0.22f + (0.5f + 0.5f * MathF.Sin(_time * 0.025f)) * 0.5f;
         if (_target is { } target)
         {
             _payload.SelectedBlock = new Vector3(target.Block.X, target.Block.Y, target.Block.Z);
@@ -452,6 +540,7 @@ public sealed class VoxelGameView : Control
             return;
         }
         World.SetBlock(target.Block.X, target.Block.Y, target.Block.Z, VoxelBlock.Air);
+        _rayTracingVolume?.TrySetBlock(target.Block.X, target.Block.Y, target.Block.Z, 0u);
         UpdateTarget();
         Invalidate();
     }
@@ -470,6 +559,7 @@ public sealed class VoxelGameView : Control
         }
 
         World.SetBlock(position.X, position.Y, position.Z, SelectedBlock);
+        _rayTracingVolume?.TrySetBlock(position.X, position.Y, position.Z, (uint)SelectedBlock);
         _animateMaterials |= SelectedBlock == VoxelBlock.Water;
         UpdateTarget();
         Invalidate();
@@ -556,6 +646,146 @@ public sealed class VoxelGameView : Control
         _textureSampleCount = 0;
     }
 
+    private void UpdatePostEffectParameters()
+    {
+        _postEffect.SourceTexture = _colorTexture;
+        _postEffect.Bounds = new Rect(Vector2.Zero, Size);
+        _postEffect.Constants = _postEffectConstants;
+        _postEffectConstants[0] = _time;
+        _postEffectConstants[1] = EnableRain ? 0.82f : 0f;
+        _postEffectConstants[2] = EnableMotionBlur ? 1f : 0f;
+        _postEffectConstants[3] = 1f;
+        _postEffectConstants[4] = Math.Clamp(_cameraMotion.X, -0.018f, 0.018f);
+        _postEffectConstants[5] = Math.Clamp(_cameraMotion.Y, -0.018f, 0.018f);
+        _postEffectConstants[6] = 0.8f;
+        _postEffectConstants[7] = 0.3f;
+        _postEffectConstants[8] = 0.66f;
+        _postEffectConstants[9] = 0.84f;
+        _postEffectConstants[10] = 1f;
+        _postEffectConstants[11] = 0.58f;
+
+        var look = _player.LookDirection;
+        var right = Vector3.Cross(look, Vector3.UnitY);
+        right = right.LengthSquared() > 0.000001f ? Vector3.Normalize(right) : Vector3.UnitX;
+        var up = Vector3.Normalize(Vector3.Cross(right, look));
+        var eye = _player.EyePosition;
+        _postEffectConstants[12] = eye.X;
+        _postEffectConstants[13] = eye.Y;
+        _postEffectConstants[14] = eye.Z;
+        _postEffectConstants[15] = MathF.Tan(70f * MathF.PI / 360f);
+        _postEffectConstants[16] = look.X;
+        _postEffectConstants[17] = look.Y;
+        _postEffectConstants[18] = look.Z;
+        _postEffectConstants[19] = Math.Max(0.01f, Size.X / Math.Max(1f, Size.Y));
+        _postEffectConstants[20] = right.X;
+        _postEffectConstants[21] = right.Y;
+        _postEffectConstants[22] = right.Z;
+        _postEffectConstants[23] = 0f;
+        _postEffectConstants[24] = up.X;
+        _postEffectConstants[25] = up.Y;
+        _postEffectConstants[26] = up.Z;
+        _postEffectConstants[27] = 0f;
+        _postEffectConstants[28] = 0.92f;
+        _postEffectConstants[29] = 0.88f;
+        _postEffectConstants[30] = 4.5f;
+        _postEffectConstants[31] = 72f;
+    }
+
+    private static VoxelRayTracingVolume BuildRayTracingVolume(VoxelWorld world)
+    {
+        if (world.Chunks.Count == 0)
+        {
+            return new VoxelRayTracingVolume
+            {
+                Blocks = new uint[1],
+                OriginX = 0,
+                OriginY = 0,
+                OriginZ = 0,
+                Width = 1,
+                Height = 1,
+                Depth = 1,
+                ContentVersion = world.ContentVersion
+            };
+        }
+
+        var minChunkX = int.MaxValue;
+        var minChunkY = int.MaxValue;
+        var minChunkZ = int.MaxValue;
+        var maxChunkX = int.MinValue;
+        var maxChunkY = int.MinValue;
+        var maxChunkZ = int.MinValue;
+        foreach (var chunk in world.Chunks)
+        {
+            minChunkX = Math.Min(minChunkX, chunk.Position.X);
+            minChunkY = Math.Min(minChunkY, chunk.Position.Y);
+            minChunkZ = Math.Min(minChunkZ, chunk.Position.Z);
+            maxChunkX = Math.Max(maxChunkX, chunk.Position.X);
+            maxChunkY = Math.Max(maxChunkY, chunk.Position.Y);
+            maxChunkZ = Math.Max(maxChunkZ, chunk.Position.Z);
+        }
+
+        var originX = minChunkX * VoxelChunk.Size;
+        var originY = minChunkY * VoxelChunk.Size;
+        var originZ = minChunkZ * VoxelChunk.Size;
+        var width = checked((maxChunkX - minChunkX + 1) * VoxelChunk.Size);
+        var height = checked((maxChunkY - minChunkY + 1) * VoxelChunk.Size);
+        var depth = checked((maxChunkZ - minChunkZ + 1) * VoxelChunk.Size);
+        var blocks = new uint[checked(width * height * depth)];
+        foreach (var chunk in world.Chunks)
+        {
+            var chunkOriginX = chunk.Position.X * VoxelChunk.Size - originX;
+            var chunkOriginY = chunk.Position.Y * VoxelChunk.Size - originY;
+            var chunkOriginZ = chunk.Position.Z * VoxelChunk.Size - originZ;
+            for (var y = 0; y < VoxelChunk.Size; y++)
+            {
+                for (var z = 0; z < VoxelChunk.Size; z++)
+                {
+                    for (var x = 0; x < VoxelChunk.Size; x++)
+                    {
+                        var block = chunk.GetLocal(x, y, z);
+                        blocks[
+                            chunkOriginX + x +
+                            width * (chunkOriginZ + z + depth * (chunkOriginY + y))] =
+                            (uint)block;
+                    }
+                }
+            }
+        }
+
+        return new VoxelRayTracingVolume
+        {
+            Blocks = blocks,
+            OriginX = originX,
+            OriginY = originY,
+            OriginZ = originZ,
+            Width = width,
+            Height = height,
+            Depth = depth,
+            ContentVersion = world.ContentVersion
+        };
+    }
+
+    private void SetRenderOption(ref bool field, bool value)
+    {
+        if (field == value)
+        {
+            return;
+        }
+        field = value;
+        RenderOptionsChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+    }
+
+    private static float NormalizeAngle(float angle)
+    {
+        while (angle > MathF.PI) angle -= MathF.Tau;
+        while (angle < -MathF.PI) angle += MathF.Tau;
+        return angle;
+    }
+
+    private static bool ReadBooleanEnvironment(string name) =>
+        bool.TryParse(Environment.GetEnvironmentVariable(name), out var enabled) && enabled;
+
     private WgpuContext? GetActiveWgpuContext()
     {
         var windows = WindowManager.ActiveWindows;
@@ -619,7 +849,7 @@ public sealed class VoxelGameView : Control
     private static bool IsGameKey(Key key) => key is
         Key.W or Key.A or Key.S or Key.D or
         Key.Up or Key.Down or Key.Left or Key.Right or
-        Key.Space or Key.Q or Key.E or Key.F or Key.Escape or
+        Key.Space or Key.Q or Key.E or Key.F or Key.R or Key.T or Key.M or Key.V or Key.Escape or
         Key.ControlLeft or Key.ControlRight or
         Key.ShiftLeft or Key.ShiftRight or
         Key.Number1 or Key.Number2 or Key.Number3 or Key.Number4 or
