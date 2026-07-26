@@ -841,8 +841,31 @@ public class GpuPicture : IRenderDataProvider, IDisposable
     {
         for (int index = 0; index < _retainedResources.Length; index++)
         {
-            destination.Add(_retainedResources[index].AddRef());
+            RetainedResourceLease resource = _retainedResources[index];
+            object? identity = resource.Identity;
+            if (identity is not null &&
+                HasRetainedResourceIdentity(destination, identity))
+            {
+                continue;
+            }
+
+            destination.Add(resource.AddRef());
         }
+    }
+
+    private static bool HasRetainedResourceIdentity(
+        List<RetainedResourceLease> resources,
+        object identity)
+    {
+        for (int index = 0; index < resources.Count; index++)
+        {
+            if (ReferenceEquals(resources[index].Identity, identity))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public void Dispose()
