@@ -119,6 +119,8 @@ jobs:
             --configuration Release \
             --no-restore \
             --filter "FullyQualifiedName~DawnNativeWindowSourceTests|FullyQualifiedName~SourceControlCatalogHasStrictNonSilkDawnPresentationGate"
+          dotnet build tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj \
+            --configuration Release
 
       - name: Run X11 Vulkan ControlCatalog telemetry smoke
         if: runner.os == 'Linux'

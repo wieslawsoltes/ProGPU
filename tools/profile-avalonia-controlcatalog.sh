@@ -126,6 +126,10 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
       fi
     fi
   done
+elif [[ ! -f "$analyzer_app" ]]; then
+  echo "PROGPU_AVALONIA_SKIP_BUILD=1 requires the profiler at $analyzer_app." >&2
+  echo "Build $analyzer_project in Release before running this command." >&2
+  exit 3
 fi
 
 pages=()
