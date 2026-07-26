@@ -121,29 +121,42 @@ namespace ProGPU.Samples
                 Font = AppState._font
             };
 
-            // Add all 10 ported samples as PivotItems
-            pivot.Items.Add(new PivotItem("Basic Line & Area", CreateLineAreaTab()));
-            pivot.Items.Add(new PivotItem("Grouped Bar", CreateBarTab()));
-            pivot.Items.Add(new PivotItem("Pie & Donut", CreatePieTab()));
-            pivot.Items.Add(new PivotItem("Scatter Clusters", CreateScatterTab()));
-            pivot.Items.Add(new PivotItem("Candlestick Stream", CreateCandlestickTab()));
-            pivot.Items.Add(new PivotItem("1 Million Points", CreateMillionPointsTab()));
-            pivot.Items.Add(new PivotItem("Downsampling split", CreateSamplingSplitTab()));
-            pivot.Items.Add(new PivotItem("Interactive Zoom", CreateInteractiveZoomTab()));
-            pivot.Items.Add(new PivotItem("Custom Annotations", CreateAnnotationsTab()));
-            pivot.Items.Add(new PivotItem("Tick Formatter", CreateFormatterTab()));
+            // Keep inactive demonstrations cold. Some tabs intentionally own millions of
+            // points, so constructing every PivotItem up front retained tens of MiB before
+            // the user had selected a benchmark. Materialized tabs stay cached after their
+            // first selection to preserve navigation state.
+            var contentFactories = new Dictionary<PivotItem, Func<FrameworkElement>>();
+            void AddPivotItem(string header, Func<FrameworkElement> contentFactory, bool materializeImmediately = false)
+            {
+                var item = new PivotItem(header);
+                contentFactories.Add(item, contentFactory);
+                if (materializeImmediately)
+                {
+                    item.Content = contentFactory();
+                    contentFactories.Remove(item);
+                }
 
-            // Add the 5 advanced remaining ported samples
-            pivot.Items.Add(new PivotItem("Dual Y-Axes", CreateDualYAxesTab()));
-            pivot.Items.Add(new PivotItem("Chart Sync", CreateChartSyncTab()));
-            pivot.Items.Add(new PivotItem("Live Streaming", CreateLiveStreamTab()));
-            pivot.Items.Add(new PivotItem("1M Density Heatmap", CreateScatterDensityHeatmapTab()));
-            pivot.Items.Add(new PivotItem("Exchange Gaps", CreateExchangeGapsTab()));
+                pivot.Items.Add(item);
+            }
 
-            // Ported missing samples (Phase 5 Completion)
-            pivot.Items.Add(new PivotItem("Ultimate Benchmark", CreateUltimateBenchmarkTab()));
-            pivot.Items.Add(new PivotItem("Chart Transitions", CreateTransitionsTab()));
-            pivot.Items.Add(new PivotItem("Cartesian Formats", CreateCartesianFormatsTab()));
+            AddPivotItem("Basic Line & Area", CreateLineAreaTab, materializeImmediately: true);
+            AddPivotItem("Grouped Bar", CreateBarTab);
+            AddPivotItem("Pie & Donut", CreatePieTab);
+            AddPivotItem("Scatter Clusters", CreateScatterTab);
+            AddPivotItem("Candlestick Stream", CreateCandlestickTab);
+            AddPivotItem("1 Million Points", CreateMillionPointsTab);
+            AddPivotItem("Downsampling split", CreateSamplingSplitTab);
+            AddPivotItem("Interactive Zoom", CreateInteractiveZoomTab);
+            AddPivotItem("Custom Annotations", CreateAnnotationsTab);
+            AddPivotItem("Tick Formatter", CreateFormatterTab);
+            AddPivotItem("Dual Y-Axes", CreateDualYAxesTab);
+            AddPivotItem("Chart Sync", CreateChartSyncTab);
+            AddPivotItem("Live Streaming", CreateLiveStreamTab);
+            AddPivotItem("1M Density Heatmap", CreateScatterDensityHeatmapTab);
+            AddPivotItem("Exchange Gaps", CreateExchangeGapsTab);
+            AddPivotItem("Ultimate Benchmark", CreateUltimateBenchmarkTab);
+            AddPivotItem("Chart Transitions", CreateTransitionsTab);
+            AddPivotItem("Cartesian Formats", CreateCartesianFormatsTab);
 
             mainGrid.AddChild(pivot);
             Grid.SetRow(pivot, 1);
@@ -151,6 +164,13 @@ namespace ProGPU.Samples
             // Handle clean stop of background timers when leaving the page (handled reflectively)
             pivot.SelectionChanged += (s, e) =>
             {
+                if (pivot.SelectedIndex >= 0 &&
+                    pivot.SelectedIndex < pivot.Items.Count &&
+                    contentFactories.Remove(pivot.Items[pivot.SelectedIndex], out var contentFactory))
+                {
+                    pivot.Items[pivot.SelectedIndex].Content = contentFactory();
+                }
+
                 if (pivot.SelectedIndex != 4)
                 {
                     StopStreamingTimer();

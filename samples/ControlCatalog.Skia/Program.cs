@@ -16,7 +16,7 @@ internal static class Program
             App.InitialPage = args[pageArgumentIndex + 1];
         }
 
-        using var benchmark = ControlCatalogBenchmark.TryStart("Skia", App.InitialPage);
+        using var benchmark = ControlCatalogBenchmark.TryStart("Skia", App.InitialPage, "HarfBuzz");
         var builder = BuildAvaloniaApp();
         builder.AfterSetup(_ => benchmark?.Attach());
         return builder.StartWithClassicDesktopLifetime(args);

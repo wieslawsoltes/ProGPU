@@ -3,13 +3,15 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>ControlCatalog</AssemblyName>
+    <RootNamespace>ControlCatalog</RootNamespace>
     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationManifest>..\ControlCatalog.Desktop\app.manifest</ApplicationManifest>
-    <AvaloniaForkRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\external\Avalonia'))</AvaloniaForkRoot>
+    <AvaloniaForkRoot Condition="'$(AvaloniaForkRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.0.5'))</AvaloniaForkRoot>
+    <AvaloniaSamplesRoot>$(AvaloniaForkRoot)\samples</AvaloniaSamplesRoot>
     <AvaloniaControlCatalogSourceRoot>$(AvaloniaForkRoot)\samples\ControlCatalog</AvaloniaControlCatalogSourceRoot>
   </PropertyGroup>
   <ItemGroup>
@@ -20,7 +22,7 @@
     <Compile Include="..\ControlCatalog\ViewModels\PlatformInformationViewModel.cs"
              Link="ViewModels\PlatformInformationViewModel.cs" />
     <Compile Include="$(AvaloniaControlCatalogSourceRoot)\**\*.cs"
-             Exclude="$(AvaloniaControlCatalogSourceRoot)\Pages\DialogsPage.xaml.cs;$(AvaloniaControlCatalogSourceRoot)\ViewModels\PlatformInformationViewModel.cs">
+             Exclude="$(AvaloniaControlCatalogSourceRoot)\bin\**;$(AvaloniaControlCatalogSourceRoot)\obj\**;$(AvaloniaControlCatalogSourceRoot)\Pages\DialogsPage.xaml.cs;$(AvaloniaControlCatalogSourceRoot)\ViewModels\PlatformInformationViewModel.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
     <Compile Update="$(AvaloniaControlCatalogSourceRoot)\**\*.xaml.cs">
@@ -53,8 +55,8 @@
     <PackageReference Include="Avalonia.Skia" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Avalonia.Themes.Simple" />
-    <ProjectReference Include="..\MiniMvvm\MiniMvvm.csproj" />
-    <ProjectReference Include="..\SampleControls\ControlSamples.csproj" />
+    <ProjectReference Include="$(AvaloniaSamplesRoot)\MiniMvvm\MiniMvvm.csproj" />
+    <ProjectReference Include="$(AvaloniaSamplesRoot)\SampleControls\ControlSamples.csproj" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaXaml Update="$(AvaloniaControlCatalogSourceRoot)\NavHeaderItem.xaml">

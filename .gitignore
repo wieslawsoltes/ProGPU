@@ -387,6 +387,9 @@ FodyWeavers.xsd
 !.vscode/extensions.json
 *.code-workspace
 
+# Reproducible detached third-party source worktrees
+.worktrees/
+
 # Local History for Visual Studio Code
 .history/
 

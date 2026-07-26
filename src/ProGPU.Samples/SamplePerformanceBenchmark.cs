@@ -679,7 +679,7 @@ internal static class SamplePerformanceBenchmark
     }
 }
 
-internal readonly record struct ProcessMemorySnapshot(
+public readonly record struct ProcessMemorySnapshot(
     long ResidentBytes,
     long WiredBytes,
     long PhysicalFootprintBytes,
@@ -763,7 +763,7 @@ internal static unsafe class MacOsProcessMemory
 }
 
 [EventSource(Name = "ProGPU-SampleBenchmark")]
-internal sealed class SampleBenchmarkEventSource : EventSource
+public sealed class SampleBenchmarkEventSource : EventSource
 {
     public static readonly SampleBenchmarkEventSource Log = new();
 

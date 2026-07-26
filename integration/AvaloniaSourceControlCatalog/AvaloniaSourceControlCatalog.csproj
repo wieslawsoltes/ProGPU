@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ProGpuDependencyMode>Source</ProGpuDependencyMode>
+    <ProGpuSourceRoot>$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <UseSkiaSharpShim>true</UseSkiaSharpShim>
+    <AvaloniaSingleProject>false</AvaloniaSingleProject>
+    <DefineConstants>$(DefineConstants);PROGPU_AVALONIA_BACKEND</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogBenchmark.cs"
+             Link="ControlCatalogBenchmark.cs" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\samples\ControlCatalog\ControlCatalog.csproj"
+                      AdditionalProperties="AvaloniaSingleProject=false;UseSkiaSharpShim=true;ProGpuSourceRoot=$(ProGpuSourceRoot);ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Native\Avalonia.Native.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.X11\Avalonia.X11.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Windows\Avalonia.Win32\Avalonia.Win32.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\Avalonia.ProGpu.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\Avalonia.SilkNet.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+  </ItemGroup>
+</Project>

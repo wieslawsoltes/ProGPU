@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia\ProGPU.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+  </ItemGroup>
+</Project>

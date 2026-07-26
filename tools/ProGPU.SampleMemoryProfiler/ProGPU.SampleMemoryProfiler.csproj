@@ -4,8 +4,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>progpu-memory</ToolCommandName>
+    <PackageId>ProGPU.MemoryProfiler</PackageId>
+    <Description>Cross-runtime ProGPU memory capture for .NET, native allocators, GPU resources, and operating-system process footprint.</Description>
+    <PackageDescription>Cross-runtime ProGPU memory capture for .NET, native allocators, GPU resources, and operating-system process footprint.</PackageDescription>
+    <PackageReadmeFile>memory-profiler-readme.md</PackageReadmeFile>
+    <PackageTags>progpu;memory;profiling;dotnet;metal;gpu;diagnostics</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+    <None Update="README.md" Pack="true" PackagePath="memory-profiler-readme.md" />
   </ItemGroup>
 </Project>

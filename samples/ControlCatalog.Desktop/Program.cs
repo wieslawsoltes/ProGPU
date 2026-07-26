@@ -15,12 +15,16 @@ namespace ControlCatalog.Desktop
         [STAThread]
         static int Main(string[] args)
         {
+            var useHarfBuzz = args.Contains("--harfbuzz");
             var pageArgumentIndex = Array.IndexOf(args, "--page");
             if (pageArgumentIndex >= 0 && pageArgumentIndex + 1 < args.Length)
             {
                 App.InitialPage = args[pageArgumentIndex + 1];
             }
-            using var benchmark = ControlCatalogBenchmark.TryStart("ProGPU", App.InitialPage);
+            using var benchmark = ControlCatalogBenchmark.TryStart(
+                "ProGPU",
+                App.InitialPage,
+                useHarfBuzz ? "HarfBuzz" : "ProGPU");
 
             if (args.Contains("--wait-for-attach"))
             {
@@ -44,8 +48,8 @@ namespace ControlCatalog.Desktop
 #endif
 
             var builder = useSkiaShim
-                ? BuildSkiaShimApp()
-                : BuildAvaloniaApp();
+                ? BuildSkiaShimApp(useHarfBuzz)
+                : BuildAvaloniaApp(useHarfBuzz);
             builder.AfterSetup(_ => benchmark?.Attach());
 
             return builder.StartWithClassicDesktopLifetime(args);
@@ -54,22 +58,30 @@ namespace ControlCatalog.Desktop
         /// <summary>
         /// This method is needed for IDE previewer infrastructure
         /// </summary>
-        public static AppBuilder BuildAvaloniaApp()
+        public static AppBuilder BuildAvaloniaApp() => BuildAvaloniaApp(useHarfBuzz: false);
+
+        private static AppBuilder BuildAvaloniaApp(bool useHarfBuzz)
             => ConfigureAppBuilder(AppBuilder.Configure<App>()
                 .UseSilkNet()
-                .UseProGpu());
+                .UseProGpu(), useHarfBuzz);
 
-        private static AppBuilder BuildSkiaShimApp()
+        private static AppBuilder BuildSkiaShimApp(bool useHarfBuzz)
             => ConfigureAppBuilder(AppBuilder.Configure<App>()
                     .UseSilkNet()
                     .UseRenderingSubsystem(
                         Avalonia.Skia.SkiaPlatform.Initialize,
-                        "SkiaSharp shim"));
+                        "SkiaSharp shim"),
+                useHarfBuzz);
 
-        private static AppBuilder ConfigureAppBuilder(AppBuilder builder, bool forceSoftwareRendering = false)
-            => builder
-                .UseHarfBuzz()
-                .WithInterFont()
+        private static AppBuilder ConfigureAppBuilder(
+            AppBuilder builder,
+            bool useHarfBuzz,
+            bool forceSoftwareRendering = false)
+        {
+            builder = useHarfBuzz
+                ? builder.UseHarfBuzz()
+                : builder.UseProGpuTextShaping();
+            return builder.WithInterFont()
                 .AfterSetup(builder =>
                 {
                     EmbedSample.Implementation = OperatingSystem.IsWindows() ? new EmbedSampleWin()
@@ -78,6 +90,7 @@ namespace ControlCatalog.Desktop
                         : null;
                 })
                 .LogToTrace();
+        }
 
     }
 }
