@@ -108,6 +108,7 @@ jobs:
           dotnet build integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
             --configuration Release \
             --no-restore \
+            -m:1 \
             -p:ContinuousIntegrationBuild=true \
             -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
             -p:ProGpuSourceRoot="${{ github.workspace }}" \

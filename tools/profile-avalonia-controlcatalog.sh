@@ -193,6 +193,40 @@ for page in "${pages[@]}"; do
       if [[ "$capture_screenshots" == "1" ]]; then
         screenshot_variable="$screenshot_path"
       fi
+      app_root="$(dirname "$app")"
+      native_arch="$(uname -m)"
+      case "$native_arch" in
+        x86_64|amd64)
+          native_arch="x64"
+          ;;
+        arm64|aarch64)
+          native_arch="arm64"
+          ;;
+      esac
+      native_loader_environment=()
+      case "$host_kernel" in
+        Darwin)
+          native_root="$app_root/runtimes/osx-$native_arch/native"
+          if [[ -d "$native_root" ]]; then
+            native_loader_environment+=(
+              "DYLD_LIBRARY_PATH=$native_root${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}")
+          fi
+          ;;
+        Linux)
+          native_root="$app_root/runtimes/linux-$native_arch/native"
+          if [[ -d "$native_root" ]]; then
+            native_loader_environment+=(
+              "LD_LIBRARY_PATH=$native_root${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}")
+          fi
+          ;;
+        MINGW*|MSYS*|CYGWIN*)
+          native_root="$app_root/runtimes/win-$native_arch/native"
+          if [[ -d "$native_root" ]]; then
+            native_loader_environment+=(
+              "PATH=$native_root:$PATH")
+          fi
+          ;;
+      esac
       if [[ "$page" == "Composition" &&
             "$backend" == source-progpu* ]]; then
         custom_visual_fixture=1
@@ -213,6 +247,7 @@ for page in "${pages[@]}"; do
          PROGPU_AVALONIA_BENCHMARK_MEASURE_FRAMES="$measure_frames" \
          PROGPU_AVALONIA_BENCHMARK_RUN="$run" \
          PROGPU_AVALONIA_BENCHMARK_CUSTOM_VISUAL="$custom_visual_fixture" \
+         env "${native_loader_environment[@]}" \
          dotnet "$app" "${app_args[@]}" 2>&1 | tee "$log_path"; then
         if [[ -s "$json_path" ]]; then
           if ! rg -q \
