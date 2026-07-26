@@ -8,6 +8,7 @@ from `scripts/progpu-package-list.sh`.
 ## NuGet Packages
 
 - `ProGPU.Backend`
+- `ProGPU.Backend.Dawn`
 - `ProGPU.Text.Shaping`
 - `ProGPU.Browser`
 - `ProGPU.DirectX`
