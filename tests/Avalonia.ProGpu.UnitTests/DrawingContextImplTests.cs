@@ -25,7 +25,21 @@ namespace Avalonia.ProGpu.UnitTests
             var options = new ProGpuOptions();
 
             Assert.True(options.UseDawnMetalPresentation);
+            Assert.True(options.UseDawnNativePresentation);
             Assert.False(options.RequireDawnMetalPresentation);
+            Assert.False(options.RequireDawnNativePresentation);
+        }
+
+        [Fact]
+        public void Native_Dawn_Renderer_Declares_Opaque_Window_Surface_Requirement()
+        {
+            var native = new PlatformRenderInterface(
+                useDawnNativePresentation: true);
+            var fallback = new PlatformRenderInterface(
+                useDawnNativePresentation: false);
+
+            Assert.True(native.RequiresOpaqueSurface);
+            Assert.False(fallback.RequiresOpaqueSurface);
         }
 
         [Fact]

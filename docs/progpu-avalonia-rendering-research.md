@@ -1526,13 +1526,16 @@ zero tracked intermediate texture bytes, and
 `PresentationPath=DawnMetalIOSurface`.
 
 The Linux qualification run also caught an alpha-mode difference that the
-portable descriptor tests could not expose: Dawn's non-Android Vulkan
-swapchain currently requires opaque composite alpha even when the generic
-surface capability list also contains premultiplied alpha. Alpha selection is
-therefore backend-aware. Vulkan/Xlib requires and selects `Opaque`; D3D12 and
-Metal keep the premultiplied preference and fall back through the advertised
-capabilities. This remains a bounded capability lookup during surface creation
-and adds no frame-path work or allocation.
+portable descriptor tests could not expose: Avalonia's software-rendering
+fallback selected its 32-bit transparent X11 visual, whose Vulkan surface
+advertised premultiplied alpha, while Dawn's non-Android Vulkan swapchain
+requires an opaque-capable visual. ProGPU now implements Avalonia's typed
+`IPlatformRenderInterfaceNativeSurfaceFeature`; X11 observes that feature
+before window creation and selects the system default 24-bit visual. Surface
+alpha selection is also backend-aware: Vulkan/Xlib requires and selects
+`Opaque`; D3D12 and Metal keep the premultiplied preference and fall back
+through the advertised capabilities. Both decisions are bounded startup work
+and add no frame-path work, device import, intermediate texture, or allocation.
 
 ## Same-device embedded-texture allocation correction (2026-07-26)
 

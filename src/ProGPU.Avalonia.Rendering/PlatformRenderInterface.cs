@@ -9,7 +9,9 @@ using Avalonia.Platform;
 
 namespace Avalonia.ProGpu
 {
-    internal class PlatformRenderInterface : IPlatformRenderInterface
+    internal class PlatformRenderInterface :
+        IPlatformRenderInterface,
+        IPlatformRenderInterfaceNativeSurfaceFeature
     {
         private readonly bool _requireNativeCompositionScene;
         private readonly bool _useDawnMetalPresentation;
@@ -46,6 +48,9 @@ namespace Avalonia.ProGpu
         }
 
         public bool SupportsIndividualRoundRects => true;
+
+        public bool RequiresOpaqueSurface =>
+            _useDawnNativePresentation;
 
         public AlphaFormat DefaultAlphaFormat => AlphaFormat.Premul;
 

@@ -55,3 +55,40 @@ diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X1
      <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />
      <ProjectReference Include="..\Avalonia.FreeDesktop.AtSpi\Avalonia.FreeDesktop.AtSpi.csproj" />
      <Compile Include="..\Shared\RawEventGrouping.cs" />
+diff --git a/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+new file mode 100644
+index 0000000000..c7cb550c20
+--- /dev/null
++++ b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+@@ -0,0 +1,15 @@
++using Avalonia.Metadata;
++
++namespace Avalonia.Platform;
++
++/// <summary>
++/// Describes native-window surface constraints imposed by a rendering backend.
++/// </summary>
++[Unstable, PrivateApi]
++public interface IPlatformRenderInterfaceNativeSurfaceFeature
++{
++    /// <summary>
++    /// Gets whether native window surfaces must use an opaque-capable visual.
++    /// </summary>
++    bool RequiresOpaqueSurface { get; }
++}
+diff --git a/src/Avalonia.X11/X11Window.cs b/src/Avalonia.X11/X11Window.cs
+index 5643f18d87..21de5cd1f5 100644
+--- a/src/Avalonia.X11/X11Window.cs
++++ b/src/Avalonia.X11/X11Window.cs
+@@ -135,5 +135,10 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
+                 // the target sufrace currently is
+                 _useCompositorDrivenRenderWindowResize = true;
+             }
+-            else if (glfeature == null)
++            else if (glfeature == null &&
++                     AvaloniaLocator.Current.GetService<IPlatformRenderInterface>()
++                         is not IPlatformRenderInterfaceNativeSurfaceFeature
++                         {
++                             RequiresOpaqueSurface: true
++                         })
+                 visualInfo = _x11.TransparentVisualInfo;
