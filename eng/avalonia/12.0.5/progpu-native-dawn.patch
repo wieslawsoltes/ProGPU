@@ -31,3 +31,27 @@ index 7acfb303f0..3929922e34 100644
              
              using (var renderTargetContext = _renderTarget.CreateDrawingContext(new(PixelSize, Scaling), out var properties))
              using (var renderTiming = Diagnostic.BeginCompositorRenderPass())
+diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X11.csproj
+--- a/src/Avalonia.X11/Avalonia.X11.csproj
++++ b/src/Avalonia.X11/Avalonia.X11.csproj
+@@ -1,6 +1,7 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+   <PropertyGroup>
+-    <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' != 'true'">$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' == 'true'">$(AvsCurrentTargetFramework)</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <EnableRuntimeMarshalling>true</EnableRuntimeMarshalling>
+   </PropertyGroup>
+@@ -8,6 +9,10 @@
+   <ItemGroup>
+     <ProjectReference Include="..\..\packages\Avalonia\Avalonia.csproj" />
+-    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop.AtSpi\Avalonia.FreeDesktop.AtSpi.csproj" />
+     <Compile Include="..\Shared\RawEventGrouping.cs" />

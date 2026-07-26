@@ -101,11 +101,17 @@ jobs:
       - name: Build native-window ControlCatalog and contracts
         shell: bash
         run: |
-          dotnet restore integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj
+          dotnet restore integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            -p:ProGpuSourceRoot="${{ github.workspace }}" \
+            -p:UseSkiaSharpShim=true
           dotnet build integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
             --configuration Release \
             --no-restore \
-            -p:ContinuousIntegrationBuild=true
+            -p:ContinuousIntegrationBuild=true \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            -p:ProGpuSourceRoot="${{ github.workspace }}" \
+            -p:UseSkiaSharpShim=true
           dotnet restore tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj
           dotnet test tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj \
             --configuration Release \
