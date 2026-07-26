@@ -121,6 +121,13 @@ namespace Avalonia.ProGpu
                             _requireNativeCompositionScene,
                             DisableDawnPresentation);
                     }
+                    catch (Exception exception)
+                        when (_requireDawnMetalPresentation)
+                    {
+                        Console.Error.WriteLine(
+                            $"[ProGPU:Dawn] Strict Metal presentation initialization failed: {exception}");
+                        throw;
+                    }
                     catch when (!_requireDawnMetalPresentation)
                     {
                         _dawnContext?.Dispose();
@@ -184,6 +191,14 @@ namespace Avalonia.ProGpu
                             _requireNativeCompositionScene,
                             DisableDawnPresentation);
                     }
+                    catch (Exception exception)
+                        when (_requireDawnNativePresentation)
+                    {
+                        source?.Dispose();
+                        Console.Error.WriteLine(
+                            $"[ProGPU:Dawn] Strict {kind} presentation initialization failed: {exception}");
+                        throw;
+                    }
                     catch when (!_requireDawnNativePresentation)
                     {
                         source?.Dispose();
@@ -191,6 +206,20 @@ namespace Avalonia.ProGpu
                         _dawnContext = null;
                         break;
                     }
+                }
+
+                if (_requireDawnNativePresentation)
+                {
+                    var descriptors = string.Join(
+                        ", ",
+                        surfaces.Select(
+                            static surface =>
+                                surface is INativePlatformHandleSurface native
+                                    ? native.HandleDescriptor
+                                    : surface.GetType().Name));
+                    throw new NotSupportedException(
+                        "Strict Dawn native presentation did not receive a supported " +
+                        $"HWND or XID surface. Surfaces: {descriptors}.");
                 }
             }
 #endif

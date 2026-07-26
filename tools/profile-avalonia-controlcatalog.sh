@@ -21,6 +21,15 @@ analyzer_app="$repo_root/tools/ProGPU.SampleMemoryProfiler/bin/Release/net10.0/P
 page_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
 failure_path="$output_root/failures.tsv"
 host_kernel="$(uname -s)"
+if command -v rg >/dev/null 2>&1; then
+  search_text() {
+    rg -q "$1" "$2"
+  }
+else
+  search_text() {
+    grep -Eq "$1" "$2"
+  }
+fi
 case "$host_kernel" in
   Darwin)
     expected_native_presentation="DawnMetalIOSurface"
@@ -250,10 +259,10 @@ for page in "${pages[@]}"; do
          env "${native_loader_environment[@]}" \
          dotnet "$app" "${app_args[@]}" 2>&1 | tee "$log_path"; then
         if [[ -s "$json_path" ]]; then
-          if ! rg -q \
+          if ! search_text \
             '"SchemaVersion"[[:space:]]*:[[:space:]]*2' \
             "$json_path" ||
-             ! rg -q \
+             ! search_text \
             "\"FrameTimeSampleCount\"[[:space:]]*:[[:space:]]*$measure_frames" \
             "$json_path"; then
             printf '%s\t%s\t%s\t%s\n' \
@@ -267,7 +276,7 @@ for page in "${pages[@]}"; do
           fi
           if [[ "$backend" == source-progpu* &&
                 "$external_opengl_fixture" == "0" ]]; then
-            if ! rg -q \
+            if ! search_text \
               '"RetainedCompositionFallbackNodes"[[:space:]]*:[[:space:]]*0' \
               "$json_path"; then
               printf '%s\t%s\t%s\t%s\n' \
@@ -279,7 +288,7 @@ for page in "${pages[@]}"; do
               failed=$((failed + 1))
               continue
             fi
-            if ! rg -q \
+            if ! search_text \
               '"RetainedCompositionScenes"[[:space:]]*:[[:space:]]*[1-9][0-9]*' \
               "$json_path"; then
               printf '%s\t%s\t%s\t%s\n' \
@@ -293,7 +302,7 @@ for page in "${pages[@]}"; do
             fi
             if [[ "$backend" == source-progpu-native* ]]; then
               if [[ -z "$expected_native_presentation" ]] ||
-                 ! rg -q \
+                 ! search_text \
                    "\"PresentationPath\"[[:space:]]*:[[:space:]]*\"$expected_native_presentation\"" \
                    "$json_path"; then
                 printf '%s\t%s\t%s\t%s\n' \
@@ -307,10 +316,10 @@ for page in "${pages[@]}"; do
               fi
             fi
             if [[ "$page" == "Composition" ]] &&
-               { ! rg -q \
+               { ! search_text \
                    '"RetainedCompositionCustomVisualNodes"[[:space:]]*:[[:space:]]*[1-9][0-9]*' \
                    "$json_path" ||
-                 ! rg -q \
+                 ! search_text \
                    '"RetainedCompositionCustomVisualCompilations"[[:space:]]*:[[:space:]]*[1-9][0-9]*' \
                    "$json_path"; }; then
               printf '%s\t%s\t%s\t%s\n' \

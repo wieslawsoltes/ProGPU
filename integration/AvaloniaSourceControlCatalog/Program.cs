@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Avalonia;
+using Avalonia.Logging;
 using Avalonia.ProGpu;
 using ControlCatalog;
 
@@ -78,7 +79,9 @@ namespace ControlCatalog.Desktop
                 : builder.UseProGpuTextShaping();
             return builder
                 .WithInterFont()
-                .LogToTrace();
+                .LogToTextWriter(
+                    Console.Error,
+                    LogEventLevel.Warning);
         }
 
         private static AppBuilder UseAvaloniaPlatformWindowing(
