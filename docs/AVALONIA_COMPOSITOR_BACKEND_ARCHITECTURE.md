@@ -458,8 +458,10 @@ ProGPU compilation and presentation keep the existing correctness contracts:
   cross-device import, CPU readback, or full-frame copy.
 - The strict profiler requires `DawnD3D12HWND`, `DawnVulkanXlib`, or
   `DawnMetalIOSurface` according to the host. Linux CI runs the ControlCatalog
-  telemetry gate under Xvfb/Mesa Vulkan; Windows CI cross-builds the same
-  typed lane and its handle-contract tests. Hardware percentile and residency
+  telemetry gate under Xvfb/Mesa Vulkan. WebGPUSharp's Linux Dawn binary links
+  to LLVM `libc++.so.1`, so the qualification image installs the distribution
+  `libc++1` runtime alongside Vulkan. Windows CI cross-builds the same typed
+  lane and its handle-contract tests. Hardware percentile and residency
   baselines remain host-specific and must not be inferred from a software
   Vulkan CI run.
 
