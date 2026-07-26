@@ -304,6 +304,18 @@ for page in "${pages[@]}"; do
               failed=$((failed + 1))
               continue
             fi
+            if ! search_text \
+              '"RetainedCompositionServerBackendRenders"[[:space:]]*:[[:space:]]*[1-9][0-9]*' \
+              "$json_path"; then
+              printf '%s\t%s\t%s\t%s\n' \
+                "$backend" \
+                "$page" \
+                "$run" \
+                "typed composition server backend telemetry missing" \
+                >> "$failure_path"
+              failed=$((failed + 1))
+              continue
+            fi
             if [[ "$backend" == source-progpu-native* ]]; then
               if [[ -z "$expected_native_presentation" ]] ||
                  ! search_text \

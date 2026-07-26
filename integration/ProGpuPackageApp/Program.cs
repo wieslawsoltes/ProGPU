@@ -65,6 +65,7 @@ internal static class Program
 
 #if PROGPU_REPLACEMENT_PACKAGE
     private static int s_renderedFrames;
+    private static long s_serverBackendRenders;
     private static int s_retainedSceneCount;
     private static int s_fallbackNodeCount;
     private static readonly int[] s_multiWindowStageFrames = new int[3];
@@ -72,6 +73,9 @@ internal static class Program
     private static void OnFrameRendered(CompositorMetrics metrics)
     {
         Interlocked.Increment(ref s_renderedFrames);
+        InterlockedMax(
+            ref s_serverBackendRenders,
+            metrics.RetainedCompositionServerBackendRenderCount);
         if (App.MultiWindowSmokeEnabled)
         {
             int stage = Math.Clamp(App.MultiWindowSmokeStage, 0, 2);
@@ -88,11 +92,14 @@ internal static class Program
     private static int ValidateReplacementSmoke()
     {
         int renderedFrames = Volatile.Read(ref s_renderedFrames);
+        long serverBackendRenders =
+            Volatile.Read(ref s_serverBackendRenders);
         int retainedScenes = Volatile.Read(ref s_retainedSceneCount);
         int fallbackNodes = Volatile.Read(ref s_fallbackNodeCount);
         Console.WriteLine(
             "[ProGpuPackageSmoke] " +
-            $"frames={renderedFrames} retainedScenes={retainedScenes} " +
+            $"frames={renderedFrames} serverBackendRenders={serverBackendRenders} " +
+            $"retainedScenes={retainedScenes} " +
             $"fallbackNodes={fallbackNodes}");
 
         if (renderedFrames == 0)
@@ -108,6 +115,14 @@ internal static class Program
                 "The packaged renderer does not contain the source-built " +
                 "retained Avalonia compositor seam.");
             return 11;
+        }
+
+        if (serverBackendRenders == 0)
+        {
+            Console.Error.WriteLine(
+                "The replacement package did not render through the typed " +
+                "ProGPU composition server backend.");
+            return 17;
         }
 
         if (fallbackNodes != 0)
@@ -187,6 +202,21 @@ internal static class Program
         while (value > current)
         {
             int observed = Interlocked.CompareExchange(
+                ref target,
+                value,
+                current);
+            if (observed == current)
+                return;
+            current = observed;
+        }
+    }
+
+    private static void InterlockedMax(ref long target, long value)
+    {
+        long current = Volatile.Read(ref target);
+        while (value > current)
+        {
+            long observed = Interlocked.CompareExchange(
                 ref target,
                 value,
                 current);

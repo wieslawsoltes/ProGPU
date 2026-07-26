@@ -57,19 +57,16 @@ diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X1
      <Compile Include="..\Shared\RawEventGrouping.cs" />
 diff --git a/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
 new file mode 100644
-index 0000000000..c7cb550c20
+index 0000000000..c5a430cad0
 --- /dev/null
 +++ b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
-@@ -0,0 +1,15 @@
-+using Avalonia.Metadata;
-+
+@@ -0,0 +1,12 @@
 +namespace Avalonia.Platform;
 +
 +/// <summary>
 +/// Describes native-window surface constraints imposed by a rendering backend.
 +/// </summary>
-+[Unstable, PrivateApi]
-+public interface IPlatformRenderInterfaceNativeSurfaceFeature
++internal interface IPlatformRenderInterfaceNativeSurfaceFeature
 +{
 +    /// <summary>
 +    /// Gets whether native window surfaces must use an opaque-capable visual.

@@ -204,6 +204,10 @@ namespace Avalonia.ProGpu.UnitTests
                 "INativePlatformHandleSurface",
                 backend,
                 StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ".GetType()",
+                backend,
+                StringComparison.Ordinal);
             Assert.Contains(
                 "DawnNativeWindowRenderTarget",
                 backend,
@@ -293,6 +297,14 @@ namespace Avalonia.ProGpu.UnitTests
                 nativeBuilder,
                 StringComparison.Ordinal);
             Assert.Contains(
+                "+internal interface IPlatformRenderInterfaceNativeSurfaceFeature",
+                nativePatch,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "+public interface IPlatformRenderInterfaceNativeSurfaceFeature",
+                nativePatch,
+                StringComparison.Ordinal);
+            Assert.Contains(
                 "_layer.framebufferOnly = false;",
                 nativePatch,
                 StringComparison.Ordinal);
@@ -336,6 +348,10 @@ namespace Avalonia.ProGpu.UnitTests
                 StringComparison.Ordinal);
             Assert.Contains(
                 "metrics.RetainedCompositionSceneCount",
+                program,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "metrics.RetainedCompositionServerBackendRenderCount",
                 program,
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -571,6 +587,10 @@ namespace Avalonia.ProGpu.UnitTests
                 "src", "ProGPU.Avalonia.Rendering", "AvaloniaCompositionScene.cs");
             var drawingContext = ReadRepoFile(
                 "src", "ProGPU.Avalonia.Rendering", "DrawingContextImpl.cs");
+            var compositionServerBackend = ReadRepoFile(
+                "src",
+                "ProGPU.Avalonia.Rendering",
+                "ProGpuCompositionServerBackend.cs");
             var incrementalPages = ReadRepoFile(
                 "src", "ProGPU.Scene", "Compositor.IncrementalPages.cs");
             var incrementalUploads = ReadRepoFile(
@@ -616,6 +636,8 @@ namespace Avalonia.ProGpu.UnitTests
             Assert.Contains("progpu-package.patch", preparation, StringComparison.Ordinal);
             Assert.Contains("ICompositionRenderDataDrawingContextFeature", compositorPatch, StringComparison.Ordinal);
             Assert.Contains("ICompositionVisualTreeDrawingContextFeature", compositorPatch, StringComparison.Ordinal);
+            Assert.Contains("ICompositionServerBackend", compositorPatch, StringComparison.Ordinal);
+            Assert.Contains("RT_TryGetCompositionBackend", compositorPatch, StringComparison.Ordinal);
             Assert.Contains("ServerCompositionVisualCollection", compositorPatch, StringComparison.Ordinal);
             Assert.Contains("RetainedChangedVisuals", compositorPatch, StringComparison.Ordinal);
             Assert.Contains("CompleteRetainedSceneSynchronization", compositorPatch, StringComparison.Ordinal);
@@ -787,6 +809,14 @@ namespace Avalonia.ProGpu.UnitTests
             Assert.Contains(
                 "PROGPU_AVALONIA_INCREMENTAL_SCENE_PAGES",
                 drawingContext,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "ICompositionServerBackend",
+                compositionServerBackend,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "GetOrCreateTargetScene",
+                compositionServerBackend,
                 StringComparison.Ordinal);
             Assert.Contains(
                 "./tools/test-avalonia-progpu-text.sh",

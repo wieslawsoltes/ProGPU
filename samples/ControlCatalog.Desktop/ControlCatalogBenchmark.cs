@@ -683,6 +683,8 @@ namespace ControlCatalog.Desktop
                 RetainedCompositionPictureCompilations =
                     _lastMetrics.RetainedCompositionPictureCompilations,
                 RetainedCompositionScenes = _lastMetrics.RetainedCompositionSceneCount,
+                RetainedCompositionServerBackendRenders =
+                    _lastMetrics.RetainedCompositionServerBackendRenderCount,
                 RetainedCompositionSceneNodes = _lastMetrics.RetainedCompositionSceneNodeCount,
                 RetainedCompositionFallbackNodes =
                     _lastMetrics.RetainedCompositionFallbackNodeCount,
@@ -802,6 +804,7 @@ namespace ControlCatalog.Desktop
                     $" retainedPictureMisses={result.RetainedCompositionPictureMisses}" +
                     $" retainedPictureCompilations={result.RetainedCompositionPictureCompilations}" +
                     $" retainedScenes={result.RetainedCompositionScenes}" +
+                    $" retainedServerBackendRenders={result.RetainedCompositionServerBackendRenders}" +
                     $" retainedSceneNodes={result.RetainedCompositionSceneNodes}" +
                     $" retainedFallbackNodes={result.RetainedCompositionFallbackNodes}" +
                     $" retainedCustomVisualNodes={result.RetainedCompositionCustomVisualNodes}" +
@@ -1251,6 +1254,7 @@ namespace ControlCatalog.Desktop
             public long RetainedCompositionPictureMisses { get; init; }
             public long RetainedCompositionPictureCompilations { get; init; }
             public int RetainedCompositionScenes { get; init; }
+            public long RetainedCompositionServerBackendRenders { get; init; }
             public int RetainedCompositionSceneNodes { get; init; }
             public int RetainedCompositionFallbackNodes { get; init; }
             public int RetainedCompositionCustomVisualNodes { get; init; }

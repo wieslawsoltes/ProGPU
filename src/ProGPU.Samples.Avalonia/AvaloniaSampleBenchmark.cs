@@ -260,6 +260,7 @@ internal sealed class AvaloniaSampleBenchmark : IDisposable
                 "The Avalonia shell did not render through the ProGPU compositor: " +
                 $"frames={_outerFramesSeen}, measurementFrames={_outerMetricSamples}, " +
                 $"drawCalls={_lastOuterMetrics.DrawCallsCount}, " +
+                $"serverBackendRenders={_lastOuterMetrics.RetainedCompositionServerBackendRenderCount}, " +
                 $"retainedScenes={_lastOuterMetrics.RetainedCompositionSceneCount}, " +
                 $"fallbackNodes={_lastOuterMetrics.RetainedCompositionFallbackNodeCount}.");
         }
@@ -407,6 +408,8 @@ internal sealed class AvaloniaSampleBenchmark : IDisposable
             OuterMeasurementFrames = _outerMetricSamples,
             RetainedCompositionScenes =
                 _lastOuterMetrics.RetainedCompositionSceneCount,
+            RetainedCompositionServerBackendRenders =
+                _lastOuterMetrics.RetainedCompositionServerBackendRenderCount,
             RetainedCompositionSceneNodes =
                 _lastOuterMetrics.RetainedCompositionSceneNodeCount,
             RetainedCompositionFallbackNodes =
@@ -640,6 +643,7 @@ internal sealed class AvaloniaSampleBenchmark : IDisposable
         public int OuterFramesSeen { get; init; }
         public int OuterMeasurementFrames { get; init; }
         public int RetainedCompositionScenes { get; init; }
+        public long RetainedCompositionServerBackendRenders { get; init; }
         public int RetainedCompositionSceneNodes { get; init; }
         public int RetainedCompositionFallbackNodes { get; init; }
         public long RetainedCompositionPictureHits { get; init; }
