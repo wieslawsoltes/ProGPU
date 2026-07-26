@@ -9,11 +9,14 @@ Avalonia 11 version lanes:
 | 12.0.5 | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.27` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
 | 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.27` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
 | 11.3.18 | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.27` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
+| native ABI | `ProGPU.Backend.Dawn` `0.1.0-preview.27` | `ProGPU.Backend.Dawn` | Exact-ABI Dawn device, IOSurface shared memory, and timeline fences |
 
 The Avalonia 12 packages are built against exactly Avalonia `12.0.5`; the
 Avalonia 11 packages are built against exactly Avalonia `11.3.18`. Both lanes
 use ProGPU `0.1.0-preview.27`. They intentionally use `ProGPU.*` package IDs;
-no `Avalonia.*` package ID is produced.
+no `Avalonia.*` package ID is published by the normal NuGet.org release lane.
+The separately gated private/local replacement lane described below produces
+an exact-identity `Avalonia` package and must never be pushed to NuGet.org.
 
 The NuGet package page uses `docs/progpu-package-readme.md`. Keep its install, startup, API lease, and troubleshooting instructions current when package contracts change.
 
@@ -51,8 +54,89 @@ The desktop Control Catalog starts with Silk.NET windowing and ProGPU rendering 
 dotnet run --project samples/ControlCatalog.Desktop/ControlCatalog.Desktop.csproj
 ```
 
+ControlCatalog uses the managed ProGPU OpenType shaper by default. Pass
+`--harfbuzz` to use Avalonia's previous HarfBuzz backend for correctness and
+performance comparison.
+
 Pass `--skiashim` to opt into the source-integrated Avalonia Skia backend running on
 the ProGPU SkiaSharp shim.
+
+Run every ControlCatalog page in a fresh Release process and collect FPS,
+frame-time, allocation, retained-memory, physical-footprint, and ProGPU GPU
+resource metrics with:
+
+```bash
+./tools/profile-avalonia-controlcatalog.sh
+```
+
+The default is the pinned source-built Avalonia runtime, ProGPU renderer,
+managed ProGPU shaper, and Silk.NET windowing. Set
+`PROGPU_AVALONIA_BACKENDS=source-progpu,source-progpu-harfbuzz` for an
+apples-to-apples shaping sweep of the replacement runtime. The package-backed
+`progpu`, `progpu-harfbuzz`, and `skia` lanes remain available for compatibility
+and Skia reference sweeps. Use `PROGPU_AVALONIA_PAGE_FILTER` to run a
+regular-expression subset. The
+generated `summary.json`, `summary.md`, per-page logs, optional screenshots, and
+`failures.tsv` are written under `artifacts/avalonia-controlcatalog-profile`.
+The Silk.NET render timer follows the primary display refresh rate; set
+`PROGPU_AVALONIA_RENDER_FPS=60` (or another value from 24 through 360) when a
+fixed-rate comparison is required.
+
+The macOS non-Silk presentation matrix is selected with:
+
+```bash
+PROGPU_AVALONIA_BACKENDS=source-progpu-native,source-progpu-native-harfbuzz,source-progpu,skia \
+PROGPU_AVALONIA_PAGE_FILTER='^Buttons$' \
+./tools/profile-avalonia-controlcatalog.sh
+```
+
+The native lane builds the exact Avalonia.Native source into isolated Xcode
+DerivedData, installs it into the ControlCatalog output, deletes the
+intermediates, and launches `--native-windowing` with Dawn presentation
+required. Results include physical render-target dimensions and DPI so a
+lower-resolution surface cannot appear to be a memory optimization.
+
+Run the pinned Avalonia text conformance corpus against the ProGPU shaper with:
+
+```bash
+./tools/test-avalonia-progpu-text.sh
+```
+
+The script builds the exact official 12.0.5 source-lane test executable and runs the complete
+text-formatting namespace plus `GlyphRunTests`. The test bodies and assertions
+remain upstream; only the typed ProGPU test bootstrap selects
+`ProGpuTextShaper`.
+
+Run the pinned Avalonia retained-compositor revision contract with:
+
+```bash
+./tools/test-avalonia-progpu-compositor.sh
+```
+
+This verifies that visual-state changes advance the retained scene revision
+without invalidating immutable draw-list content, while replacing draw-list
+content advances both contracts.
+
+On a desktop with a working Silk.NET/WebGPU surface, run the retained versus
+flattened pixel contract with:
+
+```bash
+./tools/test-avalonia-progpu-retained-pixels.sh
+```
+
+The script compares exact PNG bytes for Buttons, Composition, Acrylic,
+BitmapCache, Canvas, AdornerLayer, Clipboard, HeaderedContentControl,
+Notifications, bounded native geometry/text-option fixtures, native blur and
+offset/color/opacity drop-shadow fixtures, and all BitmapCache option fixtures.
+It requires
+gradient and recorded-picture opacity masks, unclipped and clipped adorners,
+including rotated conic gradients, standard visual effects, and the
+geometry-clip workload to remain inside the retained ProGPU scene with zero
+fallback nodes.
+
+The full-compositor replacement design and its package compatibility gates are
+in
+[`AVALONIA_COMPOSITOR_BACKEND_ARCHITECTURE.md`](AVALONIA_COMPOSITOR_BACKEND_ARCHITECTURE.md).
 
 ## Pack locally
 
@@ -75,6 +159,60 @@ PROGPU_INTEGRATION_BUILD_ONLY=1 \
 Set `PROGPU_PACKAGE_SOURCE` to use another absolute local package directory. The
 expected integration output is eight files: a `.nupkg` and `.snupkg` for each of
 the four package/version entries.
+
+## Exact-identity private replacement package
+
+Build the complete private/local replacement stack with:
+
+```bash
+./tools/pack-avalonia-progpu-stack.sh
+```
+
+This creates an `Avalonia` `12.0.5` package from the exact official tag plus
+the reviewed typed compositor seam, then compiles the ProGPU renderer against
+that seam. It also packs the eight-package `avalonia-runtime` dependency
+closure (`Backend`, `Text.Shaping`, `Transpiler`, `Vector`, `Text`, `Compute`,
+`Scene`, and `SkiaSharp`) from the same checkout. The verifier compares every
+packed `lib` and `ref` assembly for
+`net10.0` and `net8.0` against the official package with strict ApiCompat,
+checks assembly identities, verifies the packed `Avalonia.Base` bytes are the
+validated source build, and requires the package provenance notice.
+
+Because its package ID and version intentionally collide with the official
+package, this artifact is only for an isolated private/local feed. It is the
+actual NuGet bait-and-switch lane: applications keep
+`PackageReference Include="Avalonia" Version="12.0.5"` while the feed supplies
+the ProGPU source build. It must not be published to NuGet.org.
+
+Exercise a clean package-only consumer and fail if restore selects the official
+binary instead of the validated local replacement:
+
+```bash
+PROGPU_INTEGRATION_BUILD_ONLY=1 \
+  ./integration/ProGpuPackageApp/run.sh replacement
+```
+
+The isolated consumer removes every replacement-controlled same-version cache
+entry, restores it from the local feed only, and compares each restored
+package's NuGet SHA-512 value with the feed artifact. A source-built renderer
+therefore cannot accidentally bind to an older published ProGPU runtime.
+
+Publish and execute that same exact restored stack under NativeAOT:
+
+```bash
+PROGPU_PACKAGE_SOURCE=artifacts/avalonia-replacement \
+PROGPU_REUSE_REPLACEMENT_STACK=1 \
+PROGPU_INTEGRATION_NATIVE_AOT=1 \
+PROGPU_INTEGRATION_SMOKE=1 \
+  ./integration/ProGpuPackageApp/run.sh replacement
+```
+
+This is a runtime gate, not only a linker check. The native executable must
+render frames, use the retained compositor, and report zero fallback nodes.
+The host RID is selected automatically; an explicit compatible RID can be
+provided through `PROGPU_INTEGRATION_RUNTIME_IDENTIFIER`. The isolated
+packages, AOT compiler output, and published binary are removed when the
+runner exits.
 
 ## Publish to NuGet.org
 
@@ -103,7 +241,6 @@ Release order:
 <ItemGroup>
   <PackageReference Include="Avalonia" Version="12.0.5" />
   <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
-  <PackageReference Include="Avalonia.HarfBuzz" Version="12.0.5" />
   <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.27" />
   <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.27" />
 </ItemGroup>
@@ -122,7 +259,7 @@ public static AppBuilder BuildAvaloniaApp() =>
         {
             UseRegionDirtyRectClipping = false
         })
-        .UseHarfBuzz()
+        .UseProGpuTextShaping()
         .WithInterFont();
 ```
 

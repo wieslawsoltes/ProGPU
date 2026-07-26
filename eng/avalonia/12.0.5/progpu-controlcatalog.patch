@@ -1,0 +1,590 @@
+diff --git a/samples/ControlCatalog/App.xaml.cs b/samples/ControlCatalog/App.xaml.cs
+index f14fbb1fa3..f14243ad3c 100644
+--- a/samples/ControlCatalog/App.xaml.cs
++++ b/samples/ControlCatalog/App.xaml.cs
+@@ -14,6 +14,8 @@ namespace ControlCatalog
+ {
+     public class App : Application
+     {
++        public static string? InitialPage { get; set; }
++
+         private readonly Styles _themeStylesContainer = new();
+         private FluentTheme? _fluentTheme;
+         private SimpleTheme? _simpleTheme;
+diff --git a/samples/ControlCatalog/ControlCatalog.csproj b/samples/ControlCatalog/ControlCatalog.csproj
+index 2ce24a4d20..4c3b0e320d 100644
+--- a/samples/ControlCatalog/ControlCatalog.csproj
++++ b/samples/ControlCatalog/ControlCatalog.csproj
+@@ -3,6 +3,7 @@
+     <TargetFrameworks>$(AvsCurrentTargetFramework)</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <IncludeAvaloniaGenerators>true</IncludeAvaloniaGenerators>
++    <NoWarn Condition="'$(UseSkiaSharpShim)' == 'true'">$(NoWarn);CS0618</NoWarn>
+   </PropertyGroup>
+   <ItemGroup>
+     <Compile Update="**\*.xaml.cs">
+@@ -36,12 +37,18 @@
+     <ProjectReference Include="..\..\src\Avalonia.Themes.Simple\Avalonia.Themes.Simple.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Themes.Fluent\Avalonia.Themes.Fluent.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+-    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\SkiaSharp\SkiaSharp.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'" />
+     <ProjectReference Include="..\MiniMvvm\MiniMvvm.csproj" />
+     <ProjectReference Include="..\SampleControls\ControlSamples.csproj" />
+   </ItemGroup>
+ 
+   <Import Project="..\..\build\BuildTargets.targets" />
+   <Import Project="..\..\build\SourceGenerators.props" />
+-  <Import Project="..\..\build\SkiaSharp.props" />
++  <Import Project="..\..\build\SkiaSharp.props" Condition="'$(UseSkiaSharpShim)' != 'true'" />
+ </Project>
+diff --git a/samples/ControlCatalog/MainView.xaml b/samples/ControlCatalog/MainView.xaml
+index 3a6d57801a..f71a931497 100644
+--- a/samples/ControlCatalog/MainView.xaml
++++ b/samples/ControlCatalog/MainView.xaml
+@@ -16,234 +16,233 @@
+       </Style>
+     </Grid.Styles>
+     <controls:HamburgerMenu Name="Sidebar">
+-      <TabItem Header="Composition" IsSelected="True">
+-        <pages:CompositionPage />
+-      </TabItem>
+       <TabItem Header="Accelerator">
+-        <pages:AcceleratorPage />
++        <local:DeferredCatalogPage PageKind="AcceleratorPage" />
+       </TabItem>
+       <TabItem Header="Acrylic">
+-        <pages:AcrylicPage />
++        <local:DeferredCatalogPage PageKind="AcrylicPage" />
+       </TabItem>
+       <TabItem Header="AdornerLayer">
+-        <pages:AdornerLayerPage />
++        <local:DeferredCatalogPage PageKind="AdornerLayerPage" />
+       </TabItem>
+       <TabItem Header="AutoCompleteBox">
+-        <pages:AutoCompleteBoxPage />
+-      </TabItem>
+-      <TabItem Header="Border">
+-        <pages:BorderPage />
++        <local:DeferredCatalogPage PageKind="AutoCompleteBoxPage" />
+       </TabItem>
+       <TabItem Header="BitmapCache">
+-        <pages:BitmapCachePage />
++        <local:DeferredCatalogPage PageKind="BitmapCachePage" />
++      </TabItem>
++      <TabItem Header="Border">
++        <local:DeferredCatalogPage PageKind="BorderPage" />
+       </TabItem>
+       <TabItem Header="Buttons">
+-        <pages:ButtonsPage />
++        <local:DeferredCatalogPage PageKind="ButtonsPage" />
+       </TabItem>
+       <TabItem Header="ButtonSpinner">
+-        <pages:ButtonSpinnerPage />
++        <local:DeferredCatalogPage PageKind="ButtonSpinnerPage" />
+       </TabItem>
+       <TabItem Header="Calendar">
+-        <pages:CalendarPage />
++        <local:DeferredCatalogPage PageKind="CalendarPage" />
+       </TabItem>
+-      <TabItem Header="Canvas">
+-        <pages:CanvasPage />
++      <TabItem Header="CalendarDatePicker">
++        <local:DeferredCatalogPage PageKind="CalendarDatePickerPage" />
+       </TabItem>
+-      <TabItem Header="CommandBar"
+-               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+-               ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CommandBarPage />
++      <TabItem Header="Canvas">
++        <local:DeferredCatalogPage PageKind="CanvasPage" />
+       </TabItem>
+       <TabItem Header="Carousel"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CarouselDemoPage />
++        <local:DeferredCatalogPage PageKind="CarouselDemoPage" />
+       </TabItem>
+       <TabItem Header="CarouselPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CarouselDemoPage />
++        <local:DeferredCatalogPage PageKind="CarouselDemoPage" />
+       </TabItem>
+-
+       <TabItem Header="CheckBox">
+-        <pages:CheckBoxPage />
++        <local:DeferredCatalogPage PageKind="CheckBoxPage" />
+       </TabItem>
+       <TabItem Header="Clipboard">
+-        <pages:ClipboardPage />
++        <local:DeferredCatalogPage PageKind="ClipboardPage" />
+       </TabItem>
+       <TabItem Header="ColorPicker">
+-        <pages:ColorPickerPage />
++        <local:DeferredCatalogPage PageKind="ColorPickerPage" />
+       </TabItem>
+       <TabItem Header="ComboBox">
+-        <pages:ComboBoxPage />
++        <local:DeferredCatalogPage PageKind="ComboBoxPage" />
++      </TabItem>
++      <TabItem Header="CommandBar"
++               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
++               ScrollViewer.VerticalScrollBarVisibility="Disabled">
++        <local:DeferredCatalogPage PageKind="CommandBarPage" />
++      </TabItem>
++      <TabItem Header="Composition">
++        <local:DeferredCatalogPage PageKind="CompositionPage" />
+       </TabItem>
+       <TabItem Header="Container Queries">
+-        <pages:ContainerQueryPage />
++        <local:DeferredCatalogPage PageKind="ContainerQueryPage" />
+       </TabItem>
+       <TabItem Header="ContentPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ContentDemoPage />
++        <local:DeferredCatalogPage PageKind="ContentDemoPage" />
+       </TabItem>
+       <TabItem Header="ContextFlyout">
+-        <pages:ContextFlyoutPage />
++        <local:DeferredCatalogPage PageKind="ContextFlyoutPage" />
+       </TabItem>
+       <TabItem Header="ContextMenu">
+-        <pages:ContextMenuPage />
++        <local:DeferredCatalogPage PageKind="ContextMenuPage" />
+       </TabItem>
+       <TabItem Header="Cursor" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CursorPage />
++        <local:DeferredCatalogPage PageKind="CursorPage" />
+       </TabItem>
+       <TabItem Header="Custom Drawing" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CustomDrawing />
++        <local:DeferredCatalogPage PageKind="CustomDrawing" />
++      </TabItem>
++      <TabItem Header="Data Validation">
++        <local:DeferredCatalogPage PageKind="DataValidationPage" />
+       </TabItem>
+       <TabItem Header="DataGrid"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:DataGridPage />
+-      </TabItem>
+-      <TabItem Header="Data Validation">
+-        <pages:DataValidationPage />
++        <local:DeferredCatalogPage PageKind="DataGridPage" />
+       </TabItem>
+       <TabItem Header="Date/Time Picker">
+-        <pages:DateTimePickerPage />
+-      </TabItem>
+-      <TabItem Header="CalendarDatePicker">
+-        <pages:CalendarDatePickerPage />
++        <local:DeferredCatalogPage PageKind="DateTimePickerPage" />
+       </TabItem>
+       <TabItem Header="Dialogs">
+-        <pages:DialogsPage />
++        <local:DeferredCatalogPage PageKind="DialogsPage" />
+       </TabItem>
+       <TabItem Header="Drag+Drop">
+-        <pages:DragAndDropPage />
++        <local:DeferredCatalogPage PageKind="DragAndDropPage" />
+       </TabItem>
+       <TabItem Header="DrawerPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:DrawerDemoPage />
++        <local:DeferredCatalogPage PageKind="DrawerDemoPage" />
+       </TabItem>
+       <TabItem Header="Expander">
+-        <pages:ExpanderPage />
++        <local:DeferredCatalogPage PageKind="ExpanderPage" />
+       </TabItem>
+       <TabItem Header="Flyouts">
+-        <pages:FlyoutsPage />
++        <local:DeferredCatalogPage PageKind="FlyoutsPage" />
+       </TabItem>
+       <TabItem Header="Focus">
+-        <pages:FocusPage />
++        <local:DeferredCatalogPage PageKind="FocusPage" />
+       </TabItem>
+       <TabItem Header="Gestures">
+-        <pages:GesturePage />
++        <local:DeferredCatalogPage PageKind="GesturePage" />
++      </TabItem>
++      <TabItem Header="HeaderedContentControl">
++        <local:DeferredCatalogPage PageKind="HeaderedContentPage" />
+       </TabItem>
+       <TabItem Header="Image"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ImagePage />
++        <local:DeferredCatalogPage PageKind="ImagePage" />
+       </TabItem>
+       <TabItem Header="Label">
+-        <pages:LabelsPage />
++        <local:DeferredCatalogPage PageKind="LabelsPage" />
+       </TabItem>
+       <TabItem Header="LayoutTransformControl">
+-        <pages:LayoutTransformControlPage />
++        <local:DeferredCatalogPage PageKind="LayoutTransformControlPage" />
+       </TabItem>
+       <TabItem Header="ListBox" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ListBoxPage />
++        <local:DeferredCatalogPage PageKind="ListBoxPage" />
+       </TabItem>
+       <TabItem Header="Menu">
+-        <pages:MenuPage />
++        <local:DeferredCatalogPage PageKind="MenuPage" />
++      </TabItem>
++      <TabItem Header="Native Embed">
++        <local:DeferredCatalogPage PageKind="NativeEmbedPage" />
+       </TabItem>
+       <TabItem Header="NavigationPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:NavigationDemoPage />
++        <local:DeferredCatalogPage PageKind="NavigationDemoPage" />
+       </TabItem>
+       <TabItem Header="Notifications">
+-        <pages:NotificationsPage />
++        <local:DeferredCatalogPage PageKind="NotificationsPage" />
+       </TabItem>
+       <TabItem Header="NumericUpDown">
+-        <pages:NumericUpDownPage />
++        <local:DeferredCatalogPage PageKind="NumericUpDownPage" />
+       </TabItem>
+       <TabItem Header="OpenGL">
+-        <pages:OpenGlPage />
++        <local:DeferredCatalogPage PageKind="OpenGlPage" />
+       </TabItem>
+       <TabItem Header="OpenGL Lease">
+-        <pages:OpenGlLeasePage />
++        <local:DeferredCatalogPage PageKind="OpenGlLeasePage" />
+       </TabItem>
+       <TabItem Header="PipsPager">
+-        <pages:PipsPagerPage />
++        <local:DeferredCatalogPage PageKind="PipsPagerPage" />
+       </TabItem>
+       <TabItem Header="Platform Information">
+-        <pages:PlatformInfoPage />
++        <local:DeferredCatalogPage PageKind="PlatformInfoPage" />
+       </TabItem>
+       <TabItem Header="Pointers">
+-        <pages:PointersPage />
++        <local:DeferredCatalogPage PageKind="PointersPage" />
+       </TabItem>
+       <TabItem Header="ProgressBar">
+-        <pages:ProgressBarPage />
++        <local:DeferredCatalogPage PageKind="ProgressBarPage" />
+       </TabItem>
+       <TabItem Header="RadioButton">
+-        <pages:RadioButtonPage />
++        <local:DeferredCatalogPage PageKind="RadioButtonPage" />
+       </TabItem>
+       <TabItem Header="RefreshContainer">
+-        <pages:RefreshContainerPage />
++        <local:DeferredCatalogPage PageKind="RefreshContainerPage" />
+       </TabItem>
+       <TabItem Header="RelativePanel">
+-        <pages:RelativePanelPage />
++        <local:DeferredCatalogPage PageKind="RelativePanelPage" />
++      </TabItem>
++      <TabItem Header="Screens">
++        <local:DeferredCatalogPage PageKind="ScreenPage" />
+       </TabItem>
+       <TabItem Header="ScrollViewer">
+-        <pages:ScrollViewerPage />
++        <local:DeferredCatalogPage PageKind="ScrollViewerPage" />
+       </TabItem>
+       <TabItem Header="Slider">
+-        <pages:SliderPage />
++        <local:DeferredCatalogPage PageKind="SliderPage" />
+       </TabItem>
+       <TabItem Header="SplitView">
+-        <pages:SplitViewPage />
++        <local:DeferredCatalogPage PageKind="SplitViewPage" />
+       </TabItem>
+       <TabItem Header="TabbedPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:TabbedDemoPage />
++        <local:DeferredCatalogPage PageKind="TabbedDemoPage" />
+       </TabItem>
+       <TabItem Header="TabControl">
+-        <pages:TabControlPage />
++        <local:DeferredCatalogPage PageKind="TabControlPage" />
+       </TabItem>
+       <TabItem Header="TabStrip">
+-        <pages:TabStripPage />
+-      </TabItem>
+-      <TabItem Header="TextBox">
+-        <pages:TextBoxPage />
++        <local:DeferredCatalogPage PageKind="TabStripPage" />
+       </TabItem>
+       <TabItem Header="TextBlock">
+-        <pages:TextBlockPage />
++        <local:DeferredCatalogPage PageKind="TextBlockPage" />
++      </TabItem>
++      <TabItem Header="TextBox">
++        <local:DeferredCatalogPage PageKind="TextBoxPage" />
+       </TabItem>
+       <TabItem Header="Theme Variants">
+-        <pages:ThemePage />
++        <local:DeferredCatalogPage PageKind="ThemePage" />
+       </TabItem>
+       <TabItem Header="ToggleSwitch">
+-        <pages:ToggleSwitchPage />
++        <local:DeferredCatalogPage PageKind="ToggleSwitchPage" />
+       </TabItem>
+       <TabItem Header="ToolTip">
+-        <pages:ToolTipPage />
++        <local:DeferredCatalogPage PageKind="ToolTipPage" />
+       </TabItem>
+       <TabItem Header="TransitioningContentControl">
+-        <pages:TransitioningContentControlPage />
++        <local:DeferredCatalogPage PageKind="TransitioningContentControlPage" />
+       </TabItem>
+       <TabItem Header="TreeView">
+-        <pages:TreeViewPage />
++        <local:DeferredCatalogPage PageKind="TreeViewPage" />
+       </TabItem>
+       <TabItem Header="Viewbox">
+-        <pages:ViewboxPage />
+-      </TabItem>
+-      <TabItem Header="Native Embed">
+-        <pages:NativeEmbedPage />
++        <local:DeferredCatalogPage PageKind="ViewboxPage" />
+       </TabItem>
+       <TabItem Header="Window Customizations">
+-        <pages:WindowCustomizationsPage />
+-      </TabItem>
+-      <TabItem Header="HeaderedContentControl">
+-        <pages:HeaderedContentPage />
+-      </TabItem>
+-      <TabItem Header="Screens">
+-        <pages:ScreenPage />
++        <local:DeferredCatalogPage PageKind="WindowCustomizationsPage" />
+       </TabItem>
+       <FlyoutBase.AttachedFlyout>
+         <Flyout>
+diff --git a/samples/ControlCatalog/MainView.xaml.cs b/samples/ControlCatalog/MainView.xaml.cs
+index 82172a8ec4..4945b8cbf2 100644
+--- a/samples/ControlCatalog/MainView.xaml.cs
++++ b/samples/ControlCatalog/MainView.xaml.cs
+@@ -17,6 +17,8 @@ public partial class MainView : UserControl
+         public MainView()
+         {
+             InitializeComponent();
++
++            SelectInitialPage(App.InitialPage ?? "Composition");
+         }
+ 
+         private void Themes_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+@@ -111,6 +113,23 @@ protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+                     ViewModel.IsSystemBarVisible = insets.IsSystemBarVisible ?? true;
+                 };
+             }
++
++        }
++
++        private void SelectInitialPage(string initialPage)
++        {
++            for (var i = 0; i < Sidebar.ItemsView.Count; i++)
++            {
++                if (string.Equals(
++                        (Sidebar.ItemsView[i] as TabItem)?.Header?.ToString(),
++                        initialPage,
++                        StringComparison.OrdinalIgnoreCase))
++                {
++                    Sidebar.SelectedIndex = i;
++                    Console.WriteLine($"[ControlCatalog] selected page={initialPage} index={i}");
++                    return;
++                }
++            }
+         }
+     }
+ }
+diff --git a/samples/ControlCatalog/DeferredCatalogPage.cs b/samples/ControlCatalog/DeferredCatalogPage.cs
+new file mode 100644
+index 0000000000..455c8cac4f
+--- /dev/null
++++ b/samples/ControlCatalog/DeferredCatalogPage.cs
+@@ -0,0 +1,172 @@
++using System;
++using Avalonia;
++using Avalonia.Controls;
++using ControlCatalog.Pages;
++
++namespace ControlCatalog;
++
++internal sealed class DeferredCatalogPage : ContentControl
++{
++    private bool _pageCreated;
++
++    public CatalogPageKind PageKind { get; set; }
++
++    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
++    {
++        base.OnAttachedToVisualTree(e);
++
++        if (!_pageCreated)
++        {
++            Content = CreatePage(PageKind);
++            _pageCreated = true;
++        }
++    }
++
++    private static Control CreatePage(CatalogPageKind pageKind) =>
++        pageKind switch
++        {
++            CatalogPageKind.AcceleratorPage => new AcceleratorPage(),
++            CatalogPageKind.AcrylicPage => new AcrylicPage(),
++            CatalogPageKind.AdornerLayerPage => new AdornerLayerPage(),
++            CatalogPageKind.AutoCompleteBoxPage => new AutoCompleteBoxPage(),
++            CatalogPageKind.BitmapCachePage => new BitmapCachePage(),
++            CatalogPageKind.BorderPage => new BorderPage(),
++            CatalogPageKind.ButtonSpinnerPage => new ButtonSpinnerPage(),
++            CatalogPageKind.ButtonsPage => new ButtonsPage(),
++            CatalogPageKind.CalendarDatePickerPage => new CalendarDatePickerPage(),
++            CatalogPageKind.CalendarPage => new CalendarPage(),
++            CatalogPageKind.CanvasPage => new CanvasPage(),
++            CatalogPageKind.CarouselDemoPage => new CarouselDemoPage(),
++            CatalogPageKind.CheckBoxPage => new CheckBoxPage(),
++            CatalogPageKind.ClipboardPage => new ClipboardPage(),
++            CatalogPageKind.ColorPickerPage => new ColorPickerPage(),
++            CatalogPageKind.ComboBoxPage => new ComboBoxPage(),
++            CatalogPageKind.CommandBarPage => new CommandBarPage(),
++            CatalogPageKind.CompositionPage => new CompositionPage(),
++            CatalogPageKind.ContainerQueryPage => new ContainerQueryPage(),
++            CatalogPageKind.ContentDemoPage => new ContentDemoPage(),
++            CatalogPageKind.ContextFlyoutPage => new ContextFlyoutPage(),
++            CatalogPageKind.ContextMenuPage => new ContextMenuPage(),
++            CatalogPageKind.CursorPage => new CursorPage(),
++            CatalogPageKind.CustomDrawing => new CustomDrawing(),
++            CatalogPageKind.DataGridPage => new DataGridPage(),
++            CatalogPageKind.DataValidationPage => new DataValidationPage(),
++            CatalogPageKind.DateTimePickerPage => new DateTimePickerPage(),
++            CatalogPageKind.DialogsPage => new DialogsPage(),
++            CatalogPageKind.DragAndDropPage => new DragAndDropPage(),
++            CatalogPageKind.DrawerDemoPage => new DrawerDemoPage(),
++            CatalogPageKind.ExpanderPage => new ExpanderPage(),
++            CatalogPageKind.FlyoutsPage => new FlyoutsPage(),
++            CatalogPageKind.FocusPage => new FocusPage(),
++            CatalogPageKind.GesturePage => new GesturePage(),
++            CatalogPageKind.HeaderedContentPage => new HeaderedContentPage(),
++            CatalogPageKind.ImagePage => new ImagePage(),
++            CatalogPageKind.LabelsPage => new LabelsPage(),
++            CatalogPageKind.LayoutTransformControlPage => new LayoutTransformControlPage(),
++            CatalogPageKind.ListBoxPage => new ListBoxPage(),
++            CatalogPageKind.MenuPage => new MenuPage(),
++            CatalogPageKind.NativeEmbedPage => new NativeEmbedPage(),
++            CatalogPageKind.NavigationDemoPage => new NavigationDemoPage(),
++            CatalogPageKind.NotificationsPage => new NotificationsPage(),
++            CatalogPageKind.NumericUpDownPage => new NumericUpDownPage(),
++            CatalogPageKind.OpenGlLeasePage => new OpenGlLeasePage(),
++            CatalogPageKind.OpenGlPage => new OpenGlPage(),
++            CatalogPageKind.PipsPagerPage => new PipsPagerPage(),
++            CatalogPageKind.PlatformInfoPage => new PlatformInfoPage(),
++            CatalogPageKind.PointersPage => new PointersPage(),
++            CatalogPageKind.ProgressBarPage => new ProgressBarPage(),
++            CatalogPageKind.RadioButtonPage => new RadioButtonPage(),
++            CatalogPageKind.RefreshContainerPage => new RefreshContainerPage(),
++            CatalogPageKind.RelativePanelPage => new RelativePanelPage(),
++            CatalogPageKind.ScreenPage => new ScreenPage(),
++            CatalogPageKind.ScrollViewerPage => new ScrollViewerPage(),
++            CatalogPageKind.SliderPage => new SliderPage(),
++            CatalogPageKind.SplitViewPage => new SplitViewPage(),
++            CatalogPageKind.TabControlPage => new TabControlPage(),
++            CatalogPageKind.TabStripPage => new TabStripPage(),
++            CatalogPageKind.TabbedDemoPage => new TabbedDemoPage(),
++            CatalogPageKind.TextBlockPage => new TextBlockPage(),
++            CatalogPageKind.TextBoxPage => new TextBoxPage(),
++            CatalogPageKind.ThemePage => new ThemePage(),
++            CatalogPageKind.ToggleSwitchPage => new ToggleSwitchPage(),
++            CatalogPageKind.ToolTipPage => new ToolTipPage(),
++            CatalogPageKind.TransitioningContentControlPage => new TransitioningContentControlPage(),
++            CatalogPageKind.TreeViewPage => new TreeViewPage(),
++            CatalogPageKind.ViewboxPage => new ViewboxPage(),
++            CatalogPageKind.WindowCustomizationsPage => new WindowCustomizationsPage(),
++            _ => throw new ArgumentOutOfRangeException(nameof(pageKind), pageKind, null)
++        };
++}
++
++internal enum CatalogPageKind
++{
++    AcceleratorPage,
++    AcrylicPage,
++    AdornerLayerPage,
++    AutoCompleteBoxPage,
++    BitmapCachePage,
++    BorderPage,
++    ButtonSpinnerPage,
++    ButtonsPage,
++    CalendarDatePickerPage,
++    CalendarPage,
++    CanvasPage,
++    CarouselDemoPage,
++    CheckBoxPage,
++    ClipboardPage,
++    ColorPickerPage,
++    ComboBoxPage,
++    CommandBarPage,
++    CompositionPage,
++    ContainerQueryPage,
++    ContentDemoPage,
++    ContextFlyoutPage,
++    ContextMenuPage,
++    CursorPage,
++    CustomDrawing,
++    DataGridPage,
++    DataValidationPage,
++    DateTimePickerPage,
++    DialogsPage,
++    DragAndDropPage,
++    DrawerDemoPage,
++    ExpanderPage,
++    FlyoutsPage,
++    FocusPage,
++    GesturePage,
++    HeaderedContentPage,
++    ImagePage,
++    LabelsPage,
++    LayoutTransformControlPage,
++    ListBoxPage,
++    MenuPage,
++    NativeEmbedPage,
++    NavigationDemoPage,
++    NotificationsPage,
++    NumericUpDownPage,
++    OpenGlLeasePage,
++    OpenGlPage,
++    PipsPagerPage,
++    PlatformInfoPage,
++    PointersPage,
++    ProgressBarPage,
++    RadioButtonPage,
++    RefreshContainerPage,
++    RelativePanelPage,
++    ScreenPage,
++    ScrollViewerPage,
++    SliderPage,
++    SplitViewPage,
++    TabControlPage,
++    TabStripPage,
++    TabbedDemoPage,
++    TextBlockPage,
++    TextBoxPage,
++    ThemePage,
++    ToggleSwitchPage,
++    ToolTipPage,
++    TransitioningContentControlPage,
++    TreeViewPage,
++    ViewboxPage,
++    WindowCustomizationsPage
++}

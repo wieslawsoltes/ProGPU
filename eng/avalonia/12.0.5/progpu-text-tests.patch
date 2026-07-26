@@ -1,0 +1,183 @@
+diff --git a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+index 1edcbfa5aa..2798489c06 100644
+--- a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
++++ b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+@@ -2,6 +2,7 @@
+   <PropertyGroup>
+     <TargetFramework>$(AvsCurrentTargetFramework)</TargetFramework>
+     <OutputType>Exe</OutputType>
++    <DefineConstants Condition="'$(ProGpuTextShaperTests)' == 'true'">$(DefineConstants);PROGPU_TEXT_SHAPER_TESTS</DefineConstants>
+   </PropertyGroup>
+   <Import Project="..\..\build\UnitTests.NetCore.targets" />
+   <Import Project="..\..\build\XUnit.props" />
+@@ -17,12 +18,26 @@
+     <None Remove="Fonts\**\*.ttf" />
+     <EmbeddedResource Include="Fonts\**\*.ttf" />
+   </ItemGroup>
++  <ItemGroup Condition="'$(ProGpuTextShaperTests)' == 'true'">
++    <Compile Remove="**\*.cs" />
++    <Compile Include="Media\GlyphRunTests.cs" />
++    <Compile Include="$(ProGpuSourceRoot)\eng\avalonia\12.0.5\TextShapingTestBackend.cs"
++             Link="Media\TextShapingTestBackend.cs" />
++    <Compile Include="Media\TextFormatting\**\*.cs" />
++    <Compile Include="Properties\AssemblyInfo.cs" />
++    <Compile Include="Win32Fact.cs" />
++    <Compile Include="Win32Theory.cs" />
++  </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="..\..\src\Avalonia.Base\Avalonia.Base.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Controls\Avalonia.Controls.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+-    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' != 'true'"
++                      Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
+     <ProjectReference Include="..\Avalonia.UnitTests\Avalonia.UnitTests.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' == 'true'"
++                      Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.Rendering\Avalonia.ProGpu.csproj"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(MSBuildThisFileDirectory)..\.." />
+   </ItemGroup>
+   <ItemGroup>
+     <EmbeddedResource Update="..\Avalonia.RenderTests\Assets\Inter-Regular.ttf">
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+index 4aaaa9bf38..89de4f51d8 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+@@ -169,7 +169,9 @@ public void Similar_Runs_Have_Same_InkBounds_After_Blob_Creation()
+ 
+                 var glyphRun1 = CreateGlyphRun(shapedBuffer);
+                 var bounds1 = glyphRun1.InkBounds;
++#if !PROGPU_TEXT_SHAPER_TESTS
+                 ((GlyphRunImpl)glyphRun1.PlatformImpl.Item).GetTextBlob(new TextOptions { TextRenderingMode = TextRenderingMode.SubpixelAntialias }, default);
++#endif
+ 
+                 var bounds2 = CreateGlyphRun(shapedBuffer).InkBounds;
+ 
+@@ -466,8 +468,9 @@ private static GlyphRun CreateGlyphRun(ShapedBuffer shapedBuffer)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+index ae98e79739..5cb13dc8a3 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+@@ -2,7 +2,9 @@
+ using System.Globalization;
+ using Avalonia.Media;
+ using Avalonia.Media.TextFormatting;
++#if !PROGPU_TEXT_SHAPER_TESTS
+ using Avalonia.Skia;
++#endif
+ using Avalonia.UnitTests;
+ using Xunit;
+ 
+@@ -290,8 +292,9 @@ private static ShapedBuffer ShapeAscii(string text)
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+index 182c633418..37c58c79ab 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+@@ -1351,9 +1351,10 @@ public InvisibleRun(int length)
+         public static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+-            var customFontManagerImpl = new CustomFontManagerImpl();
++            var customFontManagerImpl = TextShapingTestBackend.CreateFontManager();
+ 
+             AvaloniaLocator.CurrentMutable
+                 .Bind<IFontManagerImpl>().ToConstant(customFontManagerImpl);
+@@ -1363,7 +1364,8 @@ public static IDisposable Start()
+             AvaloniaLocator.CurrentMutable
+                 .Bind<FontManager>().ToConstant(fontManager);
+ 
+-            fontManager.AddFontCollection(customFontManagerImpl.SystemFonts);
++            fontManager.AddFontCollection(
++                TextShapingTestBackend.GetSystemFonts(customFontManagerImpl));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+index 3c688d8e79..7e78d4d695 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+@@ -1251,8 +1251,9 @@ public void Should_Measure_TextLayoutSymbolWithAndWidthIncludingTrailingWhitespa
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+index 1ec027a12c..79ac974d40 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+@@ -2528,8 +2528,9 @@ public FixedRunsTextSource(IReadOnlyList<TextRun> textRuns)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+index 4ef819943c..a3872cfffe 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+@@ -585,8 +585,9 @@ public void TextLayout_With_Cache_Matches_Without()
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+index 8f039a97e2..6c18d15628 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+@@ -271,8 +271,9 @@ public void ClusterCache_SimpleMode_TrimmingHelpers_Survive_Split()
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }

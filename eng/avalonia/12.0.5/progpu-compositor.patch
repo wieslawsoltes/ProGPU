@@ -1,0 +1,598 @@
+diff --git a/src/Avalonia.Base/Avalonia.Base.csproj b/src/Avalonia.Base/Avalonia.Base.csproj
+index 99524857a7..2f0d3c44db 100644
+--- a/src/Avalonia.Base/Avalonia.Base.csproj
++++ b/src/Avalonia.Base/Avalonia.Base.csproj
+@@ -34,6 +34,7 @@
+     <InternalsVisibleTo Include="Avalonia.OpenGL, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Vulkan, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Skia, PublicKey=$(AvaloniaPublicKey)" />
++    <InternalsVisibleTo Include="Avalonia.ProGpu, PublicKey=002400000480000094000000060200000024000052534131000400000100010045aa5f537c126e38b67a4e22a49d30ad6424dc66d3e82890c03de2caa8f421736dbe5170b054610320e4a436e808a38b05e02998b776d1ae9133d2bf7197e5eb39e9ba6bee9ed837236a90c151c6d6e154dc8debd4fef44d6597f795ee9e33bf0b2a959915729166099862717525ec4bab3002d4d8f8a81d656b5c25c891cb91" />
+     <InternalsVisibleTo Include="Avalonia.Controls.ColorPicker, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Controls.DataGrid, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Headless, PublicKey=$(AvaloniaPublicKey)" />
+diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
+index 3745fb54d8..a1db353efc 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
+@@ -1,6 +1,7 @@
+ using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
++using System.Threading;
+ using Avalonia.Platform;
+ using Avalonia.Rendering.Composition.Drawing.Nodes;
+ using Avalonia.Rendering.Composition.Server;
+@@ -12,12 +13,16 @@ namespace Avalonia.Rendering.Composition.Drawing;
+ 
+ class ServerCompositionRenderData : SimpleServerRenderResource
+ {
++    private static long s_nextId;
+     private PooledInlineList<IRenderDataItem> _items;
+     private PooledInlineList<IServerRenderResource> _referencedResources;
+     private LtrbRect? _bounds;
+     private bool _boundsValid;
+     private static readonly ThreadSafeObjectPool<Collector> s_resourceHashSetPool = new();
+ 
++    public long RetainedId { get; } = Interlocked.Increment(ref s_nextId);
++    public ulong Revision { get; private set; }
++
+     public ServerCompositionRenderData(ServerCompositor compositor) : base(compositor)
+     {
+     }
+@@ -35,6 +40,7 @@ public void AddRenderDataServerResource(object? obj)
+     protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpan committedAt)
+     {
+         Reset();
++        Revision++;
+         
+         var count = reader.Read<int>();
+         _items.EnsureCapacity(count);
+@@ -113,6 +119,7 @@ private static void CollectResources(PooledInlineList<IRenderDataItem> items, IR
+     public override void DependencyQueuedInvalidate(IServerRenderResource sender)
+     {
+         _boundsValid = false;
++        Revision++;
+         base.DependencyQueuedInvalidate(sender);
+     }
+     
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
+index 98fd9e4873..9ce2d901d3 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
+@@ -18,7 +18,19 @@ internal class ServerCompositionDrawListVisual : ServerCompositionContainerVisua
+     // This is needed for debugging purposes so we could see inspect the associated visual from debugger
+     public readonly Visual UiVisual;
+ #endif
++    private ulong _retainedContentRevision;
+     private ServerCompositionRenderData? _renderCommands;
++    internal override ulong RetainedContentRevision => _retainedContentRevision;
++
++    private void AdvanceRetainedContentRevision()
++    {
++        unchecked
++        {
++            _retainedContentRevision++;
++            if (_retainedContentRevision == 0)
++                _retainedContentRevision = 1;
++        }
++    }
+     
+     public ServerCompositionDrawListVisual(ServerCompositor compositor, Visual v) : base(compositor)
+     {
+@@ -36,6 +48,7 @@ protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpa
+             _renderCommands?.Dispose();
+             _renderCommands = reader.ReadObject<ServerCompositionRenderData?>();
+             _renderCommands?.AddObserver(this);
++            AdvanceRetainedContentRevision();
+             InvalidateContent();
+         }
+         base.DeserializeChangesCore(reader, committedAt);
+@@ -43,10 +56,24 @@ protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpa
+ 
+     protected override void RenderCore(ServerVisualRenderContext context, LtrbRect currentTransformedClip)
+     {
+-        _renderCommands?.Render(context.Canvas);
++        if (_renderCommands is not { } renderCommands)
++            return;
++
++        if (context.Canvas.GetFeature(typeof(ICompositionRenderDataDrawingContextFeature)) is
++                ICompositionRenderDataDrawingContextFeature retained &&
++            retained.TryRender(renderCommands))
++        {
++            return;
++        }
++
++        renderCommands.Render(context.Canvas);
+     }
+ 
+-    public void DependencyQueuedInvalidate(IServerRenderResource sender) => InvalidateContent();
++    public void DependencyQueuedInvalidate(IServerRenderResource sender)
++    {
++        AdvanceRetainedContentRevision();
++        InvalidateContent();
++    }
+     
+ #if DEBUG
+     public override string ToString()
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+index fe857ac466..ae46ff3dac 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+@@ -32,6 +32,8 @@ internal partial class ServerCompositionTarget : IDisposable
+         private bool _fullRedrawRequested;
+         private bool _disposed;
+         private readonly HashSet<ServerCompositionVisual> _attachedVisuals = new();
++        private readonly HashSet<ServerCompositionVisual> _retainedChangedVisualSet = new();
++        private readonly List<ServerCompositionVisual> _retainedChangedVisuals = new();
+         public IDirtyRectTracker DirtyRects { get; }
+ 
+         public long Id { get; }
+@@ -39,6 +41,9 @@ internal partial class ServerCompositionTarget : IDisposable
+         public ICompositionTargetDebugEvents? DebugEvents { get; set; }
+         public int RenderedVisuals { get; set; }
+         public int VisitedVisuals { get; set; }
++        internal IReadOnlyList<ServerCompositionVisual> RetainedChangedVisuals =>
++            _retainedChangedVisuals;
++        internal bool RetainedSceneRequiresFullSync { get; private set; } = true;
+         
+         /// <summary>
+         /// Returns true if the target is enabled and has pending work but its render target was not ready.
+@@ -96,6 +101,47 @@ public ServerCompositionTarget(ServerCompositor compositor, Func<IEnumerable<IPl
+         {
+             _redrawRequested = true;
+             _fullRedrawRequested = true;
++            NotifyRetainedSceneChanged();
++        }
++
++        internal void NotifyRetainedSceneChanged()
++        {
++            RetainedSceneRequiresFullSync = true;
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void NotifyRetainedSceneChanged(ServerCompositionVisual visual)
++        {
++            if (_retainedChangedVisualSet.Add(visual))
++                _retainedChangedVisuals.Add(visual);
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void NotifyRetainedSceneTopologyChanged(ServerCompositionVisual visual)
++        {
++            RetainedSceneRequiresFullSync = true;
++            if (_retainedChangedVisualSet.Add(visual))
++                _retainedChangedVisuals.Add(visual);
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void CompleteRetainedSceneSynchronization(ulong revision)
++        {
++            if (revision != Revision)
++                return;
++            _retainedChangedVisualSet.Clear();
++            _retainedChangedVisuals.Clear();
++            RetainedSceneRequiresFullSync = false;
++        }
++
++        private void AdvanceRetainedSceneRevision()
++        {
++            unchecked
++            {
++                Revision++;
++                if (Revision == 0)
++                    Revision = 1;
++            }
+         }
+         
+         
+@@ -266,7 +312,23 @@ void RenderRootToContextWithClip(IDrawingContextImpl context, ServerCompositionV
+                     context.PushLayer(DirtyRects.CombinedRect.ToRect());
+ 
+                 context.Transform = Matrix.CreateScale(Scaling, Scaling);
+-                (VisitedVisuals, RenderedVisuals) = root.Render(context, new LtrbRect(0,0, PixelSize.Width, PixelSize.Height), DirtyRects);
++                var clip = new LtrbRect(0, 0, PixelSize.Width, PixelSize.Height);
++                if (context.GetFeature(typeof(ICompositionVisualTreeDrawingContextFeature)) is
++                        ICompositionVisualTreeDrawingContextFeature retained &&
++                    retained.TryRender(
++                        this,
++                        root,
++                        clip,
++                        out var visitedVisuals,
++                        out var renderedVisuals))
++                {
++                    VisitedVisuals = visitedVisuals;
++                    RenderedVisuals = renderedVisuals;
++                }
++                else
++                {
++                    (VisitedVisuals, RenderedVisuals) = root.Render(context, clip, DirtyRects);
++                }
+                 if (DebugEvents != null)
+                 {
+                     DebugEvents.RenderedVisuals = RenderedVisuals;
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
+index e2ce331318..f7ff212839 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
+@@ -112,10 +112,19 @@ private void PropagateFlags(bool needsBoundingBoxUpdate, bool dirtyForRender, bo
+     
+     public void RecomputeOwnProperties()
+     {
++        var retainedSceneChanged =
++            _combinedTransformDirty ||
++            _clipSizeDirty ||
++            _ownBoundsDirty ||
++            _compositionFieldsDirty ||
++            _contentChanged ||
++            _delayPropagateNeedsBoundsUpdate ||
++            _delayPropagateIsDirtyForRender ||
++            _delayPropagateHasExtraDirtyRects;
+         var setDirtyBounds = _contentChanged || _delayPropagateNeedsBoundsUpdate;
+         var setDirtyForRender = _contentChanged || _delayPropagateIsDirtyForRender;
+         var setHasExtraDirtyRect = _delayPropagateHasExtraDirtyRects;
+         
+-        _delayPropagateIsDirtyForRender =
++        _delayPropagateNeedsBoundsUpdate =
+             _delayPropagateHasExtraDirtyRects =
+                 _delayPropagateIsDirtyForRender = false;
+@@ -160,5 +169,10 @@ public void RecomputeOwnProperties()
+ 
+         _ownBoundsDirty = _clipSizeDirty = _combinedTransformDirty = _compositionFieldsDirty = false;
+         PropagateFlags(setDirtyBounds, setDirtyForRender, setHasExtraDirtyRect);
++        if (retainedSceneChanged)
++        {
++            AdvanceRetainedRevision();
++            Root?.NotifyRetainedSceneChanged(this);
++        }
+     }
+ }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
+index 5e1b91f7a4..e6b82acfff 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
+@@ -2,6 +2,7 @@
+ using System.Collections.Generic;
+ using System.Numerics;
+ using System.Runtime.Intrinsics;
++using System.Threading;
+ using Avalonia.Media;
+ using Avalonia.Platform;
+ using Avalonia.Rendering.Composition.Animations;
+@@ -18,8 +19,13 @@ namespace Avalonia.Rendering.Composition.Server
+     /// </summary>
+     partial class ServerCompositionVisual : ServerObject
+     {
++        private static long s_nextRetainedId;
++
+         public ServerCompositionVisualCollection? Children { get; private set; } = null!;
+         public ServerCompositionVisualCache? Cache { get; private set; }
++        internal long RetainedId { get; } = Interlocked.Increment(ref s_nextRetainedId);
++        internal ulong RetainedRevision { get; private set; }
++        internal virtual ulong RetainedContentRevision => RetainedRevision;
+ 
+         partial void OnRootChanging()
+         {
+@@ -74,9 +80,32 @@ protected virtual void RenderCore(ServerVisualRenderContext context, LtrbRect cu
+         {
+         }
+ 
++        internal void RenderRetainedContent(IDrawingContextImpl canvas, LtrbRect currentTransformedClip) =>
++            RenderCore(new ServerVisualRenderContext(canvas), currentTransformedClip);
++
++        internal LtrbRect? RetainedOwnContentBounds => _ownContentBounds;
++        internal Matrix? RetainedOwnTransform => _ownTransform;
++
++        internal void NotifyRetainedTopologyChanged()
++        {
++            AdvanceRetainedRevision();
++            Root?.NotifyRetainedSceneTopologyChanged(this);
++        }
++
++        private void AdvanceRetainedRevision()
++        {
++            unchecked
++            {
++                RetainedRevision++;
++                if (RetainedRevision == 0)
++                    RetainedRevision = 1;
++            }
++        }
++
+         partial void Initialize()
+         {
+             Children = new ServerCompositionVisualCollection(Compositor);
++            Children.SetOwner(this);
+         }
+     }
+ }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
+index 0652e1731d..50983b0d90 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
+@@ -20,10 +20,15 @@ protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpa
+                 var count = reader.Read<int>();
+                 for (var c = 0; c < count; c++) 
+                     List.Add(reader.ReadObject<T>());
++                OnListChanged();
+             }
+             base.DeserializeChangesCore(reader, committedAt);
+         }
+ 
++        protected virtual void OnListChanged()
++        {
++        }
++
+         public List<T>.Enumerator GetEnumerator() => List.GetEnumerator();
+ 
+         public ServerList(ServerCompositor compositor) : base(compositor)
+diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+new file mode 100644
+index 0000000000..03f8c344e4
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+@@ -0,0 +1,11 @@
++namespace Avalonia.Rendering.Composition.Drawing;
++
++/// <summary>
++/// Optional typed bridge for platform drawing contexts that can retain and
++/// replay an immutable server composition draw list without invoking every
++/// render-data node on each frame.
++/// </summary>
++internal interface ICompositionRenderDataDrawingContextFeature
++{
++    bool TryRender(ServerCompositionRenderData renderData);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+new file mode 100644
+index 0000000000..b7f58c43a4
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+@@ -0,0 +1,18 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Optional typed bridge for drawing contexts that own a retained visual scene.
++/// Implementations return false when the current tree contains a composition
++/// feature that requires Avalonia's built-in traversal.
++/// </summary>
++internal interface ICompositionVisualTreeDrawingContextFeature
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+new file mode 100644
+index 0000000000..b9231b6bef
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+@@ -0,0 +1,10 @@
++namespace Avalonia.Rendering.Composition.Server;
++
++partial class ServerCompositionVisualCollection
++{
++    private ServerCompositionVisual? _owner;
++
++    internal void SetOwner(ServerCompositionVisual owner) => _owner = owner;
++
++    protected override void OnListChanged() => _owner?.NotifyRetainedTopologyChanged();
++}
+diff --git a/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
+new file mode 100644
+index 0000000000..6532d9953f
+--- /dev/null
++++ b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
+@@ -0,0 +1,83 @@
++using Avalonia.Media;
++using Avalonia.Media.Immutable;
++using Avalonia.Rendering;
++using Avalonia.Rendering.Composition;
++using Avalonia.Rendering.Composition.Drawing;
++using Avalonia.Rendering.Composition.Server;
++using Avalonia.UnitTests;
++using Xunit;
++
++namespace Avalonia.Base.UnitTests.Composition;
++
++public class RetainedCompositionRevisionTests : ScopedTestBase
++{
++    [Fact]
++    public void DrawListContentRevisionIsIndependentFromVisualStateRevision()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = new CompositionDrawListVisual(
++            compositor,
++            new ServerCompositionDrawListVisual(compositor.Server, null!),
++            null!);
++
++        visual.DrawList = CreateDrawList(compositor, Colors.Red);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionDrawListVisual)visual.Server;
++        ulong initialStateRevision = server.RetainedRevision;
++        ulong initialContentRevision = server.RetainedContentRevision;
++
++        visual.Offset = new Vector3D(8, 4, 0);
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialStateRevision, server.RetainedRevision);
++        Assert.Equal(initialContentRevision, server.RetainedContentRevision);
++
++        visual.DrawList = CreateDrawList(compositor, Colors.Blue);
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialContentRevision, server.RetainedContentRevision);
++    }
++
++    [Fact]
++    public void ParentChangeDelayedFlagsAreConsumedByOneRecompute()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var parent = compositor.CreateContainerVisual();
++        var child = compositor.CreateContainerVisual();
++
++        parent.Children.InsertAtTop(child);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)child.Server;
++        ulong revision = server.RetainedRevision;
++
++        server.RecomputeOwnProperties();
++
++        Assert.Equal(revision, server.RetainedRevision);
++    }
++
++    private static CompositionRenderData CreateDrawList(
++        Compositor compositor,
++        Color color)
++    {
++        var context = new RenderDataDrawingContext(compositor);
++        context.DrawRectangle(
++            new ImmutableSolidColorBrush(color),
++            null,
++            new Rect(new Size(20, 10)));
++        return context.GetRenderResults()!;
++    }
++
++    private static void CommitAndRender(Compositor compositor)
++    {
++        compositor.Commit();
++        compositor.Server.Render(false);
++    }
++}
+diff --git a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs b/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
+index 52f8f5e68d..49d9e2904b 100644
+--- a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
++++ b/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
+@@ -47,6 +47,11 @@ public Stream GetStream()
+     {
+         var s = Assembly.GetManifestResourceStream(Constants.AvaloniaResourceName) ??
+                 throw new InvalidOperationException($"Could not find manifest resource stream '{Constants.AvaloniaResourceName}',");
+-        return new SlicedStream(s, _offset, _length);
++        return new AssemblyResourceSliceStream(
++            s,
++            Assembly,
++            Constants.AvaloniaResourceName,
++            _offset,
++            _length);
+     }
+ }
+diff --git a/src/Avalonia.Base/Platform/Internal/SlicedStream.cs b/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
+index 86a8dd5da9..6226f95e55 100644
+--- a/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
++++ b/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
+@@ -1,5 +1,6 @@
+ ﻿using System;
+ using System.IO;
++using System.Reflection;
+ 
+ namespace Avalonia.Platform.Internal;
+ 
+@@ -57,3 +58,36 @@ protected override void Dispose(bool disposing)
+ 
+     public override void Close() => _baseStream.Close();
+ }
++
++/// <summary>
++/// Identifies an immutable byte range within an assembly manifest resource.
++/// Consumers that understand this typed contract can borrow the mapped resource
++/// directly; ordinary stream consumers retain the existing sliced-stream behavior.
++/// </summary>
++internal sealed class AssemblyResourceSliceStream : SlicedStream
++{
++    private readonly Assembly _assembly;
++
++    public AssemblyResourceSliceStream(
++        Stream baseStream,
++        Assembly assembly,
++        string resourceName,
++        int from,
++        int length)
++        : base(baseStream, from, length)
++    {
++        _assembly = assembly;
++        ResourceName = resourceName;
++        ResourceOffset = from;
++        ResourceLength = length;
++    }
++
++    public string ResourceName { get; }
++    public int ResourceOffset { get; }
++    public int ResourceLength { get; }
++
++    public Stream OpenResourceStream() =>
++        _assembly.GetManifestResourceStream(ResourceName) ??
++        throw new InvalidOperationException(
++            $"Could not find manifest resource stream '{ResourceName}'.");
++}
+diff --git a/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs b/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
+index 980c7818c7..953bf3f0bc 100644
+--- a/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
++++ b/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
+@@ -30,7 +30,9 @@ public void EnsureValidBackendContext()
+         if (!IsReady)
+             throw new InvalidOperationException("Platform graphics isn't ready yet");
+         
+-        if (_backend == null || _gpuContext?.Value.IsLost == true)
++        if (_backend == null ||
++            _backend.IsLost ||
++            _gpuContext?.Value.IsLost == true)
+         {
+             _backend?.Dispose();
+             _backend = null;
+diff --git a/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs b/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs
+new file mode 100644
+index 0000000000..3230ee0f0f
+--- /dev/null
++++ b/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs
+@@ -0,0 +1,39 @@
++using Avalonia.Platform;
++using Avalonia.Rendering;
++using Avalonia.UnitTests;
++using Moq;
++using Xunit;
++
++namespace Avalonia.Base.UnitTests.Rendering;
++
++public class PlatformRenderInterfaceContextManagerTests
++{
++    [Fact]
++    public void Lost_Backend_Context_Is_Disposed_And_Recreated_Without_Platform_Graphics()
++    {
++        var firstIsLost = false;
++        var firstContext = new Mock<IPlatformRenderInterfaceContext>();
++        firstContext.SetupGet(context => context.IsLost)
++            .Returns(() => firstIsLost);
++
++        var secondContext = new Mock<IPlatformRenderInterfaceContext>();
++        var renderInterface = new Mock<IPlatformRenderInterface>();
++        renderInterface.SetupSequence(renderer => renderer.CreateBackendContext(null))
++            .Returns(firstContext.Object)
++            .Returns(secondContext.Object);
++
++        using var application = UnitTestApplication.Start(
++            new TestServices(renderInterface: renderInterface.Object));
++        var manager = new PlatformRenderInterfaceContextManager(graphics: null);
++
++        Assert.Same(firstContext.Object, manager.Value);
++
++        firstIsLost = true;
++
++        Assert.Same(secondContext.Object, manager.Value);
++        firstContext.Verify(context => context.Dispose(), Times.Once);
++        renderInterface.Verify(
++            renderer => renderer.CreateBackendContext(null),
++            Times.Exactly(2));
++    }
++}

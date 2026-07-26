@@ -4,6 +4,7 @@
 # separately on macOS, then both groups are verified together before publishing.
 progpu_portable_package_ids=(
   ProGPU.Backend
+  ProGPU.Backend.Dawn
   ProGPU.Text.Shaping
   ProGPU.Browser
   ProGPU.DirectX
@@ -35,6 +36,7 @@ progpu_portable_package_ids=(
 
 progpu_portable_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Browser/ProGPU.Browser.csproj
   src/ProGPU.DirectX/ProGPU.DirectX.csproj
@@ -66,6 +68,7 @@ progpu_portable_package_projects=(
 
 progpu_portable_package_purposes=(
   "WebGPU device, swapchain, Silk.NET windowing, and platform backend services."
+  "Exact-ABI Dawn shared texture memory and cross-queue fence extensions."
   "AOT-safe OpenType shaping contracts and execution primitives."
   "Batched .NET WebAssembly dispatcher and navigator.gpu browser host services."
   "DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU."
@@ -93,6 +96,46 @@ progpu_portable_package_purposes=(
   "ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters."
   "ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers."
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
+)
+
+# Exact runtime dependency closure of the Avalonia renderer and Silk.NET host.
+# Keep this list topologically ordered so the replacement-stack pack lane stays
+# fast while still producing every ProGPU package that an isolated consumer can
+# restore without falling back to a previously published runtime binary.
+progpu_avalonia_runtime_package_ids=(
+  ProGPU.Backend
+  ProGPU.Backend.Dawn
+  ProGPU.Text.Shaping
+  ProGPU.Transpiler
+  ProGPU.Vector
+  ProGPU.Text
+  ProGPU.Compute
+  ProGPU.Scene
+  ProGPU.SkiaSharp
+)
+
+progpu_avalonia_runtime_package_projects=(
+  src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
+  src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
+  src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
+  src/ProGPU.Vector/ProGPU.Vector.csproj
+  src/ProGPU.Text/ProGPU.Text.csproj
+  src/ProGPU.Compute/ProGPU.Compute.csproj
+  src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/SkiaSharp/SkiaSharp.csproj
+)
+
+progpu_avalonia_runtime_package_purposes=(
+  "Avalonia runtime closure: WebGPU device and platform backend."
+  "Avalonia runtime closure: typed Dawn native presentation and shared-resource interop."
+  "Avalonia runtime closure: AOT-safe OpenType shaping."
+  "Avalonia runtime closure: shader/source transformation."
+  "Avalonia runtime closure: retained vector primitives."
+  "Avalonia runtime closure: text layout and rendering."
+  "Avalonia runtime closure: compute pipelines."
+  "Avalonia runtime closure: retained compositor scene."
+  "Avalonia runtime closure: SkiaSharp compatibility surface."
 )
 
 progpu_mobile_package_ids=(
@@ -178,6 +221,7 @@ validate_parallel_arrays() {
 }
 
 validate_parallel_arrays portable "${#progpu_portable_package_ids[@]}" "${#progpu_portable_package_projects[@]}" "${#progpu_portable_package_purposes[@]}"
+validate_parallel_arrays avalonia-runtime "${#progpu_avalonia_runtime_package_ids[@]}" "${#progpu_avalonia_runtime_package_projects[@]}" "${#progpu_avalonia_runtime_package_purposes[@]}"
 validate_parallel_arrays mobile "${#progpu_mobile_package_ids[@]}" "${#progpu_mobile_package_projects[@]}" "${#progpu_mobile_package_purposes[@]}"
 validate_parallel_arrays complete "${#progpu_package_ids[@]}" "${#progpu_package_projects[@]}" "${#progpu_package_purposes[@]}"
 

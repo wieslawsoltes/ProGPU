@@ -15,11 +15,14 @@ case "${package_group}" in
   portable)
     selected_package_ids=("${progpu_portable_package_ids[@]}")
     ;;
+  avalonia-runtime)
+    selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
+    ;;
   mobile)
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
     exit 1
     ;;
 esac

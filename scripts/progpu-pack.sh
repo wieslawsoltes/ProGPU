@@ -16,10 +16,9 @@ mkdir -p "${package_output}"
 
 for index in "${!progpu_avalonia_package_ids[@]}"; do
   package_id="${progpu_avalonia_package_ids[$index]}"
-  package_version="${progpu_avalonia_package_versions[$index]}"
   find "${package_output}" -maxdepth 1 -type f \
-    \( -name "${package_id}.${package_version}.nupkg" -o \
-       -name "${package_id}.${package_version}.snupkg" \) \
+    \( -name "${package_id}.*.nupkg" -o \
+       -name "${package_id}.*.snupkg" \) \
     -delete
 done
 
@@ -28,14 +27,22 @@ for index in "${!progpu_avalonia_package_ids[@]}"; do
   package_id="${progpu_avalonia_package_ids[$index]}"
   package_version="${progpu_avalonia_package_versions[$index]}"
   project="${repo_root}/${progpu_avalonia_package_projects[$index]}"
-
-  "${dotnet}" pack "${project}" \
-    --configuration "${configuration}" \
-    --output "${package_output}" \
-    --verbosity minimal \
-    -p:ContinuousIntegrationBuild=true \
-    -p:IncludeSymbols=true \
+  pack_arguments=(
+    --configuration "${configuration}"
+    --output "${package_output}"
+    --verbosity minimal
+    -p:ContinuousIntegrationBuild=true
+    -p:IncludeSymbols=true
     -p:SymbolPackageFormat=snupkg
+  )
+  if [[ "${package_version}" == 12.0.5-* &&
+        -n "${PROGPU_AVALONIA_SOURCE_ROOT:-}" ]]; then
+    pack_arguments+=(
+      -p:ProGpuAvaloniaSourceRoot="${PROGPU_AVALONIA_SOURCE_ROOT}"
+    )
+  fi
+
+  "${dotnet}" pack "${project}" "${pack_arguments[@]}"
 
   for extension in nupkg snupkg; do
     artifact="${package_output}/${package_id}.${package_version}.${extension}"

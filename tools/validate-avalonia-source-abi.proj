@@ -1,0 +1,62 @@
+<Project>
+  <PropertyGroup>
+    <ContractAssembly>$([MSBuild]::NormalizePath('$(ContractAssembly)'))</ContractAssembly>
+    <ImplementationAssembly>$([MSBuild]::NormalizePath('$(ImplementationAssembly)'))</ImplementationAssembly>
+    <RoslynAssembliesPath>$([MSBuild]::NormalizePath('$(MSBuildToolsPath)', 'Roslyn', 'bincore'))</RoslynAssembliesPath>
+    <DotNetApiCompatTaskAssembly>$([MSBuild]::NormalizePath('$(MSBuildToolsPath)', 'Sdks', 'Microsoft.NET.Sdk', 'tools', 'net10.0', 'Microsoft.DotNet.ApiCompat.Task.dll'))</DotNetApiCompatTaskAssembly>
+  </PropertyGroup>
+
+  <UsingTask TaskName="Microsoft.DotNet.ApiCompat.Task.ValidateAssembliesTask"
+             AssemblyFile="$(DotNetApiCompatTaskAssembly)" />
+
+  <Target Name="Validate">
+    <Error Condition="'$(ContractAssembly)' == ''"
+           Text="ContractAssembly is required." />
+    <Error Condition="'$(ImplementationAssembly)' == ''"
+           Text="ImplementationAssembly is required." />
+    <Error Condition="!Exists('$(ContractAssembly)')"
+           Text="Avalonia contract assembly was not found at $(ContractAssembly)." />
+    <Error Condition="!Exists('$(ImplementationAssembly)')"
+           Text="ProGPU Avalonia implementation assembly was not found at $(ImplementationAssembly)." />
+    <Error Condition="!Exists('$(DotNetApiCompatTaskAssembly)')"
+           Text="The .NET 10 ApiCompat task was not found at $(DotNetApiCompatTaskAssembly)." />
+
+    <GetAssemblyIdentity AssemblyFiles="$(ContractAssembly)">
+      <Output TaskParameter="Assemblies" ItemName="_ContractIdentity" />
+    </GetAssemblyIdentity>
+    <GetAssemblyIdentity AssemblyFiles="$(ImplementationAssembly)">
+      <Output TaskParameter="Assemblies" ItemName="_ImplementationIdentity" />
+    </GetAssemblyIdentity>
+
+    <PropertyGroup>
+      <_ContractName>@(_ContractIdentity->'%(Name)')</_ContractName>
+      <_ContractVersion>@(_ContractIdentity->'%(Version)')</_ContractVersion>
+      <_ContractPublicKeyToken>@(_ContractIdentity->'%(PublicKeyToken)')</_ContractPublicKeyToken>
+      <_ContractCulture>@(_ContractIdentity->'%(Culture)')</_ContractCulture>
+      <_ImplementationName>@(_ImplementationIdentity->'%(Name)')</_ImplementationName>
+      <_ImplementationVersion>@(_ImplementationIdentity->'%(Version)')</_ImplementationVersion>
+      <_ImplementationPublicKeyToken>@(_ImplementationIdentity->'%(PublicKeyToken)')</_ImplementationPublicKeyToken>
+      <_ImplementationCulture>@(_ImplementationIdentity->'%(Culture)')</_ImplementationCulture>
+    </PropertyGroup>
+
+    <Error Condition="'$(_ContractName)' != '$(_ImplementationName)'"
+           Text="Assembly name mismatch: contract=$(_ContractName), implementation=$(_ImplementationName)." />
+    <Error Condition="'$(_ContractVersion)' != '$(_ImplementationVersion)'"
+           Text="Assembly version mismatch: contract=$(_ContractVersion), implementation=$(_ImplementationVersion)." />
+    <Error Condition="'$(_ContractPublicKeyToken)' != '$(_ImplementationPublicKeyToken)'"
+           Text="Assembly public-key-token mismatch: contract=$(_ContractPublicKeyToken), implementation=$(_ImplementationPublicKeyToken)." />
+    <Error Condition="'$(_ContractCulture)' != '$(_ImplementationCulture)'"
+           Text="Assembly culture mismatch: contract=$(_ContractCulture), implementation=$(_ImplementationCulture)." />
+
+    <Microsoft.DotNet.ApiCompat.Task.ValidateAssembliesTask
+        LeftAssemblies="$(ContractAssembly)"
+        RightAssemblies="$(ImplementationAssembly)"
+        RoslynAssembliesPath="$(RoslynAssembliesPath)"
+        EnableStrictMode="true"
+        EnableRuleAttributesMustMatch="true"
+        EnableRuleCannotChangeParameterName="true" />
+
+    <Message Importance="high"
+             Text="Avalonia runtime ABI validation passed: $(_ImplementationName), Version=$(_ImplementationVersion), PublicKeyToken=$(_ImplementationPublicKeyToken)." />
+  </Target>
+</Project>

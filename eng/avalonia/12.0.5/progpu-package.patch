@@ -1,0 +1,22 @@
+diff --git a/packages/Avalonia/Avalonia.csproj b/packages/Avalonia/Avalonia.csproj
+index 5296e57adc..a2eac0d369 100644
+--- a/packages/Avalonia/Avalonia.csproj
++++ b/packages/Avalonia/Avalonia.csproj
+@@ -4,6 +4,17 @@
+       <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
+       <PackageId>Avalonia</PackageId>
+   </PropertyGroup>
++  <PropertyGroup Condition="'$(ProGpuReplacementPackage)' == 'true'">
++      <PackageDescription>Source-built Avalonia 12.0.5 replacement with the typed ProGPU compositor seam. For isolated private/local feeds only.</PackageDescription>
++      <PackageReleaseNotes>Official Avalonia 12.0.5 API and assembly identity with a clean-room, reflection-free ProGPU retained-compositor seam.</PackageReleaseNotes>
++      <PackageTags>avalonia;avaloniaui;progpu;webgpu;replacement</PackageTags>
++  </PropertyGroup>
++  <ItemGroup Condition="'$(ProGpuReplacementPackage)' == 'true'">
++      <None Include="$(ProGpuSourceRoot)/docs/progpu-avalonia-replacement-package.md"
++            Pack="true"
++            PackagePath="PROGPU-REPLACEMENT.md"
++            Visible="false" />
++  </ItemGroup>
+ 
+   <ItemGroup>
+       <PackageReference Include="Avalonia.BuildServices" />

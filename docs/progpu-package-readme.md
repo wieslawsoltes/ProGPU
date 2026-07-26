@@ -1,6 +1,7 @@
 # ProGPU rendering for Avalonia
 
-These packages run Avalonia 12 on the ProGPU/WebGPU renderer with Silk.NET windowing.
+These packages run Avalonia 12 on the ProGPU/WebGPU renderer with either
+Silk.NET windowing or Avalonia's existing native windowing backend.
 
 | Package | Purpose |
 | --- | --- |
@@ -19,7 +20,6 @@ Reference the renderer, windowing backend, text shaper, and font package:
 <ItemGroup>
   <PackageReference Include="Avalonia" Version="12.0.5" />
   <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
-  <PackageReference Include="Avalonia.HarfBuzz" Version="12.0.5" />
   <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.27" />
   <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.27" />
 </ItemGroup>
@@ -29,7 +29,7 @@ The integration packages carry exact dependencies on their supported Avalonia an
 
 ## Configure the app
 
-Configure Silk.NET windowing, ProGPU rendering, HarfBuzz shaping, and the Inter font before starting the desktop lifetime:
+Configure Silk.NET windowing, ProGPU rendering and managed text shaping, and the Inter font before starting the desktop lifetime:
 
 ```csharp
 using Avalonia;
@@ -43,11 +43,16 @@ public static AppBuilder BuildAvaloniaApp() =>
         {
             UseRegionDirtyRectClipping = false
         })
-        .UseHarfBuzz()
+        .UseProGpuTextShaping()
         .WithInterFont();
 ```
 
 `UseRegionDirtyRectClipping = false` is the current recommended setting for the ProGPU renderer. `UseSkia()` remains a compatibility alias for `UseProGpu()`, but the explicit ProGPU name avoids confusion with Avalonia's Skia renderer.
+
+Silk.NET schedules animation frames at the primary display's reported refresh
+rate and stops submitting when Avalonia has no queued invalidation. For a
+fixed-rate diagnostic run, set `PROGPU_AVALONIA_RENDER_FPS` to a value from 24
+through 360 before process startup.
 
 Start the app normally:
 
@@ -56,6 +61,34 @@ Start the app normally:
 public static void Main(string[] args) =>
     BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 ```
+
+## Use Avalonia Native windowing with Dawn
+
+Avalonia 12 applications may keep Avalonia's macOS windowing backend while
+using the same ProGPU compositor:
+
+```csharp
+public static AppBuilder BuildAvaloniaApp() =>
+    AppBuilder.Configure<App>()
+        .UseAvaloniaNative()
+        .UseProGpu()
+        .With(new ProGpuOptions
+        {
+            UseDawnMetalPresentation = true,
+            RequireDawnMetalPresentation = true
+        })
+        .UseProGpuTextShaping()
+        .WithInterFont();
+```
+
+This path uses WebGPUSharp/Dawn to import Avalonia's drawable IOSurface and
+exchanges Metal shared-event timeline values before presentation. It performs
+no CPU readback or full-frame copy. Strict mode currently requires the
+source-built Avalonia.Native lane whose CAMetalLayer produces an
+uncompressed, Dawn-importable BGRA IOSurface. Leave
+`RequireDawnMetalPresentation` false for package compatibility; an unsupported
+drawable then releases the attempted Dawn device and uses Avalonia's
+framebuffer surface.
 
 ## Use the ProGPU API lease
 
@@ -193,6 +226,18 @@ Use packages freshly built from the checkout:
 ./integration/ProGpuPackageApp/run.sh local
 ```
 
+Use the exact-identity Avalonia 12.0.5 replacement package from an isolated
+local feed:
+
+```bash
+./integration/ProGpuPackageApp/run.sh replacement
+```
+
+The replacement mode verifies that restore selected the locally validated
+`Avalonia.Base` binary. This private-feed artifact deliberately shares the
+official `Avalonia` package ID and version and must not be published to
+NuGet.org.
+
 Use packages from NuGet.org only:
 
 ```bash
@@ -206,6 +251,19 @@ PROGPU_INTEGRATION_BUILD_ONLY=1 ./integration/ProGpuPackageApp/run.sh local
 PROGPU_INTEGRATION_BUILD_ONLY=1 ./integration/ProGpuPackageApp/run.sh nuget
 ```
 
+For an exact package-only NativeAOT publish and retained-rendering smoke:
+
+```bash
+PROGPU_REUSE_REPLACEMENT_STACK=1 \
+PROGPU_INTEGRATION_NATIVE_AOT=1 \
+PROGPU_INTEGRATION_SMOKE=1 \
+  ./integration/ProGpuPackageApp/run.sh replacement
+```
+
+The Silk.NET host registers its GLFW window and input implementations through
+their public typed registration APIs, so trimmed applications do not depend
+on assembly discovery.
+
 Set `PROGPU_INTEGRATION_PACKAGE_VERSION` to test another integration preview.
 For the Avalonia 11 lane, set both versions:
 
@@ -217,11 +275,14 @@ PROGPU_INTEGRATION_BUILD_ONLY=1 \
 ```
 
 The Avalonia 11 renderer contains its shared-source HarfBuzz adapter, so the
-package-only v11 configuration does not reference `Avalonia.HarfBuzz`.
+package-only v11 configuration does not reference `Avalonia.HarfBuzz`; the
+ProGPU rendering initializer registers the managed shaper directly.
 
 ## Troubleshooting
 
-- `No text shaping system configured`: reference `Avalonia.HarfBuzz` and call `UseHarfBuzz()`.
+- `No text shaping system configured`: call `UseProGpuTextShaping()` after
+  `UseProGpu()`. Reference `Avalonia.HarfBuzz` and call `UseHarfBuzz()` only
+  when deliberately selecting the comparison backend.
 - Missing default typeface: reference `Avalonia.Fonts.Inter` and call `WithInterFont()`.
 - Incomplete dirty-region updates: set `UseRegionDirtyRectClipping = false`.
 - `IProGpuApiLeaseFeature` is unavailable: verify that `UseProGpu()` selected the active renderer.

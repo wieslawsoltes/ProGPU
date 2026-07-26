@@ -9,14 +9,12 @@
     <ProGpuIntegrationPackageVersion Condition="'$(ProGpuIntegrationPackageVersion)' == ''">12.0.5-preview.27</ProGpuIntegrationPackageVersion>
     <ProGpuAvaloniaPackageVersion Condition="'$(ProGpuAvaloniaPackageVersion)' == ''">12.0.5</ProGpuAvaloniaPackageVersion>
     <DefineConstants Condition="'$(ProGpuAvaloniaPackageVersion)' == '11.3.18'">$(DefineConstants);AVALONIA11</DefineConstants>
+    <DefineConstants Condition="'$(ProGpuRequireReplacement)' == 'true'">$(DefineConstants);PROGPU_REPLACEMENT_PACKAGE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="$(ProGpuAvaloniaPackageVersion)" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="$(ProGpuAvaloniaPackageVersion)" />
-    <PackageReference Include="Avalonia.HarfBuzz"
-                      Version="$(ProGpuAvaloniaPackageVersion)"
-                      Condition="'$(ProGpuAvaloniaPackageVersion)' != '11.3.18'" />
     <PackageReference Include="ProGPU.Avalonia.Rendering" Version="$(ProGpuIntegrationPackageVersion)" />
     <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="$(ProGpuIntegrationPackageVersion)" />
   </ItemGroup>
