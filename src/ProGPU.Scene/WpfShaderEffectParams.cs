@@ -26,6 +26,9 @@ public sealed class WpfShaderEffectParams
     public bool IsFailed { get; set; }
     public string? LastError { get; set; }
     private int _sourceTextureRegisterIndex;
+    private string? _stableShaderSource;
+    private string? _stableShaderSourceKey;
+    private string? _stableGeneratedShaderKey;
     internal bool SourceTextureOverridesSampler { get; set; }
 
     public int SourceTextureRegisterIndex
@@ -45,12 +48,20 @@ public sealed class WpfShaderEffectParams
             return ShaderKey;
         }
 
-        return "wpf_shader_" + ComputeStableHash(GetShaderSourceOrDefault()).ToString("x16");
+        var sourceKey = GetStableShaderSourceKey();
+        return _stableGeneratedShaderKey ??= "wpf_shader_" + sourceKey;
     }
 
     internal string GetStableShaderSourceKey()
     {
-        return ComputeStableHash(GetShaderSourceOrDefault()).ToString("x16");
+        var source = GetShaderSourceOrDefault();
+        if (!ReferenceEquals(_stableShaderSource, source))
+        {
+            _stableShaderSource = source;
+            _stableShaderSourceKey = ComputeStableHash(source).ToString("x16");
+            _stableGeneratedShaderKey = null;
+        }
+        return _stableShaderSourceKey!;
     }
 
     public string GetShaderSourceOrDefault()
@@ -186,7 +197,7 @@ public sealed class WpfShaderEffectParams
     internal void AddRenderCacheKey(ref HashCode hash)
     {
         hash.Add(GetStableShaderKey());
-        hash.Add(GetShaderSourceOrDefault());
+        hash.Add(GetStableShaderSourceKey());
         hash.Add(SamplingMode);
         hash.Add(IsFailed);
         hash.Add(LastError);
