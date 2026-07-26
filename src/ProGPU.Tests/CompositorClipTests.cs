@@ -50,6 +50,74 @@ public sealed class CompositorClipTests
     }
 
     [Fact]
+    public void RotatedClipRetainsOnlyBoundedMaskPixels()
+    {
+        using var window = new HeadlessWindow(220, 180);
+        window.Content = new RotatedClipVisual();
+
+        window.Render();
+
+        ulong fullTargetBytes = (ulong)window.Width * window.Height;
+        Assert.InRange(window.Compositor.Metrics.MaskTexturePoolBytes, 1UL, fullTargetBytes - 1UL);
+        Assert.Equal(0UL, window.Compositor.Metrics.MaskRenderScratchTextureBytes);
+        Assert.Equal(0UL, window.Compositor.Metrics.MaskCopyBytes);
+    }
+
+    [Fact]
+    public void NestedRotatedGeometryMasksPreserveIntersectionWithBoundedResidency()
+    {
+        using var window = new HeadlessWindow(160, 120);
+        window.Content = new NestedRotatedGeometryMaskVisual();
+
+        window.Render();
+
+        var pixels = window.ReadPixels();
+        var insideBoth = ReadPixel(pixels, window.Width, x: 80, y: 60);
+        var insideParentOnly = ReadPixel(pixels, window.Width, x: 35, y: 60);
+        var outsideBoth = ReadPixel(pixels, window.Width, x: 10, y: 10);
+
+        Assert.True(insideBoth.X > 180f && insideBoth.Z < 80f, $"Expected nested intersection to be red, found {insideBoth}.");
+        Assert.True(insideParentOnly.Z > 160f && insideParentOnly.X < 80f, $"Expected parent-only area to retain blue, found {insideParentOnly}.");
+        Assert.True(outsideBoth.Z > 160f && outsideBoth.X < 80f, $"Expected outside area to retain blue, found {outsideBoth}.");
+
+        ulong fullTargetBytes = (ulong)window.Width * window.Height;
+        Assert.InRange(
+            window.Compositor.Metrics.MaskTexturePoolBytes,
+            1UL,
+            fullTargetBytes * 2UL - 1UL);
+        Assert.Equal(0UL, window.Compositor.Metrics.MaskRenderScratchTextureBytes);
+        Assert.Equal(0UL, window.Compositor.Metrics.MaskCopyBytes);
+    }
+
+    [Fact]
+    public void FullTargetGeometryMaskRendersDirectlyWithoutScratchOrCopy()
+    {
+        using var window = new HeadlessWindow(160, 120);
+        window.Content = new FullTargetEllipseClipVisual();
+
+        window.Render();
+
+        var pixels = window.ReadPixels();
+        var center = ReadPixel(pixels, window.Width, x: 80, y: 60);
+        var corner = ReadPixel(pixels, window.Width, x: 2, y: 2);
+        Assert.True(
+            center.X > 180f && center.Y < 80f && center.Z < 80f,
+            $"Expected the full-target ellipse center to be red, found {center}.");
+        Assert.True(
+            corner.Z > 160f && corner.X < 80f,
+            $"Expected the clipped corner to preserve blue, found {corner}.");
+
+        ulong fullTargetBytes = (ulong)window.Width * window.Height;
+        Assert.Equal(
+            fullTargetBytes,
+            window.Compositor.Metrics.MaskTexturePoolBytes);
+        Assert.Equal(
+            0UL,
+            window.Compositor.Metrics.MaskRenderScratchTextureBytes);
+        Assert.Equal(0UL, window.Compositor.Metrics.MaskCopyBytes);
+    }
+
+    [Fact]
     public void GeometryClipMaskDoesNotInheritActiveOpacity()
     {
         var window = HeadlessWindow.Shared;
@@ -70,6 +138,17 @@ public sealed class CompositorClipTests
         {
             window.Content = null;
         }
+    }
+
+    [Fact]
+    public void AxisAlignedRectangleGeometryClipUsesScissorWithoutMaskTexture()
+    {
+        using var window = new HeadlessWindow(180, 110);
+        window.Content = new OpacityGeometryClipVisual();
+
+        window.Render();
+
+        Assert.Equal(0, window.Compositor.Metrics.MaskBindGroupCount);
     }
 
     [Fact]
@@ -149,6 +228,39 @@ public sealed class CompositorClipTests
             Assert.False(
                 outside.Y > 180f && outside.X < 80f && outside.Z < 80f,
                 $"Expected outer clip to reject offset-space probe, found RGBA({outside.X}, {outside.Y}, {outside.Z}, {outside.W}).");
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void OuterCompositeClipUsesParentRelativeTransform()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 70);
+        window.Content = new OuterCompositeClipVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var inside = ReadPixel(pixels, window.Width, x: 25, y: 15);
+            var outside = ReadPixel(pixels, window.Width, x: 45, y: 35);
+
+            Assert.True(
+                inside.Y > 180f &&
+                inside.X < 80f &&
+                inside.Z < 80f &&
+                inside.W == 255f,
+                $"Expected transformed outer clip to retain its parent-space probe, found RGBA({inside.X}, {inside.Y}, {inside.Z}, {inside.W}).");
+            Assert.False(
+                outside.Y > 180f &&
+                outside.X < 80f &&
+                outside.Z < 80f,
+                $"Expected transformed outer clip to reject the outside probe, found RGBA({outside.X}, {outside.Y}, {outside.Z}, {outside.W}).");
         }
         finally
         {
@@ -307,6 +419,71 @@ public sealed class CompositorClipTests
         }
     }
 
+    private sealed class NestedRotatedGeometryMaskVisual : FrameworkElement
+    {
+        private readonly PathGeometry _parent =
+            PrimitivePathGeometry.CreateEllipse(new Vector2(80f, 60f), 50f, 40f);
+        private readonly PathGeometry _child =
+            PrimitivePathGeometry.CreateRoundedRectangle(55f, 35f, 50f, 50f, 8f, 8f);
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0.05f, 0.1f, 0.8f, 1f));
+        private readonly SolidColorBrush _foreground =
+            new(new Vector4(1f, 0f, 0f, 1f));
+        private readonly Matrix4x4 _childTransform =
+            Matrix4x4.CreateTranslation(-80f, -60f, 0f) *
+            Matrix4x4.CreateRotationZ(0.35f) *
+            Matrix4x4.CreateTranslation(80f, 60f, 0f);
+
+        public NestedRotatedGeometryMaskVisual()
+        {
+            Width = 160f;
+            Height = 120f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 160f, 120f));
+            context.PushGeometryClip(_parent);
+            context.PushGeometryClip(_child, _childTransform);
+            context.DrawRectangle(_foreground, null, new Rect(0f, 0f, 160f, 120f));
+            context.PopGeometryClip();
+            context.PopGeometryClip();
+        }
+    }
+
+    private sealed class FullTargetEllipseClipVisual : FrameworkElement
+    {
+        private readonly PathGeometry _clip =
+            PrimitivePathGeometry.CreateEllipse(
+                new Vector2(80f, 60f),
+                80f,
+                60f);
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly SolidColorBrush _foreground =
+            new(new Vector4(1f, 0f, 0f, 1f));
+
+        public FullTargetEllipseClipVisual()
+        {
+            Width = 160f;
+            Height = 120f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _background,
+                null,
+                new Rect(0f, 0f, 160f, 120f));
+            context.PushGeometryClip(_clip);
+            context.DrawRectangle(
+                _foreground,
+                null,
+                new Rect(0f, 0f, 160f, 120f));
+            context.PopGeometryClip();
+        }
+    }
+
     private sealed class ZeroOpacityRestoreVisual : FrameworkElement
     {
         private readonly SolidColorBrush _red = new(new Vector4(1f, 0f, 0f, 1f));
@@ -342,6 +519,34 @@ public sealed class CompositorClipTests
         public override void OnRender(DrawingContext context)
         {
             context.DrawRectangle(_green, null, new Rect(-200f, -200f, 500f, 500f));
+        }
+    }
+
+    private sealed class OuterCompositeClipVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _green =
+            new(new Vector4(0f, 1f, 0f, 1f));
+
+        public OuterCompositeClipVisual()
+        {
+            Width = 100f;
+            Height = 70f;
+            Offset = new Vector2(40f, 30f);
+            SetOuterCompositeClips(
+                new[]
+                {
+                    new VisualCompositeClip(
+                        new Rect(0f, 0f, 20f, 20f),
+                        Matrix4x4.CreateTranslation(20f, 10f, 0f))
+                });
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _green,
+                null,
+                new Rect(-200f, -200f, 500f, 500f));
         }
     }
 

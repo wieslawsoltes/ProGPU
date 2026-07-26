@@ -26,6 +26,10 @@ struct Uniforms {
     mvp: mat4x4<f32>,
     view: mat4x4<f32>,
     canvasSize: vec2<f32>,
+    dpiScale: f32,
+    boundedSourcePass: f32,
+    renderOrigin: vec2<f32>,
+    pad1: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -48,6 +52,25 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @group(1) @binding(1) var texTexture: texture_2d<f32>;
 @group(2) @binding(0) var maskSampler: sampler;
 @group(2) @binding(1) var maskTexture: texture_2d<f32>;
+
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position + uniforms.renderOrigin - maskSampling.origin) * maskSampling.inverseSize;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
 
 fn cubic_weight(x: f32, b: f32, c: f32) -> f32 {
     let ax = abs(x);
@@ -290,8 +313,11 @@ fn blend_atlas_color(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
 fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
     let textureCoordDx = dpdx(input.texCoord);
     let textureCoordDy = dpdy(input.texCoord);
-    let screen_uv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+    let fragmentOrigin = select(
+        vec2<f32>(0.0),
+        uniforms.canvasSize,
+        uniforms.boundedSourcePass > 0.5);
+    let maskAlpha = sample_mask_alpha(input.position.xy + fragmentOrigin);
     if (maskAlpha <= 0.0) {
         discard;
     }

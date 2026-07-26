@@ -4,9 +4,7 @@
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let fragCoord = vec2<f32>(input.texCoord.x * inputs.iResolution.x, (1.0 - input.texCoord.y) * inputs.iResolution.y);
-    let maskSize = max(vec2<f32>(textureDimensions(activeMaskTexture)), vec2<f32>(1.0));
-    let screenUv = input.position.xy / maskSize;
-    let maskAlpha = textureSample(activeMaskTexture, activeMaskSampler, screenUv).r;
+    let maskAlpha = sample_active_mask_alpha(input.position.xy);
     let shaderColor = mainImage(fragCoord);
     let coverage = input.color.a * maskAlpha;
     return vec4<f32>(shaderColor.rgb * shaderColor.a * input.color.rgb * coverage, shaderColor.a * coverage);

@@ -132,12 +132,15 @@ public partial class TtfFont
         public FontDataStorage(
             ReadOnlyMemory<byte> data,
             byte[]? ownedData,
-            object? externalOwner)
+            object? externalOwner,
+            nint externalDataAddress = 0)
         {
             Data = data;
             OwnedData = ownedData;
             ExternalOwner = externalOwner;
-            ExternalDataAddress = externalOwner switch
+            ExternalDataAddress = externalDataAddress != 0
+                ? externalDataAddress
+                : externalOwner switch
             {
                 MappedFontData mapped => mapped.DataAddress,
                 EmbeddedFontData embedded => embedded.DataAddress,
@@ -321,6 +324,29 @@ public partial class TtfFont
         int faceIndex = 0) =>
         new(CreateEmbeddedStorage(assembly, resourceName), faceIndex, null, null);
 
+    internal static TtfFont LoadEmbeddedResourceSlice(
+        Assembly assembly,
+        string resourceName,
+        int offset,
+        int length,
+        int faceIndex = 0) =>
+        new(
+            CreateEmbeddedSliceStorage(assembly, resourceName, offset, length),
+            faceIndex,
+            null,
+            null);
+
+    internal static TtfFont LoadEmbeddedResourceSlice(
+        Stream resourceStream,
+        int offset,
+        int length,
+        int faceIndex = 0) =>
+        new(
+            CreateEmbeddedSliceStorage(resourceStream, offset, length),
+            faceIndex,
+            null,
+            null);
+
     internal static TtfFont LoadGlyphResidentFile(string filePath, int faceIndex, ushort glyphIndex)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -401,6 +427,118 @@ public partial class TtfFont
         var ownedData = new byte[checked((int)stream.Length)];
         stream.ReadExactly(ownedData);
         return CreateOwnedStorage(ownedData);
+    }
+
+    private static FontDataStorage CreateEmbeddedSliceStorage(
+        Assembly assembly,
+        string resourceName,
+        int offset,
+        int length)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentException.ThrowIfNullOrWhiteSpace(resourceName);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+
+        if (EmbeddedFontData.TryOpen(assembly, resourceName, out EmbeddedFontData? embeddedData))
+        {
+            if (offset > embeddedData!.Memory.Length - length)
+            {
+                ((IDisposable)embeddedData).Dispose();
+                throw new ArgumentOutOfRangeException(
+                    nameof(length),
+                    "The requested font slice exceeds the embedded resource.");
+            }
+
+            ReadOnlyMemory<byte> slice = embeddedData.Memory.Slice(offset, length);
+            ReadOnlySpan<byte> data = slice.Span;
+            bool requiresNormalization =
+                data.Length >= 4 &&
+                (data[..4].SequenceEqual("wOFF"u8) ||
+                 data[..4].SequenceEqual("wOF2"u8));
+            if (!requiresNormalization)
+            {
+                return new FontDataStorage(
+                    slice,
+                    null,
+                    embeddedData,
+                    embeddedData.DataAddress + offset);
+            }
+
+            byte[] compressedData = slice.ToArray();
+            ((IDisposable)embeddedData).Dispose();
+            return CreateOwnedStorage(compressedData);
+        }
+
+        using Stream stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException(
+                $"The embedded font resource '{resourceName}' is missing from '{assembly.FullName}'.");
+        if (offset > stream.Length - length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                "The requested font slice exceeds the embedded resource.");
+        }
+
+        stream.Position = offset;
+        var ownedData = new byte[length];
+        stream.ReadExactly(ownedData);
+        return CreateOwnedStorage(ownedData);
+    }
+
+    private static FontDataStorage CreateEmbeddedSliceStorage(
+        Stream resourceStream,
+        int offset,
+        int length)
+    {
+        ArgumentNullException.ThrowIfNull(resourceStream);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+
+        if (EmbeddedFontData.TryOpen(resourceStream, out EmbeddedFontData? embeddedData))
+        {
+            if (offset > embeddedData!.Memory.Length - length)
+            {
+                ((IDisposable)embeddedData).Dispose();
+                throw new ArgumentOutOfRangeException(
+                    nameof(length),
+                    "The requested font slice exceeds the embedded resource.");
+            }
+
+            ReadOnlyMemory<byte> slice = embeddedData.Memory.Slice(offset, length);
+            ReadOnlySpan<byte> data = slice.Span;
+            bool requiresNormalization =
+                data.Length >= 4 &&
+                (data[..4].SequenceEqual("wOFF"u8) ||
+                 data[..4].SequenceEqual("wOF2"u8));
+            if (!requiresNormalization)
+            {
+                return new FontDataStorage(
+                    slice,
+                    null,
+                    embeddedData,
+                    embeddedData.DataAddress + offset);
+            }
+
+            byte[] compressedData = slice.ToArray();
+            ((IDisposable)embeddedData).Dispose();
+            return CreateOwnedStorage(compressedData);
+        }
+
+        using (resourceStream)
+        {
+            if (!resourceStream.CanSeek || offset > resourceStream.Length - length)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(length),
+                    "The requested font slice exceeds the embedded resource.");
+            }
+
+            resourceStream.Position = offset;
+            var ownedData = new byte[length];
+            resourceStream.ReadExactly(ownedData);
+            return CreateOwnedStorage(ownedData);
+        }
     }
 
     #region Big-Endian Readers
@@ -831,26 +969,18 @@ public partial class TtfFont
 
     private sealed class GlyphBitmapSource
     {
-        private const long MaxCachedBytes = 16L * 1024L * 1024L;
-
-        private sealed class CacheEntry
-        {
-            public CacheEntry(byte[] data, LinkedListNode<ushort> node)
-            {
-                Data = data;
-                Node = node;
-            }
-
-            public byte[] Data { get; }
-            public LinkedListNode<ushort> Node { get; }
-        }
-
+        // Glyph-resident fallback fonts keep their compact shaping tables in
+        // managed memory. The original immutable file remains memory-mapped so
+        // sbix payloads can be returned as borrowed slices: initialization is
+        // O(T) in table count, each lookup is O(S) in strikes, and managed
+        // bitmap storage is O(1). Only the exceptional non-mappable fallback
+        // retains one demand-loaded glyph table.
         private readonly object _sync = new();
         private readonly string _filePath;
         private readonly int _faceIndex;
-        private readonly Dictionary<ushort, CacheEntry> _entries = new();
-        private readonly LinkedList<ushort> _recency = new();
-        private long _cachedBytes;
+        private MappedFontData? _mappedData;
+        private ReadOnlyMemory<byte> _mappedSbix;
+        private bool _mappingAttempted;
         private ushort _lastGlyphIndex;
         private byte[]? _lastGlyphData;
 
@@ -866,29 +996,59 @@ public partial class TtfFont
             {
                 lock (_sync)
                 {
-                    return _cachedBytes;
+                    return _lastGlyphData?.LongLength ?? 0;
                 }
             }
         }
 
         public bool TryGetGlyphData(ushort glyphIndex, out ReadOnlyMemory<byte> sbix)
         {
-            var lastData = Volatile.Read(ref _lastGlyphData);
-            if (lastData is not null && _lastGlyphIndex == glyphIndex)
-            {
-                sbix = lastData;
-                return true;
-            }
-
             lock (_sync)
             {
-                if (_entries.TryGetValue(glyphIndex, out var cached))
+                if (!_mappingAttempted)
                 {
-                    _recency.Remove(cached.Node);
-                    _recency.AddFirst(cached.Node);
-                    _lastGlyphIndex = glyphIndex;
-                    Volatile.Write(ref _lastGlyphData, cached.Data);
-                    sbix = cached.Data;
+                    _mappingAttempted = true;
+                    if (MappedFontData.TryOpen(
+                            _filePath,
+                            out MappedFontData? mappedData))
+                    {
+                        try
+                        {
+                            SfntFontFace mappedFace = SfntFontFace.Load(
+                                mappedData!.Memory,
+                                _faceIndex);
+                            if (mappedFace.TryGetTable(
+                                    "sbix",
+                                    out ReadOnlyMemory<byte> mappedSbix))
+                            {
+                                _mappedData = mappedData;
+                                _mappedSbix = mappedSbix;
+                            }
+                            else
+                            {
+                                ((IDisposable)mappedData).Dispose();
+                            }
+                        }
+                        catch (Exception exception) when (
+                            exception is FormatException or
+                                ArgumentException or
+                                OverflowException)
+                        {
+                            ((IDisposable)mappedData!).Dispose();
+                        }
+                    }
+                }
+
+                if (_mappedData is not null)
+                {
+                    sbix = _mappedSbix;
+                    return true;
+                }
+
+                if (_lastGlyphData is not null &&
+                    _lastGlyphIndex == glyphIndex)
+                {
+                    sbix = _lastGlyphData;
                     return true;
                 }
             }
@@ -903,37 +1063,10 @@ public partial class TtfFont
                 return false;
             }
 
-            if (loaded.LongLength <= MaxCachedBytes)
+            lock (_sync)
             {
-                lock (_sync)
-                {
-                    if (_entries.TryGetValue(glyphIndex, out var cached))
-                    {
-                        _recency.Remove(cached.Node);
-                        _recency.AddFirst(cached.Node);
-                        _lastGlyphIndex = glyphIndex;
-                        Volatile.Write(ref _lastGlyphData, cached.Data);
-                        sbix = cached.Data;
-                        return true;
-                    }
-
-                    while (_cachedBytes + loaded.LongLength > MaxCachedBytes &&
-                           _recency.Last is { } oldest)
-                    {
-                        ushort oldestGlyph = oldest.Value;
-                        _recency.RemoveLast();
-                        if (_entries.Remove(oldestGlyph, out var removed))
-                        {
-                            _cachedBytes -= removed.Data.LongLength;
-                        }
-                    }
-
-                    var node = _recency.AddFirst(glyphIndex);
-                    _entries.Add(glyphIndex, new CacheEntry(loaded, node));
-                    _cachedBytes += loaded.LongLength;
-                    _lastGlyphIndex = glyphIndex;
-                    Volatile.Write(ref _lastGlyphData, loaded);
-                }
+                _lastGlyphIndex = glyphIndex;
+                _lastGlyphData = loaded;
             }
 
             sbix = loaded;

@@ -289,11 +289,17 @@ public class SfntFontFaceTests
             long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             Assert.True(font.FontData.Length < 1024 * 1024, $"Resident font is {font.FontData.Length:N0} bytes.");
             Assert.True(allocatedBytes < 2 * 1024 * 1024, $"Allocated {allocatedBytes:N0} bytes.");
+            long glyphAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             Assert.True(font.TryGetBitmapGlyph(1, 35, out BitmapGlyphData glyph));
             Assert.Equal(new byte[] { 40, 41, 42 }, glyph.Data.ToArray());
             Assert.True(font.TryGetBitmapGlyph(2, 19, out BitmapGlyphData demandLoaded));
             Assert.Equal(new byte[] { 20, 21, 22 }, demandLoaded.Data.ToArray());
-            Assert.InRange(font.GlyphResidentBitmapCacheBytes, 1, 16 * 1024 * 1024);
+            long glyphAllocatedBytes =
+                GC.GetAllocatedBytesForCurrentThread() - glyphAllocatedBefore;
+            Assert.True(
+                glyphAllocatedBytes < 256 * 1024,
+                $"Bitmap lookups allocated {glyphAllocatedBytes:N0} bytes.");
+            Assert.Equal(0, font.GlyphResidentBitmapCacheBytes);
         }
         finally
         {

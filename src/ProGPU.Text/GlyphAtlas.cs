@@ -94,6 +94,8 @@ public unsafe class GlyphAtlas : IDisposable
     private int _pendingSegmentUploadStart;
     
     private readonly RenderPipelineCache _pipelineCache;
+    private readonly WgpuBindGroupLayoutLease _computeBindGroupLayoutLease;
+    private readonly WgpuPipelineLayoutLease _computePipelineLayoutLease;
     private readonly BindGroupLayout* _computeBindGroupLayout;
     private readonly PipelineLayout* _computePipelineLayout;
     private readonly ComputePipeline* _computePipeline;
@@ -530,8 +532,15 @@ public unsafe class GlyphAtlas : IDisposable
 
         // Compile and create the compute pipeline
         _pipelineCache = new RenderPipelineCache(_context);
-        _computeBindGroupLayout = CreateRasterizationBindGroupLayout();
-        _computePipelineLayout = CreateRasterizationPipelineLayout(_computeBindGroupLayout);
+        _computeBindGroupLayoutLease =
+            CreateRasterizationBindGroupLayout();
+        _computeBindGroupLayout =
+            _computeBindGroupLayoutLease.Handle;
+        _computePipelineLayoutLease =
+            CreateRasterizationPipelineLayout(
+                _computeBindGroupLayout);
+        _computePipelineLayout =
+            _computePipelineLayoutLease.Handle;
         var shaderModule = _pipelineCache.GetOrCreateShader("GlyphRasterizer", Shaders.GlyphRasterizerShader, "GlyphRasterizerShader");
         _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
             "GlyphRasterizer",
@@ -559,7 +568,7 @@ public unsafe class GlyphAtlas : IDisposable
         _coverageRingOffset = 0;
     }
 
-    private BindGroupLayout* CreateRasterizationBindGroupLayout()
+    private WgpuBindGroupLayoutLease CreateRasterizationBindGroupLayout()
     {
         var entries = stackalloc BindGroupLayoutEntry[4];
         entries[0] = new BindGroupLayoutEntry
@@ -608,15 +617,14 @@ public unsafe class GlyphAtlas : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var layout = _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
-        if (layout == null)
-        {
-            throw new InvalidOperationException("Failed to create the glyph rasterization bind group layout.");
-        }
-        return layout;
+        return _context.AcquireSharedBindGroupLayout(
+            new WgpuDeviceResourceKey(
+                "ProGPU.Text.GlyphAtlas",
+                "RasterizationBindings"),
+            &descriptor);
     }
 
-    private PipelineLayout* CreateRasterizationPipelineLayout(BindGroupLayout* bindGroupLayout)
+    private WgpuPipelineLayoutLease CreateRasterizationPipelineLayout(BindGroupLayout* bindGroupLayout)
     {
         var layouts = stackalloc BindGroupLayout*[1];
         layouts[0] = bindGroupLayout;
@@ -625,12 +633,11 @@ public unsafe class GlyphAtlas : IDisposable
             BindGroupLayoutCount = 1,
             BindGroupLayouts = layouts
         };
-        var layout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &descriptor);
-        if (layout == null)
-        {
-            throw new InvalidOperationException("Failed to create the glyph rasterization pipeline layout.");
-        }
-        return layout;
+        return _context.AcquireSharedPipelineLayout(
+            new WgpuDeviceResourceKey(
+                "ProGPU.Text.GlyphAtlas",
+                "RasterizationPipeline"),
+            &descriptor);
     }
 
     private static uint DivRoundUp(uint value, uint divisor) => (value + divisor - 1) / divisor;
@@ -1794,8 +1801,8 @@ public unsafe class GlyphAtlas : IDisposable
         _pendingSegmentUploads.Clear();
 
         _pipelineCache.Dispose();
-        _context.Api.PipelineLayoutRelease(_computePipelineLayout);
-        _context.Api.BindGroupLayoutRelease(_computeBindGroupLayout);
+        _computePipelineLayoutLease.Dispose();
+        _computeBindGroupLayoutLease.Dispose();
         _atlasTexture.Dispose();
         _colorAtlasTexture.Dispose();
         _glyphs.Clear();

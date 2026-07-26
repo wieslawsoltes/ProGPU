@@ -33,17 +33,20 @@ public unsafe class ComputeAccelerator : IDisposable
     private BindGroupLayout* _blurVertLayout;
     private BindGroupLayout* _shadowBlurHorizLayout;
     private BindGroupLayout* _shadowBlurVertLayout;
+    private BindGroupLayout* _sharpShadowLayout;
     private BindGroupLayout* _combinedBlurHorizLayout;
     private BindGroupLayout* _combinedBlurVertLayout;
     private GpuBuffer? _blurHorizontalParams;
     private GpuBuffer? _blurVerticalParams;
     private GpuBuffer? _shadowParams;
+    private GpuBuffer? _sharpShadowParams;
     private GpuBuffer? _combinedBlurParams;
     private GpuTexture? _combinedShadowTemporary;
     private CachedPassBinding _blurHorizontalBinding;
     private CachedPassBinding _blurVerticalBinding;
     private CachedPassBinding _shadowHorizontalBinding;
     private CachedPassBinding _shadowVerticalBinding;
+    private CachedPassBinding _sharpShadowBinding;
     private CachedCombinedHorizontalBinding _combinedHorizontalBinding;
     private CachedCombinedVerticalBinding _combinedVerticalBinding;
 
@@ -123,25 +126,22 @@ public unsafe class ComputeAccelerator : IDisposable
         [FieldOffset(16)] public Vector4 Color;
         [FieldOffset(32)] public float BlurRadius;
         [FieldOffset(36)] private float _padding;
-        [FieldOffset(40)] private float _pad0;
-        [FieldOffset(44)] private float _pad1;
-        [FieldOffset(48)] private float _pad2;
-        [FieldOffset(52)] private float _pad3;
-        [FieldOffset(56)] private float _pad4;
-        [FieldOffset(60)] private float _pad5;
+        [FieldOffset(40)] public Vector2 SourceSize;
+        [FieldOffset(48)] private Vector4 _padding1;
 
-        public ShadowParams(Vector2 offset, Vector4 color, float blurRadius)
+        public ShadowParams(
+            Vector2 offset,
+            Vector4 color,
+            float blurRadius,
+            uint sourceWidth = 0,
+            uint sourceHeight = 0)
         {
             Offset = offset;
             Color = color;
             BlurRadius = blurRadius;
             _padding = 0f;
-            _pad0 = 0f;
-            _pad1 = 0f;
-            _pad2 = 0f;
-            _pad3 = 0f;
-            _pad4 = 0f;
-            _pad5 = 0f;
+            SourceSize = new Vector2(sourceWidth, sourceHeight);
+            _padding1 = Vector4.Zero;
         }
     }
 
@@ -447,6 +447,7 @@ public unsafe class ComputeAccelerator : IDisposable
         (_blurHorizontalParams?.AllocatedSize ?? 0u) +
         (_blurVerticalParams?.AllocatedSize ?? 0u) +
         (_shadowParams?.AllocatedSize ?? 0u) +
+        (_sharpShadowParams?.AllocatedSize ?? 0u) +
         (_combinedBlurParams?.AllocatedSize ?? 0u);
 
     private void EnsureGaussianBlurResources()
@@ -485,6 +486,12 @@ public unsafe class ComputeAccelerator : IDisposable
 
         var shShadow = _cache.GetOrCreateShader("Shadow", ComputeShaders.DropShadow, "ShadowShader");
         _shadowPipeline = _cache.GetOrCreateComputePipeline("Shadow", shShadow);
+        _sharpShadowLayout = _context.Api.ComputePipelineGetBindGroupLayout(_shadowPipeline, 0);
+        _sharpShadowParams = new GpuBuffer(
+            _context,
+            (uint)Marshal.SizeOf<ShadowParams>(),
+            BufferUsage.Uniform | BufferUsage.CopyDst,
+            "Sharp Shadow Params Buffer");
     }
 
     private void EnsureShadowBlurResources()
@@ -1717,45 +1724,24 @@ public unsafe class ComputeAccelerator : IDisposable
     private void RunSharpDropShadow(GpuTexture source, GpuTexture destination, Vector2 offset, Vector4 shadowColor, float blurRadius)
     {
         EnsureSharpShadowPipeline();
-        var paramsBuffer = new GpuBuffer(
-            _context,
-            (uint)Marshal.SizeOf<ShadowParams>(),
-            BufferUsage.Uniform | BufferUsage.CopyDst,
-            "Shadow Params Buffer"
-        );
-        paramsBuffer.WriteSingle(new ShadowParams(offset, shadowColor, blurRadius));
+        _sharpShadowParams!.WriteSingle(new ShadowParams(offset, shadowColor, blurRadius));
 
         var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Encoder") };
         var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
-        var shadowLayout = _context.Api.ComputePipelineGetBindGroupLayout(_shadowPipeline, 0);
-
-        var entries = stackalloc BindGroupEntry[3];
-        entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
-        entries[1] = new BindGroupEntry { Binding = 1, TextureView = destination.ViewPtr };
-        entries[2] = new BindGroupEntry { Binding = 2, Buffer = paramsBuffer.BufferPtr, Offset = 0, Size = paramsBuffer.Size };
-
-        var bgDesc = new BindGroupDescriptor
-        {
-            Layout = shadowLayout,
-            EntryCount = 3,
-            Entries = entries
-        };
-        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
-
-        var passDesc = new ComputePassDescriptor();
-        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDesc);
-
-        _context.Api.ComputePassEncoderSetPipeline(pass, _shadowPipeline);
-        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bg, 0, null);
-
-        uint workgroupX = (source.Width + 15) / 16;
-        uint workgroupY = (source.Height + 15) / 16;
-        _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupX, workgroupY, 1);
-
-        _context.Api.ComputePassEncoderEnd(pass);
-        _context.Api.ComputePassEncoderRelease(pass);
+        var binding = GetOrCreatePassBinding(
+            ref _sharpShadowBinding,
+            _sharpShadowLayout,
+            source,
+            destination,
+            _sharpShadowParams);
+        RunComputePass(
+            encoder,
+            _shadowPipeline,
+            binding,
+            source.Width,
+            source.Height);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
         var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
@@ -1765,9 +1751,17 @@ public unsafe class ComputeAccelerator : IDisposable
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
-        _context.Api.BindGroupRelease(bg);
-        _context.Api.BindGroupLayoutRelease(shadowLayout);
-        paramsBuffer.Dispose();
+    }
+
+    public void ApplySharpDropShadow(
+        GpuTexture source,
+        GpuTexture destination,
+        Vector2 offset,
+        Vector4 shadowColor)
+    {
+        if (_isDisposed) throw new ObjectDisposedException(nameof(ComputeAccelerator));
+        destination.Resize(source.Width, source.Height);
+        RunSharpDropShadow(source, destination, offset, shadowColor, blurRadius: 0f);
     }
 
     public void ApplyDropShadow(GpuTexture source, GpuTexture temp, GpuTexture destination, Vector2 offset, Vector4 shadowColor, float blurRadius)
@@ -1779,7 +1773,7 @@ public unsafe class ComputeAccelerator : IDisposable
         uint width = source.Width;
         uint height = source.Height;
 
-        temp.Resize(width, height);
+        temp.Resize(checked((width + 3u) / 4u), height);
         destination.Resize(width, height);
 
         if (snappedBlurRadius <= 0.01f)
@@ -1793,7 +1787,12 @@ public unsafe class ComputeAccelerator : IDisposable
         var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
         SilkMarshal.Free((nint)encoderDesc.Label);
 
-        _shadowParams!.WriteSingle(new ShadowParams(offset, shadowColor, snappedBlurRadius));
+        _shadowParams!.WriteSingle(new ShadowParams(
+            offset,
+            shadowColor,
+            snappedBlurRadius,
+            width,
+            height));
 
         var horizontalBinding = GetOrCreatePassBinding(
             ref _shadowHorizontalBinding,
@@ -1807,7 +1806,12 @@ public unsafe class ComputeAccelerator : IDisposable
             temp,
             destination,
             _shadowParams);
-        RunComputePass(encoder, _shadowBlurHorizPipeline, horizontalBinding, width, height);
+        RunComputePass(
+            encoder,
+            _shadowBlurHorizPipeline,
+            horizontalBinding,
+            checked((width + 3u) / 4u),
+            height);
         RunComputePass(encoder, _shadowBlurVertPipeline, verticalBinding, width, height);
 
         var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Shadow Buffer") };
@@ -1955,11 +1959,13 @@ public unsafe class ComputeAccelerator : IDisposable
         ReleaseCachedPassBinding(ref _blurVerticalBinding);
         ReleaseCachedPassBinding(ref _shadowHorizontalBinding);
         ReleaseCachedPassBinding(ref _shadowVerticalBinding);
+        ReleaseCachedPassBinding(ref _sharpShadowBinding);
         ReleaseCombinedHorizontalBinding();
         ReleaseCombinedVerticalBinding();
         _blurHorizontalParams?.Dispose();
         _blurVerticalParams?.Dispose();
         _shadowParams?.Dispose();
+        _sharpShadowParams?.Dispose();
         _combinedBlurParams?.Dispose();
         _combinedShadowTemporary?.Dispose();
 
@@ -1975,6 +1981,10 @@ public unsafe class ComputeAccelerator : IDisposable
                 _context.Api.BindGroupLayoutRelease(_shadowBlurHorizLayout);
                 _context.Api.BindGroupLayoutRelease(_shadowBlurVertLayout);
             }
+            if (_sharpShadowLayout != null)
+            {
+                _context.Api.BindGroupLayoutRelease(_sharpShadowLayout);
+            }
             if (_combinedBlurHorizLayout != null)
             {
                 _context.Api.BindGroupLayoutRelease(_combinedBlurHorizLayout);
@@ -1986,6 +1996,7 @@ public unsafe class ComputeAccelerator : IDisposable
         _blurVertLayout = null;
         _shadowBlurHorizLayout = null;
         _shadowBlurVertLayout = null;
+        _sharpShadowLayout = null;
         _combinedBlurHorizLayout = null;
         _combinedBlurVertLayout = null;
         _cache.Dispose();

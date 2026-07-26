@@ -21,7 +21,7 @@ public sealed record CompositorOptions
 
     public uint GlyphCoverageStagingBytes { get; init; } = GlyphAtlas.DefaultCoverageRingBufferSize;
 
-    public uint PathAtlasSize { get; init; } = 2048;
+    public uint PathAtlasSize { get; init; } = 4096;
 
     public long PathAtlasCpuCacheBudgetBytes { get; init; } =
         PathAtlas.DefaultCompiledPathCacheBudgetBytes;
@@ -37,6 +37,37 @@ public sealed record CompositorOptions
     public bool EnableGpuHitTesting { get; init; } = true;
 
     public bool EnableCompiledSceneCache { get; init; } = true;
+
+    /// <summary>
+    /// Reuses immutable local command compilation pages when another visual in
+    /// the retained tree changes. Unsupported composition scopes fail closed to
+    /// ordinary compilation.
+    /// </summary>
+    public bool EnableIncrementalScenePages { get; init; } = true;
+
+    /// <summary>
+    /// Bounds CPU-resident incremental compilation pages per compositor.
+    /// </summary>
+    public int MaximumIncrementalScenePages { get; init; } = 512;
+
+    /// <summary>
+    /// Bounds cached placement variants for one retained visual. A visual that
+    /// exceeds this limit is treated as composition-volatile for a bounded
+    /// cooldown instead of allocating a new page for every animation sample.
+    /// </summary>
+    public int MaximumIncrementalScenePageVariantsPerVisual { get; init; } = 2;
+
+    /// <summary>
+    /// Number of compositor frames before a composition-volatile visual may
+    /// attempt to cache a stable placement again.
+    /// </summary>
+    public int IncrementalScenePageVolatilityCooldownFrames { get; init; } = 600;
+
+    /// <summary>
+    /// Bounds inactive R8 mask textures retained for reuse. Active masks are
+    /// never dropped; surplus returned textures are released after submission.
+    /// </summary>
+    public int MaximumPooledMaskTextures { get; init; } = 128;
 
     public bool PrecompileBasePipelines { get; init; }
 
@@ -96,6 +127,26 @@ public sealed record CompositorOptions
         if (PrimarySampleCount is not (1 or 4))
         {
             throw new ArgumentOutOfRangeException(nameof(PrimarySampleCount));
+        }
+        if (MaximumIncrementalScenePages <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumIncrementalScenePages));
+        }
+        if (MaximumIncrementalScenePageVariantsPerVisual <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumIncrementalScenePageVariantsPerVisual));
+        }
+        if (IncrementalScenePageVolatilityCooldownFrames <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(IncrementalScenePageVolatilityCooldownFrames));
+        }
+        if (MaximumPooledMaskTextures <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumPooledMaskTextures));
         }
     }
 }

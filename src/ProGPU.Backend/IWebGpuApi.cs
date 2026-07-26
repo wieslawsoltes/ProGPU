@@ -56,6 +56,7 @@ public unsafe interface IWebGpuApi
 
     void BufferMapAsync(WgpuBuffer* buffer, MapMode mode, nuint offset, nuint size, PfnBufferMapCallback callback, void* userData);
     Task<BufferMapAsyncStatus> BufferMapAsyncTask(WgpuBuffer* buffer, MapMode mode, nuint offset, nuint size);
+    void* BufferGetMappedRange(WgpuBuffer* buffer, nuint offset, nuint size);
     void* BufferGetConstMappedRange(WgpuBuffer* buffer, nuint offset, nuint size);
     void BufferUnmap(WgpuBuffer* buffer);
     void BufferDestroy(WgpuBuffer* buffer);
@@ -79,6 +80,21 @@ public unsafe interface IWebGpuApi
     void TextureDestroy(Texture* value);
     void TextureRelease(Texture* value);
     void TextureViewRelease(TextureView* value);
+}
+
+/// <summary>
+/// Owns the instance, adapter, device, and queue behind an externally created
+/// native <see cref="IWebGpuApi"/> implementation.
+/// </summary>
+/// <remarks>
+/// The context releases every ProGPU resource before disposing this lifetime.
+/// Polling is allocation-free and must service callbacks when
+/// <paramref name="wait"/> is false and wait for submitted work when it is
+/// true.
+/// </remarks>
+public interface IWebGpuExternalDeviceLifetime : IDisposable
+{
+    void Poll(bool wait);
 }
 
 internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
@@ -165,6 +181,7 @@ internal unsafe sealed class SilkWebGpuApi(WebGPU api) : IWebGpuApi
         }
         return completion.Source.Task;
     }
+    public void* BufferGetMappedRange(WgpuBuffer* b, nuint o, nuint z) => api.BufferGetMappedRange(b, o, z);
     public void* BufferGetConstMappedRange(WgpuBuffer* b, nuint o, nuint z) => api.BufferGetConstMappedRange(b, o, z);
     public void BufferUnmap(WgpuBuffer* b) => api.BufferUnmap(b);
     public void BufferDestroy(WgpuBuffer* b) => api.BufferDestroy(b);

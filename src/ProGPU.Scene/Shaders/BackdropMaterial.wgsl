@@ -31,6 +31,25 @@ struct MaterialUniforms {
 @group(3) @binding(0) var maskSampler: sampler;
 @group(3) @binding(1) var maskTexture: texture_2d<f32>;
 
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position - maskSampling.origin) * maskSampling.inverseSize;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -87,14 +106,12 @@ fn sample_backdrop(uv: vec2<f32>) -> vec4<f32> {
     return color;
 }
 
-fn ellipse_coverage(point: vec2<f32>, center: vec2<f32>, radii: vec2<f32>) -> f32 {
+fn ellipse_distance(point: vec2<f32>, center: vec2<f32>, radii: vec2<f32>) -> f32 {
     let safeRadii = max(radii, vec2<f32>(0.0001));
-    let distance = length((point - center) / safeRadii);
-    let antialias = max(fwidth(distance), 0.001);
-    return 1.0 - smoothstep(1.0 - antialias, 1.0 + antialias, distance);
+    return length((point - center) / safeRadii);
 }
 
-fn rounded_rect_coverage(uv: vec2<f32>) -> f32 {
+fn rounded_rect_distance(uv: vec2<f32>) -> f32 {
     let size = max(material.geometry0.xy, vec2<f32>(0.0001));
     let point = uv * size;
     let halfSize = size * 0.5;
@@ -102,19 +119,19 @@ fn rounded_rect_coverage(uv: vec2<f32>) -> f32 {
     let radiiY = clamp(material.radiiY, vec4<f32>(0.0), vec4<f32>(halfSize.y));
 
     if (radiiX.x > 0.0 && radiiY.x > 0.0 && point.x < radiiX.x && point.y < radiiY.x) {
-        return ellipse_coverage(point, vec2<f32>(radiiX.x, radiiY.x), vec2<f32>(radiiX.x, radiiY.x));
+        return ellipse_distance(point, vec2<f32>(radiiX.x, radiiY.x), vec2<f32>(radiiX.x, radiiY.x));
     }
     if (radiiX.y > 0.0 && radiiY.y > 0.0 && point.x > size.x - radiiX.y && point.y < radiiY.y) {
-        return ellipse_coverage(point, vec2<f32>(size.x - radiiX.y, radiiY.y), vec2<f32>(radiiX.y, radiiY.y));
+        return ellipse_distance(point, vec2<f32>(size.x - radiiX.y, radiiY.y), vec2<f32>(radiiX.y, radiiY.y));
     }
     if (radiiX.z > 0.0 && radiiY.z > 0.0 && point.x > size.x - radiiX.z && point.y > size.y - radiiY.z) {
-        return ellipse_coverage(point, vec2<f32>(size.x - radiiX.z, size.y - radiiY.z), vec2<f32>(radiiX.z, radiiY.z));
+        return ellipse_distance(point, vec2<f32>(size.x - radiiX.z, size.y - radiiY.z), vec2<f32>(radiiX.z, radiiY.z));
     }
     if (radiiX.w > 0.0 && radiiY.w > 0.0 && point.x < radiiX.w && point.y > size.y - radiiY.w) {
-        return ellipse_coverage(point, vec2<f32>(radiiX.w, size.y - radiiY.w), vec2<f32>(radiiX.w, radiiY.w));
+        return ellipse_distance(point, vec2<f32>(radiiX.w, size.y - radiiY.w), vec2<f32>(radiiX.w, radiiY.w));
     }
 
-    return 1.0;
+    return 0.0;
 }
 
 fn random_noise(position: vec2<f32>) -> f32 {
@@ -172,14 +189,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     var maskAlpha = 1.0;
     if (hasMask) {
-        let maskSize = max(material.geometry0.zw, vec2<f32>(1.0));
-        let screenUv = input.position.xy / maskSize;
-        maskAlpha = textureSample(maskTexture, maskSampler, screenUv).r;
+        maskAlpha = sample_mask_alpha(input.position.xy);
     }
 
     let sourceUvSize = max(material.sourceUvRect.zw - material.sourceUvRect.xy, vec2<f32>(0.0001));
     let localUv = (input.texCoord - material.sourceUvRect.xy) / sourceUvSize;
-    let coverage = rounded_rect_coverage(localUv) *
+    let roundedDistance = rounded_rect_distance(localUv);
+    // Derivatives must execute in uniform control flow. Interior pixels return
+    // zero distance, while corner pixels carry the normalized ellipse distance.
+    let antialias = max(fwidth(roundedDistance), 0.001);
+    let roundedCoverage =
+        1.0 - smoothstep(1.0 - antialias, 1.0 + antialias, roundedDistance);
+    let coverage = roundedCoverage *
         input.color.a *
         maskAlpha *
         clamp(material.material0.z, 0.0, 1.0);

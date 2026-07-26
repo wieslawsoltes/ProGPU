@@ -186,10 +186,11 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
 
         EnsureLayouts(compositor);
         var requestedTexture = parameters.SourceTexture;
-        if (requestedTexture != null && !ReferenceEquals(requestedTexture.Context, compositor.Context))
+        if (requestedTexture != null &&
+            !requestedTexture.Context.SharesDeviceWith(compositor.Context))
         {
             parameters.LastError = $"{CrossContextTextureErrorPrefix}. " +
-                "Create or copy the texture in the compositor target context before rendering the material.";
+                "Create or copy the texture in the compositor target device domain before rendering the material.";
             return;
         }
 

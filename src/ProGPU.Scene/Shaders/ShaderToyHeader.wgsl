@@ -25,6 +25,28 @@ struct ShaderToyUniforms {
 @group(2) @binding(0) var activeMaskSampler: sampler;
 @group(2) @binding(1) var activeMaskTexture: texture_2d<f32>;
 
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(2) @binding(2) var<uniform> activeMaskSampling: MaskSamplingUniforms;
+
+fn sample_active_mask_alpha(position: vec2<f32>) -> f32 {
+    if (activeMaskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position - activeMaskSampling.origin) * activeMaskSampling.inverseSize;
+    let sampled = textureSample(
+        activeMaskTexture,
+        activeMaskSampler,
+        clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,

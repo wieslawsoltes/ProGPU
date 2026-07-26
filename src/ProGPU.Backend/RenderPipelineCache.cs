@@ -42,9 +42,9 @@ public unsafe class RenderPipelineCache : IDisposable
 {
     private readonly WgpuContext _context;
 
-    private readonly Dictionary<string, nint> _shaders = new();
-    private readonly Dictionary<string, nint> _renderPipelines = new();
-    private readonly Dictionary<string, nint> _computePipelines = new();
+    private readonly Dictionary<string, CachedShaderModule> _shaders = new();
+    private readonly Dictionary<string, CachedRenderPipeline> _renderPipelines = new();
+    private readonly Dictionary<string, CachedComputePipeline> _computePipelines = new();
 
     private bool _isDisposed;
 
@@ -62,38 +62,29 @@ public unsafe class RenderPipelineCache : IDisposable
     public ShaderModule* GetOrCreateShader(string key, string wgslCode, string label = "ShaderModule")
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(RenderPipelineCache));
-        if (_shaders.TryGetValue(key, out var cachedModule)) return (ShaderModule*)cachedModule;
-
-        var codePtr = SilkMarshal.StringToPtr(wgslCode);
-        var labelPtr = SilkMarshal.StringToPtr(label);
-
-        var wgslDesc = new ShaderModuleWGSLDescriptor
+        if (_shaders.TryGetValue(key, out CachedShaderModule cachedModule))
         {
-            Chain = new ChainedStruct
+            if (!string.Equals(
+                    cachedModule.CacheKey.WgslCode,
+                    wgslCode,
+                    StringComparison.Ordinal))
             {
-                Next = null,
-                SType = SType.ShaderModuleWgslDescriptor
-            },
-            Code = (byte*)codePtr
-        };
+                throw new InvalidOperationException(
+                    $"Shader cache key '{key}' was reused with different WGSL source.");
+            }
 
-        var desc = new ShaderModuleDescriptor
-        {
-            NextInChain = (ChainedStruct*)&wgslDesc,
-            Label = (byte*)labelPtr
-        };
-
-        var module = _context.Api.DeviceCreateShaderModule(_context.Device, &desc);
-
-        SilkMarshal.Free(codePtr);
-        SilkMarshal.Free(labelPtr);
-
-        if (module == null)
-        {
-            throw new InvalidOperationException($"Failed to compile WGSL shader '{key}'.");
+            return (ShaderModule*)cachedModule.Handle;
         }
 
-        _shaders[key] = (nint)module;
+        ShaderModule* module =
+            _context.DeviceResourceDomain.AcquireShaderModule(
+                key,
+                wgslCode,
+                label,
+                out WgpuDeviceResourceDomain.ShaderModuleKey cacheKey);
+        _shaders.Add(
+            key,
+            new CachedShaderModule(cacheKey, (nint)module));
         return module;
     }
 
@@ -215,7 +206,73 @@ public unsafe class RenderPipelineCache : IDisposable
         GpuTextureAlphaMode sourceAlphaMode)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(RenderPipelineCache));
-        if (_renderPipelines.TryGetValue(key, out var cachedPipeline)) return (RenderPipeline*)cachedPipeline;
+        if (_renderPipelines.TryGetValue(
+                key,
+                out CachedRenderPipeline cachedPipeline))
+        {
+            if (!cachedPipeline.CacheKey.Matches(
+                    key,
+                    shaderModule,
+                    vertexEntry,
+                    fragmentEntry,
+                    targetFormat,
+                    topology,
+                    vertexBufferLayouts,
+                    enableBlend,
+                    enableDepthStencil,
+                    depthFormat,
+                    stencilCompare,
+                    stencilFail,
+                    stencilDepthFail,
+                    stencilPass,
+                    sampleCount,
+                    depthWriteEnabled,
+                    depthCompare,
+                    cullMode,
+                    blendMode,
+                    pipelineLayout,
+                    sourceAlphaMode))
+            {
+                throw new InvalidOperationException(
+                    $"Render-pipeline cache key '{key}' was reused with a different descriptor.");
+            }
+            return (RenderPipeline*)cachedPipeline.Handle;
+        }
+
+        var deviceKey = WgpuRenderPipelineResourceKey.Create(
+            key,
+            shaderModule,
+            vertexEntry,
+            fragmentEntry,
+            targetFormat,
+            topology,
+            vertexBufferLayouts,
+            enableBlend,
+            enableDepthStencil,
+            depthFormat,
+            stencilCompare,
+            stencilFail,
+            stencilDepthFail,
+            stencilPass,
+            sampleCount,
+            depthWriteEnabled,
+            depthCompare,
+            cullMode,
+            blendMode,
+            pipelineLayout,
+            sourceAlphaMode);
+
+        if (_context.DeviceResourceDomain.TryAcquireRenderPipeline(
+                deviceKey,
+                out RenderPipeline* sharedPipeline))
+        {
+            _renderPipelines.Add(
+                key,
+                new CachedRenderPipeline(
+                    deviceKey,
+                    (nint)sharedPipeline));
+            return sharedPipeline;
+        }
 
         var vsEntryPtr = SilkMarshal.StringToPtr(vertexEntry);
         var fsEntryPtr = SilkMarshal.StringToPtr(fragmentEntry);
@@ -318,7 +375,14 @@ public unsafe class RenderPipelineCache : IDisposable
             throw new InvalidOperationException($"Failed to create RenderPipeline '{key}'.");
         }
 
-        _renderPipelines[key] = (nint)pipeline;
+        pipeline = _context.DeviceResourceDomain.PublishRenderPipeline(
+            deviceKey,
+            pipeline);
+        _renderPipelines.Add(
+            key,
+            new CachedRenderPipeline(
+                deviceKey,
+                (nint)pipeline));
         return pipeline;
     }
 
@@ -427,7 +491,34 @@ public unsafe class RenderPipelineCache : IDisposable
         PipelineLayout* pipelineLayout = null)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(RenderPipelineCache));
-        if (_computePipelines.TryGetValue(key, out var cachedPipeline)) return (ComputePipeline*)cachedPipeline;
+        var deviceKey = new WgpuComputePipelineResourceKey(
+            key,
+            (nint)shaderModule,
+            entryPoint,
+            (nint)pipelineLayout);
+        if (_computePipelines.TryGetValue(
+                key,
+                out CachedComputePipeline cachedPipeline))
+        {
+            if (cachedPipeline.CacheKey != deviceKey)
+            {
+                throw new InvalidOperationException(
+                    $"Compute-pipeline cache key '{key}' was reused with a different descriptor.");
+            }
+            return (ComputePipeline*)cachedPipeline.Handle;
+        }
+
+        if (_context.DeviceResourceDomain.TryAcquireComputePipeline(
+                deviceKey,
+                out ComputePipeline* sharedPipeline))
+        {
+            _computePipelines.Add(
+                key,
+                new CachedComputePipeline(
+                    deviceKey,
+                    (nint)sharedPipeline));
+            return sharedPipeline;
+        }
 
         var entryPtr = SilkMarshal.StringToPtr(entryPoint);
         var labelPtr = SilkMarshal.StringToPtr($"Compute_{key}");
@@ -453,7 +544,14 @@ public unsafe class RenderPipelineCache : IDisposable
             throw new InvalidOperationException($"Failed to create ComputePipeline '{key}'.");
         }
 
-        _computePipelines[key] = (nint)pipeline;
+        pipeline = _context.DeviceResourceDomain.PublishComputePipeline(
+            deviceKey,
+            pipeline);
+        _computePipelines.Add(
+            key,
+            new CachedComputePipeline(
+                deviceKey,
+                (nint)pipeline));
         return pipeline;
     }
 
@@ -466,12 +564,12 @@ public unsafe class RenderPipelineCache : IDisposable
     {
         lock (_context.RenderLock)
         {
-            if (_shaders.Remove(key, out var s))
+            if (_shaders.Remove(key, out CachedShaderModule shader))
             {
-                if (!_context.IsDisposed)
-                {
-                    _context.QueueShaderModuleDisposal((nint)s);
-                }
+                _context.DeviceResourceDomain.ReleaseShaderModule(
+                    shader.CacheKey,
+                    (ShaderModule*)shader.Handle,
+                    _context);
             }
         }
     }
@@ -480,12 +578,14 @@ public unsafe class RenderPipelineCache : IDisposable
     {
         lock (_context.RenderLock)
         {
-            if (_renderPipelines.Remove(key, out var p))
+            if (_renderPipelines.Remove(
+                    key,
+                    out CachedRenderPipeline pipeline))
             {
-                if (!_context.IsDisposed)
-                {
-                    _context.QueueRenderPipelineDisposal((nint)p);
-                }
+                _context.DeviceResourceDomain.ReleaseRenderPipeline(
+                    pipeline.CacheKey,
+                    (RenderPipeline*)pipeline.Handle,
+                    _context);
             }
         }
     }
@@ -501,19 +601,33 @@ public unsafe class RenderPipelineCache : IDisposable
                 var renderPipelineEnumerator = _renderPipelines.Values.GetEnumerator();
                 while (renderPipelineEnumerator.MoveNext())
                 {
-                    _context.QueueRenderPipelineDisposal((nint)renderPipelineEnumerator.Current);
+                    CachedRenderPipeline pipeline =
+                        renderPipelineEnumerator.Current;
+                    _context.DeviceResourceDomain.ReleaseRenderPipeline(
+                        pipeline.CacheKey,
+                        (RenderPipeline*)pipeline.Handle,
+                        _context);
                 }
 
                 var computePipelineEnumerator = _computePipelines.Values.GetEnumerator();
                 while (computePipelineEnumerator.MoveNext())
                 {
-                    _context.QueueComputePipelineDisposal((nint)computePipelineEnumerator.Current);
+                    CachedComputePipeline pipeline =
+                        computePipelineEnumerator.Current;
+                    _context.DeviceResourceDomain.ReleaseComputePipeline(
+                        pipeline.CacheKey,
+                        (ComputePipeline*)pipeline.Handle,
+                        _context);
                 }
 
                 var shaderModuleEnumerator = _shaders.Values.GetEnumerator();
                 while (shaderModuleEnumerator.MoveNext())
                 {
-                    _context.QueueShaderModuleDisposal((nint)shaderModuleEnumerator.Current);
+                    CachedShaderModule shader = shaderModuleEnumerator.Current;
+                    _context.DeviceResourceDomain.ReleaseShaderModule(
+                        shader.CacheKey,
+                        (ShaderModule*)shader.Handle,
+                        _context);
                 }
             }
             _renderPipelines.Clear();
@@ -529,4 +643,16 @@ public unsafe class RenderPipelineCache : IDisposable
     {
         // Do not call Dispose() or native WebGPU release APIs during finalization.
     }
+
+    private readonly record struct CachedShaderModule(
+        WgpuDeviceResourceDomain.ShaderModuleKey CacheKey,
+        nint Handle);
+
+    private readonly record struct CachedRenderPipeline(
+        WgpuRenderPipelineResourceKey CacheKey,
+        nint Handle);
+
+    private readonly record struct CachedComputePipeline(
+        WgpuComputePipelineResourceKey CacheKey,
+        nint Handle);
 }

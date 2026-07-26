@@ -243,9 +243,13 @@ public unsafe class PathAtlas : IDisposable
     public const uint DefaultSubpixelPhaseGrid = 64;
     public const uint DefaultInitialAtlasSize = 512;
     public const uint DefaultRasterStagingChunkBytes = 256 * 1024;
+    public const uint DefaultAtlasShrinkDelayFrames = 240;
 
     public const long DefaultCompiledPathCacheBudgetBytes = 8L * 1024L * 1024L;
 
+    private const ulong MinimumAtlasShrinkAreaNumerator = 4;
+    private const ulong MinimumAtlasShrinkAreaDenominator = 3;
+    private const uint AtlasShrinkDimensionStep = 256;
     private const int MaxCompiledPathCount = 4096;
     private const int RasterizationStorageOffsetAlignment = 256;
     private const int ExactRecoveryPathLimit = 10;
@@ -257,12 +261,15 @@ public unsafe class PathAtlas : IDisposable
     private uint _atlasWidth;
     private uint _atlasHeight;
     private readonly uint _maxAtlasSize;
+    private readonly uint _initialAtlasSize;
     private readonly long _compiledPathCacheBudgetBytes;
 
     private uint _currentX = 2;
     private uint _currentY = 2;
     private uint _currentRowHeight = 0;
     private uint _frameNumber = 0;
+    private uint _framesSinceAtlasResize;
+    private bool _retainedPathReplayObserved;
     private List<AtlasFreeRectangle>? _recoveryFreeRectangles;
 
     public struct PathInfo
@@ -283,6 +290,13 @@ public unsafe class PathAtlas : IDisposable
         public float MinX;
         public float MinY;
         public uint LastUsedFrame;
+        // Failed first-pass placements keep their public Width/Height at zero
+        // so invalid UVs cannot be consumed. These internal dimensions retain
+        // the complete live rectangle set for the deterministic render retry.
+        internal int RetryXStart;
+        internal int RetryYStart;
+        internal uint RetryWidth;
+        internal uint RetryHeight;
     }
 
     private readonly Dictionary<PathCacheKey, PathInfo> _paths = new();
@@ -365,6 +379,8 @@ public unsafe class PathAtlas : IDisposable
     }
 
     private readonly RenderPipelineCache _pipelineCache;
+    private readonly WgpuBindGroupLayoutLease _computeBindGroupLayoutLease;
+    private readonly WgpuPipelineLayoutLease _computePipelineLayoutLease;
     private readonly BindGroupLayout* _computeBindGroupLayout;
     private readonly PipelineLayout* _computePipelineLayout;
     private readonly ComputePipeline* _computePipeline;
@@ -384,6 +400,105 @@ public unsafe class PathAtlas : IDisposable
     public ulong Generation { get; private set; }
     public bool CapacityExceeded { get; private set; }
     public ulong PersistentTextureBytes => (ulong)_atlasWidth * _atlasHeight;
+    public uint AtlasGrowthCount { get; private set; }
+    public uint AtlasShrinkCount { get; private set; }
+    public uint FramesSinceAtlasResize => _framesSinceAtlasResize;
+    public int CurrentFramePathCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (PathInfo info in _paths.Values)
+            {
+                if (info.LastUsedFrame == _frameNumber)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    public ulong CurrentFrameCoverageBytes
+    {
+        get
+        {
+            ulong bytes = 0;
+            foreach (PathInfo info in _paths.Values)
+            {
+                if (info.LastUsedFrame == _frameNumber)
+                {
+                    bytes += (ulong)info.Width * info.Height;
+                }
+            }
+
+            return bytes;
+        }
+    }
+
+    public string DescribeCurrentFrameRasterRectangles()
+    {
+        var description = new System.Text.StringBuilder();
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame != _frameNumber)
+            {
+                continue;
+            }
+
+            uint width = info.Width > 0 ? info.Width : info.RetryWidth;
+            uint height = info.Height > 0 ? info.Height : info.RetryHeight;
+            if (description.Length > 0)
+            {
+                description.Append(", ");
+            }
+
+            description.Append(width);
+            description.Append('x');
+            description.Append(height);
+            description.Append('@');
+            description.Append(info.X);
+            description.Append(',');
+            description.Append(info.Y);
+            if (info.Width == 0 && info.RetryWidth > 0)
+            {
+                description.Append(" unplaced");
+            }
+        }
+
+        return description.ToString();
+    }
+
+    public ulong CachedCoverageBytes
+    {
+        get
+        {
+            ulong bytes = 0;
+            foreach (PathInfo info in _paths.Values)
+            {
+                bytes += (ulong)info.Width * info.Height;
+            }
+
+            return bytes;
+        }
+    }
+    public ulong CachedPaddedCoverageBytes
+    {
+        get
+        {
+            ulong bytes = 0;
+            foreach (PathInfo info in _paths.Values)
+            {
+                if (info.Width > 0 && info.Height > 0)
+                {
+                    bytes += (ulong)(info.Width + 2) * (info.Height + 2);
+                }
+            }
+
+            return bytes;
+        }
+    }
     public uint LastRasterStagingBytes { get; private set; }
     public uint PeakRasterStagingBytes { get; private set; }
     public uint PeakRasterWidth { get; private set; }
@@ -408,7 +523,8 @@ public unsafe class PathAtlas : IDisposable
 
         _context = context;
         _maxAtlasSize = atlasSize;
-        _atlasWidth = Math.Min(atlasSize, DefaultInitialAtlasSize);
+        _initialAtlasSize = Math.Min(atlasSize, DefaultInitialAtlasSize);
+        _atlasWidth = _initialAtlasSize;
         _atlasHeight = _atlasWidth;
         _compiledPathCacheBudgetBytes = compiledPathCacheBudgetBytes;
 
@@ -425,8 +541,15 @@ public unsafe class PathAtlas : IDisposable
         ClearAtlasTexture();
 
         _pipelineCache = new RenderPipelineCache(_context);
-        _computeBindGroupLayout = CreateRasterizationBindGroupLayout();
-        _computePipelineLayout = CreateRasterizationPipelineLayout(_computeBindGroupLayout);
+        _computeBindGroupLayoutLease =
+            CreateRasterizationBindGroupLayout();
+        _computeBindGroupLayout =
+            _computeBindGroupLayoutLease.Handle;
+        _computePipelineLayoutLease =
+            CreateRasterizationPipelineLayout(
+                _computeBindGroupLayout);
+        _computePipelineLayout =
+            _computePipelineLayoutLease.Handle;
         var shaderModule = _pipelineCache.GetOrCreateShader("PathRasterizer", Shaders.PathRasterizerShader, "PathRasterizerShader");
         _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
             "PathRasterizer",
@@ -435,7 +558,7 @@ public unsafe class PathAtlas : IDisposable
             _computePipelineLayout);
     }
 
-    private BindGroupLayout* CreateRasterizationBindGroupLayout()
+    private WgpuBindGroupLayoutLease CreateRasterizationBindGroupLayout()
     {
         var entries = stackalloc BindGroupLayoutEntry[4];
         entries[0] = new BindGroupLayoutEntry
@@ -488,16 +611,14 @@ public unsafe class PathAtlas : IDisposable
             EntryCount = 4,
             Entries = entries
         };
-        var layout = _context.Api.DeviceCreateBindGroupLayout(_context.Device, &descriptor);
-        if (layout == null)
-        {
-            throw new InvalidOperationException("Failed to create the path rasterization bind group layout.");
-        }
-
-        return layout;
+        return _context.AcquireSharedBindGroupLayout(
+            new WgpuDeviceResourceKey(
+                "ProGPU.Vector.PathAtlas",
+                "RasterizationBindings"),
+            &descriptor);
     }
 
-    private PipelineLayout* CreateRasterizationPipelineLayout(BindGroupLayout* bindGroupLayout)
+    private WgpuPipelineLayoutLease CreateRasterizationPipelineLayout(BindGroupLayout* bindGroupLayout)
     {
         var layouts = stackalloc BindGroupLayout*[1];
         layouts[0] = bindGroupLayout;
@@ -506,13 +627,11 @@ public unsafe class PathAtlas : IDisposable
             BindGroupLayoutCount = 1,
             BindGroupLayouts = layouts
         };
-        var layout = _context.Api.DeviceCreatePipelineLayout(_context.Device, &descriptor);
-        if (layout == null)
-        {
-            throw new InvalidOperationException("Failed to create the path rasterization pipeline layout.");
-        }
-
-        return layout;
+        return _context.AcquireSharedPipelineLayout(
+            new WgpuDeviceResourceKey(
+                "ProGPU.Vector.PathAtlas",
+                "RasterizationPipeline"),
+            &descriptor);
     }
 
 
@@ -1219,6 +1338,9 @@ public unsafe class PathAtlas : IDisposable
 
         if (!TryPackRecoveryPaths(
                 livePaths,
+                _atlasWidth,
+                _atlasHeight,
+                allowExactSearch: true,
                 out List<RetryPlacement> placements,
                 out List<AtlasFreeRectangle> freeRectangles,
                 out RetryPathOrdering ordering,
@@ -1272,6 +1394,9 @@ public unsafe class PathAtlas : IDisposable
 
     private bool TryPackRecoveryPaths(
         List<RetryPath> livePaths,
+        uint atlasWidth,
+        uint atlasHeight,
+        bool allowExactSearch,
         out List<RetryPlacement> placements,
         out List<AtlasFreeRectangle> freeRectangles,
         out RetryPathOrdering successfulOrdering,
@@ -1280,8 +1405,8 @@ public unsafe class PathAtlas : IDisposable
         LastExactRecoveryNodeCount = 0;
         LastExactRecoveryCandidateCount = 0;
         LastExactRecoveryBudgetExceeded = false;
-        uint availableWidth = _atlasWidth > 2 ? _atlasWidth - 2 : 0;
-        uint availableHeight = _atlasHeight > 2 ? _atlasHeight - 2 : 0;
+        uint availableWidth = atlasWidth > 2 ? atlasWidth - 2 : 0;
+        uint availableHeight = atlasHeight > 2 ? atlasHeight - 2 : 0;
         var trialFreeRectangles = new List<AtlasFreeRectangle>(Math.Max(4, livePaths.Count * 2));
         var trialPlacements = new List<RetryPlacement>(livePaths.Count);
 
@@ -1340,7 +1465,13 @@ public unsafe class PathAtlas : IDisposable
             }
         }
 
-        if (TryPackRecoveryPathsExactly(livePaths, out placements, out freeRectangles))
+        if (allowExactSearch &&
+            TryPackRecoveryPathsExactly(
+                livePaths,
+                atlasWidth,
+                atlasHeight,
+                out placements,
+                out freeRectangles))
         {
             successfulOrdering = RetryPathOrdering.AreaDescending;
             successfulHeuristic = RecoveryPlacementHeuristic.ExactBranchAndBound;
@@ -1383,11 +1514,13 @@ public unsafe class PathAtlas : IDisposable
 
     private bool TryPackRecoveryPathsExactly(
         List<RetryPath> livePaths,
+        uint atlasWidth,
+        uint atlasHeight,
         out List<RetryPlacement> placements,
         out List<AtlasFreeRectangle> freeRectangles)
     {
-        uint availableWidth = _atlasWidth > 2 ? _atlasWidth - 2 : 0;
-        uint availableHeight = _atlasHeight > 2 ? _atlasHeight - 2 : 0;
+        uint availableWidth = atlasWidth > 2 ? atlasWidth - 2 : 0;
+        uint availableHeight = atlasHeight > 2 ? atlasHeight - 2 : 0;
         var orderedPaths = new List<RetryPath>(livePaths.Count);
         var emptyPaths = new List<RetryPath>();
         ulong packedArea = 0;
@@ -1697,6 +1830,359 @@ public unsafe class PathAtlas : IDisposable
         return livePaths;
     }
 
+    private List<RetryPath> CollectMostRecentlyUsedPathsForRetry()
+    {
+        uint mostRecentFrame = 0;
+        bool found = false;
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (!found || info.LastUsedFrame > mostRecentFrame)
+            {
+                mostRecentFrame = info.LastUsedFrame;
+                found = true;
+            }
+        }
+
+        var livePaths = new List<RetryPath>(_paths.Count);
+        if (!found)
+        {
+            return livePaths;
+        }
+
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame != mostRecentFrame)
+            {
+                continue;
+            }
+
+            if (TryResolveRasterRectangle(
+                    info,
+                    out int xStart,
+                    out int yStart,
+                    out uint width,
+                    out uint height))
+            {
+                livePaths.Add(new RetryPath(
+                    info,
+                    xStart,
+                    yStart,
+                    width,
+                    height));
+            }
+            else
+            {
+                livePaths.Add(new RetryPath(info, 0, 0, 0, 0));
+            }
+        }
+
+        return livePaths;
+    }
+
+    /// <summary>
+    /// Marks that the current presentation reused compiled vertices containing
+    /// path-atlas coordinates. The next shrink probe conservatively retains the
+    /// most recently compiled path set even though CPU compilation did not call
+    /// <see cref="GetOrCreatePath"/> again.
+    /// </summary>
+    public void MarkRetainedPathReplay()
+    {
+        _retainedPathReplayObserved = true;
+    }
+
+    private void TryShrinkAtlas()
+    {
+        if (_framesSinceAtlasResize < DefaultAtlasShrinkDelayFrames ||
+            _pendingPaths.Count != 0 ||
+            (_atlasWidth <= _initialAtlasSize && _atlasHeight <= _initialAtlasSize))
+        {
+            return;
+        }
+
+        // Shrink evaluation is deliberately infrequent. Reset the delay even
+        // when the preceding frame's active set cannot fit a materially smaller
+        // texture, avoiding per-frame packing work after the hysteresis interval.
+        _framesSinceAtlasResize = 0;
+        List<RetryPath> activePaths = CollectCurrentFramePathsForRetry();
+        if (activePaths.Count == 0 && _retainedPathReplayObserved)
+        {
+            activePaths = CollectMostRecentlyUsedPathsForRetry();
+        }
+        uint desiredWidth = _atlasWidth;
+        uint desiredHeight = _atlasHeight;
+        List<RetryPlacement>? selectedPlacements = null;
+        List<AtlasFreeRectangle>? selectedFreeRectangles = null;
+
+        while (true)
+        {
+            uint halfWidth = desiredWidth > _initialAtlasSize
+                ? Math.Max(_initialAtlasSize, desiredWidth / 2)
+                : desiredWidth;
+            uint halfHeight = desiredHeight > _initialAtlasSize
+                ? Math.Max(_initialAtlasSize, desiredHeight / 2)
+                : desiredHeight;
+            bool packed = false;
+
+            if (halfWidth != desiredWidth && halfHeight != desiredHeight &&
+                TryPackShrinkCandidate(
+                    activePaths,
+                    halfWidth,
+                    halfHeight,
+                    out List<RetryPlacement> bothPlacements,
+                    out List<AtlasFreeRectangle> bothFreeRectangles))
+            {
+                desiredWidth = halfWidth;
+                desiredHeight = halfHeight;
+                selectedPlacements = bothPlacements;
+                selectedFreeRectangles = bothFreeRectangles;
+                packed = true;
+            }
+            else if (halfWidth != desiredWidth &&
+                     TryPackShrinkCandidate(
+                         activePaths,
+                         halfWidth,
+                         desiredHeight,
+                         out List<RetryPlacement> widthPlacements,
+                         out List<AtlasFreeRectangle> widthFreeRectangles))
+            {
+                desiredWidth = halfWidth;
+                selectedPlacements = widthPlacements;
+                selectedFreeRectangles = widthFreeRectangles;
+                packed = true;
+            }
+            else if (halfHeight != desiredHeight &&
+                     TryPackShrinkCandidate(
+                         activePaths,
+                         desiredWidth,
+                         halfHeight,
+                         out List<RetryPlacement> heightPlacements,
+                         out List<AtlasFreeRectangle> heightFreeRectangles))
+            {
+                desiredHeight = halfHeight;
+                selectedPlacements = heightPlacements;
+                selectedFreeRectangles = heightFreeRectangles;
+                packed = true;
+            }
+
+            if (!packed)
+            {
+                break;
+            }
+        }
+
+        TryRefineShrinkCandidate(
+            activePaths,
+            desiredWidth,
+            desiredHeight,
+            shrinkWidthFirst: true,
+            out uint widthFirstWidth,
+            out uint widthFirstHeight,
+            out List<RetryPlacement>? widthFirstPlacements,
+            out List<AtlasFreeRectangle>? widthFirstFreeRectangles);
+        TryRefineShrinkCandidate(
+            activePaths,
+            desiredWidth,
+            desiredHeight,
+            shrinkWidthFirst: false,
+            out uint heightFirstWidth,
+            out uint heightFirstHeight,
+            out List<RetryPlacement>? heightFirstPlacements,
+            out List<AtlasFreeRectangle>? heightFirstFreeRectangles);
+
+        ulong selectedArea = (ulong)desiredWidth * desiredHeight;
+        ulong widthFirstArea = (ulong)widthFirstWidth * widthFirstHeight;
+        if (widthFirstPlacements is not null &&
+            widthFirstFreeRectangles is not null &&
+            widthFirstArea < selectedArea)
+        {
+            desiredWidth = widthFirstWidth;
+            desiredHeight = widthFirstHeight;
+            selectedPlacements = widthFirstPlacements;
+            selectedFreeRectangles = widthFirstFreeRectangles;
+            selectedArea = widthFirstArea;
+        }
+
+        ulong heightFirstArea = (ulong)heightFirstWidth * heightFirstHeight;
+        if (heightFirstPlacements is not null &&
+            heightFirstFreeRectangles is not null &&
+            heightFirstArea < selectedArea)
+        {
+            desiredWidth = heightFirstWidth;
+            desiredHeight = heightFirstHeight;
+            selectedPlacements = heightFirstPlacements;
+            selectedFreeRectangles = heightFirstFreeRectangles;
+        }
+
+        ulong currentArea = (ulong)_atlasWidth * _atlasHeight;
+        ulong desiredArea = (ulong)desiredWidth * desiredHeight;
+        // Repacking invalidates every cached UV, so require at least a 25%
+        // residency reduction before paying that cost.
+        if (selectedPlacements == null ||
+            selectedFreeRectangles == null ||
+            desiredArea * MinimumAtlasShrinkAreaNumerator >
+                currentArea * MinimumAtlasShrinkAreaDenominator)
+        {
+            return;
+        }
+
+        var newTexture = new GpuTexture(
+            _context,
+            desiredWidth,
+            desiredHeight,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc |
+            TextureUsage.RenderAttachment,
+            "Dynamic Path Coverage Atlas");
+        newTexture.ClearRenderTarget();
+
+        GpuTexture oldTexture = _atlasTexture;
+        uint oldWidth = _atlasWidth;
+        uint oldHeight = _atlasHeight;
+        _atlasTexture = newTexture;
+        _atlasWidth = desiredWidth;
+        _atlasHeight = desiredHeight;
+        _paths.Clear();
+        _pendingPaths.Clear();
+        _currentX = 2;
+        _currentY = 2;
+        _currentRowHeight = 0;
+
+        for (int index = 0; index < selectedPlacements.Count; index++)
+        {
+            RetryPlacement placement = selectedPlacements[index];
+            RetryPath path = placement.Path;
+            PathInfo info = path.Info;
+            if (path.Width > 0 && path.Height > 0)
+            {
+                info = CreatePlacedPathInfo(
+                    info,
+                    path.XStart,
+                    path.YStart,
+                    path.Width,
+                    path.Height,
+                    placement.Rectangle.X,
+                    placement.Rectangle.Y);
+                _pendingPaths.Add(info);
+            }
+
+            _paths[info.Key] = info;
+        }
+
+        _recoveryFreeRectangles = selectedFreeRectangles;
+        CapacityExceeded = false;
+        TextureRevision++;
+        Generation++;
+        AtlasShrinkCount++;
+        oldTexture.Dispose();
+        ProGpuVectorDiagnostics.WriteLine(
+            $"[PathAtlas] Shrunk stable atlas residency from {oldWidth}x{oldHeight} to " +
+            $"{desiredWidth}x{desiredHeight}; retained {activePaths.Count} paths from the preceding " +
+            $"frame and invalidated stale UVs for generation {Generation}.");
+    }
+
+    private void TryRefineShrinkCandidate(
+        List<RetryPath> activePaths,
+        uint startingWidth,
+        uint startingHeight,
+        bool shrinkWidthFirst,
+        out uint selectedWidth,
+        out uint selectedHeight,
+        out List<RetryPlacement>? selectedPlacements,
+        out List<AtlasFreeRectangle>? selectedFreeRectangles)
+    {
+        // Algorithm: after the power-of-two probe, greedily trim each axis in
+        // 256-texel steps and try both axis orders. For atlas dimensions W/H,
+        // step A, P live paths, and F MaxRects free regions, this performs at
+        // most 2 * ((W + H) / A) bounded packing probes. Each probe uses the
+        // recovery packer's O(P log P + P * F^2) worst-case work and O(P + F)
+        // temporary storage; the default 4096 atlas has at most 28 probes per
+        // order. Shrink runs only after the 240-frame hysteresis interval.
+        uint refinedWidth = startingWidth;
+        uint refinedHeight = startingHeight;
+        List<RetryPlacement>? refinedPlacements = null;
+        List<AtlasFreeRectangle>? refinedFreeRectangles = null;
+
+        void ShrinkWidth()
+        {
+            while (refinedWidth > _initialAtlasSize)
+            {
+                uint candidateWidth = refinedWidth > _initialAtlasSize + AtlasShrinkDimensionStep
+                    ? refinedWidth - AtlasShrinkDimensionStep
+                    : _initialAtlasSize;
+                if (!TryPackShrinkCandidate(
+                        activePaths,
+                        candidateWidth,
+                        refinedHeight,
+                        out List<RetryPlacement> placements,
+                        out List<AtlasFreeRectangle> freeRectangles))
+                {
+                    break;
+                }
+
+                refinedWidth = candidateWidth;
+                refinedPlacements = placements;
+                refinedFreeRectangles = freeRectangles;
+            }
+        }
+
+        void ShrinkHeight()
+        {
+            while (refinedHeight > _initialAtlasSize)
+            {
+                uint candidateHeight = refinedHeight > _initialAtlasSize + AtlasShrinkDimensionStep
+                    ? refinedHeight - AtlasShrinkDimensionStep
+                    : _initialAtlasSize;
+                if (!TryPackShrinkCandidate(
+                        activePaths,
+                        refinedWidth,
+                        candidateHeight,
+                        out List<RetryPlacement> placements,
+                        out List<AtlasFreeRectangle> freeRectangles))
+                {
+                    break;
+                }
+
+                refinedHeight = candidateHeight;
+                refinedPlacements = placements;
+                refinedFreeRectangles = freeRectangles;
+            }
+        }
+
+        if (shrinkWidthFirst)
+        {
+            ShrinkWidth();
+            ShrinkHeight();
+        }
+        else
+        {
+            ShrinkHeight();
+            ShrinkWidth();
+        }
+
+        selectedWidth = refinedWidth;
+        selectedHeight = refinedHeight;
+        selectedPlacements = refinedPlacements;
+        selectedFreeRectangles = refinedFreeRectangles;
+    }
+
+    private bool TryPackShrinkCandidate(
+        List<RetryPath> activePaths,
+        uint width,
+        uint height,
+        out List<RetryPlacement> placements,
+        out List<AtlasFreeRectangle> freeRectangles)
+    {
+        return TryPackRecoveryPaths(
+            activePaths,
+            width,
+            height,
+            allowExactSearch: false,
+            out placements,
+            out freeRectangles,
+            out _,
+            out _);
+    }
+
     private bool TryResolveRasterRectangle(
         PathInfo info,
         out int xStart,
@@ -1710,6 +2196,15 @@ public unsafe class PathAtlas : IDisposable
             yStart = checked((int)info.MinY);
             width = info.Width;
             height = info.Height;
+            return true;
+        }
+
+        if (info.RetryWidth > 0 && info.RetryHeight > 0)
+        {
+            xStart = info.RetryXStart;
+            yStart = info.RetryYStart;
+            width = info.RetryWidth;
+            height = info.RetryHeight;
             return true;
         }
 
@@ -1777,6 +2272,10 @@ public unsafe class PathAtlas : IDisposable
         source.MinX = xStart;
         source.MinY = yStart;
         source.LastUsedFrame = _frameNumber;
+        source.RetryXStart = 0;
+        source.RetryYStart = 0;
+        source.RetryWidth = 0;
+        source.RetryHeight = 0;
         return source;
     }
 
@@ -2275,7 +2774,11 @@ public unsafe class PathAtlas : IDisposable
                 TexCoordMax = Vector2.Zero,
                 MinX = 0f,
                 MinY = 0f,
-                LastUsedFrame = _frameNumber
+                LastUsedFrame = _frameNumber,
+                RetryXStart = xStart,
+                RetryYStart = yStart,
+                RetryWidth = gW,
+                RetryHeight = gH
             };
             _paths[key] = info;
             return info;
@@ -2291,7 +2794,11 @@ public unsafe class PathAtlas : IDisposable
                 UnscaledMinY = unscaledMinY,
                 UnscaledMaxX = unscaledMaxX,
                 UnscaledMaxY = unscaledMaxY,
-                LastUsedFrame = _frameNumber
+                LastUsedFrame = _frameNumber,
+                RetryXStart = xStart,
+                RetryYStart = yStart,
+                RetryWidth = gW,
+                RetryHeight = gH
             };
             if (!TryPlaceRecoveryRectangle(
                     _recoveryFreeRectangles,
@@ -2387,7 +2894,11 @@ public unsafe class PathAtlas : IDisposable
                     TexCoordMax = Vector2.Zero,
                     MinX = 0f,
                     MinY = 0f,
-                    LastUsedFrame = _frameNumber
+                    LastUsedFrame = _frameNumber,
+                    RetryXStart = xStart,
+                    RetryYStart = yStart,
+                    RetryWidth = gW,
+                    RetryHeight = gH
                 };
                 _paths[key] = info;
                 return info;
@@ -2524,6 +3035,8 @@ public unsafe class PathAtlas : IDisposable
         RefreshNormalizedTextureCoordinates();
         TextureRevision++;
         Generation++;
+        AtlasGrowthCount++;
+        _framesSinceAtlasResize = 0;
         CapacityExceeded = false;
         return true;
     }
@@ -2956,6 +3469,12 @@ public unsafe class PathAtlas : IDisposable
         _ = anticipatedWidth;
         _ = anticipatedHeight;
         TryResetAfterCapacityExceeded();
+        if (_framesSinceAtlasResize < DefaultAtlasShrinkDelayFrames)
+        {
+            _framesSinceAtlasResize++;
+        }
+        TryShrinkAtlas();
+        _retainedPathReplayObserved = false;
         _frameNumber++;
         for (int i = 0; i < _tempBuffers.Count; i++)
         {
@@ -2970,8 +3489,8 @@ public unsafe class PathAtlas : IDisposable
 
         CleanupFrame();
         _pipelineCache.Dispose();
-        _context.Api.PipelineLayoutRelease(_computePipelineLayout);
-        _context.Api.BindGroupLayoutRelease(_computeBindGroupLayout);
+        _computePipelineLayoutLease.Dispose();
+        _computeBindGroupLayoutLease.Dispose();
         _atlasTexture.Dispose();
         _paths.Clear();
         _compiledFillPaths.Clear();

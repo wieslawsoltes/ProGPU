@@ -209,12 +209,14 @@ public sealed class SkSurfaceBackendRenderTargetTests
         surface.Canvas.DrawImage(
             source,
             new SKRect(0f, 0f, 1f, 1f),
-            new SKRect(0f, 0f, 4f, 4f),
+            new SKRect(1f, 1f, 3f, 3f),
             paint);
         surface.Flush();
 
         using var snapshot = surface.Snapshot();
-        AssertPixel(snapshot.Texture.ReadPixels(), 4, 2, 2, 200, 100, 50, 255);
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 4, 2, 2, 200, 100, 50, 255);
+        AssertPixel(pixels, 4, 0, 0, 200, 100, 50, 255);
     }
 
     [Fact]
@@ -270,6 +272,39 @@ public sealed class SkSurfaceBackendRenderTargetTests
 
         using var snapshot = surface.Snapshot();
         AssertPixel(snapshot.Texture.ReadPixels(), 4, 2, 2, 140, 50, 10, 255);
+    }
+
+    [Fact]
+    public void MixedNormalAndBoundedAdvancedImageBlendsPreserveDrawOrder()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(6, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var first = CreateRgbaImage(50, 20, 10, 255);
+        using var normal = CreateRgbaImage(30, 40, 50, 255);
+        using var second = CreateRgbaImage(10, 30, 50, 255);
+        using var advancedPaint = new SKPaint
+        {
+            BlendMode = SKBlendMode.Difference,
+            IsAntialias = false
+        };
+        using var normalPaint = new SKPaint
+        {
+            BlendMode = SKBlendMode.SrcOver,
+            IsAntialias = false
+        };
+
+        surface.Canvas.Clear(new SKColor(200, 100, 50, 255));
+        var source = new SKRect(0f, 0f, 1f, 1f);
+        surface.Canvas.DrawImage(first, source, new SKRect(1f, 0f, 5f, 4f), advancedPaint);
+        surface.Canvas.DrawImage(normal, source, new SKRect(2f, 0f, 4f, 4f), normalPaint);
+        surface.Canvas.DrawImage(second, source, new SKRect(1f, 0f, 5f, 4f), advancedPaint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 6, 2, 2, 20, 10, 0, 255);
+        AssertPixel(pixels, 6, 1, 2, 140, 50, 10, 255);
+        AssertPixel(pixels, 6, 0, 2, 200, 100, 50, 255);
     }
 
     [Fact]

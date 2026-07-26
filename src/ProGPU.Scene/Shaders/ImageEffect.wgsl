@@ -29,6 +29,25 @@ struct EffectUniforms {
 @group(3) @binding(0) var maskSampler: sampler;
 @group(3) @binding(1) var maskTexture: texture_2d<f32>;
 
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position - maskSampling.origin) * maskSampling.inverseSize;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -136,8 +155,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     var maskAlpha = 1.0;
     if (effect.effects1.w > 0.5) {
-        let screen_uv = input.position.xy / vec2<f32>(effect.texture0.x, effect.texture0.y);
-        maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+        maskAlpha = sample_mask_alpha(input.position.xy);
     }
 
     let coverage = input.color.a * maskAlpha;

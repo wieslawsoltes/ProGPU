@@ -19,6 +19,9 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
         "WPF shader effect sampler texture belongs to a different WebGPU context";
 
     private static readonly string VertexAndHeaderShaderPrefix = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectHeader.wgsl");
+    private static readonly string MaskDeclarationsShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectMaskDeclarations.wgsl");
+    private static readonly string MaskHelperShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectMaskHelper.wgsl");
+    private static readonly string NoMaskHelperShader = ShaderResource.Load(typeof(WpfShaderEffectExtensionPipeline), "WpfEffectNoMaskHelper.wgsl");
 
     private static string CreateVertexAndHeaderShader(ReadOnlySpan<int> activeSamplerRegisters, bool includeMask)
     {
@@ -41,8 +44,7 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
 
         if (includeMask)
         {
-            builder.AppendLine("@group(3) @binding(0) var activeMaskSampler: sampler;");
-            builder.AppendLine("@group(3) @binding(1) var activeMaskTexture: texture_2d<f32>;");
+            builder.AppendLine(MaskDeclarationsShader);
         }
 
         builder.AppendLine();
@@ -74,18 +76,14 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
         builder.AppendLine(includeMask ? "    return effect.metadata.w > 0.5;" : "    return false;");
         builder.AppendLine("}");
         builder.AppendLine();
-        builder.AppendLine("fn wpf_active_mask_alpha(screenPosition: vec4<f32>) -> f32 {");
         if (includeMask)
         {
-            builder.AppendLine("    let canvasSize = max(effect.metadata.yz, vec2<f32>(1.0));");
-            builder.AppendLine("    let screenUv = screenPosition.xy / canvasSize;");
-            builder.AppendLine("    return textureSample(activeMaskTexture, activeMaskSampler, screenUv).r;");
+            builder.AppendLine(MaskHelperShader);
         }
         else
         {
-            builder.AppendLine("    return 1.0;");
+            builder.AppendLine(NoMaskHelperShader);
         }
-        builder.AppendLine("}");
 
         return builder.ToString();
     }
@@ -838,10 +836,10 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
                 continue;
             }
 
-            if (!ReferenceEquals(texture.Context, targetContext))
+            if (!texture.Context.SharesDeviceWith(targetContext))
             {
                 error = $"{CrossContextTextureErrorPrefix} for register {register}. " +
-                    "Create or copy the sampler texture in the compositor target context before rendering the effect.";
+                    "Create or copy the sampler texture in the compositor target device domain before rendering the effect.";
                 return false;
             }
         }

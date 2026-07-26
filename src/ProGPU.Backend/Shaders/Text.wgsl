@@ -29,6 +29,8 @@ struct Uniforms {
     canvasSize: vec2<f32>,
     dpiScale: f32,
     pad0: f32,
+    renderOrigin: vec2<f32>,
+    pad1: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -117,6 +119,25 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @group(2) @binding(0) var maskSampler: sampler;
 @group(2) @binding(1) var maskTexture: texture_2d<f32>;
 
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position + uniforms.renderOrigin - maskSampling.origin) * maskSampling.inverseSize;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
+
 fn text_coverage_to_alpha(alpha: f32, contrast: f32, gamma: f32, aliasedText: bool) -> f32 {
     let dilated = clamp(alpha * contrast, 0.0, 1.0);
     return select(pow(dilated, gamma), select(0.0, 1.0, alpha >= 0.5), aliasedText);
@@ -171,8 +192,7 @@ fn text_fs_main(input: VertexOutput) -> vec4<f32> {
     let atlasCoord = input.texCoord / selectedSize;
     let atlasCoordDx = dpdx(atlasCoord);
     let atlasCoordDy = dpdy(atlasCoord);
-    let screen_uv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     if (maskAlpha <= 0.0) {
         discard;
     }

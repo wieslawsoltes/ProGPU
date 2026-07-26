@@ -15,7 +15,67 @@ namespace ProGPU.Scene;
 /// </summary>
 public interface IOwnedRenderCommandCache
 {
+    /// <summary>
+    /// Gets whether the owned cache currently contains local render commands.
+    /// Visual state and descendants are compiled regardless of this value.
+    /// </summary>
+    bool HasRenderCommands => true;
+
     DrawingContext GetOrUpdateRenderCommandCache();
+}
+
+/// <summary>
+/// Opts an owned immutable-until-invalidated command cache into bounded local
+/// scene-page compilation. Implementations must invalidate their visual when
+/// the command stream or any referenced mutable resource changes.
+/// </summary>
+public interface IIncrementalRenderCommandCache : IOwnedRenderCommandCache
+{
+}
+
+public readonly struct VisualCompositeClip : IEquatable<VisualCompositeClip>
+{
+    public VisualCompositeClip(Rect bounds, Matrix4x4 transform)
+    {
+        Bounds = bounds;
+        Geometry = null;
+        Transform = transform;
+    }
+
+    public VisualCompositeClip(
+        PathGeometry geometry,
+        Matrix4x4 transform)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        Bounds = null;
+        Geometry = geometry;
+        Transform = transform;
+    }
+
+    public Rect? Bounds { get; }
+    public PathGeometry? Geometry { get; }
+    public Matrix4x4 Transform { get; }
+
+    public bool Equals(VisualCompositeClip other) =>
+        Bounds == other.Bounds &&
+        ReferenceEquals(Geometry, other.Geometry) &&
+        Transform == other.Transform;
+
+    public override bool Equals(object? obj) =>
+        obj is VisualCompositeClip other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Bounds, Geometry, Transform);
+
+    public static bool operator ==(
+        VisualCompositeClip left,
+        VisualCompositeClip right) =>
+        left.Equals(right);
+
+    public static bool operator !=(
+        VisualCompositeClip left,
+        VisualCompositeClip right) =>
+        !left.Equals(right);
 }
 
 public class Visual
@@ -29,17 +89,24 @@ public class Visual
     private long _changeVersion;
     private long _renderContentVersion;
     private bool _cacheAsLayer;
+    private float _layerCacheRenderScale = 1f;
+    private bool _layerCacheSnapsToDevicePixels;
     public virtual bool HasTemplate => false;
     private Vector3 _scale = Vector3.One;
     private float _rotation = 0f;
     private Vector3 _centerPoint = Vector3.Zero;
     private Vector2 _renderTransformOrigin = new Vector2(0.5f, 0.5f);
-    private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, CompositionAnimation>? _activeAnimations;
     private Rect? _clipBounds;
     private Rect? _outerClipBounds;
+    private VisualCompositeClip[] _outerCompositeClips =
+        Array.Empty<VisualCompositeClip>();
     private PathGeometry? _geometryClip;
     private Brush? _opacityMask;
+    private GpuPicture? _opacityMaskPicture;
     private Rect? _opacityMaskBounds;
+    private Rect? _effectContentBounds;
+    private float? _effectRasterPadding;
     private int _hitTestId;
 
     private EffectBase? _effect;
@@ -53,6 +120,43 @@ public class Visual
                 _effect?.RemoveOwner(this);
                 _effect = value;
                 _effect?.AddOwner(this);
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the local bounds containing the uneffected subtree pixels.
+    /// When unset, effects use the visual's layout size. Backends with retained
+    /// subtree bounds should set this value so translated descendants are not
+    /// clipped and effect textures stay proportional to their actual content.
+    /// </summary>
+    public Rect? EffectContentBounds
+    {
+        get => _effectContentBounds;
+        set
+        {
+            if (_effectContentBounds != value)
+            {
+                _effectContentBounds = value;
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the logical transparent border reserved around
+    /// <see cref="EffectContentBounds"/> while rasterizing an effect. A null
+    /// value selects the effect's native default.
+    /// </summary>
+    public float? EffectRasterPadding
+    {
+        get => _effectRasterPadding;
+        set
+        {
+            if (_effectRasterPadding != value)
+            {
+                _effectRasterPadding = value;
                 InvalidateVisualState();
             }
         }
@@ -175,6 +279,43 @@ public class Visual
         }
     }
 
+    /// <summary>
+    /// Gets or sets the raster-resolution multiplier for a cached layer.
+    /// A non-positive value suppresses layer rendering.
+    /// </summary>
+    public float LayerCacheRenderScale
+    {
+        get => _layerCacheRenderScale;
+        set
+        {
+            float normalized = float.IsFinite(value)
+                ? MathF.Max(0f, value)
+                : 0f;
+            if (_layerCacheRenderScale != normalized)
+            {
+                _layerCacheRenderScale = normalized;
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets whether a cached layer's destination origin is aligned to
+    /// the physical pixel grid before composition.
+    /// </summary>
+    public bool LayerCacheSnapsToDevicePixels
+    {
+        get => _layerCacheSnapsToDevicePixels;
+        set
+        {
+            if (_layerCacheSnapsToDevicePixels != value)
+            {
+                _layerCacheSnapsToDevicePixels = value;
+                InvalidateVisualState();
+            }
+        }
+    }
+
     public Vector3 Scale
     {
         get => _scale;
@@ -269,6 +410,45 @@ public class Visual
         }
     }
 
+    public ReadOnlySpan<VisualCompositeClip> OuterCompositeClips =>
+        _outerCompositeClips;
+
+    public void SetOuterCompositeClips(
+        IReadOnlyList<VisualCompositeClip> clips)
+    {
+        ArgumentNullException.ThrowIfNull(clips);
+
+        bool unchanged = clips.Count == _outerCompositeClips.Length;
+        if (unchanged)
+        {
+            for (int index = 0; index < clips.Count; index++)
+            {
+                if (clips[index] != _outerCompositeClips[index])
+                {
+                    unchanged = false;
+                    break;
+                }
+            }
+        }
+
+        if (unchanged)
+            return;
+
+        if (clips.Count == 0)
+        {
+            _outerCompositeClips = Array.Empty<VisualCompositeClip>();
+        }
+        else
+        {
+            var replacement = new VisualCompositeClip[clips.Count];
+            for (int index = 0; index < replacement.Length; index++)
+                replacement[index] = clips[index];
+            _outerCompositeClips = replacement;
+        }
+
+        InvalidateVisualState();
+    }
+
     public PathGeometry? GeometryClip
     {
         get => _geometryClip;
@@ -290,6 +470,19 @@ public class Visual
             if (_opacityMask != value)
             {
                 _opacityMask = value;
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    public GpuPicture? OpacityMaskPicture
+    {
+        get => _opacityMaskPicture;
+        set
+        {
+            if (!ReferenceEquals(_opacityMaskPicture, value))
+            {
+                _opacityMaskPicture = value;
                 InvalidateVisualState();
             }
         }
@@ -414,13 +607,15 @@ public class Visual
 
     public void StartAnimation(string propertyName, CompositionAnimation animation)
     {
-        _activeAnimations[propertyName] = animation;
+        (_activeAnimations ??=
+            new Dictionary<string, CompositionAnimation>(
+                StringComparer.OrdinalIgnoreCase))[propertyName] = animation;
         InvalidateVisualState();
     }
 
     public void StopAnimation(string propertyName)
     {
-        if (_activeAnimations.Remove(propertyName))
+        if (_activeAnimations?.Remove(propertyName) == true)
         {
             InvalidateVisualState();
         }
@@ -447,12 +642,13 @@ public class Visual
 
     public void TickAnimations(float elapsedSeconds)
     {
-        if (_activeAnimations.Count == 0) return;
+        if (_activeAnimations is not { Count: > 0 } activeAnimations)
+            return;
 
         bool changed = false;
         bool renderContentChanged = false;
 
-        var activeAnimationEnumerator = _activeAnimations.GetEnumerator();
+        var activeAnimationEnumerator = activeAnimations.GetEnumerator();
         while (activeAnimationEnumerator.MoveNext())
         {
             var kvp = activeAnimationEnumerator.Current;
@@ -545,13 +741,18 @@ public class Visual
 
 public class ContainerVisual : Visual
 {
-    private readonly List<Visual> _children = new();
+    private List<Visual>? _children;
     private readonly object _childrenLock = new();
 
-    public IReadOnlyList<Visual> Children => _children;
+    public IReadOnlyList<Visual> Children =>
+        _children is null
+            ? Array.Empty<Visual>()
+            : _children;
 
     public void AddChild(Visual child)
     {
+        ArgumentNullException.ThrowIfNull(child);
+        ThrowIfWouldCreateCycle(child);
         if (child.Parent != null)
         {
             child.Parent.RemoveChild(child);
@@ -560,7 +761,7 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             child.Parent = this;
-            _children.Add(child);
+            (_children ??= new List<Visual>()).Add(child);
         }
         Invalidate();
         if (this is ILayoutNode layoutNode)
@@ -572,6 +773,7 @@ public class ContainerVisual : Visual
     public void InsertChild(int index, Visual child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        ThrowIfWouldCreateCycle(child);
         if (child.Parent != null)
         {
             child.Parent.RemoveChild(child);
@@ -580,7 +782,8 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             child.Parent = this;
-            _children.Insert(Math.Clamp(index, 0, _children.Count), child);
+            var children = _children ??= new List<Visual>();
+            children.Insert(Math.Clamp(index, 0, children.Count), child);
         }
 
         Invalidate();
@@ -590,12 +793,26 @@ public class ContainerVisual : Visual
         }
     }
 
+    private void ThrowIfWouldCreateCycle(Visual child)
+    {
+        for (Visual? ancestor = this;
+             ancestor != null;
+             ancestor = ancestor.Parent)
+        {
+            if (ReferenceEquals(ancestor, child))
+            {
+                throw new InvalidOperationException(
+                    "A visual cannot be added beneath itself or one of its descendants.");
+            }
+        }
+    }
+
     public void RemoveChild(Visual child)
     {
         bool removed;
         lock (_childrenLock)
         {
-            removed = _children.Remove(child);
+            removed = _children?.Remove(child) == true;
             if (removed)
             {
                 child.Parent = null;
@@ -615,11 +832,14 @@ public class ContainerVisual : Visual
     {
         lock (_childrenLock)
         {
-            for (var i = 0; i < _children.Count; i++)
+            if (_children != null)
             {
-                _children[i].Parent = null;
+                for (var i = 0; i < _children.Count; i++)
+                {
+                    _children[i].Parent = null;
+                }
+                _children.Clear();
             }
-            _children.Clear();
         }
         Invalidate();
         if (this is ILayoutNode layoutNode)
@@ -635,11 +855,11 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             if (ReferenceEquals(child.Parent, this) &&
-                _children.Count > 0 &&
-                !ReferenceEquals(_children[^1], child))
+                _children is { Count: > 0 } children &&
+                !ReferenceEquals(children[^1], child))
             {
-                _children.Remove(child);
-                _children.Add(child);
+                children.Remove(child);
+                children.Add(child);
                 reordered = true;
             }
         }

@@ -120,6 +120,9 @@ public class SKCanvas : IDisposable
     private float _currentOpacity = 1f;
     private ClipState _clipState;
     private readonly List<GpuTexture> _ownedLayerTextures = new();
+    private readonly List<GpuTexture> _filterScratchTexturePool = new();
+    private const int FilterScratchTextureRetentionLimit = 4;
+    private const ulong FilterScratchTextureByteLimit = 64UL * 1024UL * 1024UL;
     private List<SKRect>? _cpuReadbackRegions;
     public enum PushKind
     {
@@ -584,10 +587,10 @@ public class SKCanvas : IDisposable
         try
         {
             result = EvaluateImageFilter(sourceTexture, root, cache, filterTransform);
-            ReleaseGraphIntermediateTextures(firstGraphTexture, result);
+            RecycleGraphIntermediateTextures(firstGraphTexture, result);
             if (!ReferenceEquals(result, sourceTexture))
             {
-                ReleaseOwnedLayerTexture(sourceTexture);
+                RecycleOwnedLayerTexture(sourceTexture);
             }
 
             return result;
@@ -788,6 +791,21 @@ public class SKCanvas : IDisposable
         return table;
     }
 
+    private void RecycleGraphIntermediateTextures(int firstGraphTexture, GpuTexture? keep)
+    {
+        for (var i = _ownedLayerTextures.Count - 1; i >= firstGraphTexture; i--)
+        {
+            var texture = _ownedLayerTextures[i];
+            if (ReferenceEquals(texture, keep))
+            {
+                continue;
+            }
+
+            _ownedLayerTextures.RemoveAt(i);
+            ReturnFilterScratchTexture(texture);
+        }
+    }
+
     private void ReleaseGraphIntermediateTextures(int firstGraphTexture, GpuTexture? keep)
     {
         for (var i = _ownedLayerTextures.Count - 1; i >= firstGraphTexture; i--)
@@ -800,6 +818,14 @@ public class SKCanvas : IDisposable
 
             _ownedLayerTextures.RemoveAt(i);
             texture.Dispose();
+        }
+    }
+
+    private void RecycleOwnedLayerTexture(GpuTexture texture)
+    {
+        if (_ownedLayerTextures.Remove(texture))
+        {
+            ReturnFilterScratchTexture(texture);
         }
     }
 
@@ -1320,15 +1346,28 @@ public class SKCanvas : IDisposable
         }
 
         var context = GetGpuContext();
-        var temporary = CreateOwnedFilterTexture(context, "SKImageFilter Blur Temporary", storage: true);
         var destination = CreateOwnedFilterTexture(context, "SKImageFilter Blur Destination", storage: true);
-        GetCompositorForContext(context).ApplyGaussianBlur(
-            input,
-            temporary,
-            destination,
-            sigmaX,
-            sigmaY);
-        return destination;
+        var temporary = RentFilterScratchTexture(
+            context,
+            input.Width,
+            input.Height,
+            "SKImageFilter Blur Temporary");
+        try
+        {
+            GetCompositorForContext(context).ApplyGaussianBlur(
+                input,
+                temporary,
+                destination,
+                sigmaX,
+                sigmaY);
+            ReturnFilterScratchTexture(temporary);
+            return destination;
+        }
+        catch
+        {
+            temporary.Dispose();
+            throw;
+        }
     }
 
     private GpuTexture RenderDropShadow(
@@ -1383,16 +1422,29 @@ public class SKCanvas : IDisposable
         bool dilate)
     {
         var context = GetGpuContext();
-        var temporary = CreateOwnedFilterTexture(context, "SKImageFilter Morphology Temporary", storage: true);
         var destination = CreateOwnedFilterTexture(context, "SKImageFilter Morphology Destination", storage: true);
-        GetCompositorForContext(context).ApplyMorphology(
-            input,
-            temporary,
-            destination,
-            radiusX,
-            radiusY,
-            dilate);
-        return destination;
+        var temporary = RentFilterScratchTexture(
+            context,
+            input.Width,
+            input.Height,
+            "SKImageFilter Morphology Temporary");
+        try
+        {
+            GetCompositorForContext(context).ApplyMorphology(
+                input,
+                temporary,
+                destination,
+                radiusX,
+                radiusY,
+                dilate);
+            ReturnFilterScratchTexture(temporary);
+            return destination;
+        }
+        catch
+        {
+            temporary.Dispose();
+            throw;
+        }
     }
 
     private GpuTexture RenderImageBlend(
@@ -2050,16 +2102,134 @@ public class SKCanvas : IDisposable
     {
         var usage = TextureUsage.TextureBinding | TextureUsage.CopySrc | TextureUsage.CopyDst;
         usage |= storage ? TextureUsage.StorageBinding : TextureUsage.RenderAttachment;
-        var texture = new GpuTexture(
+        var texture = RentFilterTransientTexture(
             context,
             width ?? GetTextureWidth(),
             height ?? GetTextureHeight(),
             TextureFormat.Rgba8Unorm,
             usage,
-            label,
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
+            label);
         _ownedLayerTextures.Add(texture);
         return texture;
+    }
+
+    private GpuTexture RentFilterScratchTexture(
+        WgpuContext context,
+        uint width,
+        uint height,
+        string label)
+    {
+        const TextureUsage usage =
+            TextureUsage.TextureBinding |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst |
+            TextureUsage.StorageBinding;
+        return RentFilterTransientTexture(
+            context,
+            width,
+            height,
+            TextureFormat.Rgba8Unorm,
+            usage,
+            label);
+    }
+
+    private GpuTexture RentFilterTransientTexture(
+        WgpuContext context,
+        uint width,
+        uint height,
+        TextureFormat format,
+        TextureUsage usage,
+        string label)
+    {
+        for (int i = 0; i < _filterScratchTexturePool.Count; i++)
+        {
+            var texture = _filterScratchTexturePool[i];
+            if (texture.IsDisposed ||
+                texture.Context == null ||
+                texture.Context.IsDisposed)
+            {
+                _filterScratchTexturePool.RemoveAt(i);
+                i--;
+                continue;
+            }
+
+            if (ReferenceEquals(texture.Context, context) &&
+                texture.Width == width &&
+                texture.Height == height &&
+                texture.Format == format &&
+                texture.Usage == usage)
+            {
+                _filterScratchTexturePool.RemoveAt(i);
+                return texture;
+            }
+        }
+
+        return new GpuTexture(
+            context,
+            width,
+            height,
+            format,
+            usage,
+            label,
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+    }
+
+    private void ReturnFilterScratchTexture(GpuTexture texture)
+    {
+        if (texture.IsDisposed ||
+            texture.Context == null ||
+            texture.Context.IsDisposed)
+        {
+            texture.Dispose();
+            return;
+        }
+
+        ulong textureBytes = GetFilterTransientTextureBytes(texture);
+        ulong retainedBytes = GetFilterScratchTextureBytes();
+        if (_filterScratchTexturePool.Count >= FilterScratchTextureRetentionLimit ||
+            textureBytes > FilterScratchTextureByteLimit ||
+            retainedBytes > FilterScratchTextureByteLimit - textureBytes)
+        {
+            texture.Dispose();
+            return;
+        }
+
+        _filterScratchTexturePool.Add(texture);
+    }
+
+    private ulong GetFilterScratchTextureBytes()
+    {
+        ulong bytes = 0;
+        for (int i = 0; i < _filterScratchTexturePool.Count; i++)
+        {
+            var texture = _filterScratchTexturePool[i];
+            if (!texture.IsDisposed)
+            {
+                bytes += GetFilterTransientTextureBytes(texture);
+            }
+        }
+
+        return bytes;
+    }
+
+    private static ulong GetFilterTransientTextureBytes(GpuTexture texture)
+    {
+        uint bytesPerPixel = texture.Format switch
+        {
+            TextureFormat.Rgba16float => 8u,
+            _ => 4u
+        };
+        return (ulong)texture.Width * texture.Height * bytesPerPixel;
+    }
+
+    private void DisposeFilterScratchTexturePool()
+    {
+        for (int i = 0; i < _filterScratchTexturePool.Count; i++)
+        {
+            _filterScratchTexturePool[i].Dispose();
+        }
+
+        _filterScratchTexturePool.Clear();
     }
 
     private WgpuContext GetGpuContext() =>
@@ -2122,17 +2292,22 @@ public class SKCanvas : IDisposable
         var textureWidth = GetRequiredTextureExtent(_width, transformedBounds.Right);
         var textureHeight = GetRequiredTextureExtent(_height, transformedBounds.Bottom);
         var textureFormat = GetSaveLayerTextureFormat(layerFrame.Flags);
-        var texture = new GpuTexture(
+        const TextureUsage usage =
+            TextureUsage.RenderAttachment |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst |
+            TextureUsage.TextureBinding;
+        var texture = RentFilterTransientTexture(
             context,
             textureWidth,
             textureHeight,
             textureFormat,
-            TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
-            "SKCanvas SaveLayer Texture",
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
+            usage,
+            "SKCanvas SaveLayer Texture");
 
         var visual = new DrawingVisual { Size = new Vector2(textureWidth, textureHeight) };
         GpuTexture? initialTexture = null;
+        var initialTextureConsumed = false;
         var textureRetained = false;
         try
         {
@@ -2175,6 +2350,7 @@ public class SKCanvas : IDisposable
                 texture,
                 padding: 0f,
                 dpiScale: 1f);
+            initialTextureConsumed = initialTexture != null;
 
             layerFrame.LayerContext.Clear();
             _ownedLayerTextures.Add(texture);
@@ -2186,7 +2362,14 @@ public class SKCanvas : IDisposable
             visual.Context.Clear();
             if (initialTexture != null)
             {
-                ReleaseOwnedLayerTexture(initialTexture);
+                if (initialTextureConsumed)
+                {
+                    RecycleOwnedLayerTexture(initialTexture);
+                }
+                else
+                {
+                    ReleaseOwnedLayerTexture(initialTexture);
+                }
             }
 
             if (!textureRetained)
@@ -2204,17 +2387,18 @@ public class SKCanvas : IDisposable
         uint textureHeight,
         TextureFormat textureFormat)
     {
-        var texture = new GpuTexture(
+        const TextureUsage usage =
+            TextureUsage.RenderAttachment |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst |
+            TextureUsage.TextureBinding;
+        var texture = RentFilterTransientTexture(
             context,
             textureWidth,
             textureHeight,
             textureFormat,
-            TextureUsage.RenderAttachment |
-            TextureUsage.CopySrc |
-            TextureUsage.CopyDst |
-            TextureUsage.TextureBinding,
-            "SKCanvas SaveLayer Previous Texture",
-            alphaMode: GpuTextureAlphaMode.Premultiplied);
+            usage,
+            "SKCanvas SaveLayer Previous Texture");
         var visual = new DrawingVisual { Size = new Vector2(textureWidth, textureHeight) };
 
         var retained = false;
@@ -5745,6 +5929,7 @@ public class SKCanvas : IDisposable
             _bitmap?.DetachCanvas(this);
             ReleaseUnrestoredLayers();
             ReleaseLayerTexturesAfterFlush();
+            DisposeFilterScratchTexturePool();
             _surface = null;
         }
     }

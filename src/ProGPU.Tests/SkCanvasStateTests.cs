@@ -216,6 +216,103 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void RepeatedBlurLayersReuseCommandOrderedScratchAndSourceTextures()
+    {
+        var context = new DrawingContext();
+        var canvas = new SKCanvas(context, 64f, 48f);
+        using var layerPaint = new SKPaint
+        {
+            ImageFilter = SKImageFilter.CreateBlur(3f, 4f)
+        };
+        using var fill = new SKPaint { Color = SKColors.Red };
+
+        var firstRestoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(4f, 4f, 28f, 24f), fill);
+        canvas.RestoreToCount(firstRestoreCount);
+
+        var scratchPool = GetFilterScratchTextures(canvas);
+        Assert.Equal(2, scratchPool.Count);
+        var computeScratch = GetPooledTexture(
+            scratchPool,
+            TextureUsage.StorageBinding);
+        var sourceScratch = GetPooledTexture(
+            scratchPool,
+            TextureUsage.RenderAttachment);
+        Assert.Equal(64u * 48u * 4u, computeScratch.Width * computeScratch.Height * 4u);
+        Assert.Equal(64u * 48u * 4u, sourceScratch.Width * sourceScratch.Height * 4u);
+        Assert.False(computeScratch.IsDisposed);
+        Assert.False(sourceScratch.IsDisposed);
+
+        var secondRestoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(8f, 8f, 36f, 32f), fill);
+        canvas.RestoreToCount(secondRestoreCount);
+
+        Assert.Equal(2, scratchPool.Count);
+        Assert.Same(
+            sourceScratch,
+            GetPooledTexture(scratchPool, TextureUsage.RenderAttachment));
+        var nextComputeScratch = GetPooledTexture(
+            scratchPool,
+            TextureUsage.StorageBinding);
+        Assert.NotSame(computeScratch, nextComputeScratch);
+        Assert.Same(
+            computeScratch,
+            context.Commands[^1].Texture);
+        Assert.Equal(2, context.RetainedResourceCount);
+
+        canvas.Dispose();
+
+        Assert.False(computeScratch.IsDisposed);
+        Assert.True(nextComputeScratch.IsDisposed);
+        Assert.True(sourceScratch.IsDisposed);
+        Assert.Empty(scratchPool);
+        context.Clear();
+        Assert.True(computeScratch.IsDisposed);
+    }
+
+    [Fact]
+    public void RepeatedInitializeWithPreviousLayersReuseLastConsumedBackdropTexture()
+    {
+        var context = new DrawingContext();
+        var canvas = new SKCanvas(context, 64f, 48f);
+        using var fill = new SKPaint { Color = SKColors.Red };
+        var layerRecord = new SKCanvasSaveLayerRec
+        {
+            Bounds = new SKRect(0f, 0f, 64f, 48f),
+            Flags = SKCanvasSaveLayerRecFlags.InitializeWithPrevious
+        };
+
+        canvas.DrawRect(new SKRect(0f, 0f, 12f, 12f), fill);
+        var firstRestoreCount = canvas.SaveLayer(in layerRecord);
+        canvas.DrawRect(new SKRect(4f, 4f, 28f, 24f), fill);
+        canvas.RestoreToCount(firstRestoreCount);
+
+        var transientPool = GetFilterScratchTextures(canvas);
+        var previousTexture = Assert.IsType<GpuTexture>(Assert.Single(transientPool));
+        Assert.Equal(TextureUsage.RenderAttachment |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst |
+            TextureUsage.TextureBinding, previousTexture.Usage);
+        Assert.False(previousTexture.IsDisposed);
+
+        var secondRestoreCount = canvas.SaveLayer(in layerRecord);
+        canvas.DrawRect(new SKRect(8f, 8f, 36f, 32f), fill);
+        canvas.RestoreToCount(secondRestoreCount);
+
+        var nextPreviousTexture = Assert.IsType<GpuTexture>(Assert.Single(transientPool));
+        Assert.NotSame(previousTexture, nextPreviousTexture);
+        Assert.Same(previousTexture, context.Commands[^1].Texture);
+
+        canvas.Dispose();
+
+        Assert.False(previousTexture.IsDisposed);
+        Assert.True(nextPreviousTexture.IsDisposed);
+        Assert.Empty(transientPool);
+        context.Clear();
+        Assert.True(previousTexture.IsDisposed);
+    }
+
+    [Fact]
     public void SaveLayerBlurImageFilterClipsOffscreenSourceBeforeFiltering()
     {
         using var surface = SKSurface.Create(new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
@@ -2773,6 +2870,31 @@ public sealed class SkCanvasStateTests
             "_ownedLayerTextures",
             BindingFlags.Instance | BindingFlags.NonPublic);
         return (IList)field!.GetValue(canvas)!;
+    }
+
+    private static IList GetFilterScratchTextures(SKCanvas canvas)
+    {
+        var field = typeof(SKCanvas).GetField(
+            "_filterScratchTexturePool",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        return (IList)field!.GetValue(canvas)!;
+    }
+
+    private static GpuTexture GetPooledTexture(
+        IList textures,
+        TextureUsage requiredUsage)
+    {
+        foreach (var item in textures)
+        {
+            var texture = Assert.IsType<GpuTexture>(item);
+            if ((texture.Usage & requiredUsage) != 0)
+            {
+                return texture;
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException(
+            $"No pooled texture uses {requiredUsage}.");
     }
 
     private static DrawingContext GetCurrentDrawingContext(SKCanvas canvas)

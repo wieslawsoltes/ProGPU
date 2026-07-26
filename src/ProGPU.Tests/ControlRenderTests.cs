@@ -735,6 +735,27 @@ public class ControlRenderTests
     }
 
     [Fact]
+    public void Test_ChartShowcasePage_MaterializesHeavyTabsOnFirstSelection()
+    {
+        var page = ProGPU.Samples.ChartShowcasePage.Create();
+        var pivot = FindPivot(page);
+
+        Assert.NotNull(pivot);
+        Assert.NotNull(pivot.Items[0].Content);
+
+        var millionPointsIndex = pivot.Items
+            .Select((item, index) => (item, index))
+            .Single(entry => Equals(entry.item.Header, "1 Million Points"))
+            .index;
+
+        Assert.Null(pivot.Items[millionPointsIndex].Content);
+
+        pivot.SelectedIndex = millionPointsIndex;
+
+        Assert.NotNull(pivot.Items[millionPointsIndex].Content);
+    }
+
+    [Fact]
     public void Test_RealShowcasePage_TextBox_HitTesting()
     {
         PopupService.Clear();

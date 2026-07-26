@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using ProGPU.Vector;
 using ProGPU.Scene;
@@ -13,6 +14,7 @@ namespace ProGPU.WinUI.Designer;
 
 public class SelectionAdorner : Panel, IHitTestBoundsProvider
 {
+    private const int MaximumPillMeasurements = 32;
     private readonly Thumb _topLeftThumb = new();
     private readonly Thumb _topCenterThumb = new();
     private readonly Thumb _topRightThumb = new();
@@ -22,6 +24,39 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
     private readonly Thumb _bottomCenterThumb = new();
     private readonly Thumb _bottomRightThumb = new();
     private readonly Thumb _rotateThumb = new();
+    private readonly SolidColorBrush _guidelineBrush =
+        new(new Vector4(0.55f, 0.55f, 0.55f, 0.8f));
+    private readonly SolidColorBrush _distancePillBrush =
+        new(new Vector4(0.08f, 0.08f, 0.08f, 0.65f));
+    private readonly SolidColorBrush _pillTextBrush =
+        new(new Vector4(1f, 1f, 1f, 0.95f));
+    private readonly SolidColorBrush _spacingBrush =
+        new(new Vector4(1f, 0f, 0.5f, 1f));
+    private readonly SolidColorBrush _marginBrush =
+        new(new Vector4(0.98f, 0.44f, 0.20f, 0.20f));
+    private readonly SolidColorBrush _paddingBrush =
+        new(new Vector4(0.24f, 0.82f, 0.61f, 0.22f));
+    private readonly Dictionary<PillMeasurementKey, PillMeasurement>
+        _pillMeasurements = new();
+
+    private enum PillKind
+    {
+        Left,
+        Top,
+        Right,
+        Bottom,
+        Spacing
+    }
+
+    private readonly record struct PillMeasurementKey(
+        PillKind Kind,
+        long Value,
+        TtfFont Font,
+        float FontSize);
+
+    private readonly record struct PillMeasurement(
+        string Text,
+        Vector2 Size);
 
     public FrameworkElement? AssociatedElement { get; }
     public DesignerCanvas? ParentCanvas { get; }
@@ -446,8 +481,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         float Snap(float coord) => MathF.Round(coord * dpiScale * 4f) / 4f / dpiScale;
 
         // Dashed pen for guidelines
-        var guidelineBrush = new SolidColorBrush(new Vector4(0.55f, 0.55f, 0.55f, 0.8f));
-        var guidelinePen = new Pen(guidelineBrush, 1f / z);
+        var guidelinePen = new Pen(_guidelineBrush, 1f / z);
 
         var font = PopupService.DefaultFont;
         if (font == null) return;
@@ -466,7 +500,16 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             // Left Pill
             float cx = -left / 2f;
             float cy = height / 2f;
-            DrawDistancePill(context, font, fontSize, $"Left: {Math.Round(left)}", cx, cy, z, dpiScale);
+            DrawDistancePill(
+                context,
+                font,
+                fontSize,
+                PillKind.Left,
+                checked((long)Math.Round(left)),
+                cx,
+                cy,
+                z,
+                dpiScale);
         }
 
         // 2. Top Guideline and Pill
@@ -481,7 +524,16 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             // Top Pill
             float cx = width / 2f;
             float cy = -top / 2f;
-            DrawDistancePill(context, font, fontSize, $"Top: {Math.Round(top)}", cx, cy, z, dpiScale);
+            DrawDistancePill(
+                context,
+                font,
+                fontSize,
+                PillKind.Top,
+                checked((long)Math.Round(top)),
+                cx,
+                cy,
+                z,
+                dpiScale);
         }
 
         // 3. Right Guideline and Pill
@@ -496,7 +548,16 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             // Right Pill
             float cx = width + rightDistance / 2f;
             float cy = height / 2f;
-            DrawDistancePill(context, font, fontSize, $"Right: {Math.Round(rightDistance)}", cx, cy, z, dpiScale);
+            DrawDistancePill(
+                context,
+                font,
+                fontSize,
+                PillKind.Right,
+                checked((long)Math.Round(rightDistance)),
+                cx,
+                cy,
+                z,
+                dpiScale);
         }
 
         // 4. Bottom Guideline and Pill
@@ -511,18 +572,36 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             // Bottom Pill
             float cx = width / 2f;
             float cy = height + bottomDistance / 2f;
-            DrawDistancePill(context, font, fontSize, $"Bottom: {Math.Round(bottomDistance)}", cx, cy, z, dpiScale);
+            DrawDistancePill(
+                context,
+                font,
+                fontSize,
+                PillKind.Bottom,
+                checked((long)Math.Round(bottomDistance)),
+                cx,
+                cy,
+                z,
+                dpiScale);
         }
     }
 
-    private void DrawDistancePill(DrawingContext context, TtfFont font, float fontSize, string text, float cx, float cy, float z, float dpiScale)
+    private void DrawDistancePill(
+        DrawingContext context,
+        TtfFont font,
+        float fontSize,
+        PillKind kind,
+        long value,
+        float cx,
+        float cy,
+        float z,
+        float dpiScale)
     {
         float Snap(float coord) => MathF.Round(coord * dpiScale * 4f) / 4f / dpiScale;
 
-        // Measure text
-        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
-        float textWidth = textLayout.MeasuredSize.X;
-        float textHeight = textLayout.MeasuredSize.Y;
+        PillMeasurement measurement =
+            GetPillMeasurement(kind, value, font, fontSize);
+        float textWidth = measurement.Size.X;
+        float textHeight = measurement.Size.Y;
 
         // Pill dimensions with scaled padding
         float horizPadding = 8f / z;
@@ -539,11 +618,11 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         Rect pillRect = new Rect(pillLeft, pillTop, pillRight - pillLeft, pillBottom - pillTop);
         float cornerRadius = pillRect.Height / 2f;
 
-        // Brushes
-        var bgBrush = new SolidColorBrush(new Vector4(0.08f, 0.08f, 0.08f, 0.65f)); // 65% opacity dark grey
-        var textBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.95f)); // 95% opacity white for high readability
-
-        context.DrawRoundedRectangle(bgBrush, null, pillRect, cornerRadius);
+        context.DrawRoundedRectangle(
+            _distancePillBrush,
+            null,
+            pillRect,
+            cornerRadius);
 
         // Snap text position
         Vector2 textPos = new Vector2(
@@ -551,7 +630,12 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             Snap(cy - textHeight / 2f)
         );
 
-        context.DrawText(text, font, fontSize, textBrush, textPos);
+        context.DrawText(
+            measurement.Text,
+            font,
+            fontSize,
+            _pillTextBrush,
+            textPos);
     }
 
     private void DrawDashedVerticalLine(DrawingContext context, Pen pen, float x, float y1, float y2, float dashLength, float gapLength)
@@ -615,8 +699,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         var toLocal = ParentCanvas.DesignSurface.TransformToVisual(this);
 
         // Figma pink/magenta color
-        var pinkBrush = new SolidColorBrush(new Vector4(1f, 0f, 0.5f, 1f)); // Magenta
-        var pinkPen = new Pen(pinkBrush, 1f / z);
+        var pinkPen = new Pen(_spacingBrush, 1f / z);
 
         // Draw horizontal spacing if no horizontal overlap
         if (selRight < govLeft)
@@ -634,7 +717,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             context.DrawLine(pinkPen, p2 - new Vector2(0, 4f / z), p2 + new Vector2(0, 4f / z));
 
             float dist = endX - startX;
-            DrawSpacingPill(context, font, fontSize, $"{(int)MathF.Round(dist)}", (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale, pinkBrush);
+            DrawSpacingPill(context, font, fontSize, (long)MathF.Round(dist), (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale);
         }
         else if (govRight < selLeft)
         {
@@ -650,7 +733,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             context.DrawLine(pinkPen, p2 - new Vector2(0, 4f / z), p2 + new Vector2(0, 4f / z));
 
             float dist = endX - startX;
-            DrawSpacingPill(context, font, fontSize, $"{(int)MathF.Round(dist)}", (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale, pinkBrush);
+            DrawSpacingPill(context, font, fontSize, (long)MathF.Round(dist), (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale);
         }
 
         // Draw vertical spacing if no vertical overlap
@@ -668,7 +751,7 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             context.DrawLine(pinkPen, p2 - new Vector2(4f / z, 0), p2 + new Vector2(4f / z, 0));
 
             float dist = endY - startY;
-            DrawSpacingPill(context, font, fontSize, $"{(int)MathF.Round(dist)}", (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale, pinkBrush);
+            DrawSpacingPill(context, font, fontSize, (long)MathF.Round(dist), (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale);
         }
         else if (govBottom < selTop)
         {
@@ -684,17 +767,29 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
             context.DrawLine(pinkPen, p2 - new Vector2(4f / z, 0), p2 + new Vector2(4f / z, 0));
 
             float dist = endY - startY;
-            DrawSpacingPill(context, font, fontSize, $"{(int)MathF.Round(dist)}", (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale, pinkBrush);
+            DrawSpacingPill(context, font, fontSize, (long)MathF.Round(dist), (p1.X + p2.X) / 2f, (p1.Y + p2.Y) / 2f, z, dpiScale);
         }
     }
 
-    private void DrawSpacingPill(DrawingContext context, TtfFont font, float fontSize, string text, float cx, float cy, float z, float dpiScale, Brush bgBrush)
+    private void DrawSpacingPill(
+        DrawingContext context,
+        TtfFont font,
+        float fontSize,
+        long value,
+        float cx,
+        float cy,
+        float z,
+        float dpiScale)
     {
         float Snap(float coord) => MathF.Round(coord * dpiScale * 4f) / 4f / dpiScale;
 
-        var textLayout = new TextLayout(text, font, fontSize, float.PositiveInfinity, ProGPU.Text.TextAlignment.Left, null);
-        float textWidth = textLayout.MeasuredSize.X;
-        float textHeight = textLayout.MeasuredSize.Y;
+        PillMeasurement measurement = GetPillMeasurement(
+            PillKind.Spacing,
+            value,
+            font,
+            fontSize);
+        float textWidth = measurement.Size.X;
+        float textHeight = measurement.Size.Y;
 
         float horizPadding = 6f / z;
         float vertPadding = 3f / z;
@@ -709,16 +804,82 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
         Rect pillRect = new Rect(pillLeft, pillTop, pillRight - pillLeft, pillBottom - pillTop);
         float cornerRadius = pillRect.Height / 2f;
 
-        var textBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.95f));
-
-        context.DrawRoundedRectangle(bgBrush, null, pillRect, cornerRadius);
+        context.DrawRoundedRectangle(
+            _spacingBrush,
+            null,
+            pillRect,
+            cornerRadius);
 
         Vector2 textPos = new Vector2(
             Snap(cx - textWidth / 2f),
             Snap(cy - textHeight / 2f)
         );
 
-        context.DrawText(text, font, fontSize, textBrush, textPos);
+        context.DrawText(
+            measurement.Text,
+            font,
+            fontSize,
+            _pillTextBrush,
+            textPos);
+    }
+
+    /// <summary>
+    /// Caches the bounded diagnostic labels drawn by this adorner. Lookup is
+    /// O(1) average and allocation-free on a hit; a miss shapes O(G) glyphs
+    /// and the cache retains at most <see cref="MaximumPillMeasurements"/>
+    /// entries.
+    /// </summary>
+    private PillMeasurement GetPillMeasurement(
+        PillKind kind,
+        long value,
+        TtfFont font,
+        float fontSize)
+    {
+        var key = new PillMeasurementKey(kind, value, font, fontSize);
+        if (_pillMeasurements.TryGetValue(
+                key,
+                out PillMeasurement measurement))
+        {
+            return measurement;
+        }
+
+        if (_pillMeasurements.Count >= MaximumPillMeasurements)
+        {
+            PillMeasurementKey oldest = default;
+            bool found = false;
+            foreach (PillMeasurementKey existing in _pillMeasurements.Keys)
+            {
+                oldest = existing;
+                found = true;
+                break;
+            }
+
+            if (found)
+            {
+                _pillMeasurements.Remove(oldest);
+            }
+        }
+
+        string text = kind switch
+        {
+            PillKind.Left => $"Left: {value}",
+            PillKind.Top => $"Top: {value}",
+            PillKind.Right => $"Right: {value}",
+            PillKind.Bottom => $"Bottom: {value}",
+            _ => value.ToString()
+        };
+        var textLayout = new TextLayout(
+            text,
+            font,
+            fontSize,
+            float.PositiveInfinity,
+            ProGPU.Text.TextAlignment.Left,
+            null);
+        measurement = new PillMeasurement(
+            text,
+            textLayout.MeasuredSize);
+        _pillMeasurements.Add(key, measurement);
+        return measurement;
     }
 
     private void DrawBoxModelOverlays(DrawingContext context, float z)
@@ -730,44 +891,40 @@ public class SelectionAdorner : Panel, IHitTestBoundsProvider
 
         // 1. Draw Margin Overlay (Translucent Orange/Peach)
         var margin = AssociatedElement.Margin;
-        var marginBrush = new SolidColorBrush(new Vector4(0.98f, 0.44f, 0.20f, 0.20f)); // Translucent Orange
-
         if (margin.Left > 0f)
         {
-            context.DrawRectangle(marginBrush, null, new Rect(-margin.Left, 0f, margin.Left, h));
+            context.DrawRectangle(_marginBrush, null, new Rect(-margin.Left, 0f, margin.Left, h));
         }
         if (margin.Right > 0f)
         {
-            context.DrawRectangle(marginBrush, null, new Rect(w, 0f, margin.Right, h));
+            context.DrawRectangle(_marginBrush, null, new Rect(w, 0f, margin.Right, h));
         }
         if (margin.Top > 0f)
         {
-            context.DrawRectangle(marginBrush, null, new Rect(-margin.Left, -margin.Top, w + margin.Left + margin.Right, margin.Top));
+            context.DrawRectangle(_marginBrush, null, new Rect(-margin.Left, -margin.Top, w + margin.Left + margin.Right, margin.Top));
         }
         if (margin.Bottom > 0f)
         {
-            context.DrawRectangle(marginBrush, null, new Rect(-margin.Left, h, w + margin.Left + margin.Right, margin.Bottom));
+            context.DrawRectangle(_marginBrush, null, new Rect(-margin.Left, h, w + margin.Left + margin.Right, margin.Bottom));
         }
 
         // 2. Draw Padding Overlay (Translucent Green/Teal)
         var padding = AssociatedElement.Padding;
-        var paddingBrush = new SolidColorBrush(new Vector4(0.24f, 0.82f, 0.61f, 0.22f)); // Translucent Teal
-
         if (padding.Left > 0f)
         {
-            context.DrawRectangle(paddingBrush, null, new Rect(0f, 0f, MathF.Min(padding.Left, w), h));
+            context.DrawRectangle(_paddingBrush, null, new Rect(0f, 0f, MathF.Min(padding.Left, w), h));
         }
         if (padding.Right > 0f)
         {
-            context.DrawRectangle(paddingBrush, null, new Rect(MathF.Max(0f, w - padding.Right), 0f, MathF.Min(padding.Right, w), h));
+            context.DrawRectangle(_paddingBrush, null, new Rect(MathF.Max(0f, w - padding.Right), 0f, MathF.Min(padding.Right, w), h));
         }
         if (padding.Top > 0f)
         {
-            context.DrawRectangle(paddingBrush, null, new Rect(0f, 0f, w, MathF.Min(padding.Top, h)));
+            context.DrawRectangle(_paddingBrush, null, new Rect(0f, 0f, w, MathF.Min(padding.Top, h)));
         }
         if (padding.Bottom > 0f)
         {
-            context.DrawRectangle(paddingBrush, null, new Rect(0f, MathF.Max(0f, h - padding.Bottom), w, MathF.Min(padding.Bottom, h)));
+            context.DrawRectangle(_paddingBrush, null, new Rect(0f, MathF.Max(0f, h - padding.Bottom), w, MathF.Min(padding.Bottom, h)));
         }
     }
 }

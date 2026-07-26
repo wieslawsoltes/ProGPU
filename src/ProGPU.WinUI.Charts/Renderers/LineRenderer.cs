@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Buffers;
 using System.Numerics;
 using ProGPU.Vector;
 using ProGPU.Layout;
@@ -97,48 +97,58 @@ namespace ProGPU.WinUI.Charts.Renderers
 
             var pen = new Pen(brush, thickness);
 
-            var points = new List<Vector2>(count);
             var areaBrush = ls.AreaStyle != null 
                 ? new SolidColorBrush(new Vector4(color.X, color.Y, color.Z, (float)(ls.AreaStyle.Opacity * color.W))) 
                 : null;
             float baselineY = (float)yScale.Scale(yScale.DomainMin);
             if (!double.IsFinite(baselineY)) baselineY = plotArea.Y + plotArea.Height;
-
-            for (int i = 0; i < count; i++)
+            var pointStorage = ArrayPool<Vector2>.Shared.Rent(count);
+            try
             {
-                double x = data.GetX(i);
-                double y = data.GetY(i);
-
-                if (!double.IsFinite(x) || !double.IsFinite(y))
+                var points = pointStorage.AsSpan(0, count);
+                int pointCount = 0;
+                for (int i = 0; i < count; i++)
                 {
-                    if (!ls.ConnectNulls)
+                    double x = data.GetX(i);
+                    double y = data.GetY(i);
+
+                    if (!double.IsFinite(x) || !double.IsFinite(y))
                     {
-                        RenderPolylineChunk(context, points, pen);
-                        if (areaBrush != null)
+                        if (!ls.ConnectNulls)
                         {
-                            RenderAreaOverlayChunk(context, points, baselineY, areaBrush);
+                            var chunk = points[..pointCount];
+                            RenderPolylineChunk(context, chunk, pen);
+                            if (areaBrush != null)
+                            {
+                                RenderAreaOverlayChunk(context, chunk, baselineY, areaBrush);
+                            }
+                            pointCount = 0;
                         }
-                        points.Clear();
+                        continue;
                     }
-                    continue;
+
+                    float px = (float)xScale.Scale(x);
+                    float py = (float)yScale.Scale(y);
+                    points[pointCount++] = new Vector2(px, py);
                 }
 
-                float px = (float)xScale.Scale(x);
-                float py = (float)yScale.Scale(y);
-                points.Add(new Vector2(px, py));
+                var finalChunk = points[..pointCount];
+                RenderPolylineChunk(context, finalChunk, pen);
+                if (areaBrush != null)
+                {
+                    RenderAreaOverlayChunk(context, finalChunk, baselineY, areaBrush);
+                }
             }
-
-            RenderPolylineChunk(context, points, pen);
-            if (areaBrush != null)
+            finally
             {
-                RenderAreaOverlayChunk(context, points, baselineY, areaBrush);
+                ArrayPool<Vector2>.Shared.Return(pointStorage);
             }
         }
 
-        private static void RenderAreaOverlayChunk(DrawingContext context, List<Vector2> points, float baselineY, SolidColorBrush areaBrush)
+        private static void RenderAreaOverlayChunk(DrawingContext context, ReadOnlySpan<Vector2> points, float baselineY, SolidColorBrush areaBrush)
         {
-            if (points.Count < 2) return;
-            for (int i = 0; i < points.Count - 1; i++)
+            if (points.Length < 2) return;
+            for (int i = 0; i < points.Length - 1; i++)
             {
                 var p1 = points[i];
                 var p2 = points[i + 1];
@@ -168,48 +178,57 @@ namespace ProGPU.WinUI.Charts.Renderers
             float baselineY = (float)yScale.Scale(aes.Baseline ?? yScale.DomainMin);
             if (!double.IsFinite(baselineY)) baselineY = plotArea.Y + plotArea.Height;
 
-            var points = new List<Vector2>(count);
-            for (int i = 0; i < count; i++)
+            var pointStorage = ArrayPool<Vector2>.Shared.Rent(count);
+            try
             {
-                double x = data.GetX(i);
-                double y = data.GetY(i);
-
-                if (!double.IsFinite(x) || !double.IsFinite(y))
+                var points = pointStorage.AsSpan(0, count);
+                int pointCount = 0;
+                for (int i = 0; i < count; i++)
                 {
-                    if (!aes.ConnectNulls)
+                    double x = data.GetX(i);
+                    double y = data.GetY(i);
+
+                    if (!double.IsFinite(x) || !double.IsFinite(y))
                     {
-                        RenderAreaChunk(context, points, pen, baselineY, color, aes.AreaStyle?.Opacity ?? 0.2);
-                        points.Clear();
+                        if (!aes.ConnectNulls)
+                        {
+                            RenderAreaChunk(context, points[..pointCount], pen, baselineY, color, aes.AreaStyle?.Opacity ?? 0.2);
+                            pointCount = 0;
+                        }
+                        continue;
                     }
-                    continue;
+
+                    float px = (float)xScale.Scale(x);
+                    float py = (float)yScale.Scale(y);
+                    points[pointCount++] = new Vector2(px, py);
                 }
 
-                float px = (float)xScale.Scale(x);
-                float py = (float)yScale.Scale(y);
-                points.Add(new Vector2(px, py));
+                RenderAreaChunk(context, points[..pointCount], pen, baselineY, color, aes.AreaStyle?.Opacity ?? 0.2);
             }
-
-            RenderAreaChunk(context, points, pen, baselineY, color, aes.AreaStyle?.Opacity ?? 0.2);
+            finally
+            {
+                ArrayPool<Vector2>.Shared.Return(pointStorage);
+            }
         }
 
-        private static void RenderPolylineChunk(DrawingContext context, List<Vector2> points, Pen pen)
+        private static void RenderPolylineChunk(DrawingContext context, ReadOnlySpan<Vector2> points, Pen pen)
         {
-            if (points.Count < 2) return;
-            context.DrawPolyline(pen, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(points), false);
+            if (points.Length < 2) return;
+            context.DrawPolyline(pen, points, false);
         }
 
-        private static void RenderAreaChunk(DrawingContext context, List<Vector2> points, Pen pen, float baselineY, Vector4 color, double op)
+        private static void RenderAreaChunk(DrawingContext context, ReadOnlySpan<Vector2> points, Pen pen, float baselineY, Vector4 color, double op)
         {
-            if (points.Count < 2) return;
+            if (points.Length < 2) return;
 
             // Draw line border
-            context.DrawPolyline(pen, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(points), false);
+            context.DrawPolyline(pen, points, false);
 
             // Construct closed area coordinates
             var areaColors = new Vector4(color.X, color.Y, color.Z, (float)(op * color.W));
             var areaBrush = new SolidColorBrush(areaColors);
 
-            for (int i = 0; i < points.Count - 1; i++)
+            for (int i = 0; i < points.Length - 1; i++)
             {
                 var p1 = points[i];
                 var p2 = points[i + 1];

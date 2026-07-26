@@ -150,9 +150,10 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
             throw new ArgumentNullException(nameof(texture));
         }
 
-        if (!ReferenceEquals(texture.Context, _context))
+        if (!texture.Context.SharesDeviceWith(_context))
         {
-            throw new InvalidOperationException("Texture readback requires the source texture and readback buffer to use the same WebGPU context.");
+            throw new InvalidOperationException(
+                "Texture readback requires the source texture and readback buffer to use the same WebGPU device domain.");
         }
 
         if (texture.IsDisposed || _context.IsDisposed || destination == null)

@@ -463,10 +463,10 @@ namespace ProGPU.Scene.Extensions
             string role,
             out string? error)
         {
-            if (!ReferenceEquals(texture.Context, targetContext))
+            if (!texture.Context.SharesDeviceWith(targetContext))
             {
                 error = $"{CrossContextTextureErrorPrefix} for {role}. " +
-                    "Create or copy the texture in the compositor target context before rendering the effect.";
+                    "Create or copy the texture in the compositor target device domain before rendering the effect.";
                 return false;
             }
 

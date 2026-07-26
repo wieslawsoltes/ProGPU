@@ -49,6 +49,25 @@ struct GlyphInstance {
 @group(1) @binding(0) var maskSampler: sampler;
 @group(1) @binding(1) var maskTexture: texture_2d<f32>;
 
+struct MaskSamplingUniforms {
+    origin: vec2<f32>,
+    inverseSize: vec2<f32>,
+    options: vec4<f32>,
+};
+
+@group(1) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let uv = (position - maskSampling.origin) * maskSampling.inverseSize;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) localPosition: vec2<f32>,
@@ -288,8 +307,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         grid == 1u);
     if (coverage <= 0.0) { discard; }
 
-    let maskUv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, maskUv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     let alpha = input.color.a * coverage * maskAlpha;
     return vec4<f32>(input.color.rgb * alpha, alpha);
 }

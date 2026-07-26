@@ -33,11 +33,32 @@ internal sealed unsafe class EmbeddedFontData : MemoryManager<byte>
         data = null;
 
         Stream? stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return false;
+        }
+
+        if (TryOpen(stream, out data))
+        {
+            return true;
+        }
+
+        stream.Dispose();
+        return false;
+    }
+
+    /// <summary>
+    /// Transfers ownership of an unmanaged resource stream to a zero-copy font
+    /// memory owner. A false result leaves ownership with the caller.
+    /// </summary>
+    internal static bool TryOpen(Stream stream, out EmbeddedFontData? data)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        data = null;
         if (stream is not UnmanagedMemoryStream unmanaged ||
             unmanaged.Length <= 0 ||
             unmanaged.Length > int.MaxValue)
         {
-            stream?.Dispose();
             return false;
         }
 

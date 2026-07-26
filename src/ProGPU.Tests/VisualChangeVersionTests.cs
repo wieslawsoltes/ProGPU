@@ -232,6 +232,32 @@ public sealed class VisualChangeVersionTests
     }
 
     [Fact]
+    public void AddChildRejectsVisualOwnershipCycle()
+    {
+        var root = new ContainerVisual();
+        var child = new ContainerVisual();
+        root.AddChild(child);
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => child.AddChild(root));
+
+        Assert.Contains("descendants", exception.Message);
+        Assert.Same(root, child.Parent);
+        Assert.Single(root.Children);
+    }
+
+    [Fact]
+    public void InsertChildRejectsSelfOwnership()
+    {
+        var visual = new ContainerVisual();
+
+        Assert.Throws<InvalidOperationException>(
+            () => visual.InsertChild(0, visual));
+        Assert.Empty(visual.Children);
+    }
+
+    [Fact]
     public void RenderOffscreenDoesNotMutateOffsetOrChangeVersion()
     {
         using var window = new HeadlessWindow(64, 64);

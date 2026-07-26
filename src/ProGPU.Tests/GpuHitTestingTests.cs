@@ -256,6 +256,33 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheUsesOnlyRecordedGlyphRunRange()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawGlyphRun,
+            FontSize = 12f,
+            GlyphPositions =
+            [
+                new Vector2(-10_000f, -10_000f),
+                new Vector2(10f, 20f),
+                new Vector2(30f, 40f),
+                new Vector2(10_000f, 10_000f)
+            ],
+            GlyphRangeStart = 1,
+            GlyphRangeCount = 2
+        }, Matrix4x4.Identity, id: 78);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(78, primitive.Id);
+        Assert.Equal(new Vector2(10f, 20f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(42f, 52f), primitive.BoundsMax);
+    }
+
+    [Fact]
     public void RenderCommandCacheAttachesGeometryClipMetadataToPrimitives()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
@@ -715,7 +742,7 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void RenderCommandCacheReusesRecordedSplineGeometryCache()
+    public void DrawingContextDefersSplineGeometryUntilGpuHitTesting()
     {
         var context = new DrawingContext();
         context.DrawSpline(
@@ -727,11 +754,9 @@ public sealed class GpuHitTestingTests
             [0d, 0d, 1d, 1d],
             degree: 1);
         var command = Assert.Single(context.Commands);
-        var cachedPath = command.GeometryCache!.StrokePath;
-        Assert.NotNull(cachedPath);
+        Assert.Null(command.GeometryCache);
 
         var compiler = new CountingPathHitTestCompilationCache();
-        compiler.Prewarm(cachedPath);
         var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
 
         builder.AddCommand(command, Matrix4x4.Identity, context, id: 84);
@@ -741,7 +766,7 @@ public sealed class GpuHitTestingTests
         Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
         Assert.Equal(84, primitive.Id);
         Assert.Equal(1, compiler.CallCount);
-        Assert.Equal(0, compiler.CompileCount);
+        Assert.Equal(1, compiler.CompileCount);
     }
 
     [Fact]
@@ -952,7 +977,7 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void RenderCommandCacheReusesRecordedQuadraticBezierGeometryCache()
+    public void DrawingContextDefersQuadraticBezierGeometryUntilGpuHitTesting()
     {
         var context = new DrawingContext();
         context.DrawQuadraticBezier(
@@ -961,11 +986,9 @@ public sealed class GpuHitTestingTests
             new Vector2(10f, 0f),
             new Vector2(10f, 10f));
         var command = Assert.Single(context.Commands);
-        var cachedPath = command.GeometryCache!.StrokePath;
-        Assert.NotNull(cachedPath);
+        Assert.Null(command.GeometryCache);
 
         var compiler = new CountingPathHitTestCompilationCache();
-        compiler.Prewarm(cachedPath);
         var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
 
         builder.AddCommand(command, Matrix4x4.Identity, id: 89);
@@ -975,7 +998,7 @@ public sealed class GpuHitTestingTests
         Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
         Assert.Equal(89, primitive.Id);
         Assert.Equal(1, compiler.CallCount);
-        Assert.Equal(0, compiler.CompileCount);
+        Assert.Equal(1, compiler.CompileCount);
     }
 
     [Fact]
@@ -1027,7 +1050,37 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void DrawingContextAppendTranslationInvalidatesRecordedGeometryCache()
+    public void FillPrimitivesDeferPathAllocationUntilGpuHitTestingIsRequested()
+    {
+        var brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
+        var context = new DrawingContext();
+        context.FillTriangle(
+            brush,
+            new Vector2(0f, 0f),
+            new Vector2(10f, 0f),
+            new Vector2(0f, 10f));
+        context.FillQuad(
+            brush,
+            new Vector2(20f, 0f),
+            new Vector2(30f, 0f),
+            new Vector2(30f, 10f),
+            new Vector2(20f, 10f));
+
+        Assert.All(context.Commands, command => Assert.Null(command.GeometryCache));
+
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(context.Commands[0], Matrix4x4.Identity, id: 85);
+        builder.AddCommand(context.Commands[1], Matrix4x4.Identity, id: 86);
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(3, index.Primitives.Count);
+        Assert.Equal(9, index.PathSegments.Count);
+        Assert.Contains(index.Primitives, primitive => primitive.Id == 85);
+        Assert.Equal(2, index.Primitives.Count(primitive => primitive.Id == 86));
+    }
+
+    [Fact]
+    public void DrawingContextAppendTranslationPreservesLazyPrimitiveGeometry()
     {
         var source = new DrawingContext();
         source.DrawQuadraticBezier(
@@ -1035,7 +1088,7 @@ public sealed class GpuHitTestingTests
             new Vector2(0f, 0f),
             new Vector2(10f, 0f),
             new Vector2(10f, 10f));
-        Assert.NotNull(source.Commands[0].GeometryCache);
+        Assert.Null(source.Commands[0].GeometryCache);
 
         var target = new DrawingContext();
         target.Append(source, new Vector2(5f, 6f));
