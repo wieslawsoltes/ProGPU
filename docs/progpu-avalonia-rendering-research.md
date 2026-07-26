@@ -1496,6 +1496,10 @@ The design used these primary sources:
   [`compatibleSurface` adapter contract](https://github.com/EmilSV/WebGPUSharp/blob/9a750346ff77a25eb671f630797b62100a9de926/gen/RequestAdapterOptionsFFI.cs);
 - Dawn's
   [typed Windows, Xlib, and Wayland surface ownership](https://dawn.googlesource.com/dawn/+/55623705bef897b77888c3c9410c94cbaa3c1e4e/src/dawn/native/Surface.cpp);
+- the WebGPU native
+  [surface capability negotiation contract](https://webgpu-native.github.io/webgpu-headers/Surfaces.html)
+  and Dawn Vulkan's current
+  [opaque-alpha swapchain requirement](https://dawn.googlesource.com/dawn/+/41e4d9a34c1d9dcb2eef3ff39ff9c1f987bfa02a/src/dawn/native/vulkan/SwapChainVk.cpp);
 - Microsoft's
   [DXGI HWND swapchain guidance](https://learn.microsoft.com/windows/win32/api/dxgi/nf-dxgi-idxgifactory-createswapchain)
   and Khronos'
@@ -1520,6 +1524,15 @@ qualified macOS non-Silk lane was re-run after the generalization: Buttons
 completed with both shapers at 119.75-119.79 FPS, zero retained fallback nodes,
 zero tracked intermediate texture bytes, and
 `PresentationPath=DawnMetalIOSurface`.
+
+The Linux qualification run also caught an alpha-mode difference that the
+portable descriptor tests could not expose: Dawn's non-Android Vulkan
+swapchain currently requires opaque composite alpha even when the generic
+surface capability list also contains premultiplied alpha. Alpha selection is
+therefore backend-aware. Vulkan/Xlib requires and selects `Opaque`; D3D12 and
+Metal keep the premultiplied preference and fall back through the advertised
+capabilities. This remains a bounded capability lookup during surface creation
+and adds no frame-path work or allocation.
 
 ## Same-device embedded-texture allocation correction (2026-07-26)
 

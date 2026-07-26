@@ -195,7 +195,9 @@ public sealed unsafe partial class DawnGpuContext
                     $"The native surface does not support the Dawn device format {format}.");
             }
             W.CompositeAlphaMode alphaMode =
-                SelectAlphaMode(capabilities.AlphaModes);
+                SelectAlphaMode(
+                    capabilities.AlphaModes,
+                    source.BackendType);
             return new DawnNativePresentationSurface(
                 this,
                 surface,
@@ -312,9 +314,19 @@ public sealed unsafe partial class DawnGpuContext
             "The Dawn surface exposes neither BGRA8Unorm nor RGBA8Unorm.");
     }
 
-    private static W.CompositeAlphaMode SelectAlphaMode(
-        IReadOnlyList<W.CompositeAlphaMode> modes)
+    internal static W.CompositeAlphaMode SelectAlphaMode(
+        IReadOnlyList<W.CompositeAlphaMode> modes,
+        W.BackendType backendType)
     {
+        if (backendType == W.BackendType.Vulkan)
+        {
+            if (modes.Contains(W.CompositeAlphaMode.Opaque))
+            {
+                return W.CompositeAlphaMode.Opaque;
+            }
+            throw new NotSupportedException(
+                "The Dawn Vulkan surface does not expose the required opaque alpha mode.");
+        }
         if (modes.Contains(W.CompositeAlphaMode.Premultiplied))
         {
             return W.CompositeAlphaMode.Premultiplied;

@@ -1,4 +1,6 @@
+using System;
 using ProGPU.Backend.Dawn;
+using WebGpuSharp;
 using Xunit;
 
 namespace Avalonia.ProGpu.UnitTests;
@@ -39,5 +41,37 @@ public sealed class DawnNativeWindowSourceTests
                 isWindows,
                 isLinux,
                 out _));
+    }
+
+    [Fact]
+    public void VulkanPresentationRequiresOpaqueAlpha()
+    {
+        CompositeAlphaMode selected = DawnGpuContext.SelectAlphaMode(
+            new[]
+            {
+                CompositeAlphaMode.Premultiplied,
+                CompositeAlphaMode.Opaque
+            },
+            BackendType.Vulkan);
+
+        Assert.Equal(CompositeAlphaMode.Opaque, selected);
+        Assert.Throws<NotSupportedException>(
+            () => DawnGpuContext.SelectAlphaMode(
+                new[] { CompositeAlphaMode.Premultiplied },
+                BackendType.Vulkan));
+    }
+
+    [Fact]
+    public void NonVulkanPresentationKeepsPremultipliedPreference()
+    {
+        CompositeAlphaMode selected = DawnGpuContext.SelectAlphaMode(
+            new[]
+            {
+                CompositeAlphaMode.Opaque,
+                CompositeAlphaMode.Premultiplied
+            },
+            BackendType.D3D12);
+
+        Assert.Equal(CompositeAlphaMode.Premultiplied, selected);
     }
 }

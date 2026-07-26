@@ -12,4 +12,7 @@
     <PackageReference Include="WebGPUSharp" />
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Avalonia.ProGpu.UnitTests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
 </Project>
