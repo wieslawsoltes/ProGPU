@@ -81,21 +81,6 @@ public class WpfShaderEffectParamsTests
     }
 
     [Fact]
-    public void GeneratedShaderKeyChangesWhenImmutableSourceReferenceChanges()
-    {
-        var parameters = new WpfShaderEffectParams
-        {
-            ShaderSource = "fn first() {}"
-        };
-
-        var first = parameters.GetStableShaderKey();
-        Assert.Same(first, parameters.GetStableShaderKey());
-        parameters.ShaderSource = "fn second() {}";
-
-        Assert.NotEqual(first, parameters.GetStableShaderKey());
-    }
-
-    [Fact]
     public void VisualShaderEffectCacheKeyTracksMutableParameters()
     {
         var parameters = new WpfShaderEffectParams

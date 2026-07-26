@@ -11891,10 +11891,6 @@ SceneStateUploadComplete:
         {
             padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
         }
-        else if (effect is WgslEffect wgslEffect)
-        {
-            padding = MathF.Ceiling(MathF.Max(0f, wgslEffect.Padding));
-        }
 
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
         float logicalWidth = MathF.Max(1f, fe.Size.X + padding * 2f);
@@ -12001,18 +11997,6 @@ SceneStateUploadComplete:
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {
                 DrawWpfShaderEffectOnMain(fe, shaderEffect, textures.Source, paddedRect, compositeTransform);
-            }
-            else if (fe.Effect is WgslEffect wgslEffect)
-            {
-                var parameters = wgslEffect.UpdateDrawParameters(textures.Source, paddedRect);
-                if (parameters.IsFailed)
-                {
-                    DrawTextureOnMain(textures.Source, paddedRect, compositeTransform, fe.HitTestId);
-                }
-                else
-                {
-                    DrawShaderEffectParametersOnMain(fe, parameters, textures.Source, paddedRect, compositeTransform);
-                }
             }
 
             AddDescendantVisualHitTestBounds(fe, compositeTransform);
@@ -12293,23 +12277,6 @@ SceneStateUploadComplete:
         Rect localRect,
         Matrix4x4 parentTransform)
     {
-        if (!_wpfShaderEffectDrawParams.TryGetValue(visual, out var parameters))
-        {
-            parameters = new WpfShaderEffectParams();
-            _wpfShaderEffectDrawParams[visual] = parameters;
-        }
-
-        effect.UpdateDrawParameters(parameters, sourceTexture, localRect);
-        DrawShaderEffectParametersOnMain(visual, parameters, sourceTexture, localRect, parentTransform);
-    }
-
-    private void DrawShaderEffectParametersOnMain(
-        Visual visual,
-        WpfShaderEffectParams parameters,
-        GpuTexture sourceTexture,
-        Rect localRect,
-        Matrix4x4 parentTransform)
-    {
         var pipeline = GetExtension(CompositorBuiltInExtensions.WpfShaderEffect);
         if (pipeline == null)
         {
@@ -12330,6 +12297,14 @@ SceneStateUploadComplete:
         }
 
         CommitPendingDrawCalls();
+
+        if (!_wpfShaderEffectDrawParams.TryGetValue(visual, out var parameters))
+        {
+            parameters = new WpfShaderEffectParams();
+            _wpfShaderEffectDrawParams[visual] = parameters;
+        }
+
+        effect.UpdateDrawParameters(parameters, sourceTexture, localRect);
 
         var cmd = new RenderCommand
         {
