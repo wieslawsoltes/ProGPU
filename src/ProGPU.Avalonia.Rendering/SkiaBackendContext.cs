@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Avalonia.Platform;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+using Avalonia.Rendering.Composition.Server;
+#endif
 #if !AVALONIA11
 using Avalonia.Metal;
 using ProGPU.Backend.Dawn;
@@ -29,6 +32,10 @@ namespace Avalonia.ProGpu
         private DawnGpuContext? _dawnContext;
         private bool _dawnPresentationUnavailable;
 #endif
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        private readonly ProGpuCompositionServerBackend
+            _compositionServerBackend;
+#endif
         private int _isLost;
 
         public SkiaContext(
@@ -48,12 +55,21 @@ namespace Avalonia.ProGpu
 #if !AVALONIA11
             _metalDevice = gpu as IMetalDevice;
 #endif
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+            _compositionServerBackend =
+                new ProGpuCompositionServerBackend(
+                    requireNativeCompositionScene);
+#endif
             WgpuContext.OnWebGpuDeviceLost += OnWebGpuDeviceLost;
             PublicFeatures = new Dictionary<Type, object>
             {
 #if !AVALONIA11
                 [typeof(IExternalObjectsRenderInterfaceContextFeature)] =
-                    new ProGpuExternalObjectsFeature()
+                    new ProGpuExternalObjectsFeature(),
+#endif
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+                [typeof(ICompositionServerBackend)] =
+                    _compositionServerBackend
 #endif
             };
         }
@@ -61,6 +77,9 @@ namespace Avalonia.ProGpu
         public void Dispose()
         {
             WgpuContext.OnWebGpuDeviceLost -= OnWebGpuDeviceLost;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+            _compositionServerBackend.Dispose();
+#endif
 #if !AVALONIA11
             _dawnContext?.Dispose();
             _dawnContext = null;
@@ -216,7 +235,7 @@ namespace Avalonia.ProGpu
                             static surface =>
                                 surface is INativePlatformHandleSurface native
                                     ? native.HandleDescriptor
-                                    : surface.GetType().Name));
+                                    : "unsupported-typed-surface"));
                     throw new NotSupportedException(
                         "Strict Dawn native presentation did not receive a supported " +
                         $"HWND or XID surface. Surfaces: {descriptors}.");

@@ -58,6 +58,7 @@ namespace Avalonia.ProGpu
         private int _opacityMaskDepth;
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
         private bool _recordingRetainedCompositionCommands;
+        private ProGpuCompositionServerBackend? _compositionServerBackend;
 #endif
         private bool _leased;
         private bool _disposed;
@@ -1044,6 +1045,37 @@ namespace Avalonia.ProGpu
         }
 
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        internal WgpuContext GpuContext => _gpuContext;
+
+        internal bool TryRenderRetainedCompositionTarget(
+            AvaloniaCompositionScene scene,
+            ServerCompositionTarget target,
+            ServerCompositionVisual root,
+            LtrbRect clip,
+            ProGpuCompositionServerBackend backend,
+            out int visitedVisuals,
+            out int renderedVisuals)
+        {
+            CheckLease();
+            if (!scene.TrySynchronize(
+                    target,
+                    root,
+                    clip,
+                    this,
+                    out visitedVisuals,
+                    out renderedVisuals) ||
+                scene.Root == null)
+            {
+                return false;
+            }
+
+            _compositionServerBackend = backend;
+            DrawingContext.DrawVisual(
+                scene.Root,
+                ToMatrix4x4(RenderTransform));
+            return true;
+        }
+
         bool ICompositionVisualTreeDrawingContextFeature.TryRender(
             ServerCompositionTarget target,
             ServerCompositionVisual root,
@@ -1679,22 +1711,56 @@ namespace Avalonia.ProGpu
             metrics.BitmapGlyphMetricEvictions =
                 BitmapGlyphCache.MetricEvictionCount;
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
-            metrics.RetainedCompositionSceneCount =
-                _offscreenCache.CompositionSceneCount;
-            metrics.RetainedCompositionSceneNodeCount =
-                _offscreenCache.CompositionSceneNodeCount;
-            metrics.RetainedCompositionFallbackNodeCount =
-                _offscreenCache.CompositionFallbackNodeCount;
-            metrics.RetainedCompositionCustomVisualNodeCount =
-                _offscreenCache.CompositionCustomVisualNodeCount;
-            metrics.RetainedCompositionCustomVisualCompilations =
-                _offscreenCache.CompositionCustomVisualCompilations;
-            metrics.RetainedCompositionSceneFullSynchronizations =
-                _offscreenCache.CompositionSceneFullSynchronizations;
-            metrics.RetainedCompositionSceneIncrementalSynchronizations =
-                _offscreenCache.CompositionSceneIncrementalSynchronizations;
-            metrics.RetainedCompositionSceneUnchangedReuses =
-                _offscreenCache.CompositionSceneUnchangedReuses;
+            if (_compositionServerBackend is { } compositionBackend)
+            {
+                compositionBackend.ReadMetrics(
+                    out long renderCount,
+                    out int sceneCount,
+                    out int sceneNodeCount,
+                    out int fallbackNodeCount,
+                    out int customVisualNodeCount,
+                    out long customVisualCompilationCount,
+                    out long fullSynchronizationCount,
+                    out long incrementalSynchronizationCount,
+                    out long unchangedReuseCount);
+                metrics.RetainedCompositionServerBackendRenderCount =
+                    renderCount;
+                metrics.RetainedCompositionSceneCount =
+                    sceneCount;
+                metrics.RetainedCompositionSceneNodeCount =
+                    sceneNodeCount;
+                metrics.RetainedCompositionFallbackNodeCount =
+                    fallbackNodeCount;
+                metrics.RetainedCompositionCustomVisualNodeCount =
+                    customVisualNodeCount;
+                metrics.RetainedCompositionCustomVisualCompilations =
+                    customVisualCompilationCount;
+                metrics.RetainedCompositionSceneFullSynchronizations =
+                    fullSynchronizationCount;
+                metrics.RetainedCompositionSceneIncrementalSynchronizations =
+                    incrementalSynchronizationCount;
+                metrics.RetainedCompositionSceneUnchangedReuses =
+                    unchangedReuseCount;
+            }
+            else
+            {
+                metrics.RetainedCompositionSceneCount =
+                    _offscreenCache.CompositionSceneCount;
+                metrics.RetainedCompositionSceneNodeCount =
+                    _offscreenCache.CompositionSceneNodeCount;
+                metrics.RetainedCompositionFallbackNodeCount =
+                    _offscreenCache.CompositionFallbackNodeCount;
+                metrics.RetainedCompositionCustomVisualNodeCount =
+                    _offscreenCache.CompositionCustomVisualNodeCount;
+                metrics.RetainedCompositionCustomVisualCompilations =
+                    _offscreenCache.CompositionCustomVisualCompilations;
+                metrics.RetainedCompositionSceneFullSynchronizations =
+                    _offscreenCache.CompositionSceneFullSynchronizations;
+                metrics.RetainedCompositionSceneIncrementalSynchronizations =
+                    _offscreenCache.CompositionSceneIncrementalSynchronizations;
+                metrics.RetainedCompositionSceneUnchangedReuses =
+                    _offscreenCache.CompositionSceneUnchangedReuses;
+            }
 #endif
             ProGpuRenderingDiagnostics.ReportFrame(metrics);
         }

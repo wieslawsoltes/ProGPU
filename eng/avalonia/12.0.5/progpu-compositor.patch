@@ -115,7 +115,7 @@ index 98fd9e4873..9ce2d901d3 100644
  #if DEBUG
      public override string ToString()
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
-index fe857ac466..ae46ff3dac 100644
+index fe857ac466..7abd1fe91e 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
 +++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
 @@ -32,6 +32,8 @@ internal partial class ServerCompositionTarget : IDisposable
@@ -185,13 +185,34 @@ index fe857ac466..ae46ff3dac 100644
          }
          
          
-@@ -266,7 +312,23 @@ void RenderRootToContextWithClip(IDrawingContextImpl context, ServerCompositionV
+@@ -140,6 +186,7 @@ public void Render()
+ 
+             if (_renderTarget?.PlatformRenderTargetState.IsCorrupted == true)
+             {
++                _compositor.RT_TryGetCompositionBackend()?.ReleaseTarget(Id);
+                 _layer?.Dispose();
+                 _layer = null;
+                 _renderTarget.Dispose();
+@@ -266,7 +313,36 @@ void RenderRootToContextWithClip(IDrawingContextImpl context, ServerCompositionV
                      context.PushLayer(DirtyRects.CombinedRect.ToRect());
  
                  context.Transform = Matrix.CreateScale(Scaling, Scaling);
 -                (VisitedVisuals, RenderedVisuals) = root.Render(context, new LtrbRect(0,0, PixelSize.Width, PixelSize.Height), DirtyRects);
 +                var clip = new LtrbRect(0, 0, PixelSize.Width, PixelSize.Height);
-+                if (context.GetFeature(typeof(ICompositionVisualTreeDrawingContextFeature)) is
++                if (Compositor.RT_TryGetCompositionBackend() is
++                        ICompositionServerBackend backend &&
++                    backend.TryRender(
++                        this,
++                        root,
++                        context,
++                        clip,
++                        out var backendVisitedVisuals,
++                        out var backendRenderedVisuals))
++                {
++                    VisitedVisuals = backendVisitedVisuals;
++                    RenderedVisuals = backendRenderedVisuals;
++                }
++                else if (context.GetFeature(typeof(ICompositionVisualTreeDrawingContextFeature)) is
 +                        ICompositionVisualTreeDrawingContextFeature retained &&
 +                    retained.TryRender(
 +                        this,
@@ -210,6 +231,14 @@ index fe857ac466..ae46ff3dac 100644
                  if (DebugEvents != null)
                  {
                      DebugEvents.RenderedVisuals = RenderedVisuals;
+@@ -285,6 +361,7 @@ public void Dispose()
+             if (_disposed)
+                 return;
+             _disposed = true;
++            _compositor.RT_TryGetCompositionBackend()?.ReleaseTarget(Id);
+             using (_compositor.RenderInterface.EnsureCurrent())
+             {
+                 if (_layer != null)
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
 index e2ce331318..f7ff212839 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
@@ -305,6 +334,47 @@ index 5e1b91f7a4..e6b82acfff 100644
          }
      }
  }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
+index e440ffab26..f9e81090c0 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
+@@ -9,10 +9,13 @@ namespace Avalonia.Rendering.Composition.Server;
+ internal partial class ServerCompositor
+ {
+     private IReadOnlyDictionary<Type, object>? _renderInterfaceFeatureCache;
++    private ICompositionServerBackend? _compositionBackend;
+     private readonly object _renderInterfaceFeaturesUserApiLock = new();
+ 
+     void RT_OnContextCreated(IPlatformRenderInterfaceContext context)
+     {
++        _compositionBackend =
++            context.TryGetFeature<ICompositionServerBackend>();
+         lock (_renderInterfaceFeaturesUserApiLock)
+         {
+             _renderInterfaceFeatureCache = null;
+@@ -24,6 +27,7 @@ bool RT_OnContextLostExceptionFilterObserver(Exception e)
+     {
+         if (e is PlatformGraphicsContextLostException)
+         {
++            _compositionBackend = null;
+             lock (_renderInterfaceFeaturesUserApiLock)
+                 _renderInterfaceFeatureCache = null;
+         }
+@@ -32,10 +36,14 @@ bool RT_OnContextLostExceptionFilterObserver(Exception e)
+     
+     void RT_OnContextDisposed()
+     {
++        _compositionBackend = null;
+         lock (_renderInterfaceFeaturesUserApiLock)
+             _renderInterfaceFeatureCache = null;
+     }
+ 
++    internal ICompositionServerBackend? RT_TryGetCompositionBackend() =>
++        _compositionBackend;
++
+     public IReadOnlyDictionary<Type, object>? AT_TryGetCachedRenderInterfaceFeatures()
+     {
+         lock (_renderInterfaceFeaturesUserApiLock)
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
 index 0652e1731d..50983b0d90 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
@@ -341,6 +411,33 @@ index 0000000000..03f8c344e4
 +internal interface ICompositionRenderDataDrawingContextFeature
 +{
 +    bool TryRender(ServerCompositionRenderData renderData);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+new file mode 100644
+index 0000000000..bb85aeb3fb
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+@@ -0,0 +1,21 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Typed render-thread composition backend owned by one platform render
++/// interface context. The backend retains target scene state across drawing
++/// contexts and is released with the owning graphics context.
++/// </summary>
++internal interface ICompositionServerBackend
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        IDrawingContextImpl context,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++
++    void ReleaseTarget(long targetId);
 +}
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
 new file mode 100644

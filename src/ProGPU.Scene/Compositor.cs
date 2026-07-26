@@ -141,6 +141,7 @@ public struct CompositorMetrics
     public long RetainedCompositionPictureHits;
     public long RetainedCompositionPictureMisses;
     public long RetainedCompositionPictureCompilations;
+    public long RetainedCompositionServerBackendRenderCount;
     public int RetainedCompositionSceneCount;
     public int RetainedCompositionSceneNodeCount;
     public int RetainedCompositionFallbackNodeCount;
