@@ -1586,3 +1586,83 @@ evidence is retained under
 `artifacts/avalonia-chart-legend-cache-20260726`,
 `artifacts/avalonia-designer-pill-cache-20260726`, and
 `artifacts/avalonia-sample-device-domain-after-20260726`.
+
+## Context-owned Avalonia composition backend (2026-07-26)
+
+The earlier retained-tree feature lived on a leased drawing context and kept
+its target-scene registry in the offscreen cache. That proved the rendering
+model but left scene lifetime at the wrong boundary. The next clean-room slice
+uses a new internal `ICompositionServerBackend` resolved once from Avalonia's
+platform render-interface context. `ServerCompositor` invokes it before the
+old drawing-context feature, and `ProGpuCompositionServerBackend` owns one
+scene per target until target destruction, render-target corruption, context
+loss, or context disposal.
+
+The design reused the production-engine comparison recorded earlier in this
+document and checked these primary sources at the ownership boundary:
+
+- Avalonia 12.0.5's pinned
+  [`PlatformRenderInterfaceContextManager`](https://github.com/AvaloniaUI/Avalonia/blob/fee9c561ce036e8a3e8cee2397c75ca599b4790d/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs),
+  [`ServerCompositor`](https://github.com/AvaloniaUI/Avalonia/blob/fee9c561ce036e8a3e8cee2397c75ca599b4790d/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.cs),
+  and
+  [`ServerCompositionTarget`](https://github.com/AvaloniaUI/Avalonia/blob/fee9c561ce036e8a3e8cee2397c75ca599b4790d/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs)
+  establish graphics-context, batch, target, damage, readback, and disposal
+  ordering;
+- WebRender's
+  [rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  separates the retained scene/backend from per-frame renderer work;
+- Vello's
+  [renderer API](https://docs.rs/vello/latest/vello/struct.Renderer.html) and
+  [scene API](https://docs.rs/vello/latest/vello/struct.Scene.html) separate
+  persistent scene construction from device-owned rendering resources;
+- the already-recorded Skia/SkParagraph, DirectWrite/Direct2D, Parley, and
+  HarfBuzz sources continue to support reusable CPU shaping/layout with
+  device-owned raster/cache state. This slice does not move shaping,
+  fallback-font selection, or line layout onto the GPU.
+
+Adopted: one typed backend per graphics context, persistent per-target scene
+state, explicit target/context teardown, generation-based incremental
+synchronization, and a transient typed encoder for the current render pass.
+Adapted: Avalonia remains the protocol host for atomic batches, animations,
+custom messages, completion, readback, and damage while ProGPU owns the render
+scene. Rejected: a process-global scene registry, drawing-context lifetime as
+scene lifetime, reflection-based service discovery, runtime detours, and
+silently accepting the old flattened traversal in strict lanes.
+
+Fresh 30-warm-up/60-measurement Buttons processes validated both presentation
+paths. Silk.NET produced 121.47 FPS and Avalonia Native/Dawn produced
+120.23 FPS; both recorded 90 backend renders, one 789-node scene, zero
+fallback nodes, and zero tracked intermediate-texture bytes. The run is
+refresh-limited and establishes path/lifetime correctness rather than a speed
+claim. A package-only multi-window test recorded 66 backend renders across two
+scenes, then preserved rendering after disposing first the shared-device owner
+and later a borrower.
+
+The paired Xcode Allocations, Time Profiler, and Metal System Trace capture
+used the reusable profiler's bounded final window and deleted 118.29 MiB of raw
+trace bundles, 110.28 MiB of Xcode scratch, and 28.34 MiB of XML exports after
+writing compact summaries. Allocations reported 199.32 MiB persistent native
+heap plus anonymous VM: 36.08 MiB heap payload and 163.23 MiB anonymous VM.
+The largest GPU/window allocations were two QuartzCore IOSurfaces totaling
+25.00 MiB and 14.06 MiB of live IOAccelerator storage. The capture reported
+zero compiler spills, potential hangs, hang risks, or command-buffer errors.
+This attribution remains consistent with bounded startup/driver pools, not a
+210 MiB live Metal leak. Because this short Metal export observed completions
+but no allocation/submission rows in its final window, it is not used to infer
+per-frame GPU throughput.
+
+The package build exposed two contract regressions and both were fixed before
+acceptance. The native surface-selection feature had been public, which added a
+type to `Avalonia.Base`; it is now internal and strict ApiCompat passes against
+the official 12.0.5 assembly identity. A diagnostic
+`surface.GetType().Name` emitted a `System.Reflection.MemberInfo` type
+reference; replacing it with a typed constant removed runtime reflection, and
+the final packed renderer/windowing metadata audit passes.
+
+This is still not the final compact protocol runtime. Avalonia server objects
+currently retain property storage, apply deserialized changes, recompute
+properties, and provide the changed-node list consumed during mirror
+synchronization. The next architecture slice is generation-checked paged
+ProGPU handles updated directly during deserialization, followed by compact
+animation channels, while preserving Avalonia's existing batch/readback
+ordering and public assembly contract.

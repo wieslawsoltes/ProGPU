@@ -11,14 +11,17 @@ compositor seam. Its public assembly identities and runtime API are checked
 with strict .NET ApiCompat rules, and its packed reference facades are compared
 with the official 12.0.5 package before the artifact is accepted.
 
-The replacement keeps Avalonia's public API contract while allowing the
-strongly typed `Avalonia.ProGpu` renderer to retain and replay compositor draw
-lists. There is no runtime reflection, detouring, IL weaving, or dynamic
-assembly substitution. Stack packaging inspects the final
-`Avalonia.ProGpu.dll` and `Avalonia.SilkNet.dll` metadata and rejects runtime
-reflection, emit, dynamic activation, assembly-load-context, and unsafe-accessor
-type references. The exact-source renderer accesses the pinned image-brush
-contract directly through Avalonia's signed friend assembly.
+The replacement keeps Avalonia's public API contract while a context-owned
+internal `ICompositionServerBackend` gives the strongly typed
+`Avalonia.ProGpu` renderer persistent ownership of each target's retained
+scene. The strict smoke requires a nonzero
+`RetainedCompositionServerBackendRenderCount`, at least one retained scene,
+and zero flattened fallback nodes. There is no runtime reflection, detouring,
+IL weaving, or dynamic assembly substitution. Stack packaging inspects the
+final `Avalonia.ProGpu.dll` and `Avalonia.SilkNet.dll` metadata and rejects
+runtime reflection, emit, dynamic activation, assembly-load-context, and
+unsafe-accessor type references. The exact-source renderer accesses the pinned
+image-brush contract directly through Avalonia's signed friend assembly.
 
 The retained compiler uses bounded, typed local scene pages and 4 KiB
 dirty-range GPU buffer uploads by default. Set
@@ -77,11 +80,12 @@ PROGPU_INTEGRATION_BUILD_ONLY=1 \
 ./integration/ProGpuPackageApp/run.sh replacement
 ```
 
-The stack contains the exact eight-package ProGPU runtime closure used by the
-renderer. The isolated consumer verifies the SHA-512 identity of all eleven
-replacement-controlled packages (Avalonia, renderer, Silk.NET host, and eight
+The stack contains the exact nine-package ProGPU runtime closure used by the
+renderer. The isolated consumer verifies the SHA-512 identity of all twelve
+replacement-controlled packages (Avalonia, renderer, Silk.NET host, and nine
 runtime packages), then the native smoke requires rendered frames, a retained
-composition scene, and zero flattened fallback nodes.
+composition scene, nonzero typed server-backend renders, and zero flattened
+fallback nodes.
 
 ## NativeAOT lifecycle gate
 

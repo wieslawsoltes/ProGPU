@@ -106,13 +106,23 @@ render-scene ownership to `Avalonia.ProGpu`.
 
 ```text
 Avalonia ServerCompositionTarget revision transaction
-  -> ICompositionVisualTreeDrawingContextFeature
+  -> device-context-owned ICompositionServerBackend
   -> AvaloniaCompositionScene stable-ID map
   -> persistent ProGPU ContainerVisual hierarchy
   -> retained per-node commands / GpuPicture resources
   -> DrawVisual at exact host-command z-order
   -> ProGPU compositor and WebGPU surface
 ```
+
+`ServerCompositor` resolves the typed backend once when Avalonia creates the
+platform render-interface context. The backend, rather than a transient
+drawing context or offscreen cache, owns one retained scene per composition
+target. Target disposal, render-target corruption, graphics-context loss, and
+context disposal release that state deterministically. The drawing context is
+only the current typed WebGPU command encoder. The earlier
+`ICompositionVisualTreeDrawingContextFeature` remains as a differential
+fallback in the same exact binary, but the strict source and package lanes
+require nonzero `RetainedCompositionServerBackendRenderCount`.
 
 The first synchronization is `O(V)` for `V` attached server visuals. Property
 and content changes then provide a deduplicated list of changed server visuals,
@@ -467,8 +477,11 @@ ProGPU compilation and presentation keep the existing correctness contracts:
 
 ### Slice 3: compact protocol runtime
 
-- Replace managed server visual render state with paged ProGPU state stores
-  while retaining Avalonia ABI shells.
+- Completed foundation: resolve one typed composition backend per graphics
+  context, move target-scene ownership out of drawing-context caches, and
+  release scenes on target/context loss without changing public Avalonia ABI.
+- Remaining: replace managed server visual render state with generation-checked
+  paged ProGPU state stores while retaining Avalonia ABI shells.
 - Apply serialization deltas directly to handles.
 - Move animation values into compact channels and update scene buffers without
   UI-thread property mutation.
@@ -554,23 +567,43 @@ pinned Avalonia assertions.
 
 ## Current implementation and validation record
 
-The first retained-ownership slice is implemented in the pinned Avalonia
-source lane. `ServerCompositionRenderData` exposes a stable internal identity
-and revision to a typed drawing-context feature. `Avalonia.ProGpu` compiles
-each supported render-data revision into an owned `GpuPicture`, caches it in a
-bounded 2,048-entry store, and emits the retained picture on later frames.
-Replacement and eviction dispose picture resources deterministically.
+The first retained-ownership slice and the context-owned backend foundation
+are implemented in the pinned Avalonia source lane. `ServerCompositor`
+resolves `ICompositionServerBackend` once from the platform graphics context.
+`ProGpuCompositionServerBackend` owns the target-to-scene registry and invokes
+the retained renderer before Avalonia's ordinary visual traversal.
+`ServerCompositionRenderData` exposes a stable internal identity and revision
+to typed ProGPU compilation. Each supported render-data revision becomes an
+owned `GpuPicture` in a bounded 2,048-entry store. Replacement, target
+destruction, context loss, and eviction dispose resources deterministically.
 Top-level and offscreen frame recording transfer command-list ownership
 directly to ProGPU and reuse recording capacity across frames.
 
 This is an intermediate slice, not the final compact protocol runtime:
-Avalonia still owns server visual traversal and animation scheduling. The
-retained render-data contents are no longer replayed into the frame recorder
-when their revision is unchanged, and eligible local compilation output now
+Avalonia still owns batch deserialization, server property recomputation,
+initial/incremental mirror synchronization, and animation scheduling. The
+backend is now the authoritative owner of render-target scene lifetime, but
+the server visual objects are not yet ABI shells over compact ProGPU handles.
+Retained render-data contents are no longer replayed into the frame recorder
+when their revision is unchanged, and eligible local compilation output
 resides in bounded ProGPU pages. The combined GPU streams are still assembled
 in traversal order each changing frame, but only dirty 4 KiB buffer ranges are
 submitted. Avalonia remains authoritative for animation scheduling and the
 unsupported isolated semantics listed above.
+
+The context-owned backend validation on 2026-07-26 used fresh Release
+processes with 30 warm-up and 60 measured Buttons frames. Silk.NET rendered
+90/90 observed frames through the server backend at 121.47 FPS; Avalonia
+Native/Dawn rendered 90/90 at 120.23 FPS. Both retained one 789-node scene,
+reported zero fallback nodes and zero tracked intermediate-texture bytes, and
+used their expected direct presentation paths. The complete pinned
+`Avalonia.Base.UnitTests` run passed 2,842 tests with 12 existing skips. The
+replacement package passed strict public ApiCompat after its native-surface
+selection feature was made internal; the package metadata audit also rejected
+and led to removal of a diagnostic `GetType().Name` call before passing with no
+runtime-reflection type references. The package-only multi-window gate rendered
+66 backend frames across two scenes and kept both surviving windows healthy
+after owner and borrower disposal.
 
 Validation on an Apple M3 Pro, macOS 26, .NET 10, Release configuration:
 

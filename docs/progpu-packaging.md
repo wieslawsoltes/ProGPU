@@ -170,9 +170,10 @@ Build the complete private/local replacement stack with:
 
 This creates an `Avalonia` `12.0.5` package from the exact official tag plus
 the reviewed typed compositor seam, then compiles the ProGPU renderer against
-that seam. It also packs the eight-package `avalonia-runtime` dependency
-closure (`Backend`, `Text.Shaping`, `Transpiler`, `Vector`, `Text`, `Compute`,
-`Scene`, and `SkiaSharp`) from the same checkout. The verifier compares every
+that seam. It also packs the nine-package `avalonia-runtime` dependency
+closure (`Backend`, `Backend.Dawn`, `Text.Shaping`, `Transpiler`, `Vector`,
+`Text`, `Compute`, `Scene`, and `SkiaSharp`) from the same checkout. The
+verifier compares every
 packed `lib` and `ref` assembly for
 `net10.0` and `net8.0` against the official package with strict ApiCompat,
 checks assembly identities, verifies the packed `Avalonia.Base` bytes are the

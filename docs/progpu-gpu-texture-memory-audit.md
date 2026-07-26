@@ -1831,3 +1831,30 @@ XML exports, and 173,009,514 bytes of task-owned/Xcode scratch after extracting
 the summaries. Four earlier EventPipe traces totaling about 138 MiB were moved
 to Trash after their allocation stacks were converted to compact JSON; they
 remain recoverable until Trash is emptied.
+
+## Context-owned Avalonia backend Instruments check
+
+Moving retained target scenes from leased drawing contexts to the
+graphics-context-owned `ProGpuCompositionServerBackend` did not introduce a
+new texture or target copy. Matched short Buttons runs reported zero tracked
+intermediate-texture bytes in both Silk.NET and Avalonia Native/Dawn, with one
+789-node scene and 90 typed backend renders in each fresh process.
+
+The post-change Xcode Allocations capture attributed 199,317,360 persistent
+bytes to native heap plus anonymous VM: 36,083,568 bytes of heap payload and
+163,233,792 bytes of anonymous VM. The largest live GPU/window categories were
+two QuartzCore IOSurfaces totaling 26,214,400 bytes and 14,745,600 bytes of
+IOAccelerator VM. These are smaller than the prior four-surface Native/Dawn
+capture but are not treated as a causal improvement because capture windows
+and drawable-pool occupancy differ. The important invariant is unchanged:
+there is no roughly 210 MiB live Metal/AGX allocation attributable to ProGPU
+textures.
+
+The final Metal window reported zero compiler spills, potential hangs, hang
+risks, or command-buffer errors. It observed 458 completions but no
+allocation/submission rows in the retained window, so it is evidence about
+error absence, not throughput or resource-allocation rate. Automatic cleanup
+removed 124,035,712 bytes of raw traces, 115,637,504 bytes of Xcode scratch, and
+29,716,025 bytes of XML exports after compact summaries were written. The
+temporary compact summaries were inspected and then removed rather than added
+to the repository artifact set.
