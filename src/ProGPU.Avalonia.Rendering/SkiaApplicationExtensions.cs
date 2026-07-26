@@ -17,7 +17,10 @@ namespace Avalonia
         public static AppBuilder UseProGpu(this AppBuilder builder)
         {
             return builder.UseRenderingSubsystem(() => SkiaPlatform.Initialize(
-                AvaloniaLocator.Current.GetService<SkiaOptions>() ?? new SkiaOptions()),
+                AvaloniaLocator.Current.GetService<SkiaOptions>() ??
+                    new SkiaOptions(),
+                AvaloniaLocator.Current.GetService<ProGpuOptions>() ??
+                    new ProGpuOptions()),
                 "ProGPU");
         }
 

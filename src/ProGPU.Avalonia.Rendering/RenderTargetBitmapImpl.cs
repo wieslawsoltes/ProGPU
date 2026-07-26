@@ -3,7 +3,10 @@ using Avalonia.Controls.Platform.Surfaces;
 #else
 using Avalonia.Platform.Surfaces;
 #endif
+using System;
 using Avalonia.Platform;
+using ProGPU.Backend;
+using Silk.NET.WebGPU;
 
 namespace Avalonia.ProGpu;
 
@@ -11,32 +14,53 @@ internal class RenderTargetBitmapImpl : WriteableBitmapImpl,
     IRenderTargetBitmapImpl,
     IFramebufferPlatformSurface
 {
-    private readonly FramebufferRenderTarget _renderTarget;
+    private readonly OffscreenTextureCache _textureCache = new();
+    internal bool HasIntermediateTexture =>
+        _textureCache.CachedTexture != null;
 
     public RenderTargetBitmapImpl(PixelSize size, Vector dpi) : base(size, dpi,
         PixelFormats.Rgba8888,
-        Platform.AlphaFormat.Premul)
+        Platform.AlphaFormat.Premul,
+        TextureUsage.TextureBinding |
+        TextureUsage.RenderAttachment |
+        TextureUsage.CopySrc |
+        TextureUsage.CopyDst)
     {
-        _renderTarget = new FramebufferRenderTarget(this, true);
+        InitializeGpuTexture("Avalonia render-target bitmap");
     }
 
 #if AVALONIA11
     IDrawingContextImpl IRenderTarget.CreateDrawingContext(bool useScaledDrawing) =>
-        _renderTarget.CreateDrawingContext(useScaledDrawing);
+        CreateDrawingContextCore(useScaledDrawing);
 #else
     public IDrawingContextImpl CreateDrawingContext()
     {
-        return _renderTarget.CreateDrawingContext(new IRenderTarget.RenderTargetSceneInfo(
-            PixelSize, Dpi.X / 96.0), out _);
+        return CreateDrawingContextCore(useScaledDrawing: true);
     }
 #endif
 
+    private IDrawingContextImpl CreateDrawingContextCore(bool useScaledDrawing)
+    {
+        var texture = Texture ??
+            throw new ObjectDisposedException(nameof(RenderTargetBitmapImpl));
+        return new DrawingContextImpl(new DrawingContextImpl.CreateInfo
+        {
+            Size = PixelSize,
+            Dpi = Dpi,
+            ScaleDrawingToDpi = useScaledDrawing,
+            CacheHolder = _textureCache,
+            GpuRenderTarget = texture,
+            GpuRenderSynchronizationLock =
+                this.GpuRenderSynchronizationLock,
+            GpuRenderStarting = MarkGpuContentChanged
+        });
+    }
 
     public bool IsCorrupted => false;
 
     public override void Dispose()
     {
-        _renderTarget.Dispose();
+        _textureCache.Dispose();
         base.Dispose();
     }
 

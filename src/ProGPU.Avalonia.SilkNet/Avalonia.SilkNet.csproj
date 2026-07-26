@@ -14,6 +14,7 @@
     <PackageTags>progpu;avalonia;windowing;silk.net;webgpu;desktop</PackageTags>
     <PackageIcon>ProGpuAvaloniaIcon.png</PackageIcon>
     <PackageReadmeFile>progpu-package-readme.md</PackageReadmeFile>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">$([MSBuild]::NormalizePath('$(ProGpuAvaloniaSourceRoot)'))</ProGpuAvaloniaSourceRoot>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\..\build\Assets\ProGpuAvaloniaIcon.png" Pack="true" PackagePath="\" Visible="false" />
@@ -23,10 +24,16 @@
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
   </ItemGroup>
+  <ItemGroup Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj"
+                      GlobalPropertiesToRemove="AvaloniaAccessUnstablePrivateApis;Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE;Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency" />
+  </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia" Condition="'$(ProGpuAvaloniaSourceRoot)' == ''" />
     <PackageReference Include="Silk.NET.Windowing" />
+    <PackageReference Include="Silk.NET.Windowing.Glfw" />
     <PackageReference Include="Silk.NET.Input" />
+    <PackageReference Include="Silk.NET.Input.Glfw" />
     <PackageReference Include="Silk.NET.WebGPU" />
     <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" />
     <PackageReference Include="SixLabors.ImageSharp" />

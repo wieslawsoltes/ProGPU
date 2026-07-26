@@ -33,7 +33,9 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" VersionOverride="11.3.18" />
     <PackageReference Include="Silk.NET.Windowing" />
+    <PackageReference Include="Silk.NET.Windowing.Glfw" />
     <PackageReference Include="Silk.NET.Input" />
+    <PackageReference Include="Silk.NET.Input.Glfw" />
     <PackageReference Include="Silk.NET.WebGPU" />
     <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" />
     <PackageReference Include="SixLabors.ImageSharp" />

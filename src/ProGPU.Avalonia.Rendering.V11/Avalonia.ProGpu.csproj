@@ -39,8 +39,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" VersionOverride="11.3.18" />
-    <PackageReference Include="HarfBuzzSharp" />
-    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />
     <PackageReference Include="OpenFontSharp" />
     <PackageReference Include="StbImageSharp" />
     <PackageReference Include="SixLabors.ImageSharp" />

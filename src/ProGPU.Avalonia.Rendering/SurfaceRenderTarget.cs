@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Avalonia.Platform;
 using ProGPU.Backend;
 using SixLabors.ImageSharp;
@@ -52,7 +53,9 @@ namespace Avalonia.ProGpu
                     (uint)PixelSize.Width,
                     (uint)PixelSize.Height,
                     format,
-                    Silk.NET.WebGPU.TextureUsage.TextureBinding | Silk.NET.WebGPU.TextureUsage.RenderAttachment,
+                    Silk.NET.WebGPU.TextureUsage.TextureBinding |
+                    Silk.NET.WebGPU.TextureUsage.RenderAttachment |
+                    Silk.NET.WebGPU.TextureUsage.CopySrc,
                     "SurfaceRenderTarget"
                 );
             }
@@ -90,13 +93,13 @@ namespace Avalonia.ProGpu
 
         public void Save(string fileName, int? quality = null)
         {
-            using var image = new Image<Rgba32>(PixelSize.Width, PixelSize.Height);
+            using var image = ReadImage();
             image.Save(fileName);
         }
 
         public void Save(Stream stream, int? quality = null)
         {
-            using var image = new Image<Rgba32>(PixelSize.Width, PixelSize.Height);
+            using var image = ReadImage();
             image.Save(stream, SixLabors.ImageSharp.Formats.Png.PngFormat.Instance);
         }
 
@@ -106,12 +109,7 @@ namespace Avalonia.ProGpu
             {
                 if (Texture != null)
                 {
-                    if (_layerContext.DrawingContext.Commands.Count > 0)
-                    {
-                        DrawingContextImpl.RenderToTexture(_layerContext.DrawingContext, Texture, Dpi, _isTextureFresh);
-                        _isTextureFresh = false;
-                        _layerContext.DrawingContext.Clear();
-                    }
+                    FlushPendingCommands();
 
                     double scaleX = Math.Abs(target.Transform.M11);
                     double scaleY = Math.Abs(target.Transform.M22);
@@ -135,7 +133,86 @@ namespace Avalonia.ProGpu
 
         public IBitmapImpl CreateNonAffinedSnapshot()
         {
-            return this;
+            if (!HasRenderContextAffinity)
+            {
+                throw new InvalidOperationException(
+                    "A context-neutral snapshot requires a GPU-affined render target.");
+            }
+
+            var pixels = ReadPixels();
+            return new ImmutableBitmap(
+                PixelSize,
+                Dpi,
+                pixels,
+                AlphaFormat.Premul,
+                retainPixelsForContextMigration: true);
+        }
+
+        private bool FlushPendingCommands()
+        {
+            if (Texture == null ||
+                _layerContext.DrawingContext.Commands.Count == 0)
+            {
+                return false;
+            }
+
+            DrawingContextImpl.RenderToTexture(
+                _layerContext.DrawingContext,
+                Texture,
+                Dpi,
+                _isTextureFresh);
+            _isTextureFresh = false;
+            _layerContext.DrawingContext.Clear();
+            return true;
+        }
+
+        private Image ReadImage()
+        {
+            return Image.LoadPixelData<Rgba32>(
+                ReadPixels(),
+                PixelSize.Width,
+                PixelSize.Height);
+        }
+
+        private Rgba32[] ReadPixels()
+        {
+            var texture = Texture ??
+                throw new InvalidOperationException(
+                    "The render target has no GPU-affined texture.");
+            if (FlushPendingCommands())
+            {
+                Version++;
+            }
+
+            var pixels = new Rgba32[
+                checked(PixelSize.Width * PixelSize.Height)];
+            lock (texture.Context.RenderLock)
+            {
+                if (texture.Context.IsDisposed || texture.IsDisposed)
+                {
+                    throw new ObjectDisposedException(
+                        nameof(SurfaceRenderTarget));
+                }
+
+                texture.ReadPixels(
+                    MemoryMarshal.AsBytes(pixels.AsSpan()));
+            }
+
+            if (texture.Format ==
+                Silk.NET.WebGPU.TextureFormat.Bgra8Unorm)
+            {
+                for (int index = 0; index < pixels.Length; index++)
+                {
+                    Rgba32 pixel = pixels[index];
+                    pixels[index] = new Rgba32(
+                        pixel.B,
+                        pixel.G,
+                        pixel.R,
+                        pixel.A);
+                }
+            }
+
+            return pixels;
         }
     }
 }

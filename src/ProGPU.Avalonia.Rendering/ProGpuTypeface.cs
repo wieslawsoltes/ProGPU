@@ -107,11 +107,7 @@ namespace Avalonia.ProGpu
 
         public TtfFont Font { get; }
         private readonly ReadOnlyMemory<byte> _fontData;
-#if AVALONIA11
-        private readonly HarfBuzzSharp.Blob _shapingBlob;
-        private readonly HarfBuzzSharp.Face _shapingFace;
-        internal HarfBuzzSharp.Font ShapingFont { get; }
-#endif
+        internal TtfShapingFontFace ShapingFace { get; }
         public FontSimulations FontSimulations { get; }
         public string FamilyName { get; }
         public FontWeight Weight { get; }
@@ -125,6 +121,7 @@ namespace Avalonia.ProGpu
         public ProGpuTypeface(TtfFont font, ReadOnlyMemory<byte> fontData, string familyName, FontWeight weight, FontStyle style, FontStretch stretch, FontSimulations fontSimulations = FontSimulations.None)
         {
             Font = font ?? throw new ArgumentNullException(nameof(font));
+            ShapingFace = new TtfShapingFontFace(Font);
             _fontData = fontData;
             FamilyName = familyName;
             Weight = weight;
@@ -132,10 +129,6 @@ namespace Avalonia.ProGpu
             Stretch = stretch;
             FontSimulations = fontSimulations;
 #if AVALONIA11
-            _shapingBlob = HarfBuzzSharp.Blob.FromStream(new FontDataStream(_fontData));
-            _shapingFace = new HarfBuzzSharp.Face(_shapingBlob, font.FaceIndex);
-            ShapingFont = new HarfBuzzSharp.Font(_shapingFace);
-            ShapingFont.SetFunctionsOpenType();
             Metrics = new FontMetrics
             {
                 DesignEmHeight = (short)font.UnitsPerEm,
@@ -271,11 +264,8 @@ namespace Avalonia.ProGpu
 
         public void Dispose()
         {
-#if AVALONIA11
-            ShapingFont.Dispose();
-            _shapingFace.Dispose();
-            _shapingBlob.Dispose();
-#endif
+            // Parsed font data is immutable managed state and is owned by this
+            // platform typeface; no native shaping objects need disposal.
         }
     }
 }

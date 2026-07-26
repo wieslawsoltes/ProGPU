@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -11,12 +12,22 @@ using Avalonia.Platform.Surfaces;
 using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Text;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace Avalonia.ProGpu.UnitTests
 {
     public class DrawingContextImplTests
     {
+        [Fact]
+        public void ProGpu_Options_Prefer_Dawn_Without_Requiring_It()
+        {
+            var options = new ProGpuOptions();
+
+            Assert.True(options.UseDawnMetalPresentation);
+            Assert.False(options.RequireDawnMetalPresentation);
+        }
+
         [Fact]
         public void Backend_Compositor_Uses_Compact_Core_Reservations_Without_Gpu_Hit_Testing()
         {
@@ -43,6 +54,39 @@ namespace Avalonia.ProGpu.UnitTests
         }
 
         [Fact]
+        public void Backend_Context_Propagates_Strict_Native_Composition_Option()
+        {
+            var renderInterface = new PlatformRenderInterface(
+                requireNativeCompositionScene: true);
+            using var backend = renderInterface.CreateBackendContext(null);
+            using var target = Assert.IsType<FramebufferRenderTarget>(
+                backend.CreateRenderTarget(
+                    new IPlatformRenderSurface[]
+                    {
+                        new TestFramebufferPlatformSurface()
+                    }));
+
+            Assert.True(target.RequireNativeCompositionScene);
+        }
+
+        [Fact]
+        public void Backend_Context_Reports_Device_Loss_And_Replacement_Starts_Healthy()
+        {
+            var renderInterface = new PlatformRenderInterface();
+            using var existing = renderInterface.CreateBackendContext(null);
+
+            WgpuContext.RaiseWebGpuDeviceLost(
+                Silk.NET.WebGPU.DeviceLostReason.Unknown,
+                "synthetic Avalonia backend loss");
+
+            Assert.True(existing.IsLost);
+
+            using var replacement = renderInterface.CreateBackendContext(null);
+
+            Assert.False(replacement.IsLost);
+        }
+
+        [Fact]
         public void Framebuffer_Render_Target_Forces_Full_Redraw_For_Every_Frame()
         {
             using var target = new FramebufferRenderTarget(
@@ -52,6 +96,284 @@ namespace Avalonia.ProGpu.UnitTests
                 out var properties);
 
             Assert.False(properties.PreviousFrameIsRetained);
+        }
+
+        [Fact]
+        public void Render_Target_Bitmap_Renders_Directly_To_Its_Sampleable_Texture()
+        {
+            using var bitmap = new RenderTargetBitmapImpl(
+                new PixelSize(8, 6),
+                new Vector(96, 96));
+            var texture = Assert.IsType<GpuTexture>(bitmap.Texture);
+            uint initialGeneration = texture.Generation;
+
+            Assert.True(
+                texture.Usage.HasFlag(
+                    Silk.NET.WebGPU.TextureUsage.RenderAttachment));
+            Assert.True(
+                texture.Usage.HasFlag(
+                    Silk.NET.WebGPU.TextureUsage.TextureBinding));
+            Assert.True(
+                texture.Usage.HasFlag(
+                    Silk.NET.WebGPU.TextureUsage.CopySrc));
+            Assert.False(bitmap.HasAllocatedCpuPixels);
+            Assert.False(bitmap.HasCurrentCpuPixels);
+            Assert.False(bitmap.HasIntermediateTexture);
+
+            using (var context = Assert.IsType<DrawingContextImpl>(
+                       bitmap.CreateDrawingContext()))
+            {
+                context.Clear(Colors.Red);
+            }
+
+            Assert.Same(texture, bitmap.Texture);
+            Assert.True(texture.Generation > initialGeneration);
+            Assert.Equal(2, bitmap.Version);
+            Assert.False(bitmap.HasAllocatedCpuPixels);
+            Assert.False(bitmap.HasCurrentCpuPixels);
+            Assert.False(bitmap.HasIntermediateTexture);
+
+            byte[] pixels = texture.ReadPixels();
+            Assert.Equal(255, pixels[0]);
+            Assert.Equal(0, pixels[1]);
+            Assert.Equal(0, pixels[2]);
+            Assert.Equal(255, pixels[3]);
+        }
+
+        [Fact]
+        public void Render_Target_Bitmap_Reads_Back_Only_At_Explicit_Cpu_Boundary()
+        {
+            using var bitmap = new RenderTargetBitmapImpl(
+                new PixelSize(4, 3),
+                new Vector(96, 96));
+            var texture = Assert.IsType<GpuTexture>(bitmap.Texture);
+
+            using (var context = Assert.IsType<DrawingContextImpl>(
+                       bitmap.CreateDrawingContext()))
+            {
+                context.Clear(Colors.Blue);
+            }
+
+            Assert.False(bitmap.HasAllocatedCpuPixels);
+            Assert.False(bitmap.HasCurrentCpuPixels);
+
+            using var encoded = new MemoryStream();
+            bitmap.Save(encoded);
+
+            Assert.True(encoded.Length > 0);
+            Assert.True(bitmap.HasAllocatedCpuPixels);
+            Assert.True(bitmap.HasCurrentCpuPixels);
+            Assert.Same(texture, bitmap.Texture);
+            Assert.False(bitmap.HasIntermediateTexture);
+        }
+
+        [Fact]
+        public void Gpu_Render_Target_Invalidation_Holds_Owner_Then_Device_Locks()
+        {
+            using var owner = CreateTarget();
+            WgpuContext gpu = Assert.IsType<WgpuContext>(
+                WgpuContext.Current);
+            using var texture = new GpuTexture(
+                gpu,
+                4,
+                3,
+                Silk.NET.WebGPU.TextureFormat.Rgba8Unorm,
+                Silk.NET.WebGPU.TextureUsage.RenderAttachment |
+                Silk.NET.WebGPU.TextureUsage.TextureBinding,
+                "Avalonia synchronization test");
+            var ownerLock = new object();
+            bool observedOwnerLock = false;
+            bool observedDeviceLock = false;
+            using var context = new DrawingContextImpl(
+                new DrawingContextImpl.CreateInfo
+                {
+                    Dpi = new Vector(96, 96),
+                    GpuRenderTarget = texture,
+                    GpuRenderSynchronizationLock = ownerLock,
+                    GpuRenderStarting = () =>
+                    {
+                        observedOwnerLock =
+                            Monitor.IsEntered(ownerLock);
+                        observedDeviceLock =
+                            Monitor.IsEntered(gpu.RenderLock);
+                    }
+                });
+            context.Clear(Colors.Red);
+
+            context.Dispose();
+
+            Assert.True(observedOwnerLock);
+            Assert.True(observedDeviceLock);
+        }
+
+        [Fact]
+        public void Surface_Render_Target_Save_Flushes_The_Gpu_Texture()
+        {
+            using var renderTarget = new SurfaceRenderTarget(
+                new SurfaceRenderTarget.CreateInfo
+                {
+                    Width = 5,
+                    Height = 4,
+                    Dpi = new Vector(96, 96),
+                    Format = PixelFormats.Rgba8888
+                });
+            var texture = Assert.IsType<GpuTexture>(
+                renderTarget.Texture);
+            ulong textureId = texture.Id;
+            uint initialGeneration = texture.Generation;
+            var context = Assert.IsType<DrawingContextImpl>(
+                renderTarget.CreateDrawingContext());
+            context.Clear(Colors.Lime);
+
+            using var encoded = new MemoryStream();
+            renderTarget.Save(encoded);
+            encoded.Position = 0;
+            using SixLabors.ImageSharp.Image<Rgba32> image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(encoded);
+
+            Assert.Equal(textureId, renderTarget.Texture?.Id);
+            Assert.True(texture.Generation > initialGeneration);
+            Assert.Empty(context.DrawingContext.Commands);
+            Assert.Equal(2, renderTarget.Version);
+            Assert.Equal(0, image[0, 0].R);
+            Assert.Equal(255, image[0, 0].G);
+            Assert.Equal(0, image[0, 0].B);
+            Assert.Equal(255, image[0, 0].A);
+        }
+
+        [Fact]
+        public void Surface_Render_Target_Renews_Its_Preserved_Context_Lease()
+        {
+            using var renderTarget = new SurfaceRenderTarget(
+                new SurfaceRenderTarget.CreateInfo
+                {
+                    Width = 5,
+                    Height = 4,
+                    Dpi = new Vector(96, 96),
+                    Format = PixelFormats.Rgba8888
+                });
+
+            var first = Assert.IsType<DrawingContextImpl>(
+                renderTarget.CreateDrawingContext());
+            first.Clear(Colors.Red);
+            first.Dispose();
+
+            var second = Assert.IsType<DrawingContextImpl>(
+                renderTarget.CreateDrawingContext());
+            Assert.Same(first, second);
+            second.Clear(Colors.Blue);
+            second.Dispose();
+
+            using var encoded = new MemoryStream();
+            renderTarget.Save(encoded);
+            encoded.Position = 0;
+            using SixLabors.ImageSharp.Image<Rgba32> image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(encoded);
+
+            Assert.Equal(0, image[0, 0].R);
+            Assert.Equal(0, image[0, 0].G);
+            Assert.Equal(255, image[0, 0].B);
+            Assert.Equal(255, image[0, 0].A);
+        }
+
+        [Fact]
+        public void Surface_Render_Target_NonAffined_Snapshot_Is_A_Lazy_Context_Portable_Copy()
+        {
+            using var renderTarget = new SurfaceRenderTarget(
+                new SurfaceRenderTarget.CreateInfo
+                {
+                    Width = 5,
+                    Height = 4,
+                    Dpi = new Vector(144, 120)
+                });
+            var context = Assert.IsType<DrawingContextImpl>(
+                renderTarget.CreateDrawingContext());
+            context.Clear(Color.FromArgb(255, 10, 20, 30));
+
+            using var snapshot = Assert.IsType<ImmutableBitmap>(
+                renderTarget.CreateNonAffinedSnapshot());
+
+            Assert.NotSame(renderTarget, snapshot);
+            Assert.Equal(renderTarget.PixelSize, snapshot.PixelSize);
+            Assert.Equal(renderTarget.Dpi, snapshot.Dpi);
+            Assert.Null(snapshot.Texture);
+            Assert.True(snapshot.HasRetainedDecodedPixels);
+            Assert.Equal(2, renderTarget.Version);
+
+            using var encoded = new MemoryStream();
+            snapshot.Save(encoded);
+            encoded.Position = 0;
+            using SixLabors.ImageSharp.Image<Rgba32> image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(encoded);
+
+            Assert.Null(snapshot.Texture);
+            Assert.Equal(10, image[0, 0].R);
+            Assert.Equal(20, image[0, 0].G);
+            Assert.Equal(30, image[0, 0].B);
+            Assert.Equal(255, image[0, 0].A);
+
+            using var destination = CreateTarget();
+            destination.DrawBitmap(
+                snapshot,
+                1,
+                new Rect(0, 0, 5, 4),
+                new Rect(0, 0, 5, 4));
+            RenderCommand command = Assert.Single(
+                destination.DrawingContext.Commands);
+
+            Assert.Same(snapshot.Texture, command.Texture);
+            Assert.Same(
+                snapshot.Texture?.Context,
+                WgpuContext.Current);
+            Assert.True(snapshot.HasRetainedDecodedPixels);
+        }
+
+        [Fact]
+        public void Writeable_Bgra_Bitmap_Save_Preserves_Channel_Order()
+        {
+            using var bitmap = new WriteableBitmapImpl(
+                new PixelSize(1, 1),
+                new Vector(96, 96),
+                PixelFormats.Bgra8888,
+                AlphaFormat.Unpremul);
+            using (ILockedFramebuffer framebuffer = bitmap.Lock())
+            {
+                Marshal.WriteByte(framebuffer.Address, 0, 30);
+                Marshal.WriteByte(framebuffer.Address, 1, 20);
+                Marshal.WriteByte(framebuffer.Address, 2, 10);
+                Marshal.WriteByte(framebuffer.Address, 3, 255);
+            }
+
+            using var encoded = new MemoryStream();
+            bitmap.Save(encoded);
+            encoded.Position = 0;
+            using SixLabors.ImageSharp.Image<Rgba32> image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(encoded);
+
+            Assert.Equal(10, image[0, 0].R);
+            Assert.Equal(20, image[0, 0].G);
+            Assert.Equal(30, image[0, 0].B);
+            Assert.Equal(255, image[0, 0].A);
+        }
+
+        [Fact]
+        public void Immutable_Stream_Bitmap_Retains_Encoded_Data_Until_Gpu_Or_Cpu_Pixels_Are_Requested()
+        {
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            using var scope = WgpuContext.PushCurrent(null);
+            using var source = new MemoryStream(png);
+            using var bitmap = new ImmutableBitmap(source);
+
+            Assert.Equal(new PixelSize(1, 1), bitmap.PixelSize);
+            Assert.Null(bitmap.Texture);
+            Assert.False(bitmap.HasRetainedDecodedPixels);
+
+            using var saved = new MemoryStream();
+            bitmap.Save(saved);
+
+            Assert.True(saved.Length > 0);
+            Assert.False(bitmap.HasRetainedDecodedPixels);
         }
 
         [Fact]
@@ -143,6 +465,143 @@ namespace Avalonia.ProGpu.UnitTests
         {
             var target = CreateTarget();
             target.DrawRectangle(Brushes.Black, new Pen(Brushes.Black, 0), new RoundedRect(new Rect(0, 0, 100, 100), new CornerRadius(4)));
+        }
+
+        [Fact]
+        public void Blur_Effect_Records_A_Bounded_Native_Visual()
+        {
+            using var target = CreateTarget();
+
+            target.PushEffect(
+                new Rect(5, 15, 40, 50),
+                new Avalonia.Media.BlurEffect { Radius = 4 });
+            target.DrawRectangle(
+                Brushes.Red,
+                null,
+                new RoundedRect(new Rect(10, 20, 30, 40)));
+            target.PopEffect();
+
+            var command = Assert.Single(target.DrawingContext.Commands);
+            Assert.Equal(RenderCommandType.DrawVisual, command.Type);
+            Assert.NotNull(command.Visual);
+            var effect = Assert.IsType<ProGPU.Scene.BlurEffect>(
+                command.Visual!.Effect);
+            Assert.Equal(
+                DrawingContextImpl.EffectRadiusToSigma(4),
+                effect.BlurRadius);
+            Assert.Equal(
+                new ProGPU.Scene.Rect(10, 20, 30, 40),
+                command.Visual.EffectContentBounds);
+            Assert.Equal(5f, command.Visual.EffectRasterPadding);
+            Assert.Equal(1, target.DrawingContext.RetainedResourceCount);
+        }
+
+        [Fact]
+        public void Drop_Shadow_Effect_Preserves_Offset_Color_And_Opacity()
+        {
+            using var target = CreateTarget();
+
+            target.PushEffect(
+                new Rect(10, 18, 40, 50),
+                new Avalonia.Media.DropShadowEffect
+                {
+                    OffsetX = 5,
+                    OffsetY = 3,
+                    BlurRadius = 4,
+                    Color = Color.FromArgb(128, 20, 40, 60),
+                    Opacity = 0.5
+                });
+            target.DrawRectangle(
+                Brushes.Red,
+                null,
+                new RoundedRect(new Rect(10, 20, 30, 40)));
+            target.PopEffect();
+
+            var command = Assert.Single(target.DrawingContext.Commands);
+            var visual = Assert.IsAssignableFrom<ProGPU.Scene.Visual>(
+                command.Visual);
+            var effect = Assert.IsType<ProGPU.Scene.DropShadowEffect>(
+                visual.Effect);
+            Assert.Equal(new System.Numerics.Vector2(5, 3), effect.Offset);
+            Assert.Equal(20f / 255f, effect.Color.X, 6);
+            Assert.Equal(40f / 255f, effect.Color.Y, 6);
+            Assert.Equal(60f / 255f, effect.Color.Z, 6);
+            Assert.Equal(128f / 255f * 0.5f, effect.Color.W, 6);
+            Assert.Equal(
+                new ProGPU.Scene.Rect(10, 20, 30, 40),
+                visual.EffectContentBounds);
+            Assert.Equal(5f, visual.EffectRasterPadding);
+        }
+
+        [Fact]
+        public void Reset_Discards_An_Unbalanced_Effect_Scope()
+        {
+            using var target = CreateTarget();
+            ProGPU.Scene.DrawingContext owner = target.DrawingContext;
+
+            target.PushEffect(
+                new Rect(5, 15, 40, 50),
+                new Avalonia.Media.BlurEffect { Radius = 4 });
+            target.DrawRectangle(
+                Brushes.Red,
+                null,
+                new RoundedRect(new Rect(10, 20, 30, 40)));
+
+            Assert.NotSame(owner, target.DrawingContext);
+
+            target.Reset();
+
+            Assert.Same(owner, target.DrawingContext);
+            Assert.Empty(owner.Commands);
+            Assert.Equal(0, owner.RetainedResourceCount);
+        }
+
+        [Fact]
+        public void Conic_Gradient_Uses_A_Native_Rotated_Sweep_Brush()
+        {
+            using var target = CreateTarget();
+            var brush = new ConicGradientBrush
+            {
+                Angle = 23,
+                Center = RelativePoint.Center,
+                SpreadMethod = GradientSpreadMethod.Repeat,
+                GradientStops = new GradientStops
+                {
+                    new(Colors.Red, 0),
+                    new(Colors.Blue, 1)
+                }
+            };
+
+            target.DrawRectangle(
+                brush,
+                null,
+                new RoundedRect(new Rect(10, 20, 100, 60)));
+
+            var command = Assert.Single(target.DrawingContext.Commands);
+            var sweep = Assert.IsType<ProGPU.Vector.SweepGradientBrush>(
+                command.Brush);
+            Assert.Equal(new System.Numerics.Vector2(60, 50), sweep.Center);
+            Assert.Equal(0f, sweep.StartAngle);
+            Assert.Equal(360f, sweep.EndAngle);
+            Assert.Equal(
+                ProGPU.Vector.GradientSpreadMethod.Repeat,
+                sweep.SpreadMethod);
+            Assert.Equal(2, sweep.Stops.Length);
+
+            float radians = (23f - 90f) * MathF.PI / 180f;
+            var startDirection =
+                sweep.Center +
+                new System.Numerics.Vector2(
+                    MathF.Cos(radians),
+                    MathF.Sin(radians));
+            var rotated = System.Numerics.Vector2.Transform(
+                startDirection,
+                sweep.CoordinateTransform);
+            Assert.Equal(sweep.Center.X + 1f, rotated.X, 5);
+            Assert.Equal(sweep.Center.Y, rotated.Y, 5);
+            Assert.True(
+                DrawingContextImpl.SupportsRetainedCompositionOpacityMask(
+                    brush));
         }
 
 #if AVALONIA_MONOREPO_TESTS

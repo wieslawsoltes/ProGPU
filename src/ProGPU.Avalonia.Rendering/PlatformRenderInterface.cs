@@ -11,14 +11,38 @@ namespace Avalonia.ProGpu
 {
     internal class PlatformRenderInterface : IPlatformRenderInterface
     {
-        public PlatformRenderInterface(long? maxResourceBytes = null)
+        private readonly bool _requireNativeCompositionScene;
+        private readonly bool _useDawnMetalPresentation;
+        private readonly bool _requireDawnMetalPresentation;
+        private readonly bool _useDawnNativePresentation;
+        private readonly bool _requireDawnNativePresentation;
+
+        public PlatformRenderInterface(
+            long? maxResourceBytes = null,
+            bool requireNativeCompositionScene = false,
+            bool useDawnMetalPresentation = true,
+            bool requireDawnMetalPresentation = false,
+            bool useDawnNativePresentation = true,
+            bool requireDawnNativePresentation = false)
         {
+            _requireNativeCompositionScene = requireNativeCompositionScene;
+            _useDawnMetalPresentation = useDawnMetalPresentation;
+            _requireDawnMetalPresentation = requireDawnMetalPresentation;
+            _useDawnNativePresentation = useDawnNativePresentation;
+            _requireDawnNativePresentation =
+                requireDawnNativePresentation;
             DefaultPixelFormat = PixelFormat.Rgba8888;
         }
 
         public IPlatformRenderInterfaceContext CreateBackendContext(IPlatformGraphicsContext? graphicsContext)
         {
-            return new SkiaContext(null);
+            return new SkiaContext(
+                graphicsContext,
+                _requireNativeCompositionScene,
+                _useDawnMetalPresentation,
+                _requireDawnMetalPresentation,
+                _useDawnNativePresentation,
+                _requireDawnNativePresentation);
         }
 
         public bool SupportsIndividualRoundRects => true;

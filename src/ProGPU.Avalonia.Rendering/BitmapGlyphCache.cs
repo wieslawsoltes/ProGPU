@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Avalonia.Platform;
-using ProGPU.Backend;
 using ProGPU.Text;
-using Silk.NET.WebGPU;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Avalonia.ProGpu
 {
@@ -36,7 +34,7 @@ namespace Avalonia.ProGpu
 
         public Rect GetBounds(Point baselineOrigin, double emSize)
         {
-            var scale = emSize / PixelsPerEm;
+            var scale = PixelsPerEm > 0 ? emSize / PixelsPerEm : 1.0;
             return new Rect(
                 baselineOrigin.X - OriginOffsetX * scale,
                 baselineOrigin.Y - (PixelHeight - OriginOffsetY) * scale,
@@ -45,110 +43,124 @@ namespace Avalonia.ProGpu
         }
     }
 
-    internal readonly struct CachedBitmapGlyph
-    {
-        public CachedBitmapGlyph(GpuTexture texture, BitmapGlyphMetrics metrics, Rect sourceRect)
-        {
-            Texture = texture;
-            Metrics = metrics;
-            SourceRect = sourceRect;
-        }
-
-        public GpuTexture Texture { get; }
-        public BitmapGlyphMetrics Metrics { get; }
-        public Rect SourceRect { get; }
-    }
-
+    /// <summary>
+    /// Retains only bitmap-glyph dimensions needed by Avalonia's CPU bounds
+    /// contract. GPU pixels are demand-decoded by ProGPU's bounded color glyph
+    /// atlas during scene compilation, so the Avalonia adapter does not own a
+    /// second set of RGBA atlas pages or decoded pixel arrays.
+    /// </summary>
     internal static class BitmapGlyphCache
     {
-        private readonly record struct GlyphKey(TtfFont Font, ushort GlyphIndex, ushort PixelsPerEm);
+        internal const int MaximumCachedMetricCount = 2048;
+        internal const int MaximumFailedGlyphCount = 256;
 
-        private sealed class DecodedGlyph
+        private readonly record struct GlyphKey(
+            TtfFont Font,
+            ushort GlyphIndex,
+            ushort PixelsPerEm);
+
+        private sealed class MetricEntry
         {
-            public DecodedGlyph(BitmapGlyphMetrics metrics, Rgba32[] pixels)
+            public MetricEntry(
+                BitmapGlyphMetrics metrics,
+                LinkedListNode<GlyphKey> lruNode)
             {
                 Metrics = metrics;
-                Pixels = pixels;
+                LruNode = lruNode;
             }
 
             public BitmapGlyphMetrics Metrics { get; }
-            public Rgba32[] Pixels { get; }
+            public LinkedListNode<GlyphKey> LruNode { get; }
         }
 
-        private sealed class AtlasPage
+        private sealed class ReadOnlyMemoryStream : Stream
         {
-            private const int Padding = 1;
-            private int _nextX;
-            private int _nextY;
-            private int _rowHeight;
+            private readonly ReadOnlyMemory<byte> _data;
+            private int _position;
 
-            public AtlasPage(GpuTexture texture)
+            public ReadOnlyMemoryStream(ReadOnlyMemory<byte> data)
             {
-                Texture = texture;
+                _data = data;
             }
 
-            public GpuTexture Texture { get; }
-
-            public bool TryAllocate(int width, int height, out int x, out int y)
+            public override bool CanRead => true;
+            public override bool CanSeek => true;
+            public override bool CanWrite => false;
+            public override long Length => _data.Length;
+            public override long Position
             {
-                var paddedWidth = width + Padding * 2;
-                var paddedHeight = height + Padding * 2;
-                if (paddedWidth > Texture.Width || paddedHeight > Texture.Height)
+                get => _position;
+                set
                 {
-                    x = 0;
-                    y = 0;
-                    return false;
+                    if (value < 0 || value > _data.Length)
+                        throw new ArgumentOutOfRangeException(nameof(value));
+                    _position = checked((int)value);
                 }
-
-                if (_nextX + paddedWidth > Texture.Width)
-                {
-                    _nextX = 0;
-                    _nextY += _rowHeight;
-                    _rowHeight = 0;
-                }
-
-                if (_nextY + paddedHeight > Texture.Height)
-                {
-                    x = 0;
-                    y = 0;
-                    return false;
-                }
-
-                x = _nextX + Padding;
-                y = _nextY + Padding;
-                _nextX += paddedWidth;
-                _rowHeight = Math.Max(_rowHeight, paddedHeight);
-                return true;
-            }
-        }
-
-        private readonly struct AtlasEntry
-        {
-            public AtlasEntry(AtlasPage page, Rect sourceRect)
-            {
-                Page = page;
-                SourceRect = sourceRect;
             }
 
-            public AtlasPage Page { get; }
-            public Rect SourceRect { get; }
-        }
+            public override int Read(byte[] buffer, int offset, int count) =>
+                Read(buffer.AsSpan(offset, count));
 
-        private sealed class ContextAtlas
-        {
-            public Dictionary<GlyphKey, AtlasEntry> Entries { get; } = new();
-            public List<AtlasPage> Pages { get; } = new();
+            public override int Read(Span<byte> buffer)
+            {
+                int count = Math.Min(buffer.Length, _data.Length - _position);
+                _data.Span.Slice(_position, count).CopyTo(buffer);
+                _position += count;
+                return count;
+            }
+
+            public override long Seek(long offset, SeekOrigin origin)
+            {
+                long target = origin switch
+                {
+                    SeekOrigin.Begin => offset,
+                    SeekOrigin.Current => _position + offset,
+                    SeekOrigin.End => _data.Length + offset,
+                    _ => throw new ArgumentOutOfRangeException(nameof(origin))
+                };
+                Position = target;
+                return target;
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
         }
 
         private static readonly object s_sync = new();
-        private static readonly Dictionary<GlyphKey, DecodedGlyph> s_decodedGlyphs = new();
-        private static readonly HashSet<GlyphKey> s_failedGlyphs = new();
-        private static readonly Dictionary<WgpuContext, ContextAtlas> s_atlases = new();
+        private static readonly Dictionary<GlyphKey, MetricEntry> s_metrics = new();
+        private static readonly LinkedList<GlyphKey> s_metricLru = new();
+        private static readonly Dictionary<GlyphKey, LinkedListNode<GlyphKey>>
+            s_failedGlyphs = new();
+        private static readonly LinkedList<GlyphKey> s_failedLru = new();
 
-        static BitmapGlyphCache()
+        internal static int CachedMetricCount
         {
-            WgpuContext.Disposing += OnContextDisposing;
+            get
+            {
+                lock (s_sync)
+                    return s_metrics.Count;
+            }
         }
+
+        internal static int FailedGlyphCount
+        {
+            get
+            {
+                lock (s_sync)
+                    return s_failedGlyphs.Count;
+            }
+        }
+
+        internal static long CachedDecodedPixelBytes => 0;
+
+        internal static ulong MetricEvictionCount { get; private set; }
 
         public static bool TryGetMetrics(
             TtfFont font,
@@ -156,217 +168,128 @@ namespace Avalonia.ProGpu
             double emSize,
             out BitmapGlyphMetrics metrics)
         {
-            if (TryGetDecodedGlyph(font, glyphIndex, emSize, out _, out var decoded))
-            {
-                metrics = decoded.Metrics;
-                return true;
-            }
-
-            metrics = default;
-            return false;
-        }
-
-        public static bool TryGetTexture(
-            TtfFont font,
-            ushort glyphIndex,
-            double emSize,
-            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out CachedBitmapGlyph? glyph)
-        {
-            glyph = null;
-            if (!TryGetDecodedGlyph(font, glyphIndex, emSize, out var key, out var decoded))
-            {
-                return false;
-            }
-
-            var context = WgpuContext.Current;
-            if (context == null || context.IsDisposed)
-            {
-                return false;
-            }
-
-            lock (context.RenderLock)
-            {
-                if (context.IsDisposed)
-                {
-                    return false;
-                }
-
-                lock (s_sync)
-                {
-                    if (!s_atlases.TryGetValue(context, out var atlas))
-                    {
-                        atlas = new ContextAtlas();
-                        s_atlases.Add(context, atlas);
-                    }
-
-                    if (atlas.Entries.TryGetValue(key, out var cachedEntry) &&
-                        !cachedEntry.Page.Texture.IsDisposed)
-                    {
-                        glyph = new CachedBitmapGlyph(
-                            cachedEntry.Page.Texture,
-                            decoded.Metrics,
-                            cachedEntry.SourceRect);
-                        return true;
-                    }
-
-                    AtlasPage? page = null;
-                    var x = 0;
-                    var y = 0;
-                    foreach (var candidate in atlas.Pages)
-                    {
-                        if (candidate.TryAllocate(
-                                decoded.Metrics.PixelWidth,
-                                decoded.Metrics.PixelHeight,
-                                out x,
-                                out y))
-                        {
-                            page = candidate;
-                            break;
-                        }
-                    }
-
-                    if (page == null)
-                    {
-                        try
-                        {
-                            page = new AtlasPage(new GpuTexture(
-                                context,
-                                1024,
-                                1024,
-                                TextureFormat.Rgba8Unorm,
-                                TextureUsage.TextureBinding | TextureUsage.CopyDst,
-                                "ProGPU bitmap glyph atlas",
-                                alphaMode: GpuTextureAlphaMode.Straight));
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-
-                        atlas.Pages.Add(page);
-                        if (!page.TryAllocate(
-                                decoded.Metrics.PixelWidth,
-                                decoded.Metrics.PixelHeight,
-                                out x,
-                                out y))
-                        {
-                            page.Texture.Dispose();
-                            atlas.Pages.Remove(page);
-                            return false;
-                        }
-                    }
-
-                    var paddedWidth = decoded.Metrics.PixelWidth + 2;
-                    var paddedHeight = decoded.Metrics.PixelHeight + 2;
-                    var paddedPixels = new Rgba32[paddedWidth * paddedHeight];
-                    for (var row = 0; row < decoded.Metrics.PixelHeight; row++)
-                    {
-                        decoded.Pixels.AsSpan(row * decoded.Metrics.PixelWidth, decoded.Metrics.PixelWidth)
-                            .CopyTo(paddedPixels.AsSpan((row + 1) * paddedWidth + 1, decoded.Metrics.PixelWidth));
-                    }
-
-                    try
-                    {
-                        page.Texture.WritePixelsSubRect(
-                            new ReadOnlySpan<Rgba32>(paddedPixels),
-                            (uint)(x - 1),
-                            (uint)(y - 1),
-                            (uint)paddedWidth,
-                            (uint)paddedHeight);
-                    }
-                    catch
-                    {
-                        return false;
-                    }
-
-                    var sourceRect = new Rect(
-                        x,
-                        y,
-                        decoded.Metrics.PixelWidth,
-                        decoded.Metrics.PixelHeight);
-                    atlas.Entries[key] = new AtlasEntry(page, sourceRect);
-                    glyph = new CachedBitmapGlyph(page.Texture, decoded.Metrics, sourceRect);
-                    return true;
-                }
-            }
-        }
-
-        private static bool TryGetDecodedGlyph(
-            TtfFont font,
-            ushort glyphIndex,
-            double emSize,
-            out GlyphKey key,
-            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DecodedGlyph? decoded)
-        {
-            decoded = null;
             if (!font.TryGetBitmapGlyph(glyphIndex, (float)emSize, out var bitmap))
             {
-                key = default;
+                metrics = default;
                 return false;
             }
 
-            key = new GlyphKey(font, glyphIndex, bitmap.PixelsPerEm);
+            var key = new GlyphKey(font, glyphIndex, bitmap.PixelsPerEm);
             lock (s_sync)
             {
-                if (s_decodedGlyphs.TryGetValue(key, out decoded))
+                if (s_metrics.TryGetValue(key, out var cached))
                 {
+                    Touch(s_metricLru, cached.LruNode);
+                    metrics = cached.Metrics;
                     return true;
                 }
 
-                if (s_failedGlyphs.Contains(key))
+                if (s_failedGlyphs.TryGetValue(key, out var failedNode))
                 {
+                    Touch(s_failedLru, failedNode);
+                    metrics = default;
+                    return false;
+                }
+            }
+
+            int imageWidth;
+            int imageHeight;
+            try
+            {
+                using var stream = new ReadOnlyMemoryStream(bitmap.Data);
+                var imageInfo = Image.Identify(stream);
+                if (imageInfo == null)
+                {
+                    RememberFailure(key);
+                    metrics = default;
                     return false;
                 }
 
-                try
+                imageWidth = imageInfo.Width;
+                imageHeight = imageInfo.Height;
+            }
+            catch (Exception ex) when (
+                ex is InvalidImageContentException or
+                    NotSupportedException or
+                    ArgumentException)
+            {
+                RememberFailure(key);
+                metrics = default;
+                return false;
+            }
+
+            if (imageWidth <= 0 || imageHeight <= 0)
+            {
+                RememberFailure(key);
+                metrics = default;
+                return false;
+            }
+
+            metrics = new BitmapGlyphMetrics(
+                bitmap.PixelsPerEm,
+                bitmap.PixelsPerInch,
+                bitmap.OriginOffsetX,
+                bitmap.OriginOffsetY,
+                imageWidth,
+                imageHeight);
+            lock (s_sync)
+            {
+                if (s_metrics.TryGetValue(key, out var raced))
                 {
-                    using var image = Image.Load<Rgba32>(bitmap.Data.Span);
-                    var pixels = new Rgba32[image.Width * image.Height];
-                    image.CopyPixelDataTo(pixels);
-                    decoded = new DecodedGlyph(
-                        new BitmapGlyphMetrics(
-                            bitmap.PixelsPerEm,
-                            bitmap.PixelsPerInch,
-                            bitmap.OriginOffsetX,
-                            bitmap.OriginOffsetY,
-                            image.Width,
-                            image.Height),
-                        pixels);
-                    s_decodedGlyphs.Add(key, decoded);
+                    Touch(s_metricLru, raced.LruNode);
+                    metrics = raced.Metrics;
                     return true;
                 }
-                catch (Exception ex) when (ex is InvalidImageContentException or NotSupportedException or ArgumentException)
+
+                while (s_metrics.Count >= MaximumCachedMetricCount)
                 {
-                    s_failedGlyphs.Add(key);
-                    return false;
+                    LinkedListNode<GlyphKey>? oldest = s_metricLru.Last;
+                    if (oldest == null)
+                        break;
+                    s_metricLru.RemoveLast();
+                    if (s_metrics.Remove(oldest.Value))
+                        MetricEvictionCount++;
                 }
+
+                var node = s_metricLru.AddFirst(key);
+                s_metrics.Add(key, new MetricEntry(metrics, node));
+            }
+
+            return true;
+        }
+
+        private static void RememberFailure(GlyphKey key)
+        {
+            lock (s_sync)
+            {
+                if (s_failedGlyphs.TryGetValue(key, out var existing))
+                {
+                    Touch(s_failedLru, existing);
+                    return;
+                }
+
+                while (s_failedGlyphs.Count >= MaximumFailedGlyphCount)
+                {
+                    LinkedListNode<GlyphKey>? oldest = s_failedLru.Last;
+                    if (oldest == null)
+                        break;
+                    s_failedLru.RemoveLast();
+                    s_failedGlyphs.Remove(oldest.Value);
+                }
+
+                var node = s_failedLru.AddFirst(key);
+                s_failedGlyphs.Add(key, node);
             }
         }
 
-        private static void OnContextDisposing(WgpuContext context)
+        private static void Touch(
+            LinkedList<GlyphKey> lru,
+            LinkedListNode<GlyphKey> node)
         {
-            List<GpuTexture>? textures = null;
-            lock (s_sync)
-            {
-                if (s_atlases.Remove(context, out var atlas))
-                {
-                    textures = new List<GpuTexture>(atlas.Pages.Count);
-                    foreach (var page in atlas.Pages)
-                    {
-                        textures.Add(page.Texture);
-                    }
-                }
-            }
-
-            if (textures == null)
-            {
+            if (ReferenceEquals(lru.First, node))
                 return;
-            }
-
-            foreach (var texture in textures)
-            {
-                texture.Dispose();
-            }
+            lru.Remove(node);
+            lru.AddFirst(node);
         }
     }
 }

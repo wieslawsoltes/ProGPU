@@ -23,7 +23,9 @@ namespace Avalonia.SilkNet
             _unlock = Unlock;
         }
 
-        public bool IsReady => Volatile.Read(ref _disposed) == 0 && _window.IsInitialized;
+        public bool IsReady =>
+            Volatile.Read(ref _disposed) == 0 &&
+            TryGetRenderableFramebufferSize(out _);
 
         public ILockedFramebuffer Lock()
         {
@@ -31,22 +33,21 @@ namespace Avalonia.SilkNet
             SilkNetLockedFramebuffer? framebuffer = null;
             try
             {
-                if (Volatile.Read(ref _disposed) != 0 || !_window.IsInitialized)
+                if (Volatile.Read(ref _disposed) != 0 ||
+                    !TryGetRenderableFramebufferSize(out PixelSize size))
+                {
                     throw new RenderTargetNotReadyException();
+                }
 
-                var framebufferSize = _window.FramebufferSize;
-                var size = new PixelSize(framebufferSize.X, framebufferSize.Y);
-                var width = Math.Max(1, size.Width);
-                var height = Math.Max(1, size.Height);
-                var stride = checked(width * 4);
-                var totalBytes = checked(stride * height);
+                var stride = checked(size.Width * 4);
+                var totalBytes = checked(stride * size.Height);
 
                 return framebuffer = new SilkNetLockedFramebuffer(
                     _addressProvider,
                     totalBytes,
                     size,
                     stride,
-                    new Vector(96, 96),
+                    GetFramebufferDpi(size),
                     PixelFormat.Bgra8888,
                     AlphaFormat.Premul,
                     _unlock,
@@ -75,10 +76,41 @@ namespace Avalonia.SilkNet
 #if !AVALONIA11
         private PlatformRenderTargetState State => Volatile.Read(ref _disposed) != 0
             ? PlatformRenderTargetState.Disposed
-            : _window.IsInitialized
+            : TryGetRenderableFramebufferSize(out _)
                 ? PlatformRenderTargetState.Ready
                 : PlatformRenderTargetState.NotReadyTryLater;
 #endif
+
+        private bool TryGetRenderableFramebufferSize(out PixelSize size)
+        {
+            size = default;
+            if (!_window.IsInitialized)
+                return false;
+
+            var framebufferSize = _window.FramebufferSize;
+            if (framebufferSize.X <= 0 || framebufferSize.Y <= 0)
+                return false;
+
+            size = new PixelSize(framebufferSize.X, framebufferSize.Y);
+            return true;
+        }
+
+        private Vector GetFramebufferDpi(PixelSize framebufferSize)
+        {
+            var logicalSize = _window.Size;
+            double scaleX = logicalSize.X > 0
+                ? (double)framebufferSize.Width / logicalSize.X
+                : 1.0;
+            double scaleY = logicalSize.Y > 0
+                ? (double)framebufferSize.Height / logicalSize.Y
+                : 1.0;
+            if (!double.IsFinite(scaleX) || scaleX <= 0)
+                scaleX = 1.0;
+            if (!double.IsFinite(scaleY) || scaleY <= 0)
+                scaleY = 1.0;
+
+            return new Vector(96.0 * scaleX, 96.0 * scaleY);
+        }
 
         private sealed class RenderTarget :
 #if AVALONIA11

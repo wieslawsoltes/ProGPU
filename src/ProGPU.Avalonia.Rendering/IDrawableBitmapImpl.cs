@@ -18,4 +18,14 @@ namespace Avalonia.ProGpu
         /// </summary>
         void UploadToGpu();
     }
+
+    /// <summary>
+    /// Resolves a bitmap texture for the render context that will consume it.
+    /// Implementations retain a context-neutral representation and migrate the
+    /// device copy only when a different context actually draws the bitmap.
+    /// </summary>
+    internal interface IContextPortableDrawableBitmapImpl
+    {
+        GpuTexture? GetTexture(WgpuContext requiredContext);
+    }
 }

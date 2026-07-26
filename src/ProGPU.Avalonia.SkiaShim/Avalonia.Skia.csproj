@@ -9,12 +9,13 @@
     <AssemblyOriginatorKeyFile>..\..\eng\Avalonia.snk</AssemblyOriginatorKeyFile>
     <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
-    <AvaloniaForkRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\external\Avalonia'))</AvaloniaForkRoot>
+    <AvaloniaForkRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\external\Avalonia'))</AvaloniaForkRoot>
+    <AvaloniaForkRoot Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">$([System.IO.Path]::GetFullPath('$(ProGpuAvaloniaSourceRoot)'))</AvaloniaForkRoot>
     <AvaloniaSkiaSourceRoot>$(AvaloniaForkRoot)\src\Skia\Avalonia.Skia</AvaloniaSkiaSourceRoot>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(AvaloniaSkiaSourceRoot)\**\*.cs"
-             Exclude="$(AvaloniaSkiaSourceRoot)\GlyphRunImpl.cs">
+             Exclude="$(AvaloniaSkiaSourceRoot)\GlyphRunImpl.cs;$(AvaloniaSkiaSourceRoot)\bin\**\*.cs;$(AvaloniaSkiaSourceRoot)\obj\**\*.cs">
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
     <EmbeddedResource Include="$(AvaloniaSkiaSourceRoot)\Assets\NoiseAsset_256X256_PNG.png"

@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using Silk.NET.WebGPU;
 using Silk.NET.Core.Native;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Scene;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
@@ -31,13 +32,18 @@ using GpuBuffer = Silk.NET.WebGPU.Buffer;
 using AvaloniaVector = Avalonia.Vector;
 using AvaloniaCornerRadius = Avalonia.CornerRadius;
 using PointerDeviceType = Windows.Devices.Input.PointerDeviceType;
+using DawnTextureHandle = WebGpuSharp.FFI.TextureHandle;
 
 namespace ProGPU.Avalonia;
 
 public enum ProGpuAvaloniaPresentationMode
 {
     None,
-    ZeroCopySharedTexture,
+    SameDeviceTexture,
+    SharedTextureMemory,
+    SharedImageReadback,
+    [Obsolete("The former zero-copy path performs GPU readback. Use SharedImageReadback until a native shared-texture-memory backend is available.")]
+    ZeroCopySharedTexture = SharedImageReadback,
     CustomVisualReadback
 }
 
@@ -62,6 +68,15 @@ public readonly record struct ProGpuAvaloniaHostFrameState(
         string.Empty);
 
     public bool HasPresentedFrame => PresentedFrameCount > 0 && HostFrame.IsValid;
+
+    public ulong SharedImageReadbackPresentedFrameCount =>
+        ZeroCopyPresentedFrameCount;
+
+    public bool IsSharedImageReadbackActive =>
+        PresentationMode == ProGpuAvaloniaPresentationMode.SharedImageReadback;
+
+    public bool IsSameDeviceTextureActive =>
+        PresentationMode == ProGpuAvaloniaPresentationMode.SameDeviceTexture;
 }
 
 public class ProGpuHostControl : Control
@@ -70,23 +85,20 @@ public class ProGpuHostControl : Control
     {
         public IntPtr SharedHandle = IntPtr.Zero;
         public ICompositionImportedGpuImage? ImportedImage;
+        public ICompositionImportedGpuSemaphore? TimelineSemaphore;
         public GpuTexture? WgpuTexture;
-        public IntPtr StagingBuffer = IntPtr.Zero;
-        public uint StagingBufferSize;
-        public uint BytesPerRow;
+        public DawnSharedTextureMemory? SharedTextureMemory;
+        public DawnMetalEndAccessResult? EndAccessResult;
+        public DawnSharedFence? ConsumerFence;
+        public SharedGpuTextureSource? SameDeviceTexture;
+        public nint SharedEvent;
+        public ulong ConsumerValue;
+        public bool Initialized;
         public bool IsReady = true;
-        public bool IsStagingBufferMapActive;
 
         // Windows specific
         public IntPtr WinD3DDevice = IntPtr.Zero;
         public IntPtr WinTexture2D = IntPtr.Zero;
-
-        private readonly WgpuContext _context;
-
-        public SwapchainImage(WgpuContext context)
-        {
-            _context = context;
-        }
 
         public unsafe void Dispose()
         {
@@ -95,6 +107,35 @@ public class ProGpuHostControl : Control
                 _ = ImportedImage.DisposeAsync();
                 ImportedImage = null;
             }
+
+            if (TimelineSemaphore != null)
+            {
+                _ = TimelineSemaphore.DisposeAsync();
+                TimelineSemaphore = null;
+            }
+
+            ConsumerFence?.Dispose();
+            ConsumerFence = null;
+
+            if (SameDeviceTexture != null)
+            {
+                SameDeviceTexture.Dispose();
+                SameDeviceTexture = null;
+                WgpuTexture = null;
+            }
+            else if (WgpuTexture != null)
+            {
+                WgpuTexture.Dispose();
+                WgpuTexture = null;
+            }
+
+            SharedTextureMemory?.Dispose();
+            SharedTextureMemory = null;
+            EndAccessResult?.Dispose();
+            EndAccessResult = null;
+            SharedEvent = 0;
+            ConsumerValue = 0;
+            Initialized = false;
 
             if (SharedHandle != IntPtr.Zero)
             {
@@ -111,30 +152,65 @@ public class ProGpuHostControl : Control
                 WinTexture2D = IntPtr.Zero;
             }
 
-            if (WgpuTexture != null)
+        }
+    }
+
+    private sealed class SharedReadbackTransferBuffer : IDisposable
+    {
+        private readonly WgpuContext _context;
+
+        public IntPtr Buffer { get; private set; }
+        public uint BufferSize { get; }
+        public uint BytesPerRow { get; }
+        public bool IsMapActive { get; set; }
+
+        public unsafe SharedReadbackTransferBuffer(
+            WgpuContext context,
+            uint width,
+            uint height)
+        {
+            _context = context;
+            const uint bytesPerPixel = 4;
+            uint unalignedBytesPerRow = checked(width * bytesPerPixel);
+            BytesPerRow = checked((unalignedBytesPerRow + 255) & ~255u);
+            BufferSize = checked(BytesPerRow * height);
+
+            var descriptor = new BufferDescriptor
             {
-                WgpuTexture.Dispose();
-                WgpuTexture = null;
+                Usage = BufferUsage.MapRead | BufferUsage.CopyDst,
+                Size = BufferSize,
+                MappedAtCreation = false
+            };
+            Buffer = (IntPtr)context.Api.DeviceCreateBuffer(
+                context.Device,
+                &descriptor);
+            if (Buffer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "WebGPU could not allocate the shared presentation readback buffer.");
+            }
+        }
+
+        public unsafe void Dispose()
+        {
+            IntPtr buffer = Buffer;
+            if (buffer == IntPtr.Zero)
+            {
+                return;
             }
 
-            if (StagingBuffer != IntPtr.Zero)
+            Buffer = IntPtr.Zero;
+            if (!_context.IsDisposed)
             {
-                if (!_context.IsDisposed)
+                if (IsMapActive)
                 {
-                    if (IsStagingBufferMapActive)
-                    {
-                        _context.Api.BufferUnmap((GpuBuffer*)StagingBuffer);
-                        IsStagingBufferMapActive = false;
-                    }
-
-                    _context.QueueBufferDisposal(StagingBuffer);
+                    _context.Api.BufferUnmap((GpuBuffer*)buffer);
                 }
 
-                StagingBuffer = IntPtr.Zero;
-                StagingBufferSize = 0;
-                BytesPerRow = 0;
-                IsStagingBufferMapActive = false;
+                _context.QueueBufferDisposal(buffer);
             }
+
+            IsMapActive = false;
         }
     }
 
@@ -157,7 +233,20 @@ public class ProGpuHostControl : Control
         set => SetValue(CornerRadiusProperty, value);
     }
 
-    public bool EnableZeroCopy { get; set; }
+    public bool EnableSharedImageReadback { get; set; }
+
+    /// <summary>
+    /// Enables the Dawn shared-texture-memory presentation path on macOS.
+    /// No texture readback or CPU pixel copy occurs on this path.
+    /// </summary>
+    public bool EnableSharedTextureMemory { get; set; }
+
+    [Obsolete("Use EnableSharedTextureMemory for zero-copy presentation or EnableSharedImageReadback for the diagnostic readback path.")]
+    public bool EnableZeroCopy
+    {
+        get => EnableSharedTextureMemory;
+        set => EnableSharedTextureMemory = value;
+    }
 
     public WgpuContext? WgpuContext => _wgpuContext;
     public WinuiCompositor? Compositor => _compositor;
@@ -173,15 +262,20 @@ public class ProGpuHostControl : Control
         }
     }
 
+    public string PresentationSetupStatus =>
+        Volatile.Read(ref _presentationSetupStatus);
+
     // Core ProGPU context
     private WgpuContext? _wgpuContext;
+    private DawnGpuContext? _dawnContext;
     private WinuiCompositor? _compositor;
     private WindowInputState? _winuiInputState;
     private SharedContextLease? _contextLease;
     private readonly object _frameStateLock = new();
     private ProGpuAvaloniaHostFrameState _lastPresentedFrameState = ProGpuAvaloniaHostFrameState.Empty;
+    private string _presentationSetupStatus = "not-started";
     private ulong _presentedFrameCount;
-    private ulong _zeroCopyPresentedFrameCount;
+    private ulong _sharedImageReadbackPresentedFrameCount;
     private ulong _readbackPresentedFrameCount;
 
     private sealed class SharedContextState
@@ -216,8 +310,11 @@ public class ProGpuHostControl : Control
     private CompositionCustomVisual? _customVisual;
     private ProGpuCustomVisualHandler? _customVisualHandler;
 
-    // Zero-Copy Shared Texture states
-    private bool _isZeroCopySupported;
+    // Transitional imported-image path. The WebGPU result is read back before
+    // being copied into the platform image; this is not shared GPU memory.
+    private bool _isSharedImageReadbackSupported;
+    private bool _isSharedTextureMemorySupported;
+    private bool _isSameDeviceTextureSupported;
     private ICompositionGpuInterop? _gpuInterop;
     private string _gpuHandleType = "";
     private AvaloniaCompositor? _compositionCompositor;
@@ -226,6 +323,7 @@ public class ProGpuHostControl : Control
     private uint _lastSharedWidth;
     private uint _lastSharedHeight;
     private SwapchainImage[]? _swapchainImages;
+    private SharedReadbackTransferBuffer? _sharedReadbackTransferBuffer;
     private int _currentWriteImageIndex = 0;
 
     // Background Device Polling Thread and Mapping
@@ -400,9 +498,11 @@ public class ProGpuHostControl : Control
         lock (_frameStateLock)
         {
             _presentedFrameCount++;
-            if (mode == ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture)
+            if (mode == ProGpuAvaloniaPresentationMode.SameDeviceTexture ||
+                mode == ProGpuAvaloniaPresentationMode.SharedTextureMemory ||
+                mode == ProGpuAvaloniaPresentationMode.SharedImageReadback)
             {
-                _zeroCopyPresentedFrameCount++;
+                _sharedImageReadbackPresentedFrameCount++;
             }
             else if (mode == ProGpuAvaloniaPresentationMode.CustomVisualReadback)
             {
@@ -413,9 +513,10 @@ public class ProGpuHostControl : Control
                 frame,
                 mode,
                 _presentedFrameCount,
-                _zeroCopyPresentedFrameCount,
+                _sharedImageReadbackPresentedFrameCount,
                 _readbackPresentedFrameCount,
-                _isZeroCopySupported,
+                mode == ProGpuAvaloniaPresentationMode.SameDeviceTexture ||
+                mode == ProGpuAvaloniaPresentationMode.SharedTextureMemory,
                 _customVisual != null,
                 _gpuHandleType);
         }
@@ -473,9 +574,35 @@ public class ProGpuHostControl : Control
         if (_isInitialized) return;
 
         // 1. Initialize or reuse Headless/Offscreen WebGPU Context
-        _contextLease = AcquireSharedContext();
-        _wgpuContext = _contextLease.Context;
-        StartPolling();
+        bool hasActiveProGpuContext =
+            WgpuContext.TryGetFirstActiveContext(out _);
+        if (EnableSharedTextureMemory &&
+            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
+            !hasActiveProGpuContext &&
+            !SharedGpuTextureSource.IsCompositionImporterRegistered)
+        {
+            try
+            {
+                _dawnContext =
+                    DawnGpuContext.CreateMetalPresentation();
+                _wgpuContext = _dawnContext.Context;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"Dawn shared-texture-memory initialization failed; using the standard context: {ex}");
+            }
+        }
+
+        if (_wgpuContext == null)
+        {
+            _contextLease = AcquireSharedContext();
+            _wgpuContext = _contextLease.Context;
+        }
+        if (_dawnContext == null)
+        {
+            StartPolling();
+        }
 
         // 2. Initialize Compositor targeting BGRA8Unorm texture formats
         _compositor = new WinuiCompositor(_wgpuContext, TextureFormat.Bgra8Unorm);
@@ -518,27 +645,48 @@ public class ProGpuHostControl : Control
         {
             interop = await compositor.TryGetCompositionGpuInterop();
         }
-        catch
+        catch (Exception exception)
         {
-            // Fallback gracefully
+            _presentationSetupStatus =
+                $"interop-error:{exception.HResult:x8}:{exception.Message}";
         }
 
-        bool useSharedTexture = false;
+        bool useSharedImageReadback = false;
+        bool useSharedTextureMemory = false;
+        bool useSameDeviceTexture = false;
         string handleType = "";
 
         if (interop != null)
         {
+            useSameDeviceTexture =
+                _dawnContext == null &&
+                interop.SupportedImageHandleTypes.Contains(
+                    SharedGpuTextureSource.CompositionHandleType);
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
                 interop.SupportedImageHandleTypes.Contains("IOSurfaceRef"))
             {
-                useSharedTexture = true;
                 handleType = "IOSurfaceRef";
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
                      interop.SupportedImageHandleTypes.Contains(KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle))
             {
-                useSharedTexture = true;
                 handleType = KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle;
+            }
+
+            if (!string.IsNullOrEmpty(handleType))
+            {
+                CompositionGpuImportedImageSynchronizationCapabilities capabilities =
+                    interop.GetSynchronizationCapabilities(handleType);
+                useSharedImageReadback = capabilities.HasFlag(
+                    CompositionGpuImportedImageSynchronizationCapabilities.Automatic);
+                useSharedTextureMemory =
+                    EnableSharedTextureMemory &&
+                    _dawnContext != null &&
+                    RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
+                    capabilities.HasFlag(
+                        CompositionGpuImportedImageSynchronizationCapabilities.TimelineSemaphores) &&
+                    interop.SupportedSemaphoreTypes.Contains(
+                        KnownPlatformGraphicsExternalSemaphoreHandleTypes.MetalSharedEvent);
             }
         }
 
@@ -547,12 +695,33 @@ public class ProGpuHostControl : Control
             return;
         }
 
-        if (EnableZeroCopy && useSharedTexture && interop != null)
+        if (useSameDeviceTexture && interop != null)
         {
-            UseZeroCopyCompositionSurface(compositor, interop, handleType);
+            _presentationSetupStatus = "same-device-texture";
+            UseSameDeviceTextureCompositionSurface(
+                compositor,
+                interop);
+        }
+        else if (useSharedTextureMemory && interop != null)
+        {
+            _presentationSetupStatus = "shared-texture-memory";
+            UseSharedTextureMemoryCompositionSurface(
+                compositor,
+                interop,
+                handleType);
+        }
+        else if (EnableSharedImageReadback &&
+                 useSharedImageReadback &&
+                 interop != null)
+        {
+            _presentationSetupStatus = "shared-image-readback";
+            UseSharedImageReadbackCompositionSurface(compositor, interop, handleType);
         }
         else
         {
+            _presentationSetupStatus = interop == null
+                ? "custom-visual:no-gpu-interop"
+                : $"custom-visual:handles={string.Join(",", interop.SupportedImageHandleTypes)}";
             UseCustomVisualFallback(compositor);
         }
     }
@@ -570,12 +739,14 @@ public class ProGpuHostControl : Control
                ReferenceEquals(_compositor, compositor);
     }
 
-    private void UseZeroCopyCompositionSurface(
+    private void UseSharedImageReadbackCompositionSurface(
         AvaloniaCompositor compositor,
         ICompositionGpuInterop interop,
         string handleType)
     {
-        _isZeroCopySupported = true;
+        _isSameDeviceTextureSupported = false;
+        _isSharedTextureMemorySupported = false;
+        _isSharedImageReadbackSupported = true;
         _gpuInterop = interop;
         _gpuHandleType = handleType;
 
@@ -591,9 +762,65 @@ public class ProGpuHostControl : Control
         QueueRenderUpdate();
     }
 
+    private void UseSharedTextureMemoryCompositionSurface(
+        AvaloniaCompositor compositor,
+        ICompositionGpuInterop interop,
+        string handleType)
+    {
+        _isSameDeviceTextureSupported = false;
+        _isSharedTextureMemorySupported = true;
+        _isSharedImageReadbackSupported = false;
+        _gpuInterop = interop;
+        _gpuHandleType = handleType;
+
+        DisposeCustomVisualFallback();
+
+        _surfaceVisual = compositor.CreateSurfaceVisual();
+        _drawingSurface = compositor.CreateDrawingSurface();
+        _surfaceVisual.Surface = _drawingSurface;
+
+        ElementComposition.SetElementChildVisual(
+            this,
+            _surfaceVisual);
+        _surfaceVisual.Size = new Vector2(
+            (float)Bounds.Width,
+            (float)Bounds.Height);
+
+        QueueRenderUpdate();
+    }
+
+    private void UseSameDeviceTextureCompositionSurface(
+        AvaloniaCompositor compositor,
+        ICompositionGpuInterop interop)
+    {
+        _isSameDeviceTextureSupported = true;
+        _isSharedTextureMemorySupported = false;
+        _isSharedImageReadbackSupported = false;
+        _gpuInterop = interop;
+        _gpuHandleType =
+            SharedGpuTextureSource.CompositionHandleType;
+
+        DisposeCustomVisualFallback();
+
+        _surfaceVisual = compositor.CreateSurfaceVisual();
+        _drawingSurface = compositor.CreateDrawingSurface();
+        _surfaceVisual.Surface = _drawingSurface;
+
+        ElementComposition.SetElementChildVisual(
+            this,
+            _surfaceVisual);
+        _surfaceVisual.Size = new Vector2(
+            (float)Bounds.Width,
+            (float)Bounds.Height);
+
+        QueueRenderUpdate();
+    }
+
     private void UseCustomVisualFallback(AvaloniaCompositor compositor)
     {
-        _isZeroCopySupported = false;
+        _isSameDeviceTextureSupported = false;
+        _isSharedTextureMemorySupported = false;
+        _isSharedImageReadbackSupported = false;
         _gpuInterop = null;
         _gpuHandleType = "";
 
@@ -662,7 +889,9 @@ public class ProGpuHostControl : Control
         }
 
         _compositionCompositor = null;
-        _isZeroCopySupported = false;
+        _isSameDeviceTextureSupported = false;
+        _isSharedTextureMemorySupported = false;
+        _isSharedImageReadbackSupported = false;
         _gpuInterop = null;
         _gpuHandleType = "";
 
@@ -670,6 +899,8 @@ public class ProGpuHostControl : Control
         _compositor = null;
         _contextLease?.Dispose();
         _contextLease = null;
+        _dawnContext?.Dispose();
+        _dawnContext = null;
 
         if (_winuiInputState != null)
         {
@@ -706,7 +937,7 @@ public class ProGpuHostControl : Control
         _customVisualHandler = null;
     }
 
-    private bool ResizeSharedResources(uint width, uint height)
+    private unsafe bool ResizeSharedResources(uint width, uint height)
     {
         if (width == _lastSharedWidth && height == _lastSharedHeight && _swapchainImages != null)
             return HasUsableSharedResources();
@@ -714,13 +945,56 @@ public class ProGpuHostControl : Control
         ReleaseSharedResources();
         ResetSharedResourceSize();
 
-        _swapchainImages = new SwapchainImage[2];
+        int imageCount =
+            _isSameDeviceTextureSupported ||
+            _isSharedTextureMemorySupported
+                ? 1
+                : 2;
+        _swapchainImages =
+            new SwapchainImage[imageCount];
         try
         {
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < imageCount; i++)
             {
-                var image = new SwapchainImage(_wgpuContext!);
+                var image = new SwapchainImage();
                 _swapchainImages[i] = image;
+
+                TextureUsage usage =
+                    TextureUsage.RenderAttachment |
+                    TextureUsage.CopySrc |
+                    TextureUsage.TextureBinding;
+                if (_isSameDeviceTextureSupported)
+                {
+                    image.WgpuTexture = new GpuTexture(
+                        _wgpuContext!,
+                        width,
+                        height,
+                        TextureFormat.Bgra8Unorm,
+                        usage,
+                        $"Avalonia Same-Device Texture {i}",
+                        alphaMode:
+                            GpuTextureAlphaMode.Premultiplied);
+                    image.SameDeviceTexture =
+                        new SharedGpuTextureSource(
+                            image.WgpuTexture);
+                    var properties =
+                        new PlatformGraphicsExternalImageProperties
+                        {
+                            Width = checked((int)width),
+                            Height = checked((int)height),
+                            Format =
+                                PlatformGraphicsExternalImageFormat
+                                    .B8G8R8A8UNorm,
+                            TopLeftOrigin = true
+                        };
+                    image.ImportedImage = _gpuInterop!.ImportImage(
+                        new PlatformHandle(
+                            image.SameDeviceTexture.Handle,
+                            SharedGpuTextureSource
+                                .CompositionHandleType),
+                        properties);
+                    continue;
+                }
 
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 {
@@ -738,36 +1012,59 @@ public class ProGpuHostControl : Control
                     return false;
                 }
 
-                // Allocate WebGPU representation of the shared texture
-                image.WgpuTexture = new GpuTexture(
-                    _wgpuContext!,
-                    width,
-                    height,
-                    TextureFormat.Bgra8Unorm,
-                    TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.TextureBinding,
-                    $"Shared Zero-Copy Target {i}",
-                    alphaMode: GpuTextureAlphaMode.Premultiplied
-                );
-
-                // Setup staging buffer
-                uint bytesPerPixel = 4;
-                uint unalignedBytesPerRow = width * bytesPerPixel;
-                image.BytesPerRow = (unalignedBytesPerRow + 255) & ~255u;
-                uint requiredBufferSize = image.BytesPerRow * height;
-                image.StagingBufferSize = requiredBufferSize;
-
-                unsafe
+                if (_isSharedTextureMemorySupported)
                 {
-                    var bufferDesc = new BufferDescriptor
+                    if (_dawnContext == null)
                     {
-                        Usage = BufferUsage.MapRead | BufferUsage.CopyDst,
-                        Size = requiredBufferSize,
-                        MappedAtCreation = false
-                    };
-                    image.StagingBuffer = (IntPtr)_wgpuContext!.Api.DeviceCreateBuffer(_wgpuContext!.Device, &bufferDesc);
+                        throw new InvalidOperationException(
+                            "The Dawn device is unavailable for shared-texture-memory presentation.");
+                    }
+
+                    image.SharedTextureMemory =
+                        _dawnContext.SharedTextureMemory
+                            .ImportIOSurface(image.SharedHandle);
+                    image.EndAccessResult =
+                        new DawnMetalEndAccessResult();
+                    DawnTextureHandle texture =
+                        image.SharedTextureMemory.CreateTexture(
+                            WebGpuSharp.TextureUsage.RenderAttachment |
+                            WebGpuSharp.TextureUsage.CopySrc |
+                            WebGpuSharp.TextureUsage.TextureBinding,
+                            "ProGPU Avalonia Shared Texture"u8);
+                    image.WgpuTexture =
+                        GpuTexture.WrapOwnedExternal(
+                            _wgpuContext!,
+                            (Texture*)texture.GetAddress(),
+                            width,
+                            height,
+                            TextureFormat.Bgra8Unorm,
+                            usage,
+                            $"Avalonia Shared Texture {i}",
+                            GpuTextureAlphaMode.Premultiplied);
+                }
+                else
+                {
+                    image.WgpuTexture = new GpuTexture(
+                        _wgpuContext!,
+                        width,
+                        height,
+                        TextureFormat.Bgra8Unorm,
+                        usage,
+                        $"Shared Image Readback Target {i}",
+                        alphaMode:
+                            GpuTextureAlphaMode.Premultiplied);
                 }
             }
 
+            if (!_isSameDeviceTextureSupported &&
+                !_isSharedTextureMemorySupported)
+            {
+                _sharedReadbackTransferBuffer =
+                    new SharedReadbackTransferBuffer(
+                        _wgpuContext!,
+                        width,
+                        height);
+            }
             _lastSharedWidth = width;
             _lastSharedHeight = height;
             _currentWriteImageIndex = 0;
@@ -775,7 +1072,9 @@ public class ProGpuHostControl : Control
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Falling back from zero-copy composition after shared image setup failed: {ex}");
+            _presentationSetupStatus =
+                $"shared-resource-error:{ex.HResult:x8}:{ex.Message}";
+            Debug.WriteLine($"Falling back from shared-image readback after setup failed: {ex}");
             ReleaseSharedResources();
             ResetSharedResourceSize();
             return false;
@@ -818,9 +1117,23 @@ public class ProGpuHostControl : Control
             return false;
         }
 
+        if (!_isSameDeviceTextureSupported &&
+            !_isSharedTextureMemorySupported &&
+            (_sharedReadbackTransferBuffer == null ||
+             _sharedReadbackTransferBuffer.Buffer == IntPtr.Zero))
+        {
+            return false;
+        }
+
         foreach (var image in _swapchainImages)
         {
-            if (image?.ImportedImage == null || image.WgpuTexture == null || image.StagingBuffer == IntPtr.Zero)
+            if (image?.ImportedImage == null ||
+                image.WgpuTexture == null ||
+                (_isSameDeviceTextureSupported &&
+                 image.SameDeviceTexture == null) ||
+                (_isSharedTextureMemorySupported &&
+                 (image.SharedTextureMemory == null ||
+                  image.EndAccessResult == null)))
             {
                 return false;
             }
@@ -846,9 +1159,16 @@ public class ProGpuHostControl : Control
             }
             _swapchainImages = null;
         }
+
+        _sharedReadbackTransferBuffer?.Dispose();
+        _sharedReadbackTransferBuffer = null;
     }
 
-    private unsafe void CopyTextureToStagingBuffer(SwapchainImage image, uint renderWidth, uint renderHeight)
+    private unsafe void CopyTextureToStagingBuffer(
+        SwapchainImage image,
+        SharedReadbackTransferBuffer transferBuffer,
+        uint renderWidth,
+        uint renderHeight)
     {
         var encoderDesc = new CommandEncoderDescriptor();
         var encoder = _wgpuContext!.Api.DeviceCreateCommandEncoder(_wgpuContext.Device, &encoderDesc);
@@ -863,11 +1183,11 @@ public class ProGpuHostControl : Control
         
         var copyDst = new ImageCopyBuffer
         {
-            Buffer = (GpuBuffer*)image.StagingBuffer,
+            Buffer = (GpuBuffer*)transferBuffer.Buffer,
             Layout = new TextureDataLayout
             {
                 Offset = 0,
-                BytesPerRow = image.BytesPerRow,
+                BytesPerRow = transferBuffer.BytesPerRow,
                 RowsPerImage = renderHeight
             }
         };
@@ -889,9 +1209,17 @@ public class ProGpuHostControl : Control
         _wgpuContext.Api.CommandEncoderRelease(encoder);
     }
 
-    private unsafe void CopyMappedToSharedTexture(WgpuContext context, SwapchainImage image, uint renderWidth, uint renderHeight)
+    private unsafe void CopyMappedToSharedTexture(
+        WgpuContext context,
+        SwapchainImage image,
+        SharedReadbackTransferBuffer transferBuffer,
+        uint renderWidth,
+        uint renderHeight)
     {
-        void* mappedPtr = context.Api.BufferGetConstMappedRange((GpuBuffer*)image.StagingBuffer, 0, (nuint)image.StagingBufferSize);
+        void* mappedPtr = context.Api.BufferGetConstMappedRange(
+            (GpuBuffer*)transferBuffer.Buffer,
+            0,
+            (nuint)transferBuffer.BufferSize);
         try
         {
             if (mappedPtr != null)
@@ -908,7 +1236,7 @@ public class ProGpuHostControl : Control
 
                     for (uint y = 0; y < renderHeight; y++)
                     {
-                        byte* srcRow = srcBytes + (y * image.BytesPerRow);
+                        byte* srcRow = srcBytes + (y * transferBuffer.BytesPerRow);
                         byte* destRow = destBytes + (y * (uint)surfaceBytesPerRow);
                         System.Buffer.MemoryCopy(srcRow, destRow, rowBytes, rowBytes);
                     }
@@ -926,7 +1254,7 @@ public class ProGpuHostControl : Control
                             0,
                             IntPtr.Zero,
                             mappedPtr,
-                            image.BytesPerRow,
+                            transferBuffer.BytesPerRow,
                             0
                         );
                         GpuSharingInterop.COMHelper.CallRelease(d3dContext);
@@ -936,35 +1264,42 @@ public class ProGpuHostControl : Control
         }
         finally
         {
-            if (!context.IsDisposed && image.StagingBuffer != IntPtr.Zero && image.IsStagingBufferMapActive)
+            if (!context.IsDisposed &&
+                transferBuffer.Buffer != IntPtr.Zero &&
+                transferBuffer.IsMapActive)
             {
-                context.Api.BufferUnmap((GpuBuffer*)image.StagingBuffer);
-                image.IsStagingBufferMapActive = false;
+                context.Api.BufferUnmap((GpuBuffer*)transferBuffer.Buffer);
+                transferBuffer.IsMapActive = false;
             }
         }
     }
 
-    private unsafe void TryUnmapStagingBuffer(WgpuContext context, SwapchainImage image)
+    private unsafe void TryUnmapStagingBuffer(
+        WgpuContext context,
+        SharedReadbackTransferBuffer transferBuffer)
     {
-        if (context.IsDisposed || image.StagingBuffer == IntPtr.Zero || !image.IsStagingBufferMapActive)
+        if (context.IsDisposed ||
+            transferBuffer.Buffer == IntPtr.Zero ||
+            !transferBuffer.IsMapActive)
         {
             return;
         }
 
-        context.Api.BufferUnmap((GpuBuffer*)image.StagingBuffer);
-        image.IsStagingBufferMapActive = false;
+        context.Api.BufferUnmap((GpuBuffer*)transferBuffer.Buffer);
+        transferBuffer.IsMapActive = false;
     }
 
-    private bool IsCurrentZeroCopyFrame(
+    private bool IsCurrentSharedImageReadbackFrame(
         SwapchainImage[] swapchainImages,
         int imageIndex,
         SwapchainImage image,
+        SharedReadbackTransferBuffer transferBuffer,
         ICompositionImportedGpuImage importedImage,
         CompositionDrawingSurface drawingSurface,
         WgpuContext context)
     {
         return _isInitialized &&
-            _isZeroCopySupported &&
+            _isSharedImageReadbackSupported &&
             ReferenceEquals(_wgpuContext, context) &&
             !context.IsDisposed &&
             ReferenceEquals(_drawingSurface, drawingSurface) &&
@@ -973,9 +1308,184 @@ public class ProGpuHostControl : Control
             imageIndex < swapchainImages.Length &&
             _currentWriteImageIndex == imageIndex &&
             ReferenceEquals(swapchainImages[imageIndex], image) &&
+            ReferenceEquals(_sharedReadbackTransferBuffer, transferBuffer) &&
             ReferenceEquals(image.ImportedImage, importedImage) &&
             image.WgpuTexture is { IsDisposed: false } &&
-            image.StagingBuffer != IntPtr.Zero;
+            transferBuffer.Buffer != IntPtr.Zero;
+    }
+
+    private bool IsCurrentSharedTextureFrame(
+        SwapchainImage[] swapchainImages,
+        int imageIndex,
+        SwapchainImage image,
+        ICompositionImportedGpuImage importedImage,
+        CompositionDrawingSurface drawingSurface,
+        WgpuContext context)
+    {
+        return _isInitialized &&
+            _isSharedTextureMemorySupported &&
+            ReferenceEquals(_wgpuContext, context) &&
+            !context.IsDisposed &&
+            ReferenceEquals(_drawingSurface, drawingSurface) &&
+            ReferenceEquals(
+                _swapchainImages,
+                swapchainImages) &&
+            imageIndex >= 0 &&
+            imageIndex < swapchainImages.Length &&
+            _currentWriteImageIndex == imageIndex &&
+            ReferenceEquals(
+                swapchainImages[imageIndex],
+                image) &&
+            ReferenceEquals(
+                image.ImportedImage,
+                importedImage) &&
+            image.WgpuTexture is { IsDisposed: false } &&
+            image.SharedTextureMemory is
+                { IsDisposed: false };
+    }
+
+    private static unsafe DawnTextureHandle GetDawnTextureHandle(
+        GpuTexture texture)
+    {
+        return new DawnTextureHandle(
+            (nuint)texture.TexturePtr);
+    }
+
+    private async Task PresentSharedTextureMemoryAsync(
+        SwapchainImage[] swapchainImages,
+        int imageIndex,
+        SwapchainImage image,
+        ICompositionImportedGpuImage importedImage,
+        CompositionDrawingSurface drawingSurface,
+        WgpuContext context,
+        CompositorHostFrame hostFrame)
+    {
+        if (_dawnContext == null ||
+            _gpuInterop == null ||
+            _compositor == null ||
+            image.WgpuTexture == null ||
+            image.SharedTextureMemory == null)
+        {
+            return;
+        }
+
+        DawnTextureHandle texture =
+            GetDawnTextureHandle(image.WgpuTexture);
+        DawnSharedTextureMemory memory =
+            image.SharedTextureMemory;
+        DawnMetalEndAccessResult result =
+            image.EndAccessResult ??
+            throw new InvalidOperationException(
+                "The reusable Dawn end-access result is unavailable.");
+
+        lock (context.RenderLock)
+        {
+            memory.BeginAccess(
+                texture,
+                image.Initialized,
+                image.ConsumerFence,
+                image.ConsumerValue);
+            try
+            {
+                _compositor.RenderOffscreen(
+                    WinuiRoot!,
+                    hostFrame,
+                    image.WgpuTexture,
+                    0.0f);
+            }
+            finally
+            {
+                memory.EndAccessAndExportMetalSharedEvent(
+                    texture,
+                    result);
+                context.PollDevice(wait: false);
+            }
+        }
+
+        if (result.SharedEvent == 0)
+        {
+            throw new InvalidOperationException(
+                "Dawn did not export a Metal timeline event for the shared texture.");
+        }
+
+        if (image.TimelineSemaphore == null ||
+            image.SharedEvent != result.SharedEvent)
+        {
+            ICompositionImportedGpuSemaphore semaphore =
+                _gpuInterop.ImportSemaphore(
+                    new PlatformHandle(
+                        result.SharedEvent,
+                        KnownPlatformGraphicsExternalSemaphoreHandleTypes.MetalSharedEvent));
+            DawnSharedFence fence =
+                _dawnContext.SharedTextureMemory
+                    .ImportMetalSharedEvent(
+                        result.SharedEvent);
+            try
+            {
+                await Task.WhenAll(
+                    importedImage.ImportCompleted,
+                    semaphore.ImportCompleted);
+            }
+            catch
+            {
+                fence.Dispose();
+                await semaphore.DisposeAsync();
+                throw;
+            }
+
+            if (!IsCurrentSharedTextureFrame(
+                    swapchainImages,
+                    imageIndex,
+                    image,
+                    importedImage,
+                    drawingSurface,
+                    context))
+            {
+                fence.Dispose();
+                await semaphore.DisposeAsync();
+                return;
+            }
+
+            if (image.TimelineSemaphore != null)
+            {
+                await image.TimelineSemaphore.DisposeAsync();
+            }
+            image.ConsumerFence?.Dispose();
+            image.TimelineSemaphore = semaphore;
+            image.ConsumerFence = fence;
+            image.SharedEvent = result.SharedEvent;
+        }
+
+        ulong consumerValue =
+            checked(result.SignaledValue + 1);
+        await drawingSurface
+            .UpdateWithTimelineSemaphoresAsync(
+                importedImage,
+                image.TimelineSemaphore!,
+                result.SignaledValue,
+                image.TimelineSemaphore!,
+                consumerValue);
+
+        if (!IsCurrentSharedTextureFrame(
+                swapchainImages,
+                imageIndex,
+                image,
+                importedImage,
+                drawingSurface,
+                context))
+        {
+            return;
+        }
+
+        image.Initialized = result.Initialized;
+        image.ConsumerValue = consumerValue;
+        RecordPresentedFrame(
+            hostFrame,
+            ProGpuAvaloniaPresentationMode
+                .SharedTextureMemory);
+        _currentWriteImageIndex =
+            (_currentWriteImageIndex + 1) %
+            swapchainImages.Length;
     }
 
     private async Task RenderFrameAsync()
@@ -996,7 +1506,11 @@ public class ProGpuHostControl : Control
         WinuiRoot.Measure(hostFrame.LogicalSize);
         WinuiRoot.Arrange(new WinuiRect(0, 0, hostFrame.LogicalWidth, hostFrame.LogicalHeight));
 
-        if (_isZeroCopySupported && _gpuInterop != null && _drawingSurface != null)
+        if ((_isSameDeviceTextureSupported ||
+             _isSharedTextureMemorySupported ||
+             _isSharedImageReadbackSupported) &&
+            _gpuInterop != null &&
+            _drawingSurface != null)
         {
             if (!ResizeSharedResources(hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight))
             {
@@ -1019,8 +1533,78 @@ public class ProGpuHostControl : Control
                 var image = swapchainImages[imageIndex];
                 var context = _wgpuContext;
                 var drawingSurface = _drawingSurface;
+                var transferBuffer = _sharedReadbackTransferBuffer;
                 var importedImage = image?.ImportedImage;
-                if (image != null && importedImage != null && image.WgpuTexture != null)
+                if (_isSameDeviceTextureSupported &&
+                    image?.SameDeviceTexture != null &&
+                    importedImage != null &&
+                    image.WgpuTexture != null)
+                {
+                    lock (context.RenderLock)
+                    {
+                        if (context.IsDisposed ||
+                            image.WgpuTexture.IsDisposed)
+                        {
+                            return;
+                        }
+
+                        _compositor.RenderOffscreen(
+                            WinuiRoot,
+                            hostFrame,
+                            image.WgpuTexture,
+                            0.0f);
+                    }
+
+                    await importedImage.ImportCompleted;
+                    if (!_isInitialized ||
+                        !_isSameDeviceTextureSupported ||
+                        !ReferenceEquals(_swapchainImages, swapchainImages) ||
+                        !ReferenceEquals(image.ImportedImage, importedImage) ||
+                        !ReferenceEquals(_drawingSurface, drawingSurface) ||
+                        !ReferenceEquals(_wgpuContext, context))
+                    {
+                        return;
+                    }
+
+                    await drawingSurface.UpdateAsync(importedImage);
+                    if (!_isInitialized ||
+                        !_isSameDeviceTextureSupported ||
+                        !ReferenceEquals(_swapchainImages, swapchainImages) ||
+                        !ReferenceEquals(image.ImportedImage, importedImage) ||
+                        !ReferenceEquals(_drawingSurface, drawingSurface) ||
+                        !ReferenceEquals(_wgpuContext, context))
+                    {
+                        return;
+                    }
+
+                    RecordPresentedFrame(
+                        hostFrame,
+                        ProGpuAvaloniaPresentationMode
+                            .SameDeviceTexture);
+                    return;
+                }
+
+                if (_isSharedTextureMemorySupported &&
+                    image != null &&
+                    importedImage != null &&
+                    image.WgpuTexture != null &&
+                    image.SharedTextureMemory != null)
+                {
+                    await PresentSharedTextureMemoryAsync(
+                        swapchainImages,
+                        imageIndex,
+                        image,
+                        importedImage,
+                        drawingSurface,
+                        context,
+                        hostFrame);
+                    return;
+                }
+
+                if (image != null &&
+                    transferBuffer != null &&
+                    importedImage != null &&
+                    image.WgpuTexture != null)
                 {
                     // Render directly to WebGPU offscreen target
                     _compositor.RenderOffscreen(
@@ -1031,18 +1615,32 @@ public class ProGpuHostControl : Control
                     );
 
                     // Copy GPU texture to staging buffer
-                    CopyTextureToStagingBuffer(image, hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight);
+                    CopyTextureToStagingBuffer(
+                        image,
+                        transferBuffer,
+                        hostFrame.RenderTargetWidth,
+                        hostFrame.RenderTargetHeight);
 
                     // Asynchronously map buffer - non-blocking!
-                    image.IsStagingBufferMapActive = true;
+                    transferBuffer.IsMapActive = true;
                     try
                     {
-                        await MapBufferAsync(image.StagingBuffer, MapMode.Read, (nuint)image.StagingBufferSize);
+                        await MapBufferAsync(
+                            transferBuffer.Buffer,
+                            MapMode.Read,
+                            (nuint)transferBuffer.BufferSize);
                     }
                     catch
                     {
-                        image.IsStagingBufferMapActive = false;
-                        if (!IsCurrentZeroCopyFrame(swapchainImages, imageIndex, image, importedImage, drawingSurface, context))
+                        transferBuffer.IsMapActive = false;
+                        if (!IsCurrentSharedImageReadbackFrame(
+                                swapchainImages,
+                                imageIndex,
+                                image,
+                                transferBuffer,
+                                importedImage,
+                                drawingSurface,
+                                context))
                         {
                             return;
                         }
@@ -1050,16 +1648,35 @@ public class ProGpuHostControl : Control
                         throw;
                     }
 
-                    if (!IsCurrentZeroCopyFrame(swapchainImages, imageIndex, image, importedImage, drawingSurface, context))
+                    if (!IsCurrentSharedImageReadbackFrame(
+                            swapchainImages,
+                            imageIndex,
+                            image,
+                            transferBuffer,
+                            importedImage,
+                            drawingSurface,
+                            context))
                     {
-                        TryUnmapStagingBuffer(context, image);
+                        TryUnmapStagingBuffer(context, transferBuffer);
                         return;
                     }
 
                     // Copy staging buffer to shared texture and unmap
-                    CopyMappedToSharedTexture(context, image, hostFrame.RenderTargetWidth, hostFrame.RenderTargetHeight);
+                    CopyMappedToSharedTexture(
+                        context,
+                        image,
+                        transferBuffer,
+                        hostFrame.RenderTargetWidth,
+                        hostFrame.RenderTargetHeight);
 
-                    if (!IsCurrentZeroCopyFrame(swapchainImages, imageIndex, image, importedImage, drawingSurface, context))
+                    if (!IsCurrentSharedImageReadbackFrame(
+                            swapchainImages,
+                            imageIndex,
+                            image,
+                            transferBuffer,
+                            importedImage,
+                            drawingSurface,
+                            context))
                     {
                         return;
                     }
@@ -1067,15 +1684,24 @@ public class ProGpuHostControl : Control
                     // Asynchronously update drawing surface directly from imported GPU image
                     await drawingSurface.UpdateAsync(importedImage);
 
-                    if (!IsCurrentZeroCopyFrame(swapchainImages, imageIndex, image, importedImage, drawingSurface, context))
+                    if (!IsCurrentSharedImageReadbackFrame(
+                            swapchainImages,
+                            imageIndex,
+                            image,
+                            transferBuffer,
+                            importedImage,
+                            drawingSurface,
+                            context))
                     {
                         return;
                     }
 
-                    RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture);
+                    RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.SharedImageReadback);
 
                     // Swap the write buffer index
-                    _currentWriteImageIndex = (_currentWriteImageIndex + 1) % 2;
+                    _currentWriteImageIndex =
+                        (_currentWriteImageIndex + 1) %
+                        swapchainImages.Length;
                 }
             }
         }
@@ -1335,7 +1961,11 @@ public class ProGpuHostControl : Control
             return;
         }
 
-        if (!_isZeroCopySupported && _customVisual == null)
+        bool hasSharedCompositionSurface =
+            _isSameDeviceTextureSupported ||
+            _isSharedTextureMemorySupported ||
+            _isSharedImageReadbackSupported;
+        if (!hasSharedCompositionSurface && _customVisual == null)
         {
             if (!TryUseCustomVisualFallback())
             {
@@ -1344,7 +1974,7 @@ public class ProGpuHostControl : Control
             }
         }
 
-        if (_isZeroCopySupported && _drawingSurface == null)
+        if (hasSharedCompositionSurface && _drawingSurface == null)
         {
             if (!TryUseCustomVisualFallback())
             {
@@ -1365,6 +1995,8 @@ public class ProGpuHostControl : Control
         }
         catch (Exception ex)
         {
+            _presentationSetupStatus =
+                $"render-error:{ex.HResult:x8}:{ex.Message}";
             Debug.WriteLine($"Error during rendering: {ex}");
         }
         finally

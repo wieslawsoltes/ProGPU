@@ -10,11 +10,18 @@ using Avalonia.Rendering;
 using Avalonia.Rendering.Composition;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Silk.NET.Input.Glfw;
+using Silk.NET.Windowing.Glfw;
 
 namespace Avalonia.SilkNet
 {
     public class SilkNetPlatform : IWindowingPlatform, IPlatformIconLoader
     {
+        private const int FallbackRenderFramesPerSecond = 60;
+        private const int MinimumRenderFramesPerSecond = 24;
+        private const int MaximumRenderFramesPerSecond = 360;
+        private const string RenderFramesPerSecondVariable =
+            "PROGPU_AVALONIA_RENDER_FPS";
         private static readonly SilkNetPlatform s_instance = new();
         public static SilkNetPlatform Instance => s_instance;
 
@@ -27,6 +34,8 @@ namespace Avalonia.SilkNet
 
         public static void Initialize()
         {
+            RegisterNativeBackends();
+
             s_instance._dispatcher = new SilkNetDispatcherImpl();
 #if !AVALONIA11
             Avalonia.Threading.Dispatcher.InitializeUIThreadDispatcher(s_instance._dispatcher);
@@ -35,7 +44,8 @@ namespace Avalonia.SilkNet
             var clipboardImpl = new SilkNetClipboardImpl();
             var clipboard = new SilkNetClipboard(clipboardImpl);
 
-            var renderTimer = new SilkNetRenderTimer(60);
+            var renderTimer = new SilkNetRenderTimer(
+                ResolveRenderFramesPerSecond());
 #if AVALONIA11
             AvaloniaLocator.CurrentMutable
                 .Bind<Avalonia.Threading.IDispatcherImpl>().ToConstant(s_instance._dispatcher)
@@ -58,6 +68,70 @@ namespace Avalonia.SilkNet
                 .Bind<IClipboardImpl>().ToConstant(clipboardImpl)
                 .Bind<IClipboard>().ToConstant(clipboard)
                 .Bind<IScreenImpl>().ToConstant(new SilkNetScreenImpl());
+        }
+
+        private static void RegisterNativeBackends()
+        {
+            // Select concrete first-party platforms through Silk.NET's typed
+            // registration APIs. Window and input creation otherwise fall
+            // back to assembly discovery, which is intentionally unavailable
+            // after NativeAOT trimming and is not permitted in this backend.
+            GlfwWindowing.RegisterPlatform();
+            GlfwInput.RegisterPlatform();
+        }
+
+        internal static int NormalizeRenderFramesPerSecond(
+            int configuredFramesPerSecond,
+            int detectedFramesPerSecond)
+        {
+            if (configuredFramesPerSecond >= MinimumRenderFramesPerSecond &&
+                configuredFramesPerSecond <= MaximumRenderFramesPerSecond)
+            {
+                return configuredFramesPerSecond;
+            }
+
+            return detectedFramesPerSecond >= MinimumRenderFramesPerSecond &&
+                   detectedFramesPerSecond <= MaximumRenderFramesPerSecond
+                ? detectedFramesPerSecond
+                : FallbackRenderFramesPerSecond;
+        }
+
+        private static int ResolveRenderFramesPerSecond()
+        {
+            int.TryParse(
+                Environment.GetEnvironmentVariable(
+                    RenderFramesPerSecondVariable),
+                out int configuredFramesPerSecond);
+            int detectedFramesPerSecond = 0;
+            try
+            {
+                var glfw = Silk.NET.GLFW.Glfw.GetApi();
+                unsafe
+                {
+                    if (glfw.Init())
+                    {
+                        var monitors = glfw.GetMonitors(out int count);
+                        if (count > 0)
+                        {
+                            var videoMode = glfw.GetVideoMode(monitors[0]);
+                            if (videoMode != null)
+                            {
+                                detectedFramesPerSecond =
+                                    videoMode->RefreshRate;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // The timer fallback keeps startup available on platforms
+                // where monitor discovery is not initialized yet.
+            }
+
+            return NormalizeRenderFramesPerSecond(
+                configuredFramesPerSecond,
+                detectedFramesPerSecond);
         }
 
         public void RegisterWindow(WindowImpl window)
@@ -175,10 +249,16 @@ namespace Avalonia.SilkNet
             {
                 try
                 {
-                    using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(encodedFrame);
-                    var pixels = new byte[checked(image.Width * image.Height * 4)];
-                    image.CopyPixelDataTo(pixels);
-                    frames.Add(new SilkNetIconFrame(image.Width, image.Height, pixels));
+                    var image = SixLabors.ImageSharp.Image.Identify(encodedFrame);
+                    if (image == null)
+                    {
+                        continue;
+                    }
+
+                    frames.Add(new SilkNetIconFrame(
+                        image.Width,
+                        image.Height,
+                        encodedFrame));
                 }
                 catch (SixLabors.ImageSharp.UnknownImageFormatException)
                 {
@@ -199,10 +279,8 @@ namespace Avalonia.SilkNet
         public void Save(Stream outputStream)
         {
             var frame = _frames[^1];
-            using var image = SixLabors.ImageSharp.Image.LoadPixelData<Rgba32>(
-                frame.Pixels,
-                frame.Width,
-                frame.Height);
+            using var image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(frame.EncodedBytes);
             image.SaveAsPng(outputStream);
         }
 
@@ -309,7 +387,20 @@ namespace Avalonia.SilkNet
 
     }
 
-    internal sealed record SilkNetIconFrame(int Width, int Height, byte[] Pixels);
+    internal sealed record SilkNetIconFrame(
+        int Width,
+        int Height,
+        byte[] EncodedBytes)
+    {
+        public byte[] DecodePixels()
+        {
+            using var image =
+                SixLabors.ImageSharp.Image.Load<Rgba32>(EncodedBytes);
+            var pixels = new byte[checked(image.Width * image.Height * 4)];
+            image.CopyPixelDataTo(pixels);
+            return pixels;
+        }
+    }
 
     public class SilkNetPlatformSettings : IPlatformSettings
     {

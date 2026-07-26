@@ -77,9 +77,17 @@ public static unsafe class GpuSharingInterop
             // 4. Create keys & values
             void AddIntValue(string key, int value)
             {
-                IntPtr nsKey = MsgSend(nsStringClass, stringWithUtf8Sel, Marshal.StringToHGlobalAnsi(key));
-                IntPtr nsVal = MsgSend(nsNumberClass, numberWithIntSel, value);
-                MsgSend(dict, setObjectSel, nsVal, nsKey);
+                IntPtr utf8Key = Marshal.StringToHGlobalAnsi(key);
+                try
+                {
+                    IntPtr nsKey = MsgSend(nsStringClass, stringWithUtf8Sel, utf8Key);
+                    IntPtr nsVal = MsgSend(nsNumberClass, numberWithIntSel, value);
+                    MsgSend(dict, setObjectSel, nsVal, nsKey);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(utf8Key);
+                }
             }
 
             AddIntValue("IOSurfaceWidth", (int)width);

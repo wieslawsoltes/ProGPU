@@ -23,11 +23,16 @@ namespace Avalonia.ProGpu
 #if AVALONIA11
         private IFramebufferRenderTargetWithProperties? _renderTargetWithProperties;
 #endif
-        private readonly OffscreenTextureCache _textureCache = new();
+        private readonly OffscreenTextureCache _textureCache;
 
-        public FramebufferRenderTarget(IFramebufferPlatformSurface platformSurface, bool useScaledDrawing = false)
+        public FramebufferRenderTarget(
+            IFramebufferPlatformSurface platformSurface,
+            bool useScaledDrawing = false,
+            bool requireNativeCompositionScene = false)
         {
             _useScaledDrawing = useScaledDrawing;
+            _textureCache = new OffscreenTextureCache(
+                requireNativeCompositionScene);
             _renderTarget = platformSurface.CreateFramebufferRenderTarget();
 #if AVALONIA11
             _renderTargetWithProperties = _renderTarget as IFramebufferRenderTargetWithProperties;
@@ -54,6 +59,9 @@ namespace Avalonia.ProGpu
 #endif
             IsSuitableForDirectRendering = true
         };
+
+        internal bool RequireNativeCompositionScene =>
+            _textureCache.RequireNativeCompositionScene;
 
 #if AVALONIA11
         public bool IsCorrupted => false;

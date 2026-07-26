@@ -37,6 +37,7 @@ public sealed class IconTests
         var frame = Assert.Single(decoded.Frames);
         Assert.Equal(16, frame.Width);
         Assert.Equal(16, frame.Height);
-        Assert.Equal(16 * 16 * 4, frame.Pixels.Length);
+        Assert.Equal(pngBytes, frame.EncodedBytes);
+        Assert.Equal(16 * 16 * 4, frame.DecodePixels().Length);
     }
 }

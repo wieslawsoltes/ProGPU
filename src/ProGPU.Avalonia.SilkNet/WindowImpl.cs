@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
@@ -26,10 +27,13 @@ namespace Avalonia.SilkNet
 {
     public class WindowImpl : IWindowImpl
     {
+        private const string ShareWebGpuDeviceVariable =
+            "PROGPU_AVALONIA_SHARE_WGPU_DEVICE";
         private Silk.NET.Windowing.IWindow _silkWindow;
         private readonly IMouseDevice _mouseDevice;
         private IInputContext? _inputContext;
         private IInputRoot? _owner;
+        private WindowImpl? _nativeParent;
         private double _scaling = 1.0;
         private Size _clientSize = new Size(1280, 800);
         private string? _title = "Avalonia Silk.NET Window";
@@ -96,6 +100,7 @@ namespace Avalonia.SilkNet
             _silkWindow.Closing += OnClosing;
             _silkWindow.FocusChanged += OnFocusChanged;
             _silkWindow.StateChanged += OnStateChanged;
+            WgpuContext.OnWebGpuDeviceLost += OnWebGpuDeviceLost;
 
             _framebuffer = new SilkNetFramebufferManager(_silkWindow);
 
@@ -107,6 +112,54 @@ namespace Avalonia.SilkNet
         public Silk.NET.Windowing.IWindow SilkWindow => _silkWindow;
         public IInputRoot Owner => _owner ?? throw new InvalidOperationException("Owner not set");
 
+        /// <summary>
+        /// Gets whether this window currently owns a healthy initialized
+        /// WebGPU presentation context.
+        /// </summary>
+        public bool HasActiveWebGpuContext
+        {
+            get
+            {
+                WgpuContext? context = Volatile.Read(ref _wgpuContext);
+                return context is
+                {
+                    IsDisposed: false,
+                    IsDeviceLost: false,
+                    IsInitialized: true
+                };
+            }
+        }
+
+        /// <summary>
+        /// Returns whether this window and <paramref name="other"/> share the
+        /// same typed WebGPU device-resource ownership domain.
+        /// </summary>
+        /// <remarks>
+        /// This is a constant-time diagnostics contract. It does not expose
+        /// native handles, probe assemblies, or use reflection.
+        /// </remarks>
+        public bool SharesWebGpuDeviceWith(WindowImpl? other)
+        {
+            if (other == null)
+                return false;
+
+            WgpuContext? context = Volatile.Read(ref _wgpuContext);
+            WgpuContext? otherContext = Volatile.Read(ref other._wgpuContext);
+            return context is
+                {
+                    IsDisposed: false,
+                    IsDeviceLost: false,
+                    IsInitialized: true
+                } &&
+                otherContext is
+                {
+                    IsDisposed: false,
+                    IsDeviceLost: false,
+                    IsInitialized: true
+                } &&
+                context.SharesDeviceWith(otherContext);
+        }
+
         public void SetInputRoot(IInputRoot inputRoot)
         {
             _owner = inputRoot;
@@ -115,6 +168,10 @@ namespace Avalonia.SilkNet
         private void OnLoad()
         {
             _windowController.Attach();
+            if (_nativeParent is { IsDisposed: false } nativeParent)
+            {
+                _windowController.SetParent(nativeParent._windowController.Handle);
+            }
             ApplyWindowCustomizationState();
             if (_pendingInitialWindowState is { } initialWindowState)
             {
@@ -138,8 +195,7 @@ namespace Avalonia.SilkNet
                 Resized?.Invoke(_clientSize, WindowResizeReason.Layout);
             }
 
-            _wgpuContext = new WgpuContext();
-            _wgpuContext.Initialize(_silkWindow);
+            _wgpuContext = CreateWebGpuContext();
 
             _inputContext = _silkWindow.CreateInput();
             foreach (var keyboard in _inputContext.Keyboards)
@@ -160,9 +216,102 @@ namespace Avalonia.SilkNet
             _isLoaded = true;
         }
 
+        private WgpuContext CreateWebGpuContext()
+        {
+            var context = new WgpuContext();
+            if (ShouldShareWebGpuDevice() &&
+                WgpuContext.TryGetFirstActiveContext(out var sharedDeviceOwner) &&
+                sharedDeviceOwner.BackendKind == WgpuBackendKind.SilkNative)
+            {
+                context.InitializeSharedDevice(
+                    _silkWindow,
+                    sharedDeviceOwner);
+            }
+            else
+            {
+                context.Initialize(_silkWindow);
+            }
+
+            return context;
+        }
+
+        private bool EnsureWebGpuContextReady()
+        {
+            WgpuContext? current = _wgpuContext;
+            if (current is { IsDeviceLost: false })
+            {
+                return true;
+            }
+
+            if (!_isLoaded || _disposed)
+            {
+                return false;
+            }
+
+            try
+            {
+                WgpuContext replacement = CreateWebGpuContext();
+                _wgpuContext = replacement;
+                try
+                {
+                    current?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine(
+                        $"[Avalonia.SilkNet] Lost WebGPU device cleanup failed: {exception.Message}");
+                }
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(
+                    $"[Avalonia.SilkNet] WebGPU device recovery failed: {exception.Message}");
+                return false;
+            }
+        }
+
+        private void OnWebGpuDeviceLost(
+            Silk.NET.WebGPU.DeviceLostReason reason,
+            string message)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed || !_isLoaded)
+                {
+                    return;
+                }
+
+                _paintQueued = true;
+                PaintNow();
+            }, DispatcherPriority.Render);
+        }
+
+        internal static bool ShouldShareWebGpuDevice()
+        {
+            string? configured = Environment.GetEnvironmentVariable(
+                ShareWebGpuDeviceVariable);
+            return !string.Equals(
+                configured,
+                "0",
+                StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(
+                    configured,
+                    "false",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
         private void OnRender(double delta)
         {
-            PaintNow();
+            if (_paintQueued)
+            {
+                PaintNow();
+            }
         }
 
         private void OnResize(Vector2D<int> size)
@@ -208,6 +357,12 @@ namespace Avalonia.SilkNet
 
         private void PaintNow()
         {
+            if (!EnsureWebGpuContextReady())
+            {
+                _paintQueued = true;
+                return;
+            }
+
             _paintQueued = false;
             _paintGeneration++;
             using var currentContext = WgpuContext.PushCurrent(_wgpuContext);
@@ -582,7 +737,7 @@ namespace Avalonia.SilkNet
             }
         }
 
-        public void Show(bool activate, bool isDialog)
+        public virtual void Show(bool activate, bool isDialog)
         {
             if (!_isShown)
             {
@@ -693,7 +848,10 @@ namespace Avalonia.SilkNet
                 for (var index = 0; index < images.Length; index++)
                 {
                     var frame = iconData.Frames[index];
-                    images[index] = new RawImage(frame.Width, frame.Height, frame.Pixels);
+                    images[index] = new RawImage(
+                        frame.Width,
+                        frame.Height,
+                        frame.DecodePixels());
                 }
                 _silkWindow.SetWindowIcon(images);
                 return;
@@ -831,7 +989,7 @@ namespace Avalonia.SilkNet
             }, GetCurrentNativePointerPoint());
         }
 
-        public IPopupImpl? CreatePopup() => null;
+        public virtual IPopupImpl CreatePopup() => new SilkNetPopupImpl(this);
 
         public void SetTransparencyLevelHint(IReadOnlyList<WindowTransparencyLevel> transparencyLevels)
         {
@@ -932,6 +1090,7 @@ namespace Avalonia.SilkNet
                 _silkWindow.Closing -= OnClosing;
                 _silkWindow.FocusChanged -= OnFocusChanged;
                 _silkWindow.StateChanged -= OnStateChanged;
+                WgpuContext.OnWebGpuDeviceLost -= OnWebGpuDeviceLost;
             }
             catch {}
 
@@ -945,24 +1104,30 @@ namespace Avalonia.SilkNet
             _wgpuContext = null;
 
             var tcs = _disposedTcs;
+            if (!windowToDispose.IsInitialized)
+            {
+                try
+                {
+                    DisposeRuntimeResources(
+                        wgpuContextToDispose,
+                        inputContextToDispose);
+                    windowToDispose.Dispose();
+                }
+                catch {}
+                finally
+                {
+                    tcs.TrySetResult();
+                }
+                return;
+            }
+
             Dispatcher.UIThread.Post(() =>
             {
                 try
                 {
-                    try
-                    {
-                        wgpuContextToDispose?.Dispose();
-                    }
-                    catch {}
-
-                    try
-                    {
-                        if (inputContextToDispose != null)
-                        {
-                            inputContextToDispose.Dispose();
-                        }
-                    }
-                    catch {}
+                    DisposeRuntimeResources(
+                        wgpuContextToDispose,
+                        inputContextToDispose);
 
                     try
                     {
@@ -978,18 +1143,39 @@ namespace Avalonia.SilkNet
             });
         }
 
+        private static void DisposeRuntimeResources(
+            WgpuContext? wgpuContext,
+            IInputContext? inputContext)
+        {
+            try
+            {
+                wgpuContext?.Dispose();
+            }
+            catch {}
+
+            try
+            {
+                inputContext?.Dispose();
+            }
+            catch {}
+        }
+
         // Missing interface members of IWindowImpl and ITopLevelImpl
         public void SetParent(IWindowImpl? parent)
         {
             if (parent is WindowImpl silkParent)
             {
+                _nativeParent = silkParent;
                 _windowController.SetParent(silkParent._windowController.Handle);
             }
             else if (parent is null)
             {
+                _nativeParent = null;
                 _windowController.SetParent(NativeWindowHandle.Empty);
             }
         }
+
+        internal WindowImpl? NativeParent => _nativeParent;
 
         public void ShowTaskbarIcon(bool value)
         {

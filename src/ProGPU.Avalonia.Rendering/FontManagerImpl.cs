@@ -7,6 +7,9 @@ using System.Linq;
 using System.Threading;
 using Avalonia.Media;
 using Avalonia.Platform;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+using Avalonia.Platform.Internal;
+#endif
 using ProGPU.Text;
 
 namespace Avalonia.ProGpu
@@ -332,6 +335,32 @@ namespace Avalonia.ProGpu
             platformTypeface = null;
             try
             {
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+                if (stream is AssemblyResourceSliceStream resourceSlice)
+                {
+                    var resourceFont = TtfFont.LoadEmbeddedResourceSlice(
+                        resourceSlice.OpenResourceStream(),
+                        resourceSlice.ResourceOffset,
+                        resourceSlice.ResourceLength);
+                    if (!IsRenderable(resourceFont))
+                    {
+                        return false;
+                    }
+
+                    var resourceFamilyName = string.IsNullOrWhiteSpace(resourceFont.FamilyName)
+                        ? "CustomFont"
+                        : resourceFont.FamilyName;
+                    platformTypeface = new ProGpuTypeface(
+                        resourceFont,
+                        resourceFont.FontData,
+                        resourceFamilyName,
+                        ToFontWeight(resourceFont.WeightClass),
+                        resourceFont.IsItalic ? FontStyle.Italic : FontStyle.Normal,
+                        ToFontStretch(resourceFont.WidthClass),
+                        fontSimulations);
+                    return true;
+                }
+#endif
                 using var memory = new MemoryStream();
                 stream.CopyTo(memory);
                 var data = memory.ToArray();

@@ -14,7 +14,9 @@
     <Compile Include="DispatcherTests.cs" />
     <Compile Include="IconTests.cs" />
     <Compile Include="InputMappingTests.cs" />
+    <Compile Include="SharedDeviceSelectionTests.cs" />
     <Compile Include="SilkNetFramebufferAddressProviderTests.cs" />
+    <Compile Include="SilkNetFramebufferManagerTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" />

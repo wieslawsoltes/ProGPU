@@ -4,6 +4,10 @@ using System.Numerics;
 using System.Threading;
 using Avalonia.Media;
 using Avalonia.Platform;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+using Avalonia.Rendering.Composition.Drawing;
+using Avalonia.Rendering.Composition.Server;
+#endif
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
 using ProGPU.Vector;
@@ -15,14 +19,36 @@ namespace Avalonia.ProGpu
     internal partial class DrawingContextImpl : IDrawingContextImpl,
         IDrawingContextWithAcrylicLikeSupport,
         IDrawingContextImplWithEffects
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        , ICompositionRenderDataDrawingContextFeature
+        , ICompositionVisualTreeDrawingContextFeature
+#endif
     {
         private const string ProGpuSurfaceHandleDescriptor = "WGPU_SURFACE";
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        private static readonly bool s_useRetainedAvaloniaScene =
+            !string.Equals(
+                Environment.GetEnvironmentVariable("PROGPU_AVALONIA_RETAINED_SCENE"),
+                "0",
+                StringComparison.Ordinal);
+#endif
+        private static readonly bool s_useDirectPresentationSurface =
+            !string.Equals(
+                Environment.GetEnvironmentVariable(
+                    "PROGPU_AVALONIA_DIRECT_PRESENTATION"),
+                "0",
+                StringComparison.Ordinal);
         private readonly IDisposable?[]? _disposables;
         private readonly ILockedFramebuffer? _framebuffer;
         private readonly bool _preserveRecordedCommandsOnDispose;
         private readonly bool _disableSubpixelTextRendering;
         private readonly OffscreenTextureCache _offscreenCache;
         private readonly WgpuContext _gpuContext;
+        private readonly GpuTexture? _gpuRenderTarget;
+        private readonly object? _gpuRenderSynchronizationLock;
+        private readonly Action? _gpuRenderStarting;
+        private readonly Action<bool>? _gpuRenderCompleted;
+        private readonly string _presentationPath;
         private readonly Matrix? _postTransform;
         internal readonly PixelSize _size;
         private Matrix _currentTransform = Matrix.Identity;
@@ -30,6 +56,9 @@ namespace Avalonia.ProGpu
         private Vector4 _clearColor = new Vector4(1f, 1f, 1f, 1f);
         private DrawingContextState? _state;
         private int _opacityMaskDepth;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        private bool _recordingRetainedCompositionCommands;
+#endif
         private bool _leased;
         private bool _disposed;
         private bool _recordingContextReturned;
@@ -102,6 +131,11 @@ namespace Avalonia.ProGpu
             public object? Gpu;
             public object? CurrentSession;
             public object? CacheHolder;
+            public GpuTexture? GpuRenderTarget;
+            public object? GpuRenderSynchronizationLock;
+            public Action? GpuRenderStarting;
+            public Action<bool>? GpuRenderCompleted;
+            public string? PresentationPath;
         }
 
         private sealed class ProGpuLeaseFeature : IProGpuApiLeaseFeature
@@ -208,6 +242,11 @@ namespace Avalonia.ProGpu
             _preserveRecordedCommandsOnDispose = createInfo.PreserveRecordedCommandsOnDispose;
             _disableSubpixelTextRendering = createInfo.DisableSubpixelTextRendering;
             _offscreenCache = (createInfo.CacheHolder as OffscreenTextureCache) ?? GetFallbackCache();
+            _gpuRenderTarget = createInfo.GpuRenderTarget;
+            _gpuRenderSynchronizationLock =
+                createInfo.GpuRenderSynchronizationLock;
+            _gpuRenderStarting = createInfo.GpuRenderStarting;
+            _gpuRenderCompleted = createInfo.GpuRenderCompleted;
             DrawingContext = _preserveRecordedCommandsOnDispose
                 ? new ProGPU.Scene.DrawingContext()
                 : _offscreenCache.RentRecordingContext();
@@ -229,8 +268,23 @@ namespace Avalonia.ProGpu
                     }
                 }
             }
+            _presentationPath =
+                createInfo.PresentationPath ??
+                (_framebuffer is IPlatformHandle
+                    {
+                        HandleDescriptor:
+                            ProGpuSurfaceHandleDescriptor
+                    }
+                    ? "SilkNetWebGpuSurface"
+                    : "AvaloniaFramebuffer");
 
-            if (createInfo.Size.HasValue)
+            if (_gpuRenderTarget != null)
+            {
+                _size = new PixelSize(
+                    checked((int)_gpuRenderTarget.Width),
+                    checked((int)_gpuRenderTarget.Height));
+            }
+            else if (createInfo.Size.HasValue)
             {
                 _size = createInfo.Size.Value;
             }
@@ -243,15 +297,15 @@ namespace Avalonia.ProGpu
                 _size = default;
             }
 
-            var preferredFormat = TextureFormat.Bgra8Unorm;
-            if (_framebuffer != null)
+            var preferredFormat = _gpuRenderTarget?.Format ?? TextureFormat.Bgra8Unorm;
+            if (_gpuRenderTarget == null && _framebuffer != null)
             {
                 if (_framebuffer.Format == PixelFormats.Rgba8888)
                 {
                     preferredFormat = TextureFormat.Rgba8Unorm;
                 }
             }
-            else
+            else if (_gpuRenderTarget == null)
             {
                 var currentContext = WgpuContext.Current;
                 if (currentContext != null)
@@ -259,9 +313,26 @@ namespace Avalonia.ProGpu
                     preferredFormat = currentContext.SwapChainFormat;
                 }
             }
-            EnsureGpuContext(_framebuffer, preferredFormat);
-            _gpuContext = s_wgpuContext ??
-                throw new InvalidOperationException("ProGPU did not initialize a WebGPU context.");
+            if (_gpuRenderTarget != null)
+            {
+                _gpuContext = _gpuRenderTarget.Context;
+                if (_gpuContext.IsDisposed)
+                {
+                    throw new ObjectDisposedException(nameof(WgpuContext));
+                }
+
+                lock (s_initLock)
+                {
+                    s_wgpuContext = _gpuContext;
+                    WgpuContext.Current = _gpuContext;
+                }
+            }
+            else
+            {
+                EnsureGpuContext(_framebuffer, preferredFormat);
+                _gpuContext = s_wgpuContext ??
+                    throw new InvalidOperationException("ProGPU did not initialize a WebGPU context.");
+            }
             _state = RentDrawingContextState();
         }
 
@@ -316,7 +387,13 @@ namespace Avalonia.ProGpu
 
         public void Reset()
         {
+            if (_disposed && _preserveRecordedCommandsOnDispose)
+            {
+                _state = RentDrawingContextState();
+                _disposed = false;
+            }
             CheckLease();
+            DiscardUnbalancedEffectScopes();
             _currentTransform = Matrix.Identity;
             _currentOpacity = 1.0;
             State.Clear();
@@ -345,11 +422,8 @@ namespace Avalonia.ProGpu
 
             if (source is IDrawableBitmapImpl drawable)
             {
-                if (drawable.Texture == null)
-                {
-                    drawable.UploadToGpu();
-                }
-                if (drawable.Texture != null)
+                var texture = ResolveBitmapTexture(drawable);
+                if (texture != null)
                 {
                     if (!NearlyEqual(opacity, 1.0))
                     {
@@ -357,7 +431,7 @@ namespace Avalonia.ProGpu
                     }
 
                     DrawingContext.DrawTexture(
-                        drawable.Texture,
+                        texture,
                         ToLocalProGpuRect(destRect),
                         ToLocalProGpuRect(sourceRect),
                         ToMatrix4x4(RenderTransform));
@@ -368,6 +442,30 @@ namespace Avalonia.ProGpu
                     }
                 }
             }
+        }
+
+        private GpuTexture? ResolveBitmapTexture(
+            IDrawableBitmapImpl drawable)
+        {
+            if (drawable is IContextPortableDrawableBitmapImpl portable)
+            {
+                return portable.GetTexture(_gpuContext);
+            }
+
+            if (drawable.Texture == null)
+            {
+                drawable.UploadToGpu();
+            }
+
+            var texture = drawable.Texture;
+            if (texture != null &&
+                !texture.Context.SharesDeviceWith(_gpuContext))
+            {
+                throw new InvalidOperationException(
+                    "The bitmap texture belongs to a different WebGPU render context/device domain.");
+            }
+
+            return texture;
         }
 
         public void DrawBitmap(IBitmapImpl source, IBrush opacityMask, Avalonia.Rect opacityMaskRect, Avalonia.Rect destRect)
@@ -595,15 +693,14 @@ namespace Avalonia.ProGpu
                 var pBrush = ConvertBrush(foreground, run.Bounds);
                 if (pBrush == null) return;
 
+                var simulations = run.Typeface.FontSimulations;
+#if !AVALONIA11
+                var effectiveTextOptions = GetEffectiveTextOptions();
+#endif
                 if (foreground is ISolidColorBrush &&
                     pBrush is ProGPU.Vector.SolidColorBrush &&
-                    !run.Typeface.Font.HasColorGlyphs &&
-                    !run.Typeface.Font.HasBitmapGlyphs)
+                    !run.Typeface.Font.HasColorGlyphs)
                 {
-                    var simulations = run.Typeface.FontSimulations;
-#if !AVALONIA11
-                    var effectiveTextOptions = GetEffectiveTextOptions();
-#endif
                     DrawingContext.DrawGlyphRun(
                         run.GlyphIndices,
                         run.ProGpuGlyphPositions,
@@ -616,11 +713,12 @@ namespace Avalonia.ProGpu
                         isItalic: (simulations & FontSimulations.Oblique) != 0,
 #if AVALONIA11
                         textRenderingMode: ToProGpuTextRenderingMode(RenderOptions.TextRenderingMode),
-                        textHintingMode: ProGPU.Scene.TextHintingMode.Auto);
+                        textHintingMode: ProGPU.Scene.TextHintingMode.Auto,
 #else
                         textRenderingMode: ToProGpuTextRenderingMode(effectiveTextOptions.TextRenderingMode),
-                        textHintingMode: ToProGpuTextHintingMode(effectiveTextOptions.TextHintingMode));
+                        textHintingMode: ToProGpuTextHintingMode(effectiveTextOptions.TextHintingMode),
 #endif
+                        preferGlyphAtlas: run.Typeface.Font.HasBitmapGlyphs);
                     return;
                 }
 
@@ -638,24 +736,53 @@ namespace Avalonia.ProGpu
                     var position = run.GlyphPositions[i];
                     var origin = run.BaselineOrigin + new Vector(position.X, position.Y);
 
-                    if (BitmapGlyphCache.TryGetTexture(
-                            run.Typeface.Font,
+                    if (run.Typeface.Font.HasBitmapGlyphs &&
+                        run.Typeface.Font.TryGetBitmapGlyph(
                             glyphIndex,
-                            run.FontRenderingEmSize,
-                            out var bitmapGlyph))
+                            (float)run.FontRenderingEmSize,
+                            out _))
                     {
-                        var metrics = bitmapGlyph.Value.Metrics;
-                        var bounds = metrics.GetBounds(origin, run.FontRenderingEmSize);
                         if (!NearlyEqual(colorGlyphOpacity, 1.0))
                         {
                             DrawingContext.PushOpacity((float)colorGlyphOpacity);
                         }
 
-                        DrawingContext.DrawTexture(
-                            bitmapGlyph.Value.Texture,
-                            ToLocalProGpuRect(bounds),
-                            ToLocalProGpuRect(bitmapGlyph.Value.SourceRect),
-                            renderTransform);
+                        DrawingContext.DrawGlyphRunRange(
+                            run.GlyphIndices,
+                            run.ProGpuGlyphPositions,
+                            i,
+                            1,
+                            run.Typeface.Font,
+                            (float)run.FontRenderingEmSize,
+                            _offscreenCache.GetSolidBrush(
+                                byte.MaxValue,
+                                byte.MaxValue,
+                                byte.MaxValue,
+                                byte.MaxValue,
+                                1f),
+                            new Vector2(
+                                (float)run.BaselineOrigin.X,
+                                (float)run.BaselineOrigin.Y),
+                            renderTransform,
+                            isBold:
+                                (simulations & FontSimulations.Bold) != 0,
+                            isItalic:
+                                (simulations & FontSimulations.Oblique) != 0,
+#if AVALONIA11
+                            textRenderingMode:
+                                ToProGpuTextRenderingMode(
+                                    RenderOptions.TextRenderingMode),
+                            textHintingMode:
+                                ProGPU.Scene.TextHintingMode.Auto,
+#else
+                            textRenderingMode:
+                                ToProGpuTextRenderingMode(
+                                    effectiveTextOptions.TextRenderingMode),
+                            textHintingMode:
+                                ToProGpuTextHintingMode(
+                                    effectiveTextOptions.TextHintingMode),
+#endif
+                            preferGlyphAtlas: true);
 
                         if (!NearlyEqual(colorGlyphOpacity, 1.0))
                         {
@@ -906,8 +1033,199 @@ namespace Avalonia.ProGpu
         {
             if (featureType == typeof(IProGpuApiLeaseFeature))
                 return new ProGpuLeaseFeature(this);
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+            if (featureType == typeof(ICompositionRenderDataDrawingContextFeature))
+                return this;
+            if (s_useRetainedAvaloniaScene &&
+                featureType == typeof(ICompositionVisualTreeDrawingContextFeature))
+                return this;
+#endif
             return null;
         }
+
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        bool ICompositionVisualTreeDrawingContextFeature.TryRender(
+            ServerCompositionTarget target,
+            ServerCompositionVisual root,
+            LtrbRect clip,
+            out int visitedVisuals,
+            out int renderedVisuals)
+        {
+            CheckLease();
+            AvaloniaCompositionScene scene =
+                _offscreenCache.GetOrCreateCompositionScene(target.Id);
+            if (!scene.TrySynchronize(
+                    target,
+                    root,
+                    clip,
+                    this,
+                    out visitedVisuals,
+                    out renderedVisuals) ||
+                scene.Root == null)
+            {
+                _offscreenCache.RemoveCompositionScene(target.Id);
+                return false;
+            }
+
+            DrawingContext.DrawVisual(
+                scene.Root,
+                ToMatrix4x4(RenderTransform));
+            return true;
+        }
+
+        internal void RecordRetainedCompositionVisual(
+            ServerCompositionVisual source,
+            LtrbRect clip,
+            Avalonia.Media.RenderOptions renderOptions,
+            Avalonia.Media.TextOptions textOptions,
+            ProGPU.Scene.DrawingContext destination)
+        {
+            var ownerContext = DrawingContext;
+            var ownerTransform = _currentTransform;
+            var ownerOpacity = _currentOpacity;
+            var ownerRenderOptions = RenderOptions;
+            var ownerTextOptions = TextOptions;
+            int ownerOpacityMaskDepth = _opacityMaskDepth;
+            bool ownerRecordingRetainedCompositionCommands =
+                _recordingRetainedCompositionCommands;
+
+            destination.Clear();
+            DrawingContext = destination;
+            _currentTransform = _postTransform?.Invert() ?? Matrix.Identity;
+            _currentOpacity = 1;
+            RenderOptions = renderOptions;
+            TextOptions = textOptions;
+            _opacityMaskDepth = 0;
+            _recordingRetainedCompositionCommands = true;
+            try
+            {
+                source.RenderRetainedContent(this, clip);
+                destination.TrimRetainedCommandCapacity();
+            }
+            finally
+            {
+                _recordingRetainedCompositionCommands =
+                    ownerRecordingRetainedCompositionCommands;
+                _opacityMaskDepth = ownerOpacityMaskDepth;
+                TextOptions = ownerTextOptions;
+                RenderOptions = ownerRenderOptions;
+                _currentOpacity = ownerOpacity;
+                _currentTransform = ownerTransform;
+                DrawingContext = ownerContext;
+            }
+        }
+
+        internal (int visited, int rendered) RecordRetainedCompositionSubtree(
+            ServerCompositionVisual source,
+            ProGPU.Scene.DrawingContext destination)
+        {
+            var ownerContext = DrawingContext;
+            var ownerTransform = _currentTransform;
+            var ownerOpacity = _currentOpacity;
+            var ownerRenderOptions = RenderOptions;
+            var ownerTextOptions = TextOptions;
+            int ownerOpacityMaskDepth = _opacityMaskDepth;
+            bool ownerRecordingRetainedCompositionCommands =
+                _recordingRetainedCompositionCommands;
+
+            destination.Clear();
+            DrawingContext = destination;
+            _currentTransform = _postTransform?.Invert() ?? Matrix.Identity;
+            _currentOpacity = 1;
+            RenderOptions = default;
+            TextOptions = default;
+            _opacityMaskDepth = 0;
+            _recordingRetainedCompositionCommands = true;
+            try
+            {
+                var result = source.Render(
+                    this,
+                    LtrbRect.Infinite,
+                    dirtyRects: null,
+                    renderChildren: true,
+                    skipRootVisualTransform: false,
+                    renderingToBitmapCache: false);
+                destination.TrimRetainedCommandCapacity();
+                return result;
+            }
+            finally
+            {
+                _recordingRetainedCompositionCommands =
+                    ownerRecordingRetainedCompositionCommands;
+                _opacityMaskDepth = ownerOpacityMaskDepth;
+                TextOptions = ownerTextOptions;
+                RenderOptions = ownerRenderOptions;
+                _currentOpacity = ownerOpacity;
+                _currentTransform = ownerTransform;
+                DrawingContext = ownerContext;
+            }
+        }
+
+        bool ICompositionRenderDataDrawingContextFeature.TryRender(
+            ServerCompositionRenderData renderData)
+        {
+            CheckLease();
+
+            // These options affect materialized commands and therefore need to
+            // become part of the retained key before this fast path can use them.
+            if (RenderOptions != default || TextOptions != default)
+                return false;
+
+            // The retained Avalonia scene already owns a stable command list for
+            // this visual. Expanding the immutable render-data nodes directly
+            // into that list avoids a second GpuPicture command array and its
+            // per-revision copy. The outer recording scope owns transforms and
+            // retained resource leases just as it does for ordinary commands.
+            if (_recordingRetainedCompositionCommands)
+            {
+                renderData.Render(this);
+                return true;
+            }
+
+            if (!_offscreenCache.TryGetCompositionPicture(
+                    renderData.RetainedId,
+                    renderData.Revision,
+                    out GpuPicture? picture))
+            {
+                var recorder = new GpuPictureRecorder();
+                var recordingContext = recorder.BeginRecording(
+                    renderData.Bounds?.ToRect() is { } bounds
+                        ? ToLocalProGpuRect(bounds)
+                        : default);
+                var ownerContext = DrawingContext;
+                var ownerTransform = _currentTransform;
+                var ownerOpacity = _currentOpacity;
+                GpuPicture? recorded = null;
+
+                DrawingContext = recordingContext;
+                _currentTransform = _postTransform?.Invert() ?? Matrix.Identity;
+                _currentOpacity = 1;
+                try
+                {
+                    renderData.Render(this);
+                    recorded = recorder.EndRecording();
+                    _offscreenCache.StoreCompositionPicture(
+                        renderData.RetainedId,
+                        renderData.Revision,
+                        recorded);
+                    picture = recorded;
+                }
+                finally
+                {
+                    _currentTransform = ownerTransform;
+                    _currentOpacity = ownerOpacity;
+                    DrawingContext = ownerContext;
+                    if (recorded == null)
+                        recordingContext.Clear();
+                }
+            }
+
+            DrawingContext.DrawPictureTransformed(
+                picture!,
+                ToMatrix4x4(RenderTransform));
+            return true;
+        }
+#endif
 
         [ThreadStatic]
         private static WgpuContext? s_wgpuContext;
@@ -921,7 +1239,13 @@ namespace Avalonia.ProGpu
                 InitialColorGlyphAtlasSize = 64,
                 GlyphUniformStagingBytes = 16 * 1024,
                 GlyphCoverageStagingBytes = GlyphAtlas.DefaultCoverageRingBufferSize,
-                EnableGpuHitTesting = false
+                EnableGpuHitTesting = false,
+                PrimarySampleCount = 1,
+                EnableIncrementalScenePages = !string.Equals(
+                    Environment.GetEnvironmentVariable(
+                        "PROGPU_AVALONIA_INCREMENTAL_SCENE_PAGES"),
+                    "0",
+                    StringComparison.Ordinal)
             };
 
         private static Compositor GetCompositor(WgpuContext context, TextureFormat format)
@@ -1061,17 +1385,25 @@ namespace Avalonia.ProGpu
             }
         }
 
-        private static (GpuTexture texture, GpuTextureReadbackBuffer readbackBuffer) GetOffscreenResources(
+        internal static WgpuContext GetOrCreateStandaloneGpuContext(
+            TextureFormat preferredFormat)
+        {
+            EnsureGpuContext(null, preferredFormat);
+            return s_wgpuContext ??
+                throw new InvalidOperationException(
+                    "ProGPU did not initialize a WebGPU context.");
+        }
+
+        internal static GpuTexture GetOffscreenTexture(
             OffscreenTextureCache cache, WgpuContext context, uint width, uint height, TextureFormat format)
         {
             if (cache.CachedTexture != null &&
                 cache.CachedWidth == width &&
                 cache.CachedHeight == height &&
                 cache.CachedTexture.Format == format &&
-                cache.CachedTexture.Context == context &&
-                cache.CachedReadbackBuffer != null)
+                cache.CachedTexture.Context == context)
             {
-                return (cache.CachedTexture, cache.CachedReadbackBuffer);
+                return cache.CachedTexture;
             }
 
             cache.Invalidate(context);
@@ -1088,13 +1420,25 @@ namespace Avalonia.ProGpu
                 "Avalonia offscreen target"
             );
 
-            cache.CachedReadbackBuffer = new GpuTextureReadbackBuffer(context);
+            return cache.CachedTexture;
+        }
 
-            return (cache.CachedTexture, cache.CachedReadbackBuffer);
+        internal static GpuTextureReadbackBuffer GetOffscreenReadbackBuffer(
+            OffscreenTextureCache cache,
+            WgpuContext context)
+        {
+            return cache.CachedReadbackBuffer ??=
+                new GpuTextureReadbackBuffer(context);
         }
 
         private unsafe void FlushToFramebuffer()
         {
+            if (_gpuRenderTarget != null)
+            {
+                FlushToGpuRenderTarget(_gpuRenderTarget);
+                return;
+            }
+
             if (_framebuffer == null) return;
             if (DrawingContext.Commands.Count == 0) return;
 
@@ -1114,14 +1458,89 @@ namespace Avalonia.ProGpu
             {
                 if (context.IsDisposed) return;
 
-                var compositor = GetCompositor(context, preferredFormat);
-
-                var (texture, readbackBuffer) = GetOffscreenResources(_offscreenCache, context, width, height, preferredFormat);
                 var hostFrame = CreateHostFrame(width, height);
+                var drawingVisual = _offscreenCache.GetOrUpdateRecordedVisual(
+                    DrawingContext,
+                    hostFrame.LogicalSize);
 
-                var drawingVisual = new RecordedDrawingVisual(DrawingContext);
-                drawingVisual.Size = hostFrame.LogicalSize;
+                if (s_useDirectPresentationSurface &&
+                    TryGetSurfacePointer(
+                        _framebuffer,
+                        out var directSurfacePointer))
+                {
+                    context.ReconfigureIfNeeded(width, height);
+                    var surfaceTexture = new SurfaceTexture();
+                    context.Wgpu.SurfaceGetCurrentTexture(
+                        (Surface*)directSurfacePointer,
+                        &surfaceTexture);
+                    TextureView* targetView = null;
+                    try
+                    {
+                        if (surfaceTexture.Status ==
+                            SurfaceGetCurrentTextureStatus.Success)
+                        {
+                            var viewDescriptor = new TextureViewDescriptor
+                            {
+                                Format = context.SwapChainFormat,
+                                Dimension = TextureViewDimension.Dimension2D,
+                                BaseMipLevel = 0,
+                                MipLevelCount = 1,
+                                BaseArrayLayer = 0,
+                                ArrayLayerCount = 1,
+                                Aspect = TextureAspect.All
+                            };
+                            targetView = context.Wgpu.TextureCreateView(
+                                surfaceTexture.Texture,
+                                &viewDescriptor);
+                            if (targetView != null)
+                            {
+                                var directCompositor = GetCompositor(
+                                    context,
+                                    context.SwapChainFormat);
+                                Vector4 previousClearColor =
+                                    directCompositor.ClearColor;
+                                try
+                                {
+                                    directCompositor.ClearColor = _clearColor;
+                                    directCompositor.RenderScene(
+                                        drawingVisual,
+                                        hostFrame,
+                                        targetView);
+                                }
+                                finally
+                                {
+                                    directCompositor.ClearColor =
+                                        previousClearColor;
+                                }
 
+                                ReportCompositorFrame(directCompositor);
+                                context.Wgpu.SurfacePresent(
+                                    (Surface*)directSurfacePointer);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        if (targetView != null)
+                        {
+                            context.Wgpu.TextureViewRelease(targetView);
+                        }
+                        if (surfaceTexture.Texture != null)
+                        {
+                            context.Wgpu.TextureRelease(
+                                surfaceTexture.Texture);
+                        }
+                    }
+                    return;
+                }
+
+                var compositor = GetCompositor(context, preferredFormat);
+                var texture = GetOffscreenTexture(
+                    _offscreenCache,
+                    context,
+                    width,
+                    height,
+                    preferredFormat);
                 compositor.RenderOffscreen(
                     drawingVisual,
                     hostFrame,
@@ -1130,10 +1549,7 @@ namespace Avalonia.ProGpu
                     _clearColor,
                     loadExistingContents: false
                 );
-                var metrics = compositor.Metrics;
-                metrics.RecordedCommandCount = DrawingContext.Commands.Count;
-                metrics.RecordedCommandCapacity = DrawingContext.Commands.Capacity;
-                ProGpuRenderingDiagnostics.ReportFrame(metrics);
+                ReportCompositorFrame(compositor);
                 _offscreenCache.IsTextureFresh = false;
 
                 if (TryGetSurfacePointer(_framebuffer, out var surfacePointer))
@@ -1179,9 +1595,108 @@ namespace Avalonia.ProGpu
                     return;
                 }
 
+                var readbackBuffer = GetOffscreenReadbackBuffer(
+                    _offscreenCache,
+                    context);
                 readbackBuffer.TryReadTextureRows(texture, width, height, (void*)_framebuffer.Address, (uint)_framebuffer.RowBytes);
                 context.CleanupPendingResources();
             }
+        }
+
+        private void FlushToGpuRenderTarget(GpuTexture texture)
+        {
+            if (_gpuRenderSynchronizationLock != null)
+            {
+                lock (_gpuRenderSynchronizationLock)
+                {
+                    FlushToGpuRenderTargetCore(texture);
+                }
+                return;
+            }
+
+            FlushToGpuRenderTargetCore(texture);
+        }
+
+        private void FlushToGpuRenderTargetCore(GpuTexture texture)
+        {
+            var context = texture.Context;
+            lock (context.RenderLock)
+            {
+                if (context.IsDisposed || texture.IsDisposed)
+                {
+                    return;
+                }
+
+                // The optional owner lock is already held before the device
+                // lock. Publish CPU/version invalidation only after both are
+                // held, so neither a CPU boundary nor another same-device GPU
+                // consumer can observe the new version with old pixels.
+                _gpuRenderStarting?.Invoke();
+                var hostFrame = CreateHostFrame(texture.Width, texture.Height);
+                var drawingVisual = _offscreenCache.GetOrUpdateRecordedVisual(
+                    DrawingContext,
+                    hostFrame.LogicalSize);
+                var compositor = GetCompositor(context, texture.Format);
+                bool renderSucceeded = false;
+                try
+                {
+                    compositor.RenderOffscreen(
+                        drawingVisual,
+                        hostFrame,
+                        texture,
+                        0.0f,
+                        _clearColor,
+                        loadExistingContents: false);
+                    texture.NotifyExternalContentChanged();
+                    ReportCompositorFrame(compositor);
+                    renderSucceeded = true;
+                }
+                finally
+                {
+                    _gpuRenderCompleted?.Invoke(renderSucceeded);
+                }
+            }
+        }
+
+        private void ReportCompositorFrame(Compositor compositor)
+        {
+            var metrics = compositor.Metrics;
+            metrics.PresentationPath = _presentationPath;
+            metrics.RecordedCommandCount = DrawingContext.Commands.Count;
+            metrics.RecordedCommandCapacity = DrawingContext.Commands.Capacity;
+            metrics.RetainedCompositionPictureCount =
+                _offscreenCache.CompositionPictureCount;
+            metrics.RetainedCompositionPictureHits =
+                _offscreenCache.CompositionPictureHits;
+            metrics.RetainedCompositionPictureMisses =
+                _offscreenCache.CompositionPictureMisses;
+            metrics.RetainedCompositionPictureCompilations =
+                _offscreenCache.CompositionPictureCompilations;
+            metrics.BitmapGlyphMetricCacheCount =
+                BitmapGlyphCache.CachedMetricCount;
+            metrics.BitmapGlyphDecodedPixelBytes =
+                BitmapGlyphCache.CachedDecodedPixelBytes;
+            metrics.BitmapGlyphMetricEvictions =
+                BitmapGlyphCache.MetricEvictionCount;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+            metrics.RetainedCompositionSceneCount =
+                _offscreenCache.CompositionSceneCount;
+            metrics.RetainedCompositionSceneNodeCount =
+                _offscreenCache.CompositionSceneNodeCount;
+            metrics.RetainedCompositionFallbackNodeCount =
+                _offscreenCache.CompositionFallbackNodeCount;
+            metrics.RetainedCompositionCustomVisualNodeCount =
+                _offscreenCache.CompositionCustomVisualNodeCount;
+            metrics.RetainedCompositionCustomVisualCompilations =
+                _offscreenCache.CompositionCustomVisualCompilations;
+            metrics.RetainedCompositionSceneFullSynchronizations =
+                _offscreenCache.CompositionSceneFullSynchronizations;
+            metrics.RetainedCompositionSceneIncrementalSynchronizations =
+                _offscreenCache.CompositionSceneIncrementalSynchronizations;
+            metrics.RetainedCompositionSceneUnchangedReuses =
+                _offscreenCache.CompositionSceneUnchangedReuses;
+#endif
+            ProGpuRenderingDiagnostics.ReportFrame(metrics);
         }
 
         public void Dispose()
@@ -1189,6 +1704,7 @@ namespace Avalonia.ProGpu
             if (_disposed)
                 return;
             CheckLease();
+            DiscardUnbalancedEffectScopes();
             try
             {
                 FlushToFramebuffer();
@@ -1230,8 +1746,11 @@ namespace Avalonia.ProGpu
         }
 
         private Vector2 TransformPoint(Point pt)
+            => TransformPoint(pt, RenderTransform);
+
+        private static Vector2 TransformPoint(Point pt, Matrix transform)
         {
-            var p = pt * RenderTransform;
+            var p = pt * transform;
             return new Vector2((float)p.X, (float)p.Y);
         }
 
@@ -1423,8 +1942,8 @@ namespace Avalonia.ProGpu
                 return true;
             }
 
-            bitmap.UploadToGpu();
-            if (bitmap.Texture == null)
+            var bitmapTexture = ResolveBitmapTexture(bitmap);
+            if (bitmapTexture == null)
             {
                 return true;
             }
@@ -1490,7 +2009,7 @@ namespace Avalonia.ProGpu
             }
 
             DrawingContext.DrawTexture(
-                bitmap.Texture,
+                bitmapTexture,
                 ToLocalProGpuRect(destinationRect),
                 ToLocalProGpuRect(textureSourceRect),
                 ToMatrix4x4(imageTransform),
@@ -1508,7 +2027,62 @@ namespace Avalonia.ProGpu
         private static bool RequiresBrushClipPath(IBrush? brush)
             => brush is ISceneBrush or ISceneBrushContent or IImageBrush;
 
-        private ProGPU.Vector.Brush? ConvertBrush(IBrush? avaloniaBrush, Avalonia.Rect? targetRect = null)
+        internal static bool SupportsRetainedCompositionBrush(IBrush brush) =>
+            brush is ISolidColorBrush or
+                ILinearGradientBrush or
+                IRadialGradientBrush or
+                IConicGradientBrush;
+
+        internal static bool SupportsRetainedCompositionOpacityMask(
+            IBrush brush) =>
+            SupportsRetainedCompositionBrush(brush) ||
+            brush is ISceneBrush or ISceneBrushContent or IImageBrush;
+
+        internal ProGPU.Vector.Brush? ConvertRetainedCompositionBrush(
+            IBrush? avaloniaBrush,
+            Avalonia.Rect targetRect) =>
+            ConvertBrush(avaloniaBrush, targetRect, Matrix.Identity);
+
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+        internal GpuPicture RecordRetainedCompositionOpacityMask(
+            IBrush mask,
+            Avalonia.Rect bounds)
+        {
+            var ownerTransform = _currentTransform;
+            var ownerOpacity = _currentOpacity;
+            var ownerRenderOptions = RenderOptions;
+            var ownerTextOptions = TextOptions;
+            int ownerOpacityMaskDepth = _opacityMaskDepth;
+
+            _currentTransform = _postTransform?.Invert() ?? Matrix.Identity;
+            _currentOpacity = 1;
+            RenderOptions = default;
+            TextOptions = default;
+            _opacityMaskDepth = 0;
+            try
+            {
+                return RecordOpacityMask(mask, bounds);
+            }
+            finally
+            {
+                _opacityMaskDepth = ownerOpacityMaskDepth;
+                TextOptions = ownerTextOptions;
+                RenderOptions = ownerRenderOptions;
+                _currentOpacity = ownerOpacity;
+                _currentTransform = ownerTransform;
+            }
+        }
+#endif
+
+        private ProGPU.Vector.Brush? ConvertBrush(
+            IBrush? avaloniaBrush,
+            Avalonia.Rect? targetRect = null) =>
+            ConvertBrush(avaloniaBrush, targetRect, RenderTransform);
+
+        private ProGPU.Vector.Brush? ConvertBrush(
+            IBrush? avaloniaBrush,
+            Avalonia.Rect? targetRect,
+            Matrix transform)
         {
             if (avaloniaBrush == null) return null;
 
@@ -1522,8 +2096,12 @@ namespace Avalonia.ProGpu
             else if (avaloniaBrush is ILinearGradientBrush linear)
             {
                 var bounds = targetRect ?? default;
-                var start = TransformPoint(linear.StartPoint.ToPixels(bounds));
-                var end = TransformPoint(linear.EndPoint.ToPixels(bounds));
+                var start = TransformPoint(
+                    linear.StartPoint.ToPixels(bounds),
+                    transform);
+                var end = TransformPoint(
+                    linear.EndPoint.ToPixels(bounds),
+                    transform);
                 var stops = new ProGPU.Vector.GradientStop[linear.GradientStops.Count];
                 for (int i = 0; i < stops.Length; i++)
                 {
@@ -1545,10 +2123,16 @@ namespace Avalonia.ProGpu
                 var bounds = targetRect ?? default;
                 var centerPoint = radial.Center.ToPixels(bounds);
                 var originPoint = radial.GradientOrigin.ToPixels(bounds);
-                var center = TransformPoint(centerPoint);
-                var origin = TransformPoint(originPoint);
-                var radiusXPoint = TransformPoint(centerPoint + new Vector(radial.RadiusX.ToValue(bounds.Width), 0));
-                var radiusYPoint = TransformPoint(centerPoint + new Vector(0, radial.RadiusY.ToValue(bounds.Height)));
+                var center = TransformPoint(centerPoint, transform);
+                var origin = TransformPoint(originPoint, transform);
+                var radiusXPoint = TransformPoint(
+                    centerPoint +
+                    new Vector(radial.RadiusX.ToValue(bounds.Width), 0),
+                    transform);
+                var radiusYPoint = TransformPoint(
+                    centerPoint +
+                    new Vector(0, radial.RadiusY.ToValue(bounds.Height)),
+                    transform);
                 var radiusX = Vector2.Distance(center, radiusXPoint);
                 var radiusY = Vector2.Distance(center, radiusYPoint);
                 var stops = new ProGPU.Vector.GradientStop[radial.GradientStops.Count];
@@ -1565,6 +2149,63 @@ namespace Avalonia.ProGpu
                 {
                     Opacity = opacity,
                     SpreadMethod = ToGradientSpreadMethod(radial.SpreadMethod)
+                };
+            }
+            else if (avaloniaBrush is IConicGradientBrush conic)
+            {
+                var bounds = targetRect ?? default;
+                Point centerPoint = conic.Center.ToPixels(bounds);
+                double startRadians =
+                    (conic.Angle - 90d) * Math.PI / 180d;
+                Point directionPoint = centerPoint + new Vector(
+                    Math.Cos(startRadians),
+                    Math.Sin(startRadians));
+                Vector2 center = TransformPoint(centerPoint, transform);
+                Vector2 direction = TransformPoint(
+                    directionPoint,
+                    transform) -
+                    center;
+                float startAngle = MathF.Atan2(
+                    direction.Y,
+                    direction.X) *
+                    (180f / MathF.PI);
+                if (startAngle < 0f)
+                    startAngle += 360f;
+
+                var stops =
+                    new ProGPU.Vector.GradientStop[
+                        conic.GradientStops.Count];
+                for (int i = 0; i < stops.Length; i++)
+                {
+                    IGradientStop stop = conic.GradientStops[i];
+                    Avalonia.Media.Color color = stop.Color;
+                    stops[i] = new ProGPU.Vector.GradientStop(
+                        new Vector4(
+                            color.R / 255f,
+                            color.G / 255f,
+                            color.B / 255f,
+                            color.A / 255f),
+                        (float)stop.Offset);
+                }
+
+                return new ProGPU.Vector.SweepGradientBrush(center, stops)
+                {
+                    Opacity = opacity,
+                    StartAngle = 0f,
+                    EndAngle = 360f,
+                    CoordinateTransform =
+                        Matrix4x4.CreateTranslation(
+                            -center.X,
+                            -center.Y,
+                            0f) *
+                        Matrix4x4.CreateRotationZ(
+                            -startAngle * MathF.PI / 180f) *
+                        Matrix4x4.CreateTranslation(
+                            center.X,
+                            center.Y,
+                            0f),
+                    SpreadMethod =
+                        ToGradientSpreadMethod(conic.SpreadMethod)
                 };
             }
 
@@ -1708,9 +2349,21 @@ namespace Avalonia.ProGpu
             );
         }
 
-        private static CompositorHostFrame CreateHostFrame(uint renderTargetWidth, uint renderTargetHeight)
+        internal static System.Numerics.Matrix4x4 ToProGpuMatrix(Avalonia.Matrix matrix) =>
+            ToMatrix4x4(matrix);
+
+        private static CompositorHostFrame CreateHostFrame(
+            uint renderTargetWidth,
+            uint renderTargetHeight)
         {
-            return CompositorHostFrame.FromRenderTarget(renderTargetWidth, renderTargetHeight, 1f);
+            // Avalonia's composition drawing context has already applied the
+            // target scaling to command transforms. ProGPU therefore consumes
+            // a physical-pixel command space here; applying Dpi again would
+            // double-scale culling, glyph raster size, and subpixel phase.
+            return CompositorHostFrame.FromRenderTarget(
+                renderTargetWidth,
+                renderTargetHeight,
+                1f);
         }
 
         private static bool TryGetDpiScale(Vector dpi, out double scaleX, out double scaleY)
@@ -1737,7 +2390,9 @@ namespace Avalonia.ProGpu
                 WgpuContext.Current = context;
                 s_wgpuContext = context;
                 var compositor = GetCompositor(context, texture.Format);
-                var hostFrame = CreateHostFrame(texture.Width, texture.Height);
+                var hostFrame = CreateHostFrame(
+                    texture.Width,
+                    texture.Height);
 
                 var drawingVisual = new RecordedDrawingVisual(sourceContext);
                 drawingVisual.Size = hostFrame.LogicalSize;
@@ -1750,6 +2405,7 @@ namespace Avalonia.ProGpu
                     new Vector4(0f, 0f, 0f, 0f), // Transparent clear color for layers
                     loadExistingContents: !isTextureFresh
                 );
+                texture.NotifyExternalContentChanged();
             }
         }
 
