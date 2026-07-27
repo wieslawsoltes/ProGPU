@@ -90,6 +90,8 @@ if [[ "${native_aot}" == "1" ]]; then
   fi
   restore_arguments+=(
     --runtime "${runtime_identifier}"
+    -p:PublishAot=true
+    -p:SelfContained=true
   )
 fi
 if [[ "${mode}" != "nuget" ]]; then
@@ -104,7 +106,7 @@ restore_arguments+=(
 dotnet "${restore_arguments[@]}"
 if [[ "${native_aot}" == "1" ]]; then
   publish_root="${isolated_root}/publish"
-  dotnet publish "${project}" \
+  NUGET_PACKAGES="${isolated_packages}" dotnet publish "${project}" \
     --configuration "${configuration}" \
     --runtime "${runtime_identifier}" \
     --no-restore \
@@ -112,6 +114,13 @@ if [[ "${native_aot}" == "1" ]]; then
     -p:PublishAot=true \
     -p:SelfContained=true
   app="${publish_root}/ProGpuAvaloniaPackageSmoke"
+  if [[ ! -x "${app}" ]] ||
+     [[ -e "${publish_root}/ProGpuAvaloniaPackageSmoke.dll" ]]; then
+    echo "NativeAOT did not produce a standalone native executable." >&2
+    exit 4
+  fi
+  native_aot_size="$(wc -c < "${app}" | tr -d '[:space:]')"
+  echo "NativeAOT executable: ${native_aot_size} bytes."
 else
   dotnet build "${project}" \
     --configuration "${configuration}" \
@@ -126,12 +135,21 @@ fi
 
 app_root="$(dirname "${app}")"
 native_root="${app_root}/runtimes/${runtime_identifier:-${host_runtime_identifier}}/native"
-native_environment=()
-if [[ -d "${native_root}" ]]; then
-  native_environment+=(
-    "DYLD_LIBRARY_PATH=${native_root}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
-  )
+if [[ ! -d "${native_root}" ]]; then
+  native_root="${app_root}"
 fi
+case "${kernel}" in
+  Darwin)
+    native_environment=(
+      "DYLD_LIBRARY_PATH=${native_root}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+    )
+    ;;
+  *)
+    native_environment=(
+      "LD_LIBRARY_PATH=${native_root}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    )
+    ;;
+esac
 
 if [[ "${native_aot}" == "1" ]]; then
   if env \
@@ -139,6 +157,7 @@ if [[ "${native_aot}" == "1" ]]; then
     PROGPU_PACKAGE_SMOKE_FRAMES="${PROGPU_PACKAGE_SMOKE_FRAMES:-20}" \
     PROGPU_PACKAGE_SMOKE_OUTPUT="${result_path}" \
     PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED="${require_retained}" \
+    PROGPU_PACKAGE_SMOKE_MULTI_WINDOW="${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" \
     "${app}"; then
     runtime_exit=0
   else
@@ -150,6 +169,7 @@ else
     PROGPU_PACKAGE_SMOKE_FRAMES="${PROGPU_PACKAGE_SMOKE_FRAMES:-20}" \
     PROGPU_PACKAGE_SMOKE_OUTPUT="${result_path}" \
     PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED="${require_retained}" \
+    PROGPU_PACKAGE_SMOKE_MULTI_WINDOW="${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" \
     dotnet "${app}"; then
     runtime_exit=0
   else
@@ -163,9 +183,16 @@ if [[ "${require_retained}" == "1" ]] &&
   retained_valid=0
 fi
 
+multi_window_valid=1
+if [[ "${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" == "1" ]] &&
+   ! grep -Eq '"MultiWindowLifecyclePassed"[[:space:]]*:[[:space:]]*true' "${result_path}" 2>/dev/null; then
+  multi_window_valid=0
+fi
+
 if [[ ! -s "${result_path}" ]] ||
    ! grep -Eq '"Passed"[[:space:]]*:[[:space:]]*true' "${result_path}" ||
-   [[ "${retained_valid}" != "1" ]]; then
+   [[ "${retained_valid}" != "1" ]] ||
+   [[ "${multi_window_valid}" != "1" ]]; then
   [[ -s "${result_path}" ]] && cat "${result_path}" >&2
   echo "The package-only runtime smoke did not satisfy the retained-rendering contract." >&2
   exit 3

@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -11,9 +12,32 @@ internal sealed class SmokeApplication : Application
         if (ApplicationLifetime is
             IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new SmokeWindow();
+            if (ReadBoolean(
+                    "PROGPU_PACKAGE_SMOKE_MULTI_WINDOW"))
+            {
+                desktop.ShutdownMode =
+                    ShutdownMode.OnExplicitShutdown;
+                var coordinator =
+                    new MultiWindowSmokeCoordinator(desktop);
+                coordinator.Start();
+            }
+            else
+            {
+                desktop.MainWindow = new SmokeWindow();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static bool ReadBoolean(string name)
+    {
+        string? value =
+            Environment.GetEnvironmentVariable(name);
+        return value is "1" ||
+               string.Equals(
+                   value,
+                   "true",
+                   StringComparison.OrdinalIgnoreCase);
     }
 }

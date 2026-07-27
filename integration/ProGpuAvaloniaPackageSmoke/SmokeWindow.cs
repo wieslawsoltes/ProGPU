@@ -15,6 +15,7 @@ namespace ProGpuAvaloniaPackageSmoke;
 internal sealed class SmokeWindow : Window
 {
     private readonly SmokePulseControl _pulse = new();
+    private readonly bool _standalone;
     private readonly int _targetFrames;
     private readonly string? _outputPath;
     private readonly bool _requireRetainedCompositor;
@@ -23,8 +24,9 @@ internal sealed class SmokeWindow : Window
     private bool _pulsePhase;
     private ProGpuCompositorMetrics _lastMetrics;
 
-    public SmokeWindow()
+    public SmokeWindow(bool standalone = true)
     {
+        _standalone = standalone;
         _requireRetainedCompositor =
             ReadBoolean(
                 "PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED");
@@ -71,8 +73,11 @@ internal sealed class SmokeWindow : Window
         _ = sender;
         _ = e;
         SilkNetPlatform.FramePreparing += OnFramePreparing;
-        ProGpuRenderingDiagnostics.FrameRendered +=
-            OnFrameRendered;
+        if (_standalone)
+        {
+            ProGpuRenderingDiagnostics.FrameRendered +=
+                OnFrameRendered;
+        }
     }
 
     private void OnFramePreparing()
@@ -159,8 +164,11 @@ internal sealed class SmokeWindow : Window
         _ = sender;
         _ = e;
         SilkNetPlatform.FramePreparing -= OnFramePreparing;
-        ProGpuRenderingDiagnostics.FrameRendered -=
-            OnFrameRendered;
+        if (_standalone)
+        {
+            ProGpuRenderingDiagnostics.FrameRendered -=
+                OnFrameRendered;
+        }
     }
 
     private static int ReadPositiveInt(string name)
