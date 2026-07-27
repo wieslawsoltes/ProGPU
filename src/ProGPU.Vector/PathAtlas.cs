@@ -1371,23 +1371,40 @@ public unsafe class PathAtlas : IDisposable
         // adversarial set cannot stall the render thread. Normal insertion remains
         // the allocation-free O(1) shelf path. Recovery may allocate so a live
         // frame is not rejected merely because one command order or heuristic
-        // fragmented otherwise usable atlas space.
-        List<RetryPath> livePaths = CollectCurrentFramePathsForRetry();
-        ResetCachedPaths();
-
-        if (!TryPackRecoveryPaths(
-                livePaths,
-                _atlasWidth,
-                _atlasHeight,
-                allowExactSearch: true,
+        // fragmented otherwise usable atlas space. An interrupted incremental
+        // compilation has not necessarily touched every path that the forced full
+        // retry will consume, so first retain the most recently used older path
+        // set as well (nested transactions may leave gaps in frame numbering).
+        // If that conservative union cannot fit, retry the authoritative partial
+        // live set alone rather than letting stale content force atlas growth.
+        List<RetryPath> currentPaths = CollectCurrentFramePathsForRetry();
+        List<RetryPath> retryPaths = CollectCurrentAndMostRecentFramePathsForRetry();
+        bool packed = TryPackRecoveryPathsAtAvailableSize(
+                retryPaths,
+                out uint packedAtlasWidth,
+                out uint packedAtlasHeight,
                 out List<RetryPlacement> placements,
                 out List<AtlasFreeRectangle> freeRectangles,
                 out RetryPathOrdering ordering,
-                out RecoveryPlacementHeuristic heuristic))
+                out RecoveryPlacementHeuristic heuristic);
+        if (!packed && retryPaths.Count != currentPaths.Count)
         {
-            for (int diagnosticIndex = 0; diagnosticIndex < livePaths.Count; diagnosticIndex++)
+            retryPaths = currentPaths;
+            packed = TryPackRecoveryPathsAtAvailableSize(
+                retryPaths,
+                out packedAtlasWidth,
+                out packedAtlasHeight,
+                out placements,
+                out freeRectangles,
+                out ordering,
+                out heuristic);
+        }
+
+        if (!packed)
+        {
+            for (int diagnosticIndex = 0; diagnosticIndex < retryPaths.Count; diagnosticIndex++)
             {
-                RetryPath diagnosticPath = livePaths[diagnosticIndex];
+                RetryPath diagnosticPath = retryPaths[diagnosticIndex];
                 ProGpuVectorDiagnostics.WriteLine(
                     $"[PathAtlas] Retry rectangle {diagnosticIndex}: {diagnosticPath.Width}x{diagnosticPath.Height}.");
             }
@@ -1398,7 +1415,16 @@ public unsafe class PathAtlas : IDisposable
             throw new InvalidOperationException(
                 $"PathAtlas could not deterministically pack the live path set in the configured " +
                 $"{_atlasWidth}x{_atlasHeight} atlas after multi-strategy retry packing " +
-                $"({livePaths.Count} live paths{exactSearchStatus}).");
+                $"({retryPaths.Count} live paths{exactSearchStatus}).");
+        }
+
+        ResetCachedPaths();
+        if (packedAtlasWidth != _atlasWidth ||
+            packedAtlasHeight != _atlasHeight)
+        {
+            ResizeEmptyAtlasForRecovery(
+                packedAtlasWidth,
+                packedAtlasHeight);
         }
 
         for (int index = 0; index < placements.Count; index++)
@@ -1427,8 +1453,104 @@ public unsafe class PathAtlas : IDisposable
 
         _recoveryFreeRectangles = freeRectangles;
         ProGpuVectorDiagnostics.WriteLine(
-            $"[PathAtlas] Deterministically packed {livePaths.Count} live paths for render retry " +
+            $"[PathAtlas] Deterministically packed {retryPaths.Count} live paths for render retry " +
             $"using {ordering}/{heuristic}, with {freeRectangles.Count} free rectangles remaining.");
+    }
+
+    private bool TryPackRecoveryPathsAtAvailableSize(
+        List<RetryPath> paths,
+        out uint packedAtlasWidth,
+        out uint packedAtlasHeight,
+        out List<RetryPlacement> placements,
+        out List<AtlasFreeRectangle> freeRectangles,
+        out RetryPathOrdering ordering,
+        out RecoveryPlacementHeuristic heuristic)
+    {
+        packedAtlasWidth = _atlasWidth;
+        packedAtlasHeight = _atlasHeight;
+        while (true)
+        {
+            if (TryPackRecoveryPaths(
+                    paths,
+                    packedAtlasWidth,
+                    packedAtlasHeight,
+                    allowExactSearch: true,
+                    out placements,
+                    out freeRectangles,
+                    out ordering,
+                    out heuristic))
+            {
+                return true;
+            }
+
+            if (!TryGetNextRecoveryAtlasSize(
+                    packedAtlasWidth,
+                    packedAtlasHeight,
+                    out packedAtlasWidth,
+                    out packedAtlasHeight))
+            {
+                placements = new List<RetryPlacement>();
+                freeRectangles = new List<AtlasFreeRectangle>();
+                ordering = default;
+                heuristic = default;
+                return false;
+            }
+        }
+    }
+
+    private bool TryGetNextRecoveryAtlasSize(
+        uint width,
+        uint height,
+        out uint nextWidth,
+        out uint nextHeight)
+    {
+        nextWidth = width;
+        nextHeight = height;
+        if (width >= _maxAtlasSize && height >= _maxAtlasSize)
+        {
+            return false;
+        }
+
+        if (height < _maxAtlasSize &&
+            (height <= width || width >= _maxAtlasSize))
+        {
+            nextHeight = Math.Min(_maxAtlasSize, checked(height * 2));
+        }
+        else if (width < _maxAtlasSize)
+        {
+            nextWidth = Math.Min(_maxAtlasSize, checked(width * 2));
+        }
+
+        return nextWidth != width || nextHeight != height;
+    }
+
+    private void ResizeEmptyAtlasForRecovery(uint width, uint height)
+    {
+        GpuTexture replacement = new(
+            _context,
+            width,
+            height,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc |
+            TextureUsage.RenderAttachment,
+            "Dynamic Path Coverage Atlas");
+        replacement.ClearRenderTarget();
+
+        GpuTexture previous = _atlasTexture;
+        uint previousWidth = _atlasWidth;
+        uint previousHeight = _atlasHeight;
+        _atlasTexture = replacement;
+        _atlasWidth = width;
+        _atlasHeight = height;
+        previous.Dispose();
+        TextureRevision++;
+        Generation++;
+        AtlasGrowthCount++;
+        _framesSinceAtlasResize = 0;
+        CapacityExceeded = false;
+        ProGpuVectorDiagnostics.WriteLine(
+            $"[PathAtlas] Grew empty recovery atlas from {previousWidth}x{previousHeight} " +
+            $"to {width}x{height} without copying invalidated coverage.");
     }
 
     private bool TryPackRecoveryPaths(
@@ -1847,6 +1969,51 @@ public unsafe class PathAtlas : IDisposable
         foreach (PathInfo info in _paths.Values)
         {
             if (info.LastUsedFrame != _frameNumber)
+            {
+                continue;
+            }
+
+            if (TryResolveRasterRectangle(
+                    info,
+                    out int xStart,
+                    out int yStart,
+                    out uint width,
+                    out uint height))
+            {
+                livePaths.Add(new RetryPath(info, xStart, yStart, width, height));
+            }
+            else
+            {
+                livePaths.Add(new RetryPath(info, 0, 0, 0, 0));
+            }
+        }
+
+        return livePaths;
+    }
+
+    private List<RetryPath> CollectCurrentAndMostRecentFramePathsForRetry()
+    {
+        uint mostRecentOlderFrame = 0;
+        bool hasOlderFrame = false;
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame >= _frameNumber)
+            {
+                continue;
+            }
+
+            if (!hasOlderFrame || info.LastUsedFrame > mostRecentOlderFrame)
+            {
+                mostRecentOlderFrame = info.LastUsedFrame;
+                hasOlderFrame = true;
+            }
+        }
+
+        var livePaths = new List<RetryPath>(_paths.Count);
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame != _frameNumber &&
+                (!hasOlderFrame || info.LastUsedFrame != mostRecentOlderFrame))
             {
                 continue;
             }

@@ -87,6 +87,73 @@ public sealed class PathAtlasExactRecoveryTests
             $"Budgeted exact recovery should terminate promptly; elapsed {stopwatch.Elapsed}.");
     }
 
+    [Fact]
+    public void RecoveryPreservesPriorControlCatalogPathsNeededByFullSceneRetry()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        (uint Width, uint Height)[] rasterSizes =
+        [
+            (270, 270),
+            (264, 264),
+            (32, 32),
+            (29, 22),
+            (23, 23),
+            (10, 32),
+            (20, 15),
+            (16, 16),
+            (359, 362),
+            (359, 362),
+            (27, 28),
+            (113, 10),
+            (28, 27),
+            (28, 26)
+        ];
+        PathGeometry[] paths = rasterSizes
+            .Select((size, index) => PrimitivePathGeometry.CreateRectangle(
+                index * 3f,
+                index * 5f,
+                size.Width - 8f,
+                size.Height - 8f))
+            .ToArray();
+
+        int[] priorOrder = [8, 9, 10, 11, 12, 13, 2, 3, 4, 5, 6, 7];
+        PathAtlas.PathInfo[] priorFrame = priorOrder
+            .Select(index => atlas.GetOrCreatePath(paths[index], scale: 1f))
+            .ToArray();
+        Assert.Equal(
+            priorOrder.Select(index => rasterSizes[index].Width),
+            priorFrame.Select(static info => info.Width));
+        // Growing the first-pass atlas invalidates normalized coordinates even
+        // when every rectangle was placed, so the compositor performs the same
+        // bounded repack before it can submit that frame.
+        atlas.ResetForRenderRetry();
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(1024u, atlas.AtlasHeight);
+
+        atlas.CleanupFrame();
+        // Compositor recovery transactions can advance the atlas frame counter
+        // without replaying every retained path, so the latest complete set is
+        // not necessarily numbered exactly currentFrame - 1.
+        atlas.CleanupFrame();
+        _ = paths
+            .Take(8)
+            .Select(path => atlas.GetOrCreatePath(path, scale: 1f))
+            .ToArray();
+        Assert.True(atlas.CapacityExceeded);
+        atlas.ResetForRenderRetry();
+        Assert.Equal(paths.Length, atlas.CachedPathCount);
+        Assert.Equal(1024u, atlas.AtlasWidth);
+        Assert.Equal(1024u, atlas.AtlasHeight);
+        PathAtlas.PathInfo[] recovered = paths
+            .Select(path => atlas.GetOrCreatePath(path, scale: 1f))
+            .ToArray();
+
+        Assert.False(atlas.CapacityExceeded);
+        Assert.Equal(rasterSizes.Select(static size => size.Width), recovered.Select(static info => info.Width));
+        Assert.Equal(rasterSizes.Select(static size => size.Height), recovered.Select(static info => info.Height));
+        AssertNonOverlapping(recovered, atlas.AtlasSize);
+    }
+
     private static void AssertNonOverlapping(
         PathAtlas.PathInfo[] paths,
         uint atlasSize)
