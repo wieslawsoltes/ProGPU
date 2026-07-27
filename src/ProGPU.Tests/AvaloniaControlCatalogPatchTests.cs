@@ -338,7 +338,11 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_panel.Children.Add(_topologyChild);",
+            "topologyFirstParent.Children.Add(topologyChild);",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "destination.Children.Add(_topologyChild);",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -350,7 +354,11 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AdornerLayer.SetAdorner(_target, _adornerVisual);",
+            "AdornerLayer.GetAdorner(firstTarget)",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AdornerLayer.SetAdornedElement(",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -577,7 +585,19 @@ public sealed class AvaloniaControlCatalogPatchTests
             patch,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_visuals.TryGet(\n                delta.BackendHandle,\n                delta.RetainedId,",
+            "backendOwner == 0",
+            scene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "backendHandle == 0",
+            scene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "delta.Source.RetainedBackendOwner == _ownerId",
+            scene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_visuals.TryGet(\n                backendHandle,\n                delta.RetainedId,",
             scene,
             StringComparison.Ordinal);
         Assert.Contains(
