@@ -1,0 +1,91 @@
+diff --git a/native/Avalonia.Native/src/OSX/metal.mm b/native/Avalonia.Native/src/OSX/metal.mm
+index 05f9fe0e34..5e18408e72 100644
+--- a/native/Avalonia.Native/src/OSX/metal.mm
++++ b/native/Avalonia.Native/src/OSX/metal.mm
+@@ -282,6 +282,10 @@ public:
+     _device = dynamic_cast<AvnMetalDevice*>(device);
+     _layer = [CAMetalLayer new];
+     _layer.opaque = false;
++    // ProGPU/Dawn imports the drawable IOSurface as a sampleable WebGPU
++    // render attachment. framebufferOnly drawables can use Apple's compressed
++    // '&BGA' IOSurface format, which Dawn cannot currently import.
++    _layer.framebufferOnly = false;
+     _layer.device = _device->device;
+     _target.setNoAddRef(new AvnMetalRenderTarget(_layer, _device));
+     return self;
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+index 7acfb303f0..3929922e34 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+@@ -230,10 +230,10 @@ public void Render()
+                 return;
+             }
+ 
+             var needLayer = _overlays.RequireLayer // Check if we don't need overlays
+-                            // Check if render target can be rendered to directly and preserves the previous frame
+-                            || !(_renderTarget.Properties.RetainsPreviousFrameContents
+-                                 && _renderTarget.Properties.IsSuitableForDirectRendering);
++                            // A direct non-retained target is valid: the
++                            // per-session property below requests a full redraw.
++                            || !_renderTarget.Properties.IsSuitableForDirectRendering;
+             
+             using (var renderTargetContext = _renderTarget.CreateDrawingContext(new(PixelSize, Scaling), out var properties))
+             using (var renderTiming = Diagnostic.BeginCompositorRenderPass())
+diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X11.csproj
+--- a/src/Avalonia.X11/Avalonia.X11.csproj
++++ b/src/Avalonia.X11/Avalonia.X11.csproj
+@@ -1,6 +1,7 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+   <PropertyGroup>
+-    <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' != 'true'">$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' == 'true'">$(AvsCurrentTargetFramework)</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <EnableRuntimeMarshalling>true</EnableRuntimeMarshalling>
+   </PropertyGroup>
+@@ -8,6 +9,10 @@
+   <ItemGroup>
+     <ProjectReference Include="..\..\packages\Avalonia\Avalonia.csproj" />
+-    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop.AtSpi\Avalonia.FreeDesktop.AtSpi.csproj" />
+     <Compile Include="..\Shared\RawEventGrouping.cs" />
+diff --git a/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+new file mode 100644
+index 0000000000..c5a430cad0
+--- /dev/null
++++ b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+@@ -0,0 +1,12 @@
++namespace Avalonia.Platform;
++
++/// <summary>
++/// Describes native-window surface constraints imposed by a rendering backend.
++/// </summary>
++internal interface IPlatformRenderInterfaceNativeSurfaceFeature
++{
++    /// <summary>
++    /// Gets whether native window surfaces must use an opaque-capable visual.
++    /// </summary>
++    bool RequiresOpaqueSurface { get; }
++}
+diff --git a/src/Avalonia.X11/X11Window.cs b/src/Avalonia.X11/X11Window.cs
+index 5643f18d87..21de5cd1f5 100644
+--- a/src/Avalonia.X11/X11Window.cs
++++ b/src/Avalonia.X11/X11Window.cs
+@@ -135,5 +135,10 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
+                 // the target sufrace currently is
+                 _useCompositorDrivenRenderWindowResize = true;
+             }
+-            else if (glfeature == null)
++            else if (glfeature == null &&
++                     AvaloniaLocator.Current.GetService<IPlatformRenderInterface>()
++                         is not IPlatformRenderInterfaceNativeSurfaceFeature
++                         {
++                             RequiresOpaqueSurface: true
++                         })
+                 visualInfo = _x11.TransparentVisualInfo;

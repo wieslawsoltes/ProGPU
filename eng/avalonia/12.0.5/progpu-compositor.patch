@@ -1,0 +1,2858 @@
+diff --git a/native/Avalonia.Native/src/OSX/metal.mm b/native/Avalonia.Native/src/OSX/metal.mm
+index 05f9fe0e34..5e18408e72 100644
+--- a/native/Avalonia.Native/src/OSX/metal.mm
++++ b/native/Avalonia.Native/src/OSX/metal.mm
+@@ -282,6 +282,10 @@ public:
+     _device = dynamic_cast<AvnMetalDevice*>(device);
+     _layer = [CAMetalLayer new];
+     _layer.opaque = false;
++    // ProGPU/Dawn imports the drawable IOSurface as a sampleable WebGPU
++    // render attachment. framebufferOnly drawables can use Apple's compressed
++    // '&BGA' IOSurface format, which Dawn cannot currently import.
++    _layer.framebufferOnly = false;
+     _layer.device = _device->device;
+     _target.setNoAddRef(new AvnMetalRenderTarget(_layer, _device));
+     return self;
+diff --git a/packages/Avalonia/Avalonia.csproj b/packages/Avalonia/Avalonia.csproj
+index f86a03133a..ec160889b0 100644
+--- a/packages/Avalonia/Avalonia.csproj
++++ b/packages/Avalonia/Avalonia.csproj
+@@ -3,6 +3,17 @@
+       <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
+       <PackageId>Avalonia</PackageId>
+   </PropertyGroup>
++  <PropertyGroup Condition="'$(ProGpuReplacementPackage)' == 'true'">
++      <PackageDescription>Source-built Avalonia 12.0.5 replacement with the typed ProGPU compositor seam. For isolated private/local feeds only.</PackageDescription>
++      <PackageReleaseNotes>Official Avalonia 12.0.5 API and assembly identity with a clean-room, reflection-free ProGPU retained-compositor seam.</PackageReleaseNotes>
++      <PackageTags>avalonia;avaloniaui;progpu;webgpu;replacement</PackageTags>
++  </PropertyGroup>
++  <ItemGroup Condition="'$(ProGpuReplacementPackage)' == 'true'">
++      <None Include="$(ProGpuSourceRoot)/docs/progpu-avalonia-replacement-package.md"
++            Pack="true"
++            PackagePath="PROGPU-REPLACEMENT.md"
++            Visible="false" />
++  </ItemGroup>
+ 
+   <ItemGroup>
+       <PackageReference Include="Avalonia.BuildServices" />
+diff --git a/samples/ControlCatalog/App.xaml.cs b/samples/ControlCatalog/App.xaml.cs
+index f14fbb1fa3..f14243ad3c 100644
+--- a/samples/ControlCatalog/App.xaml.cs
++++ b/samples/ControlCatalog/App.xaml.cs
+@@ -14,6 +14,8 @@ namespace ControlCatalog
+ {
+     public class App : Application
+     {
++        public static string? InitialPage { get; set; }
++
+         private readonly Styles _themeStylesContainer = new();
+         private FluentTheme? _fluentTheme;
+         private SimpleTheme? _simpleTheme;
+diff --git a/samples/ControlCatalog/ControlCatalog.csproj b/samples/ControlCatalog/ControlCatalog.csproj
+index 2ce24a4d20..4c3b0e320d 100644
+--- a/samples/ControlCatalog/ControlCatalog.csproj
++++ b/samples/ControlCatalog/ControlCatalog.csproj
+@@ -3,6 +3,7 @@
+     <TargetFrameworks>$(AvsCurrentTargetFramework)</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <IncludeAvaloniaGenerators>true</IncludeAvaloniaGenerators>
++    <NoWarn Condition="'$(UseSkiaSharpShim)' == 'true'">$(NoWarn);CS0618</NoWarn>
+   </PropertyGroup>
+   <ItemGroup>
+     <Compile Update="**\*.xaml.cs">
+@@ -36,12 +37,18 @@
+     <ProjectReference Include="..\..\src\Avalonia.Themes.Simple\Avalonia.Themes.Simple.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Themes.Fluent\Avalonia.Themes.Fluent.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+-    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\SkiaSharp\SkiaSharp.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'" />
+     <ProjectReference Include="..\MiniMvvm\MiniMvvm.csproj" />
+     <ProjectReference Include="..\SampleControls\ControlSamples.csproj" />
+   </ItemGroup>
+ 
+   <Import Project="..\..\build\BuildTargets.targets" />
+   <Import Project="..\..\build\SourceGenerators.props" />
+-  <Import Project="..\..\build\SkiaSharp.props" />
++  <Import Project="..\..\build\SkiaSharp.props" Condition="'$(UseSkiaSharpShim)' != 'true'" />
+ </Project>
+diff --git a/samples/ControlCatalog/MainView.xaml b/samples/ControlCatalog/MainView.xaml
+index 3a6d57801a..f71a931497 100644
+--- a/samples/ControlCatalog/MainView.xaml
++++ b/samples/ControlCatalog/MainView.xaml
+@@ -16,234 +16,233 @@
+       </Style>
+     </Grid.Styles>
+     <controls:HamburgerMenu Name="Sidebar">
+-      <TabItem Header="Composition" IsSelected="True">
+-        <pages:CompositionPage />
+-      </TabItem>
+       <TabItem Header="Accelerator">
+-        <pages:AcceleratorPage />
++        <local:DeferredCatalogPage PageKind="AcceleratorPage" />
+       </TabItem>
+       <TabItem Header="Acrylic">
+-        <pages:AcrylicPage />
++        <local:DeferredCatalogPage PageKind="AcrylicPage" />
+       </TabItem>
+       <TabItem Header="AdornerLayer">
+-        <pages:AdornerLayerPage />
++        <local:DeferredCatalogPage PageKind="AdornerLayerPage" />
+       </TabItem>
+       <TabItem Header="AutoCompleteBox">
+-        <pages:AutoCompleteBoxPage />
+-      </TabItem>
+-      <TabItem Header="Border">
+-        <pages:BorderPage />
++        <local:DeferredCatalogPage PageKind="AutoCompleteBoxPage" />
+       </TabItem>
+       <TabItem Header="BitmapCache">
+-        <pages:BitmapCachePage />
++        <local:DeferredCatalogPage PageKind="BitmapCachePage" />
++      </TabItem>
++      <TabItem Header="Border">
++        <local:DeferredCatalogPage PageKind="BorderPage" />
+       </TabItem>
+       <TabItem Header="Buttons">
+-        <pages:ButtonsPage />
++        <local:DeferredCatalogPage PageKind="ButtonsPage" />
+       </TabItem>
+       <TabItem Header="ButtonSpinner">
+-        <pages:ButtonSpinnerPage />
++        <local:DeferredCatalogPage PageKind="ButtonSpinnerPage" />
+       </TabItem>
+       <TabItem Header="Calendar">
+-        <pages:CalendarPage />
++        <local:DeferredCatalogPage PageKind="CalendarPage" />
+       </TabItem>
+-      <TabItem Header="Canvas">
+-        <pages:CanvasPage />
++      <TabItem Header="CalendarDatePicker">
++        <local:DeferredCatalogPage PageKind="CalendarDatePickerPage" />
+       </TabItem>
+-      <TabItem Header="CommandBar"
+-               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+-               ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CommandBarPage />
++      <TabItem Header="Canvas">
++        <local:DeferredCatalogPage PageKind="CanvasPage" />
+       </TabItem>
+       <TabItem Header="Carousel"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CarouselDemoPage />
++        <local:DeferredCatalogPage PageKind="CarouselDemoPage" />
+       </TabItem>
+       <TabItem Header="CarouselPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CarouselDemoPage />
++        <local:DeferredCatalogPage PageKind="CarouselDemoPage" />
+       </TabItem>
+-
+       <TabItem Header="CheckBox">
+-        <pages:CheckBoxPage />
++        <local:DeferredCatalogPage PageKind="CheckBoxPage" />
+       </TabItem>
+       <TabItem Header="Clipboard">
+-        <pages:ClipboardPage />
++        <local:DeferredCatalogPage PageKind="ClipboardPage" />
+       </TabItem>
+       <TabItem Header="ColorPicker">
+-        <pages:ColorPickerPage />
++        <local:DeferredCatalogPage PageKind="ColorPickerPage" />
+       </TabItem>
+       <TabItem Header="ComboBox">
+-        <pages:ComboBoxPage />
++        <local:DeferredCatalogPage PageKind="ComboBoxPage" />
++      </TabItem>
++      <TabItem Header="CommandBar"
++               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
++               ScrollViewer.VerticalScrollBarVisibility="Disabled">
++        <local:DeferredCatalogPage PageKind="CommandBarPage" />
++      </TabItem>
++      <TabItem Header="Composition">
++        <local:DeferredCatalogPage PageKind="CompositionPage" />
+       </TabItem>
+       <TabItem Header="Container Queries">
+-        <pages:ContainerQueryPage />
++        <local:DeferredCatalogPage PageKind="ContainerQueryPage" />
+       </TabItem>
+       <TabItem Header="ContentPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ContentDemoPage />
++        <local:DeferredCatalogPage PageKind="ContentDemoPage" />
+       </TabItem>
+       <TabItem Header="ContextFlyout">
+-        <pages:ContextFlyoutPage />
++        <local:DeferredCatalogPage PageKind="ContextFlyoutPage" />
+       </TabItem>
+       <TabItem Header="ContextMenu">
+-        <pages:ContextMenuPage />
++        <local:DeferredCatalogPage PageKind="ContextMenuPage" />
+       </TabItem>
+       <TabItem Header="Cursor" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CursorPage />
++        <local:DeferredCatalogPage PageKind="CursorPage" />
+       </TabItem>
+       <TabItem Header="Custom Drawing" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:CustomDrawing />
++        <local:DeferredCatalogPage PageKind="CustomDrawing" />
++      </TabItem>
++      <TabItem Header="Data Validation">
++        <local:DeferredCatalogPage PageKind="DataValidationPage" />
+       </TabItem>
+       <TabItem Header="DataGrid"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:DataGridPage />
+-      </TabItem>
+-      <TabItem Header="Data Validation">
+-        <pages:DataValidationPage />
++        <local:DeferredCatalogPage PageKind="DataGridPage" />
+       </TabItem>
+       <TabItem Header="Date/Time Picker">
+-        <pages:DateTimePickerPage />
+-      </TabItem>
+-      <TabItem Header="CalendarDatePicker">
+-        <pages:CalendarDatePickerPage />
++        <local:DeferredCatalogPage PageKind="DateTimePickerPage" />
+       </TabItem>
+       <TabItem Header="Dialogs">
+-        <pages:DialogsPage />
++        <local:DeferredCatalogPage PageKind="DialogsPage" />
+       </TabItem>
+       <TabItem Header="Drag+Drop">
+-        <pages:DragAndDropPage />
++        <local:DeferredCatalogPage PageKind="DragAndDropPage" />
+       </TabItem>
+       <TabItem Header="DrawerPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:DrawerDemoPage />
++        <local:DeferredCatalogPage PageKind="DrawerDemoPage" />
+       </TabItem>
+       <TabItem Header="Expander">
+-        <pages:ExpanderPage />
++        <local:DeferredCatalogPage PageKind="ExpanderPage" />
+       </TabItem>
+       <TabItem Header="Flyouts">
+-        <pages:FlyoutsPage />
++        <local:DeferredCatalogPage PageKind="FlyoutsPage" />
+       </TabItem>
+       <TabItem Header="Focus">
+-        <pages:FocusPage />
++        <local:DeferredCatalogPage PageKind="FocusPage" />
+       </TabItem>
+       <TabItem Header="Gestures">
+-        <pages:GesturePage />
++        <local:DeferredCatalogPage PageKind="GesturePage" />
++      </TabItem>
++      <TabItem Header="HeaderedContentControl">
++        <local:DeferredCatalogPage PageKind="HeaderedContentPage" />
+       </TabItem>
+       <TabItem Header="Image"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ImagePage />
++        <local:DeferredCatalogPage PageKind="ImagePage" />
+       </TabItem>
+       <TabItem Header="Label">
+-        <pages:LabelsPage />
++        <local:DeferredCatalogPage PageKind="LabelsPage" />
+       </TabItem>
+       <TabItem Header="LayoutTransformControl">
+-        <pages:LayoutTransformControlPage />
++        <local:DeferredCatalogPage PageKind="LayoutTransformControlPage" />
+       </TabItem>
+       <TabItem Header="ListBox" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:ListBoxPage />
++        <local:DeferredCatalogPage PageKind="ListBoxPage" />
+       </TabItem>
+       <TabItem Header="Menu">
+-        <pages:MenuPage />
++        <local:DeferredCatalogPage PageKind="MenuPage" />
++      </TabItem>
++      <TabItem Header="Native Embed">
++        <local:DeferredCatalogPage PageKind="NativeEmbedPage" />
+       </TabItem>
+       <TabItem Header="NavigationPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:NavigationDemoPage />
++        <local:DeferredCatalogPage PageKind="NavigationDemoPage" />
+       </TabItem>
+       <TabItem Header="Notifications">
+-        <pages:NotificationsPage />
++        <local:DeferredCatalogPage PageKind="NotificationsPage" />
+       </TabItem>
+       <TabItem Header="NumericUpDown">
+-        <pages:NumericUpDownPage />
++        <local:DeferredCatalogPage PageKind="NumericUpDownPage" />
+       </TabItem>
+       <TabItem Header="OpenGL">
+-        <pages:OpenGlPage />
++        <local:DeferredCatalogPage PageKind="OpenGlPage" />
+       </TabItem>
+       <TabItem Header="OpenGL Lease">
+-        <pages:OpenGlLeasePage />
++        <local:DeferredCatalogPage PageKind="OpenGlLeasePage" />
+       </TabItem>
+       <TabItem Header="PipsPager">
+-        <pages:PipsPagerPage />
++        <local:DeferredCatalogPage PageKind="PipsPagerPage" />
+       </TabItem>
+       <TabItem Header="Platform Information">
+-        <pages:PlatformInfoPage />
++        <local:DeferredCatalogPage PageKind="PlatformInfoPage" />
+       </TabItem>
+       <TabItem Header="Pointers">
+-        <pages:PointersPage />
++        <local:DeferredCatalogPage PageKind="PointersPage" />
+       </TabItem>
+       <TabItem Header="ProgressBar">
+-        <pages:ProgressBarPage />
++        <local:DeferredCatalogPage PageKind="ProgressBarPage" />
+       </TabItem>
+       <TabItem Header="RadioButton">
+-        <pages:RadioButtonPage />
++        <local:DeferredCatalogPage PageKind="RadioButtonPage" />
+       </TabItem>
+       <TabItem Header="RefreshContainer">
+-        <pages:RefreshContainerPage />
++        <local:DeferredCatalogPage PageKind="RefreshContainerPage" />
+       </TabItem>
+       <TabItem Header="RelativePanel">
+-        <pages:RelativePanelPage />
++        <local:DeferredCatalogPage PageKind="RelativePanelPage" />
++      </TabItem>
++      <TabItem Header="Screens">
++        <local:DeferredCatalogPage PageKind="ScreenPage" />
+       </TabItem>
+       <TabItem Header="ScrollViewer">
+-        <pages:ScrollViewerPage />
++        <local:DeferredCatalogPage PageKind="ScrollViewerPage" />
+       </TabItem>
+       <TabItem Header="Slider">
+-        <pages:SliderPage />
++        <local:DeferredCatalogPage PageKind="SliderPage" />
+       </TabItem>
+       <TabItem Header="SplitView">
+-        <pages:SplitViewPage />
++        <local:DeferredCatalogPage PageKind="SplitViewPage" />
+       </TabItem>
+       <TabItem Header="TabbedPage"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                ScrollViewer.VerticalScrollBarVisibility="Disabled">
+-        <pages:TabbedDemoPage />
++        <local:DeferredCatalogPage PageKind="TabbedDemoPage" />
+       </TabItem>
+       <TabItem Header="TabControl">
+-        <pages:TabControlPage />
++        <local:DeferredCatalogPage PageKind="TabControlPage" />
+       </TabItem>
+       <TabItem Header="TabStrip">
+-        <pages:TabStripPage />
+-      </TabItem>
+-      <TabItem Header="TextBox">
+-        <pages:TextBoxPage />
++        <local:DeferredCatalogPage PageKind="TabStripPage" />
+       </TabItem>
+       <TabItem Header="TextBlock">
+-        <pages:TextBlockPage />
++        <local:DeferredCatalogPage PageKind="TextBlockPage" />
++      </TabItem>
++      <TabItem Header="TextBox">
++        <local:DeferredCatalogPage PageKind="TextBoxPage" />
+       </TabItem>
+       <TabItem Header="Theme Variants">
+-        <pages:ThemePage />
++        <local:DeferredCatalogPage PageKind="ThemePage" />
+       </TabItem>
+       <TabItem Header="ToggleSwitch">
+-        <pages:ToggleSwitchPage />
++        <local:DeferredCatalogPage PageKind="ToggleSwitchPage" />
+       </TabItem>
+       <TabItem Header="ToolTip">
+-        <pages:ToolTipPage />
++        <local:DeferredCatalogPage PageKind="ToolTipPage" />
+       </TabItem>
+       <TabItem Header="TransitioningContentControl">
+-        <pages:TransitioningContentControlPage />
++        <local:DeferredCatalogPage PageKind="TransitioningContentControlPage" />
+       </TabItem>
+       <TabItem Header="TreeView">
+-        <pages:TreeViewPage />
++        <local:DeferredCatalogPage PageKind="TreeViewPage" />
+       </TabItem>
+       <TabItem Header="Viewbox">
+-        <pages:ViewboxPage />
+-      </TabItem>
+-      <TabItem Header="Native Embed">
+-        <pages:NativeEmbedPage />
++        <local:DeferredCatalogPage PageKind="ViewboxPage" />
+       </TabItem>
+       <TabItem Header="Window Customizations">
+-        <pages:WindowCustomizationsPage />
+-      </TabItem>
+-      <TabItem Header="HeaderedContentControl">
+-        <pages:HeaderedContentPage />
+-      </TabItem>
+-      <TabItem Header="Screens">
+-        <pages:ScreenPage />
++        <local:DeferredCatalogPage PageKind="WindowCustomizationsPage" />
+       </TabItem>
+       <FlyoutBase.AttachedFlyout>
+         <Flyout>
+diff --git a/samples/ControlCatalog/MainView.xaml.cs b/samples/ControlCatalog/MainView.xaml.cs
+index 82172a8ec4..4945b8cbf2 100644
+--- a/samples/ControlCatalog/MainView.xaml.cs
++++ b/samples/ControlCatalog/MainView.xaml.cs
+@@ -17,6 +17,8 @@ public partial class MainView : UserControl
+         public MainView()
+         {
+             InitializeComponent();
++
++            SelectInitialPage(App.InitialPage ?? "Composition");
+         }
+ 
+         private void Themes_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+@@ -111,6 +113,23 @@ protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+                     ViewModel.IsSystemBarVisible = insets.IsSystemBarVisible ?? true;
+                 };
+             }
++
++        }
++
++        private void SelectInitialPage(string initialPage)
++        {
++            for (var i = 0; i < Sidebar.ItemsView.Count; i++)
++            {
++                if (string.Equals(
++                        (Sidebar.ItemsView[i] as TabItem)?.Header?.ToString(),
++                        initialPage,
++                        StringComparison.OrdinalIgnoreCase))
++                {
++                    Sidebar.SelectedIndex = i;
++                    Console.WriteLine($"[ControlCatalog] selected page={initialPage} index={i}");
++                    return;
++                }
++            }
+         }
+     }
+ }
+diff --git a/src/Avalonia.Base/Avalonia.Base.csproj b/src/Avalonia.Base/Avalonia.Base.csproj
+index 99524857a7..2f0d3c44db 100644
+--- a/src/Avalonia.Base/Avalonia.Base.csproj
++++ b/src/Avalonia.Base/Avalonia.Base.csproj
+@@ -34,6 +34,7 @@
+     <InternalsVisibleTo Include="Avalonia.OpenGL, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Vulkan, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Skia, PublicKey=$(AvaloniaPublicKey)" />
++    <InternalsVisibleTo Include="Avalonia.ProGpu, PublicKey=002400000480000094000000060200000024000052534131000400000100010045aa5f537c126e38b67a4e22a49d30ad6424dc66d3e82890c03de2caa8f421736dbe5170b054610320e4a436e808a38b05e02998b776d1ae9133d2bf7197e5eb39e9ba6bee9ed837236a90c151c6d6e154dc8debd4fef44d6597f795ee9e33bf0b2a959915729166099862717525ec4bab3002d4d8f8a81d656b5c25c891cb91" />
+     <InternalsVisibleTo Include="Avalonia.Controls.ColorPicker, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Controls.DataGrid, PublicKey=$(AvaloniaPublicKey)" />
+     <InternalsVisibleTo Include="Avalonia.Headless, PublicKey=$(AvaloniaPublicKey)" />
+diff --git a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs b/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
+index 52f8f5e68d..49d9e2904b 100644
+--- a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
++++ b/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
+@@ -47,6 +47,11 @@ public Stream GetStream()
+     {
+         var s = Assembly.GetManifestResourceStream(Constants.AvaloniaResourceName) ??
+                 throw new InvalidOperationException($"Could not find manifest resource stream '{Constants.AvaloniaResourceName}',");
+-        return new SlicedStream(s, _offset, _length);
++        return new AssemblyResourceSliceStream(
++            s,
++            Assembly,
++            Constants.AvaloniaResourceName,
++            _offset,
++            _length);
+     }
+ }
+diff --git a/src/Avalonia.Base/Platform/Internal/SlicedStream.cs b/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
+index 86a8dd5da9..291d0229e4 100644
+--- a/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
++++ b/src/Avalonia.Base/Platform/Internal/SlicedStream.cs
+@@ -1,5 +1,6 @@
+ ﻿using System;
+ using System.IO;
++using System.Reflection;
+ 
+ namespace Avalonia.Platform.Internal;
+ 
+@@ -57,3 +58,36 @@ protected override void Dispose(bool disposing)
+ 
+     public override void Close() => _baseStream.Close();
+ }
++
++/// <summary>
++/// Identifies an immutable byte range within an assembly manifest resource.
++/// Consumers that understand this typed contract can borrow the mapped resource
++/// directly; ordinary stream consumers retain the existing sliced-stream behavior.
++/// </summary>
++internal sealed class AssemblyResourceSliceStream : SlicedStream
++{
++    private readonly Assembly _assembly;
++
++    public AssemblyResourceSliceStream(
++        Stream baseStream,
++        Assembly assembly,
++        string resourceName,
++        int from,
++        int length)
++        : base(baseStream, from, length)
++    {
++        _assembly = assembly;
++        ResourceName = resourceName;
++        ResourceOffset = from;
++        ResourceLength = length;
++    }
++
++    public string ResourceName { get; }
++    public int ResourceOffset { get; }
++    public int ResourceLength { get; }
++
++    public Stream OpenResourceStream() =>
++        _assembly.GetManifestResourceStream(ResourceName) ??
++        throw new InvalidOperationException(
++            $"Could not find manifest resource stream '{ResourceName}'.");
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+new file mode 100644
+index 0000000000..03f8c344e4
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+@@ -0,0 +1,11 @@
++namespace Avalonia.Rendering.Composition.Drawing;
++
++/// <summary>
++/// Optional typed bridge for platform drawing contexts that can retain and
++/// replay an immutable server composition draw list without invoking every
++/// render-data node on each frame.
++/// </summary>
++internal interface ICompositionRenderDataDrawingContextFeature
++{
++    bool TryRender(ServerCompositionRenderData renderData);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
+index 3745fb54d8..a1db353efc 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
+@@ -1,6 +1,7 @@
+ using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
++using System.Threading;
+ using Avalonia.Platform;
+ using Avalonia.Rendering.Composition.Drawing.Nodes;
+ using Avalonia.Rendering.Composition.Server;
+@@ -12,12 +13,16 @@ namespace Avalonia.Rendering.Composition.Drawing;
+ 
+ class ServerCompositionRenderData : SimpleServerRenderResource
+ {
++    private static long s_nextId;
+     private PooledInlineList<IRenderDataItem> _items;
+     private PooledInlineList<IServerRenderResource> _referencedResources;
+     private LtrbRect? _bounds;
+     private bool _boundsValid;
+     private static readonly ThreadSafeObjectPool<Collector> s_resourceHashSetPool = new();
+ 
++    public long RetainedId { get; } = Interlocked.Increment(ref s_nextId);
++    public ulong Revision { get; private set; }
++
+     public ServerCompositionRenderData(ServerCompositor compositor) : base(compositor)
+     {
+     }
+@@ -35,6 +40,7 @@ public void AddRenderDataServerResource(object? obj)
+     protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpan committedAt)
+     {
+         Reset();
++        Revision++;
+         
+         var count = reader.Read<int>();
+         _items.EnsureCapacity(count);
+@@ -113,6 +119,7 @@ private static void CollectResources(PooledInlineList<IRenderDataItem> items, IR
+     public override void DependencyQueuedInvalidate(IServerRenderResource sender)
+     {
+         _boundsValid = false;
++        Revision++;
+         base.DependencyQueuedInvalidate(sender);
+     }
+     
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+new file mode 100644
+index 0000000000..bb85aeb3fb
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+@@ -0,0 +1,21 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Typed render-thread composition backend owned by one platform render
++/// interface context. The backend retains target scene state across drawing
++/// contexts and is released with the owning graphics context.
++/// </summary>
++internal interface ICompositionServerBackend
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        IDrawingContextImpl context,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++
++    void ReleaseTarget(long targetId);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+new file mode 100644
+index 0000000000..b7f58c43a4
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+@@ -0,0 +1,18 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Optional typed bridge for drawing contexts that own a retained visual scene.
++/// Implementations return false when the current tree contains a composition
++/// feature that requires Avalonia's built-in traversal.
++/// </summary>
++internal interface ICompositionVisualTreeDrawingContextFeature
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
+index 98fd9e4873..1ad29db793 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
+@@ -18,7 +18,19 @@ internal class ServerCompositionDrawListVisual : ServerCompositionContainerVisua
+     // This is needed for debugging purposes so we could see inspect the associated visual from debugger
+     public readonly Visual UiVisual;
+ #endif
++    private ulong _retainedContentRevision;
+     private ServerCompositionRenderData? _renderCommands;
++    internal override ulong RetainedContentRevision => _retainedContentRevision;
++
++    protected override void AdvanceRetainedContentRevision()
++    {
++        unchecked
++        {
++            _retainedContentRevision++;
++            if (_retainedContentRevision == 0)
++                _retainedContentRevision = 1;
++        }
++    }
+     
+     public ServerCompositionDrawListVisual(ServerCompositor compositor, Visual v) : base(compositor)
+     {
+@@ -43,10 +55,23 @@ protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpa
+ 
+     protected override void RenderCore(ServerVisualRenderContext context, LtrbRect currentTransformedClip)
+     {
+-        _renderCommands?.Render(context.Canvas);
++        if (_renderCommands is not { } renderCommands)
++            return;
++
++        if (context.Canvas.GetFeature(typeof(ICompositionRenderDataDrawingContextFeature)) is
++                ICompositionRenderDataDrawingContextFeature retained &&
++            retained.TryRender(renderCommands))
++        {
++            return;
++        }
++
++        renderCommands.Render(context.Canvas);
+     }
+ 
+-    public void DependencyQueuedInvalidate(IServerRenderResource sender) => InvalidateContent();
++    public void DependencyQueuedInvalidate(IServerRenderResource sender)
++    {
++        InvalidateContent();
++    }
+     
+ #if DEBUG
+     public override string ToString()
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionExperimentalAcrylicVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionExperimentalAcrylicVisual.cs
+index d3fa053416..da78f7a09e 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionExperimentalAcrylicVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionExperimentalAcrylicVisual.cs
+@@ -1,10 +1,20 @@
+ using Avalonia.Media.Immutable;
+ using Avalonia.Platform;
++using Avalonia.Rendering.Composition.Transport;
+ 
+ namespace Avalonia.Rendering.Composition.Server;
+ 
+ internal partial class ServerCompositionExperimentalAcrylicVisual
+ {
++    partial void OnFieldsDeserialized(
++        CompositionExperimentalAcrylicVisualChangedFields changed)
++    {
++        if (changed != default)
++        {
++            InvalidateContent();
++        }
++    }
++
+     protected override void RenderCore(ServerVisualRenderContext context, LtrbRect currentTransformedClip)
+     {
+         var cornerRadius = CornerRadius;
+@@ -24,11 +34,11 @@ protected override void RenderCore(ServerVisualRenderContext context, LtrbRect c
+ 
+     protected override void SizeChanged()
+     {
+-        EnqueueForOwnBoundsRecompute();
++        InvalidateContent();
+         base.SizeChanged();
+     }
+ 
+     public ServerCompositionExperimentalAcrylicVisual(ServerCompositor compositor, Visual v) : base(compositor, v)
+     {
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSolidColorVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSolidColorVisual.cs
+index a494692021..3c9e3cc5c9 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSolidColorVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSolidColorVisual.cs
+@@ -1,12 +1,28 @@
+ using Avalonia.Media.Immutable;
+ using Avalonia.Platform;
++using Avalonia.Rendering.Composition.Transport;
+ 
+ namespace Avalonia.Rendering.Composition.Server;
+ 
+ internal partial class ServerCompositionSolidColorVisual
+ {
++    partial void OnFieldsDeserialized(
++        CompositionSolidColorVisualChangedFields changed)
++    {
++        if (changed != default)
++            InvalidateContent();
++    }
++
++    public override void NotifyAnimatedValueChanged(
++        CompositionProperty property)
++    {
++        base.NotifyAnimatedValueChanged(property);
++        if (property == s_IdOfColorProperty)
++            InvalidateContent();
++    }
++
+     protected override void RenderCore(ServerVisualRenderContext context, LtrbRect currentTransformedClip)
+     {
+         context.Canvas.DrawRectangle(new ImmutableSolidColorBrush(Color), null, new Rect(0, 0, Size.X, Size.Y));
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSurfaceVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSurfaceVisual.cs
+index 73b8ebc56b..7b60647fc7 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSurfaceVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionSurfaceVisual.cs
+@@ -39,6 +39,7 @@ protected override void OnDetachedFromRoot(ServerCompositionTarget target)
+     {
+         if (Surface != null)
+             Surface.Changed += OnSurfaceInvalidated;
++        InvalidateContent();
+     }
+ 
+     partial void OnSurfaceChanging()
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+index fe857ac466..f6b82e590a 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs
+@@ -31,7 +31,13 @@ internal partial class ServerCompositionTarget : IDisposable
+         private bool _redrawRequested;
+         private bool _fullRedrawRequested;
+         private bool _disposed;
++        private bool _retainedDeltaTrackingEnabled;
++        private int _retainedDeltaQueueLowWaterSynchronizations;
+         private readonly HashSet<ServerCompositionVisual> _attachedVisuals = new();
++        private readonly List<RetainedCompositionVisualDelta>
++            _retainedChangedVisuals = new();
++        private const int RetainedDeltaQueueSteadyCapacity = 16;
++        private const int RetainedDeltaQueueLowWaterWindow = 60;
+         public IDirtyRectTracker DirtyRects { get; }
+ 
+         public long Id { get; }
+@@ -39,6 +45,12 @@ internal partial class ServerCompositionTarget : IDisposable
+         public ICompositionTargetDebugEvents? DebugEvents { get; set; }
+         public int RenderedVisuals { get; set; }
+         public int VisitedVisuals { get; set; }
++        internal IReadOnlyList<RetainedCompositionVisualDelta>
++            RetainedChangedVisuals =>
++            _retainedChangedVisuals;
++        internal int RetainedChangedVisualCapacity =>
++            _retainedChangedVisuals.Capacity;
++        internal bool RetainedSceneRequiresFullSync { get; private set; } = true;
+         
+         /// <summary>
+         /// Returns true if the target is enabled and has pending work but its render target was not ready.
+@@ -96,6 +108,138 @@ public ServerCompositionTarget(ServerCompositor compositor, Func<IEnumerable<IPl
+         {
+             _redrawRequested = true;
+             _fullRedrawRequested = true;
++            NotifyRetainedSceneChanged();
++        }
++
++        internal void NotifyRetainedSceneChanged()
++        {
++            RetainedSceneRequiresFullSync = true;
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void NotifyRetainedSceneChanged(ServerCompositionVisual visual)
++        {
++            if (_retainedDeltaTrackingEnabled)
++                QueueOrRefreshRetainedVisualDelta(visual);
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void NotifyRetainedSceneTopologyChanged(ServerCompositionVisual visual)
++        {
++            if (_retainedDeltaTrackingEnabled)
++                QueueOrRefreshRetainedVisualDelta(visual);
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void EnableRetainedDeltaTracking()
++        {
++            if (_retainedDeltaTrackingEnabled)
++                return;
++
++            _retainedDeltaTrackingEnabled = true;
++            RetainedSceneRequiresFullSync = true;
++            AdvanceRetainedSceneRevision();
++        }
++
++        private void DisableRetainedDeltaTracking()
++        {
++            if (!_retainedDeltaTrackingEnabled)
++                return;
++
++            foreach (RetainedCompositionVisualDelta delta in
++                     _retainedChangedVisuals)
++            {
++                delta.Source.CompleteRetainedSynchronization();
++            }
++            _retainedChangedVisuals.Clear();
++            _retainedChangedVisuals.Capacity = 0;
++            _retainedDeltaQueueLowWaterSynchronizations = 0;
++            _retainedDeltaTrackingEnabled = false;
++            RetainedSceneRequiresFullSync = true;
++            AdvanceRetainedSceneRevision();
++        }
++
++        internal void CompleteRetainedSceneSynchronization(ulong revision)
++        {
++            if (revision != Revision)
++                return;
++            int synchronizedDeltaCount = _retainedChangedVisuals.Count;
++            foreach (RetainedCompositionVisualDelta delta in
++                     _retainedChangedVisuals)
++            {
++                delta.Source.CompleteRetainedSynchronization();
++            }
++            _retainedChangedVisuals.Clear();
++            if (_retainedChangedVisuals.Capacity >
++                RetainedDeltaQueueSteadyCapacity)
++            {
++                if (synchronizedDeltaCount <=
++                    RetainedDeltaQueueSteadyCapacity)
++                {
++                    _retainedDeltaQueueLowWaterSynchronizations++;
++                    if (_retainedDeltaQueueLowWaterSynchronizations >=
++                        RetainedDeltaQueueLowWaterWindow)
++                    {
++                        // Retain capacity across bursts, then release a
++                        // startup/style high-water array only after one second
++                        // of 60 Hz low-delta synchronization. A later burst
++                        // resets the observation window, preventing per-frame
++                        // grow/shrink churn for highly dynamic applications.
++                        _retainedChangedVisuals.Capacity =
++                            RetainedDeltaQueueSteadyCapacity;
++                        _retainedDeltaQueueLowWaterSynchronizations = 0;
++                    }
++                }
++                else
++                    _retainedDeltaQueueLowWaterSynchronizations = 0;
++            }
++            else
++                _retainedDeltaQueueLowWaterSynchronizations = 0;
++            RetainedSceneRequiresFullSync = false;
++        }
++
++        private void QueueOrRefreshRetainedVisualDelta(
++            ServerCompositionVisual visual)
++        {
++            int queueIndex = visual.RetainedChangeQueueIndex;
++            if (queueIndex >= 0)
++            {
++                if ((uint)queueIndex >=
++                        (uint)_retainedChangedVisuals.Count ||
++                    !ReferenceEquals(
++                        _retainedChangedVisuals[queueIndex].Source,
++                        visual))
++                {
++                    throw new InvalidOperationException(
++                        "The retained visual delta queue index is stale.");
++                }
++
++                // Preserve first-change ordering while replacing the value
++                // with a snapshot that includes every coalesced mutation.
++                _retainedChangedVisuals[queueIndex] =
++                    new RetainedCompositionVisualDelta(visual);
++                return;
++            }
++
++            queueIndex = _retainedChangedVisuals.Count;
++            if (!visual.TryMarkRetainedChangesQueued(queueIndex))
++            {
++                throw new InvalidOperationException(
++                    "The retained visual delta queue state is inconsistent.");
++            }
++
++            _retainedChangedVisuals.Add(
++                new RetainedCompositionVisualDelta(visual));
++        }
++
++        private void AdvanceRetainedSceneRevision()
++        {
++            unchecked
++            {
++                Revision++;
++                if (Revision == 0)
++                    Revision = 1;
++            }
+         }
+         
+         
+@@ -121,6 +265,7 @@ public void Update(TimeSpan diagnosticsCompositorGlobalUpdateElapsedTime = defau
+                     : (IDirtyRectCollector)DirtyRects;
+                 
+                 Root.UpdateRoot(collector, transform, new LtrbRect(0, 0, PixelSize.Width, PixelSize.Height));
++                RefreshRetainedVisualDeltas();
+ 
+                 _updateRequested = false;
+ 
+@@ -128,6 +273,21 @@ public void Update(TimeSpan diagnosticsCompositorGlobalUpdateElapsedTime = defau
+             }
+         }
+ 
++        private void RefreshRetainedVisualDeltas()
++        {
++            if (!_retainedDeltaTrackingEnabled)
++                return;
++
++            for (int index = 0;
++                 index < _retainedChangedVisuals.Count;
++                 index++)
++            {
++                _retainedChangedVisuals[index] =
++                    new RetainedCompositionVisualDelta(
++                        _retainedChangedVisuals[index].Source);
++            }
++        }
++
+         public void Render()
+         {
+             IsWaitingForReadyRenderTarget = false;
+@@ -140,6 +300,7 @@ public void Render()
+ 
+             if (_renderTarget?.PlatformRenderTargetState.IsCorrupted == true)
+             {
++                _compositor.RT_TryGetCompositionBackend()?.ReleaseTarget(Id);
+                 _layer?.Dispose();
+                 _layer = null;
+                 _renderTarget.Dispose();
+@@ -185,9 +346,9 @@ public void Render()
+             }
+ 
+             var needLayer = _overlays.RequireLayer // Check if we don't need overlays
+-                            // Check if render target can be rendered to directly and preserves the previous frame
+-                            || !(_renderTarget.Properties.RetainsPreviousFrameContents
+-                                 && _renderTarget.Properties.IsSuitableForDirectRendering);
++                            // A direct non-retained target is valid: the
++                            // per-session property below requests a full redraw.
++                            || !_renderTarget.Properties.IsSuitableForDirectRendering;
+             
+             using (var renderTargetContext = _renderTarget.CreateDrawingContext(new(PixelSize, Scaling), out var properties))
+             using (var renderTiming = Diagnostic.BeginCompositorRenderPass())
+@@ -266,7 +427,49 @@ void RenderRootToContextWithClip(IDrawingContextImpl context, ServerCompositionV
+                     context.PushLayer(DirtyRects.CombinedRect.ToRect());
+ 
+                 context.Transform = Matrix.CreateScale(Scaling, Scaling);
+-                (VisitedVisuals, RenderedVisuals) = root.Render(context, new LtrbRect(0,0, PixelSize.Width, PixelSize.Height), DirtyRects);
++                var clip = new LtrbRect(0, 0, PixelSize.Width, PixelSize.Height);
++                ICompositionServerBackend? backend =
++                    Compositor.RT_TryGetCompositionBackend();
++                ICompositionVisualTreeDrawingContextFeature? retained = null;
++                if (backend == null)
++                {
++                    retained = context.GetFeature(
++                            typeof(ICompositionVisualTreeDrawingContextFeature))
++                        as ICompositionVisualTreeDrawingContextFeature;
++                }
++
++                if (backend != null || retained != null)
++                    EnableRetainedDeltaTracking();
++                else
++                    DisableRetainedDeltaTracking();
++
++                if (backend != null &&
++                    backend.TryRender(
++                        this,
++                        root,
++                        context,
++                        clip,
++                        out var backendVisitedVisuals,
++                        out var backendRenderedVisuals))
++                {
++                    VisitedVisuals = backendVisitedVisuals;
++                    RenderedVisuals = backendRenderedVisuals;
++                }
++                else if (retained != null &&
++                    retained.TryRender(
++                        this,
++                        root,
++                        clip,
++                        out var visitedVisuals,
++                        out var renderedVisuals))
++                {
++                    VisitedVisuals = visitedVisuals;
++                    RenderedVisuals = renderedVisuals;
++                }
++                else
++                {
++                    (VisitedVisuals, RenderedVisuals) = root.Render(context, clip, DirtyRects);
++                }
+                 if (DebugEvents != null)
+                 {
+                     DebugEvents.RenderedVisuals = RenderedVisuals;
+@@ -285,6 +488,7 @@ public void Dispose()
+             if (_disposed)
+                 return;
+             _disposed = true;
++            _compositor.RT_TryGetCompositionBackend()?.ReleaseTarget(Id);
+             using (_compositor.RenderInterface.EnsureCurrent())
+             {
+                 if (_layer != null)
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
+index e2ce331318..4e01fc946c 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.ComputedProperties.cs
+@@ -112,11 +112,26 @@ private void PropagateFlags(bool needsBoundingBoxUpdate, bool dirtyForRender, bo
+     
+     public void RecomputeOwnProperties()
+     {
++        RetainedCompositionVisualChanges retainedChanges =
++            ConsumeQueuedRetainedChanges();
++        if (_combinedTransformDirty)
++            retainedChanges |= RetainedCompositionVisualChanges.Transform;
++        if (_ownBoundsDirty ||
++            _delayPropagateNeedsBoundsUpdate ||
++            _delayPropagateIsDirtyForRender ||
++            _delayPropagateHasExtraDirtyRects)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.Bounds;
++        }
++        if (_contentChanged)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.Bounds;
++        }
+         var setDirtyBounds = _contentChanged || _delayPropagateNeedsBoundsUpdate;
+         var setDirtyForRender = _contentChanged || _delayPropagateIsDirtyForRender;
+         var setHasExtraDirtyRect = _delayPropagateHasExtraDirtyRects;
+         
+-        _delayPropagateIsDirtyForRender =
++        _delayPropagateNeedsBoundsUpdate =
+             _delayPropagateHasExtraDirtyRects =
+                 _delayPropagateIsDirtyForRender = false;
+         
+@@ -160,5 +175,10 @@ public void RecomputeOwnProperties()
+ 
+         _ownBoundsDirty = _clipSizeDirty = _combinedTransformDirty = _compositionFieldsDirty = false;
+         PropagateFlags(setDirtyBounds, setDirtyForRender, setHasExtraDirtyRect);
++        if (retainedChanges != RetainedCompositionVisualChanges.None)
++        {
++            AdvanceRetainedRevision(retainedChanges);
++            Root?.NotifyRetainedSceneChanged(this);
++        }
+     }
+ }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.DirtyInputs.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.DirtyInputs.cs
+index 35debea184..c4394df2fc 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.DirtyInputs.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.DirtyInputs.cs
+@@ -3,7 +3,7 @@
+ 
+ namespace Avalonia.Rendering.Composition.Server;
+ 
+-partial class ServerCompositionVisual
++partial class ServerCompositionVisual : IServerRenderResourceObserver
+ {
+     private bool _enqueuedForOwnPropertiesRecompute;
+ 
+@@ -19,6 +19,41 @@ partial class ServerCompositionVisual
+           | CompositionVisualChangedFields.RenderOptions
+           | CompositionVisualChangedFields.Effect;
+ 
++    private const CompositionVisualChangedFields
++        RetainedPrimitiveAppearanceFieldsMask =
++            CompositionVisualChangedFields.Opacity
++            | CompositionVisualChangedFields.OpacityAnimated
++            | CompositionVisualChangedFields.Visible
++            | CompositionVisualChangedFields.VisibleAnimated;
++
++    private const CompositionVisualChangedFields
++        RetainedAdornerFieldsMask =
++            CompositionVisualChangedFields.AdornerIsClipped
++            | CompositionVisualChangedFields.AdornedVisual;
++
++    private const CompositionVisualChangedFields
++        RetainedOpacityMaskFieldsMask =
++            CompositionVisualChangedFields.OpacityMaskBrush;
++
++    private const CompositionVisualChangedFields
++        RetainedEffectFieldsMask =
++            CompositionVisualChangedFields.Effect;
++
++    private const CompositionVisualChangedFields
++        RetainedLayoutClipFieldsMask =
++            CompositionVisualChangedFields.ClipToBounds
++            | CompositionVisualChangedFields.ClipToBoundsAnimated
++            | CompositionVisualChangedFields.Size
++            | CompositionVisualChangedFields.SizeAnimated;
++
++    private const CompositionVisualChangedFields
++        RetainedGeometryClipFieldsMask =
++            CompositionVisualChangedFields.Clip;
++
++    private const CompositionVisualChangedFields
++        RetainedBitmapCacheFieldsMask =
++            CompositionVisualChangedFields.CacheMode;
++
+     private const CompositionVisualChangedFields OwnBoundsUpdateFieldsMask =
+         CompositionVisualChangedFields.Clip
+         | CompositionVisualChangedFields.ClipToBounds
+@@ -62,6 +97,60 @@ partial class ServerCompositionVisual
+         
+     partial void OnFieldsDeserialized(CompositionVisualChangedFields changed)
+     {
++        RetainedCompositionVisualChanges retainedChanges =
++            RetainedCompositionVisualChanges.None;
++        if ((changed & CombinedTransformFieldsMask) != 0)
++            retainedChanges |= RetainedCompositionVisualChanges.Transform;
++        if ((changed & RetainedPrimitiveAppearanceFieldsMask) != 0)
++        {
++            retainedChanges |=
++                RetainedCompositionVisualChanges.PrimitiveAppearance;
++        }
++        if ((changed & RetainedAdornerFieldsMask) != 0)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.Adorner;
++        }
++        if ((changed & RetainedOpacityMaskFieldsMask) != 0)
++            retainedChanges |= RetainedCompositionVisualChanges.OpacityMask;
++        if ((changed & RetainedEffectFieldsMask) != 0)
++            retainedChanges |= RetainedCompositionVisualChanges.Effect;
++        if ((changed & RetainedLayoutClipFieldsMask) != 0)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.LayoutClip;
++            if (OpacityMaskBrush != null)
++                retainedChanges |= RetainedCompositionVisualChanges.OpacityMask;
++            if (Effect != null)
++                retainedChanges |= RetainedCompositionVisualChanges.Effect;
++        }
++        if ((changed & RetainedGeometryClipFieldsMask) != 0)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.GeometryClip;
++            if (RequiresComplexGeometryClipSynchronization())
++                retainedChanges |= RetainedCompositionVisualChanges.Adorner;
++            if (OpacityMaskBrush != null)
++                retainedChanges |= RetainedCompositionVisualChanges.OpacityMask;
++            if (Effect != null)
++                retainedChanges |= RetainedCompositionVisualChanges.Effect;
++        }
++        if ((changed & RetainedBitmapCacheFieldsMask) != 0)
++            retainedChanges |= RetainedCompositionVisualChanges.BitmapCache;
++        if ((changed & (
++                CompositionVisualChangedFields.RenderOptions |
++                CompositionVisualChangedFields.TextOptions)) != 0)
++        {
++            retainedChanges |=
++                RetainedCompositionVisualChanges.InheritedDrawingOptions;
++        }
++        if ((changed & (
++                CompositionVisualChangedFields.Root |
++                CompositionVisualChangedFields.Parent)) != 0)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.Topology;
++        }
++        QueueRetainedChanges(retainedChanges);
++        if (retainedChanges != RetainedCompositionVisualChanges.None)
++            EnqueueOwnPropertiesRecompute();
++
+         if ((changed & CompositionFieldsMask) != 0) 
+             TriggerCompositionFieldsDirty();
+         if ((changed & CombinedTransformFieldsMask) != 0) 
+@@ -89,10 +178,25 @@ partial class ServerCompositionVisual
+     public override void NotifyAnimatedValueChanged(CompositionProperty property)
+     {
+         base.NotifyAnimatedValueChanged(property);
++        RetainedCompositionVisualChanges retainedChanges =
++            RetainedCompositionVisualChanges.None;
++        if (property == s_IdOfOpacityProperty)
++        {
++            retainedChanges |=
++                RetainedCompositionVisualChanges.PrimitiveAppearance;
++            TriggerCompositionFieldsDirty();
++        }
++
+         if (property == s_IdOfClipToBoundsProperty
+-            || property == s_IdOfOpacityProperty
+-            || property == s_IdOfSizeProperty) 
++            || property == s_IdOfSizeProperty)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.LayoutClip;
++            if (OpacityMaskBrush != null)
++                retainedChanges |= RetainedCompositionVisualChanges.OpacityMask;
++            if (Effect != null)
++                retainedChanges |= RetainedCompositionVisualChanges.Effect;
+             TriggerCompositionFieldsDirty();
++        }
+ 
+         if (property == s_IdOfSizeProperty
+             || property == s_IdOfAnchorPointProperty
+@@ -103,8 +207,14 @@ public override void NotifyAnimatedValueChanged(CompositionProperty property)
+             || property == s_IdOfRotationAngleProperty
+             || property == s_IdOfOrientationProperty
+             || property == s_IdOfOffsetProperty
+-            || property == s_IdOfTranslationProperty) 
++            || property == s_IdOfTranslationProperty)
++        {
++            retainedChanges |= RetainedCompositionVisualChanges.Transform;
+             TriggerCombinedTransformDirty();
++        }
++
++        if (property == s_IdOfAdornedVisualProperty)
++            retainedChanges |= RetainedCompositionVisualChanges.Adorner;
+ 
+         if (property == s_IdOfClipToBoundsProperty
+             || property == s_IdOfSizeProperty
+@@ -114,7 +224,38 @@ public override void NotifyAnimatedValueChanged(CompositionProperty property)
+             SizeChanged();
+ 
+         if (property == s_IdOfVisibleProperty)
++        {
++            retainedChanges |=
++                RetainedCompositionVisualChanges.PrimitiveAppearance;
+             TriggerVisibleDirty();
++        }
++
++        QueueRetainedChanges(retainedChanges);
++    }
++
++    private bool RequiresComplexGeometryClipSynchronization() =>
++        AdornerIsClipped && AdornedVisual != null;
++
++    partial void OnOpacityMaskBrushChanging()
++    {
++        if (OpacityMaskBrush is IServerRenderResource resource)
++            resource.RemoveObserver(this);
++    }
++
++    partial void OnOpacityMaskBrushChanged()
++    {
++        if (OpacityMaskBrush is IServerRenderResource resource)
++            resource.AddObserver(this);
++    }
++
++    void IServerRenderResourceObserver.DependencyQueuedInvalidate(
++        IServerRenderResource sender)
++    {
++        if (!ReferenceEquals(sender, OpacityMaskBrush))
++            return;
++
++        QueueRetainedChanges(RetainedCompositionVisualChanges.OpacityMask);
++        TriggerCompositionFieldsDirty();
+     }
+ 
+     protected virtual void SizeChanged()
+@@ -180,6 +321,7 @@ protected void EnqueueForOwnBoundsRecompute()
+ 
+     protected void InvalidateContent()
+     {
++        AdvanceRetainedContentRevision();
+         _contentChanged = true;
+         EnqueueForOwnBoundsRecompute();
+     }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
+index 5e1b91f7a4..1610c42a61 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisual/ServerCompositionVisual.cs
+@@ -2,6 +2,7 @@
+ using System.Collections.Generic;
+ using System.Numerics;
+ using System.Runtime.Intrinsics;
++using System.Threading;
+ using Avalonia.Media;
+ using Avalonia.Platform;
+ using Avalonia.Rendering.Composition.Animations;
+@@ -10,6 +11,190 @@
+ 
+ namespace Avalonia.Rendering.Composition.Server
+ {
++    [Flags]
++    internal enum RetainedCompositionVisualChanges : ushort
++    {
++        None = 0,
++        Transform = 1 << 0,
++        Bounds = 1 << 1,
++        // Bit 2 was the former whole-appearance synchronization channel.
++        // Keep it unused so the remaining bit assignments stay stable.
++        LayoutClip = 1 << 3,
++        InheritedDrawingOptions = 1 << 4,
++        Topology = 1 << 5,
++        PrimitiveAppearance = 1 << 6,
++        GeometryClip = 1 << 7,
++        BitmapCache = 1 << 8,
++        Effect = 1 << 9,
++        OpacityMask = 1 << 10,
++        Adorner = 1 << 11
++    }
++
++    internal enum RetainedCompositionEffectKind : byte
++    {
++        None,
++        Blur,
++        DropShadow,
++        Unsupported
++    }
++
++    internal readonly struct RetainedCompositionVisualDelta
++    {
++        internal RetainedCompositionVisualDelta(
++            ServerCompositionVisual source)
++        {
++            Source = source;
++            RetainedId = source.RetainedId;
++            BackendOwner = source.RetainedBackendOwner;
++            BackendHandle = source.RetainedBackendHandle;
++            Changes = source.RetainedPendingChanges;
++            TopologyChildren =
++                (Changes & RetainedCompositionVisualChanges.Topology) != 0
++                    ? source.Children?.List
++                    : null;
++            AdornerIsClipped = source.AdornerIsClipped;
++            AdornedVisual = source.AdornedVisual;
++            Revision = source.RetainedRevision;
++            ContentRevision = source.RetainedContentRevision;
++            IsVisible = source.Visible;
++            Opacity = source.Opacity;
++            RenderOptions = source.RenderOptions;
++            TextOptions = source.TextOptions;
++            Size = new Vector2(
++                (float)source.Size.X,
++                (float)source.Size.Y);
++            ClipToBounds = source.ClipToBounds;
++            GeometryClip = source.Clip;
++            OpacityMaskBrush = source.OpacityMaskBrush;
++            if (OpacityMaskBrush != null &&
++                source.SubTreeBounds is { } opacityMaskBounds)
++            {
++                OpacityMaskBounds = new Vector4(
++                    (float)opacityMaskBounds.Left,
++                    (float)opacityMaskBounds.Top,
++                    (float)(opacityMaskBounds.Right -
++                        opacityMaskBounds.Left),
++                    (float)(opacityMaskBounds.Bottom -
++                        opacityMaskBounds.Top));
++                HasOpacityMaskBounds = true;
++            }
++            if (source.CacheMode is ServerCompositionBitmapCache bitmapCache)
++            {
++                HasBitmapCache = true;
++                BitmapCacheRenderScale =
++                    (float)Math.Max(0d, bitmapCache.RenderAtScale);
++                BitmapCacheSnapsToDevicePixels =
++                    bitmapCache.SnapsToDevicePixels;
++                BitmapCacheEnableClearType = bitmapCache.EnableClearType;
++            }
++
++            EffectKind = RetainedCompositionEffectKind.None;
++            EffectRadius = 0f;
++            EffectOffset = default;
++            EffectColor = 0;
++            EffectOpacity = 0f;
++            switch (source.Effect)
++            {
++                case IBlurEffect blur:
++                    EffectKind = RetainedCompositionEffectKind.Blur;
++                    EffectRadius = (float)blur.Radius;
++                    break;
++                case IDropShadowEffect shadow:
++                    EffectKind = RetainedCompositionEffectKind.DropShadow;
++                    EffectRadius = (float)shadow.BlurRadius;
++                    EffectOffset = new Vector2(
++                        (float)shadow.OffsetX,
++                        (float)shadow.OffsetY);
++                    EffectColor = shadow.Color.ToUInt32();
++                    EffectOpacity = (float)shadow.Opacity;
++                    break;
++                case not null:
++                    EffectKind = RetainedCompositionEffectKind.Unsupported;
++                    break;
++            }
++
++            if (source.SubTreeBounds is { } effectOutputBounds)
++            {
++                EffectOutputBounds = new Vector4(
++                    (float)effectOutputBounds.Left,
++                    (float)effectOutputBounds.Top,
++                    (float)(effectOutputBounds.Right -
++                        effectOutputBounds.Left),
++                    (float)(effectOutputBounds.Bottom -
++                        effectOutputBounds.Top));
++                HasEffectOutputBounds = true;
++            }
++            else
++            {
++                EffectOutputBounds = default;
++                HasEffectOutputBounds = false;
++            }
++
++            Matrix transform =
++                source.RetainedOwnTransform ?? Matrix.Identity;
++            Transform = new Matrix3x2(
++                (float)transform.M11,
++                (float)transform.M12,
++                (float)transform.M21,
++                (float)transform.M22,
++                (float)transform.M31,
++                (float)transform.M32);
++
++            if (source.RetainedOwnContentBounds is { } bounds)
++            {
++                LocalBounds = new Vector4(
++                    (float)bounds.Left,
++                    (float)bounds.Top,
++                    (float)(bounds.Right - bounds.Left),
++                    (float)(bounds.Bottom - bounds.Top));
++                HasLocalBounds = true;
++            }
++            else
++            {
++                LocalBounds = default;
++                HasLocalBounds = false;
++            }
++        }
++
++        internal ServerCompositionVisual Source { get; }
++        internal long RetainedId { get; }
++        internal long BackendOwner { get; }
++        internal ulong BackendHandle { get; }
++        internal RetainedCompositionVisualChanges Changes { get; }
++        internal IReadOnlyList<ServerCompositionVisual>? TopologyChildren
++        {
++            get;
++        }
++        internal bool AdornerIsClipped { get; }
++        internal ServerCompositionVisual? AdornedVisual { get; }
++        internal ulong Revision { get; }
++        internal ulong ContentRevision { get; }
++        internal bool IsVisible { get; }
++        internal float Opacity { get; }
++        internal RenderOptions RenderOptions { get; }
++        internal TextOptions TextOptions { get; }
++        internal Vector2 Size { get; }
++        internal bool ClipToBounds { get; }
++        internal IGeometryImpl? GeometryClip { get; }
++        internal IBrush? OpacityMaskBrush { get; }
++        internal Vector4 OpacityMaskBounds { get; }
++        internal bool HasOpacityMaskBounds { get; }
++        internal bool HasBitmapCache { get; }
++        internal float BitmapCacheRenderScale { get; }
++        internal bool BitmapCacheSnapsToDevicePixels { get; }
++        internal bool BitmapCacheEnableClearType { get; }
++        internal RetainedCompositionEffectKind EffectKind { get; }
++        internal float EffectRadius { get; }
++        internal Vector2 EffectOffset { get; }
++        internal uint EffectColor { get; }
++        internal float EffectOpacity { get; }
++        internal Vector4 EffectOutputBounds { get; }
++        internal bool HasEffectOutputBounds { get; }
++        internal Matrix3x2 Transform { get; }
++        internal Vector4 LocalBounds { get; }
++        internal bool HasLocalBounds { get; }
++    }
++
+     /// <summary>
+     /// Server-side <see cref="CompositionVisual"/> counterpart.
+     /// Is responsible for computing the transformation matrix, for applying various visual
+@@ -18,8 +203,26 @@ namespace Avalonia.Rendering.Composition.Server
+     /// </summary>
+     partial class ServerCompositionVisual : ServerObject
+     {
++        private static long s_nextRetainedId;
++
+         public ServerCompositionVisualCollection? Children { get; private set; } = null!;
+         public ServerCompositionVisualCache? Cache { get; private set; }
++        internal long RetainedId { get; } = Interlocked.Increment(ref s_nextRetainedId);
++        internal long RetainedBackendOwner { get; set; }
++        internal ulong RetainedBackendHandle { get; set; }
++        internal ulong RetainedRevision { get; private set; }
++        internal virtual ulong RetainedContentRevision =>
++            _retainedContentRevision;
++        private ulong _retainedContentRevision;
++        private RetainedCompositionVisualChanges _queuedRetainedChanges;
++        private const ushort RetainedChangesQueued = 1 << 15;
++        private ushort _retainedChangeState;
++        private int _retainedChangeQueueIndex = -1;
++        internal RetainedCompositionVisualChanges RetainedPendingChanges =>
++            (RetainedCompositionVisualChanges)(
++                _retainedChangeState & ~RetainedChangesQueued);
++        internal int RetainedChangeQueueIndex =>
++            _retainedChangeQueueIndex;
+ 
+         partial void OnRootChanging()
+         {
+@@ -66,6 +269,8 @@ protected virtual void OnAttachedToRoot(ServerCompositionTarget target)
+         public void OnCacheModeStateChanged()
+         {
+             Cache?.InvalidateProperties();
++            QueueRetainedChanges(
++                RetainedCompositionVisualChanges.BitmapCache);
+             InvalidateContent();
+         }
+ 
+@@ -74,9 +279,71 @@ protected virtual void RenderCore(ServerVisualRenderContext context, LtrbRect cu
+         {
+         }
+ 
++        internal void RenderRetainedContent(IDrawingContextImpl canvas, LtrbRect currentTransformedClip) =>
++            RenderCore(new ServerVisualRenderContext(canvas), currentTransformedClip);
++
++        internal LtrbRect? RetainedOwnContentBounds => _ownContentBounds;
++        internal Matrix? RetainedOwnTransform => _ownTransform;
++
++        internal void NotifyRetainedTopologyChanged()
++        {
++            AdvanceRetainedRevision(RetainedCompositionVisualChanges.Topology);
++            Root?.NotifyRetainedSceneTopologyChanged(this);
++        }
++
++        internal void QueueRetainedChanges(RetainedCompositionVisualChanges changes) =>
++            _queuedRetainedChanges |= changes;
++
++        internal RetainedCompositionVisualChanges ConsumeQueuedRetainedChanges()
++        {
++            RetainedCompositionVisualChanges changes = _queuedRetainedChanges;
++            _queuedRetainedChanges = RetainedCompositionVisualChanges.None;
++            return changes;
++        }
++
++        internal void CompleteRetainedSynchronization()
++        {
++            _queuedRetainedChanges = RetainedCompositionVisualChanges.None;
++            _retainedChangeState = 0;
++            _retainedChangeQueueIndex = -1;
++        }
++
++        internal bool TryMarkRetainedChangesQueued(int queueIndex)
++        {
++            ArgumentOutOfRangeException.ThrowIfNegative(queueIndex);
++            if ((_retainedChangeState & RetainedChangesQueued) != 0)
++                return false;
++
++            _retainedChangeState |= RetainedChangesQueued;
++            _retainedChangeQueueIndex = queueIndex;
++            return true;
++        }
++
++        private void AdvanceRetainedRevision(RetainedCompositionVisualChanges changes)
++        {
++            _retainedChangeState |= (ushort)changes;
++            unchecked
++            {
++                RetainedRevision++;
++                if (RetainedRevision == 0)
++                    RetainedRevision = 1;
++            }
++        }
++
++        protected virtual void AdvanceRetainedContentRevision()
++        {
++            unchecked
++            {
++                _retainedContentRevision++;
++                if (_retainedContentRevision == 0)
++                    _retainedContentRevision = 1;
++            }
++        }
++
+         partial void Initialize()
+         {
+             Children = new ServerCompositionVisualCollection(Compositor);
++            Children.SetOwner(this);
+         }
+     }
+ }
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+new file mode 100644
+index 0000000000..b9231b6bef
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+@@ -0,0 +1,10 @@
++namespace Avalonia.Rendering.Composition.Server;
++
++partial class ServerCompositionVisualCollection
++{
++    private ServerCompositionVisual? _owner;
++
++    internal void SetOwner(ServerCompositionVisual owner) => _owner = owner;
++
++    protected override void OnListChanged() => _owner?.NotifyRetainedTopologyChanged();
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
+index e440ffab26..f9e81090c0 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
+@@ -9,10 +9,13 @@ namespace Avalonia.Rendering.Composition.Server;
+ internal partial class ServerCompositor
+ {
+     private IReadOnlyDictionary<Type, object>? _renderInterfaceFeatureCache;
++    private ICompositionServerBackend? _compositionBackend;
+     private readonly object _renderInterfaceFeaturesUserApiLock = new();
+ 
+     void RT_OnContextCreated(IPlatformRenderInterfaceContext context)
+     {
++        _compositionBackend =
++            context.TryGetFeature<ICompositionServerBackend>();
+         lock (_renderInterfaceFeaturesUserApiLock)
+         {
+             _renderInterfaceFeatureCache = null;
+@@ -24,6 +27,7 @@ bool RT_OnContextLostExceptionFilterObserver(Exception e)
+     {
+         if (e is PlatformGraphicsContextLostException)
+         {
++            _compositionBackend = null;
+             lock (_renderInterfaceFeaturesUserApiLock)
+                 _renderInterfaceFeatureCache = null;
+         }
+@@ -32,10 +36,14 @@ bool RT_OnContextLostExceptionFilterObserver(Exception e)
+     
+     void RT_OnContextDisposed()
+     {
++        _compositionBackend = null;
+         lock (_renderInterfaceFeaturesUserApiLock)
+             _renderInterfaceFeatureCache = null;
+     }
+ 
++    internal ICompositionServerBackend? RT_TryGetCompositionBackend() =>
++        _compositionBackend;
++
+     public IReadOnlyDictionary<Type, object>? AT_TryGetCachedRenderInterfaceFeatures()
+     {
+         lock (_renderInterfaceFeaturesUserApiLock)
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCustomCompositionVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCustomCompositionVisual.cs
+index 0b9c6889c5..57021a348b 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCustomCompositionVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCustomCompositionVisual.cs
+@@ -59,7 +59,17 @@ protected override void OnDetachedFromRoot(ServerCompositionTarget target)
+ 
+     internal void HandlerInvalidate() => InvalidateContent();
+ 
+-    internal void HandlerInvalidate(Rect rc) => AddExtraDirtyRect(new LtrbRect(rc));
++    internal void HandlerInvalidate(Rect rc)
++    {
++        AdvanceRetainedContentRevision();
++        AddExtraDirtyRect(new LtrbRect(rc));
++    }
++
++    protected override void SizeChanged()
++    {
++        InvalidateContent();
++        base.SizeChanged();
++    }
+ 
+     internal void HandlerRegisterForNextAnimationFrameUpdate()
+     {
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
+index 0652e1731d..50983b0d90 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerList.cs
+@@ -20,10 +20,15 @@ protected override void DeserializeChangesCore(BatchStreamReader reader, TimeSpa
+                 var count = reader.Read<int>();
+                 for (var c = 0; c < count; c++) 
+                     List.Add(reader.ReadObject<T>());
++                OnListChanged();
+             }
+             base.DeserializeChangesCore(reader, committedAt);
+         }
+ 
++        protected virtual void OnListChanged()
++        {
++        }
++
+         public List<T>.Enumerator GetEnumerator() => List.GetEnumerator();
+ 
+         public ServerList(ServerCompositor compositor) : base(compositor)
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerSizeDependantVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerSizeDependantVisual.cs
+index bd8a568073..f9186b8a7c 100644
+--- a/src/Avalonia.Base/Rendering/Composition/Server/ServerSizeDependantVisual.cs
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerSizeDependantVisual.cs
+@@ -19,7 +19,7 @@ public ServerSizeDependantVisual(ServerCompositor compositor) : base(compositor)
+ 
+     protected override void SizeChanged()
+     {
+-        EnqueueForOwnBoundsRecompute();
++        InvalidateContent();
+         base.SizeChanged();
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs b/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
+index 980c7818c7..953bf3f0bc 100644
+--- a/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
++++ b/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs
+@@ -30,7 +30,9 @@ public void EnsureValidBackendContext()
+         if (!IsReady)
+             throw new InvalidOperationException("Platform graphics isn't ready yet");
+         
+-        if (_backend == null || _gpuContext?.Value.IsLost == true)
++        if (_backend == null ||
++            _backend.IsLost ||
++            _gpuContext?.Value.IsLost == true)
+         {
+             _backend?.Dispose();
+             _backend = null;
+diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X11.csproj
+index 4a49edd6bf..88825227ef 100644
+--- a/src/Avalonia.X11/Avalonia.X11.csproj
++++ b/src/Avalonia.X11/Avalonia.X11.csproj
+@@ -1,13 +1,18 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+   <PropertyGroup>
+-    <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' != 'true'">$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' == 'true'">$(AvsCurrentTargetFramework)</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <EnableRuntimeMarshalling>true</EnableRuntimeMarshalling>
+   </PropertyGroup>
+ 
+   <ItemGroup>
+     <ProjectReference Include="..\..\packages\Avalonia\Avalonia.csproj" />
+-    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />
+     <ProjectReference Include="..\Avalonia.FreeDesktop.AtSpi\Avalonia.FreeDesktop.AtSpi.csproj" />
+     <Compile Include="..\Shared\RawEventGrouping.cs" />
+diff --git a/src/Avalonia.X11/X11Window.cs b/src/Avalonia.X11/X11Window.cs
+index 5643f18d87..92f07657ac 100644
+--- a/src/Avalonia.X11/X11Window.cs
++++ b/src/Avalonia.X11/X11Window.cs
+@@ -135,7 +135,12 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
+                 // the target sufrace currently is
+                 _useCompositorDrivenRenderWindowResize = true;
+             }
+-            else if (glfeature == null)
++            else if (glfeature == null &&
++                     AvaloniaLocator.Current.GetService<IPlatformRenderInterface>()
++                         is not IPlatformRenderInterfaceNativeSurfaceFeature
++                         {
++                             RequiresOpaqueSurface: true
++                         })
+                 visualInfo = _x11.TransparentVisualInfo;
+ 
+             var egl = glfeature as EglPlatformGraphics;
+diff --git a/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
+new file mode 100644
+index 0000000000..855137c665
+--- /dev/null
++++ b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
+@@ -0,0 +1,834 @@
++using System.Collections.Generic;
++using Avalonia.Media;
++using Avalonia.Media.Immutable;
++using Avalonia.Rendering;
++using Avalonia.Rendering.Composition;
++using Avalonia.Rendering.Composition.Drawing;
++using Avalonia.Rendering.Composition.Server;
++using Avalonia.UnitTests;
++using Moq;
++using Xunit;
++
++namespace Avalonia.Base.UnitTests.Composition;
++
++public class RetainedCompositionRevisionTests : ScopedTestBase
++{
++    [Fact]
++    public void DrawListContentRevisionIsIndependentFromVisualStateRevision()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = new CompositionDrawListVisual(
++            compositor,
++            new ServerCompositionDrawListVisual(compositor.Server, null!),
++            null!);
++
++        visual.DrawList = CreateDrawList(compositor, Colors.Red);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionDrawListVisual)visual.Server;
++        ulong initialStateRevision = server.RetainedRevision;
++        ulong initialContentRevision = server.RetainedContentRevision;
++
++        visual.Offset = new Vector3D(8, 4, 0);
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialStateRevision, server.RetainedRevision);
++        Assert.Equal(initialContentRevision, server.RetainedContentRevision);
++
++        visual.DrawList = CreateDrawList(compositor, Colors.Blue);
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialContentRevision, server.RetainedContentRevision);
++    }
++
++    [Fact]
++    public void ContainerStateRevisionDoesNotAdvanceContentRevision()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        ulong initialStateRevision = server.RetainedRevision;
++        ulong initialContentRevision = server.RetainedContentRevision;
++
++        visual.Opacity = 0.5f;
++        visual.OpacityMask = Brushes.White;
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialStateRevision, server.RetainedRevision);
++        Assert.Equal(initialContentRevision, server.RetainedContentRevision);
++    }
++
++    [Fact]
++    public void SolidColorChangeAdvancesContentRevision()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateSolidColorVisual();
++        visual.Size = new Vector(80, 40);
++        visual.Color = Colors.Red;
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        ulong initialContentRevision = server.RetainedContentRevision;
++
++        visual.Color = Colors.Blue;
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialContentRevision, server.RetainedContentRevision);
++    }
++
++    [Fact]
++    public void CustomVisualStateAndPartialContentInvalidationUseIndependentRevisions()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var handler = new RevisionTestCustomVisualHandler();
++        var visual = compositor.CreateCustomVisual(handler);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        ulong initialStateRevision = server.RetainedRevision;
++        ulong initialContentRevision = server.RetainedContentRevision;
++
++        visual.Opacity = 0.5f;
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialStateRevision, server.RetainedRevision);
++        Assert.Equal(initialContentRevision, server.RetainedContentRevision);
++
++        compositor.PostServerJob(handler.InvalidatePartial);
++        CommitAndRender(compositor);
++
++        Assert.NotEqual(initialContentRevision, server.RetainedContentRevision);
++    }
++
++    [Fact]
++    public void ParentChangeDelayedFlagsAreConsumedByOneRecompute()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var parent = compositor.CreateContainerVisual();
++        var child = compositor.CreateContainerVisual();
++
++        parent.Children.InsertAtTop(child);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)child.Server;
++        ulong revision = server.RetainedRevision;
++
++        server.RecomputeOwnProperties();
++
++        Assert.Equal(revision, server.RetainedRevision);
++    }
++
++    [Fact]
++    public void TransformChangePublishesCompactTransformDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Offset = new Vector3D(8, 4, 0);
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform,
++            server.RetainedPendingChanges);
++    }
++
++    [Fact]
++    public void TextOptionsChangePublishesInheritedDrawingOptionsDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.TextOptions = new TextOptions
++        {
++            TextRenderingMode = TextRenderingMode.Antialias
++        };
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.InheritedDrawingOptions,
++            server.RetainedPendingChanges);
++
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(
++            TextRenderingMode.Antialias,
++            delta.TextOptions.TextRenderingMode);
++        Assert.Equal(default, delta.RenderOptions);
++    }
++
++    [Fact]
++    public void RenderOptionsChangePublishesOnlyInheritedDrawingOptionsDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.RenderOptions = new RenderOptions
++        {
++            BitmapInterpolationMode =
++                Avalonia.Media.Imaging.BitmapInterpolationMode.LowQuality
++        };
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.InheritedDrawingOptions,
++            server.RetainedPendingChanges);
++
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(
++            Avalonia.Media.Imaging.BitmapInterpolationMode.LowQuality,
++            delta.RenderOptions.BitmapInterpolationMode);
++        Assert.Equal(default, delta.TextOptions);
++    }
++
++    [Fact]
++    public void OpacityChangePublishesPrimitiveAppearanceDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Opacity = 0.5f;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.PrimitiveAppearance,
++            server.RetainedPendingChanges);
++    }
++
++    [Fact]
++    public void SizeAndClipChangePublishCompactLayoutClipDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Size = new Vector(320, 180);
++        visual.ClipToBounds = true;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.LayoutClip,
++            server.RetainedPendingChanges);
++
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(320f, delta.Size.X);
++        Assert.Equal(180f, delta.Size.Y);
++        Assert.True(delta.ClipToBounds);
++    }
++
++    [Fact]
++    public void SizeChangeWithEffectAlsoPublishesTypedEffectDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        visual.Effect = new BlurEffect { Radius = 5 }.ToImmutable();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Size = new Vector(320, 180);
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.LayoutClip |
++            RetainedCompositionVisualChanges.Effect,
++            server.RetainedPendingChanges);
++    }
++
++    [Fact]
++    public void SizeChangeWithOpacityMaskPublishesTypedMaskDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateSolidColorVisual();
++        visual.OpacityMask = Brushes.White;
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Size = new Vector(320, 180);
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.LayoutClip |
++            RetainedCompositionVisualChanges.OpacityMask,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Same(Brushes.White, delta.OpacityMaskBrush);
++    }
++
++    [Fact]
++    public void MutableOpacityMaskDependencyPublishesTypedMaskDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var mask = new SolidColorBrush(Colors.Red);
++        var visual = compositor.CreateContainerVisual();
++        visual.OpacityMask = mask;
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        mask.Color = Colors.Blue;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.OpacityMask,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(
++            Colors.Blue,
++            Assert.IsAssignableFrom<ISolidColorBrush>(
++                delta.OpacityMaskBrush).Color);
++    }
++
++    [Fact]
++    public void ReplacedOpacityMaskNoLongerInvalidatesVisual()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var mask = new SolidColorBrush(Colors.Red);
++        var visual = compositor.CreateContainerVisual();
++        visual.OpacityMask = mask;
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        visual.OpacityMask = null;
++        CommitAndRender(compositor);
++        server.CompleteRetainedSynchronization();
++
++        mask.Color = Colors.Blue;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.None,
++            server.RetainedPendingChanges);
++    }
++
++    [Fact]
++    public void GeometryClipChangePublishesTypedGeometryClipDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++        var geometry = new Mock<Avalonia.Platform.IGeometryImpl>().Object;
++
++        visual.Clip = geometry;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.GeometryClip,
++            server.RetainedPendingChanges);
++        Assert.Same(
++            geometry,
++            new RetainedCompositionVisualDelta(server).GeometryClip);
++    }
++
++    [Fact]
++    public void GeometryClipChangeWithEffectAlsoPublishesTypedEffectDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        visual.Effect = new BlurEffect { Radius = 5 }.ToImmutable();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Clip = new Mock<Avalonia.Platform.IGeometryImpl>().Object;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.GeometryClip |
++            RetainedCompositionVisualChanges.Effect,
++            server.RetainedPendingChanges);
++    }
++
++    [Fact]
++    public void BlurEffectPublishesTypedScalarSnapshot()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.Effect = new BlurEffect { Radius = 7.25 }.ToImmutable();
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.Effect,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(RetainedCompositionEffectKind.Blur, delta.EffectKind);
++        Assert.Equal(7.25f, delta.EffectRadius);
++        Assert.Equal(default, delta.EffectOffset);
++        Assert.Equal(0u, delta.EffectColor);
++        Assert.Equal(0f, delta.EffectOpacity);
++    }
++
++    [Fact]
++    public void DropShadowEffectPublishesTypedScalarSnapshot()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++        var color = Color.FromArgb(192, 20, 40, 60);
++
++        visual.Effect = new DropShadowEffect
++        {
++            BlurRadius = 5.5,
++            OffsetX = -3.25,
++            OffsetY = 4.75,
++            Color = color,
++            Opacity = 0.625
++        }.ToImmutable();
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.Effect,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.Equal(
++            RetainedCompositionEffectKind.DropShadow,
++            delta.EffectKind);
++        Assert.Equal(5.5f, delta.EffectRadius);
++        Assert.Equal(-3.25f, delta.EffectOffset.X);
++        Assert.Equal(4.75f, delta.EffectOffset.Y);
++        Assert.Equal(color.ToUInt32(), delta.EffectColor);
++        Assert.Equal(0.625f, delta.EffectOpacity);
++    }
++
++    [Fact]
++    public void BitmapCacheAssignmentPublishesTypedCacheDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        var cache = new BitmapCache
++        {
++            RenderAtScale = 1.5,
++            SnapsToDevicePixels = true,
++            EnableClearType = true
++        };
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.CacheMode = cache.GetForCompositor(compositor);
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.BitmapCache,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.True(delta.HasBitmapCache);
++        Assert.Equal(1.5f, delta.BitmapCacheRenderScale);
++        Assert.True(delta.BitmapCacheSnapsToDevicePixels);
++        Assert.True(delta.BitmapCacheEnableClearType);
++    }
++
++    [Fact]
++    public void BitmapCachePropertyMutationRefreshesTypedCacheDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        var cache = new BitmapCache();
++        visual.CacheMode = cache.GetForCompositor(compositor);
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        cache.RenderAtScale = 2.25;
++        cache.SnapsToDevicePixels = true;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Bounds |
++            RetainedCompositionVisualChanges.BitmapCache,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.True(delta.HasBitmapCache);
++        Assert.Equal(2.25f, delta.BitmapCacheRenderScale);
++        Assert.True(delta.BitmapCacheSnapsToDevicePixels);
++        Assert.False(delta.BitmapCacheEnableClearType);
++    }
++
++    [Fact]
++    public void AdornedVisualChangePublishesTypedAdornerDelta()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        var adornedVisual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        visual.AdornerIsClipped = true;
++        visual.AdornedVisual = adornedVisual;
++        CommitAndRender(compositor);
++
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.Adorner,
++            server.RetainedPendingChanges);
++        var delta = new RetainedCompositionVisualDelta(server);
++        Assert.True(delta.AdornerIsClipped);
++        Assert.Same(adornedVisual.Server, delta.AdornedVisual);
++    }
++
++    [Fact]
++    public void RetainedChangeQueueCoalescesUntilSynchronizationCompletes()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++
++        Assert.True(server.TryMarkRetainedChangesQueued(0));
++        Assert.False(server.TryMarkRetainedChangesQueued(1));
++        Assert.Equal(0, server.RetainedChangeQueueIndex);
++
++        server.CompleteRetainedSynchronization();
++
++        Assert.Equal(-1, server.RetainedChangeQueueIndex);
++        Assert.True(server.TryMarkRetainedChangesQueued(0));
++    }
++
++    [Fact]
++    public void RetainedDeltaSnapshotsPrimitiveBackendIdentity()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.RetainedBackendOwner = 17;
++        server.RetainedBackendHandle = 0x0000002A00000005;
++        var delta = new RetainedCompositionVisualDelta(server);
++
++        server.RetainedBackendOwner = 19;
++        server.RetainedBackendHandle = 0x0000002B00000006;
++
++        Assert.Same(server, delta.Source);
++        Assert.Equal(server.RetainedId, delta.RetainedId);
++        Assert.Equal(17, delta.BackendOwner);
++        Assert.Equal(0x0000002A00000005ul, delta.BackendHandle);
++        Assert.Equal(server.RetainedRevision, delta.Revision);
++        Assert.Equal(
++            server.RetainedContentRevision,
++            delta.ContentRevision);
++    }
++
++    [Fact]
++    public void RetainedDeltaQueueRefreshesOneSlotWithLatestSnapshot()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++        using var target = new ServerCompositionTarget(
++            compositor.Server,
++            static () => []);
++        target.EnableRetainedDeltaTracking();
++
++        visual.Offset = new Vector3D(8, 4, 0);
++        CommitAndRender(compositor);
++        target.NotifyRetainedSceneChanged(server);
++
++        Assert.Single(target.RetainedChangedVisuals);
++        ulong transformRevision =
++            target.RetainedChangedVisuals[0].Revision;
++
++        visual.Opacity = 0.5f;
++        CommitAndRender(compositor);
++        target.NotifyRetainedSceneChanged(server);
++
++        Assert.Single(target.RetainedChangedVisuals);
++        RetainedCompositionVisualDelta delta =
++            target.RetainedChangedVisuals[0];
++        Assert.True(delta.Revision > transformRevision);
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.PrimitiveAppearance,
++            delta.Changes);
++        Assert.True(delta.IsVisible);
++        Assert.Equal(0.5f, delta.Opacity);
++        Assert.Equal(8f, delta.Transform.M31);
++        Assert.Equal(4f, delta.Transform.M32);
++
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        Assert.Empty(target.RetainedChangedVisuals);
++        Assert.Equal(-1, server.RetainedChangeQueueIndex);
++    }
++
++    [Fact]
++    public void TargetWithoutRetainedBackendDoesNotAllocateDeltaQueue()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(
++                new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visuals = new CompositionContainerVisual[64];
++        for (var index = 0; index < visuals.Length; index++)
++            visuals[index] = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        using var target = new ServerCompositionTarget(
++            compositor.Server,
++            static () => []);
++        for (var index = 0; index < visuals.Length; index++)
++        {
++            target.NotifyRetainedSceneChanged(
++                (ServerCompositionVisual)visuals[index].Server);
++        }
++
++        Assert.Empty(target.RetainedChangedVisuals);
++        Assert.Equal(0, target.RetainedChangedVisualCapacity);
++    }
++
++    [Fact]
++    public void TopologyDeltaCarriesOrderedChildrenWithoutForcingFullSync()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(
++                new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var parent = compositor.CreateContainerVisual();
++        var first = compositor.CreateContainerVisual();
++        var second = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        using var target = new ServerCompositionTarget(
++            compositor.Server,
++            static () => []);
++        target.EnableRetainedDeltaTracking();
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        parent.Children.InsertAtTop(first);
++        parent.Children.InsertAtTop(second);
++        CommitAndRender(compositor);
++        var server = (ServerCompositionVisual)parent.Server;
++        target.NotifyRetainedSceneTopologyChanged(server);
++
++        Assert.False(target.RetainedSceneRequiresFullSync);
++        RetainedCompositionVisualDelta delta =
++            Assert.Single(target.RetainedChangedVisuals);
++        Assert.True(
++            (delta.Changes & RetainedCompositionVisualChanges.Topology) != 0);
++        Assert.Collection(
++            Assert.IsAssignableFrom<
++                IReadOnlyList<ServerCompositionVisual>>(
++                delta.TopologyChildren),
++            child => Assert.Same(first.Server, child),
++            child => Assert.Same(second.Server, child));
++    }
++
++    [Fact]
++    public void SustainedLowWaterDropsRetainedDeltaQueueHighWaterWithoutBurstChurn()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(
++                new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visuals = new CompositionContainerVisual[64];
++        for (var index = 0; index < visuals.Length; index++)
++            visuals[index] = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        using var target = new ServerCompositionTarget(
++            compositor.Server,
++            static () => []);
++        target.EnableRetainedDeltaTracking();
++
++        for (var index = 0; index < visuals.Length; index++)
++        {
++            target.NotifyRetainedSceneTopologyChanged(
++                (ServerCompositionVisual)visuals[index].Server);
++        }
++
++        Assert.True(target.RetainedChangedVisualCapacity >= visuals.Length);
++
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        Assert.Empty(target.RetainedChangedVisuals);
++        Assert.True(target.RetainedChangedVisualCapacity >= visuals.Length);
++
++        for (var synchronization = 0; synchronization < 59; synchronization++)
++        {
++            target.NotifyRetainedSceneChanged(
++                (ServerCompositionVisual)visuals[0].Server);
++            target.CompleteRetainedSceneSynchronization(target.Revision);
++        }
++
++        Assert.True(target.RetainedChangedVisualCapacity >= visuals.Length);
++
++        target.NotifyRetainedSceneChanged(
++            (ServerCompositionVisual)visuals[0].Server);
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        Assert.Equal(16, target.RetainedChangedVisualCapacity);
++
++        for (var index = 0; index < visuals.Length; index++)
++        {
++            target.NotifyRetainedSceneChanged(
++                (ServerCompositionVisual)visuals[index].Server);
++        }
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        Assert.True(target.RetainedChangedVisualCapacity >= visuals.Length);
++
++        target.NotifyRetainedSceneChanged(
++            (ServerCompositionVisual)visuals[0].Server);
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        Assert.True(target.RetainedChangedVisualCapacity >= visuals.Length);
++    }
++
++    private static CompositionRenderData CreateDrawList(
++        Compositor compositor,
++        Color color)
++    {
++        var context = new RenderDataDrawingContext(compositor);
++        context.DrawRectangle(
++            new ImmutableSolidColorBrush(color),
++            null,
++            new Rect(new Size(20, 10)));
++        return context.GetRenderResults()!;
++    }
++
++    private static void CommitAndRender(Compositor compositor)
++    {
++        compositor.Commit();
++        compositor.Server.Render(false);
++    }
++
++    private sealed class RevisionTestCustomVisualHandler
++        : CompositionCustomVisualHandler
++    {
++        public void InvalidatePartial() => Invalidate(new Rect(0, 0, 4, 4));
++
++        public override void OnRender(ImmediateDrawingContext drawingContext)
++        {
++        }
++    }
++}
+diff --git a/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs b/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs
+new file mode 100644
+index 0000000000..3230ee0f0f
+--- /dev/null
++++ b/tests/Avalonia.Base.UnitTests/Rendering/PlatformRenderInterfaceContextManagerTests.cs
+@@ -0,0 +1,39 @@
++using Avalonia.Platform;
++using Avalonia.Rendering;
++using Avalonia.UnitTests;
++using Moq;
++using Xunit;
++
++namespace Avalonia.Base.UnitTests.Rendering;
++
++public class PlatformRenderInterfaceContextManagerTests
++{
++    [Fact]
++    public void Lost_Backend_Context_Is_Disposed_And_Recreated_Without_Platform_Graphics()
++    {
++        var firstIsLost = false;
++        var firstContext = new Mock<IPlatformRenderInterfaceContext>();
++        firstContext.SetupGet(context => context.IsLost)
++            .Returns(() => firstIsLost);
++
++        var secondContext = new Mock<IPlatformRenderInterfaceContext>();
++        var renderInterface = new Mock<IPlatformRenderInterface>();
++        renderInterface.SetupSequence(renderer => renderer.CreateBackendContext(null))
++            .Returns(firstContext.Object)
++            .Returns(secondContext.Object);
++
++        using var application = UnitTestApplication.Start(
++            new TestServices(renderInterface: renderInterface.Object));
++        var manager = new PlatformRenderInterfaceContextManager(graphics: null);
++
++        Assert.Same(firstContext.Object, manager.Value);
++
++        firstIsLost = true;
++
++        Assert.Same(secondContext.Object, manager.Value);
++        firstContext.Verify(context => context.Dispose(), Times.Once);
++        renderInterface.Verify(
++            renderer => renderer.CreateBackendContext(null),
++            Times.Exactly(2));
++    }
++}
+diff --git a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+index 1edcbfa5aa..0f2ea3c8ae 100644
+--- a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
++++ b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+@@ -2,6 +2,7 @@
+   <PropertyGroup>
+     <TargetFramework>$(AvsCurrentTargetFramework)</TargetFramework>
+     <OutputType>Exe</OutputType>
++    <DefineConstants Condition="'$(ProGpuTextShaperTests)' == 'true'">$(DefineConstants);PROGPU_TEXT_SHAPER_TESTS</DefineConstants>
+   </PropertyGroup>
+   <Import Project="..\..\build\UnitTests.NetCore.targets" />
+   <Import Project="..\..\build\XUnit.props" />
+@@ -17,12 +18,26 @@
+     <None Remove="Fonts\**\*.ttf" />
+     <EmbeddedResource Include="Fonts\**\*.ttf" />
+   </ItemGroup>
++  <ItemGroup Condition="'$(ProGpuTextShaperTests)' == 'true'">
++    <Compile Remove="**\*.cs" />
++    <Compile Include="Media\GlyphRunTests.cs" />
++    <Compile Include="$(ProGpuSourceRoot)\eng\avalonia\12.0.5\TextShapingTestBackend.cs"
++             Link="Media\TextShapingTestBackend.cs" />
++    <Compile Include="Media\TextFormatting\**\*.cs" />
++    <Compile Include="Properties\AssemblyInfo.cs" />
++    <Compile Include="Win32Fact.cs" />
++    <Compile Include="Win32Theory.cs" />
++  </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="..\..\src\Avalonia.Base\Avalonia.Base.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Controls\Avalonia.Controls.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+-    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' != 'true'"
++                      Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
+     <ProjectReference Include="..\Avalonia.UnitTests\Avalonia.UnitTests.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' == 'true'"
++                      Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(MSBuildThisFileDirectory)..\.." />
+   </ItemGroup>
+   <ItemGroup>
+     <EmbeddedResource Update="..\Avalonia.RenderTests\Assets\Inter-Regular.ttf">
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+index 4aaaa9bf38..89de4f51d8 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+@@ -169,7 +169,9 @@ public void Similar_Runs_Have_Same_InkBounds_After_Blob_Creation()
+ 
+                 var glyphRun1 = CreateGlyphRun(shapedBuffer);
+                 var bounds1 = glyphRun1.InkBounds;
++#if !PROGPU_TEXT_SHAPER_TESTS
+                 ((GlyphRunImpl)glyphRun1.PlatformImpl.Item).GetTextBlob(new TextOptions { TextRenderingMode = TextRenderingMode.SubpixelAntialias }, default);
++#endif
+ 
+                 var bounds2 = CreateGlyphRun(shapedBuffer).InkBounds;
+ 
+@@ -466,8 +468,9 @@ private static GlyphRun CreateGlyphRun(ShapedBuffer shapedBuffer)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+index ae98e79739..5cb13dc8a3 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+@@ -2,7 +2,9 @@
+ using System.Globalization;
+ using Avalonia.Media;
+ using Avalonia.Media.TextFormatting;
++#if !PROGPU_TEXT_SHAPER_TESTS
+ using Avalonia.Skia;
++#endif
+ using Avalonia.UnitTests;
+ using Xunit;
+ 
+@@ -290,8 +292,9 @@ private static ShapedBuffer ShapeAscii(string text)
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+index 182c633418..37c58c79ab 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+@@ -1351,9 +1351,10 @@ public InvisibleRun(int length)
+         public static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+-            var customFontManagerImpl = new CustomFontManagerImpl();
++            var customFontManagerImpl = TextShapingTestBackend.CreateFontManager();
+ 
+             AvaloniaLocator.CurrentMutable
+                 .Bind<IFontManagerImpl>().ToConstant(customFontManagerImpl);
+@@ -1363,7 +1364,8 @@ public static IDisposable Start()
+             AvaloniaLocator.CurrentMutable
+                 .Bind<FontManager>().ToConstant(fontManager);
+ 
+-            fontManager.AddFontCollection(customFontManagerImpl.SystemFonts);
++            fontManager.AddFontCollection(
++                TextShapingTestBackend.GetSystemFonts(customFontManagerImpl));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+index 3c688d8e79..7e78d4d695 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+@@ -1251,8 +1251,9 @@ public void Should_Measure_TextLayoutSymbolWithAndWidthIncludingTrailingWhitespa
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+index 1ec027a12c..79ac974d40 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+@@ -2528,8 +2528,9 @@ public FixedRunsTextSource(IReadOnlyList<TextRun> textRuns)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+index 4ef819943c..a3872cfffe 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+@@ -585,8 +585,9 @@ public void TextLayout_With_Cache_Matches_Without()
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+index 8f039a97e2..6c18d15628 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+@@ -271,8 +271,9 @@ public void ClusterCache_SimpleMode_TrimmingHelpers_Survive_Split()
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }

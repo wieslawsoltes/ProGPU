@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AvaloniaSingleProject>false</AvaloniaSingleProject>
+    <AvaloniaForkRoot Condition="'$(AvaloniaForkRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.0.5</AvaloniaForkRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogBenchmark.cs"
+             Link="ControlCatalogBenchmark.cs" />
+    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogRuntimeTitle.cs"
+             Link="ControlCatalogRuntimeTitle.cs" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\packages\Avalonia\Avalonia.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\samples\ControlCatalog\ControlCatalog.csproj"
+                      AdditionalProperties="AvaloniaSingleProject=false" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\Avalonia.Native\Avalonia.Native.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\Avalonia.X11\Avalonia.X11.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\Windows\Avalonia.Win32\Avalonia.Win32.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
+    <ProjectReference Include="$(AvaloniaForkRoot)\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
+  </ItemGroup>
+</Project>

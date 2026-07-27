@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Avalonia.ProGpu.UnitTests</AssemblyName>
+    <RootNamespace>ProGPU.Avalonia.ContractTests</RootNamespace>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AvaloniaDirtyRegionContractTests.cs" />
+    <Compile Include="AvaloniaEncodedImageContractTests.cs" />
+    <Compile Include="AvaloniaGeometryFactoryContractTests.cs" />
+    <Compile Include="AvaloniaGlyphRunContractTests.cs" />
+    <Compile Include="AvaloniaBackendContextContractTests.cs" />
+    <Compile Include="AvaloniaEffectScopeContractTests.cs" />
+    <Compile Include="AvaloniaRendererTelemetryContractTests.cs" />
+    <Compile Include="AvaloniaCompositionStateStoreContractTests.cs" />
+    <Compile Include="AvaloniaCompositionLayoutClipContractTests.cs" />
+    <Compile Include="AvaloniaRetainedCommandCacheContractTests.cs" />
+    <Compile Include="AvaloniaStreamPathContractTests.cs" />
+    <Compile Include="ColorGlyphMetricCacheContractTests.cs" />
+    <Compile Include="DawnNativeWindowSourceTests.cs" />
+    <Compile Include="OffscreenTextureCacheTests.cs" />
+    <Compile Include="ProGpuTextShaperContractTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Fonts.Inter\Assets\Inter-Regular.ttf"
+          Link="TestAssets\Inter-Regular.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Avalonia"
+                      Condition="'$(ProGpuAvaloniaSourceRoot)' == ''" />
+    <PackageReference Include="Avalonia.Fonts.Inter"
+                      Condition="'$(ProGpuAvaloniaSourceRoot)' == ''" />
+    <PackageReference Include="Avalonia.HarfBuzz"
+                      Condition="'$(ProGpuAvaloniaSourceRoot)' == ''" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
+  </ItemGroup>
+</Project>
