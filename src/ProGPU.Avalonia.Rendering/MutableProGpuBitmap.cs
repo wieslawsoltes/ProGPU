@@ -19,12 +19,15 @@ namespace Avalonia.ProGpu;
 /// </summary>
 internal unsafe class WriteableBitmapImpl :
     IWriteableBitmapImpl,
-    IProGpuBitmapSource
+    IProGpuBitmapSource,
+    IPortableProGpuBitmapSource
 {
     private readonly object _gate = new();
     private readonly PixelFormat _format;
     private readonly AlphaFormat _alphaFormat;
     private readonly TextureUsage _textureUsage;
+    private readonly string _textureLabel =
+        "Avalonia writable bitmap";
     private IntPtr _cpuStorage;
     private int _stride;
     private bool _cpuCurrent;
@@ -128,7 +131,8 @@ internal unsafe class WriteableBitmapImpl :
         Vector dpi,
         PixelFormat format,
         AlphaFormat alphaFormat,
-        TextureUsage textureUsage)
+        TextureUsage textureUsage,
+        string textureLabel = "Avalonia writable bitmap")
     {
         ValidateSize(size);
         ValidateFormat(format);
@@ -137,6 +141,7 @@ internal unsafe class WriteableBitmapImpl :
         _format = format;
         _alphaFormat = alphaFormat;
         _textureUsage = textureUsage;
+        _textureLabel = textureLabel;
     }
 
     private static TextureUsage DefaultTextureUsage =>
@@ -156,39 +161,53 @@ internal unsafe class WriteableBitmapImpl :
 
     public void EnsureGpuTexture()
     {
-        WgpuContext? context = Texture?.Context ?? WgpuContext.Current;
+        WgpuContext? context =
+            WgpuContext.Current is
+            {
+                IsDisposed: false,
+                IsDeviceLost: false
+            } current
+                ? current
+                : Texture?.Context;
         if (context is null)
             return;
 
-        lock (_gate)
-        {
-            ThrowIfDisposed();
-            if (Texture is null || Texture.IsDisposed)
-                CreateTexture(context, "Avalonia writable bitmap");
-            if (_gpuCurrent)
-                return;
-
-            EnsureCpuStorageCurrent();
-            Rgba32[] pixels = AvaloniaPixelTransfer.CopyToRgba(
-                PixelSize,
-                _stride,
-                _format,
-                _cpuStorage);
-            Texture!.WritePixels(pixels);
-            _gpuCurrent = true;
-        }
+        _ = GetTexture(context);
     }
 
-    protected void InitializeGpuTexture(string label)
+    public GpuTexture? GetTexture(WgpuContext requiredContext)
     {
-        WgpuContext context = WgpuContext.Current ??
-            throw new InvalidOperationException(
-                "A current WebGPU context is required for a render target.");
+        ArgumentNullException.ThrowIfNull(requiredContext);
+        ObjectDisposedException.ThrowIf(
+            requiredContext.IsDisposed,
+            requiredContext);
+
         lock (_gate)
         {
             ThrowIfDisposed();
-            if (Texture is null || Texture.IsDisposed)
-                CreateTexture(context, label);
+            if (Texture is
+                {
+                    IsDisposed: false
+                } existing &&
+                existing.Context.SharesDeviceWith(requiredContext))
+            {
+                SynchronizeCpuPixelsToGpu();
+                return existing;
+            }
+
+            if (Texture is
+                {
+                    IsDisposed: false
+                } previous &&
+                _gpuCurrent &&
+                !_cpuCurrent)
+            {
+                EnsureCpuStorageCurrent();
+            }
+
+            CreateTexture(requiredContext);
+            SynchronizeCpuPixelsToGpu();
+            return Texture;
         }
     }
 
@@ -265,7 +284,7 @@ internal unsafe class WriteableBitmapImpl :
         }
     }
 
-    private void CreateTexture(WgpuContext context, string label)
+    private void CreateTexture(WgpuContext context)
     {
         Texture?.Dispose();
         Texture = new GpuTexture(
@@ -274,12 +293,35 @@ internal unsafe class WriteableBitmapImpl :
             checked((uint)PixelSize.Height),
             TextureFormat.Rgba8Unorm,
             _textureUsage,
-            label,
+            _textureLabel,
             alphaMode:
                 _alphaFormat == Avalonia.Platform.AlphaFormat.Premul
                 ? GpuTextureAlphaMode.Premultiplied
                 : GpuTextureAlphaMode.Straight);
         _gpuCurrent = false;
+    }
+
+    private void SynchronizeCpuPixelsToGpu()
+    {
+        if (_gpuCurrent)
+            return;
+
+        if (!_cpuCurrent)
+        {
+            // WebGPU texture creation guarantees zero-initialized texels.
+            // A never-written render target is therefore transparently black
+            // without allocating or uploading a CPU-sized zero buffer.
+            _gpuCurrent = true;
+            return;
+        }
+
+        Rgba32[] pixels = AvaloniaPixelTransfer.CopyToRgba(
+            PixelSize,
+            _stride,
+            _format,
+            _cpuStorage);
+        Texture!.WritePixels(pixels);
+        _gpuCurrent = true;
     }
 
     private void EnsureCpuStorageCurrent()

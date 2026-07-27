@@ -5,6 +5,7 @@ using Avalonia.Platform.Surfaces;
 #endif
 using System;
 using Avalonia.Platform;
+using ProGPU.Backend;
 using Silk.NET.WebGPU;
 
 namespace Avalonia.ProGpu;
@@ -29,9 +30,9 @@ internal sealed class RenderTargetBitmapImpl :
             TextureUsage.TextureBinding |
             TextureUsage.RenderAttachment |
             TextureUsage.CopySrc |
-            TextureUsage.CopyDst)
+            TextureUsage.CopyDst,
+            "Avalonia render-target bitmap")
     {
-        InitializeGpuTexture("Avalonia render-target bitmap");
     }
 
     internal bool HasIntermediateTexture =>
@@ -59,8 +60,19 @@ internal sealed class RenderTargetBitmapImpl :
 
     private DrawingContextImpl CreateContext(bool useScaledDrawing)
     {
-        var texture = Texture ??
-            throw new ObjectDisposedException(nameof(RenderTargetBitmapImpl));
+        WgpuContext context =
+            WgpuContext.Current is
+            {
+                IsDisposed: false,
+                IsDeviceLost: false
+            } current
+                ? current
+                : AvaloniaGpuDevicePool.GetOrCreateStandalone(
+                    TextureFormat.Rgba8Unorm);
+        GpuTexture texture =
+            GetTexture(context) ??
+            throw new ObjectDisposedException(
+                nameof(RenderTargetBitmapImpl));
         return new DrawingContextImpl(new DrawingContextImpl.CreateInfo
         {
             Size = PixelSize,
