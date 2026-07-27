@@ -74,12 +74,10 @@ internal sealed class SilkNetInputRouter : IDisposable
             return;
 
         context.ConnectionChanged -= OnConnectionChanged;
-        foreach (IKeyboard keyboard in _keyboards)
-            DetachKeyboard(keyboard);
-        foreach (IMouse mouse in _mice)
-            DetachMouse(mouse);
-        _keyboards.Clear();
-        _mice.Clear();
+        while (_keyboards.Count > 0)
+            DetachKeyboard(_keyboards[^1]);
+        while (_mice.Count > 0)
+            DetachMouse(_mice[^1]);
         context.Dispose();
         _mouseDevice.Dispose();
     }
