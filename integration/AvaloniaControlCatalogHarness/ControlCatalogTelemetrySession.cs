@@ -825,6 +825,8 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
 
 internal sealed class BenchmarkVisualFixture
 {
+    private const string CustomVisualVariable =
+        "PROGPU_AVALONIA_BENCHMARK_CUSTOM_VISUAL";
     private const string LayoutClipVariable =
         "PROGPU_AVALONIA_BENCHMARK_LAYOUT_CLIP";
     private const string GeometryClipVariable =
@@ -844,29 +846,34 @@ internal sealed class BenchmarkVisualFixture
 
     private readonly Visual _target;
     private readonly Panel? _panel;
+    private readonly bool _customVisual;
     private readonly bool _topology;
     private readonly bool _adorner;
     private readonly BenchmarkPulseControl? _pulse;
     private Border? _topologyChild;
     private Border? _adornerVisual;
+    private bool _customVisualSelected;
     private bool _pulsePhase;
 
     private BenchmarkVisualFixture(
         Visual target,
         Panel? panel,
         BenchmarkPulseControl? pulse,
+        bool customVisual,
         bool topology,
         bool adorner)
     {
         _target = target;
         _panel = panel;
         _pulse = pulse;
+        _customVisual = customVisual;
         _topology = topology;
         _adorner = adorner;
     }
 
     public static BenchmarkVisualFixture? Create(Window window)
     {
+        bool customVisual = ReadEnabled(CustomVisualVariable);
         bool layoutClip = ReadEnabled(LayoutClipVariable);
         bool geometryClip = ReadEnabled(GeometryClipVariable);
         bool bitmapCache = ReadEnabled(BitmapCacheVariable);
@@ -926,12 +933,42 @@ internal sealed class BenchmarkVisualFixture
             target,
             panel,
             pulse,
+            customVisual,
             topology,
             adorner);
     }
 
+    private static bool TrySelectCustomVisualTab(Visual root)
+    {
+        foreach (TabControl tabControl in root
+                     .GetSelfAndVisualDescendants()
+                     .OfType<TabControl>())
+        {
+            foreach (object? item in tabControl.Items)
+            {
+                if (item is TabItem tabItem &&
+                    string.Equals(
+                        tabItem.Header as string,
+                        "Custom",
+                        StringComparison.Ordinal))
+                {
+                    tabControl.SelectedItem = tabItem;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public void Pulse()
     {
+        if (_customVisual && !_customVisualSelected)
+        {
+            _customVisualSelected =
+                TrySelectCustomVisualTab(_target);
+        }
+
         if (_pulse is null)
         {
             return;

@@ -239,8 +239,7 @@ for page in "${pages[@]}"; do
           fi
           ;;
       esac
-      if [[ "$page" == "Composition" &&
-            "$backend" == source-progpu* ]]; then
+      if [[ "$page" == "Composition" ]]; then
         custom_visual_fixture=1
       fi
       if [[ "$page" == "OpenGL" ||
