@@ -111,7 +111,32 @@ fi
 
 if [[ ! -e "${avalonia_root}/.git" ]]; then
   mkdir -p "$(dirname "${avalonia_root}")"
-  git -C "${source_repo}" worktree add --detach "${avalonia_root}" "${expected_revision}"
+  # Git for Windows commonly enables core.autocrlf globally. Keep the owned
+  # patched worktree byte-stable so the reviewed LF patches apply identically
+  # on Windows, Linux, and macOS.
+  git \
+    -c core.autocrlf=false \
+    -c core.eol=lf \
+    -C "${source_repo}" \
+    worktree add --detach "${avalonia_root}" "${expected_revision}"
+fi
+
+if git -C "${avalonia_root}" diff --quiet &&
+    git -C "${avalonia_root}" diff --cached --quiet; then
+  # Force a byte-stable checkout after worktree creation as well. Git for
+  # Windows does not consistently propagate command-scoped checkout settings
+  # through worktree-add's internal reset, and an older script may also have
+  # left a pristine CRLF worktree behind after its first patch check failed.
+  git \
+    -c core.autocrlf=false \
+    -c core.eol=lf \
+    -C "${avalonia_root}" \
+    reset --hard "${expected_revision}"
+  git \
+    -c core.autocrlf=false \
+    -c core.eol=lf \
+    -C "${avalonia_root}" \
+    checkout-index --all --force
 fi
 
 actual_revision="$(git -C "${avalonia_root}" rev-parse HEAD)"

@@ -114,11 +114,11 @@ jobs:
             -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
             -p:ProGpuSourceRoot="${{ github.workspace }}" \
             -p:UseSkiaSharpShim=true
-          dotnet restore tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj
-          dotnet test tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj \
+          dotnet restore tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj
+          dotnet test tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj \
             --configuration Release \
             --no-restore \
-            --filter "FullyQualifiedName~DawnNativeWindowSourceTests|FullyQualifiedName~SourceControlCatalogHasStrictNonSilkDawnPresentationGate"
+            --filter "FullyQualifiedName~DawnNativeWindowSourceTests"
           dotnet build tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj \
             --configuration Release
 

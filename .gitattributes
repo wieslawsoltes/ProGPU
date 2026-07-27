@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Unix entry points are invoked directly by CI on every host.
+*.sh text eol=lf
+
+# Reviewed Avalonia source patches must remain byte-stable when Git for Windows
+# enables core.autocrlf, otherwise git apply sees CRLF patch context.
+eng/avalonia/**/*.patch text eol=lf
