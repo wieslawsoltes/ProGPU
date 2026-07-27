@@ -453,6 +453,7 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             writer.WriteNumber(
                 "FirstRenderedFrameMs",
                 _firstRenderedFrameMilliseconds);
+            WriteWindowMetrics(writer);
 #if PROGPU_AVALONIA_BACKEND
             WriteProGpuMetrics(
                 writer,
@@ -494,6 +495,15 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         writer.WriteNumber(
             "AverageCompositorMs",
             Average(_compositorMilliseconds, _metricSamples));
+        writer.WriteNumber(
+            "RenderTargetWidth",
+            _lastMetrics.RenderTargetWidth);
+        writer.WriteNumber(
+            "RenderTargetHeight",
+            _lastMetrics.RenderTargetHeight);
+        writer.WriteNumber(
+            "DpiScale",
+            _lastMetrics.DpiScale);
         writer.WriteNumber(
             "CompositorMetricSampleCount",
             _metricSamples);
@@ -620,6 +630,35 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         writer.WriteNumber("DrawCalls", 0);
         writer.WriteNumber("RecordedCommands", 0);
         writer.WriteString("PresentationPath", "Skia");
+    }
+
+    private void WriteWindowMetrics(Utf8JsonWriter writer)
+    {
+        if (_window is null)
+        {
+            return;
+        }
+
+        double scaling = _window.RenderScaling;
+        writer.WriteNumber(
+            "WindowLogicalWidth",
+            _window.Bounds.Width);
+        writer.WriteNumber(
+            "WindowLogicalHeight",
+            _window.Bounds.Height);
+        writer.WriteNumber("WindowRenderScaling", scaling);
+        writer.WriteNumber(
+            "WindowPhysicalWidth",
+            Math.Max(
+                1,
+                checked((int)Math.Ceiling(
+                    _window.Bounds.Width * scaling))));
+        writer.WriteNumber(
+            "WindowPhysicalHeight",
+            Math.Max(
+                1,
+                checked((int)Math.Ceiling(
+                    _window.Bounds.Height * scaling))));
     }
 
     private void CaptureScreenshot()

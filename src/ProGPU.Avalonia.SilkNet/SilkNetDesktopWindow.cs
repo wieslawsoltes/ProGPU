@@ -81,6 +81,8 @@ public sealed class WindowImpl :
     private bool _disposedState;
     private int _closeCallback;
     private long _zOrder;
+    private double _reportedScaling = 1d;
+    private double? _nativeDisplayScale;
 
     internal WindowImpl(
         SilkNetWindowingPlatform platform,
@@ -192,22 +194,23 @@ public sealed class WindowImpl :
         get
         {
             IWindow? window = _window;
-            if (window is null ||
-                window.Size.X <= 0 ||
-                window.Size.Y <= 0 ||
-                window.FramebufferSize.X <= 0 ||
-                window.FramebufferSize.Y <= 0)
-            {
+            if (window is null)
                 return 1;
-            }
 
-            double x =
-                window.FramebufferSize.X /
-                (double)window.Size.X;
-            double y =
-                window.FramebufferSize.Y /
-                (double)window.Size.Y;
-            return Math.Max(1, (x + y) * 0.5);
+            double reportedScale =
+                SilkNetDisplayMetrics.ResolveReportedFramebufferScale(
+                    window.Size.X,
+                    window.Size.Y,
+                    window.FramebufferSize.X,
+                    window.FramebufferSize.Y);
+            return SilkNetDisplayMetrics.ResolveRenderScaling(
+                window.Size.X,
+                window.Size.Y,
+                window.FramebufferSize.X,
+                window.FramebufferSize.Y,
+                reportedScale > 1d
+                    ? null
+                    : _nativeDisplayScale);
         }
     }
 
@@ -230,9 +233,12 @@ public sealed class WindowImpl :
                             _desiredSize.Height * scaling))));
             }
 
-            return new PixelSize(
-                Math.Max(1, window.FramebufferSize.X),
-                Math.Max(1, window.FramebufferSize.Y));
+            return SilkNetDisplayMetrics.ResolveFramebufferPixelSize(
+                window.Size.X,
+                window.Size.Y,
+                window.FramebufferSize.X,
+                window.FramebufferSize.Y,
+                RenderScaling);
         }
     }
 
@@ -893,6 +899,7 @@ public sealed class WindowImpl :
         window.StateChanged += OnStateChanged;
         window.Closing += OnClosing;
         window.Initialize();
+        NotifyScalingChanged();
         _platform.EventLoop.Register(this);
         return window;
     }
@@ -962,15 +969,42 @@ public sealed class WindowImpl :
 
     private void OnFramebufferResize(Vector2D<int> size)
     {
-        _screens.Invalidate();
-        ScalingChanged?.Invoke(RenderScaling);
+        _ = size;
+        NotifyScalingChanged();
         QueuePaint();
     }
 
     private void OnMove(Vector2D<int> position)
     {
-        _screens.Invalidate();
+        _ = position;
+        NotifyScalingChanged();
         PositionChanged?.Invoke(Position);
+    }
+
+    private void NotifyScalingChanged()
+    {
+        IWindow? window = _window;
+        if (window is not null)
+        {
+            double reportedScale =
+                SilkNetDisplayMetrics.ResolveReportedFramebufferScale(
+                    window.Size.X,
+                    window.Size.Y,
+                    window.FramebufferSize.X,
+                    window.FramebufferSize.Y);
+            _nativeDisplayScale = reportedScale > 1d
+                ? null
+                : DisplayScaleResolver
+                    .TryResolveNativeWindowDisplayScale(window);
+        }
+
+        double scaling = RenderScaling;
+        if (Math.Abs(scaling - _reportedScaling) <= 0.0001d)
+            return;
+
+        _reportedScaling = scaling;
+        _screens.Invalidate();
+        ScalingChanged?.Invoke(scaling);
     }
 
     private void OnFocusChanged(bool focused)

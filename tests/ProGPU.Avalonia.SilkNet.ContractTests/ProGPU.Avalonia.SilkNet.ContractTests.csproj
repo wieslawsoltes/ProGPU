@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="DisplayMetricsContractTests.cs" />
     <Compile Include="FramebufferStorageContractTests.cs" />
     <Compile Include="InputAndCursorContractTests.cs" />
     <Compile Include="PlatformTimingContractTests.cs" />
