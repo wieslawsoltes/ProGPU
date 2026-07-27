@@ -35,6 +35,108 @@ Strict native presentation expects these paths:
 | Windows | `DawnD3D12HWND` |
 | Linux/X11 | `DawnVulkanXlib` |
 
+## Quick launch matrix
+
+| Sample | Default configuration | Alternate configurations |
+|---|---|---|
+| `ProGPU.Samples.Avalonia` | Silk.NET + ProGPU compositor + ProGPU text | HarfBuzz, shared-image readback, copied texture fallback |
+| `AvaloniaSourceRenderDemo` | Silk.NET + ProGPU compositor + ProGPU text | HarfBuzz |
+| `AvaloniaSourceSandbox` | Silk.NET + ProGPU compositor + ProGPU text | HarfBuzz |
+| `AvaloniaSourceControlCatalog` | Silk.NET + ProGPU compositor + ProGPU text | HarfBuzz, Avalonia platform windowing with direct Dawn |
+| `AvaloniaSkiaControlCatalogReference` | Avalonia platform windowing + Skia + HarfBuzz | Page selection only |
+| `ProGpuAvaloniaPackageSmoke` | Package-only Silk.NET + ProGPU + ProGPU text | Local packages, exact-identity replacement packages, NuGet.org, NativeAOT |
+
+The `AvaloniaControlCatalogHarness` and `AvaloniaSourceSampleHost`
+directories contain shared telemetry/host code and are not standalone
+applications.
+
+## Embedded ProGPU sample gallery
+
+`ProGPU.Samples.Avalonia` embeds the high-performance ProGPU samples in an
+Avalonia shell. It always uses Silk.NET windowing and the ProGPU compositor.
+Select one of `Charting`, `Dxf`, `Drawing`, `MotionMark`, `Markdown`, `Glyphs`,
+`DataGrid`, or `Designer`:
+
+```bash
+dotnet run \
+  --project src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj \
+  --configuration Release \
+  -- \
+  --sample Drawing
+```
+
+Use HarfBuzz while keeping the same windowing and rendering paths:
+
+```bash
+dotnet run \
+  --project src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj \
+  --configuration Release \
+  -- \
+  --sample Drawing \
+  --harfbuzz
+```
+
+On macOS, shared texture memory is enabled by default. Disable it to measure
+the copied-texture fallback, or enable diagnostic shared-image readback:
+
+```bash
+dotnet run \
+  --project src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj \
+  --configuration Release \
+  -- \
+  --sample Drawing \
+  --disable-shared-texture-memory
+
+dotnet run \
+  --project src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj \
+  --configuration Release \
+  -- \
+  --sample Drawing \
+  --shared-image-readback
+```
+
+The presentation status in the sample header should normally report
+`SameDeviceTexture`. The readback and copied-texture modes are diagnostic
+comparison paths, not the preferred steady-state configuration.
+
+Run every embedded sample with both text shapers in fresh processes:
+
+```bash
+PROGPU_AVALONIA_SAMPLE_TEXT_SHAPERS='progpu,harfbuzz' \
+PROGPU_AVALONIA_SAMPLE_WARMUP_FRAMES=120 \
+PROGPU_AVALONIA_SAMPLE_MEASURE_FRAMES=300 \
+PROGPU_AVALONIA_SAMPLE_REPEATS=3 \
+./tools/profile-avalonia-samples.sh \
+  artifacts/manual-avalonia-samples
+```
+
+Filter the run to one or more sample keys:
+
+```bash
+PROGPU_AVALONIA_SAMPLE_FILTER='^(Drawing|Glyphs|Markdown)$' \
+PROGPU_AVALONIA_SAMPLE_TEXT_SHAPERS='progpu,harfbuzz' \
+./tools/profile-avalonia-samples.sh
+```
+
+### Embedded-sample options
+
+| Option or variable | Default | Purpose |
+|---|---:|---|
+| `--sample <key>` | `Charting` | Select the embedded sample |
+| `--harfbuzz` | off | Replace ProGPU shaping with HarfBuzz |
+| `--shared-image-readback` | off | Enable diagnostic shared-image readback |
+| `--disable-shared-texture-memory` | off | Disable the default macOS shared-texture path |
+| `PROGPU_AVALONIA_SAMPLE_FILTER` | `.*` | Regular expression applied to sample keys |
+| `PROGPU_AVALONIA_SAMPLE_TEXT_SHAPERS` | `progpu` | Comma-separated `progpu`/`harfbuzz` matrix |
+| `PROGPU_AVALONIA_SAMPLE_WARMUP_FRAMES` | `120` | Warmup frames per fresh process |
+| `PROGPU_AVALONIA_SAMPLE_MEASURE_FRAMES` | `300` | Measured frames per fresh process |
+| `PROGPU_AVALONIA_SAMPLE_REPEATS` | `1` | Fresh process count per sample and shaper |
+| `PROGPU_AVALONIA_SAMPLE_SKIP_BUILD` | `0` | Reuse existing Release binaries when set to `1` |
+| `PROGPU_AVALONIA_SAMPLE_BENCHMARK_HOLD_MS` | `0` | Keep a completed run alive for profiler attachment |
+
+The profiler writes per-run JSON and logs plus `summary.json`, `summary.md`,
+and `failures.tsv` under its output directory.
+
 ## RenderDemo
 
 Run RenderDemo with Silk.NET windowing, the ProGPU renderer and compositor,
@@ -90,6 +192,14 @@ Run bounded hardware smokes:
   --smoke-frames 60 \
   --smoke-output /tmp/progpu-sandbox-harfbuzz.json
 ```
+
+### RenderDemo and Sandbox options
+
+| Option | Default | Purpose |
+|---|---:|---|
+| `--harfbuzz` | off | Replace ProGPU shaping with HarfBuzz |
+| `--smoke-frames <count>` | interactive | Exit after the requested positive frame count |
+| `--smoke-output <path>` | none | Write the bounded-smoke JSON result |
 
 ## ControlCatalog interactive runs
 
@@ -161,6 +271,16 @@ Allow presentation fallback when direct Dawn presentation cannot initialize:
 
 These switches deliberately weaken validation and are intended for diagnosing
 initialization failures.
+
+### ControlCatalog command-line options
+
+| Option | Default | Purpose |
+|---|---:|---|
+| `--page <name>` | ControlCatalog default | Open a named catalog page |
+| `--harfbuzz` | off | Replace ProGPU shaping with HarfBuzz |
+| `--native-windowing` | off | Use Avalonia Native, Win32, or X11 instead of Silk.NET/GLFW |
+| `--allow-composition-fallback` | off | Permit flattened rendering when retained composition is unavailable |
+| `--allow-dawn-presentation-fallback` | off | Permit non-Dawn presentation if strict native Dawn startup fails |
 
 ## Original Skia ControlCatalog
 
@@ -408,4 +528,3 @@ PROGPU_AVALONIA_ROOT="$PWD/.worktrees/avalonia-12.0.5" \
 
 ./tools/verify-avalonia-clean-room.sh --enforce
 ```
-
