@@ -48,7 +48,8 @@ static int Inspect(string[] args)
         var jitGroups =
             new Dictionary<string, JitAllocationAccumulator>(
                 StringComparer.Ordinal);
-        foreach (TraceEvent marker in trace.Events.Where(e => e.ProviderName == "ProGPU-SampleBenchmark"))
+        foreach (TraceEvent marker in trace.Events.Where(
+                     e => IsBenchmarkMarkerProvider(e.ProviderName)))
             Console.WriteLine($"MARKER index={marker.EventIndex} name={marker.EventName} id={marker.ID} time={marker.TimeStampRelativeMSec:R} page={marker.PayloadValue(0)}");
         foreach (TraceEvent traceEvent in trace.Events)
         {
@@ -106,7 +107,10 @@ static int Inspect(string[] args)
             }
         }
         foreach (var group in trace.Events
-                     .Where(e => e.ProviderName == "ProGPU-SampleBenchmark" || e.ProviderName == "Microsoft-Windows-DotNETRuntime")
+                     .Where(e =>
+                         IsBenchmarkMarkerProvider(e.ProviderName) ||
+                         e.ProviderName ==
+                         "Microsoft-Windows-DotNETRuntime")
                      .Select(e => (e.ProviderName, e.EventName, e.ID, e.TimeStampRelativeMSec, Payload: string.Join(',', e.PayloadNames), Type: e.GetType().Name))
                      .GroupBy(e => (e.ProviderName, e.EventName, e.ID, e.Payload, e.Type))
                      .OrderByDescending(g => g.Count()))
@@ -224,7 +228,8 @@ static int Analyze(string[] args)
         TraceLog.CreateFromEventPipeDataFile(tracePath, etlxPath);
         using var trace = new TraceLog(etlxPath);
         _ = trace.Clr;
-        foreach (TraceEvent marker in trace.Events.Where(e => e.ProviderName == "ProGPU-SampleBenchmark"))
+        foreach (TraceEvent marker in trace.Events.Where(
+                     e => IsBenchmarkMarkerProvider(e.ProviderName)))
         {
             if (marker.EventName == "WorkloadStarted" && !workloadStarted.HasValue)
                 workloadStarted = marker.TimeStampRelativeMSec;
@@ -236,7 +241,7 @@ static int Analyze(string[] args)
 
         foreach (TraceEvent traceEvent in trace.Events)
         {
-            if (traceEvent.ProviderName == "ProGPU-SampleBenchmark")
+            if (IsBenchmarkMarkerProvider(traceEvent.ProviderName))
                 continue;
 
             string phase = PhaseAt(traceEvent.TimeStampRelativeMSec, workloadStarted, measurementStarted, measurementStopped);
@@ -657,6 +662,24 @@ static string BuildMarkdown(IReadOnlyList<JsonObject> pages)
 
 static BenchmarkResult ParseBenchmarkResult(string path)
 {
+    if (string.Equals(
+            Path.GetExtension(path),
+            ".json",
+            StringComparison.OrdinalIgnoreCase))
+    {
+        JsonObject document =
+            JsonNode.Parse(File.ReadAllText(path))?.AsObject() ??
+            throw new InvalidDataException(
+                $"Benchmark JSON is empty: {path}.");
+        string jsonPage =
+            document["Page"]?.GetValue<string>() ??
+            document["page"]?.GetValue<string>() ??
+            "Unknown";
+        return new BenchmarkResult(
+            jsonPage,
+            (JsonObject)document.DeepClone());
+    }
+
     string line = File.ReadLines(path).LastOrDefault(value =>
             value.Contains("[SampleBenchmark] RESULT", StringComparison.Ordinal) ||
             value.Contains("[AvaloniaSampleBenchmark] RESULT", StringComparison.Ordinal))
@@ -673,6 +696,16 @@ static BenchmarkResult ParseBenchmarkResult(string path)
     }
     return new BenchmarkResult(page, metrics);
 }
+
+static bool IsBenchmarkMarkerProvider(string providerName) =>
+    string.Equals(
+        providerName,
+        "ProGPU-SampleBenchmark",
+        StringComparison.Ordinal) ||
+    string.Equals(
+        providerName,
+        "ProGPU-ControlCatalog-Benchmark",
+        StringComparison.Ordinal);
 
 static JsonNode ParseValue(string value)
 {
