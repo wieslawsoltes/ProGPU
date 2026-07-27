@@ -95,6 +95,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
           -p:ProGpuDependencyMode=Source \
           -p:ProGpuSourceRoot="$repo_root" \
           -p:ProGpuAvaloniaSourceRoot="$avalonia_source_root" \
+          -p:PackAvaloniaNative=false \
           -p:UseSkiaSharpShim=true
         dotnet build "$source_project" \
           -c Release \
@@ -102,6 +103,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
           -p:ProGpuDependencyMode=Source \
           -p:ProGpuSourceRoot="$repo_root" \
           -p:ProGpuAvaloniaSourceRoot="$avalonia_source_root" \
+          -p:PackAvaloniaNative=false \
           -p:UseSkiaSharpShim=true
         source_built=1
       fi
@@ -116,11 +118,25 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
       if [[ "$skia_built" == "0" ]]; then
         "$repo_root/tools/prepare-avalonia-12.0.5-source.sh"
         dotnet restore "$skia_project" \
+          -p:PackAvaloniaNative=false \
           -p:AvaloniaForkRoot="$avalonia_source_root"
         dotnet build "$skia_project" \
           -c Release \
           --no-restore \
+          -p:PackAvaloniaNative=false \
           -p:AvaloniaForkRoot="$avalonia_source_root"
+        if [[ "$host_kernel" == "Darwin" ]]; then
+          source_native="$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/runtimes/osx/native/libAvaloniaNative.dylib"
+          skia_native="$repo_root/integration/AvaloniaSkiaControlCatalogReference/bin/Release/net10.0/runtimes/osx/native/libAvaloniaNative.dylib"
+          mkdir -p "$(dirname "$skia_native")"
+          if [[ "$native_dawn_installed" == "1" &&
+                -f "$source_native" ]]; then
+            cp "$source_native" "$skia_native"
+          else
+            "$repo_root/tools/build-avalonia-native-dawn.sh" \
+              "$skia_native"
+          fi
+        fi
         skia_built=1
       fi
     fi

@@ -130,6 +130,69 @@ public sealed class AvaloniaControlCatalogPatchTests
     }
 
     [Fact]
+    public void DesktopSmokeHarnessesWaitForSafeRenderedFrames()
+    {
+        string benchmark = File.ReadAllText(
+            FindRepoFile(
+                "integration",
+                "AvaloniaControlCatalogHarness",
+                "ControlCatalogTelemetrySession.cs"));
+        string sourceSmoke = File.ReadAllText(
+            FindRepoFile(
+                "integration",
+                "AvaloniaSourceSampleHost",
+                "SourceSampleSmokeSession.cs"));
+        string windowChromeSmoke = File.ReadAllText(
+            FindRepoFile(
+                "integration",
+                "ProGpuAvaloniaPackageSmoke",
+                "WindowChromeSmokeCoordinator.cs"));
+
+        Assert.Contains(
+            "Dispatcher.UIThread.Post(\n            Complete,",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SilkNetPlatform.FramePreparing += OnFramePreparing;",
+            sourceSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGpuRenderingDiagnostics.FrameRendered +=",
+            windowChromeSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"RetainedCompositionFallbackNodes\"",
+            windowChromeSmoke,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ControlCatalogProfilerBuildsPinnedNativeWithoutPackArtifacts()
+    {
+        string profiler = File.ReadAllText(
+            FindRepoFile(
+                "tools",
+                "profile-avalonia-controlcatalog.sh"));
+        string nativeBuilder = File.ReadAllText(
+            FindRepoFile(
+                "tools",
+                "build-avalonia-native-dawn.sh"));
+
+        Assert.Contains(
+            "-p:PackAvaloniaNative=false",
+            profiler,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "generate-headers.sh",
+            nativeBuilder,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mkdir -p \"$(dirname \"$destination\")\"",
+            nativeBuilder,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EmbeddedAvaloniaFontsUseTypedAssemblyResourceSlices()
     {
         string patch = File.ReadAllText(

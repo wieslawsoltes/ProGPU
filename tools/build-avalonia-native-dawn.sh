@@ -5,6 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 avalonia_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.0.5}"
 source_file="$avalonia_root/native/Avalonia.Native/src/OSX/metal.mm"
 project="$avalonia_root/native/Avalonia.Native/src/OSX/Avalonia.Native.OSX.xcodeproj"
+generated_header="$avalonia_root/native/Avalonia.Native/inc/avalonia-native.h"
+header_generator="$avalonia_root/native/Avalonia.Native/generate-headers.sh"
 destination="${1:-$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/runtimes/osx/native/libAvaloniaNative.dylib}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -23,11 +25,18 @@ if ! rg -q '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_fil
   echo "The Avalonia CAMetalLayer is not configured for Dawn-importable IOSurfaces." >&2
   exit 4
 fi
-if [[ ! -d "$(dirname "$destination")" ]]; then
-  echo "The destination runtime directory does not exist: $(dirname "$destination")" >&2
-  echo "Build AvaloniaSourceControlCatalog before installing the native library." >&2
+if [[ ! -s "$generated_header" ]]; then
+  if [[ ! -f "$header_generator" ]]; then
+    echo "The Avalonia Native header generator is missing: $header_generator" >&2
+    exit 5
+  fi
+  bash "$header_generator"
+fi
+if [[ ! -s "$generated_header" ]]; then
+  echo "The Avalonia Native header generator did not produce $generated_header" >&2
   exit 5
 fi
+mkdir -p "$(dirname "$destination")"
 
 derived_data="$(mktemp -d "${TMPDIR:-/tmp}/progpu-avalonia-native.XXXXXX")"
 cleanup() {
@@ -46,13 +55,13 @@ if ! xcodebuild \
     CODE_SIGNING_ALLOWED=NO \
     build >"$build_log" 2>&1; then
   tail -200 "$build_log" >&2
-  exit 6
+  exit 7
 fi
 
 product="$derived_data/Build/Products/Release/libAvalonia.Native.OSX.dylib"
 if [[ ! -f "$product" ]]; then
   echo "xcodebuild did not produce $product" >&2
-  exit 7
+  exit 8
 fi
 
 cp "$product" "$destination"
