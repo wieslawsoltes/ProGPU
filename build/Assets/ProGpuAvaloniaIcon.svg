@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title description">
+  <title id="title">ProGPU Avalonia platform icon</title>
+  <desc id="description">A modern fluent G ribbon in cyan, blue, and violet on a charcoal tile.</desc>
+  <defs>
+    <radialGradient id="tile-fill" cx="0" cy="0" r="1" gradientTransform="translate(67 44) rotate(48) scale(258)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#272B33"/>
+      <stop offset="0.52" stop-color="#181B20"/>
+      <stop offset="1" stop-color="#101216"/>
+    </radialGradient>
+    <linearGradient id="mark-fill" x1="55" y1="52" x2="199" y2="202" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#30E1F3"/>
+      <stop offset="0.36" stop-color="#1398FF"/>
+      <stop offset="0.68" stop-color="#4E63F2"/>
+      <stop offset="1" stop-color="#A64DF4"/>
+    </linearGradient>
+    <linearGradient id="mark-glass" x1="75" y1="46" x2="172" y2="193" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.52"/>
+      <stop offset="0.3" stop-color="#B9F7FF" stop-opacity="0.18"/>
+      <stop offset="0.62" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#DFA8FF" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="rim-light" x1="70" y1="39" x2="182" y2="205" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E8FCFF" stop-opacity="0.58"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#F3D9FF" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="tile-effects" x="0" y="0" width="256" height="256" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3.2" result="blur"/>
+      <feOffset in="blur" dy="3" result="offset"/>
+      <feFlood flood-color="#000000" flood-opacity="0.7" result="color"/>
+      <feComposite in="color" in2="offset" operator="in" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="mark-effects" x="15" y="18" width="225" height="224" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="shadow-blur"/>
+      <feOffset in="shadow-blur" dy="7" result="shadow-offset"/>
+      <feFlood flood-color="#03050B" flood-opacity="0.72" result="shadow-color"/>
+      <feComposite in="shadow-color" in2="shadow-offset" operator="in" result="shadow"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="glow-blur"/>
+      <feComponentTransfer in="glow-blur" result="glow">
+        <feFuncA type="linear" slope="0.25"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#tile-effects)">
+    <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#tile-fill)"/>
+    <rect x="10" y="10" width="236" height="236" rx="46" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="4"/>
+    <path d="M54 12H202" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#mark-effects)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path
+      d="M184 76C169 55 146 43 120 43C77 43 43 79 43 124C43 171 80 210 127 210C155 210 180 198 195 180V132H133"
+      stroke="url(#mark-fill)"
+      stroke-width="38"/>
+    <path
+      d="M184 76C169 55 146 43 120 43C77 43 43 79 43 124C43 171 80 210 127 210C155 210 180 198 195 180V132H133"
+      stroke="url(#mark-glass)"
+      stroke-width="28"
+      opacity="0.48"/>
+    <path
+      d="M184 76C169 55 146 43 120 43C77 43 43 79 43 124C43 171 80 210 127 210C155 210 180 198 195 180V132H133"
+      stroke="url(#rim-light)"
+      stroke-width="1.5"
+      opacity="0.55"/>
+  </g>
+</svg>

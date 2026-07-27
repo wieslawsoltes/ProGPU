@@ -84,6 +84,22 @@ for project in "${progpu_nonshipping_projects[@]}"; do
   classified_projects+=("${project}")
 done
 
+for project in "${progpu_integration_lane_projects[@]}"; do
+  if [[ ! -f "${repo_root}/${project}" ]]; then
+    echo "Integration-lane project does not exist: ${project}" >&2
+    exit 1
+  fi
+  if array_contains "${project}" "${classified_projects[@]-}"; then
+    echo "Project is classified more than once: ${project}" >&2
+    exit 1
+  fi
+  if ! project_is_packable "${project}"; then
+    echo "Integration-lane project is not packable: ${project}" >&2
+    exit 1
+  fi
+  classified_projects+=("${project}")
+done
+
 while IFS= read -r project; do
   relative_project="${project#"${repo_root}"/}"
   if ! array_contains "${relative_project}" "${classified_projects[@]-}"; then
@@ -92,9 +108,9 @@ while IFS= read -r project; do
   fi
 done < <(find "${repo_root}/src" -type f -name '*.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sort)
 
-if [[ "${#classified_projects[@]}" -ne 42 ]]; then
-  echo "Expected 42 classified projects, found ${#classified_projects[@]}. Update the manifest and this audit count together." >&2
+if [[ "${#classified_projects[@]}" -ne 48 ]]; then
+  echo "Expected 48 classified projects, found ${#classified_projects[@]}. Update the manifest and this audit count together." >&2
   exit 1
 fi
 
-echo "ProGPU package manifest verification succeeded: ${#progpu_package_ids[@]} shipping and ${#progpu_nonshipping_projects[@]} non-shipping projects."
+echo "ProGPU package manifest verification succeeded: ${#progpu_package_ids[@]} runtime, ${#progpu_integration_lane_projects[@]} integration-lane, and ${#progpu_nonshipping_projects[@]} non-shipping projects."

@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${repo_root}/eng/progpu-package-list.sh"
 
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.26}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.27}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/Release}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 
@@ -15,11 +15,14 @@ case "${package_group}" in
   portable)
     selected_package_ids=("${progpu_portable_package_ids[@]}")
     ;;
+  avalonia-runtime)
+    selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
+    ;;
   mobile)
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
     exit 1
     ;;
 esac

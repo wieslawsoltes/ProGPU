@@ -10,7 +10,7 @@ if [[ ! -x "${dotnet}" ]]; then
 fi
 
 configuration="${PROGPU_CONFIGURATION:-Release}"
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.26}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.27}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/${configuration}}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 
@@ -23,12 +23,16 @@ case "${package_group}" in
     selected_package_ids=("${progpu_portable_package_ids[@]}")
     selected_package_projects=("${progpu_portable_package_projects[@]}")
     ;;
+  avalonia-runtime)
+    selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
+    selected_package_projects=("${progpu_avalonia_runtime_package_projects[@]}")
+    ;;
   mobile)
     selected_package_ids=("${progpu_mobile_package_ids[@]}")
     selected_package_projects=("${progpu_mobile_package_projects[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
     exit 1
     ;;
 esac

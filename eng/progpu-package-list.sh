@@ -4,6 +4,7 @@
 # separately on macOS, then both groups are verified together before publishing.
 progpu_portable_package_ids=(
   ProGPU.Backend
+  ProGPU.Backend.Dawn
   ProGPU.Text.Shaping
   ProGPU.Browser
   ProGPU.DirectX
@@ -35,6 +36,7 @@ progpu_portable_package_ids=(
 
 progpu_portable_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Browser/ProGPU.Browser.csproj
   src/ProGPU.DirectX/ProGPU.DirectX.csproj
@@ -66,6 +68,7 @@ progpu_portable_package_projects=(
 
 progpu_portable_package_purposes=(
   "WebGPU device, swapchain, Silk.NET windowing, and platform backend services."
+  "Exact-ABI Dawn shared texture memory and cross-queue fence extensions."
   "AOT-safe OpenType shaping contracts and execution primitives."
   "Batched .NET WebAssembly dispatcher and navigator.gpu browser host services."
   "DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU."
@@ -95,6 +98,46 @@ progpu_portable_package_purposes=(
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
 )
 
+# Exact runtime dependency closure of the Avalonia renderer and Silk.NET host.
+# Keep this list topologically ordered so the replacement-stack pack lane stays
+# fast while still producing every ProGPU package that an isolated consumer can
+# restore without falling back to a previously published runtime binary.
+progpu_avalonia_runtime_package_ids=(
+  ProGPU.Backend
+  ProGPU.Backend.Dawn
+  ProGPU.Text.Shaping
+  ProGPU.Transpiler
+  ProGPU.Vector
+  ProGPU.Text
+  ProGPU.Compute
+  ProGPU.Scene
+  ProGPU.SkiaSharp
+)
+
+progpu_avalonia_runtime_package_projects=(
+  src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
+  src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
+  src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
+  src/ProGPU.Vector/ProGPU.Vector.csproj
+  src/ProGPU.Text/ProGPU.Text.csproj
+  src/ProGPU.Compute/ProGPU.Compute.csproj
+  src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/SkiaSharp/SkiaSharp.csproj
+)
+
+progpu_avalonia_runtime_package_purposes=(
+  "Avalonia runtime closure: WebGPU device and platform backend."
+  "Avalonia runtime closure: typed Dawn native presentation and shared-resource interop."
+  "Avalonia runtime closure: AOT-safe OpenType shaping."
+  "Avalonia runtime closure: shader/source transformation."
+  "Avalonia runtime closure: retained vector primitives."
+  "Avalonia runtime closure: text layout and rendering."
+  "Avalonia runtime closure: compute pipelines."
+  "Avalonia runtime closure: retained compositor scene."
+  "Avalonia runtime closure: SkiaSharp compatibility surface."
+)
+
 progpu_mobile_package_ids=(
   ProGPU.Android
   ProGPU.iOS
@@ -118,6 +161,7 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 # non-shipping. The verifier fails when a newly added project is omitted.
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
+  src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
   src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj
   src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj
   src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
@@ -133,6 +177,7 @@ progpu_nonshipping_projects=(
 
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
+  "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
   "Android sample application."
   "Avalonia sample application."
   "Browser sample application."
@@ -144,6 +189,23 @@ progpu_nonshipping_reasons=(
   "Test project."
   "XAML compiler and source-generator test project."
   "Framework implementation shim; shipped through consuming compatibility packages."
+)
+
+# These packable projects are intentionally owned by scripts/progpu-*.sh rather
+# than the runtime package lane above. The v11 and v12 projects share package
+# IDs but publish distinct, exact Avalonia-compatible versions.
+progpu_integration_lane_projects=(
+  src/ProGPU.Avalonia.Rendering/ProGPU.Avalonia.Rendering.csproj
+  src/ProGPU.Avalonia.Rendering.V11/ProGPU.Avalonia.Rendering.V11.csproj
+  src/ProGPU.Avalonia.SilkNet/ProGPU.Avalonia.SilkNet.csproj
+  src/ProGPU.Avalonia.SilkNet.V11/ProGPU.Avalonia.SilkNet.V11.csproj
+)
+
+progpu_integration_lane_reasons=(
+  "Avalonia 12 renderer package."
+  "Avalonia 11 shared-source renderer package."
+  "Avalonia 12 Silk.NET package."
+  "Avalonia 11 shared-source Silk.NET package."
 )
 
 validate_parallel_arrays() {
@@ -159,10 +221,16 @@ validate_parallel_arrays() {
 }
 
 validate_parallel_arrays portable "${#progpu_portable_package_ids[@]}" "${#progpu_portable_package_projects[@]}" "${#progpu_portable_package_purposes[@]}"
+validate_parallel_arrays avalonia-runtime "${#progpu_avalonia_runtime_package_ids[@]}" "${#progpu_avalonia_runtime_package_projects[@]}" "${#progpu_avalonia_runtime_package_purposes[@]}"
 validate_parallel_arrays mobile "${#progpu_mobile_package_ids[@]}" "${#progpu_mobile_package_projects[@]}" "${#progpu_mobile_package_purposes[@]}"
 validate_parallel_arrays complete "${#progpu_package_ids[@]}" "${#progpu_package_projects[@]}" "${#progpu_package_purposes[@]}"
 
 if [[ "${#progpu_nonshipping_projects[@]}" -ne "${#progpu_nonshipping_reasons[@]}" ]]; then
   echo "ProGPU non-shipping project arrays must have the same length." >&2
+  exit 1
+fi
+
+if [[ "${#progpu_integration_lane_projects[@]}" -ne "${#progpu_integration_lane_reasons[@]}" ]]; then
+  echo "ProGPU integration-lane project arrays must have the same length." >&2
   exit 1
 fi
