@@ -805,7 +805,7 @@ index fe857ac466..f6b82e590a 100644
          
          /// <summary>
          /// Returns true if the target is enabled and has pending work but its render target was not ready.
-@@ -96,6 +108,138 @@ public ServerCompositionTarget(ServerCompositor compositor, Func<IEnumerable<IPl
+@@ -96,6 +108,153 @@ public ServerCompositionTarget(ServerCompositor compositor, Func<IEnumerable<IPl
          {
              _redrawRequested = true;
              _fullRedrawRequested = true;
@@ -863,7 +863,22 @@ index fe857ac466..f6b82e590a 100644
 +        internal void CompleteRetainedSceneSynchronization(ulong revision)
 +        {
 +            if (revision != Revision)
++            {
++                // Synchronization may assign a backend identity before a
++                // concurrent retained mutation advances the target revision.
++                // Keep the pending transaction, but refresh its immutable
++                // value snapshots so the next synchronization observes the
++                // assigned identity and every coalesced mutation.
++                for (int index = 0;
++                     index < _retainedChangedVisuals.Count;
++                     index++)
++                {
++                    _retainedChangedVisuals[index] =
++                        new RetainedCompositionVisualDelta(
++                            _retainedChangedVisuals[index].Source);
++                }
 +                return;
++            }
 +            int synchronizedDeltaCount = _retainedChangedVisuals.Count;
 +            foreach (RetainedCompositionVisualDelta delta in
 +                     _retainedChangedVisuals)
@@ -1793,7 +1808,7 @@ new file mode 100644
 index 0000000000..855137c665
 --- /dev/null
 +++ b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
-@@ -0,0 +1,834 @@
+@@ -0,0 +1,883 @@
 +using System.Collections.Generic;
 +using Avalonia.Media;
 +using Avalonia.Media.Immutable;
@@ -2442,6 +2457,7 @@ index 0000000000..855137c665
 +            compositor.Server,
 +            static () => []);
 +        target.EnableRetainedDeltaTracking();
++        target.CompleteRetainedSceneSynchronization(target.Revision);
 +
 +        visual.Offset = new Vector3D(8, 4, 0);
 +        CommitAndRender(compositor);
@@ -2472,6 +2488,54 @@ index 0000000000..855137c665
 +
 +        Assert.Empty(target.RetainedChangedVisuals);
 +        Assert.Equal(-1, server.RetainedChangeQueueIndex);
++    }
++
++    [Fact]
++    public void RevisionMismatchRefreshesPendingBackendIdentity()
++    {
++        using var app = UnitTestApplication.Start(TestServices.StyledWindow);
++        var compositor = new Compositor(
++            RenderLoop.FromTimer(new CompositorTestServices.ManualRenderTimer()),
++            null);
++        var visual = compositor.CreateContainerVisual();
++        var revisionAdvancer = compositor.CreateContainerVisual();
++        CommitAndRender(compositor);
++
++        var server = (ServerCompositionVisual)visual.Server;
++        server.CompleteRetainedSynchronization();
++        using var target = new ServerCompositionTarget(
++            compositor.Server,
++            static () => []);
++        target.EnableRetainedDeltaTracking();
++        target.CompleteRetainedSceneSynchronization(target.Revision);
++
++        visual.Offset = new Vector3D(8, 4, 0);
++        CommitAndRender(compositor);
++        target.NotifyRetainedSceneChanged(server);
++        ulong staleRevision = target.Revision;
++
++        Assert.Equal(0, target.RetainedChangedVisuals[0].BackendOwner);
++        Assert.Equal(0ul, target.RetainedChangedVisuals[0].BackendHandle);
++
++        server.RetainedBackendOwner = 17;
++        server.RetainedBackendHandle = 0x0000002A00000005;
++        visual.Opacity = 0.5f;
++        CommitAndRender(compositor);
++        target.NotifyRetainedSceneChanged(
++            (ServerCompositionVisual)revisionAdvancer.Server);
++
++        target.CompleteRetainedSceneSynchronization(staleRevision);
++
++        RetainedCompositionVisualDelta delta =
++            target.RetainedChangedVisuals[0];
++        Assert.Equal(2, target.RetainedChangedVisuals.Count);
++        Assert.Equal(17, delta.BackendOwner);
++        Assert.Equal(0x0000002A00000005ul, delta.BackendHandle);
++        Assert.Equal(
++            RetainedCompositionVisualChanges.Transform |
++            RetainedCompositionVisualChanges.PrimitiveAppearance,
++            delta.Changes);
++        Assert.False(target.RetainedSceneRequiresFullSync);
 +    }
 +
 +    [Fact]
