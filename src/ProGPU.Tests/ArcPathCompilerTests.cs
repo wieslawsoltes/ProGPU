@@ -219,6 +219,46 @@ public class ArcPathCompilerTests
     }
 
     [Fact]
+    public void ShaderParameterBoundsMatchTransformedArcBounds()
+    {
+        var start = new Vector2(12f, 24f);
+        var arc = new ArcSegment(
+            new Vector2(180f, 75f),
+            new Vector2(95f, 55f),
+            rotationAngle: 23f,
+            isLargeArc: true,
+            SweepDirection.Clockwise);
+        Matrix4x4 transform =
+            Matrix4x4.CreateScale(1.4f, 0.8f, 1f) *
+            Matrix4x4.CreateRotationZ(0.31f) *
+            Matrix4x4.CreateTranslation(17f, -9f, 0f);
+
+        Assert.True(ArcSegmentGeometry.TryTransformArcSegment(
+            start,
+            arc,
+            transform,
+            out Vector2 transformedStart,
+            out ArcSegment transformedArc));
+        Assert.True(ArcSegmentGeometry.TryGetArcBounds(
+            transformedStart,
+            transformedArc,
+            out Vector2 expectedMin,
+            out Vector2 expectedMax));
+        Assert.True(ArcSegmentGeometry.TryCreateShaderParameters(
+            start,
+            arc,
+            transform,
+            out ArcShaderParameters parameters));
+        Assert.True(ArcSegmentGeometry.TryGetArcBounds(
+            parameters,
+            out Vector2 actualMin,
+            out Vector2 actualMax));
+
+        Assert.InRange(Vector2.Distance(expectedMin, actualMin), 0f, 0.001f);
+        Assert.InRange(Vector2.Distance(expectedMax, actualMax), 0f, 0.001f);
+    }
+
+    [Fact]
     public void ShaderParametersRejectDegenerateArcs()
     {
         Assert.False(ArcSegmentGeometry.TryCreateShaderParameters(

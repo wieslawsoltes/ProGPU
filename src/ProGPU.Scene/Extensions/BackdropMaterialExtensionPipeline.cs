@@ -186,10 +186,11 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
 
         EnsureLayouts(compositor);
         var requestedTexture = parameters.SourceTexture;
-        if (requestedTexture != null && !ReferenceEquals(requestedTexture.Context, compositor.Context))
+        if (requestedTexture != null &&
+            !requestedTexture.Context.SharesDeviceWith(compositor.Context))
         {
             parameters.LastError = $"{CrossContextTextureErrorPrefix}. " +
-                "Create or copy the texture in the compositor target context before rendering the material.";
+                "Create or copy the texture in the compositor target device domain before rendering the material.";
             return;
         }
 
@@ -203,6 +204,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         var useFallback = parameters.UseFallback ||
             (parameters.Source == BackdropMaterialSource.Texture && requestedTexture == null);
         var effectiveMask = drawCall.MaskTexture;
+        bool hasEffectiveMask = Compositor.HasMask(drawCall);
         var maskWidth = effectiveMask?.Width ?? compositor.CurrentCanvasPixelWidth;
         var maskHeight = effectiveMask?.Height ?? compositor.CurrentCanvasPixelHeight;
         var sourceUvRect = GetSourceUvRect(parameters, sourceTexture);
@@ -233,7 +235,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
             RadiiY = ClampRadii(parameters.CornerRadiiY),
             Flags0 = new Vector4(
                 hasSource ? 1f : 0f,
-                effectiveMask != null ? 1f : 0f,
+                hasEffectiveMask ? 1f : 0f,
                 sourceTexture.AlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
                 0f),
             SourceUvRect = sourceUvRect
@@ -247,7 +249,9 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         }
 
         var textureBindGroup = GetTextureBindGroup(compositor, sourceTexture, parameters.SamplingMode, isOffscreen);
-        var maskBindGroup = compositor.GetMaskBindGroup(effectiveMask, isOffscreen);
+        var maskBindGroup = compositor.GetDrawCallMaskBindGroup(
+            drawCall,
+            isOffscreen);
         var pass = (RenderPassEncoder*)renderPassEncoder;
         var wgpu = compositor.Context.Api;
 

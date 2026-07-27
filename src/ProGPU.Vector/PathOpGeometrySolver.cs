@@ -137,7 +137,9 @@ namespace ProGPU.Vector
         private static bool TryCreateImmediateResult(PathGeometry pathA, PathGeometry pathB, int op, out PathGeometry result)
         {
             result = new PathGeometry { FillRule = GetOutputFillRule(pathA, pathB, op) };
-            if (op == 0 && IsContainedAxisAlignedRectangle(pathA, pathB))
+            if (op == 0 &&
+                (IsContainedAxisAlignedRectangle(pathA, pathB) ||
+                 IsContainedCanonicalRoundedRectangle(pathA, pathB)))
             {
                 result.FillRule = FillRule.EvenOdd;
                 CopyFigures(pathA.Figures, result.Figures);
@@ -167,6 +169,25 @@ namespace ProGPU.Vector
                 return true;
             }
             return false;
+        }
+
+        private static bool IsContainedCanonicalRoundedRectangle(
+            PathGeometry outer,
+            PathGeometry inner)
+        {
+            if (outer.IsCombined || inner.IsCombined ||
+                outer.Figures.Count != 1 || inner.Figures.Count != 1 ||
+                !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                    outer.Figures[0],
+                    out RoundedRectanglePathContour outerContour) ||
+                !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                    inner.Figures[0],
+                    out RoundedRectanglePathContour innerContour))
+            {
+                return false;
+            }
+
+            return RoundedRectanglePathGeometry.Contains(outerContour, innerContour);
         }
 
         private static PathOpGpuWork? CreateGpuWork(PathGeometry pathA, PathGeometry pathB, int op, PathGeometry result)
@@ -448,8 +469,14 @@ namespace ProGPU.Vector
 
         private static bool IsContainedAxisAlignedRectangle(PathGeometry outer, PathGeometry inner)
         {
-            if (!TryGetAxisAlignedRectangleBounds(outer, out var outerMin, out var outerMax) ||
-                !TryGetAxisAlignedRectangleBounds(inner, out var innerMin, out var innerMax))
+            if (!PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                    outer,
+                    out var outerMin,
+                    out var outerMax) ||
+                !PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                    inner,
+                    out var innerMin,
+                    out var innerMax))
             {
                 return false;
             }
@@ -459,84 +486,6 @@ namespace ProGPU.Vector
                    innerMin.Y >= outerMin.Y - epsilon &&
                    innerMax.X <= outerMax.X + epsilon &&
                    innerMax.Y <= outerMax.Y + epsilon;
-        }
-
-        private static bool TryGetAxisAlignedRectangleBounds(
-            PathGeometry path,
-            out Vector2 min,
-            out Vector2 max)
-        {
-            min = default;
-            max = default;
-            if (path.IsCombined || path.Figures.Count != 1)
-            {
-                return false;
-            }
-
-            var figure = path.Figures[0];
-            if (!figure.IsFilled || !figure.IsClosed || figure.Segments.Count < 4)
-            {
-                return false;
-            }
-
-            var points = new List<Vector2>(figure.Segments.Count + 1) { figure.StartPoint };
-            var current = figure.StartPoint;
-            for (var i = 0; i < figure.Segments.Count; i++)
-            {
-                Vector2 next;
-                if (figure.Segments[i] is LineSegment line)
-                {
-                    next = line.Point;
-                }
-                else if (figure.Segments[i] is ArcSegment arc &&
-                         (MathF.Abs(arc.Size.X) <= 0.0001f || MathF.Abs(arc.Size.Y) <= 0.0001f))
-                {
-                    next = arc.Point;
-                }
-                else
-                {
-                    return false;
-                }
-
-                var delta = next - current;
-                if (MathF.Abs(delta.X) > 0.0001f && MathF.Abs(delta.Y) > 0.0001f)
-                {
-                    return false;
-                }
-
-                points.Add(next);
-                current = next;
-            }
-
-            if (!path.TryGetBounds(out min, out max) || max.X <= min.X || max.Y <= min.Y)
-            {
-                return false;
-            }
-
-            for (var i = 0; i < points.Count; i++)
-            {
-                var point = points[i];
-                var liesOnBoundary = MathF.Abs(point.X - min.X) <= 0.0001f ||
-                                     MathF.Abs(point.X - max.X) <= 0.0001f ||
-                                     MathF.Abs(point.Y - min.Y) <= 0.0001f ||
-                                     MathF.Abs(point.Y - max.Y) <= 0.0001f;
-                if (!liesOnBoundary)
-                {
-                    return false;
-                }
-            }
-
-            double twiceArea = 0.0;
-            for (var i = 0; i < points.Count; i++)
-            {
-                var first = points[i];
-                var second = points[(i + 1) % points.Count];
-                twiceArea += (double)first.X * second.Y - (double)second.X * first.Y;
-            }
-
-            var rectangleArea = (double)(max.X - min.X) * (max.Y - min.Y);
-            var polygonArea = Math.Abs(twiceArea) * 0.5;
-            return Math.Abs(polygonArea - rectangleArea) <= Math.Max(0.0001, rectangleArea * 0.0001);
         }
 
         private static bool IsEmptyFigures(List<PathFigure> figures)

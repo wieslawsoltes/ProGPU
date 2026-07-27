@@ -1,6 +1,6 @@
 // Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves and arcs, use exact single-evaluation box/rounded-box distance gradients for anti-aliasing, then shade fills, strokes, gradients, vertex-color blends, and edges; dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
 // Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits.
-// Space complexity: O(1) local storage and a bounded number of uniform/storage reads; masked variants add one mask-texture sample per fragment.
+// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
 struct Brush {
     brushType: u32,
     opacity: f32,
@@ -37,6 +37,10 @@ struct Uniforms {
     mvp: mat4x4<f32>,
     view: mat4x4<f32>,
     canvasSize: vec2<f32>,
+    dpiScale: f32,
+    pad0: f32,
+    renderOrigin: vec2<f32>,
+    pad1: vec2<f32>,
 };
 
 
@@ -47,6 +51,76 @@ struct Uniforms {
 @group(1) @binding(1) var pathAtlasTexture: texture_2d<f32>;
 @group(2) @binding(0) var maskSampler: sampler;
 @group(2) @binding(1) var maskTexture: texture_2d<f32>;
+
+struct MaskSamplingUniforms {
+    coordinate0: vec4<f32>,
+    coordinate1: vec4<f32>,
+    bounds: vec4<f32>,
+    cornerRadiiX: vec4<f32>,
+    cornerRadiiY: vec4<f32>,
+    options: vec4<f32>,
+};
+
+@group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
+    let bounds = maskSampling.bounds;
+    let edge = max(
+        max(bounds.x - local.x, local.x - bounds.z),
+        max(bounds.y - local.y, local.y - bounds.w));
+
+    var center = vec2<f32>(0.0);
+    var radius = vec2<f32>(0.0);
+    var usesCorner = false;
+    if (local.x < bounds.x + maskSampling.cornerRadiiX.x &&
+        local.y < bounds.y + maskSampling.cornerRadiiY.x) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+        center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y &&
+               local.y < bounds.y + maskSampling.cornerRadiiY.y) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+        center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z &&
+               local.y > bounds.w - maskSampling.cornerRadiiY.z) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+        center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w &&
+               local.y > bounds.w - maskSampling.cornerRadiiY.w) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+        center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    }
+
+    let safeRadius = max(radius, vec2<f32>(0.000001));
+    let ellipsePoint = (local - center) / safeRadius;
+    let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
+    let implicit = select(edge, ellipse, usesCorner);
+    let antialiasWidth = max(fwidth(implicit), 0.0001);
+    return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+
+    let targetPosition = position + uniforms.renderOrigin;
+    if (maskSampling.options.x > 1.5) {
+        return analytic_rounded_mask_alpha(targetPosition) *
+            maskSampling.options.y;
+    }
+
+    let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -798,8 +872,7 @@ fn solid_rect_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
 @fragment
 fn fs_solid_rect_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    return solid_rect_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    return solid_rect_fs_main(input, sample_mask_alpha(input.position.xy));
 }
 
 @fragment
@@ -809,8 +882,7 @@ fn fs_solid_rect_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_solid_rect_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    let color = solid_rect_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    let color = solid_rect_fs_main(input, sample_mask_alpha(input.position.xy));
     return vec4<f32>(color.rgb * color.a, color.a);
 }
 
@@ -822,8 +894,7 @@ fn fs_solid_rect_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec
 
 @fragment
 fn fs_solid_rect_mask(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    let color = solid_rect_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    let color = solid_rect_fs_main(input, sample_mask_alpha(input.position.xy));
     return vec4<f32>(color.a, 0.0, 0.0, 1.0);
 }
 
@@ -902,8 +973,7 @@ fn solid_rounded_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
 @fragment
 fn fs_solid_rounded_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    return solid_rounded_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    return solid_rounded_fs_main(input, sample_mask_alpha(input.position.xy));
 }
 
 @fragment
@@ -913,8 +983,7 @@ fn fs_solid_rounded_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn fs_solid_rounded_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    let color = solid_rounded_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    let color = solid_rounded_fs_main(input, sample_mask_alpha(input.position.xy));
     return vec4<f32>(color.rgb * color.a, color.a);
 }
 
@@ -926,8 +995,7 @@ fn fs_solid_rounded_premultiplied_unmasked(input: VertexOutput) -> @location(0) 
 
 @fragment
 fn fs_solid_rounded_mask(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screenUv = input.position.xy / uniforms.canvasSize;
-    let color = solid_rounded_fs_main(input, textureSample(maskTexture, maskSampler, screenUv).r);
+    let color = solid_rounded_fs_main(input, sample_mask_alpha(input.position.xy));
     return vec4<f32>(color.a, 0.0, 0.0, 1.0);
 }
 
@@ -1568,8 +1636,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screen_uv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     let color = vector_fs_main(input, maskAlpha);
     if (maskAlpha <= 0.0) {
         discard;
@@ -1584,8 +1651,7 @@ fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screen_uv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     let color = vector_fs_main(input, maskAlpha);
     if (maskAlpha <= 0.0) {
         discard;
@@ -1601,8 +1667,7 @@ fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
-    let screen_uv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     let color = vector_fs_main(input, maskAlpha);
     if (maskAlpha <= 0.0) {
         discard;

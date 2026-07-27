@@ -45,7 +45,10 @@ public sealed class WindowsDpiAwarenessTests
             window.IndexOf("private void OnFramebufferResize", StringComparison.Ordinal)..
             window.IndexOf("private Vector2D<int> GetCurrentFramebufferSize", StringComparison.Ordinal)];
         Assert.DoesNotContain("ConfigureSwapChain", framebufferCallback, StringComparison.Ordinal);
-        Assert.Contains("RenderFrame(0d);", framebufferCallback, StringComparison.Ordinal);
+        Assert.Contains(
+            "RenderFrame(0d, allowUnchangedPresentationSkip: true);",
+            framebufferCallback,
+            StringComparison.Ordinal);
         Assert.Contains("_suppressNextScheduledRender = true;", framebufferCallback, StringComparison.Ordinal);
         Assert.Contains("_liveResizeRenderedVersion = _renderRoot.ChangeVersion;", framebufferCallback, StringComparison.Ordinal);
         Assert.Contains("if (_suppressNextScheduledRender)", window, StringComparison.Ordinal);

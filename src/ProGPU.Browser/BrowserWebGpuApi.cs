@@ -614,6 +614,9 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         return (byte*)mapped.Pointer + checked((int)(offset - mapped.Offset));
     }
 
+    public void* BufferGetMappedRange(WgpuBuffer* buffer, nuint offset, nuint size)
+        => BufferGetConstMappedRange(buffer, offset, size);
+
     public void BufferUnmap(WgpuBuffer* buffer)
     {
         var handle = HandleOf(buffer);

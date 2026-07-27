@@ -585,9 +585,23 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        Vector2 min = positions[0];
-        Vector2 max = positions[0];
-        for (int i = 1; i < positions.Length; i++)
+        int rangeStart = command.GlyphRangeCount > 0
+            ? command.GlyphRangeStart
+            : 0;
+        int rangeCount = command.GlyphRangeCount > 0
+            ? command.GlyphRangeCount
+            : positions.Length;
+        if (rangeStart < 0 ||
+            rangeCount <= 0 ||
+            rangeStart > positions.Length - rangeCount)
+        {
+            return;
+        }
+
+        Vector2 min = positions[rangeStart];
+        Vector2 max = positions[rangeStart];
+        int rangeEnd = rangeStart + rangeCount;
+        for (int i = rangeStart + 1; i < rangeEnd; i++)
         {
             min = Vector2.Min(min, positions[i]);
             max = Vector2.Max(max, positions[i]);

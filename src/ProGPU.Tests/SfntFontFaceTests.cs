@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using ProGPU.Tests.Headless;
 using ProGPU.Text;
 using ProGPU.Vector;
+using SkiaSharp;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -90,6 +91,39 @@ public class SfntFontFaceTests
         {
             File.Delete(file);
         }
+    }
+
+    [Fact]
+    public void FontCatalogCanonicalizesEqualStringsWithoutGlobalInterning()
+    {
+        string family1 = new(['T', 'e', 's', 't']);
+        string family2 = new(['T', 'e', 's', 't']);
+        string path1 = new(['/','t','m','p','/','f','.','t','t','f']);
+        string path2 = new(['/','t','m','p','/','f','.','t','t','f']);
+        var fonts = new FontInfo[]
+        {
+            new()
+            {
+                Name = family1,
+                FamilyName = family1,
+                FilePath = path1
+            },
+            new()
+            {
+                Name = family2,
+                FamilyName = family2,
+                FilePath = path2
+            }
+        };
+
+        FontApi.CanonicalizeCatalogStrings(fonts);
+
+        Assert.Same(fonts[0].Name, fonts[0].FamilyName);
+        Assert.Same(fonts[0].Name, fonts[1].Name);
+        Assert.Same(fonts[0].FamilyName, fonts[1].FamilyName);
+        Assert.Same(fonts[0].FilePath, fonts[1].FilePath);
+        Assert.Equal("Test", fonts[0].Name);
+        Assert.Equal("/tmp/f.ttf", fonts[0].FilePath);
     }
 
     [Fact]
@@ -210,6 +244,34 @@ public class SfntFontFaceTests
     }
 
     [Fact]
+    public void TtfFontFileConstructorMapsRawSfntWithoutManagedPayloadCopy()
+    {
+        byte[] fontData = BuildMetricsSfnt();
+        string file = Path.Combine(Path.GetTempPath(), $"progpu-mapped-font-{Guid.NewGuid():N}.ttf");
+        File.WriteAllBytes(file, fontData);
+
+        try
+        {
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+
+            var font = new TtfFont(file);
+
+            long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            Assert.True(font.UsesMappedFileStorage);
+            Assert.Equal(fontData.Length, font.FontData.Length);
+            Assert.Equal(fontData, font.FontData.ToArray());
+            Assert.True(font.HasGlyph('A'));
+            Assert.True(
+                allocatedBytes < fontData.Length + 128 * 1024,
+                $"Allocated {allocatedBytes:N0} bytes for a {fontData.Length:N0}-byte font.");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void TtfFontReadsClosestSbixStrikeAndDuplicateGlyph()
     {
         byte[] fontData = BuildSfntWithTables(
@@ -260,9 +322,17 @@ public class SfntFontFaceTests
             long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             Assert.True(font.FontData.Length < 1024 * 1024, $"Resident font is {font.FontData.Length:N0} bytes.");
             Assert.True(allocatedBytes < 2 * 1024 * 1024, $"Allocated {allocatedBytes:N0} bytes.");
+            long glyphAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             Assert.True(font.TryGetBitmapGlyph(1, 35, out BitmapGlyphData glyph));
             Assert.Equal(new byte[] { 40, 41, 42 }, glyph.Data.ToArray());
-            Assert.False(font.TryGetBitmapGlyph(2, 35, out _));
+            Assert.True(font.TryGetBitmapGlyph(2, 19, out BitmapGlyphData demandLoaded));
+            Assert.Equal(new byte[] { 20, 21, 22 }, demandLoaded.Data.ToArray());
+            long glyphAllocatedBytes =
+                GC.GetAllocatedBytesForCurrentThread() - glyphAllocatedBefore;
+            Assert.True(
+                glyphAllocatedBytes < 256 * 1024,
+                $"Bitmap lookups allocated {glyphAllocatedBytes:N0} bytes.");
+            Assert.Equal(0, font.GlyphResidentBitmapCacheBytes);
         }
         finally
         {
@@ -293,6 +363,51 @@ public class SfntFontFaceTests
         Assert.True(info.TexCoordMax.Y > info.TexCoordMin.Y);
         Assert.Contains(atlas.ColorAtlasTexture.ReadPixels(), static value => value != 0);
         Assert.All(atlas.AtlasTexture.ReadPixels(), static value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public void CompactColorGlyphAtlasGrowsOnceAndPreservesTheResidentBitmap()
+    {
+        const int bitmapSize = 96;
+        using var bitmap = new SKBitmap(new SKImageInfo(
+            bitmapSize,
+            bitmapSize,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul));
+        bitmap.Erase(new SKColor(24, 96, 224, 255));
+        using var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+        byte[] fontData = BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("maxp", BuildMaxpTable(3)),
+            ("cmap", BuildCmapFormat4Table()),
+            ("sbix", BuildSingleSbixTable(encoded.ToArray())));
+        var font = new TtfFont(fontData);
+        using var atlas = new GlyphAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 256,
+            colorAtlasSize: 256,
+            initialColorAtlasSize: 16,
+            uniformRingBufferSize: 256,
+            coverageRingBufferSize: 256);
+
+        Assert.Equal(16u, atlas.ColorAtlasSize);
+        Assert.Equal(0UL, atlas.TextureRevision);
+
+        GlyphInfo first = atlas.GetOrCreateGlyphByIndex(font, 1, 40f);
+
+        Assert.True(first.IsColorBitmap);
+        Assert.Equal((uint)bitmapSize, first.Width);
+        Assert.Equal((uint)bitmapSize, first.Height);
+        Assert.Equal(128u, atlas.ColorAtlasSize);
+        Assert.Equal(1UL, atlas.TextureRevision);
+        Assert.Contains(atlas.ColorAtlasTexture.ReadPixels(), static value => value != 0);
+
+        GlyphInfo repeated = atlas.GetOrCreateGlyphByIndex(font, 1, 40f);
+        Assert.Equal(first.X, repeated.X);
+        Assert.Equal(first.Y, repeated.Y);
+        Assert.Equal(first.TexCoordMin, repeated.TexCoordMin);
+        Assert.Equal(first.TexCoordMax, repeated.TexCoordMax);
+        Assert.Equal(1UL, atlas.TextureRevision);
     }
 
     [Theory]

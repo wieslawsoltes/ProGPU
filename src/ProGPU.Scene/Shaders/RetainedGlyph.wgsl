@@ -1,6 +1,6 @@
-// Algorithm: Draw retained glyph-outline instances as transformed quads, evaluate analytic non-zero/even-odd winding, and reconstruct a one-device-pixel antialiasing ramp from the nearest contour distance.
+// Algorithm: Draw retained glyph-outline instances as transformed quads, evaluate analytic winding and edge coverage, then combine either sampled texture-mask coverage or affine analytic rounded-mask coverage.
 // Time complexity: O(P*S + E*S*K), where P is covered fragments, E is edge-band fragments, S is segments in the referenced unique glyph outline, and K is the fixed curve-distance subdivision bound (8 quadratic, 12 cubic).
-// Space complexity: O(G+S+I) retained GPU storage for G glyph records, S analytic line/quadratic/cubic segments, and I glyph instances; per-fragment private storage is O(1).
+// Space complexity: O(G+S+I) retained GPU storage for G glyph records, S analytic line/quadratic/cubic segments, and I glyph instances; per-fragment private storage is O(1), and analytic rounded or uniform-opacity masks add no texture bandwidth.
 // Quality: fill boundaries use analytic curves and exact winding at every device pixel; only the bounded nearest-distance estimate used for the one-pixel antialiasing ramp samples curve chords. Aliased text uses the exact center winding.
 // Winding: quadratic and cubic roots use direction-aware half-open endpoint intervals to avoid transition-vertex double counting.
 struct Uniforms {
@@ -48,6 +48,65 @@ struct GlyphInstance {
 @group(0) @binding(3) var<storage, read> glyphInstances: array<GlyphInstance>;
 @group(1) @binding(0) var maskSampler: sampler;
 @group(1) @binding(1) var maskTexture: texture_2d<f32>;
+
+struct MaskSamplingUniforms {
+    coordinate0: vec4<f32>,
+    coordinate1: vec4<f32>,
+    bounds: vec4<f32>,
+    cornerRadiiX: vec4<f32>,
+    cornerRadiiY: vec4<f32>,
+    options: vec4<f32>,
+};
+
+@group(1) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
+    let bounds = maskSampling.bounds;
+    let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
+    var center = vec2<f32>(0.0);
+    var radius = vec2<f32>(0.0);
+    var usesCorner = false;
+    if (local.x < bounds.x + maskSampling.cornerRadiiX.x && local.y < bounds.y + maskSampling.cornerRadiiY.x) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+        center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y && local.y < bounds.y + maskSampling.cornerRadiiY.y) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+        center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z && local.y > bounds.w - maskSampling.cornerRadiiY.z) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+        center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w && local.y > bounds.w - maskSampling.cornerRadiiY.w) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+        center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    }
+    let safeRadius = max(radius, vec2<f32>(0.000001));
+    let ellipsePoint = (local - center) / safeRadius;
+    let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
+    let implicit = select(edge, ellipse, usesCorner);
+    let antialiasWidth = max(fwidth(implicit), 0.0001);
+    return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+    if (maskSampling.options.x > 1.5) {
+        return analytic_rounded_mask_alpha(position) *
+            maskSampling.options.y;
+    }
+    let uv = (position - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -288,8 +347,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         grid == 1u);
     if (coverage <= 0.0) { discard; }
 
-    let maskUv = input.position.xy / uniforms.canvasSize;
-    let maskAlpha = textureSample(maskTexture, maskSampler, maskUv).r;
+    let maskAlpha = sample_mask_alpha(input.position.xy);
     let alpha = input.color.a * coverage * maskAlpha;
     return vec4<f32>(input.color.rgb * alpha, alpha);
 }

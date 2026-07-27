@@ -11,11 +11,73 @@ namespace ProGPU.Tests;
 public class ProGpuHostControlTests
 {
     [Fact]
-    public void ZeroCopyCompositionIsOptInByDefault()
+    public void SharedImageReadbackIsOptInByDefault()
     {
         var control = new ProGpuHostControl();
 
+        Assert.False(control.EnableSharedImageReadback);
+        Assert.False(control.EnableSharedTextureMemory);
+#pragma warning disable CS0618
         Assert.False(control.EnableZeroCopy);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
+    public void MacSharedTextureMemoryUsesTypedTimelineSynchronization()
+    {
+        string source = File.ReadAllText(
+            FindProGpuHostControlSource()).Replace(
+                "\r\n",
+                "\n");
+
+        Assert.Contains(
+            "DawnGpuContext.CreateMetalPresentation()",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositionGpuImportedImageSynchronizationCapabilities.TimelineSemaphores",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "KnownPlatformGraphicsExternalSemaphoreHandleTypes.MetalSharedEvent",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".UpdateWithTimelineSemaphoresAsync(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "memory.BeginAccess(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "memory.EndAccessAndExportMetalSharedEvent(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_isSameDeviceTextureSupported ||\n            _isSharedTextureMemorySupported",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedGpuTextureSource.CompositionHandleType",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "await drawingSurface.UpdateAsync(importedImage);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "swapchainImages.Length;",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_currentWriteImageIndex + 1) % 2",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "NativeLibrary.",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -35,10 +97,29 @@ public class ProGpuHostControlTests
     }
 
     [Fact]
-    public void HostControlRechecksZeroCopyFrameAfterAsyncMap()
+    public void SharedImageReadbackRequiresAutomaticSynchronization()
+    {
+        string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
+
+        Assert.Contains(
+            "interop.GetSynchronizationCapabilities(handleType)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositionGpuImportedImageSynchronizationCapabilities.Automatic",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "CompositionGpuImportedImageSynchronizationCapabilities.TimelineSemaphores);\n                useSharedTexture =",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HostControlRechecksSharedImageReadbackFrameAfterAsyncMap()
     {
         var guardMethod = typeof(ProGpuHostControl).GetMethod(
-            "IsCurrentZeroCopyFrame",
+            "IsCurrentSharedImageReadbackFrame",
             BindingFlags.Instance | BindingFlags.NonPublic);
         var unmapMethod = typeof(ProGpuHostControl).GetMethod(
             "TryUnmapStagingBuffer",
@@ -51,16 +132,17 @@ public class ProGpuHostControlTests
         Assert.Equal(typeof(bool), guardMethod.ReturnType);
 
         var guardParameters = guardMethod.GetParameters();
-        Assert.Equal(6, guardParameters.Length);
+        Assert.Equal(7, guardParameters.Length);
         Assert.Equal("swapchainImages", guardParameters[0].Name);
         Assert.Equal("imageIndex", guardParameters[1].Name);
         Assert.Equal("image", guardParameters[2].Name);
-        Assert.Equal("importedImage", guardParameters[3].Name);
-        Assert.Equal(typeof(ICompositionImportedGpuImage), guardParameters[3].ParameterType);
-        Assert.Equal("drawingSurface", guardParameters[4].Name);
-        Assert.Equal(typeof(CompositionDrawingSurface), guardParameters[4].ParameterType);
-        Assert.Equal("context", guardParameters[5].Name);
-        Assert.Equal(typeof(WgpuContext), guardParameters[5].ParameterType);
+        Assert.Equal("transferBuffer", guardParameters[3].Name);
+        Assert.Equal("importedImage", guardParameters[4].Name);
+        Assert.Equal(typeof(ICompositionImportedGpuImage), guardParameters[4].ParameterType);
+        Assert.Equal("drawingSurface", guardParameters[5].Name);
+        Assert.Equal(typeof(CompositionDrawingSurface), guardParameters[5].ParameterType);
+        Assert.Equal("context", guardParameters[6].Name);
+        Assert.Equal(typeof(WgpuContext), guardParameters[6].ParameterType);
 
         Assert.NotNull(unmapMethod);
         var unmapParameters = unmapMethod.GetParameters();
@@ -69,7 +151,7 @@ public class ProGpuHostControlTests
 
         Assert.NotNull(copyMethod);
         var copyParameters = copyMethod.GetParameters();
-        Assert.Equal(4, copyParameters.Length);
+        Assert.Equal(5, copyParameters.Length);
         Assert.Equal(typeof(WgpuContext), copyParameters[0].ParameterType);
     }
 
@@ -154,7 +236,7 @@ public class ProGpuHostControlTests
 
         Assert.Contains("public ProGpuAvaloniaHostFrameState LastPresentedFrameState", source, StringComparison.Ordinal);
         Assert.Contains("private void RecordPresentedFrame(CompositorHostFrame frame, ProGpuAvaloniaPresentationMode mode)", source, StringComparison.Ordinal);
-        Assert.Contains("RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.ZeroCopySharedTexture);", source, StringComparison.Ordinal);
+        Assert.Contains("RecordPresentedFrame(hostFrame, ProGpuAvaloniaPresentationMode.SharedImageReadback);", source, StringComparison.Ordinal);
         Assert.Contains("new ProGpuCustomVisualHandler(_wgpuContext, _compositor, RecordReadbackPresentedFrame)", source, StringComparison.Ordinal);
         Assert.Contains("_framePresented?.Invoke(hostFrame);", source, StringComparison.Ordinal);
         Assert.Contains("var frameState = ProGpuHost.LastPresentedFrameState;", sampleSource, StringComparison.Ordinal);
@@ -188,71 +270,60 @@ public class ProGpuHostControlTests
     }
 
     [Fact]
-    public void SwapchainImageDisposesStagingBufferThroughDeferredQueue()
+    public void SharedPresentationImagesUseOneTransferBuffer()
     {
-        var context = new WgpuContext();
-        var swapchainImageType = typeof(ProGpuHostControl).GetNestedType(
-            "SwapchainImage",
-            BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(typeof(ProGpuHostControl).FullName, "SwapchainImage");
-        var stagingBufferField = swapchainImageType.GetField(
-            "StagingBuffer",
-            BindingFlags.Instance | BindingFlags.Public)
-            ?? throw new MissingFieldException(swapchainImageType.FullName, "StagingBuffer");
-        var stagingBufferSizeField = swapchainImageType.GetField(
-            "StagingBufferSize",
-            BindingFlags.Instance | BindingFlags.Public)
-            ?? throw new MissingFieldException(swapchainImageType.FullName, "StagingBufferSize");
-        var bytesPerRowField = swapchainImageType.GetField(
-            "BytesPerRow",
-            BindingFlags.Instance | BindingFlags.Public)
-            ?? throw new MissingFieldException(swapchainImageType.FullName, "BytesPerRow");
-        var image = Activator.CreateInstance(
-            swapchainImageType,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            args: [context],
-            culture: null)
-            ?? throw new InvalidOperationException("Expected SwapchainImage instance.");
-        var stagingBuffer = new IntPtr(0x1234);
+        string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
+        string swapchainImage = source[
+            source.IndexOf("private class SwapchainImage", StringComparison.Ordinal)..
+            source.IndexOf("private sealed class SharedReadbackTransferBuffer", StringComparison.Ordinal)];
 
-        stagingBufferField.SetValue(image, stagingBuffer);
-        stagingBufferSizeField.SetValue(image, 256u);
-        bytesPerRowField.SetValue(image, 64u);
-
-        try
-        {
-            ((IDisposable)image).Dispose();
-
-            Assert.Contains(stagingBuffer, context.PendingBuffers);
-            Assert.Equal(IntPtr.Zero, stagingBufferField.GetValue(image));
-            Assert.Equal(0u, stagingBufferSizeField.GetValue(image));
-            Assert.Equal(0u, bytesPerRowField.GetValue(image));
-        }
-        finally
-        {
-            context.PendingBuffers.Clear();
-        }
+        Assert.Contains(
+            "private SharedReadbackTransferBuffer? _sharedReadbackTransferBuffer;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sharedReadbackTransferBuffer =\n                    new SharedReadbackTransferBuffer(",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("StagingBuffer", swapchainImage, StringComparison.Ordinal);
+        Assert.DoesNotContain("BytesPerRow", swapchainImage, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SwapchainImageDisposeUnmapsActiveStagingBufferBeforeQueueingDisposal()
+    public void MacSharedSurfaceFreesTemporaryUtf8Keys()
+    {
+        string source = File.ReadAllText(FindProGpuSource(
+            "ProGPU.Avalonia",
+            "GpuSharingInterop.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains(
+            "IntPtr utf8Key = Marshal.StringToHGlobalAnsi(key);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Marshal.FreeHGlobal(utf8Key);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SharedTransferBufferUnmapsBeforeQueueingDisposal()
     {
         string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
 
         int unmapIndex = source.IndexOf(
-            "_context.Api.BufferUnmap((GpuBuffer*)StagingBuffer)",
+            "_context.Api.BufferUnmap((GpuBuffer*)buffer)",
             StringComparison.Ordinal);
         int queueIndex = source.IndexOf(
-            "_context.QueueBufferDisposal(StagingBuffer)",
+            "_context.QueueBufferDisposal(buffer)",
             StringComparison.Ordinal);
 
-        Assert.Contains("public bool IsStagingBufferMapActive;", source, StringComparison.Ordinal);
-        Assert.True(unmapIndex >= 0, "SwapchainImage.Dispose must unmap an active staging-buffer map.");
-        Assert.True(queueIndex >= 0, "SwapchainImage.Dispose must queue staging-buffer disposal.");
-        Assert.True(unmapIndex < queueIndex, "Mapped staging buffers must be unmapped before disposal is queued.");
-        Assert.Contains("image.IsStagingBufferMapActive = true;", source, StringComparison.Ordinal);
-        Assert.Contains("!image.IsStagingBufferMapActive", source, StringComparison.Ordinal);
+        Assert.Contains("public bool IsMapActive { get; set; }", source, StringComparison.Ordinal);
+        Assert.True(unmapIndex >= 0, "The transfer buffer must unmap an active map.");
+        Assert.True(queueIndex >= 0, "The transfer buffer must queue deferred disposal.");
+        Assert.True(unmapIndex < queueIndex, "Mapped transfer buffers must be unmapped before disposal is queued.");
+        Assert.Contains("transferBuffer.IsMapActive = true;", source, StringComparison.Ordinal);
+        Assert.Contains("!transferBuffer.IsMapActive", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -261,10 +332,10 @@ public class ProGpuHostControlTests
         string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");
         string readbackSource = File.ReadAllText(FindProGpuBackendSource("GpuTextureReadbackBuffer.cs")).Replace("\r\n", "\n");
 
-        Assert.Contains("_context.QueueBufferDisposal(StagingBuffer)", source, StringComparison.Ordinal);
+        Assert.Contains("_context.QueueBufferDisposal(buffer)", source, StringComparison.Ordinal);
         Assert.Contains("_context.QueueBufferDisposal((IntPtr)_buffer)", readbackSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("Wgpu.BufferDestroy((GpuBuffer*)StagingBuffer)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Wgpu.BufferRelease((GpuBuffer*)StagingBuffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferDestroy((GpuBuffer*)buffer)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Wgpu.BufferRelease((GpuBuffer*)buffer)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Wgpu.BufferDestroy(_stagingBuffer)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Wgpu.BufferRelease(_stagingBuffer)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Wgpu.BufferDestroy(_buffer)", readbackSource, StringComparison.Ordinal);

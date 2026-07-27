@@ -371,6 +371,61 @@ static class ArcSegmentGeometry
         return true;
     }
 
+    public static bool TryGetArcBounds(
+        in ArcShaderParameters parameters,
+        out Vector2 min,
+        out Vector2 max)
+    {
+        min = default;
+        max = default;
+        ArcShaderParameters value = parameters;
+        if (!IsFinite(value.Center) ||
+            !IsFinite(value.AxisX) ||
+            !IsFinite(value.AxisY) ||
+            !float.IsFinite(value.Theta1) ||
+            !float.IsFinite(value.DeltaTheta) ||
+            MathF.Abs(value.DeltaTheta) <= Epsilon)
+        {
+            return false;
+        }
+
+        Vector2 start = EvaluatePoint(value, value.Theta1);
+        Vector2 end = EvaluatePoint(
+            value,
+            value.Theta1 + value.DeltaTheta);
+        Vector2 boundsMin = Vector2.Min(start, end);
+        Vector2 boundsMax = Vector2.Max(start, end);
+
+        float xExtremum =
+            MathF.Atan2(value.AxisY.X, value.AxisX.X);
+        IncludeExtremumIfInsideSweep(xExtremum);
+        IncludeExtremumIfInsideSweep(xExtremum + MathF.PI);
+
+        float yExtremum =
+            MathF.Atan2(value.AxisY.Y, value.AxisX.Y);
+        IncludeExtremumIfInsideSweep(yExtremum);
+        IncludeExtremumIfInsideSweep(yExtremum + MathF.PI);
+
+        min = boundsMin;
+        max = boundsMax;
+        return IsFinite(min) && IsFinite(max);
+
+        void IncludeExtremumIfInsideSweep(float theta)
+        {
+            if (!IsAngleWithinSweep(
+                    theta,
+                    value.Theta1,
+                    value.DeltaTheta))
+            {
+                return;
+            }
+
+            Vector2 point = EvaluatePoint(value, theta);
+            boundsMin = Vector2.Min(boundsMin, point);
+            boundsMax = Vector2.Max(boundsMax, point);
+        }
+    }
+
     public static int CountFlattenedSegments(
         Vector2 start,
         ArcSegment arc,
@@ -762,6 +817,13 @@ static class ArcSegmentGeometry
             boundsMax = Vector2.Max(boundsMax, point);
         }
     }
+
+    private static Vector2 EvaluatePoint(
+        in ArcShaderParameters parameters,
+        float theta) =>
+        parameters.Center +
+        parameters.AxisX * MathF.Cos(theta) +
+        parameters.AxisY * MathF.Sin(theta);
 
     private static bool IsAngleWithinSweep(float theta, float theta1, float deltaTheta)
     {

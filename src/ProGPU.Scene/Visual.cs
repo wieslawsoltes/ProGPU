@@ -15,7 +15,112 @@ namespace ProGPU.Scene;
 /// </summary>
 public interface IOwnedRenderCommandCache
 {
+    /// <summary>
+    /// Gets whether the owned cache currently contains local render commands.
+    /// Visual state and descendants are compiled regardless of this value.
+    /// </summary>
+    bool HasRenderCommands => true;
+
     DrawingContext GetOrUpdateRenderCommandCache();
+
+    /// <summary>
+    /// Gets the number of retained commands without requiring their storage to
+    /// use <see cref="List{T}"/> or the general-purpose 560-byte
+    /// <see cref="RenderCommand"/> array stride. The default preserves the
+    /// original drawing-context representation.
+    /// </summary>
+    int RenderCommandCount =>
+        GetOrUpdateRenderCommandCache().Commands.Count;
+
+    /// <summary>
+    /// Materializes one retained command for compilation. Implementations may
+    /// keep a typed compact representation and expand it into this value on the
+    /// stack; command identity is not observable and no heap allocation is
+    /// required.
+    /// </summary>
+    RenderCommand GetRenderCommand(int index) =>
+        GetOrUpdateRenderCommandCache().Commands[index];
+}
+
+/// <summary>
+/// Identifies the exact late-bound presentation values used while expanding an
+/// incremental command cache. Dependency bits make unrelated inherited state
+/// collapse to one value, so pages vary only when their compiled output can
+/// actually change.
+/// </summary>
+public readonly record struct IncrementalRenderPresentationState(
+    RenderCommandPresentationDependencies Dependencies,
+    TextureSamplingMode TextureSamplingMode,
+    TextRenderingMode TextRenderingMode,
+    TextHintingMode TextHintingMode);
+
+/// <summary>
+/// Opts an owned immutable-until-invalidated command cache into bounded local
+/// scene-page compilation. Implementations must invalidate their visual when
+/// the command stream or any referenced mutable resource changes.
+/// </summary>
+public interface IIncrementalRenderCommandCache : IOwnedRenderCommandCache
+{
+    /// <summary>
+    /// Gets whether the current command stream is stable enough to retain as
+    /// a compiled local scene page. Continuously changing producers should
+    /// return false so they do not populate and immediately invalidate the
+    /// bounded page cache.
+    /// </summary>
+    bool CanCacheIncrementalPage => true;
+
+    /// <summary>
+    /// Gets the exact state used to late-bind presentation-only command fields.
+    /// Changing this value requires visual-state invalidation but does not
+    /// require incrementing the immutable command-content revision.
+    /// </summary>
+    IncrementalRenderPresentationState IncrementalPresentationState =>
+        default;
+}
+
+public readonly struct VisualCompositeClip : IEquatable<VisualCompositeClip>
+{
+    public VisualCompositeClip(Rect bounds, Matrix4x4 transform)
+    {
+        Bounds = bounds;
+        Geometry = null;
+        Transform = transform;
+    }
+
+    public VisualCompositeClip(
+        PathGeometry geometry,
+        Matrix4x4 transform)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        Bounds = null;
+        Geometry = geometry;
+        Transform = transform;
+    }
+
+    public Rect? Bounds { get; }
+    public PathGeometry? Geometry { get; }
+    public Matrix4x4 Transform { get; }
+
+    public bool Equals(VisualCompositeClip other) =>
+        Bounds == other.Bounds &&
+        ReferenceEquals(Geometry, other.Geometry) &&
+        Transform == other.Transform;
+
+    public override bool Equals(object? obj) =>
+        obj is VisualCompositeClip other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Bounds, Geometry, Transform);
+
+    public static bool operator ==(
+        VisualCompositeClip left,
+        VisualCompositeClip right) =>
+        left.Equals(right);
+
+    public static bool operator !=(
+        VisualCompositeClip left,
+        VisualCompositeClip right) =>
+        !left.Equals(right);
 }
 
 public class Visual
@@ -28,31 +133,89 @@ public class Visual
     private bool _isDirty = true;
     private long _changeVersion;
     private long _renderContentVersion;
-    private bool _cacheAsLayer;
     public virtual bool HasTemplate => false;
     private Vector3 _scale = Vector3.One;
     private float _rotation = 0f;
     private Vector3 _centerPoint = Vector3.Zero;
     private Vector2 _renderTransformOrigin = new Vector2(0.5f, 0.5f);
-    private readonly Dictionary<string, CompositionAnimation> _activeAnimations = new(StringComparer.OrdinalIgnoreCase);
     private Rect? _clipBounds;
-    private Rect? _outerClipBounds;
-    private PathGeometry? _geometryClip;
-    private Brush? _opacityMask;
-    private Rect? _opacityMaskBounds;
     private int _hitTestId;
+    private VisualColdState? _coldState;
 
-    private EffectBase? _effect;
     public EffectBase? Effect
     {
-        get => _effect;
+        get => _coldState?.Effect;
         set
         {
-            if (_effect != value)
+            EffectBase? current = _coldState?.Effect;
+            if (!ReferenceEquals(current, value))
             {
-                _effect?.RemoveOwner(this);
-                _effect = value;
-                _effect?.AddOwner(this);
+                current?.RemoveOwner(this);
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.Effect = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().Effect = value;
+                }
+                value?.AddOwner(this);
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the local bounds containing the uneffected subtree pixels.
+    /// When unset, effects use the visual's layout size. Backends with retained
+    /// subtree bounds should set this value so translated descendants are not
+    /// clipped and effect textures stay proportional to their actual content.
+    /// </summary>
+    public Rect? EffectContentBounds
+    {
+        get => _coldState?.EffectContentBounds;
+        set
+        {
+            Rect? current = _coldState?.EffectContentBounds;
+            if (current != value)
+            {
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.EffectContentBounds = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().EffectContentBounds = value;
+                }
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the logical transparent border reserved around
+    /// <see cref="EffectContentBounds"/> while rasterizing an effect. A null
+    /// value selects the effect's native default.
+    /// </summary>
+    public float? EffectRasterPadding
+    {
+        get => _coldState?.EffectRasterPadding;
+        set
+        {
+            float? current = _coldState?.EffectRasterPadding;
+            if (current != value)
+            {
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.EffectRasterPadding = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().EffectRasterPadding = value;
+                }
                 InvalidateVisualState();
             }
         }
@@ -164,12 +327,72 @@ public class Visual
 
     public bool CacheAsLayer
     {
-        get => _cacheAsLayer;
+        get => _coldState?.CacheAsLayer ?? false;
         set
         {
-            if (_cacheAsLayer != value)
+            bool current = _coldState?.CacheAsLayer ?? false;
+            if (current != value)
             {
-                _cacheAsLayer = value;
+                if (value)
+                    GetOrCreateColdState().CacheAsLayer = true;
+                else if (_coldState is { } state)
+                    state.CacheAsLayer = false;
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the raster-resolution multiplier for a cached layer.
+    /// A non-positive value suppresses layer rendering.
+    /// </summary>
+    public float LayerCacheRenderScale
+    {
+        get => _coldState?.LayerCacheRenderScale ?? 1f;
+        set
+        {
+            float normalized = float.IsFinite(value)
+                ? MathF.Max(0f, value)
+                : 0f;
+            float current = _coldState?.LayerCacheRenderScale ?? 1f;
+            if (current != normalized)
+            {
+                if (normalized == 1f)
+                {
+                    if (_coldState is { } state)
+                        state.LayerCacheRenderScale = 1f;
+                }
+                else
+                {
+                    GetOrCreateColdState().LayerCacheRenderScale = normalized;
+                }
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets whether a cached layer's destination origin is aligned to
+    /// the physical pixel grid before composition.
+    /// </summary>
+    public bool LayerCacheSnapsToDevicePixels
+    {
+        get => _coldState?.LayerCacheSnapsToDevicePixels ?? false;
+        set
+        {
+            bool current =
+                _coldState?.LayerCacheSnapsToDevicePixels ?? false;
+            if (current != value)
+            {
+                if (value)
+                {
+                    GetOrCreateColdState().LayerCacheSnapsToDevicePixels =
+                        true;
+                }
+                else if (_coldState is { } state)
+                {
+                    state.LayerCacheSnapsToDevicePixels = false;
+                }
                 InvalidateVisualState();
             }
         }
@@ -228,7 +451,22 @@ public class Visual
     }
 
     // Composition layer texture view
-    public GpuTexture? LayerTexture { get; internal set; }
+    public GpuTexture? LayerTexture
+    {
+        get => _coldState?.LayerTexture;
+        internal set
+        {
+            if (value is null)
+            {
+                if (_coldState is { } state)
+                    state.LayerTexture = null;
+            }
+            else
+            {
+                GetOrCreateColdState().LayerTexture = value;
+            }
+        }
+    }
 
     public int HitTestId
     {
@@ -258,25 +496,89 @@ public class Visual
 
     public Rect? OuterClipBounds
     {
-        get => _outerClipBounds;
+        get => _coldState?.OuterClipBounds;
         set
         {
-            if (_outerClipBounds != value)
+            Rect? current = _coldState?.OuterClipBounds;
+            if (current != value)
             {
-                _outerClipBounds = value;
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.OuterClipBounds = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().OuterClipBounds = value;
+                }
                 InvalidateVisualState();
             }
         }
     }
 
+    public ReadOnlySpan<VisualCompositeClip> OuterCompositeClips =>
+        _coldState?.OuterCompositeClips;
+
+    public void SetOuterCompositeClips(
+        IReadOnlyList<VisualCompositeClip> clips)
+    {
+        ArgumentNullException.ThrowIfNull(clips);
+
+        VisualCompositeClip[] current =
+            _coldState?.OuterCompositeClips ??
+            Array.Empty<VisualCompositeClip>();
+        bool unchanged = clips.Count == current.Length;
+        if (unchanged)
+        {
+            for (int index = 0; index < clips.Count; index++)
+            {
+                if (clips[index] != current[index])
+                {
+                    unchanged = false;
+                    break;
+                }
+            }
+        }
+
+        if (unchanged)
+            return;
+
+        if (clips.Count == 0)
+        {
+            if (_coldState is { } state)
+            {
+                state.OuterCompositeClips =
+                    Array.Empty<VisualCompositeClip>();
+            }
+        }
+        else
+        {
+            var replacement = new VisualCompositeClip[clips.Count];
+            for (int index = 0; index < replacement.Length; index++)
+                replacement[index] = clips[index];
+            GetOrCreateColdState().OuterCompositeClips = replacement;
+        }
+
+        InvalidateVisualState();
+    }
+
     public PathGeometry? GeometryClip
     {
-        get => _geometryClip;
+        get => _coldState?.GeometryClip;
         set
         {
-            if (!ReferenceEquals(_geometryClip, value))
+            PathGeometry? current = _coldState?.GeometryClip;
+            if (!ReferenceEquals(current, value))
             {
-                _geometryClip = value;
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.GeometryClip = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().GeometryClip = value;
+                }
                 InvalidateVisualState();
             }
         }
@@ -284,12 +586,43 @@ public class Visual
 
     public Brush? OpacityMask
     {
-        get => _opacityMask;
+        get => _coldState?.OpacityMask;
         set
         {
-            if (_opacityMask != value)
+            Brush? current = _coldState?.OpacityMask;
+            if (current != value)
             {
-                _opacityMask = value;
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.OpacityMask = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().OpacityMask = value;
+                }
+                InvalidateVisualState();
+            }
+        }
+    }
+
+    public GpuPicture? OpacityMaskPicture
+    {
+        get => _coldState?.OpacityMaskPicture;
+        set
+        {
+            GpuPicture? current = _coldState?.OpacityMaskPicture;
+            if (!ReferenceEquals(current, value))
+            {
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.OpacityMaskPicture = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().OpacityMaskPicture = value;
+                }
                 InvalidateVisualState();
             }
         }
@@ -297,12 +630,21 @@ public class Visual
 
     public Rect? OpacityMaskBounds
     {
-        get => _opacityMaskBounds;
+        get => _coldState?.OpacityMaskBounds;
         set
         {
-            if (_opacityMaskBounds != value)
+            Rect? current = _coldState?.OpacityMaskBounds;
+            if (current != value)
             {
-                _opacityMaskBounds = value;
+                if (value is null)
+                {
+                    if (_coldState is { } state)
+                        state.OpacityMaskBounds = null;
+                }
+                else
+                {
+                    GetOrCreateColdState().OpacityMaskBounds = value;
+                }
                 InvalidateVisualState();
             }
         }
@@ -414,13 +756,15 @@ public class Visual
 
     public void StartAnimation(string propertyName, CompositionAnimation animation)
     {
-        _activeAnimations[propertyName] = animation;
+        (GetOrCreateColdState().ActiveAnimations ??=
+            new Dictionary<string, CompositionAnimation>(
+                StringComparer.OrdinalIgnoreCase))[propertyName] = animation;
         InvalidateVisualState();
     }
 
     public void StopAnimation(string propertyName)
     {
-        if (_activeAnimations.Remove(propertyName))
+        if (_coldState?.ActiveAnimations?.Remove(propertyName) == true)
         {
             InvalidateVisualState();
         }
@@ -447,12 +791,14 @@ public class Visual
 
     public void TickAnimations(float elapsedSeconds)
     {
-        if (_activeAnimations.Count == 0) return;
+        if (_coldState?.ActiveAnimations is not
+            { Count: > 0 } activeAnimations)
+            return;
 
         bool changed = false;
         bool renderContentChanged = false;
 
-        var activeAnimationEnumerator = _activeAnimations.GetEnumerator();
+        var activeAnimationEnumerator = activeAnimations.GetEnumerator();
         while (activeAnimationEnumerator.MoveNext())
         {
             var kvp = activeAnimationEnumerator.Current;
@@ -537,6 +883,28 @@ public class Visual
         }
     }
 
+    private VisualColdState GetOrCreateColdState() =>
+        _coldState ??= new VisualColdState();
+
+    private sealed class VisualColdState
+    {
+        public Dictionary<string, CompositionAnimation>? ActiveAnimations;
+        public Rect? OuterClipBounds;
+        public VisualCompositeClip[] OuterCompositeClips =
+            Array.Empty<VisualCompositeClip>();
+        public PathGeometry? GeometryClip;
+        public Brush? OpacityMask;
+        public GpuPicture? OpacityMaskPicture;
+        public Rect? OpacityMaskBounds;
+        public Rect? EffectContentBounds;
+        public float? EffectRasterPadding;
+        public EffectBase? Effect;
+        public bool CacheAsLayer;
+        public float LayerCacheRenderScale = 1f;
+        public bool LayerCacheSnapsToDevicePixels;
+        public GpuTexture? LayerTexture;
+    }
+
     private static bool IsAnimationProperty(string propertyName, string expected)
     {
         return string.Equals(propertyName, expected, StringComparison.OrdinalIgnoreCase);
@@ -545,13 +913,18 @@ public class Visual
 
 public class ContainerVisual : Visual
 {
-    private readonly List<Visual> _children = new();
+    private List<Visual>? _children;
     private readonly object _childrenLock = new();
 
-    public IReadOnlyList<Visual> Children => _children;
+    public IReadOnlyList<Visual> Children =>
+        _children is null
+            ? Array.Empty<Visual>()
+            : _children;
 
     public void AddChild(Visual child)
     {
+        ArgumentNullException.ThrowIfNull(child);
+        ThrowIfWouldCreateCycle(child);
         if (child.Parent != null)
         {
             child.Parent.RemoveChild(child);
@@ -560,7 +933,7 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             child.Parent = this;
-            _children.Add(child);
+            (_children ??= new List<Visual>()).Add(child);
         }
         Invalidate();
         if (this is ILayoutNode layoutNode)
@@ -572,6 +945,7 @@ public class ContainerVisual : Visual
     public void InsertChild(int index, Visual child)
     {
         ArgumentNullException.ThrowIfNull(child);
+        ThrowIfWouldCreateCycle(child);
         if (child.Parent != null)
         {
             child.Parent.RemoveChild(child);
@@ -580,7 +954,8 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             child.Parent = this;
-            _children.Insert(Math.Clamp(index, 0, _children.Count), child);
+            var children = _children ??= new List<Visual>();
+            children.Insert(Math.Clamp(index, 0, children.Count), child);
         }
 
         Invalidate();
@@ -590,12 +965,26 @@ public class ContainerVisual : Visual
         }
     }
 
+    private void ThrowIfWouldCreateCycle(Visual child)
+    {
+        for (Visual? ancestor = this;
+             ancestor != null;
+             ancestor = ancestor.Parent)
+        {
+            if (ReferenceEquals(ancestor, child))
+            {
+                throw new InvalidOperationException(
+                    "A visual cannot be added beneath itself or one of its descendants.");
+            }
+        }
+    }
+
     public void RemoveChild(Visual child)
     {
         bool removed;
         lock (_childrenLock)
         {
-            removed = _children.Remove(child);
+            removed = _children?.Remove(child) == true;
             if (removed)
             {
                 child.Parent = null;
@@ -615,11 +1004,14 @@ public class ContainerVisual : Visual
     {
         lock (_childrenLock)
         {
-            for (var i = 0; i < _children.Count; i++)
+            if (_children != null)
             {
-                _children[i].Parent = null;
+                for (var i = 0; i < _children.Count; i++)
+                {
+                    _children[i].Parent = null;
+                }
+                _children.Clear();
             }
-            _children.Clear();
         }
         Invalidate();
         if (this is ILayoutNode layoutNode)
@@ -635,11 +1027,11 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             if (ReferenceEquals(child.Parent, this) &&
-                _children.Count > 0 &&
-                !ReferenceEquals(_children[^1], child))
+                _children is { Count: > 0 } children &&
+                !ReferenceEquals(children[^1], child))
             {
-                _children.Remove(child);
-                _children.Add(child);
+                children.Remove(child);
+                children.Add(child);
                 reordered = true;
             }
         }

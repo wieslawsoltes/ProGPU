@@ -1,8 +1,15 @@
-// Algorithm: Sample source and destination colors and evaluate one compile-time-selected advanced Porter-Duff blend function.
+// Algorithm: Sample a full-size destination and a bounded source region, then evaluate one compile-time-selected advanced Porter-Duff blend function.
 // Time complexity: O(1) per vertex and fragment.
 // Space complexity: O(1) local storage with two texture reads per fragment.
 @group(0) @binding(0) var destinationTexture: texture_2d<f32>;
 @group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+
+struct SamplingUniforms {
+    sourceOrigin: vec2<f32>,
+    sourceExtent: vec2<f32>,
+};
+
+@group(0) @binding(2) var<uniform> sampling: SamplingUniforms;
 
 const blendMode = __BLEND_MODE__u;
 
@@ -199,10 +206,16 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         textureLoad(destinationTexture, pixel, 0),
         vec4<f32>(0.0),
         vec4<f32>(1.0));
-    let source = clamp(
-        textureLoad(sourceTexture, pixel, 0),
-        vec4<f32>(0.0),
-        vec4<f32>(1.0));
+    let sourceCoordinate = position.xy - sampling.sourceOrigin;
+    let sourceIsInside = all(sourceCoordinate >= vec2<f32>(0.0)) &&
+        all(sourceCoordinate < sampling.sourceExtent);
+    var source = vec4<f32>(0.0);
+    if (sourceIsInside) {
+        source = clamp(
+            textureLoad(sourceTexture, vec2<i32>(sourceCoordinate), 0),
+            vec4<f32>(0.0),
+            vec4<f32>(1.0));
+    }
 
     if (blendMode == 1u) {
         return source;

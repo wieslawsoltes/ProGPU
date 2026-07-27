@@ -7,6 +7,40 @@ namespace ProGPU.Tests;
 public sealed class PrimitivePathGeometryTests
 {
     [Fact]
+    public void AxisAlignedRectangleRecognitionIsAllocationFreeShapeContract()
+    {
+        PathGeometry path =
+            PrimitivePathGeometry.CreateRectangle(2f, 3f, 10f, 6f);
+
+        Assert.True(
+            PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                path,
+                out Vector2 min,
+                out Vector2 max));
+        Assert.Equal(new Vector2(2f, 3f), min);
+        Assert.Equal(new Vector2(12f, 9f), max);
+    }
+
+    [Fact]
+    public void RoundedRectangleIsNotReducedToRectangularClip()
+    {
+        PathGeometry path =
+            PrimitivePathGeometry.CreateRoundedRectangle(
+                2f,
+                3f,
+                10f,
+                6f,
+                2f,
+                2f);
+
+        Assert.False(
+            PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                path,
+                out _,
+                out _));
+    }
+
+    [Fact]
     public void CreateEllipseUsesNativeArcSegments()
     {
         var path = PrimitivePathGeometry.CreateEllipse(new Vector2(5f, 4f), 5f, 3f);

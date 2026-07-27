@@ -1,6 +1,6 @@
-// Algorithm: Transform an image-effect quad, sample source and mask textures, and apply color/effect parameters.
+// Algorithm: Transform an image-effect quad, sample the source and either texture-mask or affine analytic rounded-mask coverage, then apply color/effect parameters.
 // Time complexity: O(1) per vertex and fragment.
-// Space complexity: O(1) local storage with a fixed texture-sample footprint.
+// Space complexity: O(1) local storage; texture masks add one sample while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no mask texture bandwidth.
 struct VSUniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -28,6 +28,65 @@ struct EffectUniforms {
 
 @group(3) @binding(0) var maskSampler: sampler;
 @group(3) @binding(1) var maskTexture: texture_2d<f32>;
+
+struct MaskSamplingUniforms {
+    coordinate0: vec4<f32>,
+    coordinate1: vec4<f32>,
+    bounds: vec4<f32>,
+    cornerRadiiX: vec4<f32>,
+    cornerRadiiY: vec4<f32>,
+    options: vec4<f32>,
+};
+
+@group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
+    let bounds = maskSampling.bounds;
+    let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
+    var center = vec2<f32>(0.0);
+    var radius = vec2<f32>(0.0);
+    var usesCorner = false;
+    if (local.x < bounds.x + maskSampling.cornerRadiiX.x && local.y < bounds.y + maskSampling.cornerRadiiY.x) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+        center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y && local.y < bounds.y + maskSampling.cornerRadiiY.y) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+        center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z && local.y > bounds.w - maskSampling.cornerRadiiY.z) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+        center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w && local.y > bounds.w - maskSampling.cornerRadiiY.w) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+        center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    }
+    let safeRadius = max(radius, vec2<f32>(0.000001));
+    let ellipsePoint = (local - center) / safeRadius;
+    let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
+    let implicit = select(edge, ellipse, usesCorner);
+    let antialiasWidth = max(fwidth(implicit), 0.0001);
+    return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+    if (maskSampling.options.x > 1.5) {
+        return analytic_rounded_mask_alpha(position) *
+            maskSampling.options.y;
+    }
+    let uv = (position - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -136,8 +195,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     var maskAlpha = 1.0;
     if (effect.effects1.w > 0.5) {
-        let screen_uv = input.position.xy / vec2<f32>(effect.texture0.x, effect.texture0.y);
-        maskAlpha = textureSample(maskTexture, maskSampler, screen_uv).r;
+        maskAlpha = sample_mask_alpha(input.position.xy);
     }
 
     let coverage = input.color.a * maskAlpha;

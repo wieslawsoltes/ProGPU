@@ -58,6 +58,31 @@ public static unsafe class GpuCoverageUpload
         {
             throw new ArgumentOutOfRangeException(nameof(bytesPerRow));
         }
+        if (destinationX > destination.Width ||
+            width > destination.Width - destinationX)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                "Coverage copy exceeds the destination texture width.");
+        }
+        if (destinationY > destination.Height ||
+            height > destination.Height - destinationY)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(height),
+                "Coverage copy exceeds the destination texture height.");
+        }
+
+        ulong requiredSourceBytes = checked(
+            (ulong)sourceOffset +
+            (ulong)bytesPerRow * (height - 1) +
+            width);
+        if (requiredSourceBytes > source.Size)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceOffset),
+                "Coverage copy exceeds the source staging buffer.");
+        }
 
         var copySource = new ImageCopyBuffer
         {

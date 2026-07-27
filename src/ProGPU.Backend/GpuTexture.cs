@@ -37,6 +37,12 @@ public unsafe class GpuTexture : IDisposable
     public ulong Id { get; }
     public WgpuContext Context => _context;
     public uint Generation { get; private set; }
+    /// <summary>
+    /// Advances only when the default native texture view is replaced.
+    /// Bind-group caches use this identity generation; ordinary content writes
+    /// advance <see cref="Generation"/> without invalidating the view.
+    /// </summary>
+    public uint ViewGeneration { get; private set; }
 
     public Texture* TexturePtr { get; private set; }
     public TextureView* ViewPtr { get; private set; }
@@ -211,9 +217,97 @@ public unsafe class GpuTexture : IDisposable
         Allocate();
     }
 
+    /// <summary>
+    /// Wraps a texture reference created by the same native device as
+    /// <paramref name="context"/> and transfers ownership of that reference
+    /// to the returned <see cref="GpuTexture"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is the typed shared-memory/import seam. It performs O(1) work,
+    /// creates one default view, and allocates no second texture. The caller
+    /// must not release <paramref name="texture"/> after a successful call.
+    /// </remarks>
+    public static GpuTexture WrapOwnedExternal(
+        WgpuContext context,
+        Texture* texture,
+        uint width,
+        uint height,
+        TextureFormat format,
+        TextureUsage usage,
+        string label = "External GpuTexture",
+        GpuTextureAlphaMode alphaMode = GpuTextureAlphaMode.Straight)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (texture == null)
+        {
+            throw new ArgumentException(
+                "A live texture reference is required.",
+                nameof(texture));
+        }
+        if (context.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(WgpuContext));
+        }
+
+        return new GpuTexture(
+            context,
+            texture,
+            width,
+            height,
+            format,
+            usage,
+            label,
+            alphaMode);
+    }
+
+    private GpuTexture(
+        WgpuContext context,
+        Texture* texture,
+        uint width,
+        uint height,
+        TextureFormat format,
+        TextureUsage usage,
+        string label,
+        GpuTextureAlphaMode alphaMode)
+    {
+        Id = (ulong)Interlocked.Increment(ref s_idCounter);
+        _context = context;
+        TexturePtr = texture;
+        Width = width > 0 ? width : 1;
+        Height = height > 0 ? height : 1;
+        Format = format;
+        Usage = usage;
+        _label = label;
+        AlphaMode = alphaMode;
+        Generation = 1;
+        ViewGeneration = 1;
+
+        var viewDescriptor = new TextureViewDescriptor
+        {
+            Format = format,
+            Dimension = TextureViewDimension.Dimension2D,
+            BaseMipLevel = 0,
+            MipLevelCount = 1,
+            BaseArrayLayer = 0,
+            ArrayLayerCount = 1,
+            Aspect = TextureAspect.All
+        };
+        ViewPtr = _context.Api.TextureCreateView(
+            TexturePtr,
+            &viewDescriptor);
+        if (ViewPtr == null)
+        {
+            _context.Api.TextureRelease(TexturePtr);
+            TexturePtr = null;
+            throw new InvalidOperationException(
+                $"Failed to create a view for external GPU texture {Width}x{Height}.");
+        }
+    }
+
     private void Allocate()
     {
         Generation++;
+        ViewGeneration++;
         var labelPtr = SilkMarshal.StringToPtr(_label);
         
         var desc = new TextureDescriptor
@@ -351,6 +445,25 @@ public unsafe class GpuTexture : IDisposable
             {
                 wgpu.CommandEncoderRelease(encoder);
             }
+        }
+
+        Generation++;
+    }
+
+    /// <summary>
+    /// Advances the content generation after commands outside this wrapper
+    /// render or copy into the owned native texture.
+    /// </summary>
+    /// <remarks>
+    /// This is an allocation-free O(1) invalidation boundary. Call it once
+    /// after the submitted GPU work that changes this texture, not once per
+    /// draw command.
+    /// </remarks>
+    public void NotifyExternalContentChanged()
+    {
+        if (IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(GpuTexture));
         }
 
         Generation++;
@@ -1049,9 +1162,11 @@ public unsafe class GpuTexture : IDisposable
         if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
         if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
-        if (source.Context != _context)
+        if (!source.Context.SharesDeviceWith(_context))
         {
-            throw new ArgumentException("Source texture must belong to the same WebGPU context.", nameof(source));
+            throw new ArgumentException(
+                "Source texture must belong to the same WebGPU device domain.",
+                nameof(source));
         }
 
         if (source.Width != Width
@@ -1125,10 +1240,10 @@ public unsafe class GpuTexture : IDisposable
         if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
         if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
-        if (!ReferenceEquals(source.Context, _context))
+        if (!source.Context.SharesDeviceWith(_context))
         {
             throw new ArgumentException(
-                "Source texture must belong to the same WebGPU context.",
+                "Source texture must belong to the same WebGPU device domain.",
                 nameof(source));
         }
 
@@ -1210,10 +1325,10 @@ public unsafe class GpuTexture : IDisposable
         if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
         if (source.IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
-        if (!ReferenceEquals(source.Context, _context))
+        if (!source.Context.SharesDeviceWith(_context))
         {
             throw new ArgumentException(
-                "Source texture must belong to the same WebGPU context.",
+                "Source texture must belong to the same WebGPU device domain.",
                 nameof(source));
         }
         if (source.DepthOrArrayLayers != 1 || DepthOrArrayLayers != 1 ||

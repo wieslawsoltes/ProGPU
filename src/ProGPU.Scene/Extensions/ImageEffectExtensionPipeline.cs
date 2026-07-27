@@ -376,6 +376,9 @@ namespace ProGPU.Scene.Extensions
 
             var gpuRes = _pool[_usedCount++];
             var effectiveMaskTexture = p.MaskTexture ?? dc.MaskTexture;
+            bool usesDrawCallMask = p.MaskTexture == null;
+            bool hasEffectiveMask = effectiveMaskTexture != null ||
+                usesDrawCallMask && dc.MaskBindGroupOverride != 0;
             var maskCanvasWidth = effectiveMaskTexture?.Width ?? compositor.CurrentCanvasPixelWidth;
             var maskCanvasHeight = effectiveMaskTexture?.Height ?? compositor.CurrentCanvasPixelHeight;
             var colorMatrix = p.ColorMatrix;
@@ -391,7 +394,7 @@ namespace ProGPU.Scene.Extensions
                     p.Sepia,
                     p.Invert,
                     p.BlurSigma,
-                    effectiveMaskTexture != null ? 1f : 0f),
+                    hasEffectiveMask ? 1f : 0f),
                 Texture0 = new Vector4(
                     MathF.Max(1f, maskCanvasWidth),
                     MathF.Max(1f, maskCanvasHeight),
@@ -440,7 +443,11 @@ namespace ProGPU.Scene.Extensions
             }
 
             // 3. Mask BindGroup (Group 3)
-            var maskBg = compositor.GetMaskBindGroup(effectiveMaskTexture, isOffscreen);
+            var maskBg = usesDrawCallMask
+                ? compositor.GetDrawCallMaskBindGroup(dc, isOffscreen)
+                : compositor.GetMaskBindGroup(
+                    effectiveMaskTexture,
+                    isOffscreen);
 
             // 4. Set states & draw
             var vertexBuffer = compositor.VectorVertexBuffer.BufferPtr;
@@ -463,10 +470,10 @@ namespace ProGPU.Scene.Extensions
             string role,
             out string? error)
         {
-            if (!ReferenceEquals(texture.Context, targetContext))
+            if (!texture.Context.SharesDeviceWith(targetContext))
             {
                 error = $"{CrossContextTextureErrorPrefix} for {role}. " +
-                    "Create or copy the texture in the compositor target context before rendering the effect.";
+                    "Create or copy the texture in the compositor target device domain before rendering the effect.";
                 return false;
             }
 

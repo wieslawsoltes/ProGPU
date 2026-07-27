@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
@@ -232,6 +233,50 @@ public sealed class TextRenderingModeRenderTests
     }
 
     [Fact]
+    public void SolidTextOpacityChangeUploadsOnlyCompactTextStyle()
+    {
+        var font = TryLoadTestFont();
+        if (font == null)
+        {
+            return;
+        }
+
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1,
+            InitialTextStyleCount = 1
+        };
+        using var window = new HeadlessWindow(220, 80, options);
+        var visual = new SolidTextVisual(font);
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+            visual.Opacity = 0.5f;
+            window.Render();
+
+            CompositorMetrics metrics = window.Compositor.Metrics;
+            Assert.Equal(1, metrics.ActiveTextStyleCount);
+            Assert.Equal(0, metrics.LegacyTextVertexCount);
+            Assert.Equal(0, metrics.IncrementalSceneTextVertexUploadBytes);
+            Assert.Equal(0, metrics.IncrementalSceneVectorVertexUploadBytes);
+            Assert.Equal(0, metrics.IncrementalSceneBrushUploadBytes);
+            Assert.Equal(
+                metrics.IncrementalSceneTextStyleUploadBytes,
+                metrics.IncrementalSceneUploadBytes);
+            Assert.Equal(
+                Marshal.SizeOf<GpuTextStyle>(),
+                metrics.IncrementalSceneTextStyleUploadBytes);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void OddPixelHighDpiRasterSizeRendersRegularAndBoldFaces()
     {
         var window = HeadlessWindow.Shared;
@@ -423,6 +468,28 @@ public sealed class TextRenderingModeRenderTests
                 new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
                 new Vector2(8f, 56f),
                 textRenderingMode: TextRenderingMode.ClearType);
+        }
+    }
+
+    private sealed class SolidTextVisual : FrameworkElement
+    {
+        private readonly TtfFont _font;
+
+        public SolidTextVisual(TtfFont font)
+        {
+            _font = font;
+            Width = 220f;
+            Height = 80f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawText(
+                "Compact text style",
+                _font,
+                32f,
+                new SolidColorBrush(Vector4.One),
+                new Vector2(8f, 52f));
         }
     }
 

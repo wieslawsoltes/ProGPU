@@ -261,28 +261,19 @@ public unsafe class DxfStaticBuffer : IDisposable
         };
         UniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescVectorOffscreen);
 
-        // Text bindings
-        var uBufferEntryText = new BindGroupEntry
-        {
-            Binding = 0,
-            Buffer = UniformBuffer.BufferPtr,
-            Offset = 0,
-            Size = UniformBuffer.Size
-        };
-
         var uDescText = new BindGroupDescriptor
         {
             Layout = textLayout,
-            EntryCount = 1,
-            Entries = &uBufferEntryText
+            EntryCount = 3,
+            Entries = vectorEntries
         };
         TextUniformBindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescText);
 
         var uDescTextOffscreen = new BindGroupDescriptor
         {
             Layout = textLayoutOffscreen,
-            EntryCount = 1,
-            Entries = &uBufferEntryText
+            EntryCount = 3,
+            Entries = vectorEntries
         };
         TextUniformBindGroupOffscreen = _context.Api.DeviceCreateBindGroup(_context.Device, &uDescTextOffscreen);
 
@@ -291,7 +282,7 @@ public unsafe class DxfStaticBuffer : IDisposable
             RetainedGlyphInstanceBuffer != null)
         {
             var retainedEntries = stackalloc BindGroupEntry[4];
-            retainedEntries[0] = uBufferEntryText;
+            retainedEntries[0] = uBufferEntryVector;
             retainedEntries[1] = new BindGroupEntry
             {
                 Binding = 1,

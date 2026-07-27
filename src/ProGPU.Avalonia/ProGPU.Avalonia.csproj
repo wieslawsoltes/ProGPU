@@ -9,11 +9,13 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Silk.NET.WebGPU" />
+    <PackageReference Include="WebGPUSharp" />
     <PackageReference Include="Silk.NET.Input" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />

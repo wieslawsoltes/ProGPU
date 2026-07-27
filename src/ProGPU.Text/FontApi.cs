@@ -243,21 +243,88 @@ public static class FontApi
             }
         }
 
-        // Deduplicate and sort
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Font files frequently repeat the same family and path values across
+        // faces. Canonicalize equal strings within this immutable process
+        // snapshot instead of retaining one managed string per metadata
+        // record. This is a local pool, not String.Intern: entries remain
+        // collectible with the catalog.
+        CanonicalizeCatalogStrings(list);
+
+        // Deduplicate without allocating one concatenated identity string per
+        // face during startup.
+        var seen = new HashSet<FontCatalogIdentity>(
+            FontCatalogIdentityComparer.Instance);
         var uniqueList = new List<FontInfo>();
         foreach (var font in list)
         {
-            var key = $"{font.Name}|{font.FilePath}|{font.FaceIndex}";
-            if (!seen.Contains(key))
+            var key = new FontCatalogIdentity(
+                font.Name,
+                font.FilePath,
+                font.FaceIndex);
+            if (seen.Add(key))
             {
-                seen.Add(key);
                 uniqueList.Add(font);
             }
         }
 
         uniqueList.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return uniqueList;
+    }
+
+    internal static void CanonicalizeCatalogStrings(
+        IReadOnlyList<FontInfo> fonts)
+    {
+        ArgumentNullException.ThrowIfNull(fonts);
+        var strings = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int index = 0; index < fonts.Count; index++)
+        {
+            FontInfo font = fonts[index];
+            font.Name = GetCanonicalString(strings, font.Name);
+            font.FamilyName = GetCanonicalString(strings, font.FamilyName);
+            font.FilePath = GetCanonicalString(strings, font.FilePath);
+        }
+    }
+
+    private static string GetCanonicalString(
+        Dictionary<string, string> strings,
+        string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        if (strings.TryGetValue(value, out string? canonical))
+            return canonical;
+        strings.Add(value, value);
+        return value;
+    }
+
+    private readonly record struct FontCatalogIdentity(
+        string Name,
+        string FilePath,
+        int FaceIndex);
+
+    private sealed class FontCatalogIdentityComparer
+        : IEqualityComparer<FontCatalogIdentity>
+    {
+        internal static FontCatalogIdentityComparer Instance { get; } = new();
+
+        public bool Equals(
+            FontCatalogIdentity left,
+            FontCatalogIdentity right) =>
+            left.FaceIndex == right.FaceIndex &&
+            string.Equals(
+                left.Name,
+                right.Name,
+                StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                left.FilePath,
+                right.FilePath,
+                StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode(FontCatalogIdentity value) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Name),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.FilePath),
+                value.FaceIndex);
     }
 
     public static FontInfo? FindSystemFont(params string[] familyOrFullNames)

@@ -1,6 +1,6 @@
-// Algorithm: Sample backdrop and optional noise/mask inputs, then evaluate tint, luminosity, and material compositing.
+// Algorithm: Sample backdrop and optional noise plus either texture-mask or affine analytic rounded-mask coverage, then evaluate tint, luminosity, and material compositing.
 // Time complexity: O(1) per vertex and fragment with a fixed sample footprint.
-// Space complexity: O(1) local storage and bounded texture bandwidth.
+// Space complexity: O(1) local storage and bounded texture bandwidth; analytic rounded and uniform-opacity masks add no mask texture sample.
 struct VSUniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -30,6 +30,65 @@ struct MaterialUniforms {
 
 @group(3) @binding(0) var maskSampler: sampler;
 @group(3) @binding(1) var maskTexture: texture_2d<f32>;
+
+struct MaskSamplingUniforms {
+    coordinate0: vec4<f32>,
+    coordinate1: vec4<f32>,
+    bounds: vec4<f32>,
+    cornerRadiiX: vec4<f32>,
+    cornerRadiiY: vec4<f32>,
+    options: vec4<f32>,
+};
+
+@group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+
+fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
+    let bounds = maskSampling.bounds;
+    let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
+    var center = vec2<f32>(0.0);
+    var radius = vec2<f32>(0.0);
+    var usesCorner = false;
+    if (local.x < bounds.x + maskSampling.cornerRadiiX.x && local.y < bounds.y + maskSampling.cornerRadiiY.x) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+        center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y && local.y < bounds.y + maskSampling.cornerRadiiY.y) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+        center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z && local.y > bounds.w - maskSampling.cornerRadiiY.z) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+        center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w && local.y > bounds.w - maskSampling.cornerRadiiY.w) {
+        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+        center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
+        usesCorner = all(radius > vec2<f32>(0.0));
+    }
+    let safeRadius = max(radius, vec2<f32>(0.000001));
+    let ellipsePoint = (local - center) / safeRadius;
+    let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
+    let implicit = select(edge, ellipse, usesCorner);
+    let antialiasWidth = max(fwidth(implicit), 0.0001);
+    return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn sample_mask_alpha(position: vec2<f32>) -> f32 {
+    if (maskSampling.options.x < 0.5) {
+        return 1.0;
+    }
+    if (maskSampling.options.x > 1.5) {
+        return analytic_rounded_mask_alpha(position) *
+            maskSampling.options.y;
+    }
+    let uv = (position - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    return select(0.0, sampled, inside);
+}
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -87,14 +146,12 @@ fn sample_backdrop(uv: vec2<f32>) -> vec4<f32> {
     return color;
 }
 
-fn ellipse_coverage(point: vec2<f32>, center: vec2<f32>, radii: vec2<f32>) -> f32 {
+fn ellipse_distance(point: vec2<f32>, center: vec2<f32>, radii: vec2<f32>) -> f32 {
     let safeRadii = max(radii, vec2<f32>(0.0001));
-    let distance = length((point - center) / safeRadii);
-    let antialias = max(fwidth(distance), 0.001);
-    return 1.0 - smoothstep(1.0 - antialias, 1.0 + antialias, distance);
+    return length((point - center) / safeRadii);
 }
 
-fn rounded_rect_coverage(uv: vec2<f32>) -> f32 {
+fn rounded_rect_distance(uv: vec2<f32>) -> f32 {
     let size = max(material.geometry0.xy, vec2<f32>(0.0001));
     let point = uv * size;
     let halfSize = size * 0.5;
@@ -102,19 +159,19 @@ fn rounded_rect_coverage(uv: vec2<f32>) -> f32 {
     let radiiY = clamp(material.radiiY, vec4<f32>(0.0), vec4<f32>(halfSize.y));
 
     if (radiiX.x > 0.0 && radiiY.x > 0.0 && point.x < radiiX.x && point.y < radiiY.x) {
-        return ellipse_coverage(point, vec2<f32>(radiiX.x, radiiY.x), vec2<f32>(radiiX.x, radiiY.x));
+        return ellipse_distance(point, vec2<f32>(radiiX.x, radiiY.x), vec2<f32>(radiiX.x, radiiY.x));
     }
     if (radiiX.y > 0.0 && radiiY.y > 0.0 && point.x > size.x - radiiX.y && point.y < radiiY.y) {
-        return ellipse_coverage(point, vec2<f32>(size.x - radiiX.y, radiiY.y), vec2<f32>(radiiX.y, radiiY.y));
+        return ellipse_distance(point, vec2<f32>(size.x - radiiX.y, radiiY.y), vec2<f32>(radiiX.y, radiiY.y));
     }
     if (radiiX.z > 0.0 && radiiY.z > 0.0 && point.x > size.x - radiiX.z && point.y > size.y - radiiY.z) {
-        return ellipse_coverage(point, vec2<f32>(size.x - radiiX.z, size.y - radiiY.z), vec2<f32>(radiiX.z, radiiY.z));
+        return ellipse_distance(point, vec2<f32>(size.x - radiiX.z, size.y - radiiY.z), vec2<f32>(radiiX.z, radiiY.z));
     }
     if (radiiX.w > 0.0 && radiiY.w > 0.0 && point.x < radiiX.w && point.y > size.y - radiiY.w) {
-        return ellipse_coverage(point, vec2<f32>(radiiX.w, size.y - radiiY.w), vec2<f32>(radiiX.w, radiiY.w));
+        return ellipse_distance(point, vec2<f32>(radiiX.w, size.y - radiiY.w), vec2<f32>(radiiX.w, radiiY.w));
     }
 
-    return 1.0;
+    return 0.0;
 }
 
 fn random_noise(position: vec2<f32>) -> f32 {
@@ -172,14 +229,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     var maskAlpha = 1.0;
     if (hasMask) {
-        let maskSize = max(material.geometry0.zw, vec2<f32>(1.0));
-        let screenUv = input.position.xy / maskSize;
-        maskAlpha = textureSample(maskTexture, maskSampler, screenUv).r;
+        maskAlpha = sample_mask_alpha(input.position.xy);
     }
 
     let sourceUvSize = max(material.sourceUvRect.zw - material.sourceUvRect.xy, vec2<f32>(0.0001));
     let localUv = (input.texCoord - material.sourceUvRect.xy) / sourceUvSize;
-    let coverage = rounded_rect_coverage(localUv) *
+    let roundedDistance = rounded_rect_distance(localUv);
+    // Derivatives must execute in uniform control flow. Interior pixels return
+    // zero distance, while corner pixels carry the normalized ellipse distance.
+    let antialias = max(fwidth(roundedDistance), 0.001);
+    let roundedCoverage =
+        1.0 - smoothstep(1.0 - antialias, 1.0 + antialias, roundedDistance);
+    let coverage = roundedCoverage *
         input.color.a *
         maskAlpha *
         clamp(material.material0.z, 0.0, 1.0);

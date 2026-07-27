@@ -91,7 +91,7 @@ internal
 #endif
 sealed class SfntFontFace
 {
-    private readonly byte[] _data;
+    private readonly ReadOnlyMemory<byte> _data;
     private readonly Dictionary<string, SfntTableRecord> _tables;
     private readonly ReadOnlyMemory<byte> _cmapFormat4;
     private readonly ReadOnlyMemory<byte> _cmapFormat12;
@@ -99,7 +99,11 @@ sealed class SfntFontFace
     private readonly bool _usesSymbolCharacterMap;
     private readonly ushort _legacyFontPage;
 
-    private SfntFontFace(byte[] data, int faceIndex, uint baseOffset, Dictionary<string, SfntTableRecord> tables)
+    private SfntFontFace(
+        ReadOnlyMemory<byte> data,
+        int faceIndex,
+        uint baseOffset,
+        Dictionary<string, SfntTableRecord> tables)
     {
         _data = data;
         FaceIndex = faceIndex;
@@ -109,10 +113,16 @@ sealed class SfntFontFace
         {
             TryFindCmapSubtables(
                 cmapMemory,
-                out _cmapFormat4,
-                out _cmapFormat12,
-                out _cmapFormat13,
+                out ReadOnlyMemory<byte> cmapFormat4,
+                out ReadOnlyMemory<byte> cmapFormat12,
+                out ReadOnlyMemory<byte> cmapFormat13,
                 out _usesSymbolCharacterMap);
+            // Character lookup is a shaping hot path. Keep only these compact selected
+            // subtables managed so mapped files do not pay a MemoryManager dispatch per
+            // scalar while the full font payload remains file-backed.
+            _cmapFormat4 = CopyTable(cmapFormat4);
+            _cmapFormat12 = CopyTable(cmapFormat12);
+            _cmapFormat13 = CopyTable(cmapFormat13);
         }
         _legacyFontPage = ReadLegacyFontPage();
     }
@@ -121,6 +131,9 @@ sealed class SfntFontFace
     public uint BaseOffset { get; }
     public IReadOnlyDictionary<string, SfntTableRecord> Tables => _tables;
     public bool UsesSymbolCharacterMap => _usesSymbolCharacterMap;
+
+    private static ReadOnlyMemory<byte> CopyTable(ReadOnlyMemory<byte> table) =>
+        table.IsEmpty ? default : table.ToArray();
 
     public static SfntFontFace Load(string filePath, int faceIndex = 0)
     {
@@ -140,6 +153,17 @@ sealed class SfntFontFace
         return faces[faceIndex];
     }
 
+    internal static SfntFontFace Load(ReadOnlyMemory<byte> fontData, int faceIndex = 0)
+    {
+        IReadOnlyList<SfntFontFace> faces = LoadFacesCore(fontData);
+        if ((uint)faceIndex >= (uint)faces.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(faceIndex));
+        }
+
+        return faces[faceIndex];
+    }
+
     public static IReadOnlyList<SfntFontFace> LoadFaces(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -150,8 +174,12 @@ sealed class SfntFontFace
     {
         ArgumentNullException.ThrowIfNull(fontData);
         fontData = SfntFontContainer.Normalize(fontData);
+        return LoadFacesCore(fontData);
+    }
 
-        uint[] faceOffsets = ReadFaceOffsets(fontData);
+    private static IReadOnlyList<SfntFontFace> LoadFacesCore(ReadOnlyMemory<byte> fontData)
+    {
+        uint[] faceOffsets = ReadFaceOffsets(fontData.Span);
         var faces = new List<SfntFontFace>(faceOffsets.Length);
         for (int i = 0; i < faceOffsets.Length; i++)
         {
@@ -183,7 +211,7 @@ sealed class SfntFontFace
             record.Offset <= _data.Length &&
             record.Length <= _data.Length - record.Offset)
         {
-            table = _data.AsMemory((int)record.Offset, (int)record.Length);
+            table = _data.Slice((int)record.Offset, (int)record.Length);
             return true;
         }
 
@@ -216,7 +244,7 @@ sealed class SfntFontFace
         }
         else
         {
-            _data.AsSpan(checked((int)BaseOffset), 4).CopyTo(result);
+            _data.Span.Slice(checked((int)BaseOffset), 4).CopyTo(result);
         }
 
         ushort tableCount = checked((ushort)records.Length);
@@ -232,7 +260,7 @@ sealed class SfntFontFace
             WriteUInt(result, recordOffset + 4, record.Checksum);
             WriteUInt(result, recordOffset + 8, checked((uint)targetOffset));
             WriteUInt(result, recordOffset + 12, record.Length);
-            _data.AsSpan(checked((int)record.Offset), checked((int)record.Length))
+            _data.Span.Slice(checked((int)record.Offset), checked((int)record.Length))
                 .CopyTo(result.AsSpan(targetOffset));
             targetOffset = Align4(checked(targetOffset + checked((int)record.Length)));
         }
@@ -601,7 +629,7 @@ sealed class SfntFontFace
         return true;
     }
 
-    private static uint[] ReadFaceOffsets(byte[] data)
+    private static uint[] ReadFaceOffsets(ReadOnlySpan<byte> data)
     {
         if (data.Length < 12)
         {
@@ -634,8 +662,9 @@ sealed class SfntFontFace
         return offsets;
     }
 
-    private static SfntFontFace ParseFace(byte[] data, int faceIndex, uint baseOffset)
+    private static SfntFontFace ParseFace(ReadOnlyMemory<byte> memory, int faceIndex, uint baseOffset)
     {
+        ReadOnlySpan<byte> data = memory.Span;
         if (baseOffset > data.Length || data.Length - baseOffset < 12)
         {
             throw new FormatException("SFNT face header is outside the font data.");
@@ -666,7 +695,7 @@ sealed class SfntFontFace
             tables[tag] = new SfntTableRecord(tag, checksum, tableOffset, tableLength);
         }
 
-        return new SfntFontFace(data, faceIndex, baseOffset, tables);
+        return new SfntFontFace(memory, faceIndex, baseOffset, tables);
     }
 
     private bool TryFindCmapSubtables(
@@ -996,7 +1025,7 @@ sealed class SfntFontFace
         return score + 10;
     }
 
-    private static string ReadTag(byte[] data, int offset)
+    private static string ReadTag(ReadOnlySpan<byte> data, int offset)
     {
         if (offset > data.Length || data.Length - offset < 4)
         {

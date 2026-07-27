@@ -497,7 +497,12 @@ namespace ProGPU.Scene.Extensions
             wgpu.RenderPassEncoderSetBindGroup(pass, 1, (BindGroup*)gpuRes.BindGroupPtr, 0, null);
 
             // @group(2): active opacity mask, or a dummy white mask when no mask is active
-            wgpu.RenderPassEncoderSetBindGroup(pass, 2, compositor.GetMaskBindGroup(dc.MaskTexture, isOffscreen), 0, null);
+            wgpu.RenderPassEncoderSetBindGroup(
+                pass,
+                2,
+                compositor.GetDrawCallMaskBindGroup(dc, isOffscreen),
+                0,
+                null);
 
             // Set pipeline & draw indexed
             wgpu.RenderPassEncoderSetPipeline(pass, activePipeline);

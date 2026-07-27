@@ -70,6 +70,7 @@ public class AppRunner<TApp> where TApp : Application, new()
         {
             var activeWindows = WindowManager.ActiveWindows;
             var allWindowsUseVSync = true;
+            var presentedAnyFrame = false;
             foreach (var activeWindow in activeWindows)
             {
                 if (activeWindow.SilkWindow != null)
@@ -87,14 +88,19 @@ public class AppRunner<TApp> where TApp : Application, new()
                     if (activeWindow.SilkWindow != null)
                     {
                         activeWindow.SilkWindow.DoRender();
+                        presentedAnyFrame |= activeWindow.PresentedScheduledFrame;
                     }
                 }
             }
 
-            // Present blocks the loop for synchronized windows. An unconditional one
-            // millisecond sleep also throttled explicitly uncapped windows by hundreds
-            // of frames per second and amplified any scene-compilation regression.
-            if (allWindowsUseVSync)
+            // A synchronized present blocks the active loop. When every retained scene
+            // is unchanged there is no present to provide that backpressure, so yield
+            // one millisecond instead of spinning on dispatcher/layout checks.
+            if (!presentedAnyFrame)
+            {
+                System.Threading.Thread.Sleep(1);
+            }
+            else if (allWindowsUseVSync)
             {
                 System.Threading.Thread.Yield();
             }

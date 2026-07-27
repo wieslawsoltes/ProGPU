@@ -23,12 +23,15 @@ public enum ShaderModuleVerificationStatus
 public enum WgpuBackendKind
 {
     SilkNative,
-    BrowserWebGpu
+    BrowserWebGpu,
+    DawnNative
 }
 
 public unsafe class WgpuContext : IDisposable
 {
     private SharedDeviceLifetime? _sharedDeviceLifetime;
+    private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
+    private WgpuDeviceResourceDomain? _deviceResourceDomain;
     public WebGPU Wgpu { get; private set; } = null!;
     public IWebGpuApi Api { get; private set; } = null!;
     public WgpuBackendKind BackendKind { get; private set; } = WgpuBackendKind.SilkNative;
@@ -44,22 +47,77 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    internal WgpuDeviceResourceDomain DeviceResourceDomain =>
+        _deviceResourceDomain ??
+        throw new InvalidOperationException(
+            "The WebGPU device resource domain is not initialized.");
+    public int CachedDeviceShaderModuleCount =>
+        _deviceResourceDomain?.ShaderModuleCount ?? 0;
+    public int CachedDeviceBindGroupLayoutCount =>
+        _deviceResourceDomain?.BindGroupLayoutCount ?? 0;
+    public int CachedDevicePipelineLayoutCount =>
+        _deviceResourceDomain?.PipelineLayoutCount ?? 0;
+    public int CachedDeviceRenderPipelineCount =>
+        _deviceResourceDomain?.RenderPipelineCount ?? 0;
+    public int CachedDeviceComputePipelineCount =>
+        _deviceResourceDomain?.ComputePipelineCount ?? 0;
     public ulong SurfaceConfigurationCount { get; private set; }
     public double SurfaceConfigurationTimeMs { get; private set; }
     public double MaximumSurfaceConfigurationTimeMs { get; private set; }
+    public uint DesiredMaximumFrameLatency { get; set; } =
+        OperatingSystem.IsMacOS() || OperatingSystem.IsIOS() ? 1u : 2u;
 
     public static event Action<ErrorType, string>? OnWebGpuError;
     public static event Action<DeviceLostReason, string>? OnWebGpuDeviceLost;
+    private static long s_deviceLossGeneration;
+    private readonly long _deviceLossGeneration =
+        Volatile.Read(ref s_deviceLossGeneration);
 
     public static void RaiseWebGpuError(ErrorType type, string message)
     {
         OnWebGpuError?.Invoke(type, message);
     }
 
+    /// <summary>
+    /// Reports an unusable WebGPU device to every typed host sharing ProGPU's
+    /// process-wide renderer. Device destruction is an expected ownership
+    /// transition and is intentionally not reported as a loss.
+    /// </summary>
+    public static void RaiseWebGpuDeviceLost(
+        DeviceLostReason reason,
+        string message)
+    {
+        if (reason == DeviceLostReason.Destroyed)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref s_deviceLossGeneration);
+        OnWebGpuDeviceLost?.Invoke(reason, message);
+    }
+
+    /// <summary>
+    /// Gets whether a device-loss notification occurred after this context
+    /// was created. The value is lock-free and safe to query from Avalonia's
+    /// UI and render threads.
+    /// </summary>
+    public bool IsDeviceLost =>
+        _deviceLossGeneration !=
+        Volatile.Read(ref s_deviceLossGeneration);
+
     private PfnErrorCallback _errorCallback;
     private nint _devicePollAddress;
+    private nint _generateReportAddress;
 
-    public readonly object RenderLock = new();
+    /// <summary>
+    /// Serializes command recording, queue submission, and device polling for
+    /// every presentation context that shares this native WebGPU device.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a field for binary compatibility. Shared-device initialization
+    /// replaces it with the owner's lock before the child becomes observable.
+    /// </remarks>
+    public object RenderLock = new();
     public readonly object DisposalLock = new();
     public readonly List<IntPtr> PendingBuffers = new();
     public readonly List<IntPtr> PendingTextures = new();
@@ -224,14 +282,18 @@ public unsafe class WgpuContext : IDisposable
                     WaitIdle();
                 }
 
+                // Release dependants before their immutable ABI objects. This
+                // mirrors device-domain disposal and keeps owner-first popup
+                // teardown deterministic even when all resources become
+                // unreferenced in the same cleanup batch.
                 ReleaseBindGroups(bindGroups.Span);
+                ReleaseRenderPipelines(renderPipes.Span);
+                ReleaseComputePipelines(computePipes.Span);
+                ReleasePipelineLayouts(pipeLayouts.Span);
+                ReleaseBindGroupLayouts(layouts.Span);
                 ReleaseTextureViews(views.Span);
                 ReleaseTextures(textures.Span);
                 ReleaseBuffers(buffers.Span);
-                ReleaseBindGroupLayouts(layouts.Span);
-                ReleasePipelineLayouts(pipeLayouts.Span);
-                ReleaseRenderPipelines(renderPipes.Span);
-                ReleaseComputePipelines(computePipes.Span);
                 ReleaseSamplers(samplers.Span);
                 ReleaseShaderModules(shaders.Span);
             }
@@ -386,12 +448,17 @@ public unsafe class WgpuContext : IDisposable
     public bool IsDisposed => _isDisposed;
     public bool IsInitialized =>
         !_isDisposed &&
+        !IsDeviceLost &&
         Api != null &&
         Device != null &&
         Queue != null &&
-        (BackendKind == WgpuBackendKind.BrowserWebGpu
-            ? Surface != null
-            : Wgpu != null && Instance != null && Adapter != null);
+        BackendKind switch
+        {
+            WgpuBackendKind.BrowserWebGpu => Surface != null,
+            WgpuBackendKind.DawnNative =>
+                _externalDeviceLifetime is not null,
+            _ => Wgpu != null && Instance != null && Adapter != null
+        };
     private uint _lastWidth = 1;
     private uint _lastHeight = 1;
     private bool _isSurfaceConfigured;
@@ -444,6 +511,31 @@ public unsafe class WgpuContext : IDisposable
                 {
                     context = active;
                     return true;
+                }
+            }
+        }
+
+        context = null;
+        return false;
+    }
+
+    public static unsafe bool TryGetActiveContextForSurface(
+        IntPtr surfaceHandle,
+        [NotNullWhen(true)] out WgpuContext? context)
+    {
+        if (surfaceHandle != IntPtr.Zero)
+        {
+            lock (_activeContexts)
+            {
+                for (var i = 0; i < _activeContexts.Count; i++)
+                {
+                    var active = _activeContexts[i];
+                    if (active.IsInitialized &&
+                        (IntPtr)active.Surface == surfaceHandle)
+                    {
+                        context = active;
+                        return true;
+                    }
                 }
             }
         }
@@ -724,7 +816,14 @@ public unsafe class WgpuContext : IDisposable
         // 5. Retrieve Default Queue
         SafeLog("[WGPUCONTEXT] Getting Default Queue\n");
         Queue = Wgpu.DeviceGetQueue(Device);
-        _sharedDeviceLifetime = new SharedDeviceLifetime(Wgpu, Instance, Adapter, Device, Queue);
+        _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
+        _sharedDeviceLifetime = new SharedDeviceLifetime(
+            Wgpu,
+            Instance,
+            Adapter,
+            Device,
+            Queue,
+            _deviceResourceDomain);
 
         // 6. Hook up validation error callback
         _errorCallback = new PfnErrorCallback(&OnUncapturedError);
@@ -871,6 +970,18 @@ public unsafe class WgpuContext : IDisposable
         public byte* DxcPath;
     }
 
+    // wgpu-native 0.19 surface extension ABI. An Apple frame latency of one
+    // avoids an additional full-size CAMetalLayer drawable. Other platforms
+    // keep wgpu's default of two frames in flight.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeSurfaceConfigurationExtras
+    {
+        public const uint STypeValue = 0x0003000A;
+
+        public ChainedStruct Chain;
+        public uint DesiredMaximumFrameLatency;
+    }
+
     private static WebGPU CreateNativeWebGpuApi()
     {
         if (OperatingSystem.IsIOS())
@@ -981,9 +1092,14 @@ public unsafe class WgpuContext : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnDeviceLost(DeviceLostReason reason, byte* message, void* _)
     {
+        if (reason == DeviceLostReason.Destroyed)
+        {
+            return;
+        }
+
         string errorMessage = ReadNativeMessage(message);
         Console.Error.WriteLine($"[WebGPU Device Lost] Reason: {reason}, Message: {errorMessage}");
-        OnWebGpuDeviceLost?.Invoke(reason, errorMessage);
+        RaiseWebGpuDeviceLost(reason, errorMessage);
     }
 
     private static string ReadNativeMessage(byte* message) =>
@@ -1041,6 +1157,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = Math.Max(16, maxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, maxBindGroups);
         SupportsReadOnlyAndReadWriteStorageTextures = supportsReadOnlyAndReadWriteStorageTextures;
+        _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
         _isSurfaceConfigured = true;
         _lastWidth = 1;
         _lastHeight = 1;
@@ -1053,11 +1170,77 @@ public unsafe class WgpuContext : IDisposable
     }
 
     /// <summary>
+    /// Initializes an offscreen context from an exact-ABI native backend.
+    /// The opaque handles retain the existing typed renderer contract, while
+    /// <paramref name="api"/> owns descriptor translation and
+    /// <paramref name="lifetime"/> owns the native instance/device chain.
+    /// </summary>
+    /// <remarks>
+    /// This entry point intentionally has no presentation surface. Imported
+    /// external-memory textures are created by the backend on this same
+    /// device and supplied as render targets. Initialization is O(1) and does
+    /// not probe symbols, use reflection, or copy texture data.
+    /// </remarks>
+    public void InitializeExternalNativeDevice(
+        IWebGpuApi api,
+        IWebGpuExternalDeviceLifetime lifetime,
+        Device* device,
+        Queue* queue,
+        TextureFormat preferredRenderTargetFormat,
+        uint maxSampledTexturesPerShaderStage = 16,
+        uint maxSamplersPerShaderStage = 16,
+        uint maxBindGroups = 4,
+        bool supportsReadOnlyAndReadWriteStorageTextures = false,
+        BackendType adapterBackendType = BackendType.Undefined,
+        string? adapterName = null)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        ArgumentNullException.ThrowIfNull(lifetime);
+        if (Api != null || Device != null || _isDisposed)
+        {
+            throw new InvalidOperationException(
+                "The WebGPU context is already initialized or disposed.");
+        }
+        if (device == null || queue == null)
+        {
+            throw new ArgumentException(
+                "External native WebGPU device and queue handles are required.");
+        }
+
+        Api = api;
+        BackendKind = WgpuBackendKind.DawnNative;
+        Device = device;
+        Queue = queue;
+        SwapChainFormat = preferredRenderTargetFormat;
+        MaxSampledTexturesPerShaderStage =
+            Math.Max(16, maxSampledTexturesPerShaderStage);
+        MaxSamplersPerShaderStage =
+            Math.Max(16, maxSamplersPerShaderStage);
+        MaxBindGroups = Math.Max(4, maxBindGroups);
+        SupportsReadOnlyAndReadWriteStorageTextures =
+            supportsReadOnlyAndReadWriteStorageTextures;
+        AdapterBackendType = adapterBackendType;
+        AdapterName = adapterName ?? string.Empty;
+        _externalDeviceLifetime = lifetime;
+        _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
+
+        lock (_activeContexts)
+        {
+            if (!_activeContexts.Contains(this))
+            {
+                _activeContexts.Add(this);
+            }
+        }
+        Current = this;
+    }
+
+    /// <summary>
     /// Creates an additional presentation surface while reusing an initialized context's
     /// instance, adapter, device, and queue. The shared device remains alive until every surface
     /// context has been disposed, regardless of owner disposal order.
-    /// Surface creation and configuration are O(1); GPU pipelines, atlases, and device heaps stay
-    /// shared instead of being duplicated for transient popup or tool windows.
+    /// Surface creation and configuration are O(1). Immutable device-domain caches can be
+    /// shared, while mutable atlases, retained scenes, and render-target state remain local
+    /// to each presentation context.
     /// </summary>
     public void InitializeSharedDevice(IWindow window, WgpuContext deviceOwner)
     {
@@ -1096,7 +1279,11 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
+        AdapterBackendType = deviceOwner.AdapterBackendType;
+        AdapterName = deviceOwner.AdapterName;
+        _deviceResourceDomain = deviceOwner._deviceResourceDomain;
         _sharedDeviceLifetime = sharedDeviceLifetime;
+        RenderLock = deviceOwner.RenderLock;
 
         Surface = window.CreateWebGPUSurface(Wgpu, Instance);
         if (Surface == null)
@@ -1127,6 +1314,45 @@ public unsafe class WgpuContext : IDisposable
         }
 
         return window is INativeWindowSource { Native: not null };
+    }
+
+    /// <summary>
+    /// Returns whether both initialized contexts use the same typed WebGPU
+    /// device-resource ownership domain.
+    /// </summary>
+    public bool SharesDeviceWith(WgpuContext? other)
+        => other is not null &&
+           _deviceResourceDomain is not null &&
+           ReferenceEquals(
+               _deviceResourceDomain,
+               other._deviceResourceDomain);
+
+    public WgpuBindGroupLayoutLease AcquireSharedBindGroupLayout(
+        WgpuDeviceResourceKey key,
+        BindGroupLayoutDescriptor* descriptor)
+    {
+        WgpuDeviceResourceDomain domain = DeviceResourceDomain;
+        BindGroupLayout* layout =
+            domain.AcquireBindGroupLayout(key, descriptor);
+        return new WgpuBindGroupLayoutLease(
+            this,
+            domain,
+            key,
+            layout);
+    }
+
+    public WgpuPipelineLayoutLease AcquireSharedPipelineLayout(
+        WgpuDeviceResourceKey key,
+        PipelineLayoutDescriptor* descriptor)
+    {
+        WgpuDeviceResourceDomain domain = DeviceResourceDomain;
+        PipelineLayout* layout =
+            domain.AcquirePipelineLayout(key, descriptor);
+        return new WgpuPipelineLayoutLease(
+            this,
+            domain,
+            key,
+            layout);
     }
 
     public void ConfigureSwapChain(uint width, uint height)
@@ -1205,8 +1431,17 @@ public unsafe class WgpuContext : IDisposable
         ProGpuBackendDiagnostics.WriteLine($"[WebGPU Context] Configuring SwapChain: {width}x{height}, VSync: {_vsync}, Selected Mode: {presentMode}");
 
         // Configure only the latest physical size selected by the normal render tick.
+        var surfaceExtras = new NativeSurfaceConfigurationExtras
+        {
+            Chain = new ChainedStruct
+            {
+                SType = (SType)NativeSurfaceConfigurationExtras.STypeValue
+            },
+            DesiredMaximumFrameLatency = Math.Max(1u, DesiredMaximumFrameLatency)
+        };
         var config = new SurfaceConfiguration
         {
+            NextInChain = &surfaceExtras.Chain,
             Device = Device,
             Format = swapChainFormat,
             Usage = TextureUsage.RenderAttachment,
@@ -1400,15 +1635,96 @@ public unsafe class WgpuContext : IDisposable
 
     public void PollDevice(bool wait)
     {
-        if (BackendKind == WgpuBackendKind.SilkNative && Device != null && !_isDisposed)
+        lock (RenderLock)
         {
-            if (_devicePollAddress == 0)
+            if (BackendKind == WgpuBackendKind.SilkNative &&
+                Device != null &&
+                !_isDisposed)
             {
-                _devicePollAddress = Wgpu.Context.GetProcAddress("wgpuDevicePoll");
+                if (_devicePollAddress == 0)
+                {
+                    _devicePollAddress =
+                        Wgpu.Context.GetProcAddress(
+                            "wgpuDevicePoll");
+                }
+
+                var poll =
+                    (delegate* unmanaged[Cdecl]<
+                        Device*,
+                        uint,
+                        void*,
+                        uint>)_devicePollAddress;
+                _ = poll(
+                    Device,
+                    wait ? 1u : 0u,
+                    null);
+            }
+            else if (BackendKind ==
+                         WgpuBackendKind.DawnNative &&
+                     Device != null &&
+                     !_isDisposed)
+            {
+                _externalDeviceLifetime?.Poll(wait);
+            }
+        }
+    }
+
+    public bool TryCaptureNativeResourceSnapshot(out WgpuNativeResourceSnapshot snapshot)
+    {
+        snapshot = default;
+        if (BackendKind != WgpuBackendKind.SilkNative ||
+            Instance == null ||
+            _isDisposed)
+        {
+            return false;
+        }
+
+        lock (RenderLock)
+        {
+            if (_isDisposed || Instance == null)
+            {
+                return false;
             }
 
-            var poll = (delegate* unmanaged[Cdecl]<Device*, uint, void*, uint>)_devicePollAddress;
-            _ = poll(Device, wait ? 1u : 0u, null);
+            if (_generateReportAddress == 0)
+            {
+                _generateReportAddress = Wgpu.Context.GetProcAddress("wgpuGenerateReport");
+            }
+
+            if (_generateReportAddress == 0)
+            {
+                return false;
+            }
+
+            WgpuGlobalReportNative report = default;
+            var generateReport =
+                (delegate* unmanaged[Cdecl]<Instance*, WgpuGlobalReportNative*, void>)
+                _generateReportAddress;
+            generateReport(Instance, &report);
+
+            WgpuHubReportNative hub = AdapterBackendType switch
+            {
+                BackendType.Metal => report.Metal,
+                BackendType.Vulkan => report.Vulkan,
+                BackendType.D3D12 => report.Dx12,
+                BackendType.OpenGL => report.Gl,
+                _ => default
+            };
+
+            snapshot = new WgpuNativeResourceSnapshot(
+                WgpuRegistrySnapshot.FromNative(hub.CommandBuffers),
+                WgpuRegistrySnapshot.FromNative(hub.Buffers),
+                WgpuRegistrySnapshot.FromNative(hub.Textures),
+                WgpuRegistrySnapshot.FromNative(hub.TextureViews),
+                WgpuRegistrySnapshot.FromNative(hub.BindGroups),
+                WgpuRegistrySnapshot.FromNative(hub.BindGroupLayouts),
+                WgpuRegistrySnapshot.FromNative(hub.ShaderModules),
+                WgpuRegistrySnapshot.FromNative(hub.RenderPipelines),
+                WgpuRegistrySnapshot.FromNative(hub.ComputePipelines),
+                MacMetalMemory.TryGetCurrentAllocatedBytes(out ulong metalBytes)
+                    ? metalBytes
+                    : 0);
+            return true;
         }
     }
 
@@ -1468,7 +1784,10 @@ public unsafe class WgpuContext : IDisposable
 
             CleanupPendingResources();
 
-            WaitIdle();
+            if (!IsDeviceLost)
+            {
+                WaitIdle();
+            }
 
             if (Current == this)
             {
@@ -1482,8 +1801,18 @@ public unsafe class WgpuContext : IDisposable
             
             ReleasePresentationSurfaceCore(waitForDevice: false);
 
-            _sharedDeviceLifetime?.Release();
+            WgpuDeviceResourceDomain? deviceResourceDomain =
+                _deviceResourceDomain;
+            SharedDeviceLifetime? sharedDeviceLifetime =
+                _sharedDeviceLifetime;
+            sharedDeviceLifetime?.Release();
+            if (sharedDeviceLifetime is null)
+            {
+                deviceResourceDomain?.Dispose();
+                _externalDeviceLifetime?.Dispose();
+            }
             _sharedDeviceLifetime = null;
+            _externalDeviceLifetime = null;
             ClearSharedDeviceReferences();
             
             _isDisposed = true;
@@ -1498,6 +1827,7 @@ public unsafe class WgpuContext : IDisposable
         Device = null;
         Adapter = null;
         Instance = null;
+        _deviceResourceDomain = null;
     }
 
     private sealed class SharedDeviceLifetime
@@ -1508,6 +1838,7 @@ public unsafe class WgpuContext : IDisposable
         private WgpuAdapter* _adapter;
         private Device* _device;
         private Queue* _queue;
+        private WgpuDeviceResourceDomain? _deviceResourceDomain;
         private int _referenceCount = 1;
 
         public SharedDeviceLifetime(
@@ -1515,13 +1846,15 @@ public unsafe class WgpuContext : IDisposable
             Instance* instance,
             WgpuAdapter* adapter,
             Device* device,
-            Queue* queue)
+            Queue* queue,
+            WgpuDeviceResourceDomain deviceResourceDomain)
         {
             _wgpu = wgpu;
             _instance = instance;
             _adapter = adapter;
             _device = device;
             _queue = queue;
+            _deviceResourceDomain = deviceResourceDomain;
         }
 
         public SharedDeviceLifetime Acquire()
@@ -1541,6 +1874,7 @@ public unsafe class WgpuContext : IDisposable
             WgpuAdapter* adapter;
             Device* device;
             Queue* queue;
+            WgpuDeviceResourceDomain? deviceResourceDomain;
             lock (_sync)
             {
                 if (_referenceCount == 0 || --_referenceCount != 0)
@@ -1553,11 +1887,13 @@ public unsafe class WgpuContext : IDisposable
                 adapter = _adapter;
                 device = _device;
                 queue = _queue;
+                deviceResourceDomain = _deviceResourceDomain;
                 _wgpu = null;
                 _instance = null;
                 _adapter = null;
                 _device = null;
                 _queue = null;
+                _deviceResourceDomain = null;
             }
 
             if (wgpu == null)
@@ -1565,6 +1901,7 @@ public unsafe class WgpuContext : IDisposable
                 return;
             }
 
+            deviceResourceDomain?.Dispose();
             if (queue != null)
             {
                 wgpu.QueueRelease(queue);

@@ -1,6 +1,6 @@
 // Algorithm: Rasterize arbitrary path coverage by supersampling each atlas texel and applying analytic non-zero or even-odd winding tests.
 // Time complexity: O(A*S) per texel for A anti-aliasing samples and S path segments.
-// Space complexity: O(1) local storage plus O(S) read-only segment bandwidth and one packed u32 output write per four R8 texels.
+// Space complexity: O(1) fixed vector-lane local storage plus O(S) read-only segment bandwidth and one packed u32 output write per four R8 texels; no dynamically indexed private arrays are used.
 struct PathUniforms {
     xStart: f32,
     yStart: f32,
@@ -43,29 +43,49 @@ struct Segment {
 @group(0) @binding(2) var<storage, read> segments: array<Segment>;
 @group(0) @binding(3) var<storage, read_write> coverageOutput: array<u32>;
 
+struct QuadraticRoots {
+    values: vec2<f32>,
+    count: u32,
+};
 
-fn solve_quadratic(a: f32, b: f32, c: f32, roots: ptr<function, array<f32, 2>>, root_count: ptr<function, u32>) {
+struct CubicRoots {
+    values: vec3<f32>,
+    count: u32,
+};
+
+struct SampleRow {
+    low: vec4<f32>,
+    high: vec4<f32>,
+};
+
+struct WindingRow {
+    low: vec4<i32>,
+    high: vec4<i32>,
+};
+
+fn solve_quadratic(a: f32, b: f32, c: f32) -> QuadraticRoots {
+    var result = QuadraticRoots(vec2<f32>(0.0), 0u);
     if (abs(a) < 0.00001) {
         if (abs(b) > 0.00001) {
-            (*roots)[0] = -c / b;
-            *root_count = 1u;
-        } else {
-            *root_count = 0u;
+            result.values.x = -c / b;
+            result.count = 1u;
         }
     } else {
         let d = b * b - 4.0 * a * c;
-        if (d < 0.0) {
-            *root_count = 0u;
-        } else if (d == 0.0) {
-            (*roots)[0] = -b / (2.0 * a);
-            *root_count = 1u;
+        if (d == 0.0) {
+            result.values.x = -b / (2.0 * a);
+            result.count = 1u;
         } else {
-            let sqrt_d = sqrt(d);
-            (*roots)[0] = (-b - sqrt_d) / (2.0 * a);
-            (*roots)[1] = (-b + sqrt_d) / (2.0 * a);
-            *root_count = 2u;
+            if (d > 0.0) {
+                let sqrt_d = sqrt(d);
+                result.values = vec2<f32>(
+                    (-b - sqrt_d) / (2.0 * a),
+                    (-b + sqrt_d) / (2.0 * a));
+                result.count = 2u;
+            }
         }
     }
+    return result;
 }
 
 fn cbrt(x: f32) -> f32 {
@@ -75,16 +95,16 @@ fn cbrt(x: f32) -> f32 {
     return pow(x, 1.0 / 3.0);
 }
 
-fn solve_cubic(a_in: f32, b_in: f32, c_in: f32, d_in: f32, roots: ptr<function, array<f32, 3>>, root_count: ptr<function, u32>) {
+fn solve_cubic(a_in: f32, b_in: f32, c_in: f32, d_in: f32) -> CubicRoots {
+    var result = CubicRoots(vec3<f32>(0.0), 0u);
     if (abs(a_in) < 0.00001) {
-        var quad_roots = array<f32, 2>(0.0, 0.0);
-        var quad_count = 0u;
-        solve_quadratic(b_in, c_in, d_in, &quad_roots, &quad_count);
-        *root_count = quad_count;
-        for (var i = 0u; i < quad_count; i = i + 1u) {
-            (*roots)[i] = quad_roots[i];
-        }
-        return;
+        let quadratic = solve_quadratic(b_in, c_in, d_in);
+        result.values = vec3<f32>(
+            quadratic.values.x,
+            quadratic.values.y,
+            0.0);
+        result.count = quadratic.count;
+        return result;
     }
 
     let a = b_in / a_in;
@@ -100,37 +120,128 @@ fn solve_cubic(a_in: f32, b_in: f32, c_in: f32, d_in: f32, roots: ptr<function, 
         let sqrt_D = sqrt(D);
         let u = cbrt(-q / 2.0 + sqrt_D);
         let v = cbrt(-q / 2.0 - sqrt_D);
-        (*roots)[0] = u + v - a / 3.0;
-        *root_count = 1u;
+        result.values.x = u + v - a / 3.0;
+        result.count = 1u;
     } else {
         if (p < 0.0) {
             let r = 2.0 * sqrt(-p / 3.0);
             let val = clamp(-q / (2.0 * sqrt(-p * p * p / 27.0)), -1.0, 1.0);
             let theta = acos(val);
             let pi = 3.14159265359;
-            (*roots)[0] = r * cos(theta / 3.0) - a / 3.0;
-            (*roots)[1] = r * cos((theta + 2.0 * pi) / 3.0) - a / 3.0;
-            (*roots)[2] = r * cos((theta + 4.0 * pi) / 3.0) - a / 3.0;
-            *root_count = 3u;
+            result.values = vec3<f32>(
+                r * cos(theta / 3.0) - a / 3.0,
+                r * cos((theta + 2.0 * pi) / 3.0) - a / 3.0,
+                r * cos((theta + 4.0 * pi) / 3.0) - a / 3.0);
+            result.count = 3u;
         } else {
-            (*roots)[0] = -a / 3.0;
-            *root_count = 1u;
+            result.values.x = -a / 3.0;
+            result.count = 1u;
         }
+    }
+    return result;
+}
+
+fn quadratic_root_at(roots: QuadraticRoots, index: u32) -> f32 {
+    if (index == 0u) {
+        return roots.values.x;
+    }
+    return roots.values.y;
+}
+
+fn cubic_root_at(roots: CubicRoots, index: u32) -> f32 {
+    if (index == 0u) {
+        return roots.values.x;
+    }
+    if (index == 1u) {
+        return roots.values.y;
+    }
+    return roots.values.z;
+}
+
+fn add_crossing(
+    winding: ptr<function, WindingRow>,
+    samplePositionsX: SampleRow,
+    intersectX: f32,
+    direction: i32) {
+    let direction4 = vec4<i32>(direction);
+    (*winding).low = (*winding).low + select(
+        vec4<i32>(0),
+        direction4,
+        samplePositionsX.low < vec4<f32>(intersectX));
+    (*winding).high = (*winding).high + select(
+        vec4<i32>(0),
+        direction4,
+        samplePositionsX.high < vec4<f32>(intersectX));
+}
+
+fn winding_is_inside(winding: i32, fill_rule: u32) -> bool {
+    return select(
+        winding != 0,
+        abs(winding) % 2 == 1,
+        fill_rule == 0u);
+}
+
+fn add_arc_crossing(
+    dx: f32,
+    sample_y: f32,
+    center: vec2<f32>,
+    rx: f32,
+    ry: f32,
+    theta1: f32,
+    delta_theta: f32,
+    cos_phi: f32,
+    sin_phi: f32,
+    sample_positions_x: SampleRow,
+    winding: ptr<function, WindingRow>) {
+    let intersect_x = center.x + dx;
+    let dy = sample_y - center.y;
+    let local_x = dx * cos_phi + dy * sin_phi;
+    let local_y = -dx * sin_phi + dy * cos_phi;
+    let theta = atan2(local_y / ry, local_x / rx);
+
+    var t = 0.0;
+    let pi2 = 6.283185307179586;
+    if (delta_theta > 0.0) {
+        let diff =
+            (theta - theta1) -
+            pi2 * floor((theta - theta1) / pi2);
+        t = diff / delta_theta;
+    } else {
+        let diff =
+            (theta1 - theta) -
+            pi2 * floor((theta1 - theta) / pi2);
+        t = diff / (-delta_theta);
+    }
+
+    let deriv_y = delta_theta *
+        (-rx * sin(theta) * sin_phi +
+            ry * cos(theta) * cos_phi);
+
+    // Preserve the direction-aware half-open intervals exactly:
+    // upward [0,1), downward (0,1].
+    if (deriv_y > 0.0 && t >= 0.0 && t < 1.0) {
+        add_crossing(
+            winding,
+            sample_positions_x,
+            intersect_x,
+            1);
+    } else if (deriv_y < 0.0 && t > 0.0 && t <= 1.0) {
+        add_crossing(
+            winding,
+            sample_positions_x,
+            intersect_x,
+            -1);
     }
 }
 
-
-fn add_crossing(
-    winding: ptr<function, array<i32, 8>>,
-    samplePositionsX: ptr<function, array<f32, 8>>,
-    sampleGrid: u32,
-    intersectX: f32,
-    direction: i32) {
-    for (var sampleX = 0u; sampleX < sampleGrid; sampleX = sampleX + 1u) {
-        if ((*samplePositionsX)[sampleX] < intersectX) {
-            (*winding)[sampleX] = (*winding)[sampleX] + direction;
-        }
-    }
+fn path_sample_x(
+    pixel_x: f32,
+    lane: u32,
+    sample_grid: u32,
+    scale_x: f32) -> f32 {
+    let sample_offset_x =
+        (f32(lane) + 0.5) / f32(sample_grid);
+    return (pixel_x + sample_offset_x) / scale_x;
 }
 
 fn count_row_coverage(
@@ -139,12 +250,18 @@ fn count_row_coverage(
     sampleGrid: u32,
     scaleX: f32,
     record: PathRecord) -> u32 {
-    var winding = array<i32, 8>(0, 0, 0, 0, 0, 0, 0, 0);
-    var samplePositionsX = array<f32, 8>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-    for (var sampleX = 0u; sampleX < sampleGrid; sampleX = sampleX + 1u) {
-        let sampleOffsetX = (f32(sampleX) + 0.5) / f32(sampleGrid);
-        samplePositionsX[sampleX] = (pixelX + sampleOffsetX) / scaleX;
-    }
+    var winding = WindingRow(vec4<i32>(0), vec4<i32>(0));
+    let samplePositionsX = SampleRow(
+        vec4<f32>(
+            path_sample_x(pixelX, 0u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 1u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 2u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 3u, sampleGrid, scaleX)),
+        vec4<f32>(
+            path_sample_x(pixelX, 4u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 5u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 6u, sampleGrid, scaleX),
+            path_sample_x(pixelX, 7u, sampleGrid, scaleX)));
 
     let endIdx = record.startSegment + record.segmentCount;
     for (var i: u32 = record.startSegment; i < endIdx; i = i + 1u) {
@@ -159,13 +276,13 @@ fn count_row_coverage(
                 if (B.y > sampleY) {
                     let t = (sampleY - A.y) / (B.y - A.y);
                     let intersectX = A.x + t * (B.x - A.x);
-                    add_crossing(&winding, &samplePositionsX, sampleGrid, intersectX, 1);
+                    add_crossing(&winding, samplePositionsX, intersectX, 1);
                 }
             } else {
                 if (B.y <= sampleY) {
                     let t = (sampleY - A.y) / (B.y - A.y);
                     let intersectX = A.x + t * (B.x - A.x);
-                    add_crossing(&winding, &samplePositionsX, sampleGrid, intersectX, -1);
+                    add_crossing(&winding, samplePositionsX, intersectX, -1);
                 }
             }
         } else if (seg.segmentType == 1u) {
@@ -177,12 +294,10 @@ fn count_row_coverage(
             let b = 2.0 * (B.y - A.y);
             let c = A.y - sampleY;
 
-            var roots = array<f32, 2>(0.0, 0.0);
-            var root_count: u32 = 0u;
-            solve_quadratic(a, b, c, &roots, &root_count);
+            let roots = solve_quadratic(a, b, c);
 
-            for (var r: u32 = 0u; r < root_count; r = r + 1u) {
-                let t = roots[r];
+            for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
+                let t = quadratic_root_at(roots, r);
                 if (t >= -0.01 && t <= 1.01) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let omt_eval = 1.0 - t_eval;
@@ -210,9 +325,9 @@ fn count_row_coverage(
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
                         if (deriv_y > 0.0) {
-                            add_crossing(&winding, &samplePositionsX, sampleGrid, x_t, 1);
+                            add_crossing(&winding, samplePositionsX, x_t, 1);
                         } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, &samplePositionsX, sampleGrid, x_t, -1);
+                            add_crossing(&winding, samplePositionsX, x_t, -1);
                         }
                     }
                 }
@@ -228,12 +343,10 @@ fn count_row_coverage(
             let c = -3.0 * A.y + 3.0 * B.y;
             let d = A.y - sampleY;
 
-            var roots = array<f32, 3>(0.0, 0.0, 0.0);
-            var root_count: u32 = 0u;
-            solve_cubic(a, b, c, d, &roots, &root_count);
+            let roots = solve_cubic(a, b, c, d);
 
-            for (var r: u32 = 0u; r < root_count; r = r + 1u) {
-                let t = roots[r];
+            for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
+                let t = cubic_root_at(roots, r);
                 if (t >= -0.01 && t <= 1.01) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
@@ -263,9 +376,9 @@ fn count_row_coverage(
                                 + 3.0 * omt * tc * tc * C.x
                                 + tc * tc * tc * D_pt.x;
                         if (deriv_y > 0.0) {
-                            add_crossing(&winding, &samplePositionsX, sampleGrid, x_t, 1);
+                            add_crossing(&winding, samplePositionsX, x_t, 1);
                         } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, &samplePositionsX, sampleGrid, x_t, -1);
+                            add_crossing(&winding, samplePositionsX, x_t, -1);
                         }
                     }
                 }
@@ -300,44 +413,67 @@ fn count_row_coverage(
                 let dx1 = (-B_val - sqrt_d) / (2.0 * A_val);
                 let dx2 = (-B_val + sqrt_d) / (2.0 * A_val);
 
-                var roots = array<f32, 2>(dx1, dx2);
-                for (var r_idx: u32 = 0u; r_idx < 2u; r_idx = r_idx + 1u) {
-                    let dx = roots[r_idx];
-                    let intersectX = center.x + dx;
-                    let localX = dx * cos_phi + dy * sin_phi;
-                    let localY = -dx * sin_phi + dy * cos_phi;
-                    let theta = atan2(localY / ry, localX / rx);
-
-                    var t: f32 = 0.0;
-                    let pi2 = 6.283185307179586;
-                    if (delta_theta > 0.0) {
-                        let diff = (theta - theta1) - pi2 * floor((theta - theta1) / pi2);
-                        t = diff / delta_theta;
-                    } else {
-                        let diff = (theta1 - theta) - pi2 * floor((theta1 - theta) / pi2);
-                        t = diff / (-delta_theta);
-                    }
-
-                    let deriv_y = delta_theta * (-rx * sin(theta) * sin_phi + ry * cos(theta) * cos_phi);
-
-                    if (deriv_y > 0.0 && t >= 0.0 && t < 1.0) {
-                        add_crossing(&winding, &samplePositionsX, sampleGrid, intersectX, 1);
-                    } else if (deriv_y < 0.0 && t > 0.0 && t <= 1.0) {
-                        add_crossing(&winding, &samplePositionsX, sampleGrid, intersectX, -1);
-                    }
-                }
+                add_arc_crossing(
+                    dx1,
+                    sampleY,
+                    center,
+                    rx,
+                    ry,
+                    theta1,
+                    delta_theta,
+                    cos_phi,
+                    sin_phi,
+                    samplePositionsX,
+                    &winding);
+                add_arc_crossing(
+                    dx2,
+                    sampleY,
+                    center,
+                    rx,
+                    ry,
+                    theta1,
+                    delta_theta,
+                    cos_phi,
+                    sin_phi,
+                    samplePositionsX,
+                    &winding);
             }
         }
     }
 
     var covered = 0u;
-    for (var sampleX = 0u; sampleX < sampleGrid; sampleX = sampleX + 1u) {
-        let isInside = select(
-            winding[sampleX] != 0,
-            abs(winding[sampleX]) % 2 == 1,
-            record.fillRule == 0u);
-        covered = covered + select(0u, 1u, isInside);
-    }
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 0u &&
+            winding_is_inside(winding.low.x, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 1u &&
+            winding_is_inside(winding.low.y, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 2u &&
+            winding_is_inside(winding.low.z, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 3u &&
+            winding_is_inside(winding.low.w, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 4u &&
+            winding_is_inside(winding.high.x, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 5u &&
+            winding_is_inside(winding.high.y, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 6u &&
+            winding_is_inside(winding.high.z, record.fillRule));
+    covered = covered + select(
+        0u, 1u,
+        sampleGrid > 7u &&
+            winding_is_inside(winding.high.w, record.fillRule));
     return covered;
 }
 

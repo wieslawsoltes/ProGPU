@@ -79,6 +79,13 @@ public class Window : DependencyObject
     private ulong _suppressedScheduledResizeFrames;
     private bool _suppressNextScheduledRender;
     private long _liveResizeRenderedVersion = -1;
+    private bool _hasPresentedFrame;
+    private bool _presentedScheduledFrame;
+    private long _lastPresentedRootVersion = -1;
+    private int _lastPresentedFramebufferWidth;
+    private int _lastPresentedFramebufferHeight;
+    private float _lastPresentedDpiScale;
+    private ulong _skippedUnchangedFrames;
     private double _resizeCallbackTimeMs;
     private double _maximumResizeCallbackTimeMs;
 
@@ -102,6 +109,9 @@ public class Window : DependencyObject
         _suppressedScheduledResizeFrames,
         _resizeCallbackTimeMs,
         _maximumResizeCallbackTimeMs);
+    public ulong SkippedUnchangedFrames => _skippedUnchangedFrames;
+    public bool IsContinuousRenderingEnabled { get; set; }
+    internal bool PresentedScheduledFrame => _presentedScheduledFrame;
     public Windows.Foundation.Rect Bounds => _bounds;
     public bool Visible => _visible;
     public WindowInsets Insets => _insets;
@@ -487,6 +497,7 @@ public class Window : DependencyObject
             });
         ApplySystemBackdrop();
         ConfigureCompositorHooks();
+        ResetPresentationState();
 
         string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
         if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
@@ -537,6 +548,7 @@ public class Window : DependencyObject
         ApplySystemBackdrop();
         ConfigureCompositorHooks();
         _inputState = InputSystem.CreateExternalState(_renderRoot);
+        ResetPresentationState();
     }
 
     public void RenderExternalFrame(double delta, uint framebufferWidth, uint framebufferHeight, float dpiScale)
@@ -745,6 +757,7 @@ public class Window : DependencyObject
 
     private void OnRender(double delta)
     {
+        _presentedScheduledFrame = false;
         if (_suppressNextScheduledRender &&
             _renderRoot.ChangeVersion == _liveResizeRenderedVersion)
         {
@@ -753,10 +766,12 @@ public class Window : DependencyObject
             return;
         }
         _suppressNextScheduledRender = false;
-        RenderFrame(delta);
+        RenderFrame(delta, allowUnchangedPresentationSkip: true);
     }
 
-    private unsafe void RenderFrame(double delta)
+    private unsafe void RenderFrame(
+        double delta,
+        bool allowUnchangedPresentationSkip = false)
     {
         if (_isRendering ||
             _silkWindow == null ||
@@ -769,7 +784,7 @@ public class Window : DependencyObject
         _isRendering = true;
         try
         {
-            RenderFrameCore(delta);
+            RenderFrameCore(delta, allowUnchangedPresentationSkip);
         }
         finally
         {
@@ -777,15 +792,27 @@ public class Window : DependencyObject
         }
     }
 
-    private unsafe void RenderFrameCore(double delta)
+    private unsafe void RenderFrameCore(
+        double delta,
+        bool allowUnchangedPresentationSkip)
     {
         var framebufferSize = GetCurrentFramebufferSize();
         float dpiScale = ResolveWindowDpiScale(framebufferSize);
         Vector2 logicalSize = ResolveLogicalClientSize(framebufferSize, dpiScale);
-        RenderFrameCore(delta, framebufferSize, dpiScale, logicalSize);
+        RenderFrameCore(
+            delta,
+            framebufferSize,
+            dpiScale,
+            logicalSize,
+            allowUnchangedPresentationSkip);
     }
 
-    private unsafe void RenderFrameCore(double delta, Vector2D<int> framebufferSize, float dpiScale, Vector2 logicalSize)
+    private unsafe void RenderFrameCore(
+        double delta,
+        Vector2D<int> framebufferSize,
+        float dpiScale,
+        Vector2 logicalSize,
+        bool allowUnchangedPresentationSkip = false)
     {
         long frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var wgpuContext = _wgpuContext!;
@@ -824,6 +851,39 @@ public class Window : DependencyObject
         content.Measure(logicalSize);
         content.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
         double layoutTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+
+        bool hasDynamicExternalContent =
+            PopupService.ActivePopups.Count != 0 ||
+            InputSystem.ActiveToolTip != null ||
+            DevToolsService.IsDevToolsActive ||
+            DragDropManager.IsDragging;
+        if (CanSkipUnchangedPresentation(
+                allowUnchangedPresentationSkip,
+                _hasPresentedFrame,
+                content.ChangeVersion,
+                _lastPresentedRootVersion,
+                framebufferSize.X,
+                framebufferSize.Y,
+                _lastPresentedFramebufferWidth,
+                _lastPresentedFramebufferHeight,
+                dpiScale,
+                _lastPresentedDpiScale,
+                IsContinuousRenderingEnabled,
+                hasDynamicExternalContent))
+        {
+            _skippedUnchangedFrames++;
+            FrameMetrics = new WindowFrameMetrics(
+                dispatcherTimeMs,
+                renderingCallbackTimeMs,
+                frameSetupTimeMs,
+                animationTimeMs,
+                layoutTimeMs,
+                0d,
+                0d,
+                0d,
+                System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+            return;
+        }
 
         phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
         TextureView* targetView = null;
@@ -883,6 +943,12 @@ public class Window : DependencyObject
                 phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 wgpuContext.Api.SurfacePresent(wgpuContext.Surface);
                 presentTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+                _hasPresentedFrame = true;
+                _presentedScheduledFrame = true;
+                _lastPresentedRootVersion = content.ChangeVersion;
+                _lastPresentedFramebufferWidth = framebufferSize.X;
+                _lastPresentedFramebufferHeight = framebufferSize.Y;
+                _lastPresentedDpiScale = dpiScale;
             }
         }
         finally
@@ -938,7 +1004,7 @@ public class Window : DependencyObject
         if (!_isRendering)
         {
             _suppressNextScheduledRender = true;
-            RenderFrame(0d);
+            RenderFrame(0d, allowUnchangedPresentationSkip: true);
             _liveResizeRenderedVersion = _renderRoot.ChangeVersion;
             _liveResizeFrames++;
         }
@@ -959,6 +1025,44 @@ public class Window : DependencyObject
         return new Vector2D<int>(
             Math.Max(1, framebufferSize.X),
             Math.Max(1, framebufferSize.Y));
+    }
+
+    // Algorithm: compare the retained-scene version and immutable presentation
+    // parameters with the last successful present.
+    // Time complexity: O(1). Space complexity: O(1), with no allocation.
+    internal static bool CanSkipUnchangedPresentation(
+        bool allowSkip,
+        bool hasPresentedFrame,
+        long rootVersion,
+        long lastPresentedRootVersion,
+        int framebufferWidth,
+        int framebufferHeight,
+        int lastPresentedFramebufferWidth,
+        int lastPresentedFramebufferHeight,
+        float dpiScale,
+        float lastPresentedDpiScale,
+        bool continuousRendering,
+        bool hasDynamicExternalContent)
+    {
+        return
+            allowSkip &&
+            hasPresentedFrame &&
+            !continuousRendering &&
+            !hasDynamicExternalContent &&
+            rootVersion == lastPresentedRootVersion &&
+            framebufferWidth == lastPresentedFramebufferWidth &&
+            framebufferHeight == lastPresentedFramebufferHeight &&
+            dpiScale == lastPresentedDpiScale;
+    }
+
+    private void ResetPresentationState()
+    {
+        _hasPresentedFrame = false;
+        _presentedScheduledFrame = false;
+        _lastPresentedRootVersion = -1;
+        _lastPresentedFramebufferWidth = 0;
+        _lastPresentedFramebufferHeight = 0;
+        _lastPresentedDpiScale = 0f;
     }
 
     private float ResolveWindowDpiScale(Vector2D<int> framebufferSize)

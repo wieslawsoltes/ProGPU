@@ -11,6 +11,8 @@ public sealed class NotoFontFamilyTests
     [Fact]
     public void FacesAreUnmodifiedOfficialReleaseAssets()
     {
+        Assert.True(NotoFontFamily.Japanese.UsesExternalStorage);
+        Assert.True(NotoFontFamily.Symbols.UsesExternalStorage);
         string japaneseHash = Convert.ToHexString(SHA256.HashData(NotoFontFamily.Japanese.FontData.Span)).ToLowerInvariant();
         string symbolsHash = Convert.ToHexString(SHA256.HashData(NotoFontFamily.Symbols.FontData.Span)).ToLowerInvariant();
 

@@ -107,6 +107,7 @@ internal static class SamplePerformanceBenchmark
     public static void AttachWindow(Microsoft.UI.Xaml.Window window)
     {
         s_window = window;
+        window.IsContinuousRenderingEnabled = RequestedPage is not null;
         if (s_resizeWorkload && window.SilkWindow is { } resizeWindow)
         {
             s_resizeWindow = resizeWindow;
@@ -455,6 +456,15 @@ internal static class SamplePerformanceBenchmark
             $" colorGlyphAtlasSize={finalMetrics?.ColorGlyphAtlasSize ?? 0}/{finalMetrics?.ColorGlyphAtlasMaximumSize ?? 0}" +
             $" pathAtlasTextureBytes={finalMetrics?.PathAtlasTextureBytes ?? 0}" +
             $" pathAtlasSize={finalMetrics?.PathAtlasSize ?? 0}/{finalMetrics?.PathAtlasMaximumSize ?? 0}" +
+            $" pathAtlasDimensions={finalMetrics?.PathAtlasWidth ?? 0}x{finalMetrics?.PathAtlasHeight ?? 0}" +
+            $" pathAtlasCurrentFramePaths={finalMetrics?.PathAtlasCurrentFramePathCount ?? 0}" +
+            $" pathAtlasCurrentFrameCoverageBytes={finalMetrics?.PathAtlasCurrentFrameCoverageBytes ?? 0}" +
+            $" pathAtlasCachedCoverageBytes={finalMetrics?.PathAtlasCachedCoverageBytes ?? 0}" +
+            $" pathAtlasCachedPaddedCoverageBytes={finalMetrics?.PathAtlasCachedPaddedCoverageBytes ?? 0}" +
+            $" pathAtlasGrowths={finalMetrics?.PathAtlasGrowthCount ?? 0}" +
+            $" pathAtlasAvoidedGrowths={finalMetrics?.PathAtlasAvoidedGrowthCount ?? 0}" +
+            $" pathAtlasShrinks={finalMetrics?.PathAtlasShrinkCount ?? 0}" +
+            $" pathAtlasFramesSinceResize={finalMetrics?.PathAtlasFramesSinceResize ?? 0}" +
             $" pathRasterStagingBytes={finalMetrics?.PathRasterStagingBytes ?? 0}" +
             $" pathPeakRasterStagingBytes={finalMetrics?.PathPeakRasterStagingBytes ?? 0}" +
             $" managedHeapStartBytes={s_managedHeapBytesAtStart}" +
@@ -679,7 +689,7 @@ internal static class SamplePerformanceBenchmark
     }
 }
 
-internal readonly record struct ProcessMemorySnapshot(
+public readonly record struct ProcessMemorySnapshot(
     long ResidentBytes,
     long WiredBytes,
     long PhysicalFootprintBytes,
@@ -763,7 +773,7 @@ internal static unsafe class MacOsProcessMemory
 }
 
 [EventSource(Name = "ProGPU-SampleBenchmark")]
-internal sealed class SampleBenchmarkEventSource : EventSource
+public sealed class SampleBenchmarkEventSource : EventSource
 {
     public static readonly SampleBenchmarkEventSource Log = new();
 

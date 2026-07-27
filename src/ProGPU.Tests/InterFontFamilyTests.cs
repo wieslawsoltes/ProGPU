@@ -14,6 +14,7 @@ public sealed class InterFontFamilyTests
     public void RegularFaceIsUnmodifiedOfficialInter41Asset()
     {
         var font = InterFontFamily.Regular;
+        Assert.True(font.UsesExternalStorage);
         var hash = Convert.ToHexString(SHA256.HashData(font.FontData.Span)).ToLowerInvariant();
 
         Assert.Equal("4.1", InterFontFamily.Version);
@@ -21,6 +22,69 @@ public sealed class InterFontFamilyTests
         Assert.Equal("Inter", font.FamilyName);
         Assert.Equal("Regular", font.SubfamilyName);
         Assert.Equal((ushort)400, font.WeightClass);
+    }
+
+    [Fact]
+    public void EmbeddedResourceSliceBorrowsAssemblyImageWithoutManagedPayloadCopy()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("Inter-Regular.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+
+        var font = TtfFont.LoadEmbeddedResourceSlice(
+            assembly,
+            resourceName,
+            0,
+            checked((int)resource.Length));
+
+        Assert.True(font.UsesExternalStorage);
+        Assert.Null(font.OwnedFontData);
+        Assert.Equal(
+            SHA256.HashData(InterFontFamily.Regular.FontData.Span),
+            SHA256.HashData(font.FontData.Span));
+        Assert.Equal("Inter", font.FamilyName);
+    }
+
+    [Fact]
+    public void OpenResourceStreamSliceTransfersZeroCopyStorageWithoutAssemblyContract()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("Inter-Regular.ttf", StringComparison.Ordinal));
+        Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+        int resourceLength = checked((int)resource.Length);
+
+        var font = TtfFont.LoadEmbeddedResourceSlice(
+            resource,
+            0,
+            resourceLength);
+
+        Assert.True(font.UsesExternalStorage);
+        Assert.Null(font.OwnedFontData);
+        Assert.Equal(
+            SHA256.HashData(InterFontFamily.Regular.FontData.Span),
+            SHA256.HashData(font.FontData.Span));
+        Assert.Equal("Inter", font.FamilyName);
+    }
+
+    [Fact]
+    public void EmbeddedResourceSliceRejectsRangesOutsideResource()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("Inter-Regular.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            TtfFont.LoadEmbeddedResourceSlice(
+                assembly,
+                resourceName,
+                checked((int)resource.Length),
+                1));
     }
 
     [Fact]

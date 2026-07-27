@@ -34,6 +34,7 @@ namespace ProGPU.Scene.Extensions
                     dc.Transform,
                     isOffscreen,
                     dc.MaskTexture,
+                    dc.MaskBindGroupOverride,
                     dc.BlendMode);
             }
         }

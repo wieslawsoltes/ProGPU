@@ -13,6 +13,7 @@ using GdiRectangle = System.Drawing.Rectangle;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Backend;
+using ProGPU.Compute;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Extensions;
@@ -37,6 +38,121 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 """;
+
+    [Fact]
+    public void OptionalVisualStatePreservesDefaultsAndInvalidation()
+    {
+        var visual = new ContainerVisual();
+        long defaultVersion = visual.ChangeVersion;
+
+        visual.Effect = null;
+        visual.EffectContentBounds = null;
+        visual.EffectRasterPadding = null;
+        visual.CacheAsLayer = false;
+        visual.LayerCacheRenderScale = 1f;
+        visual.LayerCacheSnapsToDevicePixels = false;
+        visual.OuterClipBounds = null;
+        visual.SetOuterCompositeClips(Array.Empty<VisualCompositeClip>());
+        visual.GeometryClip = null;
+        visual.OpacityMask = null;
+        visual.OpacityMaskPicture = null;
+        visual.OpacityMaskBounds = null;
+
+        Assert.Equal(defaultVersion, visual.ChangeVersion);
+        Assert.False(visual.CacheAsLayer);
+        Assert.Equal(1f, visual.LayerCacheRenderScale);
+        Assert.False(visual.LayerCacheSnapsToDevicePixels);
+        Assert.Equal(0, visual.OuterCompositeClips.Length);
+
+        var effect = new BlurEffect(3f);
+        var geometry =
+            PrimitivePathGeometry.CreateRectangle(1f, 2f, 3f, 4f);
+        var mask = new SolidColorBrush(Vector4.One);
+        var outerClip = new Rect(2f, 3f, 4f, 5f);
+        var opacityBounds = new Rect(6f, 7f, 8f, 9f);
+        var clips = new[]
+        {
+            new VisualCompositeClip(
+                new Rect(0f, 0f, 10f, 12f),
+                Matrix4x4.Identity)
+        };
+
+        visual.Effect = effect;
+        visual.EffectContentBounds = new Rect(1f, 1f, 20f, 20f);
+        visual.EffectRasterPadding = 4f;
+        visual.CacheAsLayer = true;
+        visual.LayerCacheRenderScale = 2f;
+        visual.LayerCacheSnapsToDevicePixels = true;
+        visual.OuterClipBounds = outerClip;
+        visual.SetOuterCompositeClips(clips);
+        visual.GeometryClip = geometry;
+        visual.OpacityMask = mask;
+        visual.OpacityMaskBounds = opacityBounds;
+
+        Assert.Same(effect, visual.Effect);
+        Assert.Equal(4f, visual.EffectRasterPadding);
+        Assert.True(visual.CacheAsLayer);
+        Assert.Equal(2f, visual.LayerCacheRenderScale);
+        Assert.True(visual.LayerCacheSnapsToDevicePixels);
+        Assert.Equal(outerClip, visual.OuterClipBounds);
+        Assert.Equal(clips, visual.OuterCompositeClips.ToArray());
+        Assert.Same(geometry, visual.GeometryClip);
+        Assert.Same(mask, visual.OpacityMask);
+        Assert.Equal(opacityBounds, visual.OpacityMaskBounds);
+
+        long populatedVersion = visual.ChangeVersion;
+        visual.Effect = null;
+        visual.EffectContentBounds = null;
+        visual.EffectRasterPadding = null;
+        visual.CacheAsLayer = false;
+        visual.LayerCacheRenderScale = 1f;
+        visual.LayerCacheSnapsToDevicePixels = false;
+        visual.OuterClipBounds = null;
+        visual.SetOuterCompositeClips(Array.Empty<VisualCompositeClip>());
+        visual.GeometryClip = null;
+        visual.OpacityMask = null;
+        visual.OpacityMaskBounds = null;
+
+        Assert.True(visual.ChangeVersion > populatedVersion);
+        Assert.Null(visual.Effect);
+        Assert.Null(visual.EffectContentBounds);
+        Assert.Null(visual.EffectRasterPadding);
+        Assert.False(visual.CacheAsLayer);
+        Assert.Equal(1f, visual.LayerCacheRenderScale);
+        Assert.False(visual.LayerCacheSnapsToDevicePixels);
+        Assert.Null(visual.OuterClipBounds);
+        Assert.Equal(0, visual.OuterCompositeClips.Length);
+        Assert.Null(visual.GeometryClip);
+        Assert.Null(visual.OpacityMask);
+        Assert.Null(visual.OpacityMaskBounds);
+
+        long detachedVersion = visual.ChangeVersion;
+        effect.BlurRadius = 5f;
+        Assert.Equal(detachedVersion, visual.ChangeVersion);
+    }
+
+    [Fact]
+    public void RetainedCommandCapacityCompactsOnceAndReusesExactCount()
+    {
+        var context = new DrawingContext();
+        context.EnsureCommandCapacity(64);
+        context.Commands.Add(default);
+        context.Commands.Add(default);
+        context.Commands.Add(default);
+
+        context.TrimRetainedCommandCapacity();
+
+        Assert.Equal(3, context.Commands.Count);
+        Assert.Equal(3, context.Commands.Capacity);
+
+        context.Clear();
+        context.Commands.Add(default);
+        context.Commands.Add(default);
+        context.Commands.Add(default);
+        context.TrimRetainedCommandCapacity();
+
+        Assert.Equal(3, context.Commands.Capacity);
+    }
 
     [Fact]
     public void SkRectUnionIncludesEmptyOriginInCoordinateEnvelope()
@@ -80,6 +196,97 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(26f, info.MinY);
         Assert.Equal(108u, info.Width);
         Assert.Equal(58u, info.Height);
+    }
+
+    [Fact]
+    public void PathAtlasRejectsSingleRasterLargerThanMaximumBeforeUpload()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 64);
+        var path = PrimitivePathGeometry.CreateRectangle(0f, 0f, 61f, 8f);
+
+        PathAtlas.PathInfo info = atlas.GetOrCreatePath(path, scale: 1f);
+
+        Assert.True(atlas.CapacityExceeded);
+        Assert.Equal(0u, info.Width);
+        Assert.Equal(0u, info.Height);
+        Assert.Equal(Vector2.Zero, info.TexCoordMin);
+        Assert.Equal(Vector2.Zero, info.TexCoordMax);
+
+        atlas.RasterizePendingPaths();
+    }
+
+    [Fact]
+    public unsafe void CoverageUploadRejectsOutOfRangeCopiesBeforeEncoding()
+    {
+        WgpuContext context = HeadlessWindow.Shared.Context;
+        using var source = new GpuBuffer(
+            context,
+            256,
+            BufferUsage.CopySrc,
+            "Coverage Upload Range Test");
+        using var destination = new GpuTexture(
+            context,
+            8,
+            8,
+            TextureFormat.R8Unorm,
+            TextureUsage.CopyDst,
+            "Coverage Upload Range Test");
+        var descriptor = new CommandEncoderDescriptor();
+        CommandEncoder* encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &descriptor);
+        Assert.NotEqual(IntPtr.Zero, (IntPtr)encoder);
+
+        try
+        {
+            ArgumentOutOfRangeException? destinationException = null;
+            try
+            {
+                GpuCoverageUpload.RecordCopy(
+                    context,
+                    encoder,
+                    source,
+                    sourceOffset: 0,
+                    bytesPerRow: 256,
+                    destination,
+                    destinationX: 2,
+                    destinationY: 0,
+                    width: 7,
+                    height: 1);
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                destinationException = exception;
+            }
+
+            Assert.NotNull(destinationException);
+            Assert.Equal("width", destinationException.ParamName);
+
+            ArgumentOutOfRangeException? sourceException = null;
+            try
+            {
+                GpuCoverageUpload.RecordCopy(
+                    context,
+                    encoder,
+                    source,
+                    sourceOffset: 0,
+                    bytesPerRow: 256,
+                    destination,
+                    destinationX: 0,
+                    destinationY: 0,
+                    width: 8,
+                    height: 2);
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                sourceException = exception;
+            }
+
+            Assert.NotNull(sourceException);
+            Assert.Equal("sourceOffset", sourceException.ParamName);
+        }
+        finally
+        {
+            context.Api.CommandEncoderRelease(encoder);
+        }
     }
 
     [Fact]
@@ -691,6 +898,181 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RectangularPathAtlasRecoveryUsesIndependentExtents()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 2048);
+        PathGeometry[] paths =
+        [
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 24f, 900f),
+            PrimitivePathGeometry.CreateRectangle(40f, 0f, 40f, 40f),
+            PrimitivePathGeometry.CreateRectangle(90f, 0f, 36f, 42f),
+            PrimitivePathGeometry.CreateRectangle(140f, 0f, 38f, 38f),
+            PrimitivePathGeometry.CreateRectangle(190f, 0f, 34f, 44f)
+        ];
+
+        foreach (PathGeometry path in paths)
+        {
+            _ = atlas.GetOrCreatePath(path, scale: 1f);
+        }
+
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(1024u, atlas.AtlasHeight);
+        atlas.ResetForRenderRetry();
+        PathAtlas.PathInfo[] recovered = paths
+            .Select(path => atlas.GetOrCreatePath(path, scale: 1f))
+            .ToArray();
+
+        Assert.False(atlas.CapacityExceeded);
+        AssertAtlasRectanglesDoNotOverlap(
+            recovered,
+            atlas.AtlasWidth,
+            atlas.AtlasHeight);
+        Assert.All(recovered, static info =>
+        {
+            Assert.InRange(info.TexCoordMin.X, 0f, 1f);
+            Assert.InRange(info.TexCoordMin.Y, 0f, 1f);
+            Assert.InRange(info.TexCoordMax.X, 0f, 1f);
+            Assert.InRange(info.TexCoordMax.Y, 0f, 1f);
+        });
+
+        atlas.RasterizePendingPaths();
+        Assert.Contains(atlas.AtlasTexture.ReadPixels(), static value => value > 0);
+    }
+
+    [Fact]
+    public void PathAtlasShrinksOnlyAfterStableDelayAndInvalidatesStaleCachedPaths()
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 1024);
+        PathGeometry[] paths =
+        [
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 280f, 400f),
+            PrimitivePathGeometry.CreateRectangle(300f, 0f, 190f, 50f),
+            PrimitivePathGeometry.CreateRectangle(300f, 60f, 190f, 50f),
+            PrimitivePathGeometry.CreateRectangle(300f, 120f, 190f, 50f),
+            PrimitivePathGeometry.CreateRectangle(300f, 180f, 190f, 50f),
+            PrimitivePathGeometry.CreateRectangle(300f, 240f, 190f, 50f)
+        ];
+
+        PathAtlas.PathInfo[] initial = paths
+            .Select(path => atlas.GetOrCreatePath(path, scale: 1f))
+            .ToArray();
+        atlas.RasterizePendingPaths();
+
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(1024u, atlas.AtlasHeight);
+        Assert.Equal(1u, atlas.AtlasGrowthCount);
+        Assert.Equal(0u, atlas.AtlasShrinkCount);
+
+        for (uint frame = 1; frame < PathAtlas.DefaultAtlasShrinkDelayFrames; frame++)
+        {
+            atlas.CleanupFrame();
+        }
+
+        Assert.Equal(1024u, atlas.AtlasHeight);
+        ulong generationBeforeShrink = atlas.Generation;
+        atlas.CleanupFrame();
+
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(512u, atlas.AtlasHeight);
+        Assert.Equal(1u, atlas.AtlasShrinkCount);
+        Assert.True(atlas.Generation > generationBeforeShrink);
+        Assert.Equal(0, atlas.CachedPathCount);
+        Assert.InRange(atlas.CachedPathStorageCapacity, 0, 3);
+
+        PathAtlas.PathInfo[] repacked = paths
+            .Select(path => atlas.GetOrCreatePath(path, scale: 1f))
+            .ToArray();
+        Assert.Equal(paths.Length, atlas.CachedPathCount);
+        AssertAtlasRectanglesDoNotOverlap(
+            repacked,
+            atlas.AtlasWidth,
+            atlas.AtlasHeight);
+        Assert.All(repacked, static info =>
+        {
+            Assert.InRange(info.TexCoordMin.X, 0f, 1f);
+            Assert.InRange(info.TexCoordMin.Y, 0f, 1f);
+            Assert.InRange(info.TexCoordMax.X, 0f, 1f);
+            Assert.InRange(info.TexCoordMax.Y, 0f, 1f);
+        });
+
+        atlas.RasterizePendingPaths();
+        Assert.Contains(atlas.AtlasTexture.ReadPixels(), static value => value > 0);
+        Assert.Contains(initial, oldInfo =>
+            repacked.Any(newInfo =>
+                newInfo.Key == oldInfo.Key &&
+                (newInfo.X != oldInfo.X || newInfo.Y != oldInfo.Y)));
+    }
+
+    [Fact]
+    public void PathAtlasRetainedReplayDoesNotShrinkBelowReplayedLiveSet()
+    {
+        using var atlas = new PathAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 2048);
+        PathGeometry tallPath =
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 45f, 1604f);
+
+        PathAtlas.PathInfo initial =
+            atlas.GetOrCreatePath(tallPath, scale: 1f);
+        atlas.RasterizePendingPaths();
+
+        Assert.True(initial.Height > 512);
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(2048u, atlas.AtlasHeight);
+        Assert.Equal(1u, atlas.AtlasGrowthCount);
+
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+
+        Assert.Equal(512u, atlas.AtlasWidth);
+        Assert.Equal(2048u, atlas.AtlasHeight);
+        Assert.Equal(1u, atlas.AtlasGrowthCount);
+        Assert.Equal(0u, atlas.AtlasShrinkCount);
+        Assert.Equal(1, atlas.CachedPathCount);
+    }
+
+    [Fact]
+    public void PathAtlasShrinkTrimsRectangularResidencyBelowPowerOfTwoSteps()
+    {
+        using var atlas = new PathAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 4096);
+        PathGeometry widePath =
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 2400f, 64f);
+        PathGeometry tallPath =
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 64f, 1600f);
+
+        PathAtlas.PathInfo wide = atlas.GetOrCreatePath(widePath, scale: 1f);
+        PathAtlas.PathInfo tall = atlas.GetOrCreatePath(tallPath, scale: 1f);
+        atlas.RasterizePendingPaths();
+
+        Assert.True(wide.Width > 2048);
+        Assert.True(tall.Height > 1024);
+        Assert.Equal(4096u, atlas.AtlasWidth);
+        Assert.Equal(2048u, atlas.AtlasHeight);
+
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+
+        Assert.Equal(2560u, atlas.AtlasWidth);
+        Assert.Equal(1792u, atlas.AtlasHeight);
+        Assert.Equal(4_587_520ul, atlas.PersistentTextureBytes);
+        Assert.Equal(1u, atlas.AtlasShrinkCount);
+        Assert.Equal(2, atlas.CachedPathCount);
+        Assert.True(atlas.CachedCoverageBytes > 0);
+    }
+
+    [Fact]
     public void PathAtlasRetryRejectsMathematicallyUnfitTypographyLiveSet()
     {
         using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 2048);
@@ -755,6 +1137,30 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.True(redPixels > 100, $"Expected a visible red border, found {redPixels} red pixels.");
         int centerOffset = (48 * 128 + 64) * 4;
         Assert.True(pixels[centerOffset + 2] > 180, "The even-odd inner hole should preserve the blue background.");
+    }
+
+    [Fact]
+    public void CombinedPartialRoundedRectangleBorderFillBypassesPathOperationAndAtlas()
+    {
+        using var window = new HeadlessWindow(
+            128,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        window.Content = new CombinedPartialRoundedBorderVisual();
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.True(
+            window.Compositor.VectorVertices.Count(vertex => MathF.Abs(vertex.ShapeType - 13f) < 0.01f) > 0,
+            "Expected the contained rounded-rectangle difference to use direct triangle-SDF vertices.");
+
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(8 * 128 + 64) * 4] > 140, "The top border should remain visible.");
+        Assert.True(pixels[(48 * 128 + 8) * 4] > 140, "The left border should remain visible.");
+        Assert.True(pixels[(48 * 128 + 64) * 4 + 2] > 180, "The inner hole should preserve the blue background.");
+        Assert.True(pixels[(88 * 128 + 64) * 4 + 2] > 180, "The zero-width bottom border should remain transparent.");
     }
 
     [Fact]
@@ -837,13 +1243,19 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
     private static void AssertAtlasRectanglesDoNotOverlap(
         IReadOnlyList<PathAtlas.PathInfo> paths,
-        uint atlasSize)
+        uint atlasSize) =>
+        AssertAtlasRectanglesDoNotOverlap(paths, atlasSize, atlasSize);
+
+    private static void AssertAtlasRectanglesDoNotOverlap(
+        IReadOnlyList<PathAtlas.PathInfo> paths,
+        uint atlasWidth,
+        uint atlasHeight)
     {
         for (int index = 0; index < paths.Count; index++)
         {
             PathAtlas.PathInfo current = paths[index];
-            Assert.True(current.X + current.Width + 2 <= atlasSize);
-            Assert.True(current.Y + current.Height + 2 <= atlasSize);
+            Assert.True(current.X + current.Width + 2 <= atlasWidth);
+            Assert.True(current.Y + current.Height + 2 <= atlasHeight);
             for (int otherIndex = index + 1; otherIndex < paths.Count; otherIndex++)
             {
                 PathAtlas.PathInfo other = paths[otherIndex];
@@ -935,19 +1347,280 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
-    public void CompositorFailsExplicitlyWhenSinglePathExceedsAtlas()
+    public void NestedCachedLayerRetriesItsOwnPathAtlasTransaction()
+    {
+        const int initialPathCount = 24;
+        const int retainedPathCount = 8;
+        const int cachedPathCount = 16;
+        using var window = new HeadlessWindow(
+            640,
+            64,
+            CompositorOptions.Default with { PathAtlasSize = 128 });
+        var root = new StackPanel
+        {
+            Width = 640f,
+            Height = 64f
+        };
+        var direct = CreatePathAtlasPressureDrawingVisual(
+            initialPathCount,
+            variant: 0);
+        root.AddChild(direct);
+        window.Content = root;
+        window.Render();
+        ulong firstGeneration = window.Compositor.PathAtlas.Generation;
+
+        root.ClearChildren();
+        direct = CreatePathAtlasPressureDrawingVisual(
+            retainedPathCount,
+            variant: 0);
+        root.AddChild(direct);
+        var cachedLayer = CreatePathAtlasPressureDrawingVisual(
+            cachedPathCount,
+            variant: 1);
+        cachedLayer.CacheAsLayer = true;
+        root.AddChild(cachedLayer);
+        window.Render();
+
+        Assert.NotNull(cachedLayer.LayerTexture);
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.True(
+            window.Compositor.PathAtlas.Generation > firstGeneration);
+        byte[] pixels = window.ReadPixels();
+        for (int pathIndex = 0; pathIndex < cachedPathCount; pathIndex++)
+        {
+            int alphaOffset = (28 * 640 + pathIndex * 24 + 8) * 4 + 3;
+            Assert.True(
+                pixels[alphaOffset] > 200,
+                $"Nested cached path {pathIndex} was missing after retry.");
+        }
+    }
+
+    [Fact]
+    public void DeepRetainedVisualTreeCompilesWithoutCommandFrameStackGrowth()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        var root = new StackPanel { Width = 32f, Height = 32f };
+        ContainerVisual parent = root;
+        for (int depth = 0; depth < 128; depth++)
+        {
+            var child = new StackPanel
+            {
+                Width = 32f,
+                Height = 32f
+            };
+            parent.AddChild(child);
+            parent = child;
+        }
+
+        var leaf = new DrawingVisual { Size = new Vector2(32f, 32f) };
+        leaf.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 32f, 32f));
+        parent.AddChild(leaf);
+        window.Content = root;
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        int center = (16 * 32 + 16) * 4;
+        Assert.True(pixels[center] > 200);
+        Assert.True(pixels[center + 3] > 200);
+    }
+
+    [Fact]
+    public void CompositorRendersCanonicalRectangleLargerThanAtlasWithoutRasterizingIt()
     {
         using var window = new HeadlessWindow(
             96,
             96,
             CompositorOptions.Default with { PathAtlasSize = 64 });
-        window.Content = new OversizedPathVisual();
+        window.Content = new CanonicalRectanglePathVisual(80f);
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(40 * 96 + 40) * 4] > 200);
+    }
+
+    [Fact]
+    public void CompositorRendersRotatedSharpRectangleLargerThanAtlasWithoutRasterizingIt()
+    {
+        using var window = new HeadlessWindow(
+            128,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        window.Content = new RotatedCanonicalRectanglePathVisual();
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(40 * 128 + 55) * 4] > 200);
+    }
+
+    [Fact]
+    public void CompositorCompilesCanonicalRectangleAnalyticallyWhenItFits()
+    {
+        using var window = new HeadlessWindow(
+            96,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        window.Content = new CanonicalRectanglePathVisual(32f);
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.Equal(64u, window.Compositor.PathAtlas.AtlasWidth);
+        Assert.Equal(64u, window.Compositor.PathAtlas.AtlasHeight);
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(16 * 96 + 16) * 4] > 200);
+    }
+
+    [Fact]
+    public void CompositorDoesNotGrowAtlasForLongThinCanonicalRectangle()
+    {
+        using var window = new HeadlessWindow(640, 64);
+        window.Content = new CanonicalRectanglePathVisual(
+            width: 600f,
+            height: 24f,
+            visualWidth: 640f,
+            visualHeight: 64f);
+
+        window.Render();
+
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasWidth);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasHeight);
+        byte[] pixels = window.ReadPixels();
+        Assert.True(pixels[(12 * 640 + 300) * 4] > 200);
+    }
+
+    [Fact]
+    public void CompositorFailsExplicitlyWhenSingleArbitraryPathExceedsAtlas()
+    {
+        using var window = new HeadlessWindow(
+            96,
+            96,
+            CompositorOptions.Default with { PathAtlasSize = 64 });
+        window.Content = new OversizedArbitraryPathVisual();
 
         var exception = Assert.IsAssignableFrom<InvalidOperationException>(
             Record.Exception(() => window.Render()));
 
         Assert.Contains("PathAtlas", exception.Message, StringComparison.Ordinal);
         Assert.Contains("64x64", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public unsafe void TallCanonicalRoundedPathBypassesAtlasAndRendersOnTheFirstFrame()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            1024,
+            CompositorOptions.Default with { PathAtlasSize = 2048 });
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(64f, 1024f)
+        };
+        using var target = new GpuTexture(
+            window.Context,
+            64,
+            1024,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Rectangular path-atlas render target");
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            PrimitivePathGeometry.CreateRoundedRectangle(
+                12f,
+                40f,
+                24f,
+                900f,
+                3f,
+                3f));
+
+        window.Compositor.RenderScene(visual, 64, 1024, target.ViewPtr);
+
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasWidth);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasHeight);
+        Assert.Equal(
+            (ulong)PathAtlas.DefaultInitialAtlasSize *
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.PersistentTextureBytes);
+        byte[] pixels = target.ReadPixels();
+        int center = (512 * 64 + 24) * 4;
+        Assert.True(pixels[center] > 200);
+        Assert.True(pixels[center + 3] > 200);
+
+        window.Compositor.RenderScene(visual, 64, 1024, target.ViewPtr);
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasWidth);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasHeight);
+    }
+
+    [Fact]
+    public unsafe void WideCanonicalRoundedPathBypassesAtlas()
+    {
+        using var window = new HeadlessWindow(
+            3100,
+            64,
+            CompositorOptions.Default);
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(3100f, 64f)
+        };
+        using var target = new GpuTexture(
+            window.Context,
+            3100,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Wide path-atlas render target");
+        visual.Context.DrawPath(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            PrimitivePathGeometry.CreateRoundedRectangle(
+                40f,
+                16f,
+                3000f,
+                24f,
+                3f,
+                3f));
+
+        window.Compositor.RenderScene(visual, 3100, 64, target.ViewPtr);
+
+        Assert.Equal(0, window.Compositor.PathAtlas.CachedPathCount);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasWidth);
+        Assert.Equal(
+            PathAtlas.DefaultInitialAtlasSize,
+            window.Compositor.PathAtlas.AtlasHeight);
+        Assert.False(window.Compositor.PathAtlas.CapacityExceeded);
+        byte[] pixels = target.ReadPixels();
+        int center = (28 * 3100 + 1500) * 4;
+        Assert.True(pixels[center] > 200);
+        Assert.True(pixels[center + 3] > 200);
     }
 
     private static DrawingVisual CreatePathAtlasPressureDrawingVisual(int pathCount, int variant)
@@ -957,9 +1630,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         for (var pathIndex = 0; pathIndex < pathCount; pathIndex++)
         {
             var variantOffset = variant * 0.25f;
-            var path = PrimitivePathGeometry.CreateRectangle(
-                0f,
-                0f,
+            var path = CreatePathAtlasPressurePath(
                 8f + pathIndex % 4 + variantOffset,
                 8f + pathIndex / 4 + variantOffset);
             visual.Context.DrawPath(
@@ -970,6 +1641,18 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
 
         return visual;
+    }
+
+    private static PathGeometry CreatePathAtlasPressurePath(float width, float height)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(width, 0f)));
+        figure.Segments.Add(new LineSegment(new Vector2(width, height - 2f)));
+        figure.Segments.Add(new LineSegment(new Vector2(width * 0.5f, height)));
+        figure.Segments.Add(new LineSegment(new Vector2(0f, height - 1f)));
+        path.Figures.Add(figure);
+        return path;
     }
 
     [Fact]
@@ -2131,6 +2814,235 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void ChartPipelinesAreCreatedOnlyByChartCommandsAndThenReused()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new GpuSeriesOpacityVisual();
+
+        window.Render();
+
+        Assert.Equal(2, window.Compositor.Metrics.SceneShaderCount);
+        Assert.Equal(4, window.Compositor.Metrics.SceneRenderPipelineCount);
+        Assert.Contains(window.ReadPixels(), static value => value != 0);
+
+        window.Render();
+
+        Assert.Equal(2, window.Compositor.Metrics.SceneShaderCount);
+        Assert.Equal(4, window.Compositor.Metrics.SceneRenderPipelineCount);
+    }
+
+    [Fact]
+    public unsafe void BasePipelinesAreCreatedOnlyForTheRenderedTargetAndThenReused()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var compositor = new Compositor(
+            window.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = false });
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Lazy target pipeline test");
+        var visual = new DrawingVisual { Size = new Vector2(32f, 32f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 32f, 32f));
+        RenderPipelineCache pipelineCache =
+            GetPrivateField<RenderPipelineCache>(compositor, "_pipelineCache");
+
+        Assert.Equal(0, pipelineCache.ShaderCount);
+        Assert.Equal(0, pipelineCache.RenderPipelineCount);
+
+        compositor.RenderScene(visual, 32, 32, target.ViewPtr);
+
+        Assert.Equal(1, pipelineCache.ShaderCount);
+        Assert.Equal(1, pipelineCache.RenderPipelineCount);
+        Assert.True(target.ReadPixels()[3] > 200);
+
+        compositor.RenderScene(visual, 32, 32, target.ViewPtr);
+        Assert.Equal(1, pipelineCache.RenderPipelineCount);
+
+        compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        Assert.Equal(1, pipelineCache.ShaderCount);
+        Assert.Equal(2, pipelineCache.RenderPipelineCount);
+        Assert.True(target.ReadPixels()[3] > 200);
+
+        compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+        Assert.Equal(2, pipelineCache.RenderPipelineCount);
+    }
+
+    [Fact]
+    public void ImmutableCompositorResourcesAreSharedUntilTheLastOwnerDisposes()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrecompileBasePipelines = true
+        };
+        var first = new Compositor(
+            context,
+            TextureFormat.Rgba8Unorm,
+            options);
+        var second = new Compositor(
+            context,
+            TextureFormat.Rgba8Unorm,
+            options);
+        try
+        {
+            Assert.Equal(8, context.CachedDeviceBindGroupLayoutCount);
+            Assert.Equal(6, context.CachedDevicePipelineLayoutCount);
+            Assert.Equal(5, context.CachedDeviceShaderModuleCount);
+            Assert.Equal(8, context.CachedDeviceRenderPipelineCount);
+            Assert.Equal(2, context.CachedDeviceComputePipelineCount);
+
+            first.Dispose();
+
+            Assert.Equal(8, context.CachedDeviceBindGroupLayoutCount);
+            Assert.Equal(6, context.CachedDevicePipelineLayoutCount);
+            Assert.Equal(5, context.CachedDeviceShaderModuleCount);
+            Assert.Equal(8, context.CachedDeviceRenderPipelineCount);
+            Assert.Equal(2, context.CachedDeviceComputePipelineCount);
+
+            second.Dispose();
+
+            Assert.Equal(0, context.CachedDeviceBindGroupLayoutCount);
+            Assert.Equal(0, context.CachedDevicePipelineLayoutCount);
+            Assert.Equal(0, context.CachedDeviceShaderModuleCount);
+            Assert.Equal(0, context.CachedDeviceRenderPipelineCount);
+            Assert.Equal(0, context.CachedDeviceComputePipelineCount);
+            context.CleanupPendingResources();
+        }
+        finally
+        {
+            second.Dispose();
+            first.Dispose();
+        }
+    }
+
+    [Fact]
+    public unsafe void PrimaryAndOffscreenTargetsShareBindingObjectsAcrossRefreshes()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var compositor = new Compositor(
+            window.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                InitialBrushCount = 1
+            });
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Shared target bindings test");
+        var visual = new DrawingVisual { Size = new Vector2(32f, 32f) };
+        for (int i = 0; i < 128; i++)
+        {
+            visual.Context.DrawRectangle(
+                new SolidColorBrush(
+                    new Vector4(i / 127f, (127 - i) / 127f, (i % 17) / 16f, 1f)),
+                pen: null,
+                new Rect(i % 32, i / 32, 1f, 1f));
+        }
+
+        AssertSharedTargetBindingObjects(compositor);
+        nint vectorBindGroupBefore =
+            GetPrivatePointerField(compositor, "_vectorUniformBindGroup");
+        List<GpuBrush> activeBrushes =
+            GetPrivateField<List<GpuBrush>>(compositor, "_activeBrushes");
+        for (int i = 0; i < 1024; i++)
+        {
+            activeBrushes.Add(default);
+        }
+        InvokePrivateMethod(compositor, "EnsureSceneStateBufferCapacity");
+
+        Assert.NotEqual(
+            vectorBindGroupBefore,
+            GetPrivatePointerField(compositor, "_vectorUniformBindGroup"));
+        AssertSharedTargetBindingObjects(compositor);
+
+        compositor.RenderScene(visual, 32, 32, target.ViewPtr);
+
+        Assert.Equal(8, compositor.Metrics.BaseBindGroupLayoutCount);
+        Assert.Equal(4, compositor.Metrics.BasePipelineLayoutCount);
+        Assert.Equal(6, compositor.Metrics.BaseBindGroupCount);
+        Assert.True(target.ReadPixels()[3] > 200);
+
+        nint atlasBindGroupBefore = GetPrivatePointerField(compositor, "_atlasBindGroup");
+        nint pathAtlasBindGroupBefore =
+            GetPrivatePointerField(compositor, "_pathAtlasBindGroup");
+        SetCompositorField(compositor, "_boundGlyphAtlasTextureRevision", ulong.MaxValue);
+        SetCompositorField(compositor, "_boundPathAtlasTextureRevision", ulong.MaxValue);
+        InvokePrivateMethod(compositor, "RefreshAtlasBindGroupsIfNeeded");
+
+        Assert.NotEqual(
+            atlasBindGroupBefore,
+            GetPrivatePointerField(compositor, "_atlasBindGroup"));
+        Assert.NotEqual(
+            pathAtlasBindGroupBefore,
+            GetPrivatePointerField(compositor, "_pathAtlasBindGroup"));
+        AssertSharedTargetBindingObjects(compositor);
+
+        compositor.RenderOffscreen(
+            visual,
+            width: 32,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        AssertSharedTargetBindingObjects(compositor);
+        Assert.Equal(8, compositor.Metrics.BaseBindGroupLayoutCount);
+        Assert.Equal(4, compositor.Metrics.BasePipelineLayoutCount);
+        Assert.Equal(6, compositor.Metrics.BaseBindGroupCount);
+        Assert.True(target.ReadPixels()[3] > 200);
+
+        var maskTexture = new GpuTexture(
+            window.Context,
+            8,
+            8,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.RenderAttachment,
+            "Shared target mask binding test");
+        nint primaryMaskBindGroup = InvokePrivatePointerMethod(
+            compositor,
+            "GetMaskBindGroup",
+            maskTexture,
+            false);
+        nint offscreenMaskBindGroup = InvokePrivatePointerMethod(
+            compositor,
+            "GetMaskBindGroup",
+            maskTexture,
+            true);
+        Assert.Equal(primaryMaskBindGroup, offscreenMaskBindGroup);
+        Assert.Equal(1, GetPrivateCollectionCount(compositor, "_maskBindGroups"));
+        maskTexture.Dispose();
+        Assert.Equal(0, GetPrivateCollectionCount(compositor, "_maskBindGroups"));
+    }
+
+    [Fact]
     public void CachedLayerRefreshesWhenPhysicalTextureSizeChanges()
     {
         using var window = new HeadlessWindow(64, 64);
@@ -2328,10 +3240,17 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var visibleMaskedPixel = ReadPixel(pixels, target.Width, x: 10, y: 6);
         var clippedMaskedPixel = ReadPixel(pixels, target.Width, x: 14, y: 6);
         var maskTexturePool = GetMaskTexturePool(window.Compositor);
+        CompositorMetrics metrics = window.Compositor.Metrics;
 
         Assert.True(visibleMaskedPixel.R >= 220, $"Expected opacity mask to align with viewport origin, found {visibleMaskedPixel}.");
         Assert.True(clippedMaskedPixel.R <= 35, $"Expected pixels outside the opacity mask bounds to stay clear, found {clippedMaskedPixel}.");
-        Assert.Contains(maskTexturePool, texture => texture.Width == 32 && texture.Height == 24);
+        Assert.Empty(maskTexturePool);
+        Assert.True(metrics.AnalyticMaskBindGroupCount > 0);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+        Assert.Equal(
+            metrics.IncrementalSceneUploadPageWrites +
+            1,
+            metrics.SceneUploadCopyCount);
     }
 
     [Fact]
@@ -2365,7 +3284,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         Assert.True(visibleMaskedPixel.R >= 220, $"Expected image effect mask to align with viewport origin, found {visibleMaskedPixel}.");
         Assert.True(clippedMaskedPixel.R <= 35, $"Expected image effect pixels outside the opacity mask bounds to stay clear, found {clippedMaskedPixel}.");
-        Assert.Contains(maskTexturePool, texture => texture.Width == 32 && texture.Height == 24);
+        Assert.Empty(maskTexturePool);
+        Assert.True(window.Compositor.Metrics.AnalyticMaskBindGroupCount > 0);
     }
 
     [Fact]
@@ -2399,7 +3319,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         Assert.True(visibleMaskedPixel.R >= 220, $"Expected WPF shader-effect mask to align with viewport origin, found {visibleMaskedPixel}.");
         Assert.True(clippedMaskedPixel.R <= 35, $"Expected WPF shader-effect pixels outside the opacity mask bounds to stay clear, found {clippedMaskedPixel}.");
-        Assert.Contains(maskTexturePool, texture => texture.Width == 32 && texture.Height == 24);
+        Assert.Empty(maskTexturePool);
+        Assert.True(window.Compositor.Metrics.AnalyticMaskBindGroupCount > 0);
     }
 
     [Fact]
@@ -2692,7 +3613,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         visual.Context.DrawPath(
             new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
             pen: null,
-            PrimitivePathGeometry.CreateRoundedRectangle(4f, 4f, 20f, 16f, 4f, 4f));
+            CreatePathAtlasPressurePath(20f, 16f),
+            Matrix4x4.CreateTranslation(4f, 4f, 0f));
 
         window.Compositor.RenderOffscreen(
             visual,
@@ -2723,7 +3645,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         visual.Context.DrawPath(
             new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
             pen: null,
-            PrimitivePathGeometry.CreateRoundedRectangle(4f, 4f, 20f, 16f, 4f, 4f));
+            CreatePathAtlasPressurePath(20f, 16f),
+            Matrix4x4.CreateTranslation(4f, 4f, 0f));
 
         uint initialFrame = GetPathAtlasFrameNumber(window.Compositor);
 
@@ -2868,7 +3791,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
             "RenderOffscreen Physical Mask Target");
-        var visual = new OpacityMaskedVisual();
+        var visual = new GradientOpacityMaskedVisual();
 
         window.Compositor.RenderOffscreen(
             visual,
@@ -3030,21 +3953,257 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
+    {
+        using var window = new HeadlessWindow(4, 4);
+        const TextureUsage usage =
+            TextureUsage.TextureBinding |
+            TextureUsage.StorageBinding |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst;
+        using var source = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            usage,
+            "Lazy compute source");
+        using var temporary = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            usage,
+            "Lazy compute temporary");
+        using var destination = new GpuTexture(
+            window.Context,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            usage,
+            "Lazy compute destination");
+        using var accelerator = new ComputeAccelerator(window.Context);
+
+        Assert.Equal(0, accelerator.CachedEffectShaderCount);
+        Assert.Equal(0, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(0UL, accelerator.PersistentEffectParameterBufferBytes);
+
+        byte[] pixels = new byte[4 * 4 * 4];
+        for (int offset = 0; offset < pixels.Length; offset += 4)
+        {
+            pixels[offset] = 64;
+            pixels[offset + 1] = 128;
+            pixels[offset + 2] = 192;
+            pixels[offset + 3] = 255;
+        }
+        source.WritePixels(pixels);
+
+        accelerator.ApplyGaussianBlur(source, temporary, destination, 1f);
+        byte[] firstResult = destination.ReadPixels();
+
+        Assert.Equal(2, accelerator.CachedEffectShaderCount);
+        Assert.Equal(2, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
+        Assert.Contains(firstResult, static value => value != 0);
+
+        accelerator.ApplyGaussianBlur(source, temporary, destination, 1f);
+
+        Assert.Equal(2, accelerator.CachedEffectShaderCount);
+        Assert.Equal(2, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
+        Assert.Equal(firstResult, destination.ReadPixels());
+    }
+
+    [Fact]
+    public void ComputeAcceleratorLazilyCreatesEveryEffectFamilyOnFirstUse()
+    {
+        using var window = new HeadlessWindow(4, 4);
+        const TextureUsage usage =
+            TextureUsage.TextureBinding |
+            TextureUsage.StorageBinding |
+            TextureUsage.CopySrc |
+            TextureUsage.CopyDst;
+        using var source = new GpuTexture(
+            window.Context, 4, 4, TextureFormat.Rgba8Unorm, usage, "Lazy effect source");
+        using var secondary = new GpuTexture(
+            window.Context, 4, 4, TextureFormat.Rgba8Unorm, usage, "Lazy effect secondary");
+        using var temporary = new GpuTexture(
+            window.Context, 4, 4, TextureFormat.Rgba8Unorm, usage, "Lazy effect temporary");
+        using var destination = new GpuTexture(
+            window.Context, 4, 4, TextureFormat.Rgba8Unorm, usage, "Lazy effect destination");
+        using var accelerator = new ComputeAccelerator(window.Context);
+        var opaquePixels = new byte[4 * 4 * 4];
+        for (int offset = 0; offset < opaquePixels.Length; offset += 4)
+        {
+            opaquePixels[offset] = 32;
+            opaquePixels[offset + 1] = 64;
+            opaquePixels[offset + 2] = 96;
+            opaquePixels[offset + 3] = 255;
+        }
+        source.WritePixels(opaquePixels);
+        secondary.WritePixels(opaquePixels);
+
+        accelerator.ApplyMorphology(source, temporary, destination, 1f, 1f, dilate: true);
+        Assert.Equal(1, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyImageLighting(
+            source,
+            destination,
+            new Vector3(2f, 2f, 4f),
+            lightType: 0,
+            lightTarget: Vector3.Zero,
+            spotExponent: 1f,
+            lightColor: Vector4.One,
+            surfaceScale: 1f,
+            lightingConstant: 1f,
+            shininess: 8f,
+            cutoffAngle: 45f,
+            specular: false);
+        Assert.Equal(2, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyMatrixConvolution(
+            source,
+            destination,
+            kernelWidth: 1,
+            kernelHeight: 1,
+            [1f],
+            gain: 1f,
+            bias: 0f,
+            kernelOffsetX: 0,
+            kernelOffsetY: 0,
+            tileMode: 0,
+            convolveAlpha: true,
+            tileOriginX: 0,
+            tileOriginY: 0,
+            tileWidth: 4,
+            tileHeight: 4);
+        Assert.Equal(3, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyDisplacementMap(
+            source,
+            secondary,
+            destination,
+            scale: 1f,
+            xChannel: 0,
+            yChannel: 1);
+        Assert.Equal(4, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyArithmeticComposite(
+            source,
+            secondary,
+            destination,
+            k1: 0f,
+            k2: 1f,
+            k3: 0f,
+            k4: 0f,
+            enforcePremultipliedColor: true);
+        Assert.Equal(5, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyImageBlend(
+            source,
+            secondary,
+            destination,
+            GpuBlendMode.SrcOver,
+            linearRgb: true);
+        Assert.Equal(6, accelerator.CachedEffectPipelineCount);
+
+        byte[] identityTable = Enumerable.Range(0, 256).Select(static value => (byte)value).ToArray();
+        accelerator.ApplyColorTable(
+            source,
+            destination,
+            identityTable,
+            identityTable,
+            identityTable,
+            identityTable);
+        Assert.Equal(7, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyNonlinearColorFilter(
+            source,
+            destination,
+            ReadOnlySpan<float>.Empty,
+            hsla: false,
+            grayscale: false,
+            invertStyle: 0,
+            contrast: 0f);
+        Assert.Equal(8, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyMagnifier(
+            source,
+            destination,
+            new Vector4(0f, 0f, 4f, 4f),
+            new Vector4(0f, 0f, 4f, 4f),
+            new Vector4(1f, 1f, 0f, 0f),
+            Vector2.Zero,
+            samplingMode: 0,
+            cubic: Vector2.Zero);
+        Assert.Equal(9, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyDropShadow(
+            source,
+            temporary,
+            destination,
+            Vector2.Zero,
+            Vector4.One,
+            blurRadius: 0f);
+        Assert.Equal(10, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyDropShadow(
+            source,
+            temporary,
+            destination,
+            Vector2.Zero,
+            Vector4.One,
+            blurRadius: 2f);
+        Assert.Equal(12, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyGaussianBlur(source, temporary, destination, sigma: 1f);
+        Assert.Equal(14, accelerator.CachedEffectPipelineCount);
+
+        accelerator.ApplyDropShadowAndGaussianBlur(
+            source,
+            temporary,
+            secondary,
+            destination,
+            Vector2.Zero,
+            Vector4.One,
+            shadowBlurRadius: 1f,
+            gaussianSigma: 1f);
+        Assert.Equal(16, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(16, accelerator.CachedEffectShaderCount);
+
+        int retainedPipelineCount = accelerator.CachedEffectPipelineCount;
+        accelerator.ApplyMorphology(source, temporary, destination, 1f, 1f, dilate: true);
+        Assert.Equal(retainedPipelineCount, accelerator.CachedEffectPipelineCount);
+    }
+
+    [Fact]
     public void CompositorOptionsControlEagerGpuReservations()
     {
         using var window = new HeadlessWindow(1, 1);
         var options = new CompositorOptions
         {
             GlyphAtlasSize = 256,
+            InitialGlyphAtlasSize = 128,
             PathAtlasSize = 512,
             PathAtlasCpuCacheBudgetBytes = 2048,
+            InitialColorGlyphAtlasSize = 32,
+            GlyphUniformStagingBytes = 8 * 1024,
+            GlyphCoverageStagingBytes = 16 * 1024,
             InitialVertexCount = 1024,
-            InitialIndexCount = 1536
+            InitialIndexCount = 1536,
+            InitialBrushCount = 8,
+            InitialTextStyleCount = 8,
+            InitialGradientStopCount = 16,
+            PrecompileBasePipelines = true
         };
         using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm, options);
 
         Assert.Same(options, compositor.Options);
-        Assert.Equal(256u, compositor.Atlas.AtlasSize);
+        Assert.Equal(128u, compositor.Atlas.AtlasSize);
+        Assert.Equal(32u, compositor.Atlas.ColorAtlasSize);
+        Assert.Equal(8UL * 1024UL, compositor.Atlas.UniformStagingBytes);
+        Assert.Equal(8UL * 1024UL, compositor.Atlas.UniformUploadBytes);
+        Assert.Equal(16UL * 1024UL, compositor.Atlas.CoverageStagingBytes);
         Assert.Equal(512u, compositor.PathAtlas.AtlasSize);
         Assert.Equal(2048, compositor.PathAtlas.CompiledPathCacheBudgetBytes);
         Assert.Equal(
@@ -3053,6 +4212,136 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(
             options.InitialIndexCount * sizeof(uint),
             GetCompositorField<GpuBuffer>(compositor, "_vectorIndexBuffer").Size);
+        Assert.Equal(
+            options.InitialBrushCount * (uint)Marshal.SizeOf<GpuBrush>(),
+            GetCompositorField<GpuBuffer>(compositor, "_brushesStorageBuffer").Size);
+        Assert.Equal(
+            options.InitialTextStyleCount * (uint)Marshal.SizeOf<GpuTextStyle>(),
+            GetCompositorField<GpuBuffer>(compositor, "_textStylesStorageBuffer").Size);
+        Assert.Equal(
+            options.InitialGradientStopCount * (uint)Marshal.SizeOf<GpuGradientStop>(),
+            GetCompositorField<GpuBuffer>(compositor, "_gradientStopsStorageBuffer").Size);
+        Assert.Equal(
+            GetCompositorField<GpuBuffer>(compositor, "_uniformBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_brushesStorageBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_textStylesStorageBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_gradientStopsStorageBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_vectorVertexBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_vectorIndexBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_textVertexBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_textureVertexBuffer").AllocatedSize +
+            GetCompositorField<GpuBuffer>(compositor, "_textureIndexBuffer").AllocatedSize,
+            compositor.PersistentSceneBufferBytes);
+        RenderPipelineCache pipelineCache =
+            GetPrivateField<RenderPipelineCache>(compositor, "_pipelineCache");
+        Assert.Equal(3, pipelineCache.ShaderCount);
+        Assert.Equal(8, pipelineCache.RenderPipelineCount);
+    }
+
+    [Fact]
+    public void CompactColorGlyphMaximumClampsTheDefaultInitialReservation()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        var options = CompositorOptions.Default with
+        {
+            ColorGlyphAtlasSize = 32
+        };
+        using var compositor = new Compositor(
+            window.Context,
+            TextureFormat.Rgba8Unorm,
+            options);
+
+        Assert.Equal(32u, compositor.Atlas.ColorAtlasSize);
+        Assert.Equal(32u, compositor.Atlas.MaxColorAtlasSize);
+    }
+
+    [Fact]
+    public unsafe void CompactSceneBuffersGrowOnceForLargerRetainedWorkloads()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        using var target = new GpuTexture(
+            window.Context,
+            64,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Compact scene-buffer growth target");
+        var options = CompositorOptions.Default with
+        {
+            InitialVertexCount = 16,
+            InitialIndexCount = 24,
+            InitialBrushCount = 4,
+            InitialGradientStopCount = 4,
+            EnableGpuHitTesting = false
+        };
+        using var compositor = new Compositor(
+            window.Context,
+            TextureFormat.Rgba8Unorm,
+            options);
+        var visual = new DrawingVisual();
+        for (int index = 0; index < 300; index++)
+        {
+            float phase = index / 300f;
+            visual.Context.DrawRectangle(
+                new LinearGradientBrush(
+                    Vector2.Zero,
+                    Vector2.One,
+                    [
+                        new GradientStop(new Vector4(phase, 0.4f, 0.8f, 1f), 0f),
+                        new GradientStop(new Vector4(0.2f, phase, 0.6f, 1f), 1f)
+                    ]),
+                null,
+                new Rect(index % 60, index / 60, 4, 4));
+        }
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+        byte[] pixels = target.ReadPixels();
+        bool hasVisiblePixel = false;
+        for (int offset = 3; offset < pixels.Length; offset += 4)
+        {
+            if (pixels[offset] == 0)
+            {
+                continue;
+            }
+
+            hasVisiblePixel = true;
+            break;
+        }
+        Assert.True(hasVisiblePixel);
+
+        GpuBuffer vectorBuffer =
+            GetCompositorField<GpuBuffer>(compositor, "_vectorVertexBuffer");
+        uint grownSize = vectorBuffer.Size;
+        Assert.True(grownSize > options.InitialVertexCount * (uint)Marshal.SizeOf<VectorVertex>());
+        Assert.True(
+            grownSize >=
+            (uint)compositor.Metrics.VectorVerticesCount * (uint)Marshal.SizeOf<VectorVertex>());
+        GpuBuffer brushBuffer =
+            GetCompositorField<GpuBuffer>(compositor, "_brushesStorageBuffer");
+        GpuBuffer gradientBuffer =
+            GetCompositorField<GpuBuffer>(compositor, "_gradientStopsStorageBuffer");
+        uint grownBrushSize = brushBuffer.Size;
+        uint grownGradientSize = gradientBuffer.Size;
+        Assert.True(grownBrushSize >= 300u * (uint)Marshal.SizeOf<GpuBrush>());
+        Assert.True(grownGradientSize >= 600u * (uint)Marshal.SizeOf<GpuGradientStop>());
+        Assert.Equal((ulong)grownBrushSize, compositor.Metrics.BrushStorageBufferBytes);
+        Assert.Equal((ulong)grownGradientSize, compositor.Metrics.GradientStopStorageBufferBytes);
+        Assert.Equal(300, compositor.Metrics.ActiveBrushCount);
+        Assert.Equal(600, compositor.Metrics.ActiveGradientStopCount);
+        Assert.Equal(0UL, compositor.Metrics.EffectParameterBufferBytes);
+        Assert.Equal(0, compositor.Metrics.EffectShaderCount);
+        Assert.Equal(0, compositor.Metrics.EffectPipelineCount);
+        Assert.Equal(1, compositor.Metrics.SceneShaderCount);
+        Assert.Equal(1, compositor.Metrics.SceneRenderPipelineCount);
+        Assert.Equal(0, compositor.Metrics.SceneComputePipelineCount);
+        Assert.Null(compositor.LastHitTestIndex);
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+
+        Assert.Equal(grownSize, vectorBuffer.Size);
+        Assert.Equal(grownSize, GetCompositorField<GpuBuffer>(compositor, "_vectorVertexBuffer").Size);
+        Assert.Equal(grownBrushSize, brushBuffer.Size);
+        Assert.Equal(grownGradientSize, gradientBuffer.Size);
     }
 
     [Fact]
@@ -3580,6 +4869,166 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         {
             texture.Dispose();
         }
+    }
+
+    [Fact]
+    public void MaskTexturePoolReleasesSurplusReturnedTextures()
+    {
+        using var window = new HeadlessWindow(
+            128,
+            48,
+            CompositorOptions.Default with { MaximumPooledMaskTextures = 2 });
+        window.Content = new TextureOpacityMaskDemandVisual();
+
+        window.Render();
+
+        Assert.Equal(2, GetMaskTexturePool(window.Compositor).Count);
+        Assert.Equal(2, window.Compositor.Metrics.MaskBindGroupCount);
+        Assert.Equal(2, window.Compositor.Metrics.MaskRenderBindGroupCount);
+        Assert.True(window.Compositor.Metrics.MaskTexturePeakDemand >= 2);
+    }
+
+    [Fact]
+    public void MaskTexturePoolDropsHistoricalSizeVariantsToRecentDemand()
+    {
+        using var window = new HeadlessWindow(
+            64,
+            64,
+            CompositorOptions.Default with { MaximumPooledMaskTextures = 128 });
+        var maskTexturePool = GetMaskTexturePool(window.Compositor);
+        var historicalTextures = new List<GpuTexture>();
+        for (uint size = 1; size <= 40; size++)
+        {
+            var texture = new GpuTexture(
+                window.Context,
+                size,
+                size,
+                TextureFormat.R8Unorm,
+                TextureUsage.TextureBinding | TextureUsage.RenderAttachment | TextureUsage.CopyDst,
+                $"Historical Mask Pool Entry {size}");
+            historicalTextures.Add(texture);
+            maskTexturePool.Add(texture);
+        }
+
+        InvokeTrimMaskTexturePool(window.Compositor, currentDemand: 1);
+
+        Assert.Equal(3, maskTexturePool.Count);
+        Assert.Equal(37, historicalTextures.Count(static texture => texture.IsDisposed));
+        Assert.All(maskTexturePool, static texture => Assert.False(texture.IsDisposed));
+    }
+
+    [Fact]
+    public void AffineRectangleClipUsesAnalyticMaskWithoutTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new AffineRectangleClipVisual();
+
+        window.Render();
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.True(metrics.AffineRectangleMaskPeakDemand >= 1);
+        Assert.Equal(1, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+        Assert.Empty(GetMaskTexturePool(window.Compositor));
+
+        byte[] pixels = window.ReadPixels();
+        var center = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        var clippedCorner = ReadPixel(
+            pixels,
+            window.Width,
+            x: 16,
+            y: 16);
+        Assert.True(
+            center.B >= 220 && center.R <= 35 && center.G <= 35,
+            $"Expected blue inside affine clip, found {center}.");
+        Assert.True(
+            clippedCorner.R <= 35 &&
+            clippedCorner.G <= 35 &&
+            clippedCorner.B <= 35,
+            $"Expected transformed clip to reject corner, found {clippedCorner}.");
+    }
+
+    [Fact]
+    public void OutermostOffscreenAffineRectangleClipUsesAnalyticMask()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        using var target = new GpuTexture(
+            window.Context,
+            64,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+            TextureUsage.TextureBinding |
+            TextureUsage.CopySrc,
+            "Outermost Offscreen Analytic Mask Target");
+        var visual = new AffineRectangleClipVisual();
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 64,
+            height: 64,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 64,
+            height: 64,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.True(metrics.AffineRectangleMaskPeakDemand >= 1);
+        Assert.Equal(1, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+        Assert.Empty(GetMaskTexturePool(window.Compositor));
+
+        byte[] pixels = target.ReadPixels();
+        var center = ReadPixel(pixels, 64, x: 32, y: 32);
+        var clippedCorner = ReadPixel(pixels, 64, x: 16, y: 16);
+        Assert.True(
+            center.B >= 220 && center.R <= 35 && center.G <= 35,
+            $"Expected blue inside offscreen affine clip, found {center}.");
+        Assert.True(
+            clippedCorner.R <= 35 &&
+            clippedCorner.G <= 35 &&
+            clippedCorner.B <= 35,
+            $"Expected offscreen affine clip to reject corner, found {clippedCorner}.");
+    }
+
+    [Fact]
+    public void AffineRoundedClipUsesAnalyticMaskWithoutTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new AffineRoundedClipVisual();
+
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.True(metrics.RoundedGeometryMaskPeakDemand >= 1);
+        Assert.Equal(1, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+
+        byte[] pixels = window.ReadPixels();
+        var center = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        var roundedCorner = ReadPixel(
+            pixels,
+            window.Width,
+            x: 24,
+            y: 12);
+        Assert.True(
+            center.G >= 220 && center.R <= 35 && center.B <= 35,
+            $"Expected green inside affine rounded clip, found {center}.");
+        Assert.True(
+            roundedCorner.R <= 35 &&
+            roundedCorner.G <= 35 &&
+            roundedCorner.B <= 35,
+            $"Expected rounded corner to reject coverage, found {roundedCorner}.");
     }
 
     [Fact]
@@ -4396,6 +5845,99 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         return Assert.IsType<T>(field.GetValue(target));
     }
 
+    private static int GetPrivateCollectionCount(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var collection = Assert.IsAssignableFrom<System.Collections.ICollection>(field.GetValue(target));
+        return collection.Count;
+    }
+
+    private static unsafe nint GetPrivatePointerField(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        object? value = field.GetValue(target);
+        Assert.NotNull(value);
+        return (nint)Pointer.Unbox(value);
+    }
+
+    private static void InvokePrivateMethod(object target, string methodName)
+    {
+        var method = target.GetType().GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method.Invoke(target, parameters: null);
+    }
+
+    private static unsafe nint InvokePrivatePointerMethod(
+        object target,
+        string methodName,
+        params object[] parameters)
+    {
+        var method = target.GetType().GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        object? value = method.Invoke(target, parameters);
+        Assert.NotNull(value);
+        return (nint)Pointer.Unbox(value);
+    }
+
+    private static unsafe void AssertSharedTargetBindingObjects(Compositor compositor)
+    {
+        string[] primaryFields =
+        [
+            "_vectorUniformBindGroupLayout",
+            "_textUniformBindGroupLayout",
+            "_textureUniformBindGroupLayout",
+            "_pathAtlasBindGroupLayout",
+            "_atlasBindGroupLayout",
+            "_textureBindGroupLayout",
+            "_maskBindGroupLayout",
+            "_vectorPipelineLayout",
+            "_textPipelineLayout",
+            "_texturePipelineLayout",
+            "_retainedGlyphPipelineLayout",
+            "_vectorUniformBindGroup",
+            "_textUniformBindGroup",
+            "_textureUniformBindGroup",
+            "_pathAtlasBindGroup",
+            "_atlasBindGroup",
+            "_dummyMaskBindGroup"
+        ];
+        string[] offscreenFields =
+        [
+            "_vectorUniformBindGroupLayoutOffscreen",
+            "_textUniformBindGroupLayoutOffscreen",
+            "_textureUniformBindGroupLayoutOffscreen",
+            "_pathAtlasBindGroupLayoutOffscreen",
+            "_atlasBindGroupLayoutOffscreen",
+            "_textureBindGroupLayoutOffscreen",
+            "_maskBindGroupLayoutOffscreen",
+            "_vectorPipelineLayoutOffscreen",
+            "_textPipelineLayoutOffscreen",
+            "_texturePipelineLayoutOffscreen",
+            "_retainedGlyphPipelineLayoutOffscreen",
+            "_vectorUniformBindGroupOffscreen",
+            "_textUniformBindGroupOffscreen",
+            "_textureUniformBindGroupOffscreen",
+            "_pathAtlasBindGroupOffscreen",
+            "_atlasBindGroupOffscreen",
+            "_dummyMaskBindGroupOffscreen"
+        ];
+
+        for (int i = 0; i < primaryFields.Length; i++)
+        {
+            Assert.Equal(
+                GetPrivatePointerField(compositor, primaryFields[i]),
+                GetPrivatePointerField(compositor, offscreenFields[i]));
+        }
+    }
+
     private static object? GetRawCompositorField(Compositor compositor, string fieldName)
     {
         var field = typeof(Compositor).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
@@ -4482,6 +6024,15 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var method = typeof(Compositor).GetMethod("GetMaskTexture", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         return Assert.IsType<GpuTexture>(method.Invoke(compositor, [width, height]));
+    }
+
+    private static void InvokeTrimMaskTexturePool(Compositor compositor, int currentDemand)
+    {
+        var method = typeof(Compositor).GetMethod(
+            "TrimMaskTexturePool",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method.Invoke(compositor, [currentDemand]);
     }
 
     private static GpuTexture CreateSolidTexture(WgpuContext context, byte[] rgba, string label)
@@ -5071,6 +6622,34 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
     }
 
+    private sealed class GradientOpacityMaskedVisual : FrameworkElement
+    {
+        public GradientOpacityMaskedVisual()
+        {
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.PushOpacityMask(
+                new LinearGradientBrush(
+                    Vector2.Zero,
+                    new Vector2(32f, 0f),
+                    new[]
+                    {
+                        new GradientStop(Vector4.One, 0f),
+                        new GradientStop(Vector4.One, 1f)
+                    }),
+                new Rect(0f, 0f, 32f, 32f));
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+                pen: null,
+                new Rect(0f, 0f, 32f, 32f));
+            context.PopOpacityMask();
+        }
+    }
+
     private sealed class OffsetViewportOpacityMaskVisual : FrameworkElement
     {
         public OffsetViewportOpacityMaskVisual()
@@ -5178,6 +6757,38 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 new Rect(80f, 0f, 32f, 32f));
             context.DrawRectangle(_red, null, new Rect(80f, 0f, 32f, 32f));
             context.PopOpacityMask();
+        }
+    }
+
+    private sealed class TextureOpacityMaskDemandVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+
+        public TextureOpacityMaskDemandVisual()
+        {
+            Width = 120f;
+            Height = 40f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            for (int index = 0; index < 3; index++)
+            {
+                var bounds = new Rect(index * 40f, 0f, 32f, 32f);
+                context.PushOpacityMask(
+                    new LinearGradientBrush(
+                        bounds.Position,
+                        bounds.Position + new Vector2(bounds.Width, 0f),
+                        new[]
+                        {
+                            new GradientStop(Vector4.One, 0f),
+                            new GradientStop(Vector4.One, 1f)
+                        }),
+                    bounds);
+                context.DrawRectangle(_red, null, bounds);
+                context.PopOpacityMask();
+            }
         }
     }
 
@@ -5533,9 +7144,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             for (var pathIndex = 0; pathIndex < _pathCount; pathIndex++)
             {
                 var variantOffset = _variant * 0.25f;
-                var path = PrimitivePathGeometry.CreateRectangle(
-                    0f,
-                    0f,
+                var path = CreatePathAtlasPressurePath(
                     8f + pathIndex % 4 + variantOffset,
                     8f + pathIndex / 4 + variantOffset);
                 context.DrawPath(
@@ -5601,6 +7210,63 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 isLargeArc: false,
                 SweepDirection.Clockwise));
             return figure;
+        }
+    }
+
+    private sealed class CombinedPartialRoundedBorderVisual : FrameworkElement
+    {
+        public CombinedPartialRoundedBorderVisual()
+        {
+            Width = 128f;
+            Height = 96f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f)),
+                null,
+                new Rect(0f, 0f, 128f, 96f));
+            context.DrawPath(
+                new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+                null,
+                new PathGeometry
+                {
+                    IsCombined = true,
+                    Op = 0,
+                    PathA = CreateContourPath(8f, 8f, 120f, 88f, 9f, 9f),
+                    PathB = CreateContourPath(9f, 9f, 119f, 88f, 8f, 8f)
+                });
+        }
+
+        private static PathGeometry CreateContourPath(
+            float left,
+            float top,
+            float right,
+            float bottom,
+            float topLeftRadius,
+            float topRightRadius)
+        {
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(left + topLeftRadius, top), isClosed: true);
+            figure.Segments.Add(new LineSegment(new Vector2(right - topRightRadius, top)));
+            figure.Segments.Add(new ArcSegment(
+                new Vector2(right, top + topRightRadius),
+                new Vector2(topRightRadius),
+                rotationAngle: 0f,
+                isLargeArc: false,
+                SweepDirection.Clockwise));
+            figure.Segments.Add(new LineSegment(new Vector2(right, bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(left, bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(left, top + topLeftRadius)));
+            figure.Segments.Add(new ArcSegment(
+                new Vector2(left + topLeftRadius, top),
+                new Vector2(topLeftRadius),
+                rotationAngle: 0f,
+                isLargeArc: false,
+                SweepDirection.Clockwise));
+            path.Figures.Add(figure);
+            return path;
         }
     }
 
@@ -5742,9 +7408,68 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
     }
 
-    private sealed class OversizedPathVisual : FrameworkElement
+    private sealed class CanonicalRectanglePathVisual : FrameworkElement
     {
-        public OversizedPathVisual()
+        private readonly float _width;
+        private readonly float _height;
+
+        public CanonicalRectanglePathVisual(float size)
+            : this(size, size, 96f, 96f)
+        {
+        }
+
+        public CanonicalRectanglePathVisual(
+            float width,
+            float height,
+            float visualWidth,
+            float visualHeight)
+        {
+            _width = width;
+            _height = height;
+            Width = visualWidth;
+            Height = visualHeight;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
+            figure.Segments.Add(new LineSegment(new Vector2(_width, 0f)));
+            figure.Segments.Add(new LineSegment(new Vector2(_width, _height)));
+            figure.Segments.Add(new LineSegment(new Vector2(0f, _height)));
+            path.Figures.Add(figure);
+            context.DrawPath(
+                new SolidColorBrush(Vector4.One),
+                null,
+                path,
+                Matrix4x4.Identity);
+        }
+    }
+
+    private sealed class RotatedCanonicalRectanglePathVisual : FrameworkElement
+    {
+        public RotatedCanonicalRectanglePathVisual()
+        {
+            Width = 128f;
+            Height = 96f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var transform =
+                Matrix4x4.CreateRotationZ(MathF.PI / 9f) *
+                Matrix4x4.CreateTranslation(24f, 16f, 0f);
+            context.DrawPath(
+                new SolidColorBrush(Vector4.One),
+                null,
+                PrimitivePathGeometry.CreateRectangle(0f, 0f, 80f, 24f),
+                transform);
+        }
+    }
+
+    private sealed class OversizedArbitraryPathVisual : FrameworkElement
+    {
+        public OversizedArbitraryPathVisual()
         {
             Width = 96f;
             Height = 96f;
@@ -5752,10 +7477,15 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         public override void OnRender(DrawingContext context)
         {
+            var path = new PathGeometry();
+            var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
+            figure.Segments.Add(new LineSegment(new Vector2(80f, 0f)));
+            figure.Segments.Add(new LineSegment(new Vector2(40f, 80f)));
+            path.Figures.Add(figure);
             context.DrawPath(
                 new SolidColorBrush(Vector4.One),
                 null,
-                PrimitivePathGeometry.CreateRectangle(0f, 0f, 80f, 80f),
+                path,
                 Matrix4x4.Identity);
         }
     }
@@ -5891,6 +7621,64 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                     ]),
                 null,
                 new Rect(4f, 4f, 32f, 20f));
+        }
+    }
+
+    private sealed class AffineRectangleClipVisual : FrameworkElement
+    {
+        public AffineRectangleClipVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            Matrix4x4 transform =
+                Matrix4x4.CreateTranslation(-32f, -32f, 0f) *
+                Matrix4x4.CreateRotationZ(MathF.PI / 4f) *
+                Matrix4x4.CreateTranslation(32f, 32f, 0f);
+            context.PushClip(
+                new Rect(16f, 16f, 32f, 32f),
+                transform);
+            context.DrawRectangle(
+                new SolidColorBrush(
+                    new Vector4(0f, 0f, 1f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            context.PopClip();
+        }
+    }
+
+    private sealed class AffineRoundedClipVisual : FrameworkElement
+    {
+        public AffineRoundedClipVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            Matrix4x4 transform =
+                Matrix4x4.CreateTranslation(-32f, -32f, 0f) *
+                Matrix4x4.CreateRotationZ(MathF.PI / 8f) *
+                Matrix4x4.CreateTranslation(32f, 32f, 0f);
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    16f,
+                    16f,
+                    32f,
+                    32f,
+                    8f,
+                    5f),
+                transform);
+            context.DrawRectangle(
+                new SolidColorBrush(
+                    new Vector4(0f, 1f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
         }
     }
 

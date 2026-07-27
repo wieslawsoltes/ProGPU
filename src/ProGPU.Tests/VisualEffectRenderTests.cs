@@ -1,6 +1,4 @@
-using System.Collections.Generic;
 using System.Numerics;
-using System.Reflection;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Scene;
@@ -66,15 +64,87 @@ public sealed class VisualEffectRenderTests
             padding: 0f,
             dpiScale: 2f);
 
-        var textures = GetEffectTextures(window.Compositor);
-        var cached = Assert.Single(textures);
-        Assert.Same(visual, cached.Key);
-        Assert.Equal(24u, cached.Value.Source.Width);
-        Assert.Equal(16u, cached.Value.Source.Height);
-        Assert.Equal(24u, cached.Value.Temp.Width);
-        Assert.Equal(16u, cached.Value.Temp.Height);
-        Assert.Equal(24u, cached.Value.Destination.Width);
-        Assert.Equal(16u, cached.Value.Destination.Height);
+        Assert.Equal(24u * 16u * 4u, window.Compositor.Metrics.EffectTextureBytes);
+    }
+
+    [Fact]
+    public void BlurredVisualRetainsOnlyRequiredThreeColorSurfaces()
+    {
+        using var window = new HeadlessWindow(40, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            40,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Blur Effect Residency Test Target");
+        var visual = CreateEffectVisual(new BlurEffect(4f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 40,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        const ulong paddedPixels = 28u * 24u;
+        Assert.Equal(paddedPixels * 4u * 3u, window.Compositor.Metrics.EffectTextureBytes);
+    }
+
+    [Fact]
+    public void SharpShadowDoesNotRetainBlurTemporary()
+    {
+        using var window = new HeadlessWindow(24, 16);
+        using var target = new GpuTexture(
+            window.Context,
+            24,
+            16,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Sharp Shadow Residency Test Target");
+        var visual = CreateEffectVisual(new DropShadowEffect(0f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 12,
+            height: 8,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        const ulong sourcePixels = 12u * 8u;
+        Assert.Equal(sourcePixels * 4u * 2u, window.Compositor.Metrics.EffectTextureBytes);
+    }
+
+    [Fact]
+    public void BlurredShadowPacksFourIntermediateCoveragesPerTexel()
+    {
+        using var window = new HeadlessWindow(40, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            40,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Blurred Shadow Residency Test Target");
+        var visual = CreateEffectVisual(new DropShadowEffect(4f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 40,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        const ulong paddedWidth = 28u;
+        const ulong paddedHeight = 24u;
+        const ulong sourceAndDestinationBytes = paddedWidth * paddedHeight * 8u;
+        const ulong packedTemporaryBytes = ((paddedWidth + 3u) / 4u) * paddedHeight * 4u;
+        Assert.Equal(
+            sourceAndDestinationBytes + packedTemporaryBytes,
+            window.Compositor.Metrics.EffectTextureBytes);
     }
 
     [Fact]
@@ -94,6 +164,34 @@ public sealed class VisualEffectRenderTests
             Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, childPrimitive.Kind);
             Assert.Equal(new Vector2(20f, 15f), childPrimitive.BoundsMin);
             Assert.Equal(new Vector2(50f, 35f), childPrimitive.BoundsMax);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void VisualEffectCapturesExplicitTranslatedContentBounds()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 60);
+        window.Content = new ExplicitEffectBoundsVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var content = ReadPixel(pixels, window.Width, x: 35, y: 25);
+            var outside = ReadPixel(pixels, window.Width, x: 15, y: 25);
+
+            Assert.InRange(content.R, 245, 255);
+            Assert.InRange(content.G, 0, 10);
+            Assert.InRange(content.B, 0, 10);
+            Assert.InRange(outside.R, 0, 40);
+            Assert.InRange(outside.G, 0, 40);
+            Assert.InRange(outside.B, 0, 40);
         }
         finally
         {
@@ -127,11 +225,18 @@ public sealed class VisualEffectRenderTests
         Assert.Equal(255, pixel.A);
     }
 
-    private static Dictionary<Visual, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)> GetEffectTextures(Compositor compositor)
+    private static DrawingVisual CreateEffectVisual(EffectBase effect)
     {
-        var field = typeof(Compositor).GetField("_effectTextures", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return Assert.IsType<Dictionary<Visual, (GpuTexture Source, GpuTexture Temp, GpuTexture Destination)>>(field.GetValue(compositor));
+        var visual = new DrawingVisual
+        {
+            Size = new Vector2(12f, 8f),
+            Effect = effect
+        };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 12f, 8f));
+        return visual;
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
@@ -214,6 +319,27 @@ public sealed class VisualEffectRenderTests
         protected override void ArrangeOverride(Rect arrangeRect)
         {
             _child.Arrange(new Rect(10f, 10f, 30f, 20f));
+        }
+    }
+
+    private sealed class ExplicitEffectBoundsVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+
+        public ExplicitEffectBoundsVisual()
+        {
+            Effect = new BlurEffect(0f);
+            EffectContentBounds = new Rect(25f, 15f, 30f, 20f);
+            EffectRasterPadding = 0f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _red,
+                null,
+                new Rect(25f, 15f, 30f, 20f));
         }
     }
 }

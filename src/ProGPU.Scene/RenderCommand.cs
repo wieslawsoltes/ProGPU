@@ -37,6 +37,7 @@ public enum RenderCommandType
     DrawGpuLineSeries,
     DrawGpuScatterSeries,
     DrawPicture, // New: Skia-like SKPicture command
+    DrawVisual,
     DrawExtension,
     PushGeometryClip,
     PopGeometryClip,
@@ -290,6 +291,15 @@ public enum TextHintingMode
     Auto,
     Fixed,
     Animated
+}
+
+[Flags]
+public enum RenderCommandPresentationDependencies : byte
+{
+    None = 0,
+    TextureSampling = 1 << 0,
+    TextRendering = 1 << 1,
+    TextHinting = 1 << 2
 }
 
 public struct Line3D
@@ -572,6 +582,7 @@ public struct RenderCommand
     public float Rotation;
     public TextRenderingMode TextRenderingMode;
     public TextHintingMode TextHintingMode;
+    public RenderCommandPresentationDependencies PresentationDependencies;
     public bool UseVectorGlyphRendering;
     public bool PreferGlyphAtlas;
     public bool UseLogicalGlyphAtlasResolution;
@@ -658,9 +669,15 @@ public struct RenderCommand
     // Picture property
     public GpuPicture? Picture;
 
+    // Borrowed retained-scene root. The owner must keep the visual alive and
+    // immutable except through Visual's invalidating property/child APIs.
+    public Visual? Visual;
+
     // Glyph run properties (Skia SKTextBlob compatibility)
     public ushort[]? GlyphIndices;
     public Vector2[]? GlyphPositions;
+    public int GlyphRangeStart;
+    public int GlyphRangeCount;
 
     // Batched two-dimensional vertex mesh properties
     public VertexMesh2D? VertexMesh;
@@ -830,6 +847,37 @@ public class GpuPicture : IRenderDataProvider, IDisposable
         return leases;
     }
 
+    internal void AppendRetainedResourcesTo(List<RetainedResourceLease> destination)
+    {
+        for (int index = 0; index < _retainedResources.Length; index++)
+        {
+            RetainedResourceLease resource = _retainedResources[index];
+            object? identity = resource.Identity;
+            if (identity is not null &&
+                HasRetainedResourceIdentity(destination, identity))
+            {
+                continue;
+            }
+
+            destination.Add(resource.AddRef());
+        }
+    }
+
+    private static bool HasRetainedResourceIdentity(
+        List<RetainedResourceLease> resources,
+        object identity)
+    {
+        for (int index = 0; index < resources.Count; index++)
+        {
+            if (ReferenceEquals(resources[index].Identity, identity))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -894,15 +942,19 @@ public class GpuPictureRecorder
 public class DrawingContext : IRenderDataProvider
 {
     public List<RenderCommand> Commands { get; } = new();
-    private readonly List<RetainedResourceLease> _retainedResources = new();
+    private List<RetainedResourceLease>? _retainedResources;
+    private List<Vector2>? _pointBuffer;
+    private List<double>? _doubleBuffer;
+    private List<Line3D>? _line3DBuffer;
+    private List<float>? _floatBuffer;
 
     // Reusable continuous pools to eliminate heap array allocations
-    public List<Vector2> PointBuffer { get; } = new();
-    public List<double> DoubleBuffer { get; } = new();
-    public List<Line3D> Line3DBuffer { get; } = new();
-    public List<float> FloatBuffer { get; } = new();
+    public List<Vector2> PointBuffer => _pointBuffer ??= new();
+    public List<double> DoubleBuffer => _doubleBuffer ??= new();
+    public List<Line3D> Line3DBuffer => _line3DBuffer ??= new();
+    public List<float> FloatBuffer => _floatBuffer ??= new();
 
-    public int RetainedResourceCount => _retainedResources.Count;
+    public int RetainedResourceCount => _retainedResources?.Count ?? 0;
 
     /// <summary>
     /// Reserves storage for a known upper bound of retained commands. Repeated
@@ -915,10 +967,24 @@ public class DrawingContext : IRenderDataProvider
         Commands.EnsureCapacity(capacity);
     }
 
+    /// <summary>
+    /// Compacts the command backing array after a retained recording has
+    /// reached a stable command count. Subsequent recordings with the same
+    /// count reuse this exact capacity.
+    /// </summary>
+    public void TrimRetainedCommandCapacity()
+    {
+        if (Commands.Capacity != Commands.Count)
+        {
+            Commands.Capacity = Commands.Count;
+        }
+    }
+
     public void RetainResource(IDisposable resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        _retainedResources.Add(RetainedResourceLease.Create(resource));
+        (_retainedResources ??= new List<RetainedResourceLease>())
+            .Add(RetainedResourceLease.Create(resource));
     }
 
     /// <summary>
@@ -984,7 +1050,10 @@ public class DrawingContext : IRenderDataProvider
         }
         else
         {
-            _retainedResources.Add(RetainedResourceLease.Create(textureLease, leasedTexture));
+            (_retainedResources ??= new List<RetainedResourceLease>())
+                .Add(RetainedResourceLease.Create(
+                    textureLease,
+                    leasedTexture));
         }
 
         texture = leasedTexture;
@@ -993,6 +1062,9 @@ public class DrawingContext : IRenderDataProvider
 
     private bool HasRetainedResourceIdentity(object identity)
     {
+        if (_retainedResources == null)
+            return false;
+
         for (int i = 0; i < _retainedResources.Count; i++)
         {
             if (ReferenceEquals(_retainedResources[i].Identity, identity))
@@ -1006,15 +1078,18 @@ public class DrawingContext : IRenderDataProvider
 
     private static void ValidateTextureContext(GpuTexture texture, WgpuContext requiredContext)
     {
-        if (!ReferenceEquals(texture.Context, requiredContext))
+        if (!texture.Context.SharesDeviceWith(requiredContext))
         {
             throw new InvalidOperationException(
-                "Cannot retain a texture from a different WebGPU context for deferred command replay.");
+                "Cannot retain a texture from a different WebGPU context/device domain for deferred command replay.");
         }
     }
 
     internal RetainedResourceLease[] CloneRetainedResources()
     {
+        if (_retainedResources == null)
+            return Array.Empty<RetainedResourceLease>();
+
         var leases = new RetainedResourceLease[_retainedResources.Count];
         for (int i = 0; i < leases.Length; i++)
         {
@@ -1132,6 +1207,36 @@ public class DrawingContext : IRenderDataProvider
             Path = path,
             Transform = transform,
             GeometryCache = RenderCommandGeometryCache.ForPath(path)
+        });
+    }
+
+    /// <summary>
+    /// Records a transformed retained path using a cache previously created for the same
+    /// geometry. The transform remains command-local and does not affect cache identity.
+    /// </summary>
+    public void DrawPath(
+        Brush? brush,
+        Pen? pen,
+        PathGeometry path,
+        Matrix4x4 transform,
+        RenderCommandGeometryCache geometryCache)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(geometryCache);
+        if ((brush != null && !ReferenceEquals(geometryCache.FillPath, path)) ||
+            (pen != null && !ReferenceEquals(geometryCache.StrokePath, path)))
+        {
+            throw new ArgumentException("The retained geometry cache does not match the path.", nameof(geometryCache));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Brush = brush,
+            Pen = pen,
+            Path = path,
+            Transform = transform,
+            GeometryCache = geometryCache
         });
     }
 
@@ -1262,9 +1367,64 @@ public class DrawingContext : IRenderDataProvider
         bool preferGlyphAtlas = false,
         bool useLogicalGlyphAtlasResolution = false)
     {
-        DrawTransformedGlyphRun(
+        AddGlyphRun(
             glyphIndices,
             glyphPositions,
+            0,
+            glyphIndices.Length,
+            font,
+            fontSize,
+            brush,
+            position,
+            transform,
+            isBold,
+            isItalic,
+            textRenderingMode,
+            textHintingMode,
+            useVectorGlyphRendering,
+            preferGlyphAtlas,
+            useLogicalGlyphAtlasResolution,
+            fontScaleX: 1f,
+            fontSkewX: 0f);
+    }
+
+    /// <summary>
+    /// Records a range of an existing shaped glyph run without allocating
+    /// sliced glyph or position arrays.
+    /// </summary>
+    public void DrawGlyphRunRange(
+        ushort[] glyphIndices,
+        Vector2[] glyphPositions,
+        int glyphRangeStart,
+        int glyphRangeCount,
+        TtfFont font,
+        float fontSize,
+        Brush brush,
+        Vector2 position,
+        Matrix4x4 transform = default,
+        bool isBold = false,
+        bool isItalic = false,
+        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
+        TextHintingMode textHintingMode = TextHintingMode.Auto,
+        bool useVectorGlyphRendering = false,
+        bool preferGlyphAtlas = false,
+        bool useLogicalGlyphAtlasResolution = false)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndices);
+        ArgumentNullException.ThrowIfNull(glyphPositions);
+        ArgumentOutOfRangeException.ThrowIfNegative(glyphRangeStart);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(glyphRangeCount);
+        if (glyphRangeStart > glyphIndices.Length - glyphRangeCount ||
+            glyphRangeStart > glyphPositions.Length - glyphRangeCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(glyphRangeCount));
+        }
+
+        AddGlyphRun(
+            glyphIndices,
+            glyphPositions,
+            glyphRangeStart,
+            glyphRangeCount,
             font,
             fontSize,
             brush,
@@ -1299,11 +1459,54 @@ public class DrawingContext : IRenderDataProvider
         float fontScaleX = 1f,
         float fontSkewX = 0f)
     {
+        AddGlyphRun(
+            glyphIndices,
+            glyphPositions,
+            0,
+            glyphIndices.Length,
+            font,
+            fontSize,
+            brush,
+            position,
+            transform,
+            isBold,
+            isItalic,
+            textRenderingMode,
+            textHintingMode,
+            useVectorGlyphRendering,
+            preferGlyphAtlas,
+            useLogicalGlyphAtlasResolution,
+            fontScaleX,
+            fontSkewX);
+    }
+
+    private void AddGlyphRun(
+        ushort[] glyphIndices,
+        Vector2[] glyphPositions,
+        int glyphRangeStart,
+        int glyphRangeCount,
+        TtfFont font,
+        float fontSize,
+        Brush brush,
+        Vector2 position,
+        Matrix4x4 transform,
+        bool isBold,
+        bool isItalic,
+        TextRenderingMode textRenderingMode,
+        TextHintingMode textHintingMode,
+        bool useVectorGlyphRendering,
+        bool preferGlyphAtlas,
+        bool useLogicalGlyphAtlasResolution,
+        float fontScaleX,
+        float fontSkewX)
+    {
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawGlyphRun,
             GlyphIndices = glyphIndices,
             GlyphPositions = glyphPositions,
+            GlyphRangeStart = glyphRangeStart,
+            GlyphRangeCount = glyphRangeCount,
             Font = font,
             FontSize = fontSize,
             Brush = brush,
@@ -1464,8 +1667,10 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             Position = p1,
             Position2 = p2,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreateLinePath(p1, p2))
+            GeometryCache = pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForStrokePath(
+                    RenderCommandGeometryCache.CreateLinePath(p1, p2))
+                : null
         });
     }
 
@@ -1630,9 +1835,7 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             Position = p0,
             Position2 = p1,
-            Position3 = p2,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreateQuadraticBezierPath(p0, p1, p2))
+            Position3 = p2
         });
     }
 
@@ -1645,9 +1848,7 @@ public class DrawingContext : IRenderDataProvider
             Position = p0,
             Position2 = p1,
             Position3 = p2,
-            Position4 = p3,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreateCubicBezierPath(p0, p1, p2, p3))
+            Position4 = p3
         });
     }
 
@@ -1659,9 +1860,7 @@ public class DrawingContext : IRenderDataProvider
             Brush = brush,
             Position = p1,
             Position2 = p2,
-            Position3 = p3,
-            GeometryCache = RenderCommandGeometryCache.ForFillPath(
-                RenderCommandGeometryCache.CreateTrianglePath(p1, p2, p3))
+            Position3 = p3
         });
     }
 
@@ -1674,10 +1873,7 @@ public class DrawingContext : IRenderDataProvider
             Position = p1,
             Position2 = p2,
             Position3 = p3,
-            Position4 = p4,
-            GeometryCache = RenderCommandGeometryCache.ForFillPaths(
-                RenderCommandGeometryCache.CreateTrianglePath(p1, p2, p3),
-                RenderCommandGeometryCache.CreateTrianglePath(p1, p3, p4))
+            Position4 = p4
         });
     }
 
@@ -1746,9 +1942,7 @@ public class DrawingContext : IRenderDataProvider
             Pen = pen,
             PointBufferOffset = offset,
             PointBufferCount = count,
-            IsClosed = isClosed,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreatePolylinePath(points, isClosed))
+            IsClosed = isClosed
         });
     }
 
@@ -1800,9 +1994,7 @@ public class DrawingContext : IRenderDataProvider
             WeightBufferOffset = weightOffset,
             WeightBufferCount = weightCount,
             SplineDegree = degree,
-            IsClosed = isClosed,
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                RenderCommandGeometryCache.CreateSplinePath(controlPoints, knots, weights, degree, isClosed))
+            IsClosed = isClosed
         });
     }
 
@@ -1914,10 +2106,31 @@ public class DrawingContext : IRenderDataProvider
         });
     }
 
+    /// <summary>
+    /// Inserts a retained visual subtree at this point in the command stream.
+    /// The subtree remains owned by the caller and is compiled with the current
+    /// command transform. Changes must flow through <see cref="Visual"/>
+    /// invalidation so compiled-scene dependency validation can observe them.
+    /// </summary>
+    public void DrawVisual(Visual visual, Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(visual);
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawVisual,
+            Visual = visual,
+            Transform = transform
+        });
+    }
+
     private void RetainPictureResources(GpuPicture picture)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        AppendRetainedResources(picture.CloneRetainedResources());
+        if (picture.RetainedResourceCount == 0)
+            return;
+
+        picture.AppendRetainedResourcesTo(
+            _retainedResources ??= new List<RetainedResourceLease>());
     }
 
     public void DrawExtension(
@@ -2148,7 +2361,10 @@ public class DrawingContext : IRenderDataProvider
             return;
         }
 
-        _retainedResources.EnsureCapacity(checked(_retainedResources.Count + resources.Length));
+        var retainedResources =
+            _retainedResources ??= new List<RetainedResourceLease>();
+        retainedResources.EnsureCapacity(
+            checked(retainedResources.Count + resources.Length));
         for (int resourceIndex = 0; resourceIndex < resources.Length; resourceIndex++)
         {
             var resource = resources[resourceIndex];
@@ -2159,7 +2375,7 @@ public class DrawingContext : IRenderDataProvider
                 continue;
             }
 
-            _retainedResources.Add(resource);
+            retainedResources.Add(resource);
         }
     }
 
@@ -2299,15 +2515,18 @@ public class DrawingContext : IRenderDataProvider
     public void Clear()
     {
         Commands.Clear();
-        PointBuffer.Clear();
-        DoubleBuffer.Clear();
-        Line3DBuffer.Clear();
-        FloatBuffer.Clear();
+        _pointBuffer?.Clear();
+        _doubleBuffer?.Clear();
+        _line3DBuffer?.Clear();
+        _floatBuffer?.Clear();
         DisposeRetainedResources();
     }
 
     private void DisposeRetainedResources()
     {
+        if (_retainedResources == null)
+            return;
+
         for (int i = 0; i < _retainedResources.Count; i++)
         {
             _retainedResources[i].Dispose();

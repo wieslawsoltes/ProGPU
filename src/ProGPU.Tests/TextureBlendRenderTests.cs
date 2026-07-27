@@ -16,6 +16,163 @@ namespace ProGPU.Tests;
 public sealed class TextureBlendRenderTests
 {
     [Fact]
+    public void AdvancedBlendSourceTextureUsesClippedDrawBounds()
+    {
+        using var window = new HeadlessWindow(128, 96);
+        using var target = new GpuTexture(
+            window.Context,
+            128,
+            96,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.CopySrc,
+            "Bounded advanced blend test target");
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Bounded advanced blend source input",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        source.WritePixels<byte>([51, 204, 153, 255]);
+
+        var visual = new DrawingVisual { Size = new Vector2(128f, 96f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(0.8f, 0.4f, 0.2f, 1f)),
+            null,
+            new Rect(0f, 0f, 128f, 96f));
+        visual.Context.PushClip(new Rect(30f, 20f, 20f, 12f));
+        visual.Context.PushBlendMode(GpuBlendMode.Difference);
+        visual.Context.DrawTexture(
+            source,
+            new Rect(0f, 0f, 32f, 24f),
+            default,
+            Matrix4x4.CreateTranslation(24f, 12f, 0f));
+        visual.Context.PopBlendMode();
+        visual.Context.PopClip();
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 128,
+            height: 96,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        var pixels = target.ReadPixels();
+        var blended = ReadPixel(pixels, target.Width, 40, 26);
+        var clipped = ReadPixel(pixels, target.Width, 25, 18);
+        Assert.InRange(blended.R, 148, 158);
+        Assert.InRange(blended.G, 97, 107);
+        Assert.InRange(blended.B, 97, 107);
+        Assert.InRange(clipped.R, 199, 209);
+        Assert.InRange(clipped.G, 97, 107);
+        Assert.InRange(clipped.B, 46, 56);
+
+        Assert.Equal(128UL * 96UL * 4UL, window.Compositor.Metrics.AdvancedBlendScratchTextureBytes);
+        Assert.Equal(20UL * 12UL * 4UL, window.Compositor.Metrics.AdvancedBlendSourceTextureBytes);
+        Assert.Equal(
+            (128UL * 96UL + 20UL * 12UL) * 4UL,
+            window.Compositor.Metrics.AdvancedBlendTextureBytes);
+    }
+
+    [Fact]
+    public void BoundedAdvancedBlendPreservesGlobalOpacityMaskCoordinates()
+    {
+        using var window = new HeadlessWindow(96, 64);
+        using var target = new GpuTexture(
+            window.Context,
+            96,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.CopySrc,
+            "Masked bounded advanced blend target");
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Masked bounded advanced blend source",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        source.WritePixels<byte>([255, 255, 255, 255]);
+
+        var visual = new DrawingVisual { Size = new Vector2(96f, 64f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(0f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 96f, 64f));
+        visual.Context.PushOpacityMask(
+            new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)) { Opacity = 0.5f },
+            new Rect(24f, 16f, 32f, 24f));
+        visual.Context.PushBlendMode(GpuBlendMode.Screen);
+        visual.Context.DrawTexture(source, new Rect(24f, 16f, 32f, 24f));
+        visual.Context.PopBlendMode();
+        visual.Context.PopOpacityMask();
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 96,
+            height: 64,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        var pixels = target.ReadPixels();
+        var masked = ReadPixel(pixels, target.Width, 40, 28);
+        var outside = ReadPixel(pixels, target.Width, 12, 12);
+        Assert.InRange(masked.R, 122, 133);
+        Assert.InRange(masked.G, 122, 133);
+        Assert.InRange(masked.B, 122, 133);
+        Assert.Equal(new RgbaPixel(0, 0, 0, 255), outside);
+        Assert.Equal(32UL * 24UL * 4UL, window.Compositor.Metrics.AdvancedBlendSourceTextureBytes);
+    }
+
+    [Fact]
+    public void BoundedAdvancedBlendUsesPhysicalSourceBoundsAtRetinaScale()
+    {
+        using var window = new HeadlessWindow(128, 96);
+        using var target = new GpuTexture(
+            window.Context,
+            128,
+            96,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding | TextureUsage.CopySrc,
+            "Retina bounded advanced blend target");
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Retina bounded advanced blend source",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        source.WritePixels<byte>([255, 255, 255, 255]);
+
+        var visual = new DrawingVisual { Size = new Vector2(64f, 48f) };
+        visual.Context.DrawRectangle(
+            new SolidColorBrush(new Vector4(0f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 64f, 48f));
+        visual.Context.PushBlendMode(GpuBlendMode.Screen);
+        visual.Context.DrawTexture(source, new Rect(10f, 8f, 12f, 10f));
+        visual.Context.PopBlendMode();
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 64,
+            height: 48,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 2f);
+
+        var pixels = target.ReadPixels();
+        Assert.Equal(new RgbaPixel(255, 255, 255, 255), ReadPixel(pixels, target.Width, 32, 26));
+        Assert.Equal(new RgbaPixel(0, 0, 0, 255), ReadPixel(pixels, target.Width, 12, 12));
+        Assert.Equal(24UL * 20UL * 4UL, window.Compositor.Metrics.AdvancedBlendSourceTextureBytes);
+    }
+
+    [Fact]
     public void TextureShaderEvaluatesMitchellNetravaliCoefficients()
     {
         Assert.Contains("fn cubic_weight(x: f32, b: f32, c: f32)", Shaders.TextureShader);
