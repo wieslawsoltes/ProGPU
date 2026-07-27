@@ -150,13 +150,12 @@ for backend in "${backends[@]}"; do
 
   if [[ "$backend" == "source-progpu" ]]; then
     app="$source_app"
-    custom_visual_fixture=0
-    if [[ "$page" == "Composition" ]]; then
-      custom_visual_fixture=1
-    fi
   else
     app="$skia_app"
-    custom_visual_fixture=0
+  fi
+  custom_visual_fixture=0
+  if [[ "$page" == "Composition" ]]; then
+    custom_visual_fixture=1
   fi
 
   if [[ ! -f "$app" ]]; then
