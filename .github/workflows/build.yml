@@ -13,6 +13,138 @@ permissions:
   contents: read
 
 jobs:
+  avalonia-compositor-contract:
+    name: Avalonia retained compositor contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Run pinned Avalonia retained compositor contracts
+        shell: bash
+        run: ./tools/test-avalonia-progpu-compositor.sh
+
+  avalonia-text-contract:
+    name: Avalonia upstream text contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Run pinned Avalonia text corpus with ProGPU shaping
+        shell: bash
+        run: ./tools/test-avalonia-progpu-text.sh
+
+  avalonia-native-dawn-contract:
+    name: Avalonia native Dawn contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux X11 and Vulkan software adapter
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libc++1 \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0 \
+            xvfb
+
+      - name: Prepare pinned Avalonia source
+        shell: bash
+        run: ./tools/prepare-avalonia-12.0.5-source.sh
+
+      - name: Build native-window ControlCatalog and contracts
+        shell: bash
+        run: |
+          dotnet restore integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            -p:ProGpuSourceRoot="${{ github.workspace }}" \
+            -p:UseSkiaSharpShim=true
+          dotnet build integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
+            --configuration Release \
+            --no-restore \
+            -m:1 \
+            -p:ContinuousIntegrationBuild=true \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            -p:ProGpuSourceRoot="${{ github.workspace }}" \
+            -p:UseSkiaSharpShim=true
+          dotnet restore tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj
+          dotnet test tests/Avalonia.ProGpu.UnitTests/Avalonia.ProGpu.UnitTests.csproj \
+            --configuration Release \
+            --no-restore \
+            --filter "FullyQualifiedName~DawnNativeWindowSourceTests|FullyQualifiedName~SourceControlCatalogHasStrictNonSilkDawnPresentationGate"
+          dotnet build tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj \
+            --configuration Release
+
+      - name: Run X11 Vulkan ControlCatalog telemetry smoke
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PROGPU_AVALONIA_SKIP_BUILD: 1
+          PROGPU_AVALONIA_BACKENDS: source-progpu-native
+          PROGPU_AVALONIA_PAGE_FILTER: ^Buttons$
+          PROGPU_AVALONIA_WARMUP_FRAMES: 10
+          PROGPU_AVALONIA_MEASURE_FRAMES: 20
+          LIBGL_ALWAYS_SOFTWARE: 1
+        run: |
+          xvfb-run -a \
+            ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-linux
+
+      - name: Upload Linux native Dawn telemetry
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: avalonia-native-dawn-linux
+          path: artifacts/avalonia-native-dawn-linux
+          if-no-files-found: warn
+
   build-test:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

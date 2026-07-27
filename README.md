@@ -4,11 +4,18 @@ ProGPU is a high-performance, GPU-first UI framework and composition substrate f
 
 ## NuGet Packages
 
-ProGPU release packages are built from `eng/progpu-package-list.sh` by the `Release` GitHub Actions workflow. Samples, tests, diagnostics, and framework shim projects are intentionally not packed.
+ProGPU runtime packages are built from `eng/progpu-package-list.sh` by the
+`Release` GitHub Actions workflow. The same workflow builds the Avalonia
+renderer and Silk.NET windowing packages from the separate versioned
+integration lane in `scripts/progpu-package-list.sh`, publishes them after
+their ProGPU runtime dependencies, and attaches both lanes to the GitHub
+release. Samples, tests, diagnostics, and framework shim projects are
+intentionally not packed.
 
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.Backend` | WebGPU device, swapchain, Silk.NET windowing, and platform backend services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.svg)](https://www.nuget.org/packages/ProGPU.Backend/) |
+| `ProGPU.Backend.Dawn` | Typed Dawn native presentation, shared texture memory, and cross-queue fence services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Dawn.svg)](https://www.nuget.org/packages/ProGPU.Backend.Dawn/) |
 | `ProGPU.Text.Shaping` | AOT-safe OpenType shaping contracts and execution primitives. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Text.Shaping.svg)](https://www.nuget.org/packages/ProGPU.Text.Shaping/) |
 | `ProGPU.Browser` | Batched .NET WebAssembly dispatcher and `navigator.gpu` browser host services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Browser.svg)](https://www.nuget.org/packages/ProGPU.Browser/) |
 | `ProGPU.DirectX` | DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.DirectX.svg)](https://www.nuget.org/packages/ProGPU.DirectX/) |
@@ -31,6 +38,8 @@ ProGPU release packages are built from `eng/progpu-package-list.sh` by the `Rele
 | `ProGPU.Xaml.Workspaces` | Roslyn Workspace editing, formatting, and bidirectional XAML services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Xaml.Workspaces.svg)](https://www.nuget.org/packages/ProGPU.Xaml.Workspaces/) |
 | `ProGPU.Xaml.Cli` | Standalone XAML compiler and Roslyn/MSBuild workspace command-line tool. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Xaml.Cli.svg)](https://www.nuget.org/packages/ProGPU.Xaml.Cli/) |
 | `ProGPU.Avalonia` | Avalonia integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.svg)](https://www.nuget.org/packages/ProGPU.Avalonia/) |
+| `ProGPU.Avalonia.Rendering` | GPU-first ProGPU/WebGPU rendering backend shipped as separate versioned packages for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
+| `ProGPU.Avalonia.SilkNet` | Cross-platform windowing, input, surfaces, and WebGPU integration shipped as separate versioned packages for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
 | `ProGPU.Uno` | Uno/WinUI integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Uno.svg)](https://www.nuget.org/packages/ProGPU.Uno/) |
 | `ProGPU.Dxf` | DXF import/rendering support for ProGPU vector scenes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Dxf.svg)](https://www.nuget.org/packages/ProGPU.Dxf/) |
 | `ProGPU.SkiaSharp` | ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
@@ -42,15 +51,25 @@ ProGPU release packages are built from `eng/progpu-package-list.sh` by the `Rele
 Local package build:
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.26 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.27 ./eng/progpu-pack.sh
 ```
+
+Pack both Avalonia integration lanes after the portable ProGPU runtime packages:
+
+```bash
+PROGPU_PACKAGE_GROUP=portable ./eng/progpu-pack.sh
+./scripts/progpu-pack.sh
+```
+
+See [`docs/progpu-packaging.md`](docs/progpu-packaging.md) for package-only
+consumer validation, version overrides, and publishing.
 
 The mobile packages contain the managed hosts and `buildTransitive` native-link
 contracts. Until native binaries are distributed independently, applications set
 `ProGpuWgpuNativeAndroidRoot` or `ProGpuWgpuNativeXCFramework` to outputs from the
 repository's pinned wgpu-native build scripts before deployment.
 Packing the complete set requires macOS with the Android and iOS workloads;
-`PROGPU_PACKAGE_GROUP=portable` packs the 22 cross-platform packages on Linux.
+`PROGPU_PACKAGE_GROUP=portable` packs the 29 cross-platform packages on Linux.
 
 ## Native iPhone WebGPU sample
 
@@ -294,7 +313,7 @@ Without these headers, `Auto` uses the ordinary OffscreenCanvas worker when avai
 Local publishing reads the API key from `NUGET_API_KEY` without storing it in the repository:
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.26 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.27 ./eng/progpu-publish.sh
 ```
 
 The release workflow validates docs, restores, builds, tests, packs `.nupkg`/`.snupkg` artifacts, and can publish to NuGet.org when `NUGET_API_KEY` is configured. See [docs/release.md](docs/release.md).
@@ -321,21 +340,51 @@ LibreWinForms provides portable WinForms-shaped APIs hosted by the ProGPU/LibreW
 | `LibreWinForms.System.Windows.Forms` | Portable `System.Windows.Forms` API and runtime surface. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWinForms.System.Windows.Forms.svg)](https://www.nuget.org/packages/LibreWinForms.System.Windows.Forms/) |
 | `LibreWinForms.WindowsFormsIntegration` | Portable bridge for hosting WinForms content in LibreWPF applications. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWinForms.WindowsFormsIntegration.svg)](https://www.nuget.org/packages/LibreWinForms.WindowsFormsIntegration/) |
 
-### [Avalonia ProGPU Backend](https://github.com/wieslawsoltes/Avalonia/tree/feature/progpu)
+### Avalonia ProGPU and Silk.NET Backends
 
-The Avalonia ProGPU backend replaces the Skia renderer with a GPU-first WebGPU implementation while preserving Avalonia's rendering contracts. It also exposes an API lease for issuing custom ProGPU vector operations and WebGPU shaders inside an Avalonia frame.
+The [Avalonia ProGPU renderer](src/ProGPU.Avalonia.Rendering) replaces the Skia
+renderer with a GPU-first WebGPU implementation while preserving Avalonia's
+rendering contracts. It also exposes an API lease for issuing custom ProGPU
+vector operations and WebGPU shaders inside an Avalonia frame.
+
+The [Silk.NET Avalonia backend](src/ProGPU.Avalonia.SilkNet) supplies
+cross-platform desktop windowing, input, surfaces, and WebGPU integration. It
+is designed to pair with the ProGPU renderer but can host another compatible
+Avalonia renderer.
 
 | Package | Purpose | NuGet |
 | --- | --- | --- |
-| `ProGPU.Avalonia.Rendering` | ProGPU, Silk.NET, and WebGPU rendering platform for Avalonia. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
-
-### [Silk.NET Avalonia Backend](https://github.com/wieslawsoltes/Avalonia/tree/feature/progpu)
-
-The Silk.NET Avalonia backend supplies cross-platform desktop windowing, input, surfaces, and WebGPU integration. It is designed to pair with the ProGPU renderer but can host another compatible Avalonia renderer.
-
-| Package | Purpose | NuGet |
-| --- | --- | --- |
+| `ProGPU.Avalonia.Rendering` | ProGPU and WebGPU rendering platform for Avalonia. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.Rendering.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.Rendering/) |
 | `ProGPU.Avalonia.SilkNet` | Cross-platform Silk.NET windowing platform for Avalonia. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
+
+Each compatibility lane produces its own `.nupkg` and `.snupkg` artifacts from
+separate project files. The v11 and v12 artifacts intentionally share the same
+two NuGet package IDs and are distinguished by their package versions:
+
+| Avalonia | Rendering package | Silk.NET package |
+| --- | --- | --- |
+| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.27` | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.27` |
+| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.27` | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.27` |
+
+The Avalonia 12 artifacts are built from
+`src/ProGPU.Avalonia.Rendering` and `src/ProGPU.Avalonia.SilkNet`. The Avalonia
+11 artifacts are built separately from the thin
+`src/ProGPU.Avalonia.Rendering.V11` and `src/ProGPU.Avalonia.SilkNet.V11`
+projects, which source-link the shared implementation and define
+`AVALONIA11`.
+
+Install the Avalonia 12 packages with:
+
+```bash
+dotnet add package ProGPU.Avalonia.Rendering --version 12.0.5-preview.27
+dotnet add package ProGPU.Avalonia.SilkNet --version 12.0.5-preview.27
+```
+
+For Avalonia 11, use the same package IDs with `11.3.18-preview.27` and pin all
+Avalonia packages to `11.3.18`. Configure the application with
+`UseSilkNet().UseProGpu()` before starting the desktop lifetime. Complete
+startup, API-lease, local packaging, and package-only validation instructions
+are in [`docs/progpu-packaging.md`](docs/progpu-packaging.md).
 
 ### [SkiaSharp Compatibility Shim](https://github.com/wieslawsoltes/ProGPU/tree/main/src/SkiaSharp)
 

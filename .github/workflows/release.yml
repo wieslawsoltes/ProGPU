@@ -6,7 +6,7 @@ on:
       version:
         description: NuGet package version to build.
         required: true
-        default: 0.1.0-preview.26
+        default: 0.1.0-preview.27
       publish:
         description: Push packages to NuGet.org after validation.
         required: true
@@ -94,6 +94,9 @@ jobs:
       - name: Pack portable packages
         run: PROGPU_PACKAGE_GROUP=portable ./eng/progpu-pack.sh
 
+      - name: Pack Avalonia integration packages
+        run: PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
+
       - name: Upload portable packages
         uses: actions/upload-artifact@v7
         with:
@@ -101,6 +104,15 @@ jobs:
           path: |
             artifacts/packages/Release/*.nupkg
             artifacts/packages/Release/*.snupkg
+          if-no-files-found: error
+
+      - name: Upload Avalonia integration packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-avalonia-${{ env.PROGPU_PACKAGE_VERSION }}
+          path: |
+            artifacts/packages-avalonia/Release/*.nupkg
+            artifacts/packages-avalonia/Release/*.snupkg
           if-no-files-found: error
 
   mobile:
@@ -186,6 +198,12 @@ jobs:
           name: progpu-mobile-${{ env.PROGPU_PACKAGE_VERSION }}
           path: artifacts/packages/Release
 
+      - name: Download Avalonia integration packages
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-avalonia-${{ env.PROGPU_PACKAGE_VERSION }}
+          path: artifacts/packages-avalonia/Release
+
       - name: Verify complete package set and dependency closure
         run: PROGPU_PACKAGE_GROUP=all ./eng/progpu-verify-packages.sh
 
@@ -196,13 +214,26 @@ jobs:
           path: |
             artifacts/packages/Release/*.nupkg
             artifacts/packages/Release/*.snupkg
+            artifacts/packages-avalonia/Release/*.nupkg
+            artifacts/packages-avalonia/Release/*.snupkg
           if-no-files-found: error
 
-      - name: Publish to NuGet.org
+      - name: Publish runtime packages to NuGet.org
         if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v') }}
         shell: bash
         run: |
           for package in artifacts/packages/Release/*.nupkg; do
+            if [[ "${package}" == *.snupkg ]]; then
+              continue
+            fi
+            dotnet nuget push "${package}" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+
+      - name: Publish Avalonia integration packages to NuGet.org
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          for package in artifacts/packages-avalonia/Release/*.nupkg; do
             if [[ "${package}" == *.snupkg ]]; then
               continue
             fi
@@ -221,6 +252,8 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             artifacts/packages/Release/*.nupkg \
             artifacts/packages/Release/*.snupkg \
+            artifacts/packages-avalonia/Release/*.nupkg \
+            artifacts/packages-avalonia/Release/*.snupkg \
             --repo "${GITHUB_REPOSITORY}" \
             --title "ProGPU ${{ env.PROGPU_PACKAGE_VERSION }}" \
             --generate-notes \

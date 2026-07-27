@@ -2,10 +2,13 @@
 
 ProGPU packages are built from the explicit package list in `eng/progpu-package-list.sh`.
 The release workflow does not pack samples, tests, diagnostic tools, or framework shim projects.
+It also builds the separately versioned Avalonia 11 and 12 integration packages
+from `scripts/progpu-package-list.sh`.
 
 ## NuGet Packages
 
 - `ProGPU.Backend`
+- `ProGPU.Backend.Dawn`
 - `ProGPU.Text.Shaping`
 - `ProGPU.Browser`
 - `ProGPU.DirectX`
@@ -36,10 +39,22 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 - `ProGPU.Android`
 - `ProGPU.iOS`
 
+## Avalonia Integration Packages
+
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.27`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.27`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.27`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.27`
+
+These packages are packed on the portable runner and published after the
+`0.1.0-preview.27` runtime package set so their exact ProGPU dependencies are
+available first.
+
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.26 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.27 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
 The script writes packages and symbol packages to `artifacts/packages/Release` by default.
@@ -56,21 +71,25 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.26 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.27 ./eng/progpu-publish.sh
+./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
 
-The target defaults to NuGet.org. Set `NUGET_SOURCE` to publish to another v3-compatible feed.
+The runtime publisher completes before the Avalonia integration publisher so
+the latter's exact ProGPU dependencies are available first. Both targets
+default to NuGet.org. Set `NUGET_SOURCE` to publish to another v3-compatible
+feed.
 
 ## GitHub Actions
 
 - `Build` restores, builds, and runs the main ProGPU test project on Linux, macOS, and Windows, packs portable packages on Linux, and packs mobile packages on macOS.
 - `Docs` verifies that README/package documentation stays in sync with the release package list.
 - `Browser Pages` publishes the shared browser gallery with WebAssembly AOT and deploys it to GitHub Pages after changes reach `main`.
-- `Release` validates and packs portable packages on Linux, packs mobile packages on macOS, verifies the combined dependency closure, then publishes and creates a tag-driven GitHub Release.
+- `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.26`.
+for example `v0.1.0-preview.27`.
 
 ## NuGet Publishing
 
