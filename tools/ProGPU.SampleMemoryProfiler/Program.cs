@@ -440,8 +440,8 @@ static string BuildAvaloniaMarkdown(IReadOnlyList<AvaloniaBenchmark> results)
         "Retained memory is collected after two blocking compacting GCs at the end of each measurement.");
     builder.AppendLine();
     builder.AppendLine(
-        "| Backend | Text shaper | Page | Run | Presentation | FPS | Avg frame | P50 frame | P95 frame | P99 frame | Max frame | Compile | Render pass | Alloc/frame | Managed retained | Physical footprint | Draws | Commands | Retained hits | Retained compiles |");
-    builder.AppendLine("|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+        "| Backend | Text shaper | Page | Run | Presentation | Visible pixels | FPS | Avg frame | P50 frame | P95 frame | P99 frame | Max frame | Compile | Render pass | Alloc/frame | Managed retained | Physical footprint | Draws | Commands | Retained hits | Retained compiles |");
+    builder.AppendLine("|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
     foreach (var result in results)
     {
         JsonObject value = result.Json;
@@ -451,7 +451,15 @@ static string BuildAvaloniaMarkdown(IReadOnlyList<AvaloniaBenchmark> results)
             .Append('|').Append(
                 result.Run.ToString(CultureInfo.InvariantCulture))
             .Append('|').Append(EscapeMarkdown(
-                Text(value, "PresentationPath", "n/a")))
+                Text(
+                    value,
+                    "PresentationPath",
+                    Text(value, "PresentationMode", "n/a"))))
+            .Append('|').Append(
+                Long(
+                    value,
+                    "PresentedTextureNonTransparentPixels")
+                .ToString(CultureInfo.InvariantCulture))
             .Append('|').Append(Number(value, "FramesPerSecond"))
             .Append('|').Append(Number(value, "AverageFrameMs")).Append(" ms")
             .Append('|').Append(Number(value, "MedianFrameMs")).Append(" ms")

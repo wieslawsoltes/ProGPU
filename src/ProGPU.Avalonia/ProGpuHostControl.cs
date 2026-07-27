@@ -265,6 +265,58 @@ public class ProGpuHostControl : Control
     public string PresentationSetupStatus =>
         Volatile.Read(ref _presentationSetupStatus);
 
+    /// <summary>
+    /// Reads the most recently submitted same-device texture into caller-owned
+    /// BGRA8 storage for explicit diagnostics and pixel validation.
+    /// </summary>
+    /// <remarks>
+    /// This is a synchronous O(width * height) GPU readback and must not be
+    /// called from a frame hot path. The required size is returned even when
+    /// <paramref name="destination"/> is too small.
+    /// </remarks>
+    public bool TryReadPresentedTexture(
+        Span<byte> destination,
+        out PixelSize pixelSize)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        pixelSize = default;
+
+        if (LastPresentedFrameState.PresentationMode !=
+                ProGpuAvaloniaPresentationMode.SameDeviceTexture ||
+            _swapchainImages is not { Length: 1 } images ||
+            images[0]?.WgpuTexture is not { IsDisposed: false } texture ||
+            _wgpuContext is not { IsDisposed: false } context)
+        {
+            return false;
+        }
+
+        pixelSize = new PixelSize(
+            checked((int)texture.Width),
+            checked((int)texture.Height));
+        int requiredBytes = checked(
+            pixelSize.Width * pixelSize.Height * 4);
+        if (destination.Length < requiredBytes)
+        {
+            return false;
+        }
+
+        lock (context.RenderLock)
+        {
+            if (!ReferenceEquals(_swapchainImages, images) ||
+                !ReferenceEquals(images[0]?.WgpuTexture, texture) ||
+                texture.IsDisposed ||
+                context.IsDisposed)
+            {
+                pixelSize = default;
+                return false;
+            }
+
+            texture.ReadPixels(destination[..requiredBytes]);
+        }
+
+        return true;
+    }
+
     // Core ProGPU context
     private WgpuContext? _wgpuContext;
     private DawnGpuContext? _dawnContext;

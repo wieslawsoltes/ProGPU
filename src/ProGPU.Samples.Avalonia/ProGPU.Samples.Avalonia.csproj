@@ -10,9 +10,9 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" />
-    <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Avalonia.HarfBuzz" />
     <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
     <PackageReference Include="ProDiagnostics">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Avalonia\ProGPU.Avalonia.csproj" />
+    <ProjectReference Include="..\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj" />
+    <ProjectReference Include="..\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
   </ItemGroup>
 </Project>

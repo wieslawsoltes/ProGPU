@@ -105,11 +105,13 @@ for sample in "${samples[@]}"; do
           fi
 
           if ! jq -e \
-            '.SchemaVersion >= 2 and
+            '.SchemaVersion >= 3 and
              .Run >= 1 and
              .FrameTimeSampleCount == .MeasuredFrames and
              .PresentationMode == "SameDeviceTexture" and
              .EmbeddedBackendKind == "SilkNative" and
+             .PresentedTextureNonTransparentPixels > 0 and
+             .PresentedTexturePixelsDifferentFromFirst > 0 and
              .RetainedCompositionFallbackNodes == 0 and
              .DrawCalls > 0 and
              .OuterFramesSeen > 0' \

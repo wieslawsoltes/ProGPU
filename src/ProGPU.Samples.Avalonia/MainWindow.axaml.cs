@@ -24,6 +24,10 @@ public partial class MainWindow : global::Avalonia.Controls.Window
     public MainWindow()
     {
         InitializeComponent();
+        ProGpuHost.EnableSharedTextureMemory =
+            Program.EnableSharedTextureMemory;
+        ProGpuHost.EnableSharedImageReadback =
+            Program.EnableSharedImageReadback;
 
         Loaded += OnLoaded;
     }
@@ -39,9 +43,23 @@ public partial class MainWindow : global::Avalonia.Controls.Window
         ThemeCombo.SelectionChanged += OnThemeSelectionChanged;
         PlayPauseBtn.Click += OnPlayPauseClicked;
 
-        // Set default selections
-        SidebarList.SelectedIndex = 0;
+        // Select the requested sample through the same path used by interactive
+        // navigation so automated runs cannot accidentally measure Charting.
+        SidebarList.SelectedItem = Program.RequestedSample switch
+        {
+            "Charting" => ItemCharting,
+            "Dxf" => ItemDxf,
+            "Drawing" => ItemDrawing,
+            "MotionMark" => ItemMotionMark,
+            "Markdown" => ItemMarkdown,
+            "Glyphs" => ItemGlyphs,
+            "DataGrid" => ItemDataGrid,
+            "Designer" => ItemDesigner,
+            _ => throw new InvalidOperationException(
+                $"Unknown ProGPU Avalonia sample '{Program.RequestedSample}'.")
+        };
         ThemeCombo.SelectedIndex = 0;
+        Program.Benchmark?.Attach(this, ProGpuHost);
 
         // 3. Hook up the native VSync-locked animation loop using RequestAnimationFrame
         _stopwatch.Start();
@@ -86,6 +104,11 @@ public partial class MainWindow : global::Avalonia.Controls.Window
         // Request the coalesced ProGPU frame directly.
         ProGpuHost.RequestRender();
 
+        if (Program.Benchmark?.ObserveFrame(time, delta) == false)
+        {
+            return;
+        }
+
         // Queue next frame
         RequestAnimationFrame(OnAnimationTick);
     }
@@ -105,7 +128,8 @@ public partial class MainWindow : global::Avalonia.Controls.Window
                 "Glyphs" => FontGlyphBrowserPage.Create(),
                 "DataGrid" => DataVirtualizationPage.Create(),
                 "Designer" => VisualDesignerPage.Create(),
-                _ => ChartShowcasePage.Create()
+                _ => throw new InvalidOperationException(
+                    $"Unknown ProGPU Avalonia sample '{pageKey}'.")
             };
 
             // Invalidate the host element layout to force sizing negotiation (Measure/Arrange)
