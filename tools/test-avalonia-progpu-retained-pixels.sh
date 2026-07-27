@@ -78,6 +78,18 @@ if ! cmp -s "$geometry_retained" "$geometry_flattened"; then
   echo "Retained and flattened geometry-clip pixels differ." >&2
   exit 11
 fi
+if cmp -s \
+  "$output_root/retained/source-progpu/buttons.png" \
+  "$geometry_retained"; then
+  echo "Elliptical geometry-clip fixture did not alter the Buttons pixels." >&2
+  exit 37
+fi
+if ! grep -q \
+    "root elliptical geometry clip fixture 160x120" \
+    "$output_root/geometry-clip-retained/source-progpu/buttons.log"; then
+  echo "Elliptical geometry-clip fixture was not applied." >&2
+  exit 38
+fi
 
 geometry_result="$output_root/geometry-clip-retained/source-progpu/buttons.json"
 fallback_nodes="$(
@@ -110,6 +122,12 @@ if cmp -s \
   "$aliased_retained"; then
   echo "Inherited aliased-text fixture did not alter the Buttons pixels." >&2
   exit 14
+fi
+if ! grep -q \
+    "root inherited aliased-text fixture" \
+    "$output_root/aliased-text-retained/source-progpu/buttons.log"; then
+  echo "Inherited aliased-text fixture was not applied." >&2
+  exit 39
 fi
 
 aliased_result="$output_root/aliased-text-retained/source-progpu/buttons.json"

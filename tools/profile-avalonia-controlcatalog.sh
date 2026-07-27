@@ -446,7 +446,7 @@ for page in "${pages[@]}"; do
                 continue
               fi
               if ! search_text \
-                   '"RetainedCompositionSceneFullSynchronizationsDuringMeasurement"[[:space:]]*:[[:space:]]*0[[:space:],]' \
+                   '"RetainedCompositionSceneFullSynchronizationsDuringMeasurement"[[:space:]]*:[[:space:]]*0([[:space:],]|$)' \
                    "$json_path"; then
                 printf '%s\t%s\t%s\t%s\n' \
                   "$backend" \
@@ -472,7 +472,7 @@ for page in "${pages[@]}"; do
                 continue
               fi
               if ! search_text \
-                   '"RetainedCompositionSceneFullSynchronizationsDuringMeasurement"[[:space:]]*:[[:space:]]*0[[:space:],]' \
+                   '"RetainedCompositionSceneFullSynchronizationsDuringMeasurement"[[:space:]]*:[[:space:]]*0([[:space:],]|$)' \
                    "$json_path"; then
                 printf '%s\t%s\t%s\t%s\n' \
                   "$backend" \

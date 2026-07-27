@@ -529,6 +529,17 @@ ProGPU compilation and presentation keep the existing correctness contracts:
   their managed properties. Effective ancestor visibility is evaluated from
   the ProGPU visual hierarchy. A stale/reused handle aborts the incremental
   transaction and forces the existing full synchronization.
+- Completed foundation: when synchronization loses an acknowledgement race
+  to a newer target revision, Avalonia refreshes the still-pending immutable
+  queue slots in place. This preserves first-change ordering while publishing
+  the backend identity assigned during the interrupted synchronization.
+  Within one incremental transaction, an earlier parent-topology delta can
+  also materialize a newly attached child before that child's original
+  unassigned `0/0` snapshot is consumed. ProGPU reconciles only this
+  unassigned-to-assigned identity transition and then validates the retained
+  ID, source identity, owner, index, and generation in its typed state store.
+  All pixel-affecting values continue to come exclusively from the immutable
+  delta; foreign and nonzero stale handles still fail closed.
 - Completed foundation: opacity and visibility changes use the remaining
   low-bit protocol channel as `PrimitiveAppearance`. Their captured values
   update only the ProGPU visual page and never reread clip, mask, effect,
@@ -1075,6 +1086,13 @@ byte-identical. Xcode Time Profiler plus EventPipe showed the final
 reachability walk in only three managed CPU samples over 600 measured frames,
 with no measurement GC.
 
+The final release gate precreates both parents and the child before warmup,
+then reparents the same child on every measured frame. Its eight-frame
+qualification completed 21 incremental topology synchronizations with zero
+measured full synchronizations and byte-identical retained/flattened pixels.
+This specifically covers first-attachment handle activation and prevents a
+full-scene fallback from hiding a stale queued identity.
+
 ## Typed adorner dependencies
 
 `AdornerIsClipped` and `AdornedVisual` publish a dedicated immutable retained
@@ -1097,6 +1115,13 @@ The dynamic retained/comparison screenshots are byte-identical. Xcode
 Allocations, Time Profiler, and Metal reported no drawable waits, compiler
 spills, hang risks, hangs, or command-buffer errors; 500.0 MiB of raw
 trace/export/scratch data was removed after compact summaries were retained.
+
+The final release fixture discovers the page's existing XAML adorner after
+deferred content materializes during warmup, retains that adorner and both
+targets, and changes only `AdornedElement` during measurement. The eight-frame
+gate reports six typed adorner synchronizations, zero measured full
+synchronizations, zero fallback nodes, and byte-identical
+retained/flattened output.
 
 ## Direct-only incremental state protocol
 

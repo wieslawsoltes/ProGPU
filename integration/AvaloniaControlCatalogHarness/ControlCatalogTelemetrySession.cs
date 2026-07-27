@@ -831,10 +831,26 @@ internal sealed class BenchmarkVisualFixture
         "PROGPU_AVALONIA_BENCHMARK_LAYOUT_CLIP";
     private const string GeometryClipVariable =
         "PROGPU_AVALONIA_BENCHMARK_GEOMETRY_CLIP";
+    private const string RootGeometryClipVariable =
+        "PROGPU_AVALONIA_BENCHMARK_ROOT_GEOMETRY_CLIP";
+    private const string RootAliasedTextVariable =
+        "PROGPU_AVALONIA_BENCHMARK_ROOT_ALIASED_TEXT";
+    private const string RootConicOpacityMaskVariable =
+        "PROGPU_AVALONIA_BENCHMARK_ROOT_CONIC_OPACITY_MASK";
     private const string BitmapCacheVariable =
         "PROGPU_AVALONIA_BENCHMARK_BITMAP_CACHE_CHANNEL";
+    private const string BitmapCacheScaleVariable =
+        "PROGPU_AVALONIA_BENCHMARK_BITMAP_CACHE_SCALE";
+    private const string BitmapCacheSnapVariable =
+        "PROGPU_AVALONIA_BENCHMARK_BITMAP_CACHE_SNAP";
+    private const string BitmapCacheClearTypeVariable =
+        "PROGPU_AVALONIA_BENCHMARK_BITMAP_CACHE_CLEARTYPE";
     private const string EffectVariable =
         "PROGPU_AVALONIA_BENCHMARK_EFFECT_CHANNEL";
+    private const string TextBlurEffectVariable =
+        "PROGPU_AVALONIA_BENCHMARK_TEXT_BLUR_EFFECT";
+    private const string TextDropShadowEffectVariable =
+        "PROGPU_AVALONIA_BENCHMARK_TEXT_DROP_SHADOW_EFFECT";
     private const string OpacityMaskVariable =
         "PROGPU_AVALONIA_BENCHMARK_OPACITY_MASK_CHANNEL";
     private const string DrawingOptionsVariable =
@@ -847,28 +863,49 @@ internal sealed class BenchmarkVisualFixture
     private readonly Visual _target;
     private readonly Panel? _panel;
     private readonly bool _customVisual;
+    private readonly bool _drawingOptions;
     private readonly bool _topology;
     private readonly bool _adorner;
     private readonly BenchmarkPulseControl? _pulse;
+    private readonly Panel? _topologyFirstParent;
+    private readonly Panel? _topologySecondParent;
+    private Visual? _adornerFirstTarget;
+    private Visual? _adornerSecondTarget;
     private Border? _topologyChild;
     private Border? _adornerVisual;
     private bool _customVisualSelected;
     private bool _pulsePhase;
+    private bool _topologyUsesFirstParent = true;
+    private bool _adornerUsesFirstTarget = true;
 
     private BenchmarkVisualFixture(
         Visual target,
         Panel? panel,
         BenchmarkPulseControl? pulse,
         bool customVisual,
+        bool drawingOptions,
         bool topology,
-        bool adorner)
+        bool adorner,
+        Panel? topologyFirstParent,
+        Panel? topologySecondParent,
+        Border? topologyChild,
+        Border? adornerVisual,
+        Visual? adornerFirstTarget,
+        Visual? adornerSecondTarget)
     {
         _target = target;
         _panel = panel;
         _pulse = pulse;
         _customVisual = customVisual;
+        _drawingOptions = drawingOptions;
         _topology = topology;
         _adorner = adorner;
+        _topologyFirstParent = topologyFirstParent;
+        _topologySecondParent = topologySecondParent;
+        _topologyChild = topologyChild;
+        _adornerVisual = adornerVisual;
+        _adornerFirstTarget = adornerFirstTarget;
+        _adornerSecondTarget = adornerSecondTarget;
     }
 
     public static BenchmarkVisualFixture? Create(Window window)
@@ -876,8 +913,24 @@ internal sealed class BenchmarkVisualFixture
         bool customVisual = ReadEnabled(CustomVisualVariable);
         bool layoutClip = ReadEnabled(LayoutClipVariable);
         bool geometryClip = ReadEnabled(GeometryClipVariable);
+        bool rootGeometryClip =
+            ReadEnabled(RootGeometryClipVariable);
+        bool rootAliasedText =
+            ReadEnabled(RootAliasedTextVariable);
+        bool rootConicOpacityMask =
+            ReadEnabled(RootConicOpacityMaskVariable);
         bool bitmapCache = ReadEnabled(BitmapCacheVariable);
+        double? bitmapCacheScale =
+            ReadOptionalDouble(BitmapCacheScaleVariable);
+        bool? bitmapCacheSnap =
+            ReadOptionalBoolean(BitmapCacheSnapVariable);
+        bool? bitmapCacheClearType =
+            ReadOptionalBoolean(BitmapCacheClearTypeVariable);
         bool effect = ReadEnabled(EffectVariable);
+        bool textBlurEffect =
+            ReadEnabled(TextBlurEffectVariable);
+        bool textDropShadowEffect =
+            ReadEnabled(TextDropShadowEffectVariable);
         bool opacityMask = ReadEnabled(OpacityMaskVariable);
         bool drawingOptions = ReadEnabled(DrawingOptionsVariable);
         bool topology = ReadEnabled(TopologyVariable);
@@ -887,7 +940,14 @@ internal sealed class BenchmarkVisualFixture
         {
             target.ClipToBounds = true;
         }
-        if (geometryClip)
+        if (rootGeometryClip)
+        {
+            target.Clip = new EllipseGeometry(
+                new Rect(24, 24, 160, 120));
+            Console.Error.WriteLine(
+                "[ControlCatalog] root elliptical geometry clip fixture 160x120");
+        }
+        else if (geometryClip)
         {
             target.Clip = new RectangleGeometry(
                 new Rect(
@@ -896,21 +956,75 @@ internal sealed class BenchmarkVisualFixture
                     Math.Max(1, window.ClientSize.Width - 2),
                     Math.Max(1, window.ClientSize.Height - 2)));
         }
-        if (bitmapCache)
+        if (bitmapCache ||
+            bitmapCacheScale.HasValue ||
+            bitmapCacheSnap.HasValue ||
+            bitmapCacheClearType.HasValue)
         {
+            double scale = bitmapCacheScale ?? 1;
+            bool snap = bitmapCacheSnap ?? bitmapCache;
+            bool clearType = bitmapCacheClearType ?? false;
             target.CacheMode = new BitmapCache
             {
-                RenderAtScale = 1,
-                SnapsToDevicePixels = true
+                RenderAtScale = scale,
+                SnapsToDevicePixels = snap,
+                EnableClearType = clearType
             };
+            Console.Error.WriteLine(
+                FormattableString.Invariant(
+                    $"[ControlCatalog] bitmap cache fixture scale={scale:G} snap={snap} clearType={clearType}"));
         }
-        if (effect)
+        if (textBlurEffect)
+        {
+            target.Effect = new BlurEffect { Radius = 4 };
+            Console.Error.WriteLine(
+                "[ControlCatalog] text effect fixture blur radius=4");
+        }
+        else if (textDropShadowEffect)
+        {
+            target.Effect = new DropShadowEffect
+            {
+                OffsetX = 6,
+                OffsetY = 4,
+                BlurRadius = 4,
+                Color = Colors.DeepSkyBlue,
+                Opacity = 0.75
+            };
+            Console.Error.WriteLine(
+                "[ControlCatalog] text effect fixture drop-shadow offset=6,4 blur=4");
+        }
+        else if (effect)
         {
             target.Effect = new BlurEffect { Radius = 0.25 };
         }
-        if (opacityMask)
+        if (rootConicOpacityMask)
+        {
+            target.OpacityMask = new ConicGradientBrush
+            {
+                Angle = 23,
+                GradientStops =
+                {
+                    new GradientStop(Colors.White, 0),
+                    new GradientStop(
+                        Color.FromArgb(64, 255, 255, 255),
+                        0.5),
+                    new GradientStop(Colors.White, 1)
+                }
+            };
+            Console.Error.WriteLine(
+                "[ControlCatalog] root conic opacity mask fixture angle=23");
+        }
+        else if (opacityMask)
         {
             target.OpacityMask = Brushes.White;
+        }
+        if (rootAliasedText)
+        {
+            TextOptions.SetTextRenderingMode(
+                target,
+                Avalonia.Media.TextRenderingMode.Alias);
+            Console.Error.WriteLine(
+                "[ControlCatalog] root inherited aliased-text fixture");
         }
         if (drawingOptions)
         {
@@ -929,13 +1043,55 @@ internal sealed class BenchmarkVisualFixture
             pulse = new BenchmarkPulseControl();
             panel.Children.Add(pulse);
         }
+
+        Panel? topologyFirstParent = null;
+        Panel? topologySecondParent = null;
+        Border? topologyChild = null;
+        if (topology && panel is not null)
+        {
+            topologyFirstParent = new Canvas
+            {
+                Width = 2,
+                Height = 2,
+                IsHitTestVisible = false
+            };
+            topologySecondParent = new Canvas
+            {
+                Width = 2,
+                Height = 2,
+                IsHitTestVisible = false
+            };
+            topologyChild = new Border
+            {
+                Width = 1,
+                Height = 1,
+                Background = new SolidColorBrush(
+                    Color.FromArgb(1, 0, 0, 0)),
+                IsHitTestVisible = false
+            };
+            topologyFirstParent.Children.Add(topologyChild);
+            panel.Children.Add(topologyFirstParent);
+            panel.Children.Add(topologySecondParent);
+        }
+
+        Border? adornerVisual = null;
+        Visual? adornerFirstTarget = null;
+        Visual? adornerSecondTarget = null;
+
         return new BenchmarkVisualFixture(
             target,
             panel,
             pulse,
             customVisual,
+            drawingOptions,
             topology,
-            adorner);
+            adorner,
+            topologyFirstParent,
+            topologySecondParent,
+            topologyChild,
+            adornerVisual,
+            adornerFirstTarget,
+            adornerSecondTarget);
     }
 
     private static bool TrySelectCustomVisualTab(Visual root)
@@ -963,6 +1119,11 @@ internal sealed class BenchmarkVisualFixture
 
     public void Pulse()
     {
+        if (_adorner && _adornerVisual is null)
+        {
+            TryPrepareAdornerFixture();
+        }
+
         if (_customVisual && !_customVisualSelected)
         {
             _customVisualSelected =
@@ -978,46 +1139,119 @@ internal sealed class BenchmarkVisualFixture
         _pulse.SetPhase(_pulsePhase);
     }
 
+    private void TryPrepareAdornerFixture()
+    {
+        foreach (Visual firstTarget in
+                 _target.GetSelfAndVisualDescendants())
+        {
+            if (AdornerLayer.GetAdorner(firstTarget) is not
+                    Border adorner ||
+                AdornerLayer.GetAdornerLayer(firstTarget) is not
+                    { } layer)
+            {
+                continue;
+            }
+
+            foreach (Visual secondTarget in
+                     _target.GetSelfAndVisualDescendants())
+            {
+                if (ReferenceEquals(firstTarget, secondTarget) ||
+                    secondTarget is not Control ||
+                    !ReferenceEquals(
+                        layer,
+                        AdornerLayer.GetAdornerLayer(secondTarget)))
+                {
+                    continue;
+                }
+
+                _adornerVisual = adorner;
+                _adornerFirstTarget = firstTarget;
+                _adornerSecondTarget = secondTarget;
+                return;
+            }
+        }
+    }
+
     public void ActivateMeasurementMutations()
     {
-        if (_topology && _panel is not null)
+        if (_drawingOptions)
         {
-            _topologyChild = new Border
-            {
-                Width = 1,
-                Height = 1,
-                IsHitTestVisible = false
-            };
-            _panel.Children.Add(_topologyChild);
+            RenderOptions.SetBitmapInterpolationMode(
+                _target,
+                BitmapInterpolationMode.LowQuality);
+            Console.Error.WriteLine(
+                "[ControlCatalog] inherited drawing-options channel fixture attached");
         }
 
-        if (_adorner)
+        if (_topology && _panel is not null)
         {
-            _adornerVisual = new Border
-            {
-                Width = 2,
-                Height = 2,
-                IsHitTestVisible = false
-            };
-            AdornerLayer.SetAdorner(_target, _adornerVisual);
+            MoveTopologyChild();
+            Console.Error.WriteLine(
+                "[ControlCatalog] typed retained topology channel fixture");
+        }
+
+        if (_adorner && _adornerVisual is not null)
+        {
+            MoveAdornerTarget();
+            Console.Error.WriteLine(
+                "[ControlCatalog] typed retained adorner channel fixture");
         }
     }
 
     public void Advance(int measuredFrame)
     {
+        if (_topology)
+        {
+            MoveTopologyChild();
+        }
+        if (_adorner)
+        {
+            MoveAdornerTarget();
+        }
+
         if (measuredFrame != 2)
         {
             return;
         }
 
-        if (_topologyChild is not null && _panel is not null)
+        _pulse?.InvalidateVisual();
+    }
+
+    private void MoveTopologyChild()
+    {
+        if (_topologyChild is null ||
+            _topologyFirstParent is null ||
+            _topologySecondParent is null)
         {
-            _panel.Children.Remove(_topologyChild);
+            return;
         }
-        if (_adornerVisual is not null)
+
+        Panel source = _topologyUsesFirstParent
+            ? _topologyFirstParent
+            : _topologySecondParent;
+        Panel destination = _topologyUsesFirstParent
+            ? _topologySecondParent
+            : _topologyFirstParent;
+        source.Children.Remove(_topologyChild);
+        destination.Children.Add(_topologyChild);
+        _topologyUsesFirstParent = !_topologyUsesFirstParent;
+    }
+
+    private void MoveAdornerTarget()
+    {
+        if (_adornerVisual is null ||
+            _adornerFirstTarget is null ||
+            _adornerSecondTarget is null)
         {
-            AdornerLayer.SetAdorner(_target, null);
+            return;
         }
+
+        _adornerUsesFirstTarget = !_adornerUsesFirstTarget;
+        AdornerLayer.SetAdornedElement(
+            _adornerVisual,
+            _adornerUsesFirstTarget
+                ? _adornerFirstTarget
+                : _adornerSecondTarget);
     }
 
     private static bool ReadEnabled(string name)
@@ -1028,6 +1262,39 @@ internal sealed class BenchmarkVisualFixture
                    "1",
                    StringComparison.Ordinal) ||
                bool.TryParse(value, out bool enabled) && enabled;
+    }
+
+    private static bool? ReadOptionalBoolean(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (string.Equals(value, "1", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (string.Equals(value, "0", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        return bool.TryParse(value, out bool result)
+            ? result
+            : null;
+    }
+
+    private static double? ReadOptionalDouble(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return double.TryParse(
+            value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out double result)
+            ? result
+            : null;
     }
 }
 
