@@ -758,12 +758,14 @@ internal partial class DrawingContextImpl :
             {
                 Compositor compositor =
                     AvaloniaGpuDevicePool.RenderToSurface(
-                    GpuContext,
+                        GpuContext,
                     _resources,
                     DrawingContext,
                     surface,
-                    _size,
-                    _clearColor);
+                        _size,
+                        _clearColor);
+                (_framebuffer as IGpuDirectPresentationFrame)?
+                    .MarkGpuPresentationComplete();
                 ReportFrame(compositor);
                 return true;
             }

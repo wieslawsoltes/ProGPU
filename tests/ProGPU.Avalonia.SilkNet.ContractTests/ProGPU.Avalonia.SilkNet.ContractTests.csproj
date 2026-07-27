@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>ProGPU.Avalonia.SilkNet.ContractTests</AssemblyName>
+    <RootNamespace>ProGPU.Avalonia.SilkNet.ContractTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="FramebufferStorageContractTests.cs" />
+    <Compile Include="InputAndCursorContractTests.cs" />
+    <Compile Include="PlatformTimingContractTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj" />
+  </ItemGroup>
+</Project>

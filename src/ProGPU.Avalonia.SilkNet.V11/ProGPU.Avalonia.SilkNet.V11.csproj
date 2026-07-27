@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Avalonia.SilkNet</AssemblyName>
+    <RootNamespace>Avalonia.SilkNet</RootNamespace>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);AVALONIA11</DefineConstants>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
+    <Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>true</Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>
+    <PackageId>ProGPU.Avalonia.SilkNet</PackageId>
+    <Version>11.3.18-preview.27</Version>
+    <PackageVersion>11.3.18-preview.27</PackageVersion>
+    <Title>ProGPU Silk.NET windowing for Avalonia 11</Title>
+    <Description>Typed, reflection-free Silk.NET desktop windowing and WebGPU presentation for Avalonia 11 and ProGPU.</Description>
+    <PackageTags>progpu;avalonia;silk.net;windowing;webgpu</PackageTags>
+    <PackageIcon>ProGpuAvaloniaIcon.png</PackageIcon>
+    <PackageReadmeFile>progpu-package-readme.md</PackageReadmeFile>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ProGPU.Avalonia.SilkNet\*.cs"
+             Link="Windowing\%(Filename)%(Extension)" />
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia"
+                      VersionOverride="11.3.18" />
+    <PackageReference Include="Silk.NET.Input" />
+    <PackageReference Include="Silk.NET.Input.Glfw" />
+    <PackageReference Include="Silk.NET.WebGPU" />
+    <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" />
+    <PackageReference Include="Silk.NET.Windowing" />
+    <PackageReference Include="Silk.NET.Windowing.Glfw" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\build\Assets\ProGpuAvaloniaIcon.png"
+          Pack="true"
+          PackagePath="\" />
+    <None Include="..\..\build\Assets\ProGpuAvaloniaIcon.svg"
+          Pack="true"
+          PackagePath="\" />
+    <None Include="..\..\docs\progpu-package-readme.md"
+          Pack="true"
+          PackagePath="\" />
+  </ItemGroup>
+</Project>

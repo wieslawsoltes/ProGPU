@@ -2,6 +2,7 @@
   <Project Path="SkiaSharp/SkiaSharp.csproj" />
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
   <Project Path="ProGPU.Browser/ProGPU.Browser.csproj" />
   <Project Path="ProGPU.Android/ProGPU.Android.csproj" />
   <Project Path="ProGPU.DirectX/ProGPU.DirectX.csproj" />
@@ -22,6 +23,13 @@
   <Project Path="ProGPU.WinUI.Charts/ProGPU.WinUI.Charts.csproj" />
   <Project Path="ProGPU.WinUI.Designer/ProGPU.WinUI.Designer.csproj" />
   <Project Path="ProGPU.Avalonia/ProGPU.Avalonia.csproj" />
+  <Project Path="ProGPU.Avalonia.Rendering/ProGPU.Avalonia.Rendering.csproj" />
+  <Project Path="ProGPU.Avalonia.SilkNet/ProGPU.Avalonia.SilkNet.csproj" />
+  <Project Path="ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj" />
+  <Folder Name="/Avalonia 11/">
+    <Project Path="ProGPU.Avalonia.Rendering.V11/ProGPU.Avalonia.Rendering.V11.csproj" />
+    <Project Path="ProGPU.Avalonia.SilkNet.V11/ProGPU.Avalonia.SilkNet.V11.csproj" />
+  </Folder>
   <Project Path="ProGPU.Uno/ProGPU.Uno.csproj" />
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />
   <Project Path="ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj" />
@@ -32,6 +40,9 @@
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
   <Project Path="ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj" />
   <Project Path="ProGPU.Tests/ProGPU.Tests.csproj" />
+  <Project Path="../tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj" />
+  <Project Path="../tests/ProGPU.Avalonia.HeadlessPixelTests/ProGPU.Avalonia.HeadlessPixelTests.csproj" />
+  <Project Path="../tests/ProGPU.Avalonia.SilkNet.ContractTests/ProGPU.Avalonia.SilkNet.ContractTests.csproj" />
   <Project Path="ProGPU.Xaml/ProGPU.Xaml.csproj" />
   <Project Path="ProGPU.Xaml.Roslyn/ProGPU.Xaml.Roslyn.csproj" />
   <Project Path="ProGPU.Xaml.SourceGenerator/ProGPU.Xaml.SourceGenerator.csproj" />

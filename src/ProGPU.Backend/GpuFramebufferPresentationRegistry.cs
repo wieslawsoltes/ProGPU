@@ -13,6 +13,16 @@ public interface IGpuFramebufferPresenter
 }
 
 /// <summary>
+/// Signals that a framebuffer-compatible render session presented directly
+/// to its GPU surface and therefore does not need a CPU staging upload when
+/// the lock is released.
+/// </summary>
+public interface IGpuDirectPresentationFrame
+{
+    void MarkGpuPresentationComplete();
+}
+
+/// <summary>
 /// Connects a framebuffer-style platform API to a GPU-backed compatibility
 /// surface without exposing the compatibility surface type to the platform.
 /// </summary>
