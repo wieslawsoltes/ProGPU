@@ -28,9 +28,11 @@ intentionally not packed.
 | `ProGPU.Fonts.Inter` | Official Inter font assets and typed accessors for deterministic UI typography. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Fonts.Inter.svg)](https://www.nuget.org/packages/ProGPU.Fonts.Inter/) |
 | `ProGPU.Fonts.Noto` | Official Noto fallback assets and typed accessors for CJK and symbol coverage. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Fonts.Noto.svg)](https://www.nuget.org/packages/ProGPU.Fonts.Noto/) |
 | `ProGPU.Scene` | Scene graph, compositor commands, retained visuals, effects, and presentation primitives. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Scene.svg)](https://www.nuget.org/packages/ProGPU.Scene/) |
+| `ProGPU.Voxel` | Chunked voxel worlds, greedy meshing, collision, terrain generation, and grid ray casting. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Voxel.svg)](https://www.nuget.org/packages/ProGPU.Voxel/) |
 | `ProGPU.Layout` | Measure/arrange layout substrate shared by higher-level UI adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Layout.svg)](https://www.nuget.org/packages/ProGPU.Layout/) |
 | `ProGPU.Virtualization` | Virtualization helpers for large retained visual and item surfaces. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Virtualization.svg)](https://www.nuget.org/packages/ProGPU.Virtualization/) |
 | `ProGPU.WinUI` | WinUI-shaped controls and app model implemented on ProGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.svg)](https://www.nuget.org/packages/ProGPU.WinUI/) |
+| `ProGPU.Voxel.WinUI` | Playable WinUI voxel control with first-person input and retained ProGPU rendering. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Voxel.WinUI.svg)](https://www.nuget.org/packages/ProGPU.Voxel.WinUI/) |
 | `ProGPU.WinUI.Themes.Fluent` | Source-generated unchanged WinUI Fluent theme resources and inspectable XAML content. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Themes.Fluent.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Themes.Fluent/) |
 | `ProGPU.WinUI.Charts` | Chart controls and chart rendering primitives for the WinUI-shaped layer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Charts.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Charts/) |
 | `ProGPU.WinUI.Designer` | Designer/editor controls and diagnostics for ProGPU WinUI surfaces. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Designer.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Designer/) |
@@ -71,7 +73,7 @@ contracts. Until native binaries are distributed independently, applications set
 `ProGpuWgpuNativeAndroidRoot` or `ProGpuWgpuNativeXCFramework` to outputs from the
 repository's pinned wgpu-native build scripts before deployment.
 Packing the complete set requires macOS with the Android and iOS workloads;
-`PROGPU_PACKAGE_GROUP=portable` packs the 29 cross-platform packages on Linux.
+`PROGPU_PACKAGE_GROUP=portable` packs the 31 cross-platform packages on Linux.
 
 ## Native iPhone WebGPU sample
 

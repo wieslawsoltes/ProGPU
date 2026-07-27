@@ -4,11 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
-    <PublishAot>true</PublishAot>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Voxel\ProGPU.Voxel.csproj" />
   </ItemGroup>
 </Project>

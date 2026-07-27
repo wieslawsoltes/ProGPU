@@ -18,6 +18,8 @@ const state = {
   uploads: null,
   inputEvents: [],
   inputInstalled: false,
+  pointerLockActive: false,
+  pointerLockRequestPending: false,
   dispatchImmediatePointer: null,
   dispatchTextInput: null,
   textSink: null,
@@ -390,6 +392,11 @@ function queueInputEvent(kind, x = 0, y = 0, a = 0, b = 0, data = 0, modifiers =
     state.inputEvents[state.inputEvents.length - 1] = event;
     return;
   }
+  if (kind === 10 && last?.kind === 10) {
+    last.a += a; last.b += b;
+    last.timestamp = timestamp;
+    return;
+  }
   if (kind === 4 && last?.kind === 4) {
     last.x = x; last.y = y; last.a += a; last.b += b;
     return;
@@ -417,6 +424,50 @@ function queuePointerEvent(kind, event, point) {
   queueInputEvent(kind, point.x, point.y, 0, 0, event.pointerId, eventModifiers(event), flags,
     event.timeStamp, event.pressure || 0, event.width || 0, event.height || 0,
     pointerTypeValue(event.pointerType), event.button);
+}
+
+function queueRelativePointerEvent(event) {
+  queueInputEvent(10, 0, 0, event.movementX || 0, event.movementY || 0,
+    event.pointerId, eventModifiers(event), event.buttons,
+    event.timeStamp, 0, 0, 0, 0, -1);
+}
+
+function notifyPointerLockLost() {
+  if (!state.pointerLockActive && !state.pointerLockRequestPending) return;
+  state.pointerLockActive = false;
+  state.pointerLockRequestPending = false;
+  queueInputEvent(11);
+}
+
+function requestCanvasPointerLock() {
+  if (!state.canvas || typeof state.canvas.requestPointerLock !== 'function') return false;
+  if (document.pointerLockElement === state.canvas) {
+    state.pointerLockActive = true;
+    state.pointerLockRequestPending = false;
+    return true;
+  }
+
+  try {
+    state.pointerLockRequestPending = true;
+    // The baseline request is supported more broadly than unadjustedMovement and
+    // still supplies unbounded relative movementX/Y required by first-person look.
+    const request = state.canvas.requestPointerLock();
+    if (request && typeof request.catch === 'function') {
+      request.catch(() => notifyPointerLockLost());
+    }
+    return true;
+  } catch {
+    state.pointerLockRequestPending = false;
+    return false;
+  }
+}
+
+function exitCanvasPointerLock() {
+  state.pointerLockRequestPending = false;
+  if (document.pointerLockElement === state.canvas && typeof document.exitPointerLock === 'function') {
+    document.exitPointerLock();
+  }
+  state.pointerLockActive = false;
 }
 
 function dispatchPointerEvent(kind, event, point) {
@@ -483,6 +534,15 @@ function installBrowserInput() {
   state.textSink = textSink;
 
   state.canvas.addEventListener('pointermove', event => {
+    if (document.pointerLockElement === state.canvas) {
+      const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
+      if (coalesced.length > 1) {
+        for (const sample of coalesced) queueRelativePointerEvent(sample);
+      } else {
+        queueRelativePointerEvent(event);
+      }
+      return;
+    }
     const point = pointerPosition(event);
     const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
     if (coalesced.length > 1) {
@@ -494,7 +554,9 @@ function installBrowserInput() {
   state.canvas.addEventListener('pointerdown', event => {
     const point = pointerPosition(event);
     dispatchPointerEvent(2, event, point);
-    try { state.canvas.setPointerCapture(event.pointerId); } catch { }
+    if (!state.pointerLockActive && !state.pointerLockRequestPending) {
+      try { state.canvas.setPointerCapture(event.pointerId); } catch { }
+    }
     event.preventDefault();
   });
   state.canvas.addEventListener('pointerup', event => {
@@ -579,6 +641,15 @@ function installBrowserInput() {
     event.preventDefault();
   });
   globalThis.addEventListener('blur', () => queueInputEvent(8));
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === state.canvas) {
+      state.pointerLockActive = true;
+      state.pointerLockRequestPending = false;
+    } else {
+      notifyPointerLockLost();
+    }
+  });
+  document.addEventListener('pointerlockerror', () => notifyPointerLockLost());
 }
 
 function drainInputEvents(destination, capacity) {
@@ -1717,7 +1788,7 @@ if (isDispatcherWorker) {
 } else {
   initializeDiagnosticsVisibility();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;

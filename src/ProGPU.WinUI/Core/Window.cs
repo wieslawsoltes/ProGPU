@@ -422,6 +422,7 @@ public class Window : DependencyObject
         _silkWindow.Render += OnRender;
         _silkWindow.Resize += OnResize;
         _silkWindow.FramebufferResize += OnFramebufferResize;
+        _silkWindow.FocusChanged += OnFocusChanged;
         _silkWindow.Closing += OnClosing;
 
         _silkWindow.Initialize();
@@ -1098,6 +1099,11 @@ public class Window : DependencyObject
 
     private void OnClosing()
     {
+        if (_inputState != null)
+        {
+            InputSystem.Current = _inputState;
+            InputSystem.InjectFocusLost();
+        }
         NotifyHostVisibilityChanged(false);
         NotifyHostActivationChanged(WindowActivationState.Deactivated);
         RaiseClosed();
@@ -1109,6 +1115,20 @@ public class Window : DependencyObject
         _windowController = null;
         DetachWindowServices();
         _silkWindow = null;
+    }
+
+    private void OnFocusChanged(bool focused)
+    {
+        if (_inputState != null)
+        {
+            InputSystem.Current = _inputState;
+            if (!focused)
+            {
+                InputSystem.InjectFocusLost();
+            }
+        }
+        NotifyHostActivationChanged(
+            focused ? WindowActivationState.CodeActivated : WindowActivationState.Deactivated);
     }
 
     private void UpdateBounds(double width, double height)
