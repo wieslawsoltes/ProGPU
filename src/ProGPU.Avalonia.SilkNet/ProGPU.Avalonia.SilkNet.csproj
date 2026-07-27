@@ -54,5 +54,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Avalonia.SilkNet.ContractTests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGpuAvaloniaPackageSmoke, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>

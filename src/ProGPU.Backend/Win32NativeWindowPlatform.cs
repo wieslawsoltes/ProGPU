@@ -9,6 +9,8 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private const int GwlExStyle = -20;
     private const int GwlWndProc = -4;
     private const int GwlpHwndParent = -8;
+    private const int GclStyle = -26;
+    private const long CsDropShadow = 0x00020000L;
     private const long WsCaption = 0x00C00000L;
     private const long WsBorder = 0x00800000L;
     private const long WsDlgFrame = 0x00400000L;
@@ -204,6 +206,23 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         return backdrop == NativeWindowBackdrop.None || result >= 0 || accentState != AccentDisabled;
     }
 
+    public override bool SetWindowShadow(bool enabled)
+    {
+        long style =
+            GetClassLongPtr(_hwnd, GclStyle)
+                .ToInt64();
+        style = SetFlag(
+            style,
+            CsDropShadow,
+            enabled);
+        SetClassLongPtr(
+            _hwnd,
+            GclStyle,
+            new nint(style));
+        RefreshFrame();
+        return true;
+    }
+
     public override bool TryBeginMove(NativeWindowPoint pointer)
     {
         ReleaseCapture();
@@ -370,6 +389,12 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private static nint SetWindowLongPtr(nint hwnd, int index, nint value) =>
         nint.Size == 8 ? SetWindowLongPtr64(hwnd, index, value) : SetWindowLong32(hwnd, index, value);
 
+    private static nint GetClassLongPtr(nint hwnd, int index) =>
+        nint.Size == 8 ? GetClassLongPtr64(hwnd, index) : new nint(GetClassLong32(hwnd, index));
+
+    private static nint SetClassLongPtr(nint hwnd, int index, nint value) =>
+        nint.Size == 8 ? SetClassLongPtr64(hwnd, index, value) : new nint(SetClassLong32(hwnd, index, value.ToInt32()));
+
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate nint WndProc(nint hwnd, uint message, nint wParam, nint lParam);
 
@@ -423,6 +448,14 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private static extern nint SetWindowLongPtr64(nint hwnd, int index, nint value);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
     private static extern nint SetWindowLong32(nint hwnd, int index, nint value);
+    [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW", SetLastError = true)]
+    private static extern nint GetClassLongPtr64(nint hwnd, int index);
+    [DllImport("user32.dll", EntryPoint = "GetClassLongW", SetLastError = true)]
+    private static extern uint GetClassLong32(nint hwnd, int index);
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW", SetLastError = true)]
+    private static extern nint SetClassLongPtr64(nint hwnd, int index, nint value);
+    [DllImport("user32.dll", EntryPoint = "SetClassLongW", SetLastError = true)]
+    private static extern uint SetClassLong32(nint hwnd, int index, int value);
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")]

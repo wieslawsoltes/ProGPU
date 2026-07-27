@@ -22,6 +22,7 @@ internal interface INativeWindowPlatform : IDisposable
     bool SetClientAreaExtension(bool enabled, double titleBarHeight);
     bool SetTheme(NativeWindowTheme theme);
     bool SetBackdrop(NativeWindowBackdrop backdrop);
+    bool SetWindowShadow(bool enabled);
     bool TryBeginMove(NativeWindowPoint pointer);
     bool TryBeginResize(NativeResizeEdge edge, NativeWindowPoint pointer);
 }

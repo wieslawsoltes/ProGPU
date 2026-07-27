@@ -13,6 +13,15 @@ internal sealed class SmokeApplication : Application
             IClassicDesktopStyleApplicationLifetime desktop)
         {
             if (ReadBoolean(
+                    "PROGPU_PACKAGE_SMOKE_WINDOW_CHROME"))
+            {
+                desktop.ShutdownMode =
+                    ShutdownMode.OnExplicitShutdown;
+                var coordinator =
+                    new WindowChromeSmokeCoordinator(desktop);
+                coordinator.Start();
+            }
+            else if (ReadBoolean(
                     "PROGPU_PACKAGE_SMOKE_MULTI_WINDOW"))
             {
                 desktop.ShutdownMode =

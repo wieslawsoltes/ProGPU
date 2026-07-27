@@ -92,6 +92,7 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     public virtual bool SetTheme(NativeWindowTheme theme) => false;
     public virtual bool SetBackdrop(NativeWindowBackdrop backdrop) =>
         backdrop is NativeWindowBackdrop.None or NativeWindowBackdrop.Transparent;
+    public virtual bool SetWindowShadow(bool enabled) => false;
     public virtual bool TryBeginMove(NativeWindowPoint pointer) => false;
     public virtual bool TryBeginResize(NativeResizeEdge edge, NativeWindowPoint pointer) => false;
     public virtual void Dispose()

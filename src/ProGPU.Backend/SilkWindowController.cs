@@ -36,6 +36,7 @@ public sealed class SilkWindowController : IDisposable
         : 0d;
     public NativeWindowBackdrop Backdrop => _state.Backdrop;
     public NativeWindowTheme Theme => _state.Theme;
+    public NativeWindowHandle Parent => _state.Parent;
 
     public bool Attach()
     {
@@ -57,25 +58,25 @@ public sealed class SilkWindowController : IDisposable
     public bool SetDecorations(NativeWindowDecorations decorations)
     {
         _state = _state with { Decorations = decorations };
-        return Apply(static (platform, state) => platform.ApplyChrome(state));
+        return Apply(ApplyChromeAndShadow);
     }
 
     public bool SetCanResize(bool value)
     {
         _state = _state with { CanResize = value };
-        return Apply(static (platform, state) => platform.ApplyChrome(state));
+        return Apply(ApplyChromeAndShadow);
     }
 
     public bool SetCanMinimize(bool value)
     {
         _state = _state with { CanMinimize = value };
-        return Apply(static (platform, state) => platform.ApplyChrome(state));
+        return Apply(ApplyChromeAndShadow);
     }
 
     public bool SetCanMaximize(bool value)
     {
         _state = _state with { CanMaximize = value };
-        return Apply(static (platform, state) => platform.ApplyChrome(state));
+        return Apply(ApplyChromeAndShadow);
     }
 
     public bool SetTopMost(bool value)
@@ -87,7 +88,15 @@ public sealed class SilkWindowController : IDisposable
     public bool SetEnabled(bool value)
     {
         _state = _state with { Enabled = value };
-        return Apply((platform, _) => platform.SetEnabled(value));
+        return Apply((platform, state) =>
+        {
+            bool enabled =
+                platform.SetEnabled(value);
+            bool shadow =
+                platform.SetWindowShadow(
+                    state.AddShadow);
+            return enabled || shadow;
+        });
     }
 
     public bool SetShowInTaskbar(bool value)
@@ -120,7 +129,10 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, state) =>
         {
             var extensionApplied = platform.SetClientAreaExtension(value, state.TitleBarHeight);
-            var chromeApplied = platform.ApplyChrome(state);
+            var chromeApplied =
+                ApplyChromeAndShadow(
+                    platform,
+                    state);
             return extensionApplied || chromeApplied;
         });
     }
@@ -142,10 +154,20 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, _) => platform.SetBackdrop(backdrop));
     }
 
+    public bool SetWindowShadow(bool enabled)
+    {
+        _state = _state with { AddShadow = enabled };
+        return Apply(
+            (platform, _) =>
+                platform.SetWindowShadow(enabled));
+    }
+
     public bool PrepareForStateTransition()
     {
         return Apply(static (platform, state) =>
-            platform.ApplyChrome(state with { CanResize = true }));
+            ApplyChromeAndShadow(
+                platform,
+                state with { CanResize = true }));
     }
 
     public bool BeginMove(NativeWindowPoint pointer)
@@ -284,6 +306,18 @@ public sealed class SilkWindowController : IDisposable
         return _platform != null || Attach();
     }
 
+    private static bool ApplyChromeAndShadow(
+        INativeWindowPlatform platform,
+        NativeWindowState state)
+    {
+        bool chrome =
+            platform.ApplyChrome(state);
+        bool shadow =
+            platform.SetWindowShadow(
+                state.AddShadow);
+        return chrome || shadow;
+    }
+
     private void ApplyAll()
     {
         if (_isApplying)
@@ -317,6 +351,7 @@ public sealed class SilkWindowController : IDisposable
         }
         platform.SetTheme(_state.Theme);
         platform.SetBackdrop(_state.Backdrop);
+        platform.SetWindowShadow(_state.AddShadow);
     }
 
     private NativeWindowHandle ResolvePendingHandle()

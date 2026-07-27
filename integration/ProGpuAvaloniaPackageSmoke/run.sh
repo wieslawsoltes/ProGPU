@@ -158,6 +158,7 @@ if [[ "${native_aot}" == "1" ]]; then
     PROGPU_PACKAGE_SMOKE_OUTPUT="${result_path}" \
     PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED="${require_retained}" \
     PROGPU_PACKAGE_SMOKE_MULTI_WINDOW="${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" \
+    PROGPU_PACKAGE_SMOKE_WINDOW_CHROME="${PROGPU_PACKAGE_SMOKE_WINDOW_CHROME:-0}" \
     "${app}"; then
     runtime_exit=0
   else
@@ -170,6 +171,7 @@ else
     PROGPU_PACKAGE_SMOKE_OUTPUT="${result_path}" \
     PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED="${require_retained}" \
     PROGPU_PACKAGE_SMOKE_MULTI_WINDOW="${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" \
+    PROGPU_PACKAGE_SMOKE_WINDOW_CHROME="${PROGPU_PACKAGE_SMOKE_WINDOW_CHROME:-0}" \
     dotnet "${app}"; then
     runtime_exit=0
   else
@@ -189,10 +191,17 @@ if [[ "${PROGPU_PACKAGE_SMOKE_MULTI_WINDOW:-0}" == "1" ]] &&
   multi_window_valid=0
 fi
 
+window_chrome_valid=1
+if [[ "${PROGPU_PACKAGE_SMOKE_WINDOW_CHROME:-0}" == "1" ]] &&
+   ! grep -Eq '"WindowChromePassed"[[:space:]]*:[[:space:]]*true' "${result_path}" 2>/dev/null; then
+  window_chrome_valid=0
+fi
+
 if [[ ! -s "${result_path}" ]] ||
    ! grep -Eq '"Passed"[[:space:]]*:[[:space:]]*true' "${result_path}" ||
    [[ "${retained_valid}" != "1" ]] ||
-   [[ "${multi_window_valid}" != "1" ]]; then
+   [[ "${multi_window_valid}" != "1" ]] ||
+   [[ "${window_chrome_valid}" != "1" ]]; then
   [[ -s "${result_path}" ]] && cat "${result_path}" >&2
   echo "The package-only runtime smoke did not satisfy the retained-rendering contract." >&2
   exit 3

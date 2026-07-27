@@ -35,7 +35,7 @@ public sealed class WindowImpl :
     ISilkNetLoopParticipant
 {
     private readonly SilkNetWindowingPlatform _platform;
-    private readonly WindowImpl? _parent;
+    private WindowImpl? _parent;
     private readonly bool _isPopup;
     private readonly SilkNetFramebufferSurface _framebufferSurface;
 #if AVALONIA11
@@ -49,6 +49,7 @@ public sealed class WindowImpl :
     private readonly ManagedPopupPositioner? _popupPositioner;
     private SilkNetInputRouter? _input;
     private IWindow? _window;
+    private SilkWindowController? _windowController;
     private WgpuContext? _webGpuContext;
     private SilkNetCursorImpl? _cursor;
     private IWindowIconImpl? _icon;
@@ -58,12 +59,23 @@ public sealed class WindowImpl :
     private Size _minSize;
     private Size _maxSize = new(double.PositiveInfinity, double.PositiveInfinity);
     private AvaloniaWindowState _windowState;
+    private NativeWindowDecorations _decorations =
+        NativeWindowDecorations.Full;
+    private NativeWindowTheme _theme = NativeWindowTheme.Light;
+    private NativeWindowBackdrop _backdrop = NativeWindowBackdrop.None;
     private SilkWindowBorder _windowBorder = SilkWindowBorder.Resizable;
     private WindowTransparencyLevel _transparencyLevel =
         WindowTransparencyLevel.None;
     private bool _transparentRequested;
     private bool _topmost;
     private bool _enabled = true;
+    private bool _showInTaskbar = true;
+    private bool _canResize = true;
+    private bool _canMinimize = true;
+    private bool _canMaximize = true;
+    private bool _addShadow = true;
+    private bool _extendClientArea;
+    private double _titleBarHeight = -1d;
     private bool _visible;
     private bool _paintQueued = true;
     private bool _disposedState;
@@ -80,8 +92,14 @@ public sealed class WindowImpl :
         _isPopup = isPopup;
         if (isPopup)
         {
+            _decorations = NativeWindowDecorations.None;
             _windowBorder = SilkWindowBorder.Hidden;
             _topmost = true;
+            _showInTaskbar = false;
+            _canResize = false;
+            _canMinimize = false;
+            _canMaximize = false;
+            _addShadow = false;
             _desiredSize = new Size(1, 1);
             if (parent is not null)
             {
@@ -123,6 +141,9 @@ public sealed class WindowImpl :
     internal long ZOrder => Volatile.Read(ref _zOrder);
     internal bool AcceptsInput => _enabled && !_disposedState;
     internal IWindow? NativeWindow => _window;
+    internal NativeWindowHandle NativeParentHandle =>
+        _windowController?.Parent ??
+        NativeWindowHandle.Empty;
 
     public double DesktopScaling => RenderScaling;
 
@@ -284,29 +305,59 @@ public sealed class WindowImpl :
         {
             _windowState = value;
             if (_window is not null)
+            {
+                _windowController?.PrepareForStateTransition();
                 _window.WindowState = ToSilkState(value);
+            }
         }
     }
 
 #if !AVALONIA11
     public bool WindowStateGetterIsUsable => true;
 #endif
-    public bool IsClientAreaExtendedToDecorations => false;
-    public bool NeedsManagedDecorations => false;
+    public bool IsClientAreaExtendedToDecorations =>
+        _extendClientArea;
+    public bool NeedsManagedDecorations =>
+        _windowController?.RequiresManagedDecorations ?? false;
 #if !AVALONIA11
     public PlatformRequestedDrawnDecoration RequestedDrawnDecorations =>
-        PlatformRequestedDrawnDecoration.None;
+        SilkNetWindowChrome.MapRequestedDrawnDecorations(
+            _windowController?.RequestedDrawnDecorations ??
+            NativeDrawnDecorationParts.None);
 #endif
-    public Thickness ExtendedMargins => default;
+    public Thickness ExtendedMargins
+    {
+        get
+        {
+            SilkWindowController? controller = _windowController;
+            if (!_extendClientArea ||
+                NeedsManagedDecorations ||
+                _decorations != NativeWindowDecorations.Full ||
+                WindowState == AvaloniaWindowState.FullScreen ||
+                controller is null)
+            {
+                return default;
+            }
+
+            return new Thickness(
+                0,
+                controller.ExtendedTitleBarHeight,
+                0,
+                0);
+        }
+    }
     public Thickness OffScreenMargin => default;
 #if !AVALONIA11
     public PlatformAllowedWindowActions AllowedWindowActions =>
-        PlatformAllowedWindowActions.All;
+        SilkNetWindowChrome.GetAllowedWindowActions(
+            _canResize,
+            _canMinimize,
+            _canMaximize);
 #endif
     public WindowTransparencyLevel TransparencyLevel =>
         _transparencyLevel;
     public AcrylicPlatformCompensationLevels AcrylicCompensationLevels =>
-        new(1, 1, 1);
+        new(1, 0.8, 0);
     public IPopupPositioner? PopupPositioner =>
         _isPopup ? _popupPositioner : null;
 
@@ -373,30 +424,33 @@ public sealed class WindowImpl :
     public void SetTransparencyLevelHint(
         IReadOnlyList<WindowTransparencyLevel> transparencyLevels)
     {
-        _transparentRequested = false;
-        WindowTransparencyLevel selected =
-            WindowTransparencyLevel.None;
-        foreach (WindowTransparencyLevel level in transparencyLevels)
-        {
-            if (level == WindowTransparencyLevel.Transparent ||
-                level == WindowTransparencyLevel.Blur ||
-                level == WindowTransparencyLevel.AcrylicBlur)
-            {
-                _transparentRequested = true;
-                selected = WindowTransparencyLevel.Transparent;
-                break;
-            }
-        }
+        ArgumentNullException.ThrowIfNull(transparencyLevels);
+        NativeWindowCapabilities capabilities =
+            _windowController?.Capabilities ??
+            NativeWindowCapabilities.ForKind(
+                NativeWindowCapabilities.DetectCurrentKind());
+        SilkNetTransparencyChoice choice =
+            SilkNetWindowChrome.SelectTransparency(
+                transparencyLevels,
+                capabilities);
+        _transparentRequested =
+            choice.Level != WindowTransparencyLevel.None;
+        _backdrop = choice.Backdrop;
+        _windowController?.SetBackdrop(_backdrop);
 
-        if (_transparencyLevel != selected)
+        if (_transparencyLevel != choice.Level)
         {
-            _transparencyLevel = selected;
-            TransparencyLevelChanged?.Invoke(selected);
+            _transparencyLevel = choice.Level;
+            TransparencyLevelChanged?.Invoke(choice.Level);
         }
     }
 
     public void SetFrameThemeVariant(PlatformThemeVariant themeVariant)
     {
+        _theme = themeVariant == PlatformThemeVariant.Dark
+            ? NativeWindowTheme.Dark
+            : NativeWindowTheme.Light;
+        _windowController?.SetTheme(_theme);
     }
 
     public void Show(bool activate, bool isDialog)
@@ -434,6 +488,7 @@ public sealed class WindowImpl :
         _topmost = value;
         if (_window is not null)
             _window.TopMost = value;
+        _windowController?.SetTopMost(value);
     }
 
     public void SetTitle(string? title)
@@ -445,36 +500,50 @@ public sealed class WindowImpl :
 
     public void SetParent(IWindowImpl? parent)
     {
-        if (parent is not null &&
-            !ReferenceEquals(parent, _parent))
-        {
-            throw new NotSupportedException(
-                "Silk.NET window ownership is fixed at construction.");
-        }
+        if (ReferenceEquals(parent, this))
+            throw new ArgumentException(
+                "A window cannot own itself.",
+                nameof(parent));
+        if (parent is not null and not WindowImpl)
+            throw new ArgumentException(
+                "The owner must use the Silk.NET windowing backend.",
+                nameof(parent));
+
+        _parent = (WindowImpl?)parent;
+        ApplyNativeParent();
     }
 
-    public void SetEnabled(bool enable) =>
+    public void SetEnabled(bool enable)
+    {
         _enabled = enable;
+        _windowController?.SetEnabled(enable);
+    }
 
 #if AVALONIA11
     public void SetSystemDecorations(SystemDecorations enabled)
     {
-        _windowBorder =
-            enabled == SystemDecorations.None
-                ? SilkWindowBorder.Hidden
-                : SilkWindowBorder.Resizable;
-        if (_window is not null)
-            _window.WindowBorder = _windowBorder;
+        SetNativeDecorations(
+            enabled switch
+            {
+                SystemDecorations.None =>
+                    NativeWindowDecorations.None,
+                SystemDecorations.BorderOnly =>
+                    NativeWindowDecorations.BorderOnly,
+                _ => NativeWindowDecorations.Full
+            });
     }
 #else
     public void SetWindowDecorations(WindowDecorations enabled)
     {
-        _windowBorder =
-            enabled == WindowDecorations.None
-                ? SilkWindowBorder.Hidden
-                : SilkWindowBorder.Resizable;
-        if (_window is not null)
-            _window.WindowBorder = _windowBorder;
+        SetNativeDecorations(
+            enabled switch
+            {
+                WindowDecorations.None =>
+                    NativeWindowDecorations.None,
+                WindowDecorations.BorderOnly =>
+                    NativeWindowDecorations.BorderOnly,
+                _ => NativeWindowDecorations.Full
+            });
     }
 #endif
 
@@ -486,33 +555,59 @@ public sealed class WindowImpl :
 
     public void ShowTaskbarIcon(bool value)
     {
+        _showInTaskbar = value;
+        _windowController?.SetShowInTaskbar(value);
     }
 
     public void CanResize(bool value)
     {
-        _windowBorder = value
-            ? SilkWindowBorder.Resizable
-            : SilkWindowBorder.Fixed;
+        if (_canResize == value)
+            return;
+        _canResize = value;
+        UpdateSilkWindowBorder();
         if (_window is not null)
             _window.WindowBorder = _windowBorder;
+        _windowController?.SetCanResize(value);
+        RaiseAllowedWindowActionsChanged();
     }
 
     public void SetCanMinimize(bool value)
     {
+        if (_canMinimize == value)
+            return;
+        _canMinimize = value;
+        _windowController?.SetCanMinimize(value);
+        RaiseAllowedWindowActionsChanged();
     }
 
     public void SetCanMaximize(bool value)
     {
+        if (_canMaximize == value)
+            return;
+        _canMaximize = value;
+        _windowController?.SetCanMaximize(value);
+        RaiseAllowedWindowActionsChanged();
     }
 
     public void BeginMoveDrag(PointerPressedEventArgs e)
     {
+        ArgumentNullException.ThrowIfNull(e);
+        if (_input is not null)
+            _windowController?.BeginMove(
+                _input.CurrentNativePointer);
     }
 
     public void BeginResizeDrag(
         WindowEdge edge,
         PointerPressedEventArgs e)
     {
+        ArgumentNullException.ThrowIfNull(e);
+        if (_input is not null)
+        {
+            _windowController?.BeginResize(
+                SilkNetWindowChrome.MapResizeEdge(edge),
+                _input.CurrentNativePointer);
+        }
     }
 
     public void Resize(
@@ -572,12 +667,25 @@ public sealed class WindowImpl :
             maxSize.Height > 0
                 ? maxSize.Height
                 : double.PositiveInfinity);
+        _windowController?.SetSizeConstraints(
+            SilkNetWindowChrome.ToMinimumSize(_minSize),
+            SilkNetWindowChrome.ToMaximumSize(_maxSize));
     }
 
     public void SetExtendClientAreaToDecorationsHint(
         bool extendIntoClientAreaHint)
     {
-        ExtendClientAreaToDecorationsChanged?.Invoke(false);
+        if (_extendClientArea == extendIntoClientAreaHint)
+            return;
+        _extendClientArea = extendIntoClientAreaHint;
+        UpdateSilkWindowBorder();
+        if (_window is not null)
+            _window.WindowBorder = _windowBorder;
+        _windowController?.SetClientAreaExtension(
+            _extendClientArea,
+            _titleBarHeight);
+        ExtendClientAreaToDecorationsChanged?.Invoke(
+            _extendClientArea);
     }
 
 #if AVALONIA11
@@ -604,10 +712,24 @@ public sealed class WindowImpl :
     public void SetExtendClientAreaTitleBarHeightHint(
         double titleBarHeight)
     {
+        _titleBarHeight =
+            double.IsFinite(titleBarHeight) &&
+            titleBarHeight >= 0
+                ? titleBarHeight
+                : -1;
+        _windowController?.SetTitleBarHeight(
+            _titleBarHeight);
+        if (_extendClientArea)
+        {
+            ExtendClientAreaToDecorationsChanged?.Invoke(
+                true);
+        }
     }
 
     public void SetWindowManagerAddShadowHint(bool enabled)
     {
+        _addShadow = enabled;
+        _windowController?.SetWindowShadow(enabled);
     }
 
     public void TakeFocus() => Activate();
@@ -627,6 +749,11 @@ public sealed class WindowImpl :
         WgpuContext? context = _webGpuContext;
         _webGpuContext = null;
         SharedWebGpuDevices.Release(context);
+
+        SilkWindowController? controller =
+            _windowController;
+        _windowController = null;
+        controller?.Dispose();
 
         IWindow? window = _window;
         _window = null;
@@ -677,6 +804,29 @@ public sealed class WindowImpl :
         else
             GotInputWhenDisabled?.Invoke();
     }
+
+    internal NativeWindowPoint ToNativeScreenPoint(
+        float clientX,
+        float clientY)
+    {
+        IWindow? window = _window;
+        if (window is null)
+            return default;
+        return new NativeWindowPoint(
+            checked(
+                window.Position.X +
+                (int)MathF.Round(clientX)),
+            checked(
+                window.Position.Y +
+                (int)MathF.Round(clientY)));
+    }
+
+    internal void UpdateNativeDrag(
+        NativeWindowPoint pointer) =>
+        _windowController?.UpdateDrag(pointer);
+
+    internal void EndNativeDrag() =>
+        _windowController?.EndDrag();
 
     void ISilkNetLoopParticipant.PollNativeEvents() =>
         _window?.DoEvents();
@@ -731,6 +881,9 @@ public sealed class WindowImpl :
         IWindow window =
             Silk.NET.Windowing.Window.Create(options);
         _window = window;
+        _windowController =
+            new SilkWindowController(window);
+        ApplyNativeWindowState();
         window.Load += OnLoad;
         window.Render += OnRender;
         window.Resize += OnResize;
@@ -748,6 +901,13 @@ public sealed class WindowImpl :
     {
         if (_window is null)
             return;
+        _windowController?.Attach();
+        ApplyNativeParent();
+        if (_extendClientArea)
+        {
+            ExtendClientAreaToDecorationsChanged?.Invoke(
+                true);
+        }
         (_input ??= new SilkNetInputRouter(
             this,
             _platform.Clipboard))
@@ -832,7 +992,13 @@ public sealed class WindowImpl :
     private void OnStateChanged(SilkWindowState state)
     {
         _windowState = FromSilkState(state);
+        _windowController?.Reapply();
         WindowStateChanged?.Invoke(_windowState);
+        if (_extendClientArea)
+        {
+            ExtendClientAreaToDecorationsChanged?.Invoke(
+                true);
+        }
     }
 
     private void OnClosing()
@@ -896,6 +1062,84 @@ public sealed class WindowImpl :
     {
         Move(position);
         Resize(size);
+    }
+
+    private void SetNativeDecorations(
+        NativeWindowDecorations decorations)
+    {
+        if (_decorations == decorations)
+            return;
+        _decorations = decorations;
+        UpdateSilkWindowBorder();
+        if (_window is not null)
+            _window.WindowBorder = _windowBorder;
+        _windowController?.SetDecorations(decorations);
+        if (_extendClientArea)
+        {
+            ExtendClientAreaToDecorationsChanged?.Invoke(
+                true);
+        }
+    }
+
+    private void UpdateSilkWindowBorder()
+    {
+        _windowBorder =
+            SilkNetWindowChrome.GetInitialWindowBorder(
+                _decorations,
+                _extendClientArea,
+                _canResize);
+    }
+
+    private void ApplyNativeWindowState()
+    {
+        SilkWindowController? controller =
+            _windowController;
+        if (controller is null)
+            return;
+
+        controller.SetDecorations(_decorations);
+        controller.SetCanResize(_canResize);
+        controller.SetCanMinimize(_canMinimize);
+        controller.SetCanMaximize(_canMaximize);
+        controller.SetTopMost(_topmost);
+        controller.SetEnabled(_enabled);
+        controller.SetShowInTaskbar(_showInTaskbar);
+        controller.SetSizeConstraints(
+            SilkNetWindowChrome.ToMinimumSize(_minSize),
+            SilkNetWindowChrome.ToMaximumSize(_maxSize));
+        controller.SetClientAreaExtension(
+            _extendClientArea,
+            _titleBarHeight);
+        controller.SetTheme(_theme);
+        controller.SetBackdrop(_backdrop);
+        controller.SetWindowShadow(_addShadow);
+    }
+
+    private void ApplyNativeParent()
+    {
+        SilkWindowController? controller =
+            _windowController;
+        if (controller is null)
+            return;
+
+        NativeWindowHandle handle =
+            NativeWindowHandle.Empty;
+        if (_parent is { _disposedState: false } parent)
+        {
+            parent.EnsureNativeWindow();
+            handle =
+                parent._windowController?.Handle ??
+                NativeWindowHandle.Empty;
+        }
+        controller.SetParent(handle);
+    }
+
+    private void RaiseAllowedWindowActionsChanged()
+    {
+#if !AVALONIA11
+        AllowedWindowActionsChanged?.Invoke(
+            AllowedWindowActions);
+#endif
     }
 
     private void ThrowIfDisposed() =>

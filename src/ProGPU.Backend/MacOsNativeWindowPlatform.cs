@@ -204,6 +204,15 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         return true;
     }
 
+    public override bool SetWindowShadow(bool enabled)
+    {
+        SendVoidBool(
+            _nsWindow,
+            "setHasShadow:",
+            enabled);
+        return true;
+    }
+
     public override bool TryBeginMove(NativeWindowPoint pointer)
     {
         var applicationClass = objc_getClass("NSApplication");

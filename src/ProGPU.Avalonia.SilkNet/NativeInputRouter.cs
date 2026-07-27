@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Numerics;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using ProGPU.Backend;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 using AvaloniaKey = Avalonia.Input.Key;
@@ -31,6 +32,7 @@ internal sealed class SilkNetInputRouter : IDisposable
     private IInputContext? _context;
     private IInputRoot? _inputRoot;
     private RawInputModifiers _pointerButtons;
+    private Vector2 _lastPointerPosition;
 
     internal SilkNetInputRouter(
         WindowImpl owner,
@@ -65,6 +67,11 @@ internal sealed class SilkNetInputRouter : IDisposable
             (cursor ?? new SilkNetCursorImpl(StandardCursor.Arrow))
                 .Apply(mouse.Cursor);
     }
+
+    internal NativeWindowPoint CurrentNativePointer =>
+        _owner.ToNativeScreenPoint(
+            _lastPointerPosition.X,
+            _lastPointerPosition.Y);
 
     public void Dispose()
     {
@@ -206,6 +213,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         SilkMouseButton button)
     {
+        _lastPointerPosition = mouse.Position;
         RawPointerEventType? eventType =
             MapButton(button, pressed: true);
         if (eventType is null)
@@ -220,6 +228,11 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         SilkMouseButton button)
     {
+        _lastPointerPosition = mouse.Position;
+        _owner.UpdateNativeDrag(
+            CurrentNativePointer);
+        if (button == SilkMouseButton.Left)
+            _owner.EndNativeDrag();
         RawPointerEventType? eventType =
             MapButton(button, pressed: false);
         if (eventType is null)
@@ -232,15 +245,21 @@ internal sealed class SilkNetInputRouter : IDisposable
 
     private void OnMouseMove(
         IMouse mouse,
-        Vector2 position) =>
+        Vector2 position)
+    {
+        _lastPointerPosition = position;
+        _owner.UpdateNativeDrag(
+            CurrentNativePointer);
         EmitPointer(
             position,
             RawPointerEventType.Move);
+    }
 
     private void OnMouseScroll(
         IMouse mouse,
         ScrollWheel wheel)
     {
+        _lastPointerPosition = mouse.Position;
         IInputRoot? root = _inputRoot;
         if (root is null || !_owner.AcceptsInput)
             return;
