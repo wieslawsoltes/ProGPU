@@ -241,10 +241,13 @@ runner exits.
 The final preview.27 replacement stack passed this gate from the exact
 `artifacts/avalonia-replacement` bytes. The isolated package-only build
 completed with zero warnings, the macOS arm64 NativeAOT executable was
-22,845,744 bytes and rendered 40 frames with zero fallback nodes, and the
+22,266,520 bytes and rendered 40 frames with zero fallback nodes, and the
 ordinary smoke rendered 28 frames with zero fallbacks. The multi-window smoke
-rendered 65 aggregate frames across two retained scenes; the survivor remained
+rendered 70 aggregate frames across two retained scenes; the survivor remained
 renderable after both owner-first and borrower-first shared-device disposal.
+The checked-in gate also caught and fixed input-device list mutation during
+owner disposal. Its NativeAOT runner now restores the IL compiler into the
+isolated cache and rejects an IL-only self-contained publish.
 NativeAOT analysis warnings were confined to the third-party Silk.NET loader
 and ImageSharp assemblies; `Avalonia.ProGpu.dll` and `Avalonia.SilkNet.dll`
 remain clean under the runtime-reflection metadata audit.

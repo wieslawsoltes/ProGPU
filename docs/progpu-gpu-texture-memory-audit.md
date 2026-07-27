@@ -1648,9 +1648,12 @@ orders without project references or runtime inspection. It creates an owner
 and borrower on one typed `WgpuContext` device domain, disposes the original
 owner, verifies that the borrower still has an active context and renders new
 frames, opens another borrower, disposes it, and again verifies frames from the
-survivor. The final ordinary run produced 66 frames: 24 before owner disposal,
-22 after owner disposal, and 20 after borrower disposal. It observed both typed
-shared-device pairs, one retained scene, and zero fallback nodes.
+survivor. The final checked-in gate produced 70 aggregate renders: 24 before
+owner disposal, 22 after owner disposal, 20 after borrower disposal, and four
+while initializing and qualifying the second borrower. It observed both typed
+shared-device pairs, one retained scene, and zero fallback nodes. The gate
+also exposed and led to the fix for input-device list mutation during owner
+disposal.
 
 The same exact package-built binary was held after the lifecycle transition
 for matched native and GPU captures. A one-window maximized run is included to
@@ -2577,7 +2580,7 @@ The rebuilt exact replacement stack passed public API/assembly identity,
 runtime-reflection, package-only runtime, shared-device two-window lifecycle,
 and macOS arm64 NativeAOT execution. Ordinary/multi-window/AOT runs rendered
 28/65/40 ProGPU frames with zero fallback nodes. The AOT executable was
-22,845,744 bytes. Evidence remains under
+22,266,520 bytes. Evidence remains under
 `artifacts/avalonia-compact-page-drawcall-*20260727`; temporary full dumps,
 raw GC dumps, the 57,631,696-byte Instruments trace, 28,854,496 bytes of XML
 exports, and 10,572,837 bytes of Xcode/task scratch were deleted after compact

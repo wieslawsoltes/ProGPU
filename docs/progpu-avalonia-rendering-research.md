@@ -1338,10 +1338,12 @@ used.
 
 The package-only sequence disposes the original shared-device owner before a
 surviving borrower, then creates and disposes another borrower while the
-survivor remains open. The exact replacement stack rendered 24 frames before
-owner disposal, 22 afterward, and 20 after borrower disposal; both device
-identity checks passed, one retained scene remained active, and no compositor
-node used the flattened fallback.
+survivor remains open. The exact replacement stack required 24 frames before
+owner disposal, 22 afterward, and 20 after borrower disposal, plus four
+borrower-initialization frames, for 70 aggregate renders. Both device identity
+checks passed, one retained scene remained active, and no compositor node used
+the flattened fallback. The gate also exposed and led to the fix for mutating
+the Silk.NET input-device lists while enumerating them during window disposal.
 
 Matched Xcode Metal traces then showed 32.54 MB
 `MTLDevice.currentAllocatedSize` and 34.49 MB of explicit live resources for

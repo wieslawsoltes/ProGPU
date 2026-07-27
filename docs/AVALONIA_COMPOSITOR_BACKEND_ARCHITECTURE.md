@@ -631,10 +631,10 @@ per-frame allocation.
 The final isolated package feed contains the exact ABI-validated `Avalonia`
 replacement plus the runtime and Avalonia integration packages. A
 SHA-512-validated package-only restore/build passed, the macOS arm64 NativeAOT
-publish produced a 22,845,744-byte executable, and that executable rendered 40
+publish produced a 22,266,520-byte executable, and that executable rendered 40
 smoke frames with one retained scene and zero fallback nodes. The ordinary
 package smoke rendered 28 frames with zero fallbacks. The two-window gate
-rendered 65 aggregate frames across two retained scenes and remained healthy
+rendered 70 aggregate frames across two retained scenes and remained healthy
 after both owner-first and borrower-first disposal.
 
 NuGet.org cannot accept a second artifact under Avalonia's existing package ID
@@ -920,7 +920,7 @@ off-ellipse descendant update.
 
 The compact-delta release gate also passed the exact replacement-package
 stack, strict official-identity ABI validation, the runtime-reflection audit,
-and the package-only shared-device multi-window test. That test rendered 65
+and the package-only shared-device multi-window test. That test rendered 70
 typed backend frames across two retained scenes with zero fallback nodes, then
 kept the survivor rendering after both owner-first and borrower-first
 disposal.
@@ -994,9 +994,12 @@ repository's typed, reflection-free architecture.
 The package-only multi-window gate now covers both shared-device destruction
 orders. It proves typed device identity for the owner/survivor and
 survivor/borrower pairs, awaits actual platform disposal, and requires the
-survivor to render afterward. The exact package run produced 24 initial
+survivor to render afterward. The exact package run required 24 initial
 frames, 22 frames after disposing the original device owner, and 20 frames
-after disposing a borrower, with one retained scene and zero fallback nodes.
+after disposing a borrower. Four frames initialized and qualified the second
+borrower, for 70 aggregate backend renders. The final survivor retained one
+scene with zero fallback nodes. This checked-in gate exposed and led to the
+fix for input-device list mutation during first-window disposal.
 
 Matched Xcode Metal and live-memory captures show no disposed-surface
 accumulation. The final small survivor used 32.54 MB of Metal allocated size
