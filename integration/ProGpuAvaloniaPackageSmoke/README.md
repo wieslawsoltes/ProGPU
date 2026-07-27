@@ -18,6 +18,16 @@ PROGPU_PACKAGE_SMOKE_MULTI_WINDOW=1 \
   ./integration/ProGpuAvaloniaPackageSmoke/run.sh replacement
 ```
 
+Exercise extended client area, title-bar margins, native backdrop and
+decoration changes, allowed window actions, and owned-window handle
+propagation:
+
+```bash
+PROGPU_PACKAGE_SMOKE_WINDOW_CHROME=1 \
+PROGPU_PACKAGE_SMOKE_FRAMES=8 \
+  ./integration/ProGpuAvaloniaPackageSmoke/run.sh replacement
+```
+
 Publish and execute a genuine standalone NativeAOT binary:
 
 ```bash

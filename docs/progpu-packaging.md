@@ -84,6 +84,65 @@ the Avalonia retained compositor, and HarfBuzz. This uses typed startup and
 frame-diagnostic contracts only; it performs no reflection or runtime assembly
 probing.
 
+## Official source sample hosts
+
+The RenderDemo and Sandbox integration hosts compile the unchanged official
+Avalonia 12.0.5 sample projects from the prepared pinned source tree. The
+ProGPU-owned startup assemblies replace only platform selection:
+
+```bash
+./integration/AvaloniaSourceRenderDemo/run.sh
+./integration/AvaloniaSourceSandbox/run.sh
+```
+
+Both use Silk.NET windowing, the ProGPU renderer/compositor, the compatible
+`Avalonia.Skia` contract assembly, and ProGPU OpenType shaping. Pass
+`--harfbuzz` to either host for a shaping comparison. Neither host copies an
+Avalonia sample into the ProGPU tree.
+
+Their bounded hardware smoke mode exits after observing real ProGPU frames and
+writes the presentation path, draw count, retained-scene count, and fallback
+count:
+
+```bash
+./integration/AvaloniaSourceRenderDemo/run.sh \
+  --smoke-frames 4 \
+  --smoke-output /tmp/progpu-renderdemo.json
+
+./integration/AvaloniaSourceSandbox/run.sh \
+  --smoke-frames 1 \
+  --smoke-output /tmp/progpu-sandbox.json
+```
+
+The preparation script is safe to rerun. It applies the retained-compositor
+foundation and then the focused text, ControlCatalog, package, native
+presentation, and source-sample patches without applying overlapping legacy
+hunks twice.
+
+## Silk.NET window chrome
+
+The Silk.NET backend implements Avalonia window chrome through typed native
+controllers. Requests made before native-window creation are retained and
+replayed when the window is initialized. Supported contracts include extended
+client area and margins, title-bar height hints, system-decoration modes,
+managed decoration requests, minimize/maximize/resize permissions, taskbar
+visibility, topmost/enabled state, owners, native size constraints, backdrop
+selection, move/resize drags, and popup shadow hints.
+
+On macOS, transparent, blur, acrylic, and Mica hints map to the closest native
+vibrancy/backdrop behavior and popup shadows use `NSWindow` shadow state. On
+Windows, popup shadow hints use the native drop-shadow window class style.
+Unsupported combinations retain deterministic Avalonia state instead of using
+reflection or probing private runtime objects.
+
+Run the package-only native chrome contract with:
+
+```bash
+PROGPU_PACKAGE_SMOKE_WINDOW_CHROME=1 \
+PROGPU_PACKAGE_SMOKE_FRAMES=8 \
+  ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
+```
+
 Run every ControlCatalog page in a fresh Release process and collect FPS,
 frame-time, allocation, retained-memory, physical-footprint, and ProGPU GPU
 resource metrics with:
