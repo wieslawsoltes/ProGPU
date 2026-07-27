@@ -49,7 +49,7 @@ diff --git a/src/Avalonia.X11/Avalonia.X11.csproj b/src/Avalonia.X11/Avalonia.X1
 -    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
 +    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
-+    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' == 'true'"
 +                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
      <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />

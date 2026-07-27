@@ -67,7 +67,7 @@ index 2ce24a4d20..4c3b0e320d 100644
 -    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
 +    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
-+    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' == 'true'"
 +                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
 +    <ProjectReference Include="$(ProGpuSourceRoot)\src\SkiaSharp\SkiaSharp.csproj"
@@ -1764,7 +1764,7 @@ index 4a49edd6bf..88825227ef 100644
 -    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
 +    <ProjectReference Include="..\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
-+    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' == 'true'"
 +                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
      <ProjectReference Include="..\Avalonia.FreeDesktop\Avalonia.FreeDesktop.csproj" />

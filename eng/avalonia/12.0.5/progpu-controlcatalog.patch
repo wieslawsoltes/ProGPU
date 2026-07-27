@@ -30,7 +30,7 @@ index 2ce24a4d20..4c3b0e320d 100644
 -    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
 +    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
-+    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
 +                      Condition="'$(UseSkiaSharpShim)' == 'true'"
 +                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
 +    <ProjectReference Include="$(ProGpuSourceRoot)\src\SkiaSharp\SkiaSharp.csproj"

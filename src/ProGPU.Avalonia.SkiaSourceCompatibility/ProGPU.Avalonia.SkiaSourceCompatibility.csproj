@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Avalonia.Skia</AssemblyName>
+    <RootNamespace>Avalonia.Skia</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyOriginatorKeyFile>..\..\eng\Avalonia.snk</AssemblyOriginatorKeyFile>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>true</Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">$([MSBuild]::NormalizePath('$(ProGpuAvaloniaSourceRoot)'))</ProGpuAvaloniaSourceRoot>
+    <AvaloniaSkiaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">$(ProGpuAvaloniaSourceRoot)\src\Skia\Avalonia.Skia</AvaloniaSkiaSourceRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(AvaloniaSkiaSourceRoot)\**\*.cs"
+             Exclude="$(AvaloniaSkiaSourceRoot)\bin\**\*.cs;$(AvaloniaSkiaSourceRoot)\obj\**\*.cs">
+      <Link>Upstream\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <EmbeddedResource Include="$(AvaloniaSkiaSourceRoot)\Assets\NoiseAsset_256X256_PNG.png"
+                      Link="Assets\NoiseAsset_256X256_PNG.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj"
+                      Condition="'$(ProGpuAvaloniaSourceRoot)' != ''"
+                      GlobalPropertiesToRemove="AvaloniaAccessUnstablePrivateApis;Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency" />
+  </ItemGroup>
+
+  <Target Name="ValidatePinnedAvaloniaSkiaSources"
+          BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(AvaloniaSkiaSourceRoot)' == '' or !Exists('$(AvaloniaSkiaSourceRoot)\DrawingContextImpl.cs')"
+           Text="Set ProGpuAvaloniaSourceRoot to the prepared, pinned Avalonia 12.0.5 source tree." />
+  </Target>
+</Project>
