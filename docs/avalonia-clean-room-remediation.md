@@ -140,3 +140,44 @@ single-window and shared-device package-only runtime smokes, and a trimmed
 NativeAOT package-consumer smoke. The final four-lane ControlCatalog Buttons
 matrix completed 12/12 fresh processes with zero harness failures. The
 clean-room tree and history gates therefore both pass.
+
+## Main-branch reconciliation
+
+PR 41 was reconstructed from `80c21fdc` while `main` continued through the
+earlier imported Avalonia implementation. Immediately before reconciliation,
+`main` was `dcb94ec6` and the clean branch was `aaac3cd6`; each side had 35
+unique commits. A normal content merge would reintroduce the prohibited
+renderer, tests, samples, notices, and project layout which this branch was
+created to remove.
+
+The main-only functionality was audited before choosing a history-only merge:
+
+| Main work | Clean-branch evidence |
+| --- | --- |
+| Demand-resident fonts | `MappedFontData`, `SfntFontFace`, Inter/Noto providers, and the bounded embedded-font owners are present. The shared mapped-font and provider files are byte-identical or the clean branch is a tested superset. |
+| Bounded bidi and text layout traversal | `BidiParagraph` and `TextLayoutEngine` are byte-identical to the final main versions. |
+| Reduced renderer GPU residency | The clean `ec1198cf` core rewrite contains the bounded compositor, atlas, resource-domain, pipeline, and lifetime work plus the later incremental-scene and Avalonia ownership fixes. |
+| Retained Avalonia adapter resources | The imported adapter cache is deliberately replaced by `ProGpuRenderResourceCache`, typed geometry ownership, bounded offscreen textures, and independent lifetime tests. |
+| Allocation-free Silk.NET event pumping | The imported `SilkNetPlatform` is deliberately replaced by the typed `NativeEventLoop`; the final Silk.NET contract suite covers dispatcher, window, input, framebuffer, and teardown behavior. |
+| Repeatable ControlCatalog benchmark | The clean source-host profiler runs Silk.NET, Avalonia Native/Dawn, both shapers, and Skia in fresh processes with managed/native/GPU telemetry. |
+| Path-atlas growth recovery | Growth advances UV generation, while compilation performs a bounded same-frame transactional retry and explicitly fails an unfit live set. |
+| Telegram badge | The identical badge is already present in `README.md`. |
+
+The reconciliation therefore cannot use an ordinary, squash, rebase, or
+`ours` merge: every such result keeps the prohibited imported commits
+reachable through `main` ancestry. It uses a guarded `--force-with-lease`
+update of the `main` ref to the validated clean tip. The lease names the exact
+audited pre-replacement `main` commit, so concurrent remote work aborts the
+operation instead of being overwritten. This is an intentional clean-history
+replacement, not an unresolved-conflict shortcut. Remote recovery branches
+preserve both pre-replacement tips:
+
+- `backup/main-before-pr41-20260727`
+- `backup/pr41-before-main-reconcile-20260727`
+
+The replacement tip must still pass the enforced clean-room history audit,
+solution build, focused Avalonia/compositor/text tests, package gates, and
+source-host runtime qualification before `main` is updated. After the guarded
+update, both the remote feature branch and remote `main` must resolve to that
+same validated commit, while the old `main` must remain reachable through its
+backup ref.
