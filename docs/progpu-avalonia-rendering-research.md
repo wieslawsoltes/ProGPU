@@ -3291,3 +3291,97 @@ and Xcode scratch from this final pair. Evidence is under
 `artifacts/controlcatalog-final-allocation-stacks-20260727`,
 `artifacts/controlcatalog-final-managed-memory-20260727`, and
 `artifacts/controlcatalog-final-instruments-20260727`.
+
+## Retina text and embedded-surface correction (2026-07-27)
+
+The sharpness investigation followed the same shape/layout/raster separation
+used above. The [GLFW window guide](https://www.glfw.org/docs/latest/window.html)
+defines window size in screen coordinates and framebuffer size in pixels, and
+notes that their relationship is platform-dependent.
+[Apple's high-resolution drawing guidance](https://developer.apple.com/library/archive/documentation/GraphicsAnimation/Conceptual/HighResolutionOSX/APIs/APIs.html)
+uses backing-coordinate conversion for pixel-sized resources.
+[`NSWindow.backingScaleFactor`](https://developer.apple.com/documentation/appkit/nswindow/backingscalefactor)
+exposes the active Cocoa backing scale, while
+[Apple's Metal window guidance](https://developer.apple.com/documentation/metal/managing-your-game-window-for-metal-in-macos)
+requires the drawable size to use the actual backing-pixel dimensions.
+[DirectWrite glyph-run analysis](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefactory-createglyphrunanalysis)
+likewise takes an explicit pixels-per-DIP value and transform after shaping.
+These contracts identify target resolution as a rasterization input, separate
+from HarfBuzz/ProGPU glyph selection and positioning.
+
+The source-built Silk.NET ControlCatalog exposed a 1024x800 framebuffer for a
+1024x800 logical window on a Retina screen. Avalonia Native/Dawn and Skia both
+produced 2048x1600. The entire Silk surface was therefore rendered at one pixel
+per point and enlarged by macOS; changing shaping, atlas filtering, coverage
+gamma, or the glyph shader could not restore the missing samples.
+
+The clean-room correction keeps the following boundaries:
+
+- the physical framebuffer ratio remains authoritative when Silk.NET reports
+  one;
+- when Silk reports one-to-one coordinates, the typed platform scale resolver
+  supplies the Cocoa or Win32 window scale;
+- the target size is the component-wise maximum of the reported framebuffer
+  and `ceil(logicalSize * renderScale)`, so an already-correct or larger
+  framebuffer is never reduced;
+- native scale lookup occurs only at initialization, framebuffer resize, and
+  monitor movement; the `RenderScaling` getter remains fixed-work and
+  allocation-free;
+- Avalonia logical coordinates and shaped glyph results remain unchanged.
+  The Avalonia command transform already carries the logical-to-physical
+  scale, so forcing compositor DPI to two as well would double-scale glyphs;
+- `ProGpuHostControl` resolves its owner with the public
+  `TopLevel.GetTopLevel(this)` contract. Avalonia 12's `VisualRoot` is a
+  `TopLevelHost`, so casting it directly to `TopLevel` had silently forced the
+  embedded texture to DPI one.
+
+Four display-metrics regressions cover a one-to-one report repaired by native
+scale, an already-valid 1.5x ratio, the minimum physical target, and
+preservation of a larger reported framebuffer. A host-control regression
+guards the typed `TopLevel` lookup. The Silk.NET contract suite passes 55 of
+55 tests.
+
+The final matched 60-warmup/180-measured-frame ControlCatalog matrix completed
+all ten Buttons/TextBlock processes: Silk.NET and Avalonia Native/Dawn, ProGPU
+and HarfBuzz shaping, plus Skia/HarfBuzz. Every screenshot is 2048x1600 for a
+1024x800 logical window. Both ProGPU presentation paths report a 2048x1600
+render target. The Avalonia renderer intentionally reports compositor DPI one
+because its retained command transform contains the two-times scale.
+
+| Buttons lane | FPS | Average frame | Allocation/frame | Managed retained | Physical footprint |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Silk.NET + ProGPU + ProGPU shaping | 119.602 | 8.333 ms | 5.02 KiB | 21.09 MiB | 318.08 MiB |
+| Avalonia Native/Dawn + ProGPU shaping | 119.896 | 8.332 ms | 4.16 KiB | 21.23 MiB | 355.52 MiB |
+| Avalonia Native + Skia/HarfBuzz | 119.764 | 8.338 ms | 5.89 KiB | 16.78 MiB | 264.97 MiB |
+
+These are single fresh-process VSync-limited qualification runs, not a causal
+throughput claim. They show that restoring four times the target pixels did not
+make the Buttons lane miss the 120 Hz cadence. The ProGPU Silk process still
+retains 4.31 MiB more managed memory and has a 53.11 MiB larger physical
+footprint than this Skia process; that pre-existing memory difference is not
+hidden by the sharpness fix.
+
+The embedded Glyphs comparison used the exact same 60/180 protocol before and
+after replacing the invalid `VisualRoot` cast. Its shared texture changed from
+1020x743 at DPI one to 2040x1486 at DPI two. Nontransparent pixels increased
+from 625,043 to 2,482,579 and pixels different from the first pixel increased
+from 563,099 to 2,232,329, confirming physical-resolution content rather than
+a larger blank texture. ProGPU-shaper FPS moved from 118.692 to 115.140
+(-2.99%), average frame time from 8.529 to 8.785 ms (+3.00%), allocation from
+4,382 to 4,372 bytes/frame, tracked Metal allocation from 59,899,904 to
+69,304,320 bytes (+15.70%), and physical footprint from 405,194,120 to
+422,397,320 bytes (+4.25%). This is the measured quality cost of four-times
+pixel coverage, with no new per-frame managed allocation.
+
+The final exact-binary Xcode Allocations, Time Profiler, and Metal System Trace
+capture attributed 43,178,048 persistent bytes to native heap and 170,246,144
+bytes to anonymous VM. The latter includes the already documented
+92,274,688-byte libdispatch reservation. Two 2048x1600 IOSurfaces account for
+26,214,400 bytes exactly; IOAccelerator accounts for 22,659,072 bytes and
+`MTLResourceList` for 2,555,904 bytes. Metal recorded 849 command-buffer
+completions and zero drawable waits, compiler spills, potential hangs, hang
+risks, or command-buffer errors. Resource creation occurred before the rolling
+Metal window, so its zero allocation rows are not interpreted as zero GPU
+memory. The compact evidence is in
+`artifacts/avalonia-retina-text-instruments-final-20260727`; 321,419,162 bytes
+of raw traces, exports, and Xcode scratch were removed after summarization.

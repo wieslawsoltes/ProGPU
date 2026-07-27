@@ -529,7 +529,8 @@ public class ProGpuHostControl : Control
 
     private CompositorHostFrame CreateHostFrame(Size logicalSize)
     {
-        double dpi = (VisualRoot as TopLevel)?.RenderScaling ?? 1.0;
+        double dpi =
+            TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         return CompositorHostFrame.FromLogicalSize(logicalSize.Width, logicalSize.Height, dpi);
     }
 

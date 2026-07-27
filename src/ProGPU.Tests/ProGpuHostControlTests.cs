@@ -208,6 +208,24 @@ public class ProGpuHostControlTests
     }
 
     [Fact]
+    public void AvaloniaHostUsesOwningTopLevelScaleForPhysicalTextureSize()
+    {
+        string source = File.ReadAllText(
+            FindProGpuHostControlSource()).Replace(
+                "\r\n",
+                "\n");
+
+        Assert.Contains(
+            "TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "(VisualRoot as TopLevel)?.RenderScaling",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AvaloniaHostExposesTypedCompositorFrameDiagnostics()
     {
         string source = File.ReadAllText(FindProGpuHostControlSource()).Replace("\r\n", "\n");

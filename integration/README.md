@@ -528,3 +528,43 @@ PROGPU_AVALONIA_ROOT="$PWD/.worktrees/avalonia-12.0.5" \
 
 ./tools/verify-avalonia-clean-room.sh --enforce
 ```
+
+## Retina and DPI validation
+
+Desktop windows keep Avalonia layout in logical coordinates while allocating
+the presentation target in physical pixels. On a 2x Retina display, a
+1024x800 ControlCatalog window must therefore report
+`WindowRenderScaling: 2`, `WindowPhysicalWidth: 2048`, and
+`WindowPhysicalHeight: 1600`. ProGPU telemetry additionally reports
+`RenderTargetWidth`, `RenderTargetHeight`, and `DpiScale`.
+
+Capture the text-heavy comparison with both ProGPU windowing paths, both text
+shapers, and Skia:
+
+```bash
+PROGPU_AVALONIA_BACKENDS='source-progpu,source-progpu-harfbuzz,source-progpu-native,source-progpu-native-harfbuzz,skia' \
+PROGPU_AVALONIA_PAGE_FILTER='^(Buttons|TextBlock)$' \
+PROGPU_AVALONIA_WARMUP_FRAMES=60 \
+PROGPU_AVALONIA_MEASURE_FRAMES=180 \
+PROGPU_AVALONIA_SCREENSHOTS=1 \
+./tools/profile-avalonia-controlcatalog.sh \
+  artifacts/avalonia-retina-text
+```
+
+For `ProGPU.Samples.Avalonia`, the embedded shared texture must also be
+physical-sized. A 1020x743 logical viewport on the same display should report
+`RenderTargetWidth: 2040`, `RenderTargetHeight: 1486`, and `DpiScale: 2`:
+
+```bash
+PROGPU_AVALONIA_SAMPLE_FILTER='^Glyphs$' \
+PROGPU_AVALONIA_SAMPLE_TEXT_SHAPERS='progpu,harfbuzz' \
+PROGPU_AVALONIA_SAMPLE_WARMUP_FRAMES=60 \
+PROGPU_AVALONIA_SAMPLE_MEASURE_FRAMES=180 \
+./tools/profile-avalonia-samples.sh \
+  artifacts/avalonia-retina-embedded
+```
+
+The Avalonia compositor metrics can intentionally report `DpiScale: 1` while
+its target is physical-sized because Avalonia's retained command transform
+already contains the logical-to-physical scale. The embedded ProGPU compositor
+owns its logical projection and therefore reports the actual display DPI.
