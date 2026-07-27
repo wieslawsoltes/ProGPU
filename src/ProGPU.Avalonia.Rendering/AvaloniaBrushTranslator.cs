@@ -127,6 +127,9 @@ partial class DrawingContextImpl
         SupportsRetainedCompositionBrush(brush) ||
         brush is IImageBrush or ISceneBrush;
 
+    internal static bool RequiresBrushContentClip(IBrush brush) =>
+        brush is IImageBrush or ISceneBrush;
+
     private ScenePen? ConvertPen(
         IPen? source,
         Rect? target = null)

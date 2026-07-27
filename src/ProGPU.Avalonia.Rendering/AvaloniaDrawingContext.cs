@@ -429,7 +429,8 @@ internal partial class DrawingContextImpl :
         Rect rect)
     {
         EnsureAvailable();
-        if (brush is not null)
+        if (brush is not null &&
+            RequiresBrushContentClip(brush))
         {
             var ellipsePath = AvaloniaGeometryFactory.Ellipse(rect);
             if (TryDrawBrushContent(brush, rect, ellipsePath.Path))

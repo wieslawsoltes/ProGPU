@@ -19,6 +19,7 @@
     <Compile Include="AvaloniaGeometryFactoryContractTests.cs" />
     <Compile Include="AvaloniaGlyphRunContractTests.cs" />
     <Compile Include="AvaloniaBackendContextContractTests.cs" />
+    <Compile Include="AvaloniaBrushTranslatorContractTests.cs" />
     <Compile Include="AvaloniaEffectScopeContractTests.cs" />
     <Compile Include="AvaloniaRendererTelemetryContractTests.cs" />
     <Compile Include="AvaloniaCompositionStateStoreContractTests.cs" />
