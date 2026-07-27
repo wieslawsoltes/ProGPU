@@ -28,6 +28,7 @@
     <Compile Include="ColorGlyphMetricCacheContractTests.cs" />
     <Compile Include="DawnNativeWindowSourceTests.cs" />
     <Compile Include="OffscreenTextureCacheTests.cs" />
+    <Compile Include="ProGpuExternalObjectsFeatureTests.cs" />
     <Compile Include="ProGpuTextShaperContractTests.cs" />
   </ItemGroup>
 

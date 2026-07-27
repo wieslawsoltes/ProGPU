@@ -13,6 +13,7 @@
     <Compile Include="FramebufferStorageContractTests.cs" />
     <Compile Include="InputAndCursorContractTests.cs" />
     <Compile Include="PlatformTimingContractTests.cs" />
+    <Compile Include="SharedWebGpuDevicesContractTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

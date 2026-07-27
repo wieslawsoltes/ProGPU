@@ -51,7 +51,7 @@ internal static class SharedWebGpuDevices
         context.Dispose();
     }
 
-    private static WgpuContext? FindHealthyContext()
+    internal static WgpuContext? FindHealthyContext()
     {
         for (int index = s_contexts.Count - 1; index >= 0; index--)
         {
@@ -66,8 +66,27 @@ internal static class SharedWebGpuDevices
                 return context;
         }
 
+        WgpuContext? current = WgpuContext.Current;
+        if (IsHealthy(current))
+            return current;
+
+        if (WgpuContext.TryGetFirstActiveContext(
+                out WgpuContext? active) &&
+            IsHealthy(active))
+        {
+            return active;
+        }
+
         return null;
     }
+
+    private static bool IsHealthy(WgpuContext? context) =>
+        context is
+        {
+            IsInitialized: true,
+            IsDisposed: false,
+            IsDeviceLost: false
+        };
 
     private static bool SharingEnabled() =>
         !string.Equals(

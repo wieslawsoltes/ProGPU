@@ -77,11 +77,15 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
             [typeof(ICompositionServerBackend)] =
                 compositionServerBackend,
             [typeof(IExternalObjectsRenderInterfaceContextFeature)] =
-                new ProGpuExternalObjectsFeature()
+                new ProGpuExternalObjectsFeature(GetSelectedContext)
         };
 #else
         _compositionServerBackendLifetime = null;
-        PublicFeatures = s_noFeatures;
+        PublicFeatures = new Dictionary<Type, object>
+        {
+            [typeof(IExternalObjectsRenderInterfaceContextFeature)] =
+                new ProGpuExternalObjectsFeature(GetSelectedContext)
+        };
 #endif
 #else
         _ = useDawnMetalPresentation;

@@ -24,6 +24,14 @@ internal sealed class ProGpuExternalObjectsFeature :
     private static readonly string[] s_imageHandleTypes =
         [SharedGpuTextureSource.CompositionHandleType];
     private static readonly string[] s_semaphoreTypes = [];
+    private readonly Func<WgpuContext?> _getImportContext;
+
+    internal ProGpuExternalObjectsFeature(
+        Func<WgpuContext?> getImportContext)
+    {
+        _getImportContext = getImportContext ??
+            throw new ArgumentNullException(nameof(getImportContext));
+    }
 
     public IReadOnlyList<string> SupportedImageHandleTypes =>
         s_imageHandleTypes;
@@ -51,6 +59,17 @@ internal sealed class ProGpuExternalObjectsFeature :
         }
 
         GpuTexture texture = lease.Texture;
+        WgpuContext? importContext = _getImportContext();
+        if (importContext is null ||
+            importContext.IsDisposed ||
+            importContext.IsDeviceLost ||
+            !texture.Context.SharesDeviceWith(importContext))
+        {
+            lease.Dispose();
+            throw new NotSupportedException(
+                "The ProGPU texture and Avalonia compositor do not share the same WebGPU device.");
+        }
+
         if (properties.Width != checked((int)texture.Width) ||
             properties.Height != checked((int)texture.Height))
         {

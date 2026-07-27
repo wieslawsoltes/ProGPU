@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Platform;
 using Avalonia.Platform.Surfaces;
+using Avalonia.Rendering.Composition;
 using ProGPU.Backend;
 using Xunit;
 
@@ -65,6 +66,30 @@ public sealed class AvaloniaBackendContextContractTests
 
         Assert.False(
             context.IsReadyToCreateRenderTarget([unavailable]));
+    }
+
+    [Fact]
+    public void PublicFeaturesExposeSameDeviceTextureImport()
+    {
+        using var context = CreateContext();
+
+        object feature = Assert.IsAssignableFrom<
+            IExternalObjectsRenderInterfaceContextFeature>(
+                context.TryGetFeature(
+                    typeof(
+                        IExternalObjectsRenderInterfaceContextFeature)));
+        var externalObjects =
+            Assert.IsAssignableFrom<
+                IExternalObjectsRenderInterfaceContextFeature>(feature);
+
+        Assert.Contains(
+            SharedGpuTextureSource.CompositionHandleType,
+            externalObjects.SupportedImageHandleTypes);
+        Assert.Equal(
+            CompositionGpuImportedImageSynchronizationCapabilities
+                .Automatic,
+            externalObjects.GetSynchronizationCapabilities(
+                SharedGpuTextureSource.CompositionHandleType));
     }
 
     private static ProGpuBackendContext CreateContext() =>
