@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using Avalonia;
@@ -6,9 +7,11 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.ProGpu;
 using Avalonia.SilkNet;
 using Avalonia.Threading;
 using ProGPU.Backend;
+using ProGpuCompositorMetrics = ProGPU.Scene.CompositorMetrics;
 
 namespace ProGpuAvaloniaPackageSmoke;
 
@@ -17,8 +20,14 @@ internal sealed class WindowChromeSmokeCoordinator
     private readonly IClassicDesktopStyleApplicationLifetime
         _desktop;
     private readonly string? _outputPath;
+    private readonly int _targetFrames;
+    private readonly bool _requireRetainedCompositor;
     private readonly SmokeWindow _owner;
     private SmokeWindow? _owned;
+    private int _frameCount;
+    private bool _ownedValidated;
+    private bool _completionScheduled;
+    private ProGpuCompositorMetrics _lastMetrics;
 
     internal WindowChromeSmokeCoordinator(
         IClassicDesktopStyleApplicationLifetime desktop)
@@ -27,6 +36,10 @@ internal sealed class WindowChromeSmokeCoordinator
             throw new ArgumentNullException(nameof(desktop));
         _outputPath = ReadOptionalPath(
             "PROGPU_PACKAGE_SMOKE_OUTPUT");
+        _targetFrames = ReadPositiveInt(
+            "PROGPU_PACKAGE_SMOKE_FRAMES");
+        _requireRetainedCompositor = ReadBoolean(
+            "PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED");
         _owner = new SmokeWindow(standalone: false)
         {
             Title =
@@ -50,7 +63,17 @@ internal sealed class WindowChromeSmokeCoordinator
     internal void Start()
     {
         _desktop.MainWindow = _owner;
+        ProGpuRenderingDiagnostics.FrameRendered +=
+            OnFrameRendered;
         _owner.Show();
+    }
+
+    private void OnFrameRendered(
+        ProGpuCompositorMetrics metrics)
+    {
+        _lastMetrics = metrics;
+        _frameCount++;
+        TryScheduleCompletion();
     }
 
     private void OnOwnerOpened(
@@ -121,19 +144,52 @@ internal sealed class WindowChromeSmokeCoordinator
                     "Owned window did not retain the owner's native handle.");
             }
 
-            WriteResult(
-                passed: true,
-                owner,
-                nativeParent,
-                error: null);
-            _owned!.Close();
-            _owner.Close();
-            _desktop.Shutdown(0);
+            _ownedValidated = true;
+            TryScheduleCompletion();
         }
         catch (Exception exception)
         {
             Fail(exception);
         }
+    }
+
+    private void TryScheduleCompletion()
+    {
+        if (!_ownedValidated ||
+            _frameCount < _targetFrames ||
+            _completionScheduled)
+        {
+            return;
+        }
+
+        _completionScheduled = true;
+        Dispatcher.UIThread.Post(
+            Complete,
+            DispatcherPriority.Background);
+    }
+
+    private void Complete()
+    {
+        WindowImpl owner =
+            RequireWindowImpl(_owner);
+        NativeWindowHandle nativeParent =
+            RequireWindowImpl(_owned!).NativeParentHandle;
+        bool renderingPassed =
+            _lastMetrics.DrawCallsCount > 0 &&
+            (!_requireRetainedCompositor ||
+             (_lastMetrics.RetainedCompositionSceneCount > 0 &&
+              _lastMetrics
+                  .RetainedCompositionServerBackendRenderCount > 0 &&
+              _lastMetrics.RetainedCompositionFallbackNodeCount == 0)) &&
+            !string.IsNullOrWhiteSpace(
+                _lastMetrics.PresentationPath);
+
+        WriteResult(
+            renderingPassed,
+            owner,
+            nativeParent,
+            error: null);
+        Shutdown(renderingPassed ? 0 : 8);
     }
 
     private void ValidateOwner(
@@ -230,9 +286,16 @@ internal sealed class WindowChromeSmokeCoordinator
             owner,
             default,
             exception.ToString());
+        Shutdown(9);
+    }
+
+    private void Shutdown(int exitCode)
+    {
+        ProGpuRenderingDiagnostics.FrameRendered -=
+            OnFrameRendered;
         _owned?.Close();
         _owner.Close();
-        _desktop.Shutdown(9);
+        _desktop.Shutdown(exitCode);
     }
 
     private void WriteResult(
@@ -281,6 +344,25 @@ internal sealed class WindowChromeSmokeCoordinator
         writer.WriteBoolean(
             "NativeOwnerApplied",
             nativeParent.IsValid);
+        writer.WriteNumber("Frames", _frameCount);
+        writer.WriteString(
+            "PresentationPath",
+            _lastMetrics.PresentationPath ??
+            "Unavailable");
+        writer.WriteNumber(
+            "DrawCalls",
+            _lastMetrics.DrawCallsCount);
+        writer.WriteNumber(
+            "RetainedCompositionScenes",
+            _lastMetrics.RetainedCompositionSceneCount);
+        writer.WriteNumber(
+            "RetainedCompositionServerBackendRenders",
+            _lastMetrics
+                .RetainedCompositionServerBackendRenderCount);
+        writer.WriteNumber(
+            "RetainedCompositionFallbackNodes",
+            _lastMetrics
+                .RetainedCompositionFallbackNodeCount);
         if (!string.IsNullOrWhiteSpace(error))
             writer.WriteString("Error", error);
         writer.WriteEndObject();
@@ -309,5 +391,29 @@ internal sealed class WindowChromeSmokeCoordinator
         return string.IsNullOrWhiteSpace(value)
             ? null
             : Path.GetFullPath(value);
+    }
+
+    private static int ReadPositiveInt(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(
+                   value,
+                   NumberStyles.Integer,
+                   CultureInfo.InvariantCulture,
+                   out int result) &&
+               result > 0
+            ? result
+            : 20;
+    }
+
+    private static bool ReadBoolean(string name)
+    {
+        string? value =
+            Environment.GetEnvironmentVariable(name);
+        return value is "1" ||
+               string.Equals(
+                   value,
+                   "true",
+                   StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -3,8 +3,11 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.ProGpu;
+using Avalonia.SilkNet;
 using Avalonia.Threading;
 using ProGPU.Scene;
 
@@ -14,8 +17,11 @@ internal sealed class SourceSampleSmokeSession : IDisposable
 {
     private readonly int _targetFrames;
     private readonly string? _outputPath;
+    private readonly SourceSamplePulseControl _pulse = new();
     private int _frameCount;
     private bool _completionScheduled;
+    private bool _pulseAttached;
+    private bool _pulsePhase;
     private CompositorMetrics _lastMetrics;
 
     private SourceSampleSmokeSession(
@@ -58,6 +64,7 @@ internal sealed class SourceSampleSmokeSession : IDisposable
     internal void Start()
     {
         ProGpuRenderingDiagnostics.FrameRendered += OnFrameRendered;
+        SilkNetPlatform.FramePreparing += OnFramePreparing;
         Dispatcher.UIThread.Post(
             InvalidateMainWindow,
             DispatcherPriority.Background);
@@ -66,6 +73,46 @@ internal sealed class SourceSampleSmokeSession : IDisposable
     public void Dispose()
     {
         ProGpuRenderingDiagnostics.FrameRendered -= OnFrameRendered;
+        SilkNetPlatform.FramePreparing -= OnFramePreparing;
+    }
+
+    private void OnFramePreparing()
+    {
+        if (_completionScheduled)
+            return;
+
+        AttachPulse();
+        _pulsePhase = !_pulsePhase;
+        _pulse.SetPhase(_pulsePhase);
+    }
+
+    private void AttachPulse()
+    {
+        if (_pulseAttached ||
+            Application.Current?.ApplicationLifetime is not
+                IClassicDesktopStyleApplicationLifetime
+                {
+                    MainWindow: { } window
+                })
+        {
+            return;
+        }
+
+        object? content = window.Content;
+        window.Content = null;
+        var root = new Grid();
+        if (content is Control control)
+        {
+            root.Children.Add(control);
+        }
+        else if (content is not null)
+        {
+            root.Children.Add(
+                new ContentControl { Content = content });
+        }
+        root.Children.Add(_pulse);
+        window.Content = root;
+        _pulseAttached = true;
     }
 
     private static void InvalidateMainWindow()
@@ -83,9 +130,6 @@ internal sealed class SourceSampleSmokeSession : IDisposable
         _frameCount++;
         if (_frameCount < _targetFrames)
         {
-            Dispatcher.UIThread.Post(
-                InvalidateMainWindow,
-                DispatcherPriority.Background);
             return;
         }
         if (_completionScheduled)
@@ -134,5 +178,40 @@ internal sealed class SourceSampleSmokeSession : IDisposable
         }
 
         Environment.Exit(passed ? 0 : 5);
+    }
+}
+
+internal sealed class SourceSamplePulseControl : Control
+{
+    private readonly IBrush _firstBrush =
+        new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
+    private readonly IBrush _secondBrush =
+        new SolidColorBrush(
+            Color.FromArgb(1, 255, 255, 255));
+    private bool _phase;
+
+    public SourceSamplePulseControl()
+    {
+        Width = 1;
+        Height = 1;
+        IsHitTestVisible = false;
+        HorizontalAlignment =
+            Avalonia.Layout.HorizontalAlignment.Left;
+        VerticalAlignment =
+            Avalonia.Layout.VerticalAlignment.Top;
+    }
+
+    public void SetPhase(bool phase)
+    {
+        _phase = phase;
+        InvalidateVisual();
+    }
+
+    public override void Render(
+        Avalonia.Media.DrawingContext context)
+    {
+        context.FillRectangle(
+            _phase ? _firstBrush : _secondBrush,
+            new Avalonia.Rect(Bounds.Size));
     }
 }

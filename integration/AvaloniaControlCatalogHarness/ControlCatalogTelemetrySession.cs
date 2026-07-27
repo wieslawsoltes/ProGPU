@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 #if PROGPU_AVALONIA_BACKEND
 using Avalonia.ProGpu;
@@ -272,7 +273,9 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         _measurementActive = false;
 #endif
         _completed = true;
-        Complete();
+        Dispatcher.UIThread.Post(
+            Complete,
+            DispatcherPriority.Background);
     }
 
     private void PrepareMeasurement()
