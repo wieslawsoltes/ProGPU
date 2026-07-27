@@ -13,9 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogBenchmark.cs"
-             Link="ControlCatalogBenchmark.cs" />
-    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogRuntimeTitle.cs"
+    <Compile Include="..\AvaloniaControlCatalogHarness\ControlCatalogTelemetrySession.cs"
+             Link="ControlCatalogTelemetrySession.cs" />
+    <Compile Include="..\AvaloniaControlCatalogHarness\ControlCatalogRuntimeTitle.cs"
              Link="ControlCatalogRuntimeTitle.cs" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\samples\ControlCatalog\ControlCatalog.csproj"
@@ -26,12 +26,12 @@
                       AdditionalProperties="UseSkiaSharpShim=true;ProGpuSourceRoot=$(ProGpuSourceRoot);ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Windows\Avalonia.Win32\Avalonia.Win32.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
-    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SkiaShim\Avalonia.Skia.csproj"
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
                       AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
     <ProjectReference Include="..\..\src\SkiaSharp\SkiaSharp.csproj" />
     <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
                       AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
-    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\Avalonia.SilkNet.csproj"
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj"
                       AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
   </ItemGroup>
 </Project>

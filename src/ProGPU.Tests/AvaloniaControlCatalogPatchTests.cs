@@ -10,8 +10,8 @@ public sealed class AvaloniaControlCatalogPatchTests
     {
         string runtimeTitle = File.ReadAllText(
             FindRepoFile(
-                "samples",
-                "ControlCatalog.Desktop",
+                "integration",
+                "AvaloniaControlCatalogHarness",
                 "ControlCatalogRuntimeTitle.cs"));
         string sourceProgram = File.ReadAllText(
             FindRepoFile(
@@ -91,36 +91,40 @@ public sealed class AvaloniaControlCatalogPatchTests
     }
 
     [Fact]
-    public void BenchmarkCapturesTheSelectedPageInsteadOfTheClippedWindowTree()
+    public void BenchmarkUsesTypedJsonAndPhysicalPixelScreenshots()
     {
         string benchmark = File.ReadAllText(
             FindRepoFile(
-                "samples",
-                "ControlCatalog.Desktop",
-                "ControlCatalogBenchmark.cs"));
+                "integration",
+                "AvaloniaControlCatalogHarness",
+                "ControlCatalogTelemetrySession.cs"));
 
         Assert.Contains(
-            "Avalonia.Visual renderRoot = _benchmarkScreenshotRoot ??",
+            "new Utf8JsonWriter(",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "FindScreenshotRoot(window.Content as Avalonia.Visual ?? window)",
+            "WriteDistribution(writer, \"Frame\", frameTime)",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".OfType<TabControl>()",
+            "$\"{prefix}TimeSampleCount\"",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Content: Avalonia.Visual deferredContent",
+            "_window.Bounds.Width *",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "bitmap.Render(renderRoot);",
+            "_window.RenderScaling",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "bitmap.Render(_window);",
             benchmark,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "bitmap.Render(window);",
+            "JsonSerializer.Serialize",
             benchmark,
             StringComparison.Ordinal);
     }
@@ -216,9 +220,9 @@ public sealed class AvaloniaControlCatalogPatchTests
                 "profile-avalonia-controlcatalog.sh"));
         string benchmark = File.ReadAllText(
             FindRepoFile(
-                "samples",
-                "ControlCatalog.Desktop",
-                "ControlCatalogBenchmark.cs"));
+                "integration",
+                "AvaloniaControlCatalogHarness",
+                "ControlCatalogTelemetrySession.cs"));
         string scene = File.ReadAllText(
             FindRepoFile(
                 "src",
@@ -238,7 +242,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             profiler,
             StringComparison.Ordinal);
         Assert.Contains(
-            "RetainedCompositionCustomVisualCompilations =",
+            "\"RetainedCompositionCustomVisualCompilations\"",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -256,9 +260,9 @@ public sealed class AvaloniaControlCatalogPatchTests
                 "profile-avalonia-controlcatalog.sh"));
         string benchmark = File.ReadAllText(
             FindRepoFile(
-                "samples",
-                "ControlCatalog.Desktop",
-                "ControlCatalogBenchmark.cs"));
+                "integration",
+                "AvaloniaControlCatalogHarness",
+                "ControlCatalogTelemetrySession.cs"));
         string scene = File.ReadAllText(
             FindRepoFile(
                 "src",
@@ -270,7 +274,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachLayoutClipFixture(layoutClipOwner);",
+            "target.ClipToBounds = true;",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -294,7 +298,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachBitmapCacheChannelFixture(bitmapCacheOwner);",
+            "target.CacheMode = new BitmapCache",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -306,7 +310,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachEffectChannelFixture(effectChannelOwner);",
+            "target.Effect = new BlurEffect",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -318,7 +322,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachOpacityMaskChannelFixture(opacityMaskChannelOwner);",
+            "target.OpacityMask = Brushes.White;",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -334,7 +338,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachTopologyChannelFixture(topologyOwner);",
+            "_panel.Children.Add(_topologyChild);",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -346,7 +350,7 @@ public sealed class AvaloniaControlCatalogPatchTests
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AttachAdornerChannelFixture(adornerOwner);",
+            "AdornerLayer.SetAdorner(_target, _adornerVisual);",
             benchmark,
             StringComparison.Ordinal);
         Assert.Contains(

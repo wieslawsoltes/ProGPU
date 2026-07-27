@@ -20,7 +20,8 @@ internal static class Program
                 "Skia",
                 "Avalonia retained",
                 "HarfBuzz"));
-        using var benchmark = ControlCatalogBenchmark.TryStart(
+        using var benchmark =
+            ControlCatalogTelemetrySession.TryStart(
             "Skia.SourceBuilt.Reference",
             App.InitialPage,
             "HarfBuzz");

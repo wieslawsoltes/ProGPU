@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
+project="${repo_root}/integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj"
+
+PROGPU_AVALONIA_ROOT="${avalonia_root}" \
+  "${repo_root}/tools/prepare-avalonia-12.0.5-source.sh"
+
+dotnet run \
+  --project "${project}" \
+  --configuration Release \
+  -p:UseSkiaSharpShim=true \
+  -p:ProGpuSourceRoot="${repo_root}" \
+  -p:ProGpuAvaloniaSourceRoot="${avalonia_root}" \
+  -- "$@"

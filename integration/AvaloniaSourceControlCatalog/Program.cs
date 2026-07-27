@@ -34,7 +34,8 @@ namespace ControlCatalog.Desktop
                     "ProGPU retained",
                     useHarfBuzz ? "HarfBuzz" : "ProGPU OpenType"),
                 observeProGpuPresentation: true);
-            using var benchmark = ControlCatalogBenchmark.TryStart(
+            using var benchmark =
+                ControlCatalogTelemetrySession.TryStart(
                 useNativeWindowing
                     ? allowDawnPresentationFallback
                         ? "ProGPU.SourceBuilt.AvaloniaNative"

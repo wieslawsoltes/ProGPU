@@ -9,9 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogBenchmark.cs"
-             Link="ControlCatalogBenchmark.cs" />
-    <Compile Include="..\..\samples\ControlCatalog.Desktop\ControlCatalogRuntimeTitle.cs"
+    <Compile Include="..\AvaloniaControlCatalogHarness\ControlCatalogTelemetrySession.cs"
+             Link="ControlCatalogTelemetrySession.cs" />
+    <Compile Include="..\AvaloniaControlCatalogHarness\ControlCatalogRuntimeTitle.cs"
              Link="ControlCatalogRuntimeTitle.cs" />
     <ProjectReference Include="$(AvaloniaForkRoot)\packages\Avalonia\Avalonia.csproj" />
     <ProjectReference Include="$(AvaloniaForkRoot)\samples\ControlCatalog\ControlCatalog.csproj"
