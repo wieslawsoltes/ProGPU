@@ -1259,9 +1259,24 @@ internal sealed class AvaloniaCompositionScene : IDisposable
         in RetainedCompositionVisualDelta delta,
         [NotNullWhen(true)] out AvaloniaCompositionVisual? target)
     {
-        if (delta.BackendOwner == _ownerId &&
+        long backendOwner = delta.BackendOwner;
+        ulong backendHandle = delta.BackendHandle;
+        if (backendOwner == 0 &&
+            backendHandle == 0 &&
+            delta.Source.RetainedId == delta.RetainedId &&
+            delta.Source.RetainedBackendOwner == _ownerId)
+        {
+            // An earlier parent-topology delta can materialize a newly
+            // attached child in this same immutable transaction. Reconcile
+            // only that unassigned identity transition; all visual state
+            // continues to come from the delta snapshot.
+            backendOwner = delta.Source.RetainedBackendOwner;
+            backendHandle = delta.Source.RetainedBackendHandle;
+        }
+
+        if (backendOwner == _ownerId &&
             _visuals.TryGet(
-                delta.BackendHandle,
+                backendHandle,
                 delta.RetainedId,
                 out target) &&
             ReferenceEquals(target.Source, delta.Source))
