@@ -1,0 +1,17 @@
+diff --git a/src/Avalonia.Desktop/Avalonia.Desktop.csproj b/src/Avalonia.Desktop/Avalonia.Desktop.csproj
+--- a/src/Avalonia.Desktop/Avalonia.Desktop.csproj
++++ b/src/Avalonia.Desktop/Avalonia.Desktop.csproj
+@@ -2,3 +2,4 @@
+   <PropertyGroup>
+-    <TargetFrameworks>$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' != 'true'">$(AvsCurrentTargetFramework);$(AvsLegacyTargetFrameworks)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(UseSkiaSharpShim)' == 'true'">$(AvsCurrentTargetFramework)</TargetFrameworks>
+   </PropertyGroup>
+@@ -8,2 +9,6 @@
+-    <ProjectReference Include="../../src/Skia/Avalonia.Skia/Avalonia.Skia.csproj" />
++    <ProjectReference Include="../../src/Skia/Avalonia.Skia/Avalonia.Skia.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+     <ProjectReference Include="../../src/Avalonia.Native/Avalonia.Native.csproj" />

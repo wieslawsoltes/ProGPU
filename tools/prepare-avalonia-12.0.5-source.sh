@@ -12,7 +12,80 @@ patches=(
   "${repo_root}/eng/avalonia/12.0.5/progpu-controlcatalog.patch"
   "${repo_root}/eng/avalonia/12.0.5/progpu-package.patch"
   "${repo_root}/eng/avalonia/12.0.5/progpu-native-dawn.patch"
+  "${repo_root}/eng/avalonia/12.0.5/progpu-source-samples.patch"
+  "${repo_root}/eng/avalonia/12.0.5/progpu-renderdemo.patch"
 )
+
+patch_arguments()
+{
+  local patch="$1"
+  local patch_name
+  patch_name="$(basename "${patch}")"
+  if [[ "${patch_name}" == "progpu-native-dawn.patch" ]]; then
+    printf '%s\n' \
+      "--exclude=src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionTarget.cs"
+    return
+  fi
+  if [[ "${patch_name}" != "progpu-compositor.patch" ]]; then
+    return
+  fi
+
+  # The compositor patch is the retained-scene foundation. Later focused
+  # patches own the final versions of these files and must be applied from the
+  # pristine pinned revision, not on top of the older foundation hunks.
+  printf '%s\n' \
+    "--exclude=native/Avalonia.Native/src/OSX/metal.mm" \
+    "--exclude=packages/Avalonia/Avalonia.csproj" \
+    "--exclude=samples/ControlCatalog/**" \
+    "--exclude=src/Avalonia.X11/Avalonia.X11.csproj" \
+    "--exclude=src/Avalonia.X11/X11Window.cs" \
+    "--exclude=tests/Avalonia.Skia.UnitTests/**"
+}
+
+apply_or_validate_patch()
+{
+  local patch="$1"
+  local -a arguments=()
+  while IFS= read -r argument; do
+    arguments+=("${argument}")
+  done < <(patch_arguments "${patch}")
+
+  if git -C "${avalonia_root}" apply \
+      --check \
+      --reverse \
+      ${arguments[@]+"${arguments[@]}"} \
+      "${patch}" \
+      2>/dev/null; then
+    return
+  fi
+
+  if ! git -C "${avalonia_root}" apply \
+      --check \
+      ${arguments[@]+"${arguments[@]}"} \
+      "${patch}"; then
+    echo "Avalonia source patch cannot be applied cleanly: ${patch}" >&2
+    exit 5
+  fi
+
+  git -C "${avalonia_root}" apply \
+    ${arguments[@]+"${arguments[@]}"} \
+    "${patch}"
+}
+
+validate_applied_patch()
+{
+  local patch="$1"
+  local -a arguments=()
+  while IFS= read -r argument; do
+    arguments+=("${argument}")
+  done < <(patch_arguments "${patch}")
+
+  git -C "${avalonia_root}" apply \
+    --check \
+    --reverse \
+    ${arguments[@]+"${arguments[@]}"} \
+    "${patch}"
+}
 
 if [[ ! -d "${source_repo}/.git" && ! -f "${source_repo}/.git" ]]; then
   echo "Pinned Avalonia repository was not found at ${source_repo}." >&2
@@ -50,20 +123,11 @@ fi
 git -C "${avalonia_root}" submodule update --init --recursive
 
 for patch in "${patches[@]}"; do
-  if git -C "${avalonia_root}" apply --check --reverse "${patch}"; then
-    continue
-  fi
-
-  if ! git -C "${avalonia_root}" apply --check "${patch}"; then
-    echo "Avalonia source patch cannot be applied cleanly: ${patch}" >&2
-    exit 5
-  fi
-
-  git -C "${avalonia_root}" apply "${patch}"
+  apply_or_validate_patch "${patch}"
 done
 
 for patch in "${patches[@]}"; do
-  git -C "${avalonia_root}" apply --check --reverse "${patch}"
+  validate_applied_patch "${patch}"
 done
 
 echo "Prepared official Avalonia 12.0.5 source at ${avalonia_root}."

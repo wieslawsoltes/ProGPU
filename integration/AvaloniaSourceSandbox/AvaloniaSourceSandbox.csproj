@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <StartupObject>ProGpuAvaloniaSamples.SandboxHost.Program</StartupObject>
+    <ProGpuDependencyMode>Source</ProGpuDependencyMode>
+    <ProGpuSourceRoot>$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <UseSkiaSharpShim>true</UseSkiaSharpShim>
+    <PackAvaloniaNative>false</PackAvaloniaNative>
+    <AvaloniaSingleProject>false</AvaloniaSingleProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\AvaloniaSourceSampleHost\SourceSampleSmokeSession.cs"
+             Link="SourceSampleSmokeSession.cs" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\samples\Sandbox\Sandbox.csproj"
+                      AdditionalProperties="PackAvaloniaNative=false;UseSkiaSharpShim=true;ProGpuSourceRoot=$(ProGpuSourceRoot);ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+    <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+    <ProjectReference Include="..\..\src\SkiaSharp\SkiaSharp.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
+  </ItemGroup>
+</Project>

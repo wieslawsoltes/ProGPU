@@ -1,0 +1,18 @@
+diff --git a/samples/RenderDemo/RenderDemo.csproj b/samples/RenderDemo/RenderDemo.csproj
+--- a/samples/RenderDemo/RenderDemo.csproj
++++ b/samples/RenderDemo/RenderDemo.csproj
+@@ -15,7 +15,13 @@
+   <ItemGroup>
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Themes.Fluent\Avalonia.Themes.Fluent.csproj" />
+-    <ProjectReference Include="..\..\src\Linux\Avalonia.LinuxFramebuffer\Avalonia.LinuxFramebuffer.csproj" />
++    <ProjectReference Include="..\..\src\Linux\Avalonia.LinuxFramebuffer\Avalonia.LinuxFramebuffer.csproj"
++                      Condition="'$(UseSkiaSharpShim)' != 'true'" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
++    <ProjectReference Include="$(ProGpuSourceRoot)\src\SkiaSharp\SkiaSharp.csproj"
++                      Condition="'$(UseSkiaSharpShim)' == 'true'" />
+     <ProjectReference Include="..\MiniMvvm\MiniMvvm.csproj" />
+     <ProjectReference Include="..\SampleControls\ControlSamples.csproj" />
+   </ItemGroup>
