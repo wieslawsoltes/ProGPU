@@ -118,6 +118,18 @@ incomplete without this research record and measured evidence.
 
 Rendering performance and pixel quality are one contract. A change is not acceptable when it improves FPS by bypassing required invalidation, lowering raster quality, changing DPI/subpixel behavior, or silently dropping dynamic content.
 
+### macOS Instruments profiling requirement
+
+When optimizing memory, CPU, or GPU performance on macOS, always profile the
+representative final workload with Xcode Instruments in addition to ProGPU's
+automated counters. Use the relevant Allocations/VM Tracker, Time Profiler, and
+Metal System Trace instruments; capture matched before/after runs from the same
+Release binaries and workload; retain the `.trace` artifacts or exported
+tables; and correlate Instruments findings with .NET EventPipe, process
+footprint, wgpu-native resource, and Metal `currentAllocatedSize` measurements.
+Do not claim a regression or improvement from a single snapshot, an
+instrumented FPS result, or an uncorrelated process-footprint number.
+
 ### A. Preserve Compiled-Scene Correctness
 
 When editing `Compositor`, `Visual`, atlases, effects, layers, or host frame code:

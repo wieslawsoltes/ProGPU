@@ -10,19 +10,28 @@ using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 return args.Length == 0 ? Usage() : args[0] switch
 {
+    "--help" or "-h" or "help" => Usage(0),
+    "capture" => LiveMemoryCapture.Run(args),
+    "instruments" => MacInstrumentsCapture.Run(args),
+    "instruments-summary" => MacInstrumentsSummary.Run(args),
     "analyze" => Analyze(args),
     "summarize" => Summarize(args),
+    "summarize-avalonia" => SummarizeAvalonia(args),
     "inspect" => Inspect(args),
     _ => Usage()
 };
 
-static int Usage()
+static int Usage(int exitCode = 2)
 {
     Console.Error.WriteLine(
         "Usage:\n" +
-        "  ProGPU.SampleMemoryProfiler analyze <trace.nettrace> <benchmark.log> <output.json>\n" +
-        "  ProGPU.SampleMemoryProfiler summarize <results-directory> <output.json> <output.md>");
-    return 2;
+        "  progpu-memory capture --pid <pid> --duration <seconds> --interval <seconds> --output <capture.json> [--native-heap] [--no-runtime-counters] [--benchmark-json <result.json>]\n" +
+        "  progpu-memory instruments --output <directory> --duration <seconds> [--window <seconds>] [--templates allocations,time,metal] [--allocation-details] [--cleanup-traces] [--cleanup-exports] ([--env NAME=value] --launch <executable> [arguments...] | --attach <pid-or-name>)\n" +
+        "  progpu-memory instruments-summary <capture-directory>\n" +
+        "  progpu-memory analyze <trace.nettrace> <benchmark.log> <output.json>\n" +
+        "  progpu-memory summarize <results-directory> <output.json> <output.md>\n" +
+        "  progpu-memory summarize-avalonia <results-directory> <output.json> <output.md>");
+    return exitCode;
 }
 
 static int Inspect(string[] args)
@@ -35,8 +44,67 @@ static int Inspect(string[] args)
         TraceLog.CreateFromEventPipeDataFile(tracePath, etlxPath);
         using var trace = new TraceLog(etlxPath);
         _ = trace.Clr;
+        var jitMethods = new Dictionary<ulong, JitMethodIdentity>();
+        var jitGroups =
+            new Dictionary<string, JitAllocationAccumulator>(
+                StringComparer.Ordinal);
         foreach (TraceEvent marker in trace.Events.Where(e => e.ProviderName == "ProGPU-SampleBenchmark"))
             Console.WriteLine($"MARKER index={marker.EventIndex} name={marker.EventName} id={marker.ID} time={marker.TimeStampRelativeMSec:R} page={marker.PayloadValue(0)}");
+        foreach (TraceEvent traceEvent in trace.Events)
+        {
+            if (traceEvent.ProviderName !=
+                "Microsoft-Windows-DotNETRuntime")
+            {
+                continue;
+            }
+
+            if (traceEvent.EventName == "Method/JittingStarted" &&
+                TryReadUInt64(traceEvent, "MethodID", out ulong methodId))
+            {
+                string methodNamespace =
+                    traceEvent.PayloadByName("MethodNamespace")?.ToString() ??
+                    "(unknown)";
+                string methodName =
+                    traceEvent.PayloadByName("MethodName")?.ToString() ??
+                    "(unknown)";
+                long ilBytes =
+                    TryReadInt64(traceEvent, "MethodILSize", out long parsedIl)
+                        ? parsedIl
+                        : 0;
+                jitMethods[methodId] =
+                    new JitMethodIdentity(
+                        methodNamespace,
+                        methodName,
+                        ilBytes);
+            }
+            else if (
+                traceEvent.EventName ==
+                    "Method/MemoryAllocatedForJitCode" &&
+                TryReadUInt64(traceEvent, "MethodID", out methodId))
+            {
+                long allocatedBytes =
+                    TryReadInt64(
+                        traceEvent,
+                        "AllocatedSizeForJitCode",
+                        out long parsedAllocated)
+                        ? parsedAllocated
+                        : 0;
+                JitMethodIdentity identity =
+                    jitMethods.GetValueOrDefault(
+                        methodId,
+                        new JitMethodIdentity(
+                            "(unknown)",
+                            "(unknown)",
+                            0));
+                string group = JitNamespaceGroup(identity.Namespace);
+                jitGroups.TryGetValue(
+                    group,
+                    out JitAllocationAccumulator accumulator);
+                jitGroups[group] = accumulator.Add(
+                    identity.IlBytes,
+                    allocatedBytes);
+            }
+        }
         foreach (var group in trace.Events
                      .Where(e => e.ProviderName == "ProGPU-SampleBenchmark" || e.ProviderName == "Microsoft-Windows-DotNETRuntime")
                      .Select(e => (e.ProviderName, e.EventName, e.ID, e.TimeStampRelativeMSec, Payload: string.Join(',', e.PayloadNames), Type: e.GetType().Name))
@@ -46,12 +114,81 @@ static int Inspect(string[] args)
             var first = group.First();
             Console.WriteLine($"{group.Count(),8} {group.Key.ProviderName} {group.Key.EventName} id={group.Key.ID} type={group.Key.Type} first={first.TimeStampRelativeMSec:F3} payload={group.Key.Payload}");
         }
+        if (jitGroups.Count != 0)
+        {
+            Console.WriteLine("JIT allocation by namespace:");
+            foreach (var group in jitGroups
+                         .OrderByDescending(pair => pair.Value.AllocatedBytes)
+                         .Take(40))
+            {
+                Console.WriteLine(
+                    $"{group.Value.AllocatedBytes,12:N0} bytes " +
+                    $"{group.Value.MethodCount,7:N0} methods " +
+                    $"{group.Value.IlBytes,12:N0} IL {group.Key}");
+            }
+        }
     }
     finally
     {
         if (File.Exists(etlxPath)) File.Delete(etlxPath);
     }
     return 0;
+}
+
+static bool TryReadUInt64(
+    TraceEvent traceEvent,
+    string payloadName,
+    out ulong value)
+{
+    object? payload = traceEvent.PayloadByName(payloadName);
+    try
+    {
+        value = payload is null
+            ? 0
+            : Convert.ToUInt64(payload, CultureInfo.InvariantCulture);
+        return payload is not null;
+    }
+    catch (Exception exception)
+        when (exception is FormatException or InvalidCastException
+              or OverflowException)
+    {
+        value = 0;
+        return false;
+    }
+}
+
+static bool TryReadInt64(
+    TraceEvent traceEvent,
+    string payloadName,
+    out long value)
+{
+    object? payload = traceEvent.PayloadByName(payloadName);
+    try
+    {
+        value = payload is null
+            ? 0
+            : Convert.ToInt64(payload, CultureInfo.InvariantCulture);
+        return payload is not null;
+    }
+    catch (Exception exception)
+        when (exception is FormatException or InvalidCastException
+              or OverflowException)
+    {
+        value = 0;
+        return false;
+    }
+}
+
+static string JitNamespaceGroup(string methodNamespace)
+{
+    int firstSeparator = methodNamespace.IndexOf('.');
+    if (firstSeparator < 0)
+        return methodNamespace;
+    int secondSeparator =
+        methodNamespace.IndexOf('.', firstSeparator + 1);
+    return secondSeparator < 0
+        ? methodNamespace
+        : methodNamespace[..secondSeparator];
 }
 
 static int Analyze(string[] args)
@@ -195,6 +332,266 @@ static int Summarize(string[] args)
     return pages.Length == 0 ? 4 : 0;
 }
 
+static int SummarizeAvalonia(string[] args)
+{
+    if (args.Length != 4)
+        return Usage();
+
+    string resultsDirectory = Path.GetFullPath(args[1]);
+    string jsonPath = Path.GetFullPath(args[2]);
+    string markdownPath = Path.GetFullPath(args[3]);
+    var results = Directory.EnumerateFiles(resultsDirectory, "*.json", SearchOption.AllDirectories)
+        .Where(path => !Path.GetFullPath(path).Equals(jsonPath, StringComparison.Ordinal))
+        .Select(TryReadAvaloniaBenchmark)
+        .Where(result => result is not null)
+        .Select(result => result!)
+        .OrderBy(result => result.Backend, StringComparer.Ordinal)
+        .ThenBy(result => result.TextShaper, StringComparer.Ordinal)
+        .ThenBy(result => result.Page, StringComparer.Ordinal)
+        .ThenBy(result => result.Run)
+        .ToArray();
+
+    var duplicate = results
+        .GroupBy(result => (
+            result.Backend,
+            result.TextShaper,
+            result.Page,
+            result.Run))
+        .FirstOrDefault(group => group.Count() > 1);
+    if (duplicate is not null)
+    {
+        Console.Error.WriteLine(
+            $"Duplicate Avalonia benchmark result for backend={duplicate.Key.Backend} " +
+            $"textShaper={duplicate.Key.TextShaper} page={duplicate.Key.Page} " +
+            $"run={duplicate.Key.Run}.");
+        return 5;
+    }
+
+    var invalidDistribution = results.FirstOrDefault(result =>
+        HasTailTelemetry(result.Json) &&
+        !HasValidFrameDistribution(result.Json));
+    if (invalidDistribution is not null)
+    {
+        Console.Error.WriteLine(
+            $"Invalid frame-time distribution for backend={invalidDistribution.Backend} " +
+            $"textShaper={invalidDistribution.TextShaper} page={invalidDistribution.Page} " +
+            $"run={invalidDistribution.Run}.");
+        return 6;
+    }
+
+    var backendCounts = new JsonObject();
+    foreach (var backend in results.GroupBy(
+                 result => $"{result.Backend}/{result.TextShaper}",
+                 StringComparer.Ordinal))
+    {
+        backendCounts[backend.Key] = backend.Count();
+    }
+
+    var summary = new JsonObject
+    {
+        ["schemaVersion"] = 1,
+        ["generatedUtc"] = DateTimeOffset.UtcNow,
+        ["resultCount"] = results.Length,
+        ["backendCounts"] = backendCounts,
+        ["results"] = new JsonArray(results.Select(result => (JsonNode)result.Json.DeepClone()).ToArray())
+    };
+
+    Directory.CreateDirectory(Path.GetDirectoryName(jsonPath)!);
+    File.WriteAllText(jsonPath, summary.ToJsonString(JsonOptions()));
+    File.WriteAllText(markdownPath, BuildAvaloniaMarkdown(results));
+    Console.WriteLine($"Summarized {results.Length} Avalonia results into {markdownPath}");
+    return results.Length == 0 ? 4 : 0;
+}
+
+static AvaloniaBenchmark? TryReadAvaloniaBenchmark(string path)
+{
+    JsonObject? json;
+    try
+    {
+        json = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+    }
+    catch (JsonException)
+    {
+        return null;
+    }
+
+    if (json is null ||
+        !TryPropertyString(json, "Backend", out string backend) ||
+        !TryPropertyString(json, "Page", out string page) ||
+        json["MeasuredFrames"] is not JsonValue)
+    {
+        return null;
+    }
+
+    string textShaper = TryPropertyString(json, "TextShaper", out string value)
+        ? value
+        : "Unknown";
+    int run = checked((int)Math.Max(1, Long(json, "Run")));
+    return new AvaloniaBenchmark(backend, textShaper, page, run, json);
+}
+
+static string BuildAvaloniaMarkdown(IReadOnlyList<AvaloniaBenchmark> results)
+{
+    var builder = new StringBuilder();
+    builder.AppendLine("# Avalonia release profile");
+    builder.AppendLine();
+    builder.AppendLine(
+        "Each row is a fresh desktop process. The backend column identifies Silk.NET, Avalonia Native/Dawn, or Skia presentation. " +
+        "Retained memory is collected after two blocking compacting GCs at the end of each measurement.");
+    builder.AppendLine();
+    builder.AppendLine(
+        "| Backend | Text shaper | Page | Run | Presentation | FPS | Avg frame | P50 frame | P95 frame | P99 frame | Max frame | Compile | Render pass | Alloc/frame | Managed retained | Physical footprint | Draws | Commands | Retained hits | Retained compiles |");
+    builder.AppendLine("|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+    foreach (var result in results)
+    {
+        JsonObject value = result.Json;
+        builder.Append('|').Append(EscapeMarkdown(result.Backend))
+            .Append('|').Append(EscapeMarkdown(result.TextShaper))
+            .Append('|').Append(EscapeMarkdown(result.Page))
+            .Append('|').Append(
+                result.Run.ToString(CultureInfo.InvariantCulture))
+            .Append('|').Append(EscapeMarkdown(
+                Text(value, "PresentationPath", "n/a")))
+            .Append('|').Append(Number(value, "FramesPerSecond"))
+            .Append('|').Append(Number(value, "AverageFrameMs")).Append(" ms")
+            .Append('|').Append(Number(value, "MedianFrameMs")).Append(" ms")
+            .Append('|').Append(Number(value, "P95FrameMs")).Append(" ms")
+            .Append('|').Append(Number(value, "P99FrameMs")).Append(" ms")
+            .Append('|').Append(Number(value, "MaxFrameMs")).Append(" ms")
+            .Append('|').Append(Number(value, "AverageCompileMs")).Append(" ms")
+            .Append('|').Append(Number(value, "AverageRenderMs")).Append(" ms")
+            .Append('|').Append(BytesCompact(Long(value, "AllocatedBytesPerFrame")))
+            .Append('|').Append(Bytes(Long(value, "ManagedBytes")))
+            .Append('|').Append(Bytes(Long(value, "ProcessPhysicalFootprintBytes", "ProcessWorkingSetBytes")))
+            .Append('|').Append(Long(value, "DrawCalls").ToString(CultureInfo.InvariantCulture))
+            .Append('|').Append(Long(value, "RecordedCommands").ToString(CultureInfo.InvariantCulture))
+            .Append('|').Append(Long(value, "RetainedCompositionPictureHits").ToString(CultureInfo.InvariantCulture))
+            .Append('|').Append(Long(value, "RetainedCompositionPictureCompilations").ToString(CultureInfo.InvariantCulture))
+            .AppendLine("|");
+    }
+
+    builder.AppendLine();
+    builder.AppendLine("## Aggregate");
+    builder.AppendLine();
+    foreach (var backend in results.GroupBy(
+                 result => $"{result.Backend}/{result.TextShaper}",
+                 StringComparer.Ordinal))
+    {
+        double averageFps = backend.Average(result => Double(result.Json, "FramesPerSecond"));
+        double averageFrame = backend.Average(result => Double(result.Json, "AverageFrameMs"));
+        double averageP99Frame = backend.Average(result =>
+            Double(result.Json, "P99FrameMs"));
+        double worstP99Frame = backend.Max(result =>
+            Double(result.Json, "P99FrameMs"));
+        long maximumFootprint = backend.Max(result =>
+            Long(result.Json, "ProcessPhysicalFootprintBytes", "ProcessWorkingSetBytes"));
+        int pageCount = backend
+            .Select(result => result.Page)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        builder.Append("- ").Append(backend.Key).Append(": ")
+            .Append(pageCount.ToString(CultureInfo.InvariantCulture)).Append(" pages, ")
+            .Append(backend.Count().ToString(CultureInfo.InvariantCulture)).Append(" fresh processes, ")
+            .Append(averageFps.ToString("0.###", CultureInfo.InvariantCulture)).Append(" mean FPS, ")
+            .Append(averageFrame.ToString("0.###", CultureInfo.InvariantCulture)).Append(" ms mean frame, ")
+            .Append(averageP99Frame.ToString("0.###", CultureInfo.InvariantCulture)).Append(" ms mean page p99, ")
+            .Append(worstP99Frame.ToString("0.###", CultureInfo.InvariantCulture)).Append(" ms worst page p99, ")
+            .Append(Bytes(maximumFootprint)).AppendLine(" maximum physical footprint.");
+    }
+
+    return builder.ToString();
+}
+
+static bool TryPropertyString(JsonObject value, string name, out string result)
+{
+    result = string.Empty;
+    if (value[name] is not JsonValue json || !json.TryGetValue(out string? text) || string.IsNullOrWhiteSpace(text))
+        return false;
+    result = text;
+    return true;
+}
+
+static long Long(JsonObject value, params string[] names)
+{
+    foreach (string name in names)
+    {
+        if (value[name] is not JsonValue json)
+            continue;
+        if (json.TryGetValue(out long integer))
+            return integer;
+        if (json.TryGetValue(out ulong unsigned))
+            return unsigned > long.MaxValue ? long.MaxValue : checked((long)unsigned);
+        if (json.TryGetValue(out double number))
+            return checked((long)Math.Round(number));
+    }
+    return 0;
+}
+
+static double Double(JsonObject value, string name)
+{
+    if (value[name] is not JsonValue json)
+        return 0;
+    if (json.TryGetValue(out double number))
+        return number;
+    if (json.TryGetValue(out long integer))
+        return integer;
+    return 0;
+}
+
+static bool HasTailTelemetry(JsonObject value)
+    => Long(value, "SchemaVersion") >= 2;
+
+static bool HasValidFrameDistribution(JsonObject value)
+{
+    long measuredFrames = Long(value, "MeasuredFrames");
+    long sampleCount = Long(value, "FrameTimeSampleCount");
+    double minimum = Double(value, "MinFrameMs");
+    double median = Double(value, "MedianFrameMs");
+    double p95 = Double(value, "P95FrameMs");
+    double p99 = Double(value, "P99FrameMs");
+    double maximum = Double(value, "MaxFrameMs");
+    double average = Double(value, "AverageFrameMs");
+
+    return measuredFrames > 0 &&
+        sampleCount == measuredFrames &&
+        double.IsFinite(minimum) &&
+        double.IsFinite(median) &&
+        double.IsFinite(p95) &&
+        double.IsFinite(p99) &&
+        double.IsFinite(maximum) &&
+        double.IsFinite(average) &&
+        minimum >= 0 &&
+        minimum <= median &&
+        median <= p95 &&
+        p95 <= p99 &&
+        p99 <= maximum &&
+        minimum <= average &&
+        average <= maximum;
+}
+
+static string Text(JsonObject value, string name, string fallback)
+{
+    return value[name] is JsonValue json &&
+        json.TryGetValue(out string? text) &&
+        !string.IsNullOrWhiteSpace(text)
+        ? text
+        : fallback;
+}
+
+static string Number(JsonObject value, string name)
+    => Double(value, name).ToString("0.###", CultureInfo.InvariantCulture);
+
+static string EscapeMarkdown(string value) => value.Replace("|", "\\|", StringComparison.Ordinal);
+
+static string BytesCompact(long value)
+{
+    if (value < 1024)
+        return value.ToString(CultureInfo.InvariantCulture) + " B";
+    if (value < 1024 * 1024)
+        return (value / 1024d).ToString("0.00", CultureInfo.InvariantCulture) + " KiB";
+    return Bytes(value);
+}
+
 static string BuildMarkdown(IReadOnlyList<JsonObject> pages)
 {
     var builder = new StringBuilder();
@@ -252,7 +649,9 @@ static string BuildMarkdown(IReadOnlyList<JsonObject> pages)
 
 static BenchmarkResult ParseBenchmarkResult(string path)
 {
-    string line = File.ReadLines(path).LastOrDefault(value => value.Contains("[SampleBenchmark] RESULT", StringComparison.Ordinal))
+    string line = File.ReadLines(path).LastOrDefault(value =>
+            value.Contains("[SampleBenchmark] RESULT", StringComparison.Ordinal) ||
+            value.Contains("[AvaloniaSampleBenchmark] RESULT", StringComparison.Ordinal))
         ?? throw new InvalidDataException($"No benchmark RESULT line found in {path}.");
     var metrics = new JsonObject();
     string page = "Unknown";
@@ -260,7 +659,7 @@ static BenchmarkResult ParseBenchmarkResult(string path)
     {
         string key = match.Groups["key"].Value;
         string value = match.Groups["quoted"].Success ? match.Groups["quoted"].Value : match.Groups["plain"].Value;
-        if (key == "page")
+        if (key == "page" || key == "sample")
             page = value;
         metrics[key] = ParseValue(value);
     }
@@ -401,6 +800,12 @@ static string Bytes(long value)
 static JsonSerializerOptions JsonOptions() => new() { WriteIndented = true };
 
 sealed record BenchmarkResult(string Page, JsonObject Metrics);
+sealed record AvaloniaBenchmark(
+    string Backend,
+    string TextShaper,
+    string Page,
+    int Run,
+    JsonObject Json);
 readonly record struct RandomizedAllocation(string TypeName, long ObjectSize, long SampledByteOffset, double EstimatedBytes);
 
 sealed class AllocationAccumulator
@@ -455,4 +860,25 @@ sealed class AllocationStat
     public long RawObjectBytes;
     public long EstimatedBytes;
     public long Count;
+}
+
+readonly record struct JitMethodIdentity(
+    string Namespace,
+    string Name,
+    long IlBytes);
+
+readonly record struct JitAllocationAccumulator(
+    long MethodCount,
+    long IlBytes,
+    long AllocatedBytes)
+{
+    public JitAllocationAccumulator Add(
+        long ilBytes,
+        long allocatedBytes)
+    {
+        return new JitAllocationAccumulator(
+            MethodCount + 1,
+            IlBytes + ilBytes,
+            AllocatedBytes + allocatedBytes);
+    }
 }
