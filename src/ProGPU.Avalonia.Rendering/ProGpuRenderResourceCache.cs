@@ -6,6 +6,10 @@ using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using ProGpuVisual = ProGPU.Scene.Visual;
+using RenderOptions = Avalonia.Media.RenderOptions;
+#if !AVALONIA11
+using TextOptions = Avalonia.Media.TextOptions;
+#endif
 
 namespace Avalonia.ProGpu;
 
@@ -17,6 +21,7 @@ internal sealed class OffscreenTextureCache : IDisposable
 {
     private const int MaximumPictures = 2048;
     private const int MaximumStyles = 256;
+    private const int MaximumDrawingStates = 4;
 
     private readonly object _recordingGate = new();
     private readonly object _resourceGate = new();
@@ -28,6 +33,7 @@ internal sealed class OffscreenTextureCache : IDisposable
     private readonly Dictionary<long, AvaloniaCompositionScene> _scenes = new();
 #endif
     private DrawingContext? _spareRecordingContext;
+    private readonly Stack<AvaloniaDrawingState> _drawingStates = new();
     private RecordedCommandVisual? _recordedVisual;
     private long _pictureHits;
     private long _pictureMisses;
@@ -146,6 +152,42 @@ internal sealed class OffscreenTextureCache : IDisposable
             if (_disposed || _spareRecordingContext is not null)
                 return;
             _spareRecordingContext = context;
+        }
+    }
+
+    internal AvaloniaDrawingState RentDrawingState()
+    {
+        lock (_recordingGate)
+        {
+            ThrowIfDisposed();
+            return _drawingStates.Count > 0
+                ? _drawingStates.Pop()
+                : new AvaloniaDrawingState();
+        }
+    }
+
+    internal void ReturnDrawingState(AvaloniaDrawingState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        state.Clear();
+        lock (_recordingGate)
+        {
+            if (_disposed ||
+                _drawingStates.Count >= MaximumDrawingStates ||
+                !state.CanRetain)
+            {
+                return;
+            }
+            _drawingStates.Push(state);
+        }
+    }
+
+    internal int DrawingStatePoolCount
+    {
+        get
+        {
+            lock (_recordingGate)
+                return _drawingStates.Count;
         }
     }
 
@@ -330,6 +372,7 @@ internal sealed class OffscreenTextureCache : IDisposable
             _disposed = true;
             _spareRecordingContext?.Clear();
             _spareRecordingContext = null;
+            _drawingStates.Clear();
             _recordedVisual = null;
         }
 
@@ -493,4 +536,43 @@ internal sealed class OffscreenTextureCache : IDisposable
     private readonly record struct PictureEntry(
         ulong Revision,
         GpuPicture Picture);
+}
+
+internal sealed class AvaloniaDrawingState
+{
+    private const int MaximumRetainedCapacity = 64;
+
+    internal readonly Stack<double> OpacityFrames = new();
+    internal readonly Stack<bool> GeometryClipFrames = new();
+    internal readonly Stack<RenderOptions> RenderOptionFrames = new();
+    internal readonly Stack<RenderCommandPresentationDependencies>
+        RenderOptionDependencyFrames = new();
+#if !AVALONIA11
+    internal readonly Stack<TextOptions> TextOptionFrames = new();
+    internal readonly Stack<RenderCommandPresentationDependencies>
+        TextOptionDependencyFrames = new();
+#endif
+
+    internal bool CanRetain =>
+        OpacityFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
+        GeometryClipFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
+        RenderOptionFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
+        RenderOptionDependencyFrames.EnsureCapacity(0) <= MaximumRetainedCapacity
+#if !AVALONIA11
+        && TextOptionFrames.EnsureCapacity(0) <= MaximumRetainedCapacity
+        && TextOptionDependencyFrames.EnsureCapacity(0) <= MaximumRetainedCapacity
+#endif
+        ;
+
+    internal void Clear()
+    {
+        OpacityFrames.Clear();
+        GeometryClipFrames.Clear();
+        RenderOptionFrames.Clear();
+        RenderOptionDependencyFrames.Clear();
+#if !AVALONIA11
+        TextOptionFrames.Clear();
+        TextOptionDependencyFrames.Clear();
+#endif
+    }
 }

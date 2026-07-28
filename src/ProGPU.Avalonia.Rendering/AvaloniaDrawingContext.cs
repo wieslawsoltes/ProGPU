@@ -49,15 +49,16 @@ internal partial class DrawingContextImpl :
     private readonly Action<bool>? _afterSubmit;
     private readonly Matrix? _physicalScale;
     private readonly string _presentationPath;
-    private readonly Stack<double> _opacityFrames = new();
-    private readonly Stack<ClipFrame> _clipFrames = new();
-    private readonly Stack<RenderOptions> _renderOptionFrames = new();
+    private readonly AvaloniaDrawingState _drawingState;
+    private readonly Stack<double> _opacityFrames;
+    private readonly Stack<bool> _clipFrames;
+    private readonly Stack<RenderOptions> _renderOptionFrames;
     private readonly Stack<RenderCommandPresentationDependencies>
-        _renderOptionDependencyFrames = new();
+        _renderOptionDependencyFrames;
 #if !AVALONIA11
-    private readonly Stack<TextOptions> _textOptionFrames = new();
+    private readonly Stack<TextOptions> _textOptionFrames;
     private readonly Stack<RenderCommandPresentationDependencies>
-        _textOptionDependencyFrames = new();
+        _textOptionDependencyFrames;
 #endif
     private Matrix _transform = Matrix.Identity;
     private double _opacity = 1d;
@@ -79,12 +80,6 @@ internal partial class DrawingContextImpl :
             StringComparison.Ordinal);
     internal static bool UseRetainedAvaloniaScene => s_retainedSceneEnabled;
 #endif
-
-    private enum ClipFrame : byte
-    {
-        Rect,
-        Geometry
-    }
 
     public struct CreateInfo
     {
@@ -117,6 +112,19 @@ internal partial class DrawingContextImpl :
         _resources =
             createInfo.CacheHolder as OffscreenTextureCache ??
             AvaloniaGpuDevicePool.ThreadCache;
+        _drawingState = _reusableRecording
+            ? new AvaloniaDrawingState()
+            : _resources.RentDrawingState();
+        _opacityFrames = _drawingState.OpacityFrames;
+        _clipFrames = _drawingState.GeometryClipFrames;
+        _renderOptionFrames = _drawingState.RenderOptionFrames;
+        _renderOptionDependencyFrames =
+            _drawingState.RenderOptionDependencyFrames;
+#if !AVALONIA11
+        _textOptionFrames = _drawingState.TextOptionFrames;
+        _textOptionDependencyFrames =
+            _drawingState.TextOptionDependencyFrames;
+#endif
         _gpuTarget = createInfo.GpuRenderTarget;
         _submissionGate = createInfo.GpuRenderSynchronizationLock;
         _beforeSubmit = createInfo.GpuRenderStarting;
@@ -507,7 +515,7 @@ internal partial class DrawingContextImpl :
         DrawingContext.PushClip(
             ToLocalRect(clip),
             ToProGpuMatrix(CommandTransform));
-        _clipFrames.Push(ClipFrame.Rect);
+        _clipFrames.Push(false);
     }
 
     public void PushClip(RoundedRect clip)
@@ -521,7 +529,7 @@ internal partial class DrawingContextImpl :
         DrawingContext.PushGeometryClip(
             CreateRoundedRectPath(clip),
             ToProGpuMatrix(CommandTransform));
-        _clipFrames.Push(ClipFrame.Geometry);
+        _clipFrames.Push(true);
     }
 
     public void PushClip(IPlatformRenderInterfaceRegion region)
@@ -542,7 +550,7 @@ internal partial class DrawingContextImpl :
         EnsureAvailable();
         if (_clipFrames.Count == 0)
             return;
-        if (_clipFrames.Pop() == ClipFrame.Geometry)
+        if (_clipFrames.Pop())
             DrawingContext.PopGeometryClip();
         else
             DrawingContext.PopClip();
@@ -721,7 +729,10 @@ internal partial class DrawingContextImpl :
         {
             _afterSubmit?.Invoke(submitted);
             if (!_reusableRecording)
+            {
                 ReturnRecordingContext();
+                _resources.ReturnDrawingState(_drawingState);
+            }
             foreach (IDisposable? owned in _ownedFrameObjects ?? [])
                 owned?.Dispose();
         }
