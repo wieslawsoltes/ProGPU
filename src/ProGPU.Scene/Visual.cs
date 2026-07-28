@@ -133,6 +133,7 @@ public class Visual
     private bool _isDirty = true;
     private long _changeVersion;
     private long _renderContentVersion;
+    private long _treeVersion;
     public virtual bool HasTemplate => false;
     private Vector3 _scale = Vector3.One;
     private float _rotation = 0f;
@@ -141,6 +142,8 @@ public class Visual
     private Rect? _clipBounds;
     private int _hitTestId;
     private VisualColdState? _coldState;
+    private int _activeAnimationSubtreeCount;
+    private bool _hasActiveCustomAnimation;
 
     public EffectBase? Effect
     {
@@ -230,7 +233,11 @@ public class Visual
             if (_parent != value)
             {
                 var oldParent = _parent;
+                if (_activeAnimationSubtreeCount != 0)
+                    oldParent?.AdjustActiveAnimationSubtreeCount(-_activeAnimationSubtreeCount);
                 _parent = value;
+                if (_activeAnimationSubtreeCount != 0)
+                    _parent?.AdjustActiveAnimationSubtreeCount(_activeAnimationSubtreeCount);
                 OnParentChanged(oldParent, _parent);
             }
         }
@@ -322,6 +329,7 @@ public class Visual
     }
 
     public long ChangeVersion => _changeVersion;
+    public long TreeVersion => _treeVersion;
 
     internal long RenderContentVersion => _renderContentVersion;
 
@@ -756,9 +764,13 @@ public class Visual
 
     public void StartAnimation(string propertyName, CompositionAnimation animation)
     {
-        (GetOrCreateColdState().ActiveAnimations ??=
+        var animations = GetOrCreateColdState().ActiveAnimations ??=
             new Dictionary<string, CompositionAnimation>(
-                StringComparer.OrdinalIgnoreCase))[propertyName] = animation;
+                StringComparer.OrdinalIgnoreCase);
+        var wasEmpty = animations.Count == 0;
+        animations[propertyName] = animation;
+        if (wasEmpty)
+            AdjustActiveAnimationSubtreeCount(1);
         InvalidateVisualState();
     }
 
@@ -766,13 +778,19 @@ public class Visual
     {
         if (_coldState?.ActiveAnimations?.Remove(propertyName) == true)
         {
+            if (_coldState.ActiveAnimations.Count == 0)
+                AdjustActiveAnimationSubtreeCount(-1);
             InvalidateVisualState();
         }
     }
 
     public void UpdateAnimations(float elapsedSeconds)
     {
-        OnUpdateAnimations(elapsedSeconds);
+        if (_activeAnimationSubtreeCount == 0)
+            return;
+
+        if (_hasActiveCustomAnimation)
+            OnUpdateAnimations(elapsedSeconds);
         TickAnimations(elapsedSeconds);
 
         if (this is ContainerVisual container)
@@ -780,9 +798,40 @@ public class Visual
             var children = container.Children;
             for (int i = 0; i < children.Count; i++)
             {
-                children[i].UpdateAnimations(elapsedSeconds);
+                var child = children[i];
+                if (child._activeAnimationSubtreeCount != 0)
+                    child.UpdateAnimations(elapsedSeconds);
             }
         }
+    }
+
+    /// <summary>
+    /// Marks a control-owned animation such as kinetic scrolling as active.
+    /// The state is propagated to ancestors so inactive branches can be skipped.
+    /// </summary>
+    protected void SetCustomAnimationActive(bool isActive)
+    {
+        if (_hasActiveCustomAnimation == isActive)
+            return;
+
+        _hasActiveCustomAnimation = isActive;
+        AdjustActiveAnimationSubtreeCount(isActive ? 1 : -1);
+    }
+
+    internal int ActiveAnimationSubtreeCount => _activeAnimationSubtreeCount;
+
+    private void AdjustActiveAnimationSubtreeCount(int delta)
+    {
+        _activeAnimationSubtreeCount += delta;
+        if (_activeAnimationSubtreeCount < 0)
+            throw new InvalidOperationException("Animation subtree activity became unbalanced.");
+        Parent?.AdjustActiveAnimationSubtreeCount(delta);
+    }
+
+    internal void InvalidateTreeVersion()
+    {
+        _treeVersion++;
+        Parent?.InvalidateTreeVersion();
     }
 
     protected virtual void OnUpdateAnimations(float elapsedSeconds)
@@ -797,6 +846,7 @@ public class Visual
 
         bool changed = false;
         bool renderContentChanged = false;
+        List<string>? completedProperties = null;
 
         var activeAnimationEnumerator = activeAnimations.GetEnumerator();
         while (activeAnimationEnumerator.MoveNext())
@@ -806,6 +856,8 @@ public class Visual
             var animation = kvp.Value;
 
             animation.Tick(elapsedSeconds);
+            if (animation.IsCompleted)
+                (completedProperties ??= new List<string>()).Add(propertyName);
 
             var value = animation.CurrentValue;
             if (value == null) continue;
@@ -881,6 +933,14 @@ public class Visual
         {
             InvalidateCore(renderContentChanged);
         }
+
+        if (completedProperties != null)
+        {
+            for (var index = 0; index < completedProperties.Count; index++)
+                activeAnimations.Remove(completedProperties[index]);
+            if (activeAnimations.Count == 0)
+                AdjustActiveAnimationSubtreeCount(-1);
+        }
     }
 
     private VisualColdState GetOrCreateColdState() =>
@@ -935,6 +995,7 @@ public class ContainerVisual : Visual
             child.Parent = this;
             (_children ??= new List<Visual>()).Add(child);
         }
+        InvalidateTreeVersion();
         Invalidate();
         if (this is ILayoutNode layoutNode)
         {
@@ -958,6 +1019,7 @@ public class ContainerVisual : Visual
             children.Insert(Math.Clamp(index, 0, children.Count), child);
         }
 
+        InvalidateTreeVersion();
         Invalidate();
         if (this is ILayoutNode layoutNode)
         {
@@ -992,6 +1054,7 @@ public class ContainerVisual : Visual
         }
         if (removed)
         {
+            InvalidateTreeVersion();
             Invalidate();
             if (this is ILayoutNode layoutNode)
             {
@@ -1013,6 +1076,7 @@ public class ContainerVisual : Visual
                 _children.Clear();
             }
         }
+        InvalidateTreeVersion();
         Invalidate();
         if (this is ILayoutNode layoutNode)
         {
@@ -1038,6 +1102,7 @@ public class ContainerVisual : Visual
 
         if (reordered)
         {
+            InvalidateTreeVersion();
             Invalidate();
         }
     }

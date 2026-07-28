@@ -877,7 +877,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("ArrayPool<Visual>.Shared.Return(owners, clearArray: true);", source, StringComparison.Ordinal);
         Assert.Contains("owners![i].Invalidate();", source, StringComparison.Ordinal);
         Assert.Contains("public Dictionary<string, CompositionAnimation>? ActiveAnimations;", source, StringComparison.Ordinal);
-        Assert.Contains("StringComparer.OrdinalIgnoreCase))[propertyName] = animation;", source, StringComparison.Ordinal);
+        Assert.Contains("StringComparer.OrdinalIgnoreCase);", source, StringComparison.Ordinal);
+        Assert.Contains("animations[propertyName] = animation;", source, StringComparison.Ordinal);
+        Assert.Contains("if (_activeAnimationSubtreeCount == 0)", source, StringComparison.Ordinal);
+        Assert.Contains("if (child._activeAnimationSubtreeCount != 0)", source, StringComparison.Ordinal);
         Assert.Contains("if (_coldState?.ActiveAnimations is not", source, StringComparison.Ordinal);
         Assert.Contains("{ Count: > 0 } activeAnimations)", source, StringComparison.Ordinal);
         Assert.Contains("var activeAnimationEnumerator = activeAnimations.GetEnumerator();", source, StringComparison.Ordinal);

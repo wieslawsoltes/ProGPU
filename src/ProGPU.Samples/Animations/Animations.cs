@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using ProGPU.Scene;
 
 namespace ProGPU.Samples;
@@ -12,25 +13,46 @@ public interface IAnimatedElement
 
 public static class VisualExtensions
 {
+    private static readonly ConditionalWeakTable<Visual, AnimationRegistry> Registries = new();
+
     public static void UpdateSampleAnimations(this Visual visual, float delta)
     {
-        if (visual == null) return;
+        if (visual == null)
+            return;
 
-        if (visual is IAnimatedElement animated)
+        Registries.GetValue(visual, static _ => new AnimationRegistry())
+            .Update(visual, delta);
+    }
+
+    private sealed class AnimationRegistry
+    {
+        private readonly List<IAnimatedElement> _elements = new();
+        private long _treeVersion = -1;
+
+        public void Update(Visual root, float delta)
         {
-            animated.Update(delta);
+            if (_treeVersion != root.TreeVersion)
+            {
+                _elements.Clear();
+                Collect(root);
+                _treeVersion = root.TreeVersion;
+            }
+
+            for (var index = 0; index < _elements.Count; index++)
+                _elements[index].Update(delta);
         }
 
-        if (visual is ContainerVisual container)
+        private void Collect(Visual visual)
         {
-            int count = container.Children.Count;
-            for (int i = 0; i < count; i++)
-            {
-                if (i < container.Children.Count)
-                {
-                    container.Children[i].UpdateSampleAnimations(delta);
-                }
-            }
+            if (visual is IAnimatedElement animated)
+                _elements.Add(animated);
+
+            if (visual is not ContainerVisual container)
+                return;
+
+            var children = container.Children;
+            for (var index = 0; index < children.Count; index++)
+                Collect(children[index]);
         }
     }
 }
