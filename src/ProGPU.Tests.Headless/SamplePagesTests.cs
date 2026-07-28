@@ -226,6 +226,12 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
+    public void Test_VisualDesignerPage_Renders()
+    {
+        RunPageTest(VisualDesignerPage.Create(), "Visual Designer");
+    }
+
+    [Fact]
     public void Test_SkiaSharpShimPage_Renders()
     {
         RunPageTest(SkiaSharpShimPage.Create(), "SkiaSharp Shim");
