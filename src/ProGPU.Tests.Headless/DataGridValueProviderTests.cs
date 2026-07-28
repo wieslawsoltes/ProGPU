@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.Fonts.Inter;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.Tests.Headless;
@@ -36,7 +37,7 @@ public class DataGridValueProviderTests
     }
 
     [Fact]
-    public void DataGridFractionalScrollReusesOverscannedRowRecording()
+    public void DataGridScrollingRecordsOnlyDirectVisibleRowCommands()
     {
         InterFontFamily.RegisterFonts();
         var dataGrid = new DataGrid
@@ -54,13 +55,15 @@ public class DataGridValueProviderTests
         {
             Content = dataGrid
         };
-        window.Render();
-        int recordings = dataGrid.RowCacheRecordingCount;
-
         dataGrid.ScrollOffset = 1f;
         window.Render();
+        var context = new DrawingContext();
 
-        Assert.Equal(recordings, dataGrid.RowCacheRecordingCount);
+        dataGrid.OnRender(context);
+
+        Assert.DoesNotContain(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawVisual);
     }
 
     [Fact]
