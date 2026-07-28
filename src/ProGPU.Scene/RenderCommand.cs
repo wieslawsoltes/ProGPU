@@ -47,7 +47,8 @@ public enum RenderCommandType
     PopBlendMode,
     DrawGlyphRun,
     DrawVertexMesh,
-    DrawPointBatch
+    DrawPointBatch,
+    DrawDotGrid
 }
 
 public enum VertexMeshTopology
@@ -1751,6 +1752,29 @@ public class DrawingContext : IRenderDataProvider
     public void FillCircle(Brush brush, Vector2 center, float radius)
     {
         DrawCircle(brush, null, center, radius);
+    }
+
+    /// <summary>
+    /// Records a periodic antialiased dot grid as one analytic quad.
+    /// Grid centers are snapped to quarter physical pixels by the vector shader.
+    /// </summary>
+    public void DrawDotGrid(Brush brush, Rect bounds, float spacing, float radius, Vector2 phase)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(spacing) || spacing <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(spacing));
+        if (!float.IsFinite(radius) || radius <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(radius));
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawDotGrid,
+            Brush = brush,
+            Rect = bounds,
+            Position2 = phase,
+            RadiusX = spacing,
+            RadiusY = radius
+        });
     }
 
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
