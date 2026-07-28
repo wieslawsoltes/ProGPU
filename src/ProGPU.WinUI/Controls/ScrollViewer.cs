@@ -528,7 +528,7 @@ public class ScrollViewer : ContentControl
 
     public override void OnManipulationStarted(ManipulationStartedRoutedEventArgs e)
     {
-        _inertiaVelocity = Vector2.Zero;
+        SetInertiaVelocity(Vector2.Zero);
         base.OnManipulationStarted(e);
     }
 
@@ -563,9 +563,9 @@ public class ScrollViewer : ContentControl
     public override void OnManipulationCompleted(ManipulationCompletedRoutedEventArgs e)
     {
         if (e.IsInertial && IsScrollInertiaEnabled)
-            _inertiaVelocity = -(Vector2)e.Velocities.Linear;
+            SetInertiaVelocity(-(Vector2)e.Velocities.Linear);
         else
-            _inertiaVelocity = Vector2.Zero;
+            SetInertiaVelocity(Vector2.Zero);
         RaiseViewChanged(isIntermediate: false);
         base.OnManipulationCompleted(e);
     }
@@ -575,7 +575,7 @@ public class ScrollViewer : ContentControl
         base.OnUpdateAnimations(elapsedSeconds);
         if (_inertiaVelocity.LengthSquared() < 4f || elapsedSeconds <= 0f)
         {
-            _inertiaVelocity = Vector2.Zero;
+            SetInertiaVelocity(Vector2.Zero);
             return;
         }
         var oldHorizontal = HorizontalOffset;
@@ -584,12 +584,12 @@ public class ScrollViewer : ContentControl
         if (VerticalScrollMode != ScrollMode.Disabled) VerticalOffset += _inertiaVelocity.Y * elapsedSeconds;
         if (oldHorizontal == HorizontalOffset && oldVertical == VerticalOffset)
         {
-            _inertiaVelocity = Vector2.Zero;
+            SetInertiaVelocity(Vector2.Zero);
             RaiseViewChanged(isIntermediate: false);
             return;
         }
         var decay = MathF.Pow(0.002f, elapsedSeconds);
-        _inertiaVelocity *= decay;
+        SetInertiaVelocity(_inertiaVelocity * decay);
         ViewChanging?.Invoke(this, new ScrollViewerViewChangingEventArgs
         {
             IsInertial = true,
@@ -598,6 +598,12 @@ public class ScrollViewer : ContentControl
             ZoomFactor = ZoomFactor
         });
         RaiseViewChanged(isIntermediate: true);
+    }
+
+    private void SetInertiaVelocity(Vector2 velocity)
+    {
+        _inertiaVelocity = velocity;
+        SetCustomAnimationActive(velocity.LengthSquared() >= 4f);
     }
 
     private void RaiseViewChanged(bool isIntermediate) =>
@@ -654,7 +660,7 @@ public class ScrollViewer : ContentControl
                 {
                     _scrollbarPointerId = e.Pointer.PointerId;
                     _activeScrollBar = Orientation.Vertical;
-                    _inertiaVelocity = Vector2.Zero;
+                    SetInertiaVelocity(Vector2.Zero);
                     if (ScrollBarInteraction.IsThumbHit(localPos.Y, verticalMetrics, deviceType))
                     {
                         _draggingScrollBar = Orientation.Vertical;
@@ -680,7 +686,7 @@ public class ScrollViewer : ContentControl
             {
                 _scrollbarPointerId = e.Pointer.PointerId;
                 _activeScrollBar = Orientation.Horizontal;
-                _inertiaVelocity = Vector2.Zero;
+                SetInertiaVelocity(Vector2.Zero);
                 if (ScrollBarInteraction.IsThumbHit(localPos.X, horizontalMetrics, deviceType))
                 {
                     _draggingScrollBar = Orientation.Horizontal;
@@ -744,17 +750,20 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
-            UpdateScrollbarPointerOver(e);
-            Invalidate();
+            if (UpdateScrollbarPointerOver(e))
+                Invalidate();
         }
         base.OnPointerEntered(e);
     }
 
     public override void OnPointerExited(PointerRoutedEventArgs e)
     {
-        _isPointerOverVerticalScrollbar = false;
-        _isPointerOverHorizontalScrollbar = false;
-        Invalidate();
+        if (_isPointerOverVerticalScrollbar || _isPointerOverHorizontalScrollbar)
+        {
+            _isPointerOverVerticalScrollbar = false;
+            _isPointerOverHorizontalScrollbar = false;
+            Invalidate();
+        }
         base.OnPointerExited(e);
     }
 
@@ -762,8 +771,8 @@ public class ScrollViewer : ContentControl
     {
         if (IsEnabled)
         {
-            UpdateScrollbarPointerOver(e);
-            Invalidate();
+            if (UpdateScrollbarPointerOver(e))
+                Invalidate();
         }
 
         if (_scrollbarPointerId == e.Pointer.PointerId && _draggingScrollBar.HasValue && IsEnabled)
@@ -787,14 +796,23 @@ public class ScrollViewer : ContentControl
         base.OnPointerMoved(e);
     }
 
-    private void UpdateScrollbarPointerOver(PointerRoutedEventArgs e)
+    private bool UpdateScrollbarPointerOver(PointerRoutedEventArgs e)
     {
         Vector2 localPos = e.GetCurrentPoint(this).Position;
         var deviceType = e.Pointer.PointerDeviceType;
-        _isPointerOverVerticalScrollbar = ContentHeight > Size.Y &&
+        var isOverVertical = ContentHeight > Size.Y &&
             ScrollBarInteraction.IsVerticalTrackHit(localPos.X, Size.X, deviceType);
-        _isPointerOverHorizontalScrollbar = ContentWidth > Size.X &&
+        var isOverHorizontal = ContentWidth > Size.X &&
             ScrollBarInteraction.IsHorizontalTrackHit(localPos.Y, Size.Y, deviceType);
+        if (isOverVertical == _isPointerOverVerticalScrollbar &&
+            isOverHorizontal == _isPointerOverHorizontalScrollbar)
+        {
+            return false;
+        }
+
+        _isPointerOverVerticalScrollbar = isOverVertical;
+        _isPointerOverHorizontalScrollbar = isOverHorizontal;
+        return true;
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
