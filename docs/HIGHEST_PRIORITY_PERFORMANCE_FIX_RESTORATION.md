@@ -123,6 +123,19 @@ embedded Avalonia DataGrid repeats, median FPS was unchanged and allocation fell
 119.87 versus 120.07 FPS (-0.2%), 2.4% lower compile time, and 6.2% lower allocation.
 No additional highest-priority restoration was accepted from a one-process outlier.
 
+Matched macOS Instruments captures also exercised the source-built ControlCatalog
+Buttons page for 120 warm-up and 1,200 measured frames using exact-main and branch
+Release binaries. All six Time Profiler, Allocations plus VM Tracker, and Metal
+System Trace targets exited successfully, rendered all 1,200 frames, and reported
+zero retained-composition fallback nodes with identical draw, command, vector, and
+text counts. Branch FPS stayed within 0.7% of exact main. Allocations plus VM Tracker
+and Metal System Trace runs measured 4.8% and 5.2% fewer allocated bytes per frame,
+respectively; physical footprint and Metal allocation showed no material residency
+change. The Time Profiler allocation counter moved in the opposite direction and is
+treated as instrumentation variance rather than a causal claim. Raw traces, exported
+tables of contents, benchmark output, and exit-status records are retained under
+`/tmp/progpu-avalonia-pool-perf-20260728`.
+
 The census reports and alternating-repeat evidence are retained under
 `/tmp/progpu-restored-sample-census-20260728`,
 `/tmp/progpu-restored-controlcatalog-all-20260728`,
