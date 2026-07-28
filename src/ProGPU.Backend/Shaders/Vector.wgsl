@@ -1548,18 +1548,25 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let phase = vec2<f32>(input.cornerRadius, input.strokeThickness);
         let cellIndex = round((input.texCoord - phase) / spacing);
         let unsnappedCenter = cellIndex * spacing + phase;
-        // Derivatives convert the quarter-physical-pixel lattice into the
-        // command's local coordinate system, including display scale.
+        // Derivatives evaluated at fragment-function entry convert the
+        // quarter-physical-pixel lattice into the command's local coordinate
+        // system, including display scale. Reuse them here because shape type
+        // is fragment-varying and WGSL derivatives require uniform control.
         let localUnitsPerPhysicalPixel = vec2<f32>(
-            length(vec2<f32>(dpdx(input.texCoord.x), dpdy(input.texCoord.x))),
-            length(vec2<f32>(dpdx(input.texCoord.y), dpdy(input.texCoord.y))));
+            length(vec2<f32>(atlasCoordDx.x, atlasCoordDy.x)),
+            length(vec2<f32>(atlasCoordDx.y, atlasCoordDy.y)));
         let quarterPhysicalStep = max(
             localUnitsPerPhysicalPixel * 0.25,
             vec2<f32>(0.0001));
         let snappedCenter = round(unsnappedCenter / quarterPhysicalStep) *
             quarterPhysicalStep;
-        let dotDistance = length(input.texCoord - snappedCenter) - radius;
-        let filterWidth = max(fwidth(dotDistance), 0.0001);
+        let dotOffset = input.texCoord - snappedCenter;
+        let dotDistance = length(dotOffset) - radius;
+        let dotGradient = dotOffset / max(length(dotOffset), 0.0001);
+        let filterWidth = max(
+            abs(dot(dotGradient, atlasCoordDx)) +
+                abs(dot(dotGradient, atlasCoordDy)),
+            0.0001);
         shapeAlpha = 1.0 -
             smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
     }

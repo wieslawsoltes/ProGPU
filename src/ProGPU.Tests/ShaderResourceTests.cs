@@ -133,6 +133,38 @@ public class ShaderResourceTests
     }
 
     [Fact]
+    public void VectorShapeBranchesReuseUniformlyEvaluatedDerivatives()
+    {
+        const string shapeControlStart = "if (sType == 0u && input.strokeThickness <= 0.0)";
+        int shapeControlIndex = Shaders.VectorShader.IndexOf(shapeControlStart, StringComparison.Ordinal);
+        Assert.True(shapeControlIndex >= 0);
+
+        int fragmentEntryPointIndex = Shaders.VectorShader.IndexOf(
+            "\n@fragment",
+            shapeControlIndex,
+            StringComparison.Ordinal);
+
+        Assert.True(fragmentEntryPointIndex > shapeControlIndex);
+
+        string shapeControlFlow = Shaders.VectorShader[shapeControlIndex..fragmentEntryPointIndex];
+        Assert.DoesNotContain("dpdx(", shapeControlFlow, StringComparison.Ordinal);
+        Assert.DoesNotContain("dpdy(", shapeControlFlow, StringComparison.Ordinal);
+        Assert.DoesNotContain("fwidth(", shapeControlFlow, StringComparison.Ordinal);
+        Assert.Contains(
+            "length(vec2<f32>(atlasCoordDx.x, atlasCoordDy.x))",
+            shapeControlFlow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "abs(dot(dotGradient, atlasCoordDx))",
+            shapeControlFlow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "abs(dot(dotGradient, atlasCoordDy))",
+            shapeControlFlow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EveryShaderSourceIsEmbeddedAndDocumentsItsCostModel()
     {
         DirectoryInfo root = FindRepositoryRoot();
