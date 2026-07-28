@@ -44,6 +44,7 @@
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="..\ProGPU.Voxel.WinUI\ProGPU.Voxel.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.Voxel\ProGPU.Voxel.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.Workspaces\ProGPU.Xaml.Workspaces.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj" />
   </ItemGroup>

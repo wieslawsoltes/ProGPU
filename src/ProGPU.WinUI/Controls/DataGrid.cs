@@ -774,7 +774,7 @@ public class DataGrid : Control
         }
 
         _scrollbarPointerId = e.Pointer.PointerId;
-        _touchInertiaVelocity = 0f;
+        SetTouchInertiaVelocity(0f);
         if (ScrollBarInteraction.IsThumbHit(position.Y, metrics, e.Pointer.PointerDeviceType))
         {
             _isDraggingScroll = true;
@@ -797,7 +797,7 @@ public class DataGrid : Control
 
     public override void OnManipulationStarted(ManipulationStartedRoutedEventArgs e)
     {
-        _touchInertiaVelocity = 0f;
+        SetTouchInertiaVelocity(0f);
         base.OnManipulationStarted(e);
     }
 
@@ -811,7 +811,7 @@ public class DataGrid : Control
 
     public override void OnManipulationCompleted(ManipulationCompletedRoutedEventArgs e)
     {
-        _touchInertiaVelocity = e.IsInertial ? -(float)e.Velocities.Linear.Y : 0f;
+        SetTouchInertiaVelocity(e.IsInertial ? -(float)e.Velocities.Linear.Y : 0f);
         base.OnManipulationCompleted(e);
     }
 
@@ -820,7 +820,7 @@ public class DataGrid : Control
         base.OnUpdateAnimations(elapsedSeconds);
         if (elapsedSeconds <= 0f || MathF.Abs(_touchInertiaVelocity) < 2f)
         {
-            _touchInertiaVelocity = 0f;
+            SetTouchInertiaVelocity(0f);
             return;
         }
 
@@ -828,10 +828,17 @@ public class DataGrid : Control
         ScrollOffset += _touchInertiaVelocity * elapsedSeconds;
         if (oldOffset == ScrollOffset)
         {
-            _touchInertiaVelocity = 0f;
+            SetTouchInertiaVelocity(0f);
             return;
         }
-        _touchInertiaVelocity *= MathF.Pow(0.88f, elapsedSeconds * 60f);
+        SetTouchInertiaVelocity(
+            _touchInertiaVelocity * MathF.Pow(0.88f, elapsedSeconds * 60f));
+    }
+
+    private void SetTouchInertiaVelocity(float velocity)
+    {
+        _touchInertiaVelocity = velocity;
+        SetCustomAnimationActive(MathF.Abs(velocity) >= 2f);
     }
 
     public override void OnPointerExited(PointerRoutedEventArgs e)

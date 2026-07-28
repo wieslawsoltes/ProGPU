@@ -428,6 +428,7 @@ public unsafe partial class Compositor : IDisposable
     private const float VertexMeshShapeType = 18f;
     private const float SquarePointHairlineShapeType = 19f;
     private const float RoundPointHairlineShapeType = 20f;
+    private const float DotGridShapeType = 21f;
     private const int DirectRoundedMinimumCornerSegmentCount = 8;
     private const int DirectRoundedMaximumCornerSegmentCount = 128;
     private const float DirectRoundedMaximumDeviceChordError = 0.25f;
@@ -2824,6 +2825,9 @@ public unsafe partial class Compositor : IDisposable
                         case RenderCommandType.DrawEllipse:
                             CompileEllipseCommand(cmd, activeTransform);
                             break;
+                        case RenderCommandType.DrawDotGrid:
+                            CompileDotGridCommand(cmd, activeTransform);
+                            break;
                         case RenderCommandType.DrawCircle:
                             CompileCircleCommand(cmd, activeTransform);
                             break;
@@ -4666,6 +4670,7 @@ SceneStateUploadComplete:
                 RenderCommandType.PopOpacity or
                 RenderCommandType.DrawLine or
                 RenderCommandType.DrawEllipse or
+                RenderCommandType.DrawDotGrid or
                 RenderCommandType.DrawCircle or
                 RenderCommandType.DrawRoundedRect or
                 RenderCommandType.DrawBezier or
@@ -5038,6 +5043,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawEllipse:
                     CompileEllipseCommand(command, activeTransform);
                     break;
+                case RenderCommandType.DrawDotGrid:
+                    CompileDotGridCommand(command, activeTransform);
+                    break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(command, activeTransform);
                     break;
@@ -5394,6 +5402,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawEllipse:
                     CompileEllipseCommand(cmd, activeTransform);
                     break;
+                case RenderCommandType.DrawDotGrid:
+                    CompileDotGridCommand(cmd, activeTransform);
+                    break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(cmd, activeTransform);
                     break;
@@ -5583,6 +5594,7 @@ SceneStateUploadComplete:
         return commandType is
             RenderCommandType.DrawRect or
             RenderCommandType.DrawEllipse or
+            RenderCommandType.DrawDotGrid or
             RenderCommandType.DrawCircle or
             RenderCommandType.DrawRoundedRect or
             RenderCommandType.DrawPath or
@@ -9751,6 +9763,54 @@ SceneStateUploadComplete:
                 var v = vertices[i];
                 v.Position = ClampToClip(v.Position);
                 vertices[i] = v;
+            }
+        }
+    }
+
+    private void CompileDotGridCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Brush == null || cmd.Rect.Width <= 0f || cmd.Rect.Height <= 0f ||
+            cmd.RadiusX <= 0f || cmd.RadiusY <= 0f)
+        {
+            return;
+        }
+
+        SwitchBatch(BatchType.Vector);
+        var brushIndex = RegisterBrush(cmd.Brush);
+        var brushColor = cmd.Brush is SolidColorBrush solid ? solid.Color : Vector4.One;
+        var local0 = new Vector2(cmd.Rect.X, cmd.Rect.Y);
+        var local1 = new Vector2(cmd.Rect.Right, cmd.Rect.Y);
+        var local2 = new Vector2(cmd.Rect.Right, cmd.Rect.Bottom);
+        var local3 = new Vector2(cmd.Rect.X, cmd.Rect.Bottom);
+        var gridParameters = new Vector2(cmd.RadiusX, cmd.RadiusY);
+        var shapeType = EncodeShapeType(cmd, DotGridShapeType);
+        var baseVertex = (uint)_vectorVerticesList.Count;
+
+        var vertexStart = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + 4);
+        var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(vertexStart, 4);
+        vertices[0] = new VectorVertex(Vector2.Transform(local0, transform), brushColor, local0, brushIndex, gridParameters, cmd.Position2.X, cmd.Position2.Y, shapeType);
+        vertices[1] = new VectorVertex(Vector2.Transform(local1, transform), brushColor, local1, brushIndex, gridParameters, cmd.Position2.X, cmd.Position2.Y, shapeType);
+        vertices[2] = new VectorVertex(Vector2.Transform(local2, transform), brushColor, local2, brushIndex, gridParameters, cmd.Position2.X, cmd.Position2.Y, shapeType);
+        vertices[3] = new VectorVertex(Vector2.Transform(local3, transform), brushColor, local3, brushIndex, gridParameters, cmd.Position2.X, cmd.Position2.Y, shapeType);
+
+        var indexStart = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + 6);
+        var indices = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(indexStart, 6);
+        indices[0] = baseVertex;
+        indices[1] = baseVertex + 1;
+        indices[2] = baseVertex + 2;
+        indices[3] = baseVertex;
+        indices[4] = baseVertex + 2;
+        indices[5] = baseVertex + 3;
+
+        if (_activeClipRect.HasValue)
+        {
+            for (var index = 0; index < vertices.Length; index++)
+            {
+                var vertex = vertices[index];
+                vertex.Position = ClampToClip(vertex.Position);
+                vertices[index] = vertex;
             }
         }
     }
@@ -15023,6 +15083,9 @@ SceneStateUploadComplete:
                     case RenderCommandType.DrawEllipse:
                         CompileEllipseCommand(cmd, Matrix4x4.Identity);
                         break;
+                    case RenderCommandType.DrawDotGrid:
+                        CompileDotGridCommand(cmd, Matrix4x4.Identity);
+                        break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, Matrix4x4.Identity);
                         break;
@@ -15464,6 +15527,9 @@ SceneStateUploadComplete:
                         break;
                     case RenderCommandType.DrawEllipse:
                         CompileEllipseCommand(cmd, Matrix4x4.Identity);
+                        break;
+                    case RenderCommandType.DrawDotGrid:
+                        CompileDotGridCommand(cmd, Matrix4x4.Identity);
                         break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, Matrix4x4.Identity);

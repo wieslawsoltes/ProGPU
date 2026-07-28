@@ -1,4 +1,4 @@
-// Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves and arcs, use exact single-evaluation box/rounded-box distance gradients for anti-aliasing, then shade fills, strokes, gradients, vertex-color blends, and edges; dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids, use exact single-evaluation box/rounded-box distance gradients for anti-aliasing, then shade fills, strokes, gradients, vertex-color blends, and edges; dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
 // Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
 struct Brush {
@@ -1540,6 +1540,28 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     } else if (sType == 7u) {
         // Direct solid fill
         shapeAlpha = 1.0;
+    } else if (sType == 21u) {
+        // One quad covers the grid. Per-fragment work has fixed bounds and no
+        // dependency on the number of visible dots.
+        let spacing = max(input.shapeSize.x, 0.0001);
+        let radius = max(input.shapeSize.y, 0.0001);
+        let phase = vec2<f32>(input.cornerRadius, input.strokeThickness);
+        let cellIndex = round((input.texCoord - phase) / spacing);
+        let unsnappedCenter = cellIndex * spacing + phase;
+        // Derivatives convert the quarter-physical-pixel lattice into the
+        // command's local coordinate system, including display scale.
+        let localUnitsPerPhysicalPixel = vec2<f32>(
+            length(vec2<f32>(dpdx(input.texCoord.x), dpdy(input.texCoord.x))),
+            length(vec2<f32>(dpdx(input.texCoord.y), dpdy(input.texCoord.y))));
+        let quarterPhysicalStep = max(
+            localUnitsPerPhysicalPixel * 0.25,
+            vec2<f32>(0.0001));
+        let snappedCenter = round(unsnappedCenter / quarterPhysicalStep) *
+            quarterPhysicalStep;
+        let dotDistance = length(input.texCoord - snappedCenter) - radius;
+        let filterWidth = max(fwidth(dotDistance), 0.0001);
+        shapeAlpha = 1.0 -
+            smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
     }
 
     if (shapeAlpha <= 0.0) {

@@ -1,7 +1,10 @@
 using System.IO;
+using System.Numerics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using ProGPU.Fonts.Inter;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.Tests.Headless;
@@ -31,6 +34,67 @@ public class DataGridValueProviderTests
         window.Render();
 
         Assert.True(dataGrid.TotalBodyHeight > dataGrid.MinRowHeight);
+    }
+
+    [Fact]
+    public void DataGridScrollingRecordsOnlyDirectVisibleRowCommands()
+    {
+        InterFontFamily.RegisterFonts();
+        var dataGrid = new DataGrid
+        {
+            Width = 220f,
+            Height = 140f,
+            Font = InterFontFamily.Regular,
+            RowHeight = 28f
+        };
+        dataGrid.Columns.Add(new DataGridColumn("Name", 180f, "Name"));
+        for (var index = 0; index < 100; index++)
+            dataGrid.AddItem(new ProviderRow($"Row {index}"));
+
+        using var window = new HeadlessWindow(220, 140)
+        {
+            Content = dataGrid
+        };
+        dataGrid.ScrollOffset = 1f;
+        window.Render();
+        var context = new DrawingContext();
+
+        dataGrid.OnRender(context);
+
+        Assert.DoesNotContain(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawVisual);
+    }
+
+    [Fact]
+    public void ScrollViewerStableScrollbarHoverDoesNotInvalidate()
+    {
+        var viewer = new ScrollViewer
+        {
+            WidthConstraint = 200f,
+            HeightConstraint = 100f,
+            Content = new Border
+            {
+                WidthConstraint = 200f,
+                HeightConstraint = 1000f
+            }
+        };
+        using var window = new HeadlessWindow(200, 100)
+        {
+            Content = viewer
+        };
+        window.Render();
+        var move = new PointerRoutedEventArgs
+        {
+            Position = new Vector2(195f, 20f),
+            ScreenPosition = new Vector2(195f, 20f)
+        };
+
+        viewer.OnPointerMoved(move);
+        long hoverVersion = viewer.ChangeVersion;
+        viewer.OnPointerMoved(move);
+
+        Assert.Equal(hoverVersion, viewer.ChangeVersion);
     }
 
     [Fact]

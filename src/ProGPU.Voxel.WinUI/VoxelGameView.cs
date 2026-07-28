@@ -47,6 +47,7 @@ public sealed class VoxelGameView : Control
 
     public VoxelGameView()
     {
+        SetCustomAnimationActive(true);
         _crosshairPen = new Pen(_hudBrush, 2f);
         _focusPen = new Pen(_accentBrush, 2f);
         HorizontalAlignment = HorizontalAlignment.Stretch;

@@ -104,6 +104,36 @@ namespace Avalonia.ProGpu.ContractTests
         }
 
         [Fact]
+        public void DrawingStatePoolClearsAndReusesBoundedState()
+        {
+            using var cache = new OffscreenTextureCache();
+            AvaloniaDrawingState first = cache.RentDrawingState();
+            first.OpacityFrames.Push(0.5d);
+            first.GeometryClipFrames.Push(true);
+
+            cache.ReturnDrawingState(first);
+            Assert.Equal(1, cache.DrawingStatePoolCount);
+
+            AvaloniaDrawingState reused = cache.RentDrawingState();
+            Assert.Same(first, reused);
+            Assert.Empty(reused.OpacityFrames);
+            Assert.Empty(reused.GeometryClipFrames);
+            cache.ReturnDrawingState(reused);
+        }
+
+        [Fact]
+        public void OversizedDrawingStateIsNotRetained()
+        {
+            using var cache = new OffscreenTextureCache();
+            AvaloniaDrawingState state = cache.RentDrawingState();
+            state.OpacityFrames.EnsureCapacity(65);
+
+            cache.ReturnDrawingState(state);
+
+            Assert.Equal(0, cache.DrawingStatePoolCount);
+        }
+
+        [Fact]
         public void Gpu_Only_Offscreen_Target_Does_Not_Allocate_Readback_Storage()
         {
             using var owner = new DrawingContextImpl(
