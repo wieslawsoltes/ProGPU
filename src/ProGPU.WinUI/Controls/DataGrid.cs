@@ -87,6 +87,12 @@ public class DataGrid : Control
     private float _minRowHeight = 28f;
     private float _estimatedRowHeight = 40f;
     private TextWrapping _cellTextWrapping = TextWrapping.NoWrap;
+    private readonly RetainedRowsVisual _retainedRows = new();
+    private int _retainedStartRow = -1;
+    private int _retainedEndRow = -1;
+    private long _retainedRowsGridVersion = -1;
+    private long _lastScrollInvalidationVersion = -1;
+    private int _rowCacheRecordingCount;
 
     public List<DataGridColumn> Columns { get; } = new();
 
@@ -195,6 +201,7 @@ public class DataGrid : Control
                 }
                 PopupService.DismissNonDialogPopups();
                 Invalidate();
+                _lastScrollInvalidationVersion = ChangeVersion;
             }
         }
     }
@@ -774,7 +781,7 @@ public class DataGrid : Control
         }
 
         _scrollbarPointerId = e.Pointer.PointerId;
-        _touchInertiaVelocity = 0f;
+        SetTouchInertiaVelocity(0f);
         if (ScrollBarInteraction.IsThumbHit(position.Y, metrics, e.Pointer.PointerDeviceType))
         {
             _isDraggingScroll = true;
@@ -797,7 +804,7 @@ public class DataGrid : Control
 
     public override void OnManipulationStarted(ManipulationStartedRoutedEventArgs e)
     {
-        _touchInertiaVelocity = 0f;
+        SetTouchInertiaVelocity(0f);
         base.OnManipulationStarted(e);
     }
 
@@ -811,7 +818,7 @@ public class DataGrid : Control
 
     public override void OnManipulationCompleted(ManipulationCompletedRoutedEventArgs e)
     {
-        _touchInertiaVelocity = e.IsInertial ? -(float)e.Velocities.Linear.Y : 0f;
+        SetTouchInertiaVelocity(e.IsInertial ? -(float)e.Velocities.Linear.Y : 0f);
         base.OnManipulationCompleted(e);
     }
 
@@ -820,7 +827,7 @@ public class DataGrid : Control
         base.OnUpdateAnimations(elapsedSeconds);
         if (elapsedSeconds <= 0f || MathF.Abs(_touchInertiaVelocity) < 2f)
         {
-            _touchInertiaVelocity = 0f;
+            SetTouchInertiaVelocity(0f);
             return;
         }
 
@@ -828,10 +835,17 @@ public class DataGrid : Control
         ScrollOffset += _touchInertiaVelocity * elapsedSeconds;
         if (oldOffset == ScrollOffset)
         {
-            _touchInertiaVelocity = 0f;
+            SetTouchInertiaVelocity(0f);
             return;
         }
-        _touchInertiaVelocity *= MathF.Pow(0.88f, elapsedSeconds * 60f);
+        SetTouchInertiaVelocity(
+            _touchInertiaVelocity * MathF.Pow(0.88f, elapsedSeconds * 60f));
+    }
+
+    private void SetTouchInertiaVelocity(float velocity)
+    {
+        _touchInertiaVelocity = velocity;
+        SetCustomAnimationActive(MathF.Abs(velocity) >= 2f);
     }
 
     public override void OnPointerExited(PointerRoutedEventArgs e)
@@ -1187,7 +1201,8 @@ public class DataGrid : Control
             runningX += col.ActualWidth;
         }
 
-        // 3. Draw Body Row Cells (Virtualized recycling viewport loop)
+        // 3. Draw retained body rows. Fractional scrolling changes only this
+        // late-bound transform until the overscanned realization window moves.
         if (_itemsSource.Count > 0)
         {
             VariableSizeIndex? rowSizes = IsVariableRowHeight ? EnsureRowSizeIndex() : null;
@@ -1199,93 +1214,11 @@ public class DataGrid : Control
             startRow = Math.Clamp(startRow, 0, _itemsSource.Count - 1);
             endRow = Math.Clamp(endRow, 0, _itemsSource.Count - 1);
 
+            EnsureRetainedRows(activeFont, rowSizes, startRow, endRow);
             context.PushClip(new Rect(0, _headerHeight, Size.X, ViewportHeight));
-
-            for (int r = startRow; r <= endRow; r++)
-            {
-                float currentRowHeight = ResolveRowHeight(r, activeFont);
-                float rowY = _headerHeight + (rowSizes?.GetOffset(r) ?? r * _rowHeight) - ScrollOffset;
-                var item = _itemsSource[r];
-
-                // Alternate, Hover & Selection backgrounds
-                Brush? rowBg = null;
-                if (r == SelectedIndex)
-                {
-                    rowBg = ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
-                }
-                else if (r == _hoveredRowIndex)
-                {
-                    rowBg = ThemeManager.GetBrush("ControlBackgroundHover"); // Hover state row highlight
-                }
-                else if (r % 2 == 1)
-                {
-                    rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
-                }
-
-                Rect rowRect = new Rect(0, rowY, Size.X, currentRowHeight);
-                if (rowBg != null)
-                {
-                    context.DrawRectangle(rowBg, null, rowRect);
-                }
-
-                // Draw active selection vertical indicator stripe on far-left
-                if (r == SelectedIndex)
-                {
-                    Rect selectionStripe = LogicalToPhysical(new Rect(0f, rowY + 2f, 3f, currentRowHeight - 4f));
-                    context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
-                }
-
-                // Draw cell text grid columns
-                float colX = Padding.Left;
-                for (int c = 0; c < Columns.Count; c++)
-                {
-                    var col = Columns[c];
-                    float colWidth = col.ActualWidth;
-
-                    if (r == _editingRow && c == _editingCol)
-                    {
-                        // Do not draw text under editor
-                    }
-                    else
-                    {
-                        string val = GetCellValue(item, col.PropertyName);
-                        TextWrapping wrapping = col.TextWrapping ?? CellTextWrapping;
-                        float cellTextY = wrapping == TextWrapping.NoWrap
-                            ? rowY + Math.Max(4f, (currentRowHeight - FontSize) * 0.5f)
-                            : rowY + 4f;
-                        Rect cellTextBounds = LogicalToPhysical(new Rect(
-                            colX + 8f,
-                            cellTextY,
-                            wrapping == TextWrapping.NoWrap ? 10000f : Math.Max(0f, colWidth - 16f),
-                            Math.Max(FontSize, currentRowHeight - 8f)));
-                        context.PushClip(LogicalToPhysical(new Rect(colX, rowY, colWidth, currentRowHeight)));
-                        context.DrawText(
-                            val,
-                            activeFont,
-                            FontSize,
-                            ThemeManager.GetBrush("TextPrimary"),
-                            new Vector2(cellTextBounds.X, cellTextY),
-                            Matrix4x4.Identity,
-                            cellTextBounds,
-                            textShapingOptions: GetTextShapingOptions(),
-                            textAlignment: wrapping != TextWrapping.NoWrap && FlowDirection == FlowDirection.RightToLeft
-                                ? ProGPU.Text.TextAlignment.Right
-                                : ProGPU.Text.TextAlignment.Left);
-                        context.PopClip();
-                    }
-                    colX += colWidth;
-                }
-
-                // Draw thin grid lines
-                context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
-
-                if (rowSizes != null && r == endRow && r + 1 < _itemsSource.Count &&
-                    rowY + currentRowHeight < _headerHeight + ViewportHeight)
-                {
-                    endRow++;
-                }
-            }
-
+            context.DrawVisual(
+                _retainedRows,
+                Matrix4x4.CreateTranslation(0f, -ScrollOffset, 0f));
             context.PopClip();
         }
 
@@ -1318,6 +1251,142 @@ public class DataGrid : Control
             
             context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }
+    }
+
+    internal int RowCacheRecordingCount => _rowCacheRecordingCount;
+
+    private void EnsureRetainedRows(
+        TtfFont activeFont,
+        VariableSizeIndex? rowSizes,
+        int visibleStartRow,
+        int visibleEndRow)
+    {
+        bool scrollOnlyChange =
+            ChangeVersion == _lastScrollInvalidationVersion;
+        bool retainedWindowContainsVisibleRows =
+            visibleStartRow >= _retainedStartRow &&
+            visibleEndRow <= _retainedEndRow;
+        if (retainedWindowContainsVisibleRows &&
+            (_retainedRowsGridVersion == ChangeVersion || scrollOnlyChange))
+        {
+            _retainedRowsGridVersion = ChangeVersion;
+            return;
+        }
+
+        float overscan = Math.Max(ViewportHeight, MinRowHeight);
+        float firstOffset = Math.Max(0f, ScrollOffset - overscan);
+        float lastOffset = Math.Min(
+            TotalBodyHeight,
+            ScrollOffset + ViewportHeight + overscan);
+        int startRow = rowSizes?.GetIndexAtOffset(firstOffset) ??
+            (int)MathF.Floor(firstOffset / _rowHeight);
+        int endRow = rowSizes?.GetIndexAtOffset(lastOffset) ??
+            (int)MathF.Ceiling(lastOffset / _rowHeight);
+        startRow = Math.Clamp(startRow, 0, _itemsSource.Count - 1);
+        endRow = Math.Clamp(endRow, 0, _itemsSource.Count - 1);
+
+        DrawingContext rows = _retainedRows.Commands;
+        rows.Clear();
+        rows.EnsureCommandCapacity(
+            Math.Max(rows.Commands.Capacity, (endRow - startRow + 1) * (Columns.Count * 3 + 3)));
+
+        for (int row = startRow; row <= endRow; row++)
+        {
+            float currentRowHeight = ResolveRowHeight(row, activeFont);
+            float rowY =
+                _headerHeight +
+                (rowSizes?.GetOffset(row) ?? row * _rowHeight);
+            object item = _itemsSource[row];
+
+            Brush? rowBackground = row == SelectedIndex
+                ? ThemeManager.GetBrush("SelectionHighlight")
+                : row == _hoveredRowIndex
+                    ? ThemeManager.GetBrush("ControlBackgroundHover")
+                    : row % 2 == 1
+                        ? ThemeManager.GetBrush("ControlBackground")
+                        : null;
+            if (rowBackground != null)
+            {
+                rows.DrawRectangle(
+                    rowBackground,
+                    null,
+                    new Rect(0f, rowY, Size.X, currentRowHeight));
+            }
+
+            if (row == SelectedIndex)
+            {
+                rows.DrawRectangle(
+                    ThemeManager.GetBrush("SystemAccentColor"),
+                    null,
+                    LogicalToPhysical(
+                        new Rect(0f, rowY + 2f, 3f, currentRowHeight - 4f)));
+            }
+
+            float columnX = Padding.Left;
+            for (int columnIndex = 0; columnIndex < Columns.Count; columnIndex++)
+            {
+                DataGridColumn column = Columns[columnIndex];
+                float columnWidth = column.ActualWidth;
+                if (row != _editingRow || columnIndex != _editingCol)
+                {
+                    string value = GetCellValue(item, column.PropertyName);
+                    TextWrapping wrapping =
+                        column.TextWrapping ?? CellTextWrapping;
+                    float cellTextY = wrapping == TextWrapping.NoWrap
+                        ? rowY + Math.Max(
+                            4f,
+                            (currentRowHeight - FontSize) * 0.5f)
+                        : rowY + 4f;
+                    Rect textBounds = LogicalToPhysical(new Rect(
+                        columnX + 8f,
+                        cellTextY,
+                        wrapping == TextWrapping.NoWrap
+                            ? 10000f
+                            : Math.Max(0f, columnWidth - 16f),
+                        Math.Max(FontSize, currentRowHeight - 8f)));
+                    rows.PushClip(LogicalToPhysical(
+                        new Rect(columnX, rowY, columnWidth, currentRowHeight)));
+                    rows.DrawText(
+                        value,
+                        activeFont,
+                        FontSize,
+                        ThemeManager.GetBrush("TextPrimary"),
+                        new Vector2(textBounds.X, cellTextY),
+                        Matrix4x4.Identity,
+                        textBounds,
+                        textShapingOptions: GetTextShapingOptions(),
+                        textAlignment:
+                            wrapping != TextWrapping.NoWrap &&
+                            FlowDirection == FlowDirection.RightToLeft
+                                ? ProGPU.Text.TextAlignment.Right
+                                : ProGPU.Text.TextAlignment.Left);
+                    rows.PopClip();
+                }
+                columnX += columnWidth;
+            }
+
+            rows.DrawRectangle(
+                null,
+                new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f),
+                new Rect(0f, rowY, Size.X, currentRowHeight));
+        }
+
+        _retainedRows.Size =
+            new Vector2(Size.X, _headerHeight + TotalBodyHeight);
+        _retainedRows.Invalidate();
+        _retainedStartRow = startRow;
+        _retainedEndRow = endRow;
+        _retainedRowsGridVersion = ChangeVersion;
+        _rowCacheRecordingCount++;
+    }
+
+    private sealed class RetainedRowsVisual :
+        ProGPU.Scene.Visual,
+        IIncrementalRenderCommandCache
+    {
+        internal DrawingContext Commands { get; } = new();
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => Commands;
     }
 
     public override void OnKeyDown(KeyRoutedEventArgs e)
