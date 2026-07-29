@@ -1023,6 +1023,22 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void ContentDialogUsesWinUiButtonDefaultsAndFullSizeContract()
+    {
+        var dialog = new ContentDialog
+        {
+            PrimaryButtonText = "Quit",
+            SecondaryButtonText = "Force Quit",
+            FullSizeDesired = true
+        };
+
+        Assert.Equal(string.Empty, dialog.CloseButtonText);
+        Assert.Equal("Quit", dialog.PrimaryButtonText);
+        Assert.Equal("Force Quit", dialog.SecondaryButtonText);
+        Assert.True(dialog.FullSizeDesired);
+    }
+
+    [Fact]
     public void RangeControlsShareCanonicalDoubleRangeContract()
     {
         Assert.Equal(typeof(RangeBase), typeof(Slider).BaseType);

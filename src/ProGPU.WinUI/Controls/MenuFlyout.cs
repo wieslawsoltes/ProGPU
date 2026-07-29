@@ -96,6 +96,18 @@ public class MenuFlyoutItemBase : Control
         base.OnPointerExited(args);
     }
 
+    public override void OnRender(DrawingContext context)
+    {
+        context.DrawRoundedRectangle(
+            Background,
+            BorderBrush is null || BorderThickness.Left <= 0
+                ? null
+                : new Pen(BorderBrush, BorderThickness.Left),
+            new Rect(Vector2.Zero, Size),
+            (float)CornerRadius.TopLeft);
+        base.OnRender(context);
+    }
+
     private void UpdateBackground()
     {
         Background = new ThemeResourceBrush(
@@ -448,4 +460,16 @@ public class MenuFlyoutPresenter : ItemsControl
 
     public MenuFlyoutPresenterTemplateSettings TemplateSettings { get; } = new();
     public bool IsDefaultShadowEnabled { get => (bool)(GetValue(IsDefaultShadowEnabledProperty) ?? true); set => SetValue(IsDefaultShadowEnabledProperty, value); }
+
+    public override void OnRender(DrawingContext context)
+    {
+        context.DrawRoundedRectangle(
+            Background,
+            BorderBrush is null || BorderThickness.Left <= 0
+                ? null
+                : new Pen(BorderBrush, BorderThickness.Left),
+            new Rect(Vector2.Zero, Size),
+            (float)CornerRadius.TopLeft);
+        base.OnRender(context);
+    }
 }

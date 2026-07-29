@@ -140,6 +140,18 @@ public class SelectorBarItem : ItemContainer
         base.OnPointerExited(args);
     }
 
+    public override void OnRender(DrawingContext context)
+    {
+        context.DrawRoundedRectangle(
+            Background,
+            BorderBrush is null || BorderThickness.Left <= 0
+                ? null
+                : new Pen(BorderBrush, BorderThickness.Left),
+            new Rect(Vector2.Zero, Size),
+            (float)CornerRadius.TopLeft);
+        base.OnRender(context);
+    }
+
     private void RebuildPresentation()
     {
         _contentPanel.ClearChildren();
@@ -160,9 +172,9 @@ public class SelectorBarItem : ItemContainer
     {
         Background = new ThemeResourceBrush(
             IsSelected
-                ? "ControlBackgroundPressed"
+                ? "SelectorBarItemBackgroundSelected"
                 : _pointerOver
-                    ? "ControlBackgroundHover"
+                    ? "SelectorBarItemBackgroundPointerOver"
                     : "Transparent");
     }
 
@@ -285,6 +297,18 @@ public class SelectorBar : Control
             }
         }
         base.OnKeyDown(args);
+    }
+
+    public override void OnRender(DrawingContext context)
+    {
+        context.DrawRoundedRectangle(
+            Background,
+            BorderBrush is null || BorderThickness.Left <= 0
+                ? null
+                : new Pen(BorderBrush, BorderThickness.Left),
+            new Rect(Vector2.Zero, Size),
+            (float)CornerRadius.TopLeft);
+        base.OnRender(context);
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs args)

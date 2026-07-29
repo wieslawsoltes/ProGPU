@@ -85,7 +85,7 @@ public class ContentDialog : Control
             nameof(CloseButtonText),
             typeof(string),
             typeof(ContentDialog),
-            new PropertyMetadata("Close") { AffectsMeasure = true, AffectsRender = true });
+            new PropertyMetadata(string.Empty) { AffectsMeasure = true, AffectsRender = true });
 
     public static readonly DependencyProperty IsPrimaryButtonEnabledProperty =
         DependencyProperty.Register(
@@ -223,7 +223,7 @@ public class ContentDialog : Control
     public ContentDialog()
     {
         // Full screen hit-blocking background
-        Background = new SolidColorBrush(new Vector4(0f, 0f, 0f, 0.4f)); // Semi-transparent black blocker
+        Background = new ThemeResourceBrush("DialogOverlay");
         
         // Build the visual card inner tree
         _cardStack = new StackPanel { Orientation = Orientation.Vertical };
@@ -296,7 +296,7 @@ public class ContentDialog : Control
 
         if (!string.IsNullOrEmpty(PrimaryButtonText))
         {
-            var btnText = new RichTextBlock { Font = PopupService.DefaultFont, FontSize = 14f, Foreground = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)) };
+            var btnText = new RichTextBlock { Font = PopupService.DefaultFont, FontSize = 14f, Foreground = new ThemeResourceBrush("TextOnAccent") };
             btnText.Inlines.Add(new Run { Text = PrimaryButtonText });
 
             _btnPrimary = new Button
@@ -305,7 +305,7 @@ public class ContentDialog : Control
                 Width = 100f,
                 Height = 32f,
                 Background = new ThemeResourceBrush("SystemAccentColor"),
-                Foreground = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f)),
+                Foreground = new ThemeResourceBrush("TextOnAccent"),
                 Margin = new Thickness(0f, 0f, 8f, 0f)
             };
             _btnPrimary.Click += (s, e) => CloseWithResult(ContentDialogResult.Primary);
@@ -370,8 +370,10 @@ public class ContentDialog : Control
         Width = rootSize.X;
         Height = rootSize.Y;
 
-        // Card maximum width
-        _cardBorder.Measure(new Vector2(Math.Min(availableSize.X - 48f, 480f), availableSize.Y - 48f));
+        float maximumCardWidth = FullSizeDesired ? 960f : 480f;
+        _cardBorder.Measure(new Vector2(
+            Math.Min(availableSize.X - 48f, maximumCardWidth),
+            availableSize.Y - 48f));
         return rootSize;
     }
 
