@@ -55,6 +55,10 @@ public sealed class PortableWindowState
 
     public bool ShowActivated { get; set; }
 
+    public bool HasAllowsTransparency { get; set; }
+
+    public bool AllowsTransparency { get; set; }
+
     public bool HasOwner { get; set; }
 
     public object? Owner { get; set; }
