@@ -9,6 +9,12 @@ from `scripts/progpu-package-list.sh`.
 
 - `ProGPU.Backend`
 - `ProGPU.Backend.Dawn`
+- `ProGPU.Media`
+- `ProGPU.Media.Editing`
+- `ProGPU.Media.Scene`
+- `ProGPU.WinRT`
+- `ProGPU.Windows.Media`
+- `ProGPU.Linux.Media`
 - `ProGPU.Text.Shaping`
 - `ProGPU.Browser`
 - `ProGPU.DirectX`
@@ -40,6 +46,8 @@ from `scripts/progpu-package-list.sh`.
 - `LibreWPF.Interop`
 - `ProGPU.Android`
 - `ProGPU.iOS`
+- `ProGPU.Android.Media`
+- `ProGPU.Apple.Media`
 
 ## Avalonia Integration Packages
 

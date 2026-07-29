@@ -23,6 +23,44 @@ public enum MediaPlaybackFailure
     DeviceLost
 }
 
+/// <summary>
+/// Provider-neutral virtual range over a media source. Providers continue to
+/// report absolute source timestamps; <see cref="MediaPlaybackEngine"/>
+/// projects them into this relative timeline and translates seeks back to the
+/// source domain. Construction and projection are O(1) and allocation-free.
+/// </summary>
+public readonly record struct MediaPlaybackRange
+{
+    public MediaPlaybackRange(
+        TimeSpan startTime,
+        TimeSpan? durationLimit = null)
+    {
+        if (startTime < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(startTime));
+        }
+        if (durationLimit < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(durationLimit));
+        }
+
+        StartTime = startTime;
+        DurationLimit = durationLimit;
+    }
+
+    public static MediaPlaybackRange All { get; } =
+        new(TimeSpan.Zero);
+
+    public TimeSpan StartTime { get; }
+    public TimeSpan? DurationLimit { get; }
+
+    public bool IsIdentity =>
+        StartTime == TimeSpan.Zero &&
+        DurationLimit is null;
+}
+
 public readonly record struct MediaProviderCapabilities(
     bool CanPause,
     bool CanSeek,

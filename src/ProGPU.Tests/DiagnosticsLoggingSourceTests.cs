@@ -1122,7 +1122,7 @@ public class DiagnosticsLoggingSourceTests
         AssertStackBackedLayout(customGrid, 8, "VectorVertex");
         AssertStackBackedLayout(acisSolid, 8, "VectorVertex");
         AssertStackBackedLayout(hatch, 8, "VectorVertex");
-        AssertStackBackedLayout(mesh3D, 3, "GpuVertex3D");
+        AssertStackBackedLayout(mesh3D, 3, "GpuVertex3D", layoutCount: 2);
         AssertStackBackedLayout(scatterSeries, 2, "Vector3");
 
         Assert.Contains("ReadOnlySpan<VertexBufferLayout> vertexBufferLayouts", pipelineCache, StringComparison.Ordinal);
@@ -1137,10 +1137,14 @@ public class DiagnosticsLoggingSourceTests
         Assert.DoesNotContain("foreach (var p in _computePipelines.Values)", pipelineCache, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var s in _shaders.Values)", pipelineCache, StringComparison.Ordinal);
 
-        static void AssertStackBackedLayout(string source, int attributeCount, string vertexType)
+        static void AssertStackBackedLayout(
+            string source,
+            int attributeCount,
+            string vertexType,
+            int layoutCount = 1)
         {
             Assert.Contains($"Span<VertexAttribute> attrs = stackalloc VertexAttribute[{attributeCount}];", source, StringComparison.Ordinal);
-            Assert.Contains("Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[1];", source, StringComparison.Ordinal);
+            Assert.Contains($"Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[{layoutCount}];", source, StringComparison.Ordinal);
             Assert.Contains($"ArrayStride = (uint)Unsafe.SizeOf<{vertexType}>()", source, StringComparison.Ordinal);
             Assert.DoesNotContain("new VertexAttribute[]", source, StringComparison.Ordinal);
             Assert.DoesNotContain("new VertexBufferLayout[]", source, StringComparison.Ordinal);

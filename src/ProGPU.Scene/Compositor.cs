@@ -14057,6 +14057,7 @@ SceneStateUploadComplete:
                 _offscreenRenderDepth--;
                 if (ownsOffscreenFrame)
                 {
+                    ReleaseFrameRetainedResources();
                     _frameNumber++;
                     EvictUnusedBindGroups();
                 }

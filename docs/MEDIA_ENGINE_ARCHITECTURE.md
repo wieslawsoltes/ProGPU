@@ -60,6 +60,13 @@ design.
   and [MediaPlaybackSession](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession)
   establish the source/player/session separation, state events, playback
   controls, and effect activation shape.
+- [`MediaPlaybackItem.StartTime`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.starttime)
+  and
+  [`DurationLimit`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.durationlimit)
+  establish the item-relative start and maximum-duration playback contract.
+  ProGPU keeps providers in absolute source time and performs one typed O(1)
+  translation at the engine boundary for updates, seeks, looping, and end
+  transitions.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -636,8 +643,16 @@ ProGPU can provide the documented semantics on every registered provider.
 `MediaPlaybackSession.PlaybackRotation` uses the official
 `Windows.Media.MediaProperties.MediaRotation` type rather than declaring a
 lookalike enum in the playback namespace. Crop, mirroring, and rotation are
-shared by the 2D presenter and Mesh3D material path. The editing facade
-implements ordered clips, independent delayed background
+shared by the 2D presenter and Mesh3D material path.
+`MediaPlaybackItem(MediaSource, StartTime, DurationLimit)` is enforced by the
+framework-neutral engine instead of being facade-only metadata: provider
+absolute timestamps are projected into an item-relative session, seeks add
+the source offset, a duration boundary publishes the normal ended transition,
+and playlists continue with the next enabled item. Native full-source looping
+is disabled for ranged items so the engine can restart at `StartTime` without
+exposing frames outside the item. This projection is fixed O(1) work per
+provider state update and allocates no per-frame range objects. The editing
+facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay
 clips, custom compositor definitions, composition duration,
 composition-relative clip times, non-destructive trimming, cloning, volume,

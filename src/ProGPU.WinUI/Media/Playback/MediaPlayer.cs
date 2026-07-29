@@ -807,9 +807,16 @@ public sealed class MediaPlayer : IDisposable
         MediaSourceDescriptor? previousOwned =
             _ownedSourceDescriptor;
         MediaSourceDescriptor? descriptor;
+        MediaPlaybackRange playbackRange =
+            MediaPlaybackRange.All;
         try
         {
             descriptor = _typedSource?.ResolveDescriptor();
+            if (_typedSource is not null)
+            {
+                playbackRange =
+                    _typedSource.ResolvePlaybackRange();
+            }
         }
         catch (InvalidOperationException)
         {
@@ -826,7 +833,9 @@ public sealed class MediaPlayer : IDisposable
             _ownedSourceDescriptor = null;
         }
 
-        _ = _engine.SetSourceAsync(descriptor);
+        _ = _engine.SetSourceAsync(
+            descriptor,
+            playbackRange);
         previousOwned?.Dispose();
     }
 
@@ -899,6 +908,7 @@ public sealed class MediaPlayer : IDisposable
             if (_source is MediaPlaybackList list &&
                 list.MoveNextAfterEnd())
             {
+                Play();
                 return;
             }
             MediaEnded?.Invoke(this, EventArgs.Empty);

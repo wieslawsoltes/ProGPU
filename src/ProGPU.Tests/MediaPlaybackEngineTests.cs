@@ -208,6 +208,135 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public async Task EngineProjectsBoundedSourceRangeAndEndsAtLimit()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var engine = new MediaPlaybackEngine(registry);
+        using var source = MediaSourceDescriptor.FromUri(
+            new Uri("https://example.invalid/range.mp4"));
+        int ended = 0;
+        engine.Ended += (_, _) => ended++;
+
+        await engine.SetSourceAsync(
+            source,
+            new MediaPlaybackRange(
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(10)));
+
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.Equal(
+            TimeSpan.FromSeconds(30),
+            provider.LastSeek);
+        Assert.Equal(
+            TimeSpan.FromSeconds(10),
+            engine.Snapshot.NaturalDuration);
+        Assert.Equal(TimeSpan.Zero, engine.Snapshot.Position);
+
+        engine.Seek(TimeSpan.FromSeconds(4));
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(34),
+            provider.LastSeek);
+        Assert.Equal(
+            TimeSpan.FromSeconds(4),
+            engine.Snapshot.Position);
+
+        engine.Play();
+        provider.Report(new MediaPlaybackSnapshot(
+            MediaEnginePlaybackState.Playing,
+            TimeSpan.FromSeconds(36),
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            engine.Snapshot.Capabilities));
+        Assert.Equal(
+            TimeSpan.FromSeconds(6),
+            engine.Snapshot.Position);
+
+        provider.Report(new MediaPlaybackSnapshot(
+            MediaEnginePlaybackState.Playing,
+            TimeSpan.FromSeconds(40),
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            engine.Snapshot.Capabilities));
+
+        Assert.Equal(1, provider.PauseCalls);
+        Assert.Equal(1, ended);
+        Assert.Equal(
+            TimeSpan.FromSeconds(10),
+            engine.Snapshot.Position);
+        Assert.Equal(
+            MediaEnginePlaybackState.Paused,
+            engine.Snapshot.State);
+
+        engine.Play();
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(30),
+            provider.LastSeek);
+        Assert.Equal(TimeSpan.Zero, engine.Snapshot.Position);
+        Assert.Equal(2, provider.PlayCalls);
+    }
+
+    [Fact]
+    public async Task BoundedRangeLoopUsesEngineRelativeBoundary()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var engine = new MediaPlaybackEngine(registry)
+        {
+            IsLoopingEnabled = true
+        };
+        using var source = MediaSourceDescriptor.FromUri(
+            new Uri("https://example.invalid/range-loop.mp4"));
+
+        await engine.SetSourceAsync(
+            source,
+            new MediaPlaybackRange(
+                TimeSpan.FromSeconds(20),
+                TimeSpan.FromSeconds(5)));
+
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.False(provider.Looping);
+
+        engine.Play();
+        provider.Report(new MediaPlaybackSnapshot(
+            MediaEnginePlaybackState.Playing,
+            TimeSpan.FromSeconds(25),
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            engine.Snapshot.Capabilities));
+
+        Assert.Equal(0, provider.PauseCalls);
+        Assert.Equal(
+            TimeSpan.FromSeconds(20),
+            provider.LastSeek);
+        Assert.Equal(2, provider.PlayCalls);
+        Assert.Equal(TimeSpan.Zero, engine.Snapshot.Position);
+        Assert.Equal(
+            MediaEnginePlaybackState.Playing,
+            engine.Snapshot.State);
+    }
+
+    [Fact]
     public async Task ProviderRegistryUsesHighestPriorityWithoutReflection()
     {
         var registry = new MediaProviderRegistry();
@@ -1191,6 +1320,86 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void WinUiPlaybackListAdvancesAtItemDurationLimit()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/first-range.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/second-range.mp4"));
+        var first = new MediaPlaybackItem(
+            firstSource,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(5));
+        var second = new MediaPlaybackItem(
+            secondSource,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(7));
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+        CurrentMediaPlaybackItemChangedEventArgs? changed = null;
+        list.CurrentItemChanged +=
+            (_, args) => changed = args;
+
+        player.Source = list;
+        RecordingProvider firstProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.Equal(
+            TimeSpan.FromSeconds(30),
+            firstProvider.LastSeek);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            player.PlaybackSession.NaturalDuration);
+
+        player.Play();
+        firstProvider.Report(new MediaPlaybackSnapshot(
+            MediaEnginePlaybackState.Playing,
+            TimeSpan.FromSeconds(35),
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            new MediaProviderCapabilities(
+                CanPause: true,
+                CanSeek: true,
+                SupportsRate: true,
+                SupportsFrameStepping: true,
+                HardwareDecoded: true,
+                HasAudio: true,
+                HasVideo: true)));
+
+        Assert.Same(second, list.CurrentItem);
+        Assert.NotNull(changed);
+        Assert.Equal(
+            MediaPlaybackItemChangedReason.EndOfStream,
+            changed.Reason);
+        RecordingProvider secondProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.NotSame(firstProvider, secondProvider);
+        Assert.Equal(
+            TimeSpan.FromSeconds(60),
+            secondProvider.LastSeek);
+        Assert.Equal(
+            TimeSpan.FromSeconds(7),
+            player.PlaybackSession.NaturalDuration);
+        Assert.Equal(1, secondProvider.PlayCalls);
+    }
+
+    [Fact]
     public void WinUiPlayerProjectsLegacyStateAndProviderConfiguration()
     {
         var registry = new MediaProviderRegistry();
@@ -1504,6 +1713,7 @@ public sealed class MediaPlaybackEngineTests
 
         public string Id => "test-provider";
         public int PlayCalls { get; private set; }
+        public int PauseCalls { get; private set; }
         public TimeSpan LastSeek { get; private set; }
         public double Rate { get; private set; } = 1d;
         public double Volume { get; private set; } = 1d;
@@ -1558,7 +1768,7 @@ public sealed class MediaPlaybackEngineTests
         }
 
         public void Play() => PlayCalls++;
-        public void Pause() { }
+        public void Pause() => PauseCalls++;
         public void Seek(TimeSpan position)
         {
             LastSeek = position;

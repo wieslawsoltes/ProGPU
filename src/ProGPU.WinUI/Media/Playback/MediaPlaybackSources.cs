@@ -11,6 +11,7 @@ public interface IMediaPlaybackSource
 internal interface IProGpuMediaPlaybackSource : IMediaPlaybackSource
 {
     MediaSourceDescriptor ResolveDescriptor();
+    MediaPlaybackRange ResolvePlaybackRange();
     event EventHandler? SourceInvalidated;
 }
 
@@ -145,6 +146,10 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         ((IProGpuMediaPlaybackSource)Source)
         .ResolveDescriptor();
 
+    MediaPlaybackRange
+        IProGpuMediaPlaybackSource.ResolvePlaybackRange() =>
+        new(StartTime, DurationLimit);
+
     event EventHandler?
         IProGpuMediaPlaybackSource.SourceInvalidated
     {
@@ -267,6 +272,16 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
                 "A media playback list has no current item.");
         return ((IProGpuMediaPlaybackSource)item)
             .ResolveDescriptor();
+    }
+
+    MediaPlaybackRange
+        IProGpuMediaPlaybackSource.ResolvePlaybackRange()
+    {
+        MediaPlaybackItem item = CurrentItem ??
+            throw new InvalidOperationException(
+                "A media playback list has no current item.");
+        return ((IProGpuMediaPlaybackSource)item)
+            .ResolvePlaybackRange();
     }
 
     public bool MoveNext()

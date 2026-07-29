@@ -26,6 +26,10 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
         IProGpuMediaPlaybackSource.ResolveDescriptor() =>
         ResolveDescriptor();
 
+    MediaPlaybackRange
+        IProGpuMediaPlaybackSource.ResolvePlaybackRange() =>
+        MediaPlaybackRange.All;
+
     event EventHandler?
         IProGpuMediaPlaybackSource.SourceInvalidated
     {

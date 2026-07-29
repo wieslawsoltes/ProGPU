@@ -32,6 +32,9 @@ public sealed class MediaPlaybackEngine : IDisposable
     private double _playbackRate = 1d;
     private MediaPlaybackConfiguration _configuration =
         MediaPlaybackConfiguration.Default;
+    private MediaPlaybackRange _playbackRange =
+        MediaPlaybackRange.All;
+    private bool _rangeBoundaryReached;
     private int _disposed;
 
     public MediaPlaybackEngine(
@@ -156,6 +159,7 @@ public sealed class MediaPlaybackEngine : IDisposable
         set
         {
             IMediaPlaybackProvider? provider;
+            bool nativeLooping;
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -165,8 +169,11 @@ public sealed class MediaPlaybackEngine : IDisposable
                 }
                 _looping = value;
                 provider = _provider;
+                nativeLooping =
+                    value &&
+                    _playbackRange.IsIdentity;
             }
-            provider?.SetLooping(value);
+            provider?.SetLooping(nativeLooping);
         }
     }
 
@@ -262,8 +269,17 @@ public sealed class MediaPlaybackEngine : IDisposable
         }
     }
 
+    public ValueTask SetSourceAsync(
+        MediaSourceDescriptor? source,
+        CancellationToken cancellationToken = default) =>
+        SetSourceAsync(
+            source,
+            MediaPlaybackRange.All,
+            cancellationToken);
+
     public async ValueTask SetSourceAsync(
         MediaSourceDescriptor? source,
+        MediaPlaybackRange playbackRange,
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
@@ -283,6 +299,10 @@ public sealed class MediaPlaybackEngine : IDisposable
                 : CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken);
             _source = source;
+            _playbackRange = source is null
+                ? MediaPlaybackRange.All
+                : playbackRange;
+            _rangeBoundaryReached = false;
             _playRequested = source is not null && _autoPlay;
             _snapshot = source is null
                 ? MediaPlaybackSnapshot.Empty with
@@ -372,6 +392,8 @@ public sealed class MediaPlaybackEngine : IDisposable
 
             bool mustPlay;
             bool mustSynthesizeOpen;
+            TimeSpan initialSeek;
+            bool rangeCanSeek;
             lock (_gate)
             {
                 if (generation != _sourceGeneration ||
@@ -383,8 +405,23 @@ public sealed class MediaPlaybackEngine : IDisposable
                 mustPlay = _playRequested;
                 mustSynthesizeOpen =
                     _snapshot.State == MediaEnginePlaybackState.Opening;
+                initialSeek = _playbackRange.StartTime;
+                rangeCanSeek =
+                    initialSeek == TimeSpan.Zero ||
+                    _snapshot.Capabilities.CanSeek;
             }
 
+            if (!rangeCanSeek)
+            {
+                DetachProvider(generation, provider);
+                provider.Dispose();
+                ReportFailure(
+                    generation,
+                    MediaPlaybackFailure.SourceNotSupported,
+                    "The selected provider cannot seek to the playback item's start time.",
+                    null);
+                return;
+            }
             if (mustSynthesizeOpen)
             {
                 AcceptOpened(
@@ -395,6 +432,10 @@ public sealed class MediaPlaybackEngine : IDisposable
                             ? MediaEnginePlaybackState.Playing
                             : MediaEnginePlaybackState.Paused
                     });
+            }
+            if (initialSeek > TimeSpan.Zero)
+            {
+                provider.Seek(initialSeek);
             }
             if (mustPlay)
             {
@@ -423,6 +464,7 @@ public sealed class MediaPlaybackEngine : IDisposable
     {
         IMediaPlaybackProvider? provider;
         bool restartFromEnd;
+        TimeSpan restartPosition;
         MediaPlaybackChangedEventArgs? change = null;
         lock (_gate)
         {
@@ -438,11 +480,16 @@ public sealed class MediaPlaybackEngine : IDisposable
                 provider is not null &&
                 _snapshot.NaturalDuration > TimeSpan.Zero &&
                 _snapshot.Position >= _snapshot.NaturalDuration;
+            restartPosition = _playbackRange.StartTime;
             if (provider is not null &&
                 (_snapshot.State !=
                     MediaEnginePlaybackState.Playing ||
                  restartFromEnd))
             {
+                if (restartFromEnd)
+                {
+                    _rangeBoundaryReached = false;
+                }
                 _snapshot = _snapshot with
                 {
                     State = MediaEnginePlaybackState.Playing,
@@ -461,7 +508,7 @@ public sealed class MediaPlaybackEngine : IDisposable
 
         if (restartFromEnd)
         {
-            provider?.Seek(TimeSpan.Zero);
+            provider?.Seek(restartPosition);
         }
         provider?.Play();
         if (change is not null)
@@ -505,6 +552,7 @@ public sealed class MediaPlaybackEngine : IDisposable
     {
         IMediaPlaybackProvider? provider;
         TimeSpan normalized;
+        TimeSpan providerPosition;
         MediaPlaybackChangedEventArgs? change = null;
         lock (_gate)
         {
@@ -524,6 +572,14 @@ public sealed class MediaPlaybackEngine : IDisposable
             }
 
             provider = _provider;
+            providerPosition = AddSaturating(
+                _playbackRange.StartTime,
+                normalized);
+            if (_snapshot.NaturalDuration <= TimeSpan.Zero ||
+                normalized < _snapshot.NaturalDuration)
+            {
+                _rangeBoundaryReached = false;
+            }
             if (_snapshot.Position != normalized)
             {
                 _snapshot = _snapshot with
@@ -536,7 +592,7 @@ public sealed class MediaPlaybackEngine : IDisposable
             }
         }
 
-        provider?.Seek(normalized);
+        provider?.Seek(providerPosition);
         if (change is not null)
         {
             Changed?.Invoke(this, change);
@@ -678,6 +734,7 @@ public sealed class MediaPlaybackEngine : IDisposable
         double balance;
         bool muted;
         bool looping;
+        bool nativeLooping;
         double rate;
         MediaPlaybackConfiguration configuration;
         lock (_gate)
@@ -686,6 +743,9 @@ public sealed class MediaPlaybackEngine : IDisposable
             balance = _balance;
             muted = _muted;
             looping = _looping;
+            nativeLooping =
+                looping &&
+                _playbackRange.IsIdentity;
             rate = _playbackRate;
             configuration = _configuration;
             effects = [.. _activeEffects];
@@ -697,7 +757,7 @@ public sealed class MediaPlaybackEngine : IDisposable
             configurable.ApplyConfiguration(in configuration);
         }
         provider.SetVolume(volume, balance, muted);
-        provider.SetLooping(looping);
+        provider.SetLooping(nativeLooping);
         provider.SetPlaybackRate(rate);
         for (int index = 0; index < effects.Length; index++)
         {
@@ -712,6 +772,9 @@ public sealed class MediaPlaybackEngine : IDisposable
         in MediaPlaybackSnapshot value)
     {
         MediaPlaybackChangedEventArgs? change;
+        IMediaPlaybackProvider? rangeEndProvider = null;
+        bool reachedRangeEnd = false;
+        bool pauseAtRangeEnd = false;
         lock (_gate)
         {
             if (!IsCurrent(generation))
@@ -719,11 +782,25 @@ public sealed class MediaPlaybackEngine : IDisposable
                 return;
             }
 
-            MediaPlaybackSnapshot normalized = value.Normalize();
+            MediaPlaybackSnapshot providerSnapshot =
+                value.Normalize();
+            reachedRangeEnd =
+                !_rangeBoundaryReached &&
+                _playRequested &&
+                HasReachedDurationLimit(providerSnapshot.Position);
+            MediaPlaybackSnapshot normalized =
+                ProjectProviderSnapshot(providerSnapshot);
             MediaPlaybackChange flags = GetChanges(
                 _snapshot,
                 normalized);
-            if (flags == MediaPlaybackChange.None)
+            if (reachedRangeEnd)
+            {
+                _rangeBoundaryReached = true;
+                rangeEndProvider = _provider;
+                pauseAtRangeEnd = !_looping;
+            }
+            if (flags == MediaPlaybackChange.None &&
+                !reachedRangeEnd)
             {
                 return;
             }
@@ -738,7 +815,18 @@ public sealed class MediaPlaybackEngine : IDisposable
                 flags,
                 normalized);
         }
-        Changed?.Invoke(this, change);
+        if (change is not null)
+        {
+            Changed?.Invoke(this, change);
+        }
+        if (reachedRangeEnd)
+        {
+            if (pauseAtRangeEnd)
+            {
+                rangeEndProvider?.Pause();
+            }
+            AcceptEnded(generation);
+        }
     }
 
     private void AcceptOpened(
@@ -753,7 +841,8 @@ public sealed class MediaPlaybackEngine : IDisposable
                 return;
             }
 
-            MediaPlaybackSnapshot normalized = value.Normalize();
+            MediaPlaybackSnapshot normalized =
+                ProjectProviderSnapshot(value.Normalize());
             if (_playRequested)
             {
                 normalized = normalized with
@@ -791,6 +880,7 @@ public sealed class MediaPlaybackEngine : IDisposable
     {
         IMediaPlaybackProvider? provider;
         bool looping;
+        TimeSpan restartPosition;
         MediaPlaybackChangedEventArgs? change = null;
         lock (_gate)
         {
@@ -801,9 +891,21 @@ public sealed class MediaPlaybackEngine : IDisposable
 
             provider = _provider;
             looping = _looping;
+            restartPosition = _playbackRange.StartTime;
+            if (_rangeBoundaryReached &&
+                !_playRequested &&
+                !looping &&
+                _snapshot.State ==
+                    MediaEnginePlaybackState.Paused &&
+                _snapshot.Position >=
+                    _snapshot.NaturalDuration)
+            {
+                return;
+            }
             if (looping)
             {
                 _playRequested = true;
+                _rangeBoundaryReached = false;
                 _snapshot = _snapshot with
                 {
                     State = MediaEnginePlaybackState.Playing,
@@ -817,6 +919,7 @@ public sealed class MediaPlaybackEngine : IDisposable
             else
             {
                 _playRequested = false;
+                _rangeBoundaryReached = true;
                 _snapshot = _snapshot with
                 {
                     State = MediaEnginePlaybackState.Paused,
@@ -831,7 +934,7 @@ public sealed class MediaPlaybackEngine : IDisposable
 
         if (looping && provider is not null)
         {
-            provider.Seek(TimeSpan.Zero);
+            provider.Seek(restartPosition);
             provider.Play();
             if (change is not null)
             {
@@ -857,9 +960,8 @@ public sealed class MediaPlaybackEngine : IDisposable
                 return;
             }
 
-            TimeSpan normalized = position < TimeSpan.Zero
-                ? TimeSpan.Zero
-                : position;
+            TimeSpan normalized =
+                ToRelativePosition(position);
             if (_snapshot.NaturalDuration > TimeSpan.Zero &&
                 normalized > _snapshot.NaturalDuration)
             {
@@ -875,12 +977,98 @@ public sealed class MediaPlaybackEngine : IDisposable
                     MediaPlaybackChange.Position,
                     _snapshot);
             }
+            if (_snapshot.NaturalDuration <= TimeSpan.Zero ||
+                normalized < _snapshot.NaturalDuration)
+            {
+                _rangeBoundaryReached = false;
+            }
         }
         if (change is not null)
         {
             Changed?.Invoke(this, change);
         }
         SeekCompleted?.Invoke(this, EventArgs.Empty);
+    }
+
+    private MediaPlaybackSnapshot ProjectProviderSnapshot(
+        in MediaPlaybackSnapshot providerSnapshot)
+    {
+        TimeSpan sourceDuration =
+            providerSnapshot.NaturalDuration;
+        TimeSpan relativeDuration;
+        if (sourceDuration > TimeSpan.Zero)
+        {
+            relativeDuration =
+                sourceDuration <= _playbackRange.StartTime
+                    ? TimeSpan.Zero
+                    : sourceDuration -
+                        _playbackRange.StartTime;
+            if (_playbackRange.DurationLimit is
+                    { } durationLimit &&
+                relativeDuration > durationLimit)
+            {
+                relativeDuration = durationLimit;
+            }
+        }
+        else
+        {
+            relativeDuration =
+                _playbackRange.DurationLimit ??
+                TimeSpan.Zero;
+        }
+
+        TimeSpan relativePosition =
+            ToRelativePosition(providerSnapshot.Position);
+        if (relativeDuration > TimeSpan.Zero &&
+            relativePosition > relativeDuration)
+        {
+            relativePosition = relativeDuration;
+        }
+
+        return providerSnapshot with
+        {
+            Position = relativePosition,
+            NaturalDuration = relativeDuration
+        };
+    }
+
+    private TimeSpan ToRelativePosition(
+        TimeSpan providerPosition)
+    {
+        if (providerPosition <=
+            _playbackRange.StartTime)
+        {
+            return TimeSpan.Zero;
+        }
+        return providerPosition -
+            _playbackRange.StartTime;
+    }
+
+    private bool HasReachedDurationLimit(
+        TimeSpan providerPosition)
+    {
+        if (_playbackRange.DurationLimit is
+            not { } durationLimit)
+        {
+            return false;
+        }
+        TimeSpan end = AddSaturating(
+            _playbackRange.StartTime,
+            durationLimit);
+        return providerPosition >= end;
+    }
+
+    private static TimeSpan AddSaturating(
+        TimeSpan left,
+        TimeSpan right)
+    {
+        long remaining =
+            TimeSpan.MaxValue.Ticks -
+            left.Ticks;
+        return right.Ticks >= remaining
+            ? TimeSpan.MaxValue
+            : TimeSpan.FromTicks(
+                left.Ticks + right.Ticks);
     }
 
     private void ReportFailure(
@@ -1064,6 +1252,8 @@ public sealed class MediaPlaybackEngine : IDisposable
             provider = _provider;
             _provider = null;
             _source = null;
+            _playbackRange = MediaPlaybackRange.All;
+            _rangeBoundaryReached = false;
             effects = [.. _activeEffects];
             _activeEffects.Clear();
             _snapshot = MediaPlaybackSnapshot.Empty;
