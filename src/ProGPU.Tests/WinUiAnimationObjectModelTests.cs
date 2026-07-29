@@ -960,6 +960,22 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void SelectorBarPreservesUnequalItemWidthsDuringArrangement()
+    {
+        var selectorBar = new SelectorBar();
+        var shortItem = new SelectorBarItem { Text = "Memory", MinWidth = 100 };
+        var longItem = new SelectorBarItem { Text = "Open Files and Ports", MinWidth = 200 };
+        selectorBar.Items.Add(shortItem);
+        selectorBar.Items.Add(longItem);
+
+        selectorBar.Measure(new Vector2(500, 48));
+        selectorBar.Arrange(new ProGPU.Scene.Rect(0, 0, 500, 48));
+
+        Assert.True(longItem.Size.X > shortItem.Size.X);
+        Assert.True(shortItem.Size.X + longItem.Size.X > 400);
+    }
+
+    [Fact]
     public void SparklineKeepsAConfiguredBoundedHistory()
     {
         var sparkline = new Sparkline { Capacity = 3 };

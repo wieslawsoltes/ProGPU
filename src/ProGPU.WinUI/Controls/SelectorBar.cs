@@ -262,17 +262,23 @@ public class SelectorBar : Control
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         float contentWidth = Math.Max(0, arrangeRect.Width - Padding.Horizontal);
-        float availablePerItem = _items.Count == 0
-            ? 0
-            : contentWidth / _items.Count;
+        float desiredWidth = 0;
+        foreach (SelectorBarItem item in _items)
+        {
+            desiredWidth += item.DesiredSize.X;
+        }
+        float scale = desiredWidth > contentWidth && desiredWidth > 0
+            ? contentWidth / desiredWidth
+            : 1;
+        float extraPerItem = _items.Count > 0 && desiredWidth < contentWidth
+            ? (contentWidth - desiredWidth) / _items.Count
+            : 0;
         float x = arrangeRect.X + Padding.Left;
         float y = arrangeRect.Y + Padding.Top;
         float height = Math.Max(0, arrangeRect.Height - Padding.Vertical);
         foreach (SelectorBarItem item in _items)
         {
-            float width = Math.Min(
-                availablePerItem,
-                Math.Max(item.DesiredSize.X, availablePerItem));
+            float width = item.DesiredSize.X * scale + extraPerItem;
             item.Arrange(new Rect(x, y, width, height));
             x += width;
         }
