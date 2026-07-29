@@ -813,14 +813,24 @@ location because WebGPU forbids filtered R16/RG16 sampling; neither changes
 asymptotic work or residency.
 
 The current typed P010 lane covers separate high-bit-depth plane views on a
-Tier-1 Dawn device, retained 2D and Mesh3D Gaussian preparation, and Linux
-V4L2 P010 DMA-BUF capture. Apple and Windows
+Tier-1 Dawn device, direct Mesh3D nearest/manual-bilinear sampling, retained
+2D and Mesh3D Gaussian preparation, and Linux V4L2 P010 DMA-BUF capture.
+The direct material lane uses a second fragment entry point in the same
+reviewable shader module. WebGPU validates only resources statically used by
+that entry point, so RGB/NV12 retains its filtering sampler/layout while P010
+uses R16/RG16 `unfilterable-float` bindings and clamped `textureLoad`
+reconstruction. A one-byte retained scratch lane selects the required
+pipeline per mesh, allowing RGB, NV12, and P010 materials in the same pass
+without changing the 448-byte storage-record ABI or allocating per frame.
+Nearest performs one luma and one chroma load; linear performs four of each.
+The fixed nine-tap fallback remains bounded at 18 or 72 loads respectively,
+and supported nonzero Gaussian continues through the retained RGBA16F
+source-domain graph. Apple and Windows
 providers still request BGRA playback surfaces, and the pinned managed Dawn
 ABI does not expose whole multi-planar P010 texture aspects. Those providers
 therefore retain their existing negotiated formats rather than claiming P010
-zero-copy. Mesh3D retains its direct bounded material kernel only as the
-non-Gaussian fallback. A future typed whole-allocation/plane-aspect importer
-can extend those provider lanes without changing the public effect contract.
+zero-copy. A future typed whole-allocation/plane-aspect importer can extend
+those provider lanes without changing the public effect contract.
 
 The package dependency boundary is:
 
@@ -1846,3 +1856,31 @@ entries, preserve the public material's nonzero sigma, and produce populated
 mesh pixels. Crop, rotation, mirroring, color adjustment, and lighting remain
 in the terminal material pass. This is functional GPU graph and ownership
 evidence, not a throughput, allocation, power, or platform-decoder P010 claim.
+
+The direct Mesh3D P010 checkpoint closes the remaining non-Gaussian material
+gap. The design follows the current
+[WebGPU pipeline-layout and programmable-stage validation rules](https://gpuweb.github.io/gpuweb/#pipeline-layout)
+and [WGSL static-access model](https://gpuweb.github.io/gpuweb/wgsl/#static-access):
+each fragment entry point exposes only its own filterable or unfilterable
+resources. Dawn's
+[Norm16 texture-format feature](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/norm16_texture_formats.md)
+supplies R16Unorm/RG16Unorm texture bindings, while Dawn's external-texture
+validation explicitly documents that these high-bit-depth plane views need
+not be filterable. Adopted: explicit layouts, entry-point-local resource
+interfaces, clamped integer loads, and manual normalized nearest/bilinear
+reconstruction. Adapted: P010 shares ProGPU's existing YUV rows, effect
+folding, lighting, retained leases, and per-viewport scratch. Rejected:
+full-frame identity conversion, CPU staging, shader-source generation, a
+platform renderer fork, and silently treating an unfilterable plane as
+filterable.
+
+A real Metal/Dawn theory renders MSB-aligned P010 through both nearest and
+manual-linear modes, with identity and a fused brightness effect. All four
+variants produce the expected converted-red 3D plane and allocate no Gaussian
+resources or submissions. A second real-device regression draws
+RGB/P010/RGB in one pass and verifies filterable-to-unfilterable-to-filterable
+pipeline/layout switching. The existing P010 Gaussian case and
+solid/wireframe 448-byte ABI regression continue to pass. This validates the
+portable shader, binding, and ownership path on Apple Silicon; it is not
+evidence that AVFoundation currently negotiates P010 or that Linux DMA-BUF
+P010 import has been hardware-qualified.

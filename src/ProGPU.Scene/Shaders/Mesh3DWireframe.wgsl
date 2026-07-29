@@ -19,7 +19,7 @@ struct GpuMesh3DRecord {
     opacity: f32,
     renderMode: f32,
     shadingMode: f32,
-    _pad2: f32,
+    textureSamplingMode: f32,
     textureEffects0: vec4<f32>,
     textureEffects1: vec4<f32>,
     textureInfo: vec4<f32>,

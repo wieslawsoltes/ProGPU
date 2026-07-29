@@ -910,6 +910,7 @@ public sealed class MediaPlaybackEngineTests
             Opacity = 0.75f
         };
         scratch.TextureBindGroups[0] = (nint)42;
+        scratch.UnfilterableMaterials[0] = 1;
 
         _ = GC.GetAllocatedBytesForCurrentThread();
         long before =
@@ -923,6 +924,8 @@ public sealed class MediaPlaybackEngineTests
                 iteration;
             scratch.TextureBindGroups[1] =
                 (nint)iteration;
+            scratch.UnfilterableMaterials[1] =
+                (byte)(iteration & 1);
         }
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() -
@@ -935,6 +938,9 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             (nint)4_095,
             scratch.TextureBindGroups[1]);
+        Assert.Equal(
+            (byte)1,
+            scratch.UnfilterableMaterials[1]);
 
         scratch.EnsureCapacity(5);
         Assert.Equal(8, scratch.Capacity);
@@ -944,6 +950,9 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             (nint)42,
             scratch.TextureBindGroups[0]);
+        Assert.Equal(
+            (byte)1,
+            scratch.UnfilterableMaterials[0]);
     }
 
     [Fact]
@@ -1296,6 +1305,234 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             1f,
             material.Effects.BlurSigma);
+        AssertFilledRedMediaMesh(
+            target.ReadPixels());
+    }
+
+    [Theory]
+    [InlineData(TextureSamplingMode.Nearest, false)]
+    [InlineData(TextureSamplingMode.Nearest, true)]
+    [InlineData(TextureSamplingMode.Linear, false)]
+    [InlineData(TextureSamplingMode.Linear, true)]
+    public unsafe void
+        WinUiMesh3DMaterialRendersTier1P010Direct(
+            TextureSamplingMode samplingMode,
+            bool applyEffect)
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn =
+            DawnGpuContext.CreateMetalPresentation();
+        Assert.True(
+            dawn.Context.SupportsTextureFormatsTier1);
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false
+            });
+        using var target = new GpuTexture(
+            dawn.Context,
+            160,
+            90,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Mesh3D direct P010 target");
+        using var player =
+            new Windows.Media.Playback.MediaPlayer();
+        MediaGpuSurface surface =
+            player.GetProGpuSurface();
+        var frame = new TestPlanarGpuFrame(
+            dawn.Context,
+            p010: true);
+        frame.LumaTexture.WritePixels<ushort>(
+        [
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6
+        ]);
+        frame.ChromaTexture.WritePixels<ushort>(
+        [
+            408 << 6,
+            960 << 6,
+            408 << 6,
+            960 << 6
+        ]);
+        surface.Publish(frame);
+        using var material =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = player,
+                SamplingMode = samplingMode,
+                Effects = applyEffect
+                    ? new MediaVideoEffectOptions(
+                        brightness: 0.02f)
+                    : MediaVideoEffectOptions.Identity
+            };
+        Viewport3D viewport =
+            CreateMediaMeshViewport(material);
+        viewport.Measure(new Vector2(160f, 90f));
+        viewport.Arrange(
+            new Rect(
+                0f,
+                0f,
+                160f,
+                90f));
+
+        compositor.RenderScene(
+            viewport,
+            160,
+            90,
+            target.ViewPtr);
+
+        var extension =
+            Assert.IsType<Mesh3DExtensionPipeline>(
+                compositor.GetExtension(
+                    CompositorBuiltInExtensions
+                        .Mesh3D));
+        Assert.Equal(
+            0,
+            extension.LiveMaterialBlurResourceCount);
+        Assert.Equal(
+            0,
+            extension.LiveMaterialBlurSubmissionCount);
+        AssertFilledRedMediaMesh(
+            target.ReadPixels());
+    }
+
+    [Fact]
+    public unsafe void
+        WinUiMesh3DMaterialSwitchesBetweenRgbAndP010()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn =
+            DawnGpuContext.CreateMetalPresentation();
+        Assert.True(
+            dawn.Context.SupportsTextureFormatsTier1);
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false
+            });
+        using var target = new GpuTexture(
+            dawn.Context,
+            180,
+            90,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Mesh3D mixed RGB P010 target");
+        using var rgbPlayer =
+            new Windows.Media.Playback.MediaPlayer();
+        using var p010Player =
+            new Windows.Media.Playback.MediaPlayer();
+        var rgbTexture = new GpuTexture(
+            dawn.Context,
+            4,
+            2,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Mesh3D mixed RGB source");
+        rgbTexture.WritePixels(
+        [
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255
+        ]);
+        rgbPlayer.GetProGpuSurface().Publish(
+            new TestGpuFrame(
+                rgbTexture,
+                new MediaGpuFrameDescriptor(
+                    1,
+                    TimeSpan.Zero,
+                    TimeSpan.FromMilliseconds(16),
+                    4,
+                    2,
+                    MediaVideoPixelFormat.Rgba8,
+                    MediaTransferMode.NativeZeroCopy,
+                    new MediaColorInfo(
+                        MediaColorPrimaries.Bt709,
+                        MediaTransferFunction.Srgb,
+                        MediaMatrixCoefficients.Identity,
+                        FullRange: true))));
+        var p010Frame = new TestPlanarGpuFrame(
+            dawn.Context,
+            p010: true);
+        p010Frame.LumaTexture.WritePixels<ushort>(
+        [
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6
+        ]);
+        p010Frame.ChromaTexture.WritePixels<ushort>(
+        [
+            408 << 6,
+            960 << 6,
+            408 << 6,
+            960 << 6
+        ]);
+        p010Player.GetProGpuSurface().Publish(
+            p010Frame);
+        using var rgbMaterial =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = rgbPlayer
+            };
+        using var p010Material =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = p010Player
+            };
+        Viewport3D viewport =
+            CreateMixedMediaMeshViewport(
+                rgbMaterial,
+                p010Material,
+                rgbMaterial);
+        viewport.Measure(new Vector2(180f, 90f));
+        viewport.Arrange(
+            new Rect(0f, 0f, 180f, 90f));
+
+        compositor.RenderScene(
+            viewport,
+            180,
+            90,
+            target.ViewPtr);
+
+        var extension =
+            Assert.IsType<Mesh3DExtensionPipeline>(
+                compositor.GetExtension(
+                    CompositorBuiltInExtensions
+                        .Mesh3D));
+        Assert.Equal(
+            0,
+            extension.LiveMaterialBlurResourceCount);
         AssertFilledRedMediaMesh(
             target.ReadPixels());
     }
@@ -2403,6 +2640,70 @@ public sealed class MediaPlaybackEngineTests
                     BackMaterial = material
                 }
             });
+        return viewport;
+    }
+
+    private static Viewport3D
+        CreateMixedMediaMeshViewport(
+            params Material[] materials)
+    {
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera
+            {
+                Width = 4f
+            },
+            ShadingMode = ShadingMode3D.Flat
+        };
+        for (int index = 0;
+             index < materials.Length;
+             index++)
+        {
+            float left =
+                -1.5f +
+                3f * index / materials.Length;
+            float right =
+                -1.5f +
+                3f * (index + 1) /
+                    materials.Length;
+            var mesh = new MeshGeometry3D
+            {
+                Positions =
+                [
+                    new Vector3(left, -0.8f, 0f),
+                    new Vector3(right, -0.8f, 0f),
+                    new Vector3(right, 0.8f, 0f),
+                    new Vector3(left, 0.8f, 0f)
+                ],
+                Normals =
+                [
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ
+                ],
+                TextureCoordinates =
+                [
+                    new Vector2(0f, 1f),
+                    new Vector2(1f, 1f),
+                    new Vector2(1f, 0f),
+                    new Vector2(0f, 0f)
+                ],
+                TriangleIndices =
+                    [0, 1, 2, 0, 2, 3]
+            };
+            viewport.Children.Add(
+                new ModelVisual3D
+                {
+                    Content = new GeometryModel3D
+                    {
+                        Geometry = mesh,
+                        Material = materials[index],
+                        BackMaterial =
+                            materials[index]
+                    }
+                });
+        }
         return viewport;
     }
 

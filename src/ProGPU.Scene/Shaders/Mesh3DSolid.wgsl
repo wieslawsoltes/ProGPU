@@ -1,6 +1,6 @@
-// Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased RGB texture, retained separable-Gaussian RGB result, or atomic luma/chroma plane pair with the bounded fallback kernel, convert direct YUV samples, apply fused color effects, and evaluate bounded multi-light shading.
-// Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; RGB uses S texture samples and planar YUV uses 2S.
-// Space complexity: O(1) local/private storage, O(1) material records per mesh, and 1/9 RGB or 2/18 planar texture samples per fragment.
+// Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased filterable RGB/NV12 texture or manually reconstruct an unfilterable P010 plane pair, apply the bounded fallback kernel and fused color effects, then evaluate bounded multi-light shading.
+// Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
+// Space complexity: O(1) local/private storage, O(1) material records per mesh, and at most 72 unfilterable texel loads per fragment for the fixed nine-tap fallback.
 struct VSUniforms {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
@@ -19,7 +19,7 @@ struct GpuMesh3DRecord {
     opacity: f32,
     renderMode: f32,
     shadingMode: f32,
-    _pad2: f32,
+    textureSamplingMode: f32,
     textureEffects0: vec4<f32>,
     textureEffects1: vec4<f32>,
     textureInfo: vec4<f32>,
@@ -41,6 +41,8 @@ struct GpuMesh3DRecord {
 @group(1) @binding(0) var materialSampler: sampler;
 @group(1) @binding(1) var materialTexture: texture_2d<f32>;
 @group(1) @binding(2) var materialChromaTexture: texture_2d<f32>;
+@group(1) @binding(3) var unfilterableMaterialTexture: texture_2d<f32>;
+@group(1) @binding(4) var unfilterableMaterialChromaTexture: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -130,6 +132,150 @@ fn SampleMaterialSource(
         0.0);
 }
 
+fn ClampMaterialCoordinate(
+    coordinate: vec2<i32>,
+    dimensions: vec2<u32>
+) -> vec2<i32> {
+    return clamp(
+        coordinate,
+        vec2<i32>(0),
+        vec2<i32>(dimensions) - vec2<i32>(1));
+}
+
+fn LoadUnfilterableLuma(
+    coordinate: vec2<i32>,
+    dimensions: vec2<u32>
+) -> f32 {
+    return textureLoad(
+        unfilterableMaterialTexture,
+        ClampMaterialCoordinate(
+            coordinate,
+            dimensions),
+        0).r;
+}
+
+fn LoadUnfilterableChroma(
+    coordinate: vec2<i32>,
+    dimensions: vec2<u32>
+) -> vec2<f32> {
+    return textureLoad(
+        unfilterableMaterialChromaTexture,
+        ClampMaterialCoordinate(
+            coordinate,
+            dimensions),
+        0).rg;
+}
+
+fn SampleUnfilterableLuma(
+    textureCoordinate: vec2<f32>,
+    linear: bool
+) -> f32 {
+    let dimensions =
+        textureDimensions(
+            unfilterableMaterialTexture);
+    if (!linear) {
+        return LoadUnfilterableLuma(
+            vec2<i32>(
+                floor(
+                    textureCoordinate *
+                    vec2<f32>(dimensions))),
+            dimensions);
+    }
+
+    let position =
+        textureCoordinate *
+            vec2<f32>(dimensions) -
+        vec2<f32>(0.5);
+    let base = vec2<i32>(floor(position));
+    let fraction = fract(position);
+    return mix(
+        mix(
+            LoadUnfilterableLuma(
+                base,
+                dimensions),
+            LoadUnfilterableLuma(
+                base + vec2<i32>(1, 0),
+                dimensions),
+            fraction.x),
+        mix(
+            LoadUnfilterableLuma(
+                base + vec2<i32>(0, 1),
+                dimensions),
+            LoadUnfilterableLuma(
+                base + vec2<i32>(1, 1),
+                dimensions),
+            fraction.x),
+        fraction.y);
+}
+
+fn SampleUnfilterableChroma(
+    textureCoordinate: vec2<f32>,
+    linear: bool
+) -> vec2<f32> {
+    let dimensions =
+        textureDimensions(
+            unfilterableMaterialChromaTexture);
+    if (!linear) {
+        return LoadUnfilterableChroma(
+            vec2<i32>(
+                floor(
+                    textureCoordinate *
+                    vec2<f32>(dimensions))),
+            dimensions);
+    }
+
+    let position =
+        textureCoordinate *
+            vec2<f32>(dimensions) -
+        vec2<f32>(0.5);
+    let base = vec2<i32>(floor(position));
+    let fraction = fract(position);
+    return mix(
+        mix(
+            LoadUnfilterableChroma(
+                base,
+                dimensions),
+            LoadUnfilterableChroma(
+                base + vec2<i32>(1, 0),
+                dimensions),
+            fraction.x),
+        mix(
+            LoadUnfilterableChroma(
+                base + vec2<i32>(0, 1),
+                dimensions),
+            LoadUnfilterableChroma(
+                base + vec2<i32>(1, 1),
+                dimensions),
+            fraction.x),
+        fraction.y);
+}
+
+fn SampleMaterialSourceUnfilterable(
+    record: GpuMesh3DRecord,
+    textureCoordinate: vec2<f32>
+) -> vec4<f32> {
+    let linear =
+        record.textureSamplingMode > 0.5;
+    let rawY = SampleUnfilterableLuma(
+        textureCoordinate,
+        linear);
+    let rawChroma = SampleUnfilterableChroma(
+        textureCoordinate,
+        linear);
+    let components = vec3<f32>(
+        (rawY - record.yuvRange.x) *
+            record.yuvRange.y,
+        (rawChroma.x - record.yuvRange.z) *
+            record.yuvRange.w,
+        (rawChroma.y - record.yuvRange.z) *
+            record.yuvRange.w);
+    return vec4<f32>(
+        dot(components, record.yuvRed.xyz),
+        dot(components, record.yuvGreen.xyz),
+        dot(components, record.yuvBlue.xyz),
+        1.0);
+}
+
 fn TransformMaterialCoordinate(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
@@ -159,63 +305,11 @@ fn TransformMaterialCoordinate(
         localCoordinate * record.textureSourceRect.zw;
 }
 
-fn SampleMaterial(
+fn ApplyMaterialEffects(
     record: GpuMesh3DRecord,
-    textureCoordinate: vec2<f32>
+    sampledColor: vec4<f32>
 ) -> vec4<f32> {
-    let sourceCoordinate = TransformMaterialCoordinate(
-        record,
-        textureCoordinate);
-    var color: vec4<f32>;
-    if (record.textureEffects1.z > 0.01) {
-        let texel = vec2<f32>(1.0) /
-            max(record.textureInfo.xy, vec2<f32>(1.0));
-        let radius = clamp(
-            record.textureEffects1.z,
-            0.0,
-            8.0);
-        let step = texel * radius;
-        color =
-            SampleMaterialSource(
-                record,
-                sourceCoordinate) * 0.25;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate + vec2<f32>(step.x, 0.0)) *
-            0.125;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate - vec2<f32>(step.x, 0.0)) *
-            0.125;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate + vec2<f32>(0.0, step.y)) *
-            0.125;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate - vec2<f32>(0.0, step.y)) *
-            0.125;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate + step) * 0.0625;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate - step) * 0.0625;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate + vec2<f32>(step.x, -step.y)) *
-            0.0625;
-        color += SampleMaterialSource(
-            record,
-            sourceCoordinate + vec2<f32>(-step.x, step.y)) *
-            0.0625;
-    } else {
-        color = SampleMaterialSource(
-            record,
-            sourceCoordinate);
-    }
-
-    var straightColor = color;
+    var straightColor = sampledColor;
     if (record.textureInfo.z > 0.5) {
         if (straightColor.a > 0.00001) {
             straightColor = vec4<f32>(
@@ -297,6 +391,135 @@ fn SampleMaterial(
         straightColor,
         vec4<f32>(0.0),
         vec4<f32>(1.0));
+}
+
+fn SampleMaterial(
+    record: GpuMesh3DRecord,
+    textureCoordinate: vec2<f32>
+) -> vec4<f32> {
+    let sourceCoordinate = TransformMaterialCoordinate(
+        record,
+        textureCoordinate);
+    var color: vec4<f32>;
+    if (record.textureEffects1.z > 0.01) {
+        let texel = vec2<f32>(1.0) /
+            max(record.textureInfo.xy, vec2<f32>(1.0));
+        let radius = clamp(
+            record.textureEffects1.z,
+            0.0,
+            8.0);
+        let step = texel * radius;
+        color =
+            SampleMaterialSource(
+                record,
+                sourceCoordinate) * 0.25;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate +
+                vec2<f32>(step.x, 0.0)) *
+            0.125;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate -
+                vec2<f32>(step.x, 0.0)) *
+            0.125;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate +
+                vec2<f32>(0.0, step.y)) *
+            0.125;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate -
+                vec2<f32>(0.0, step.y)) *
+            0.125;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate + step) * 0.0625;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate - step) * 0.0625;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate +
+                vec2<f32>(step.x, -step.y)) *
+            0.0625;
+        color += SampleMaterialSource(
+            record,
+            sourceCoordinate +
+                vec2<f32>(-step.x, step.y)) *
+            0.0625;
+    } else {
+        color = SampleMaterialSource(
+            record,
+            sourceCoordinate);
+    }
+    return ApplyMaterialEffects(record, color);
+}
+
+fn SampleMaterialUnfilterable(
+    record: GpuMesh3DRecord,
+    textureCoordinate: vec2<f32>
+) -> vec4<f32> {
+    let sourceCoordinate = TransformMaterialCoordinate(
+        record,
+        textureCoordinate);
+    var color: vec4<f32>;
+    if (record.textureEffects1.z > 0.01) {
+        let texel = vec2<f32>(1.0) /
+            max(record.textureInfo.xy, vec2<f32>(1.0));
+        let radius = clamp(
+            record.textureEffects1.z,
+            0.0,
+            8.0);
+        let step = texel * radius;
+        color =
+            SampleMaterialSourceUnfilterable(
+                record,
+                sourceCoordinate) * 0.25;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate +
+                vec2<f32>(step.x, 0.0)) *
+            0.125;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate -
+                vec2<f32>(step.x, 0.0)) *
+            0.125;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate +
+                vec2<f32>(0.0, step.y)) *
+            0.125;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate -
+                vec2<f32>(0.0, step.y)) *
+            0.125;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate + step) * 0.0625;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate - step) * 0.0625;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate +
+                vec2<f32>(step.x, -step.y)) *
+            0.0625;
+        color += SampleMaterialSourceUnfilterable(
+            record,
+            sourceCoordinate +
+                vec2<f32>(-step.x, step.y)) *
+            0.0625;
+    } else {
+        color =
+            SampleMaterialSourceUnfilterable(
+                record,
+                sourceCoordinate);
+    }
+    return ApplyMaterialEffects(record, color);
 }
 
 fn ComputeLighting(
@@ -475,6 +698,28 @@ fn fs_main(input: VertexOutput, @builtin(front_facing) is_front: bool) -> @locat
     let record = meshRecords[input.instanceIdx];
     let materialColor =
         SampleMaterial(record, input.textureCoordinate) *
+        record.color;
+    return ComputeLighting(
+        input.instanceIdx,
+        input.worldPosition,
+        normal,
+        materialColor);
+}
+
+@fragment
+fn fs_unfilterable(
+    input: VertexOutput,
+    @builtin(front_facing) is_front: bool
+) -> @location(0) vec4<f32> {
+    var normal = input.worldNormal;
+    if (!is_front) {
+        normal = -input.worldNormal;
+    }
+    let record = meshRecords[input.instanceIdx];
+    let materialColor =
+        SampleMaterialUnfilterable(
+            record,
+            input.textureCoordinate) *
         record.color;
     return ComputeLighting(
         input.instanceIdx,
