@@ -1040,6 +1040,61 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Nv12ProcessorRendersScaledRgbaThumbnailTarget()
+    {
+        WgpuContext context =
+            HeadlessWindow.Shared.Context;
+        using var frame =
+            new TestPlanarGpuFrame(context);
+        frame.LumaTexture.WritePixels(
+            new byte[]
+            {
+                63, 63, 63, 63,
+                63, 63, 63, 63
+            });
+        frame.ChromaTexture.WritePixels(
+            new byte[]
+            {
+                102, 240,
+                102, 240
+            });
+        using var target =
+            new GpuTexture(
+                context,
+                8,
+                4,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+                "NV12 RGBA thumbnail test");
+
+        GpuNv12Processor.ProcessToRgba(
+            frame.LumaTexture,
+            frame.ChromaTexture,
+            target,
+            saturation: 1f,
+            grayscale: 0f,
+            inFlightSlot: 0);
+        byte[] pixels =
+            target.ReadPixels();
+
+        int redPixels = 0;
+        for (int offset = 0;
+             offset < pixels.Length;
+             offset += 4)
+        {
+            if (pixels[offset] >= 180 &&
+                pixels[offset + 1] <= 60 &&
+                pixels[offset + 2] <= 60 &&
+                pixels[offset + 3] == 255)
+            {
+                redPixels++;
+            }
+        }
+        Assert.Equal(32, redPixels);
+    }
+
+    [Fact]
     public void WinUiMesh3DMaterialAppliesSessionCropRotationAndMirror()
     {
         var window = HeadlessWindow.Shared;

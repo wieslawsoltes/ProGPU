@@ -37,10 +37,16 @@ public static class LinuxMedia
             MediaCompositionExportRegistry.Default.Register(
                 new IsoBmffFastMediaCompositionExportProvider(
                     priority));
+        IDisposable thumbnails =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                new LinuxV4l2MediaCompositionThumbnailProvider(
+                    capabilities,
+                    priority));
         return new LinuxMediaRegistrations(
             playback,
             preciseExport,
-            fastExport);
+            fastExport,
+            thumbnails);
     }
 
     private sealed class LinuxMediaRegistrations :
@@ -49,19 +55,25 @@ public static class LinuxMedia
         private IDisposable? _playback;
         private IDisposable? _preciseExport;
         private IDisposable? _fastExport;
+        private IDisposable? _thumbnails;
 
         public LinuxMediaRegistrations(
             IDisposable playback,
             IDisposable preciseExport,
-            IDisposable fastExport)
+            IDisposable fastExport,
+            IDisposable thumbnails)
         {
             _playback = playback;
             _preciseExport = preciseExport;
             _fastExport = fastExport;
+            _thumbnails = thumbnails;
         }
 
         public void Dispose()
         {
+            Interlocked.Exchange(
+                ref _thumbnails,
+                null)?.Dispose();
             Interlocked.Exchange(
                 ref _fastExport,
                 null)?.Dispose();

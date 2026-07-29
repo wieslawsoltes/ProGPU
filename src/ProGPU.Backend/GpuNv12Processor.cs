@@ -201,6 +201,91 @@ public static unsafe class GpuNv12Processor
         }
     }
 
+    /// <summary>
+    /// Resamples limited-range BT.709 NV12 into an RGBA render target while
+    /// applying fused saturation and grayscale effects.
+    /// </summary>
+    /// <remarks>
+    /// One fullscreen render pass performs O(P) GPU work for P destination
+    /// pixels. State is retained per WebGPU device and no source pixel is
+    /// mapped or copied through the CPU.
+    /// </remarks>
+    public static void ProcessToRgba(
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture destination,
+        float saturation,
+        float grayscale,
+        int inFlightSlot)
+    {
+        ArgumentNullException.ThrowIfNull(sourceLuma);
+        ArgumentNullException.ThrowIfNull(sourceChroma);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (sourceLuma.IsDisposed ||
+            sourceChroma.IsDisposed ||
+            destination.IsDisposed)
+        {
+            throw new ObjectDisposedException(
+                nameof(GpuTexture));
+        }
+        WgpuContext context = sourceLuma.Context;
+        if (!ReferenceEquals(context, sourceChroma.Context) ||
+            !ReferenceEquals(context, destination.Context))
+        {
+            throw new InvalidOperationException(
+                "NV12-to-RGBA processing requires one WebGPU device domain.");
+        }
+        if (sourceLuma.Format != TextureFormat.R8Unorm ||
+            sourceChroma.Format != TextureFormat.RG8Unorm ||
+            sourceChroma.Width !=
+                (sourceLuma.Width + 1) / 2 ||
+            sourceChroma.Height !=
+                (sourceLuma.Height + 1) / 2 ||
+            destination.Format !=
+                TextureFormat.Rgba8Unorm)
+        {
+            throw new NotSupportedException(
+                "NV12-to-RGBA processing requires R8/RG8 source planes and an RGBA8 destination.");
+        }
+        if (!sourceLuma.Usage.HasFlag(
+                TextureUsage.TextureBinding) ||
+            !sourceChroma.Usage.HasFlag(
+                TextureUsage.TextureBinding) ||
+            !destination.Usage.HasFlag(
+                TextureUsage.RenderAttachment))
+        {
+            throw new InvalidOperationException(
+                "NV12 source planes must be sampleable and the RGBA destination must be a render attachment.");
+        }
+        if (!float.IsFinite(saturation) ||
+            !float.IsFinite(grayscale))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(saturation),
+                "NV12-to-RGBA effect values must be finite.");
+        }
+        if ((uint)inFlightSlot >= MaxInFlightSlots)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(inFlightSlot));
+        }
+
+        lock (context.RenderLock)
+        {
+            ObjectDisposedException.ThrowIf(
+                context.IsDisposed,
+                context);
+            ProcessRgbaCore(
+                context,
+                sourceLuma,
+                sourceChroma,
+                destination,
+                Math.Clamp(saturation, 0f, 1f),
+                Math.Clamp(grayscale, 0f, 1f),
+                inFlightSlot);
+        }
+    }
+
     private static void ProcessCore(
         WgpuContext context,
         GpuTexture sourceLuma,
@@ -211,7 +296,8 @@ public static unsafe class GpuNv12Processor
         float grayscale,
         int inFlightSlot)
     {
-        Resources resources = GetCache(context).GetOrCreate();
+        Resources resources =
+            GetCache(context).GetOrCreate();
         IWebGpuApi wgpu = context.Api;
         BindGroup* bindGroup = null;
         CommandEncoder* encoder = null;
@@ -306,6 +392,127 @@ public static unsafe class GpuNv12Processor
             {
                 throw new InvalidOperationException(
                     "Failed to finish the NV12 processor command buffer.");
+            }
+            wgpu.QueueSubmit(
+                context.Queue,
+                1,
+                &commandBuffer);
+        }
+        finally
+        {
+            if (commandBuffer != null)
+            {
+                wgpu.CommandBufferRelease(commandBuffer);
+            }
+            if (encoder != null)
+            {
+                wgpu.CommandEncoderRelease(encoder);
+            }
+            if (bindGroup != null)
+            {
+                wgpu.BindGroupRelease(bindGroup);
+            }
+        }
+    }
+
+    private static void ProcessRgbaCore(
+        WgpuContext context,
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture destination,
+        float saturation,
+        float grayscale,
+        int inFlightSlot)
+    {
+        Resources resources =
+            GetCache(context).GetOrCreate(
+                includeRgbaPipeline: true);
+        IWebGpuApi wgpu = context.Api;
+        BindGroup* bindGroup = null;
+        CommandEncoder* encoder = null;
+        CommandBuffer* commandBuffer = null;
+        try
+        {
+            Span<float> values =
+                stackalloc float[4]
+                {
+                    1f / sourceLuma.Width,
+                    1f / sourceLuma.Height,
+                    saturation,
+                    grayscale
+                };
+            uint uniformOffset = checked(
+                (uint)inFlightSlot * UniformStride);
+            resources.Uniform.Write<float>(
+                values,
+                uniformOffset);
+
+            BindGroupEntry* entries =
+                stackalloc BindGroupEntry[4];
+            entries[0] = new BindGroupEntry
+            {
+                Binding = 0,
+                Sampler = resources.Sampler
+            };
+            entries[1] = new BindGroupEntry
+            {
+                Binding = 1,
+                TextureView = sourceLuma.ViewPtr
+            };
+            entries[2] = new BindGroupEntry
+            {
+                Binding = 2,
+                TextureView = sourceChroma.ViewPtr
+            };
+            entries[3] = new BindGroupEntry
+            {
+                Binding = 3,
+                Buffer = resources.Uniform.BufferPtr,
+                Offset = uniformOffset,
+                Size = 16
+            };
+            var bindGroupDescriptor =
+                new BindGroupDescriptor
+                {
+                    Layout = resources.BindGroupLayout,
+                    EntryCount = 4,
+                    Entries = entries
+                };
+            bindGroup = wgpu.DeviceCreateBindGroup(
+                context.Device,
+                &bindGroupDescriptor);
+            if (bindGroup == null)
+            {
+                throw new InvalidOperationException(
+                    "Failed to create the NV12-to-RGBA bind group.");
+            }
+
+            var encoderDescriptor =
+                new CommandEncoderDescriptor();
+            encoder = wgpu.DeviceCreateCommandEncoder(
+                context.Device,
+                &encoderDescriptor);
+            if (encoder == null)
+            {
+                throw new InvalidOperationException(
+                    "Failed to create the NV12-to-RGBA command encoder.");
+            }
+            EncodePlane(
+                wgpu,
+                encoder,
+                bindGroup,
+                resources.RgbaPipeline,
+                destination.ViewPtr);
+
+            var commandBufferDescriptor =
+                new CommandBufferDescriptor();
+            commandBuffer = wgpu.CommandEncoderFinish(
+                encoder,
+                &commandBufferDescriptor);
+            if (commandBuffer == null)
+            {
+                throw new InvalidOperationException(
+                    "Failed to finish the NV12-to-RGBA command buffer.");
             }
             wgpu.QueueSubmit(
                 context.Queue,
@@ -611,12 +818,14 @@ public static unsafe class GpuNv12Processor
             BindGroupLayout* bindGroupLayout,
             RenderPipeline* lumaPipeline,
             RenderPipeline* chromaPipeline,
+            RenderPipeline* rgbaPipeline,
             GpuBuffer uniform)
         {
             Sampler = sampler;
             BindGroupLayout = bindGroupLayout;
             LumaPipeline = lumaPipeline;
             ChromaPipeline = chromaPipeline;
+            RgbaPipeline = rgbaPipeline;
             Uniform = uniform;
         }
 
@@ -624,6 +833,7 @@ public static unsafe class GpuNv12Processor
         internal BindGroupLayout* BindGroupLayout { get; }
         internal RenderPipeline* LumaPipeline { get; }
         internal RenderPipeline* ChromaPipeline { get; }
+        internal RenderPipeline* RgbaPipeline { get; }
         internal GpuBuffer Uniform { get; }
     }
 
@@ -637,6 +847,7 @@ public static unsafe class GpuNv12Processor
         private nint _pipelineLayout;
         private nint _lumaPipeline;
         private nint _chromaPipeline;
+        private nint _rgbaPipeline;
         private GpuBuffer? _uniform;
 
         internal ResourceCache(WgpuContext context)
@@ -644,16 +855,29 @@ public static unsafe class GpuNv12Processor
             _context = context;
         }
 
-        internal Resources GetOrCreate()
+        internal Resources GetOrCreate(
+            bool includeRgbaPipeline = false)
         {
             lock (_gate)
             {
                 EnsureResources();
+                if (includeRgbaPipeline &&
+                    _rgbaPipeline == 0)
+                {
+                    _rgbaPipeline =
+                        (nint)CreatePipeline(
+                            _context,
+                            (ShaderModule*)_shader,
+                            (PipelineLayout*)_pipelineLayout,
+                            TextureFormat.Rgba8Unorm,
+                            "fs_rgba");
+                }
                 return new Resources(
                     (Sampler*)_sampler,
                     (BindGroupLayout*)_bindGroupLayout,
                     (RenderPipeline*)_lumaPipeline,
                     (RenderPipeline*)_chromaPipeline,
+                    (RenderPipeline*)_rgbaPipeline,
                     _uniform!);
             }
         }
@@ -668,6 +892,8 @@ public static unsafe class GpuNv12Processor
                         _lumaPipeline);
                     _context.QueueRenderPipelineDisposal(
                         _chromaPipeline);
+                    _context.QueueRenderPipelineDisposal(
+                        _rgbaPipeline);
                     _context.QueuePipelineLayoutDisposal(
                         _pipelineLayout);
                     _context.QueueBindGroupLayoutDisposal(
@@ -682,6 +908,7 @@ public static unsafe class GpuNv12Processor
                 _pipelineLayout = 0;
                 _lumaPipeline = 0;
                 _chromaPipeline = 0;
+                _rgbaPipeline = 0;
                 _uniform = null;
             }
         }

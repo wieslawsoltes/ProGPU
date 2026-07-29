@@ -1411,7 +1411,7 @@ public sealed class
             $"No streaming V4L2 H.264 encoder imports {required} DMA-BUF frames.");
     }
 
-    private LinuxVideoDecoderDevice SelectDecoder(
+    internal LinuxVideoDecoderDevice SelectDecoder(
         IsoBmffTrack track)
     {
         LinuxHardwareVideoCodec required =
@@ -1491,7 +1491,7 @@ public sealed class
         return false;
     }
 
-    private static IsoBmffTrack SelectTrack(
+    internal static IsoBmffTrack SelectTrack(
         IsoBmffMovie movie) =>
         movie.Tracks.FirstOrDefault(
             static track =>
@@ -1528,7 +1528,7 @@ public sealed class
         };
     }
 
-    private static int FindDecodeStart(
+    internal static int FindDecodeStart(
         IsoBmffTrack track,
         TimeSpan trimStart)
     {
@@ -1561,7 +1561,7 @@ public sealed class
         return selected;
     }
 
-    private static TimeSpan PresentationTime(
+    internal static TimeSpan PresentationTime(
         IsoBmffTrack track,
         int sampleIndex) =>
         FromTrackTime(
@@ -1592,7 +1592,7 @@ public sealed class
                 TimeSpan.TicksPerSecond,
                 MidpointRounding.AwayFromZero));
 
-    private static bool TryGetBuiltInEffects(
+    internal static bool TryGetBuiltInEffects(
         IReadOnlyDictionary<string, string> userData,
         out float saturation,
         out float grayscale)
@@ -1668,7 +1668,7 @@ public sealed class
         return false;
     }
 
-    private static bool TryGetActiveVulkanDawnContext(
+    internal static bool TryGetActiveVulkanDawnContext(
         out DawnGpuContext? dawn)
     {
         IReadOnlyList<WgpuContext> contexts =

@@ -1,5 +1,5 @@
-// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply fused saturation/grayscale in RGB, and render back to separate output-sized luma/chroma planes.
-// Time complexity: O(P) for P output luma texels; the luma pass uses one Y/UV sample pair and the quarter-resolution chroma pass uses four Y/UV sample pairs per output texel.
+// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply fused saturation/grayscale in RGB, and render either RGBA or separate output-sized luma/chroma planes.
+// Time complexity: O(P) for P output texels; the RGBA/luma passes use one Y/UV sample pair and the quarter-resolution chroma pass uses four Y/UV sample pairs per output texel.
 // Space complexity: O(1) private storage per fragment, two sampled textures, one 16-byte uniform block, and one output write per fragment.
 // The two render passes are encoded into one command buffer. Chroma is the
 // average of a 2x2 reconstructed block so subsampling remains centered.
@@ -94,6 +94,14 @@ fn fs_luma(input: VertexOutput) -> @location(0) vec4<f32> {
         applyEffects(
             decodeBt709(input.uv)));
     return vec4<f32>(encoded.x, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_rgba(input: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(
+        applyEffects(
+            decodeBt709(input.uv)),
+        1.0);
 }
 
 @fragment

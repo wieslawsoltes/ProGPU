@@ -527,6 +527,150 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
+    public void LinuxThumbnailCapabilityAcceptsGpuComposableTimelines()
+    {
+        MediaCompositionExportRequest composition =
+            CreateLinuxPreciseRequest(
+                [
+                    new MediaCompositionExportClip(
+                        new Uri("file:///tmp/source.mp4"),
+                        TimeSpan.FromSeconds(2),
+                        TimeSpan.FromMilliseconds(250),
+                        TimeSpan.FromMilliseconds(250),
+                        1d,
+                        null,
+                        new Dictionary<string, string>()),
+                    new MediaCompositionExportClip(
+                        null,
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        0xFF2563EBu,
+                        new Dictionary<string, string>
+                        {
+                            ["progpu.saturation"] = "0.75"
+                        })
+                ]);
+        var request =
+            new MediaCompositionThumbnailRequest(
+                composition,
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(2.5)
+                ],
+                composition.EncodingProfile.Width,
+                composition.EncodingProfile.Height,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+
+        Assert.True(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasH264Decoder: true,
+                    hasVulkanWebGpu: true));
+        Assert.False(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasH264Decoder: false,
+                    hasVulkanWebGpu: true));
+        Assert.False(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasH264Decoder: true,
+                    hasVulkanWebGpu: false));
+    }
+
+    [Fact]
+    public void LinuxThumbnailsRetainDecodeGpuAndReadbackState()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxV4l2MediaCompositionThumbnailProvider.cs");
+        string renderer = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxWebGpuCompositionThumbnailRenderer.cs");
+        string registration = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxMediaPlaybackProvider.cs");
+        string project = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "ProGPU.Linux.Media.csproj");
+        string processor = ReadRepoFile(
+            "src",
+            "ProGPU.Backend",
+            "GpuNv12Processor.cs");
+        string shader = ReadRepoFile(
+            "src",
+            "ProGPU.Backend",
+            "Shaders",
+            "Nv12GpuProcessor.wgsl");
+
+        Assert.Contains(
+            "new LinuxV4l2MediaCompositionThumbnailProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionThumbnailRegistry.Default.Register(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new V4l2StatefulVideoDecoder(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new GpuTextureReadbackBuffer(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuNv12Processor.ProcessToRgba(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureUsage.RenderAttachment |",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureUsage.CopySrc",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPngEncoder.Encode(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static void ProcessToRgba(",
+            processor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn fs_rgba(",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LinuxProbeRecognizesStatefulHardwareCodecFormats()
     {
         string source = ReadRepoFile(
