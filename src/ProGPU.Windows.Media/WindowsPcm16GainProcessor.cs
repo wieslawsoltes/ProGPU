@@ -13,126 +13,24 @@ using ProGPU.Media.Audio;
 /// </remarks>
 internal static class WindowsPcm16GainProcessor
 {
-    internal const double MaximumGain = 2d;
+    internal const double MaximumGain =
+        MediaPcm16StereoProcessor.MaximumLevel;
 
     internal static void Apply(
         Span<short> samples,
-        double gain)
-    {
-        int fixedGain =
-            QuantizeGain(gain, nameof(gain));
-        ApplyFixedGain(samples, fixedGain);
-    }
+        double gain) =>
+        MediaPcm16StereoProcessor.Apply(
+            samples,
+            gain);
 
     internal static void ApplyStereo(
         Span<short> samples,
         uint channelCount,
         in MediaAudioStereoLevels levels,
-        ref int channelOffset)
-    {
-        if (channelCount is not (1u or 2u))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(channelCount));
-        }
-        if ((uint)channelOffset >= channelCount)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(channelOffset));
-        }
-
-        int leftGain =
-            QuantizeGain(
-                levels.Left,
-                nameof(levels));
-        int rightGain =
-            QuantizeGain(
-                levels.Right,
-                nameof(levels));
-        if (samples.IsEmpty)
-        {
-            return;
-        }
-
-        if (channelCount == 1)
-        {
-            ApplyFixedGain(
-                samples,
-                Math.Max(leftGain, rightGain));
-            channelOffset = 0;
-            return;
-        }
-
-        int channel = channelOffset;
-        for (int index = 0;
-             index < samples.Length;
-             index++)
-        {
-            samples[index] =
-                ApplyFixedGain(
-                    samples[index],
-                    channel == 0
-                        ? leftGain
-                        : rightGain);
-            channel ^= 1;
-        }
-        channelOffset = channel;
-    }
-
-    private static int QuantizeGain(
-        double gain,
-        string parameterName)
-    {
-        if (!double.IsFinite(gain) ||
-            gain is < 0d or > MaximumGain)
-        {
-            throw new ArgumentOutOfRangeException(
-                parameterName,
-                $"PCM gain must be finite and between zero and {MaximumGain}.");
-        }
-
-        return (int)Math.Round(
-            gain * 32_768d,
-            MidpointRounding.AwayFromZero);
-    }
-
-    private static void ApplyFixedGain(
-        Span<short> samples,
-        int fixedGain)
-    {
-        if (fixedGain == 32_768 ||
-            samples.IsEmpty)
-        {
-            return;
-        }
-        if (fixedGain == 0)
-        {
-            samples.Clear();
-            return;
-        }
-
-        for (int index = 0;
-             index < samples.Length;
-             index++)
-        {
-            samples[index] =
-                ApplyFixedGain(
-                    samples[index],
-                    fixedGain);
-        }
-    }
-
-    private static short ApplyFixedGain(
-        short sample,
-        int fixedGain)
-    {
-        int scaled =
-            sample *
-            fixedGain /
-            32_768;
-        return (short)Math.Clamp(
-            scaled,
-            short.MinValue,
-            short.MaxValue);
-    }
+        ref int channelOffset) =>
+        MediaPcm16StereoProcessor.ApplyStereo(
+            samples,
+            channelCount,
+            levels,
+            ref channelOffset);
 }

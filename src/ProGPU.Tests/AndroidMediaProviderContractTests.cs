@@ -339,6 +339,10 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android.Media",
             "AndroidMediaCodecCompositionExportProvider.cs");
+        string audio = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecCompositionAudio.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Android.Media",
@@ -456,6 +460,74 @@ public sealed class AndroidMediaProviderContractTests
                     " ",
                     string.Empty,
                     StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionExportAudioPath" +
+            ".NativeBuffer",
+            provider.Replace(
+                "\r",
+                string.Empty,
+                StringComparison.Ordinal)
+                .Replace(
+                    "\n",
+                    string.Empty,
+                    StringComparison.Ordinal)
+                .Replace(
+                    " ",
+                    string.Empty,
+                    StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BakeAudioTimeline(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".android.audio.tmp.mp4",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCodec.CreateEncoderByType(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "decoder.GetOutputBuffer(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "encoder.GetInputBuffer(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "input.Put(source);",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "JNIEnv.GetDirectBufferAddress(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioGraphEffectResolver" +
+            "\n                .TryCaptureCombinedStereoLevels(",
+            audio.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPcm16StereoProcessor.ApplyStereo(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "extractor.Release();",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "decoder.Release();",
+            audio,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            audio,
             StringComparison.Ordinal);
         Assert.Contains(
             "ShaderResource.Load(",

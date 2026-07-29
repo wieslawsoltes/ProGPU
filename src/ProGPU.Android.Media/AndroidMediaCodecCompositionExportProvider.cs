@@ -8,6 +8,7 @@ using Android.Views;
 using Java.Nio;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
+using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Effects;
 using IOPath = System.IO.Path;
@@ -47,7 +48,7 @@ internal interface IAndroidEncoderSurfaceRenderer :
 /// native rings and one compressed-sample buffer. No decoded video pixel
 /// enters managed memory.
 /// </summary>
-public sealed class
+public sealed partial class
     AndroidMediaCodecCompositionExportProvider :
         IMediaCompositionExportProvider,
         IMediaCompositionExportCapabilityProvider
@@ -112,7 +113,7 @@ public sealed class
                 StringComparison.OrdinalIgnoreCase) ||
             profile.Width is 0 or > MaximumDimension ||
             profile.Height is 0 or > MaximumDimension ||
-            profile.VideoBitrate == 0 ||
+            profile.VideoBitrate is 0 or > int.MaxValue ||
             profile.FrameRateNumerator == 0 ||
             profile.FrameRateDenominator == 0 ||
             profile.FrameRateNumerator >
@@ -121,7 +122,7 @@ public sealed class
             (profile.AudioChannelCount is not (1 or 2) ||
              profile.AudioSampleRate is not
                  (44_100 or 48_000) ||
-             profile.AudioBitrate == 0))
+             profile.AudioBitrate is 0 or > int.MaxValue))
         {
             return false;
         }
@@ -129,6 +130,8 @@ public sealed class
         bool requiresTranscode =
             request.TrimmingMode ==
                 MediaCompositionTrimmingMode.Precise;
+        MediaEffectRegistry effectRegistry =
+            effects ?? MediaEffectRegistry.Default;
         for (int index = 0;
              index < request.Clips.Count;
              index++)
@@ -137,14 +140,21 @@ public sealed class
                 request.Clips[index];
             bool hasSource =
                 clip.SourceUri is
-                    { IsAbsoluteUri: true };
+                { IsAbsoluteUri: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             if (hasSource == hasColor ||
                 (hasColor &&
                  profile.AudioSubtype is not null) ||
-                clip.Volume != 1d ||
-                clip.AudioEffectDefinitions.Count != 0 ||
+                !double.IsFinite(clip.Volume) ||
+                clip.Volume is < 0d or > 1d ||
+                (profile.AudioSubtype is null &&
+                 (clip.Volume != 1d ||
+                  clip.AudioEffectDefinitions.Count != 0)) ||
+                !TryGetEffectiveAudioLevels(
+                    clip,
+                    effectRegistry,
+                    out _) ||
                 clip.OriginalDuration <= TimeSpan.Zero ||
                 clip.TrimTimeFromStart < TimeSpan.Zero ||
                 clip.TrimTimeFromEnd < TimeSpan.Zero ||
@@ -153,7 +163,7 @@ public sealed class
                     clip.OriginalDuration ||
                 !TryGetVideoEffectPlan(
                     clip,
-                    effects ?? MediaEffectRegistry.Default,
+                    effectRegistry,
                     out MediaVideoEffectPlan plan))
             {
                 return false;
@@ -161,7 +171,9 @@ public sealed class
 
             requiresTranscode |=
                 hasColor ||
-                !plan.IsIdentity;
+                !plan.IsIdentity ||
+                clip.Volume != 1d ||
+                clip.AudioEffectDefinitions.Count != 0;
         }
 
         return requiresTranscode;
@@ -180,6 +192,8 @@ public sealed class
 
         bool effects = HasVideoEffects(request);
         bool webGpu = HasActiveVulkanDawnContext();
+        bool transcodeAudio =
+            RequiresAudioTranscode(request);
         return new MediaCompositionExportCapabilities(
             ProviderId,
             webGpu
@@ -187,8 +201,11 @@ public sealed class
                 : MediaCompositionExportVideoPath.NativeGpuSurface,
             request.EncodingProfile.AudioSubtype is null
                 ? MediaCompositionExportAudioPath.None
-                : MediaCompositionExportAudioPath
-                    .CompressedSampleCopy,
+                : transcodeAudio
+                    ? MediaCompositionExportAudioPath
+                        .NativeBuffer
+                    : MediaCompositionExportAudioPath
+                        .CompressedSampleCopy,
             HardwareVideoEncoderRequested: true,
             HardwareVideoEncoderGuaranteed: false,
             EffectsBakedOnGpu: effects,
@@ -203,12 +220,15 @@ public sealed class
                       "WebGPU submission. Affine-only rendering can fall " +
                       "back to the direct native GPU surface lane. "
                     : "use a decoder-surface to encoder-surface native GPU pass. ") +
-                "AAC " +
-                "is remuxed only when every source exactly matches the " +
-                "requested sample rate, channels, bitrate, and codec " +
-                "configuration. Solid-color clips are GPU-generated for " +
-                "video-only output; mixing, gain, overlays, unsupported " +
-                "or unregistered effects remain rejected.");
+                "Identity AAC is remuxed only when every source exactly " +
+                "matches the requested sample rate, channels, bitrate, and " +
+                "codec configuration. Effect-bearing audio is decoded to " +
+                "direct PCM16 MediaCodec buffers, applies registered gain " +
+                "and stereo-balance levels in place, and is encoded by the " +
+                "native AAC codec without managed PCM copies. Solid-color " +
+                "clips are GPU-generated for video-only output; mixing, " +
+                "overlays, unsupported or unregistered effects remain " +
+                "rejected.");
     }
 
     public ValueTask<MediaCompositionExportFailure>
@@ -254,17 +274,31 @@ public sealed class
             directory,
             $".{IOPath.GetFileNameWithoutExtension(destination)}." +
             $"{Guid.NewGuid():N}.android.tmp.mp4");
+        string? bakedAudio = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             var reporter =
                 new AndroidExportProgressReporter(progress);
             reporter.Report(0d);
+            if (RequiresAudioTranscode(request))
+            {
+                bakedAudio = IOPath.Combine(
+                    directory,
+                    $".{IOPath.GetFileNameWithoutExtension(destination)}." +
+                    $"{Guid.NewGuid():N}.android.audio.tmp.mp4");
+                BakeAudioTimeline(
+                    request,
+                    effects,
+                    bakedAudio,
+                    cancellationToken);
+            }
             MediaCompositionExportFailure result =
                 RenderNative(
                     request,
                     effects,
                     temporary,
+                    bakedAudio,
                     reporter,
                     cancellationToken);
             if (result != MediaCompositionExportFailure.None)
@@ -289,6 +323,11 @@ public sealed class
             TryDelete(temporary);
             return MediaCompositionExportFailure.InvalidProfile;
         }
+        catch (InvalidDataException)
+        {
+            TryDelete(temporary);
+            return MediaCompositionExportFailure.InvalidProfile;
+        }
         catch (MediaCodec.CodecException)
         {
             TryDelete(temporary);
@@ -299,17 +338,32 @@ public sealed class
             TryDelete(temporary);
             return MediaCompositionExportFailure.Unknown;
         }
+        finally
+        {
+            if (bakedAudio is not null)
+            {
+                TryDelete(bakedAudio);
+            }
+        }
     }
 
     private static MediaCompositionExportFailure RenderNative(
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects,
         string temporary,
+        string? bakedAudio,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
     {
         MediaFormat? audioFormat =
-            InspectSources(request, cancellationToken);
+            bakedAudio is null
+                ? InspectSources(
+                    request,
+                    cancellationToken)
+                : InspectBakedAudio(
+                    bakedAudio,
+                    request.EncodingProfile,
+                    cancellationToken);
         if (request.EncodingProfile.AudioSubtype is not null &&
             audioFormat is null)
         {
@@ -448,13 +502,26 @@ public sealed class
 
             if (audioTrack >= 0)
             {
-                CopyAudioTimeline(
-                    request,
-                    muxer,
-                    audioTrack,
-                    totalDuration,
-                    reporter,
-                    cancellationToken);
+                if (bakedAudio is null)
+                {
+                    CopyAudioTimeline(
+                        request,
+                        muxer,
+                        audioTrack,
+                        totalDuration,
+                        reporter,
+                        cancellationToken);
+                }
+                else
+                {
+                    CopyBakedAudio(
+                        bakedAudio,
+                        muxer,
+                        audioTrack,
+                        totalDuration,
+                        reporter,
+                        cancellationToken);
+                }
             }
 
             muxer.Stop();
@@ -1220,7 +1287,7 @@ public sealed class
                 MediaCodecInfo.CodecCapabilities? capabilities =
                     info.GetCapabilitiesForType(VideoMime);
                 if (capabilities?.VideoCapabilities is
-                        { } video &&
+                    { } video &&
                     video.AreSizeAndRateSupported(
                         format.GetInteger("width"),
                         format.GetInteger("height"),

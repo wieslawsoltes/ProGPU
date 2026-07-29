@@ -779,6 +779,139 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedPcm16StereoProcessorIsSaturatingAndAllocationFree()
+    {
+        short[] samples =
+        [
+            1_000,
+            1_000,
+            -20_000,
+            -20_000,
+            short.MinValue,
+            short.MaxValue
+        ];
+        var levels =
+            new MediaAudioStereoLevels(
+                2f,
+                0.5f);
+        int channelOffset = 0;
+        MediaPcm16StereoProcessor.ApplyStereo(
+            samples.AsSpan(0, 3),
+            channelCount: 2,
+            levels,
+            ref channelOffset);
+        MediaPcm16StereoProcessor.ApplyStereo(
+            samples.AsSpan(3),
+            channelCount: 2,
+            levels,
+            ref channelOffset);
+
+        Assert.Equal(0, channelOffset);
+        Assert.Equal(
+            [
+                2_000,
+                500,
+                -32_768,
+                -10_000,
+                short.MinValue,
+                16_383
+            ],
+            samples);
+
+        short[] mono = [1_000, -1_000];
+        MediaPcm16StereoProcessor.ApplyStereo(
+            mono,
+            channelCount: 1,
+            new MediaAudioStereoLevels(
+                0.5f,
+                0.25f),
+            ref channelOffset);
+        Assert.Equal([500, -500], mono);
+
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0;
+             iteration < 1_000;
+             iteration++)
+        {
+            MediaPcm16StereoProcessor.ApplyStereo(
+                samples,
+                channelCount: 2,
+                MediaAudioStereoLevels.Identity,
+                ref channelOffset);
+        }
+        long after =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
+    public void SharedPcmTimelineMathUsesHalfOpenFrameBoundaries()
+    {
+        const uint sampleRate = 48_000;
+        Assert.Equal(
+            0,
+            MediaPcmTimelineMath
+                .GetBoundaryFrameOffset(
+                    -1,
+                    sampleRate,
+                    maximumFrames: 8));
+        Assert.Equal(
+            1,
+            MediaPcmTimelineMath
+                .GetBoundaryFrameOffset(
+                    1,
+                    sampleRate,
+                    maximumFrames: 8));
+        Assert.Equal(
+            1,
+            MediaPcmTimelineMath
+                .GetBoundaryFrameOffset(
+                    20,
+                    sampleRate,
+                    maximumFrames: 8));
+        Assert.Equal(
+            2,
+            MediaPcmTimelineMath
+                .GetBoundaryFrameOffset(
+                    21,
+                    sampleRate,
+                    maximumFrames: 8));
+        Assert.Equal(
+            8,
+            MediaPcmTimelineMath
+                .GetBoundaryFrameOffset(
+                    1_000_000,
+                    sampleRate,
+                    maximumFrames: 8));
+        Assert.Equal(
+            0,
+            MediaPcmTimelineMath
+                .GetFrameTimestampMicroseconds(
+                    0,
+                    sampleRate));
+        Assert.Equal(
+            20,
+            MediaPcmTimelineMath
+                .GetFrameTimestampMicroseconds(
+                    1,
+                    sampleRate));
+        Assert.Equal(
+            1_000_000,
+            MediaPcmTimelineMath
+                .GetFrameTimestampMicroseconds(
+                    sampleRate,
+                    sampleRate));
+        Assert.Equal(
+            3_600_000_000,
+            MediaPcmTimelineMath
+                .GetFrameTimestampMicroseconds(
+                    sampleRate * 3_600L,
+                    sampleRate));
+    }
+
+    [Fact]
     public void GainEffectDefinitionOwnsSerializedGainState()
     {
         var registry = new MediaEffectRegistry();
