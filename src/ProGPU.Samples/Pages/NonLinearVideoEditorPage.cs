@@ -28,6 +28,8 @@ public static class NonLinearVideoEditorPage
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
     private const string AudioGainEffectId =
         "ProGPU.Sample.Editing.AudioGain";
+    private const string VideoColorEffectId =
+        "ProGPU.Sample.Editing.VideoColor";
     private static readonly Lazy<IDisposable>
         s_audioGainRegistration =
             new(
@@ -35,6 +37,13 @@ public static class NonLinearVideoEditorPage
                     MediaEffectRegistry.Default.Register(
                         new MediaAudioGainEffectFactory(
                             AudioGainEffectId)));
+    private static readonly Lazy<IDisposable>
+        s_videoColorRegistration =
+            new(
+                static () =>
+                    MediaEffectRegistry.Default.Register(
+                        new MediaVideoColorEffectFactory(
+                            VideoColorEffectId)));
 
     private sealed class InlineProgress(
         Action<double> report) :
@@ -57,6 +66,7 @@ public static class NonLinearVideoEditorPage
     public static FrameworkElement Create()
     {
         _ = s_audioGainRegistration.Value;
+        _ = s_videoColorRegistration.Value;
         var colorPreview = new Border
         {
             Height = 390f,
@@ -831,8 +841,6 @@ public static class NonLinearVideoEditorPage
                 source,
                 TimeSpan.FromSeconds(10));
             clip.UserData[NameKey] = name;
-            clip.UserData[SaturationKey] = "1";
-            clip.UserData[GrayscaleKey] = "0";
             _clips.Add(clip);
             Select(_clips.Count - 1, TimeSpan.Zero, false);
             RebuildTimeline();
@@ -853,8 +861,6 @@ public static class NonLinearVideoEditorPage
                 string.IsNullOrWhiteSpace(name)
                     ? "Color clip"
                     : name;
-            clip.UserData[SaturationKey] = "1";
-            clip.UserData[GrayscaleKey] = "0";
             _clips.Add(clip);
             Select(_clips.Count - 1, TimeSpan.Zero, false);
             RebuildTimeline();
@@ -1259,27 +1265,32 @@ public static class NonLinearVideoEditorPage
             MediaClip clip,
             Color color)
         {
-            float red = color.R / 255f;
-            float green = color.G / 255f;
-            float blue = color.B / 255f;
-            float saturation =
-                SaturationOf(clip) *
-                (1f - GrayscaleOf(clip));
-            float luminance =
-                red * 0.2126f +
-                green * 0.7152f +
-                blue * 0.0722f;
-            red = luminance +
-                (red - luminance) * saturation;
-            green = luminance +
-                (green - luminance) * saturation;
-            blue = luminance +
-                (blue - luminance) * saturation;
+            System.Numerics.Vector3 transformed =
+                MediaVideoColorEffectFactory
+                    .CreateTransform(
+                        saturation:
+                            SaturationOf(clip),
+                        grayscale:
+                            GrayscaleOf(clip))
+                    .Transform(
+                        new System.Numerics.Vector3(
+                            color.R / 255f,
+                            color.G / 255f,
+                            color.B / 255f));
             return new SolidColorBrush(
                 new System.Numerics.Vector4(
-                    Math.Clamp(red, 0f, 1f),
-                    Math.Clamp(green, 0f, 1f),
-                    Math.Clamp(blue, 0f, 1f),
+                    Math.Clamp(
+                        transformed.X,
+                        0f,
+                        1f),
+                    Math.Clamp(
+                        transformed.Y,
+                        0f,
+                        1f),
+                    Math.Clamp(
+                        transformed.Z,
+                        0f,
+                        1f),
                     color.A / 255f));
         }
 
@@ -1928,14 +1939,12 @@ public static class NonLinearVideoEditorPage
             {
                 return;
             }
-            clip.UserData[SaturationKey] =
-                ((float)_saturation.Value).ToString(
-                    "R",
-                    CultureInfo.InvariantCulture);
-            clip.UserData[GrayscaleKey] =
-                ((float)_grayscale.Value).ToString(
-                    "R",
-                    CultureInfo.InvariantCulture);
+            SetVideoColorEffect(
+                clip.VideoEffectDefinitions,
+                (float)_saturation.Value,
+                (float)_grayscale.Value);
+            clip.UserData.Remove(SaturationKey);
+            clip.UserData.Remove(GrayscaleKey);
             ApplyEffects(clip);
         }
 
@@ -2239,32 +2248,138 @@ public static class NonLinearVideoEditorPage
 
         private static float SaturationOf(
             MediaClip clip) =>
-            ReadEffect(
+            ReadVideoColorProperty(
                 clip,
+                MediaVideoColorEffectFactory
+                    .SaturationPropertyName,
                 SaturationKey,
-                1f);
+                1f,
+                0f,
+                2f);
 
         private static float GrayscaleOf(
             MediaClip clip) =>
-            ReadEffect(
+            ReadVideoColorProperty(
                 clip,
+                MediaVideoColorEffectFactory
+                    .GrayscalePropertyName,
                 GrayscaleKey,
-                0f);
+                0f,
+                0f,
+                1f);
 
-        private static float ReadEffect(
+        private static float ReadVideoColorProperty(
             MediaClip clip,
-            string key,
-            float fallback) =>
-            clip.UserData.TryGetValue(
-                key,
+            string propertyName,
+            string legacyKey,
+            float fallback,
+            float minimum,
+            float maximum)
+        {
+            for (int index = 0;
+                 index <
+                    clip.VideoEffectDefinitions.Count;
+                 index++)
+            {
+                IVideoEffectDefinition effect =
+                    clip.VideoEffectDefinitions[index];
+                if (!string.Equals(
+                        effect.ActivatableClassId,
+                        VideoColorEffectId,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (!effect.Properties.TryGetValue(
+                        propertyName,
+                        out object? property))
+                {
+                    return fallback;
+                }
+                float value = property switch
+                {
+                    float number => number,
+                    double number => (float)number,
+                    decimal number => (float)number,
+                    int number => number,
+                    long number => number,
+                    _ => fallback
+                };
+                return float.IsFinite(value)
+                    ? Math.Clamp(
+                        value,
+                        minimum,
+                        maximum)
+                    : fallback;
+            }
+
+            return clip.UserData.TryGetValue(
+                legacyKey,
                 out string? text) &&
             float.TryParse(
                 text,
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture,
-                out float value)
-                ? value
+                out float parsedValue)
+                ? Math.Clamp(
+                    parsedValue,
+                    minimum,
+                    maximum)
                 : fallback;
+        }
+
+        private static void SetVideoColorEffect(
+            IList<IVideoEffectDefinition> effects,
+            float saturation,
+            float grayscale)
+        {
+            int existingIndex = -1;
+            for (int index = 0;
+                 index < effects.Count;
+                 index++)
+            {
+                if (string.Equals(
+                        effects[index].ActivatableClassId,
+                        VideoColorEffectId,
+                        StringComparison.Ordinal))
+                {
+                    existingIndex = index;
+                    break;
+                }
+            }
+
+            if (saturation == 1f &&
+                grayscale == 0f)
+            {
+                if (existingIndex >= 0)
+                {
+                    effects.RemoveAt(existingIndex);
+                }
+                return;
+            }
+
+            IVideoEffectDefinition definition;
+            if (existingIndex >= 0)
+            {
+                definition = effects[existingIndex];
+            }
+            else
+            {
+                definition =
+                    new VideoEffectDefinition(
+                        VideoColorEffectId,
+                        new PropertySet());
+                effects.Add(definition);
+            }
+            definition.Properties[
+                MediaVideoColorEffectFactory
+                    .SaturationPropertyName] =
+                saturation;
+            definition.Properties[
+                MediaVideoColorEffectFactory
+                    .GrayscalePropertyName] =
+                grayscale;
+        }
 
         private static double AudioGainOf(
             IList<IAudioEffectDefinition> effects)

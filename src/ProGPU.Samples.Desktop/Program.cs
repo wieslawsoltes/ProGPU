@@ -12,8 +12,10 @@ using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Effects;
 using System.Runtime.InteropServices;
+using Windows.Foundation.Collections;
 using Windows.Graphics.Imaging;
 using Windows.Media.Editing;
+using Windows.Media.Effects;
 using Windows.Media.MediaProperties;
 using Windows.Storage;
 #endif
@@ -22,6 +24,11 @@ namespace ProGPU.Samples.Desktop;
 
 public static class Program
 {
+#if MACOS
+    private const string MediaColorEffectId =
+        "ProGPU.Sample.Desktop.VideoColor";
+#endif
+
     public static void Main(string[] args)
     {
 #if MACOS
@@ -164,14 +171,26 @@ public static class Program
     {
         try
         {
+            using IDisposable effectRegistration =
+                RegisterMediaColorEffect();
             Directory.CreateDirectory(outputDirectory);
             var composition = new MediaComposition();
             MediaClip first = MediaClip.CreateFromColor(
                 Windows.UI.Color.FromArgb(
                     255, 208, 47, 120),
                 TimeSpan.FromSeconds(2));
-            first.UserData["progpu.saturation"] = "0.8";
-            first.UserData["progpu.grayscale"] = "0.15";
+            first.VideoEffectDefinitions.Add(
+                new VideoEffectDefinition(
+                    MediaColorEffectId,
+                    new PropertySet
+                    {
+                        [MediaVideoColorEffectFactory
+                            .SaturationPropertyName] =
+                            0.8f,
+                        [MediaVideoColorEffectFactory
+                            .GrayscalePropertyName] =
+                            0.15f
+                    }));
             composition.Clips.Add(first);
             composition.Clips.Add(
                 MediaClip.CreateFromColor(
@@ -582,13 +601,8 @@ public static class Program
     {
         try
         {
-            var effects =
-                new Dictionary<string, string>(
-                    StringComparer.Ordinal)
-                {
-                    ["progpu.saturation"] = "0.8",
-                    ["progpu.grayscale"] = "0.15"
-                };
+            using IDisposable effectRegistration =
+                RegisterMediaColorEffect();
             var mainClip =
                 new MediaCompositionExportClip(
                     SourceUri: null,
@@ -598,7 +612,24 @@ public static class Program
                     TrimTimeFromEnd: TimeSpan.Zero,
                     Volume: 1d,
                     ArgbColor: 0xffd02f78,
-                    UserData: effects);
+                    UserData:
+                        new Dictionary<string, string>())
+                {
+                    VideoEffectDefinitions =
+                    [
+                        new MediaCompositionEffectDefinition(
+                            MediaColorEffectId,
+                            new Dictionary<string, object?>
+                            {
+                                [MediaVideoColorEffectFactory
+                                    .SaturationPropertyName] =
+                                    0.8f,
+                                [MediaVideoColorEffectFactory
+                                    .GrayscalePropertyName] =
+                                    0.15f
+                            })
+                    ]
+                };
             var overlayClip =
                 new MediaCompositionExportClip(
                     SourceUri: null,
@@ -723,5 +754,10 @@ public static class Program
             return 4;
         }
     }
+
+    private static IDisposable RegisterMediaColorEffect() =>
+        MediaEffectRegistry.Default.Register(
+            new MediaVideoColorEffectFactory(
+                MediaColorEffectId));
 #endif
 }

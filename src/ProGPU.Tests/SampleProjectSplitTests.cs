@@ -315,11 +315,27 @@ public sealed class SampleProjectSplitTests
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
+            "\"ProGPU.Sample.Editing.VideoColor\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "MediaEffectRegistry.Default.Register(",
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
             "new AudioEffectDefinition(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new VideoEffectDefinition(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "clip.VideoEffectDefinitions",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaVideoColorEffectFactory(",
             editor,
             StringComparison.Ordinal);
         Assert.Contains(

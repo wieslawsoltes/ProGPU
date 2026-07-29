@@ -993,15 +993,17 @@ The Apple sample export lane is implemented through AVFoundation, mixes
 background audio, uses built-in video-composition layer instructions for
 standard URI/color overlays, prepares generated main/overlay colors through
 the AVAssetWriter pixel-buffer pool, and bakes the editor's built-in
-saturation/grayscale preview edits through Core Image on Metal before final
-composition. Apple,
+saturation/grayscale preview edits through the registered WinUI
+`VideoEffectDefinition` contract and Core Image on Metal before final
+composition. New sample edits no longer write private effect metadata; the
+reader retains a legacy fallback for previously saved sample projects. Apple,
 Windows, Android, and Linux also register the portable compatible-MP4 fast
 remux fallback. Windows additionally registers its stricter precise
 Source Reader/Sink Writer lane above that fallback. Linux additionally
 registers its conservative V4L2 decoder-DMA-BUF-to-encoder precise lane.
 Export returns the
 official `CodecNotFound` result when no provider can encode the requested
-feature set; arbitrary declared effects and custom compositors are not
+feature set; unregistered/non-affine effects and custom compositors are not
 presented as available until their GPU-surface encoder paths are implemented.
 
 ## Effect pipeline
@@ -1574,3 +1576,17 @@ focused Linux, NV12, and shader-resource tests passed after correcting the
 bind-group minimum size to the full 64-byte WGSL contract. No Linux media
 device was attached, so DMA-BUF/V4L2 interoperability and matched hardware
 performance remain unvalidated.
+
+The NLE sample checkpoint registers its own typed
+`MediaVideoColorEffectFactory` and writes official
+`VideoEffectDefinition.Properties` for saturation/grayscale instead of new
+private metadata. Old saved sample projects still read the two legacy keys
+until the user changes the effect, at which point the definition becomes the
+single source of truth. `ProGPU.Samples.Desktop` uses the same definition in
+its thumbnail and color-export smoke paths. The signed macOS Release app
+bundle built for x64 and arm64 with zero warnings/errors; its color smoke
+produced a 3,865-byte 320x180 H.264 MP4 with a 2.002-second native track,
+reported `NativeGpuSurface`, and reported `EffectsBakedOnGpu=true`. Startup
+also logged pre-existing optional Roslyn Workspaces `SQLitePCLRaw` assembly
+probe warnings; they did not affect the media operation or its verified
+output.
