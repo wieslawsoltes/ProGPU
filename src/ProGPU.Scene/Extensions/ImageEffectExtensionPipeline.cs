@@ -661,7 +661,6 @@ namespace ProGPU.Scene.Extensions
                 effect.BlurSigma >
                     GpuTextureGaussianBlur
                         .MaximumStandardDeviation ||
-                effect.SphericalProjection.HasValue ||
                 !ValidateTextureContext(
                     compositorContext,
                     source,

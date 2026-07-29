@@ -4544,6 +4544,225 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        SphericalImageEffectLiveGaussianPreservesProjectionAndSharesSourceBlur(
+            bool usePlanarSource)
+    {
+        using var window = new HeadlessWindow(16, 4);
+        using var source = new GpuTexture(
+            window.Context,
+            8,
+            2,
+            usePlanarSource
+                ? TextureFormat.R8Unorm
+                : TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Spherical Gaussian source");
+        using var chroma = usePlanarSource
+            ? new GpuTexture(
+                window.Context,
+                4,
+                1,
+                TextureFormat.RG8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.CopyDst,
+                "Spherical Gaussian chroma")
+            : null;
+        if (usePlanarSource)
+        {
+            source.WritePixels(
+                new byte[]
+                {
+                    32, 32, 220, 220,
+                    80, 80, 140, 140,
+                    32, 32, 220, 220,
+                    80, 80, 140, 140
+                });
+            chroma!.WritePixels(
+                new byte[]
+                {
+                    128, 128,
+                    128, 128,
+                    128, 128,
+                    128, 128
+                });
+        }
+        else
+        {
+            source.WritePixels(
+                new byte[]
+                {
+                    255, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 0, 255,
+                    255, 0, 0, 255,
+                    0, 255, 0, 255,
+                    0, 255, 0, 255,
+                    0, 0, 255, 255,
+                    0, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 0, 255,
+                    255, 0, 0, 255,
+                    0, 255, 0, 255,
+                    0, 255, 0, 255,
+                    0, 0, 255, 255,
+                    0, 0, 255, 255
+                });
+        }
+
+        var visual =
+            new RepeatedLiveBlurSphericalVisual(
+                source,
+                chroma);
+        window.Content = visual;
+        using var offscreenTarget = new GpuTexture(
+            window.Context,
+            16,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Spherical Gaussian offscreen target");
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<ImageEffectExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .ImageEffect));
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+                Assert.True(
+                    drawCall.ImageEffect
+                        .SphericalProjection.HasValue);
+                if (usePlanarSource)
+                {
+                    Assert.Same(
+                        chroma,
+                        drawCall.ImageEffect
+                            .ChromaTexture);
+                    Assert.True(
+                        drawCall.ImageEffect
+                            .YuvConversion.HasValue);
+                }
+            }
+
+            byte[] firstFrame = window.ReadPixels();
+            AssertSphericalPixels(
+                firstFrame,
+                usePlanarSource);
+
+            window.Render();
+
+            Assert.True(
+                window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.True(
+                    drawCall.ImageEffect
+                        .SphericalProjection.HasValue);
+            }
+
+            window.Compositor.RenderOffscreen(
+                visual,
+                width: 16,
+                height: 4,
+                targetTexture: offscreenTarget,
+                padding: 0f,
+                dpiScale: 1f);
+
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            AssertSphericalPixels(
+                offscreenTarget.ReadPixels(),
+                usePlanarSource);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+
+        static void AssertSphericalPixels(
+            byte[] pixels,
+            bool isPlanar)
+        {
+            int left = ((2 * 16) + 4) * 4;
+            int right = ((2 * 16) + 12) * 4;
+            for (int channel = 0;
+                 channel < 4;
+                 channel++)
+            {
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left + channel] -
+                        pixels[right + channel]),
+                    0,
+                    1);
+            }
+
+            if (isPlanar)
+            {
+                Assert.True(
+                    pixels[left] >= 120,
+                    $"Expected the rotated view to preserve the bright luma longitude, found {pixels[left]}.");
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left] -
+                        pixels[left + 1]),
+                    0,
+                    1);
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left] -
+                        pixels[left + 2]),
+                    0,
+                    1);
+            }
+            else
+            {
+                Assert.True(
+                    pixels[left] >
+                        pixels[left + 1] + 40,
+                    $"Expected the rotated view to remain red-dominant instead of sampling the green center longitude; RGB=({pixels[left]}, {pixels[left + 1]}, {pixels[left + 2]}).");
+            }
+        }
+    }
+
     [Fact]
     public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
     {
@@ -6872,6 +7091,98 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 blurSigma: 1f,
                 samplingMode:
                     TextureSamplingMode.Nearest);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurSphericalVisual :
+        FrameworkElement
+    {
+        private static readonly
+            ImageEffectYuvConversion s_conversion =
+                new(
+                    new Vector4(
+                        0f,
+                        1f,
+                        128f / 255f,
+                        1f),
+                    new Vector4(
+                        1f,
+                        0f,
+                        1.5748f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        -0.187324f,
+                        -0.468124f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        1.8556f,
+                        0f,
+                        0f));
+        private static readonly
+            ImageEffectSphericalProjection
+                s_projection =
+                    new(
+                        new Vector4(
+                            0f,
+                            0f,
+                            1f,
+                            1f),
+                        Quaternion
+                            .CreateFromAxisAngle(
+                                Vector3.UnitY,
+                                MathF.PI * 0.5f),
+                        MathF.PI * 0.5f,
+                        2f);
+
+        private readonly GpuTexture _source;
+        private readonly GpuTexture? _chroma;
+
+        public RepeatedLiveBlurSphericalVisual(
+            GpuTexture source,
+            GpuTexture? chroma)
+        {
+            _source = source;
+            _chroma = chroma;
+            Width = 16f;
+            Height = 4f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            Draw(context, new Rect(0f, 0f, 8f, 4f));
+            Draw(context, new Rect(8f, 0f, 8f, 4f));
+        }
+
+        private void Draw(
+            DrawingContext context,
+            Rect destination)
+        {
+            if (_chroma is not null)
+            {
+                context.DrawPlanarImageWithEffect(
+                    _source,
+                    _chroma,
+                    destination,
+                    in s_conversion,
+                    blurSigma: 1f,
+                    samplingMode:
+                        TextureSamplingMode.Nearest,
+                    sphericalProjection:
+                        s_projection);
+                return;
+            }
+
+            context.DrawImageWithEffect(
+                _source,
+                destination,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest,
+                sphericalProjection:
+                    s_projection);
         }
     }
 

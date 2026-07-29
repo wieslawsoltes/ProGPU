@@ -735,38 +735,47 @@ object models into that Scene contract. The WinUI
 and invalidates only its consuming viewport.
 
 Ordinary RGB and R8/RG8 NV12 2D image-effect draw calls use a retained Scene
-pre-pass when Gaussian standard deviation is finite and spherical projection
-does not change the sampling domain. The image-effect extension leases two
-same-device, source-sized RGB textures per simultaneously distinct blur and
-executes the shared horizontal/vertical WebGPU kernel. RGB sources are sampled
-directly. NV12 sources sample luma and chroma and apply the command's exact
-range plus BT.601/709/2020 rows at every horizontal tap, writing straight
-RGBA16F to the existing intermediate; the vertical pass then samples that RGB.
-The floating-point work pair avoids an intermediate gamut clamp. This
-preserves conversion-before-blur semantics without a third full-frame texture
-or conversion pass. The extension substitutes its output only in the current
-frame's draw-call copy and clears the transient planar metadata plus sigma.
-The compositor restores the original texture planes, conversion, and nonzero
-sigma after encoding, including on compiled-scene hits, so a changing native
-media allocation is processed every frame without corrupting retained
-commands or forcing scene recompilation. Repeated draw calls with the same
-luma/chroma generations, conversion rows, and sigma share one result in a
-frame; texture pairs are reused across frames and idle peak resources are
-released after 240 frames. The preparation and main render are separate
-ordered queue submissions, with no CPU wait, readback, upload, or per-frame
-managed collection allocation after warmup. For D extension draw calls, U
-unique blurred sources, P source pixels, and R = `ceil(3 * sigma)`,
-preparation is O(D + U * P * R) time and O(U * P) retained texture storage.
-The planar horizontal axis doubles the texture-sample count but does not
-change asymptotic work or residency.
+pre-pass when Gaussian standard deviation is finite and the source plane
+formats are supported. The image-effect extension leases two same-device,
+source-sized RGB textures per simultaneously distinct blur and executes the
+shared horizontal/vertical WebGPU kernel. RGB sources are sampled directly.
+NV12 sources sample luma and chroma and apply the command's exact range plus
+BT.601/709/2020 rows at every horizontal tap, writing straight RGBA16F to the
+existing intermediate; the vertical pass then samples that RGB. The
+floating-point work pair avoids an intermediate gamut clamp. This preserves
+conversion-before-blur semantics without a third full-frame texture or
+conversion pass.
 
-P010 and spherical-projection draw calls deliberately retain the bounded
-fragment-shader fallback for now. The current portable WebGPU binding surface
-exposes native high-bit-depth planes through platform-negotiated formats, and
-moving Gaussian ahead of equirectangular projection would change observable
-sampling semantics. Mesh3D also retains its direct bounded material kernel. A
-future typed high-bit-depth conversion and projection pass graph can promote
-those lanes without changing the public effect contract.
+Spherical presentation uses the same retained result. The terminal shader
+first maps the quad coordinate through the view orientation, field of view,
+aspect, and equirectangular crop, then samples a source-domain blur
+neighborhood. Because the projection selects one center coordinate before the
+kernel and does not transform individual tap offsets, preconvolving the source
+and applying the unchanged projection produces the same source-domain ordering.
+The transient command therefore clears only sigma and planar metadata while
+retaining `ImageEffectSphericalProjection`. Different spherical views of the
+same source generations and sigma share one blurred texture in a frame.
+
+The compositor restores the original texture planes, conversion, spherical
+projection, and nonzero sigma after encoding, including on compiled-scene
+hits, so a changing native media allocation is processed every frame without
+corrupting retained commands or forcing scene recompilation. Repeated draw
+calls with the same luma/chroma generations, conversion rows, and sigma share
+one result in a frame; texture pairs are reused across frames and idle peak
+resources are released after 240 frames. The preparation and main render are
+separate ordered queue submissions, with no CPU wait, readback, upload, or
+per-frame managed collection allocation after warmup. For D extension draw
+calls, U unique blurred sources, P source pixels, and
+R = `ceil(3 * sigma)`, preparation is O(D + U * P * R) time and
+O(U * P) retained texture storage. The planar horizontal axis doubles the
+texture-sample count but does not change asymptotic work or residency.
+
+P010 draw calls deliberately retain the bounded fragment-shader fallback for
+now because the portable WebGPU binding surface exposes native high-bit-depth
+planes through platform-negotiated formats. Mesh3D also retains its direct
+bounded material kernel. A future typed high-bit-depth plane contract and
+material pass graph can promote those lanes without changing the public
+effect contract.
 
 The package dependency boundary is:
 
@@ -1088,9 +1097,11 @@ scope. The shared Scene image-effect extension now uses that kernel for live
 RGB and R8/RG8 NV12 2D presentation as a retained, queue-ordered pre-pass. The
 NV12 lane performs the range-aware YUV conversion per horizontal tap and
 reuses the same two RGB work textures, while affine effects stay in the
-terminal compositor pass. P010 and spherical inputs preserve their existing
-fused bounded fallback. A future pass compiler may further specialize
-high-bit-depth YUV conversion, projection, spatial kernels, and tone-mapping.
+terminal compositor pass. Spherical projection remains in that terminal pass
+and can share the preblurred source across orientations, fields of view, and
+aspects. P010 inputs preserve their existing fused bounded fallback. A future
+pass compiler may further specialize high-bit-depth YUV conversion, material
+spatial kernels, and tone-mapping.
 User effects are activated through
 `MediaEffectRegistry`, never through reflection or assembly scanning.
 
@@ -1741,6 +1752,19 @@ regressions compare a neutral-chroma impulse for symmetry and channel equality,
 then render the same planar frame twice through primary, compiled-scene replay,
 and offscreen paths. They verify one shared submission and resource pair plus
 restoration of both original planes, conversion metadata, and sigma. Spherical
-and high-bit-depth planar inputs remain on the bounded fused fallback because
-promoting either without a typed projection/format contract would change
-semantics or overstate portable support.
+views reuse this source-domain graph because their shader selects the
+equirectangular coordinate before applying source-texel offsets.
+High-bit-depth planar inputs remain on the bounded fused fallback because
+promoting them without a typed portable plane-format contract would overstate
+support.
+
+The retained spherical Gaussian checkpoint removes that final 2D projection
+exclusion. A parameterized executable regression renders duplicate RGB and
+NV12 equirectangular views rotated by 90 degrees, verifies that the projected
+longitude remains red-dominant or high-luma rather than falling back to the
+unprojected center, and confirms one shared prepass through primary,
+compiled-scene replay, and offscreen rendering. The retained draw calls keep
+their original source planes, YUV rows, spherical state, and nonzero sigma.
+View orientation, field of view, and output aspect are intentionally absent
+from the blur cache key because they affect only the terminal coordinate
+mapping.

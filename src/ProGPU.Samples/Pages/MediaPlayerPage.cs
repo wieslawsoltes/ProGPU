@@ -132,6 +132,8 @@ public static class MediaPlayerPage
         var mute = new ToggleSwitch { Content = "Mute" };
         var loop = new ToggleSwitch { Content = "Loop" };
         var mirror = new ToggleSwitch { Content = "Mirror" };
+        var spherical =
+            new ToggleSwitch { Content = "360°" };
         var use3D = new ToggleSwitch { Content = "3D mesh" };
 
         var brightness = EffectSlider(-1d, 1d, 0d);
@@ -140,6 +142,12 @@ public static class MediaPlayerPage
         var grayscale = EffectSlider(0d, 1d, 0d);
         var sepia = EffectSlider(0d, 1d, 0d);
         var blur = EffectSlider(0d, 8d, 0d);
+        var sphericalYaw =
+            EffectSlider(-180d, 180d, 0d);
+        var sphericalFieldOfView =
+            EffectSlider(30d, 150d, 90d);
+        sphericalYaw.IsEnabled = false;
+        sphericalFieldOfView.IsEnabled = false;
         var audioGain = EffectSlider(0d, 2d, 1d);
         string audioGainEffectId =
             $"{AudioGainEffectId}.{Guid.NewGuid():N}";
@@ -174,6 +182,40 @@ public static class MediaPlayerPage
         grayscale.ValueChanged += (_, _) => ApplyEffects();
         sepia.ValueChanged += (_, _) => ApplyEffects();
         blur.ValueChanged += (_, _) => ApplyEffects();
+        void ApplySphericalProjection()
+        {
+            MediaPlaybackSphericalVideoProjection
+                projection =
+                    player.PlaybackSession
+                        .SphericalVideoProjection;
+            projection.FrameFormat =
+                Windows.Media.MediaProperties
+                    .SphericalVideoFrameFormat
+                    .Equirectangular;
+            projection.ProjectionMode =
+                SphericalVideoProjectionMode.Spherical;
+            projection.HorizontalFieldOfViewInDegrees =
+                sphericalFieldOfView.Value;
+            projection.ViewOrientation =
+                Quaternion.CreateFromAxisAngle(
+                    Vector3.UnitY,
+                    (float)sphericalYaw.Value *
+                    (MathF.PI / 180f));
+            projection.IsEnabled = spherical.IsOn;
+        }
+        spherical.Toggled +=
+            (_, _) =>
+            {
+                sphericalYaw.IsEnabled =
+                    spherical.IsOn;
+                sphericalFieldOfView.IsEnabled =
+                    spherical.IsOn;
+                ApplySphericalProjection();
+            };
+        sphericalYaw.ValueChanged +=
+            (_, _) => ApplySphericalProjection();
+        sphericalFieldOfView.ValueChanged +=
+            (_, _) => ApplySphericalProjection();
         audioGain.ValueChanged += (_, _) =>
             audioGainFactory.Gain =
                 (float)audioGain.Value;
@@ -360,6 +402,14 @@ public static class MediaPlayerPage
         AddEffect(effects, "Grayscale", grayscale);
         AddEffect(effects, "Sepia", sepia);
         AddEffect(effects, "Blur", blur);
+        effects.AddChild(Text(
+            "WinUI spherical-video projection"));
+        effects.AddChild(spherical);
+        AddEffect(effects, "360° yaw", sphericalYaw);
+        AddEffect(
+            effects,
+            "360° field of view",
+            sphericalFieldOfView);
         effects.AddChild(Text(
             "Native decoded-audio callback (optional by provider)"));
         AddEffect(effects, "Audio gain", audioGain);

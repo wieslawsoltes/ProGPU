@@ -270,6 +270,46 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void
+        MediaPlayerSampleExposesWinUiSphericalProjectionWithRetainedEffects()
+    {
+        string mediaPlayer = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "MediaPlayerPage.cs");
+
+        Assert.Contains(
+            "MediaPlaybackSphericalVideoProjection",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".SphericalVideoProjection;",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".SphericalVideoFrameFormat",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SphericalVideoProjectionMode.Spherical",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "projection.ViewOrientation",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "projection.HorizontalFieldOfViewInDegrees",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AddEffect(effects, \"Blur\", blur);",
+            mediaPlayer,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EditorSampleExposesColorClipPreviewPlaybackAndOverlay()
     {
         string editor = Read(
