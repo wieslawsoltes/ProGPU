@@ -3,7 +3,8 @@
 A standalone ProGPU.WinUI desktop sample that recreates the macOS Activity Monitor
 information architecture and interaction model. It includes live CPU, Memory, Energy,
 Disk, and Network views; typed sortable columns; process search; history graphs; process
-inspection; graceful quit; and force quit.
+inspection; open-file and port discovery; selectable process scopes and refresh rates;
+process sampling; Spindump and System Diagnostics launchers; graceful quit; and force quit.
 
 ## Architecture
 
@@ -16,8 +17,12 @@ The initial `MacOsActivityMonitorDataSource` uses public operating-system interf
 - `Process` and `ps` for process identity, ownership, threads, CPU time, and memory.
 - Mach host statistics and `vm_stat` for CPU and memory summaries.
 - `proc_pid_rusage` for per-process disk I/O and wakeups.
+- IORegistry block-storage counters for disk bytes and operations.
 - a persistent `nettop` observer for per-process network counters.
+- `netstat` link counters for system network bytes and packets.
 - `pmset` for portable-Mac power state.
+- `lsof` for the inspector’s bounded open-files-and-ports report.
+- `sample`, `spindump`, and `sysdiagnose` for explicit diagnostic actions.
 - POSIX signals for quit and force-quit actions.
 
 Data refreshes every two seconds away from the UI thread, then publishes an immutable

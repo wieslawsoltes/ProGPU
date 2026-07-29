@@ -20,6 +20,26 @@ internal enum ActivityCategory
     Network
 }
 
+internal enum ActivityProcessScope
+{
+    AllProcesses,
+    AllProcessesHierarchically,
+    MyProcesses,
+    SystemProcesses,
+    OtherUsersProcesses,
+    ActiveProcesses,
+    InactiveProcesses,
+    GpuProcesses,
+    WindowedProcesses,
+    SelectedProcesses,
+    ApplicationsInLast12Hours
+}
+
+internal sealed class ActivityUpdateFrequencyChangedEventArgs(TimeSpan interval) : EventArgs
+{
+    public TimeSpan Interval { get; } = interval;
+}
+
 internal sealed class ActivityMonitorView : Grid
 {
     private readonly TtfFont _font;
@@ -28,25 +48,59 @@ internal sealed class ActivityMonitorView : Grid
     private TextBlock _status = null!;
     private TextBox _search = null!;
     private readonly Grid _footer;
-    private readonly Dictionary<ActivityCategory, HistoryGraph> _histories = new()
+    private readonly Dictionary<ActivityCategory, Sparkline> _histories = new()
     {
-        [ActivityCategory.Cpu] = new HistoryGraph(),
-        [ActivityCategory.Memory] = new HistoryGraph(),
-        [ActivityCategory.Energy] = new HistoryGraph(),
-        [ActivityCategory.Disk] = new HistoryGraph(),
-        [ActivityCategory.Network] = new HistoryGraph()
+        [ActivityCategory.Cpu] = CreateSparkline(),
+        [ActivityCategory.Memory] = CreateSparkline(),
+        [ActivityCategory.Energy] = CreateSparkline(),
+        [ActivityCategory.Disk] = CreateSparkline(),
+        [ActivityCategory.Network] = CreateSparkline()
     };
-    private Grid? _historyHost;
-    private readonly Dictionary<ActivityCategory, Button> _categoryButtons = new();
+    private readonly Sparkline _batteryHistory = CreateSparkline();
+    private readonly Dictionary<ActivityCategory, SelectorBarItem> _categoryItems = new();
+    private readonly Dictionary<ActivityProcessScope, RadioMenuFlyoutItem> _scopeItems = new();
+    private SelectorBar _categorySelector = null!;
+    private AppBarButton _quitButton = null!;
+    private AppBarButton _inspectButton = null!;
+    private AppBarButton _actionsButton = null!;
     private ActivitySnapshot? _snapshot;
     private ActivityCategory _category;
+    private ActivityProcessScope _processScope = ActivityProcessScope.AllProcesses;
     private int? _selectedProcessId;
     private SystemSnapshot? _previousSystem;
     private DateTimeOffset? _previousCapturedAt;
+    private long _diskReadRate;
+    private long _diskWriteRate;
+    private long _diskReadOperationsRate;
+    private long _diskWriteOperationsRate;
+    private long _networkReadRate;
+    private long _networkWriteRate;
+    private long _networkReceivedPacketsRate;
+    private long _networkSentPacketsRate;
 
     public ActivityMonitorView(TtfFont font)
     {
         _font = font;
+        _histories[ActivityCategory.Cpu].PrimaryStroke =
+            new ThemeResourceBrush("ActivityGraphBlue");
+        _histories[ActivityCategory.Cpu].SecondaryStroke =
+            new ThemeResourceBrush("ActivityGraphRed");
+        _histories[ActivityCategory.Memory].PrimaryStroke =
+            new ThemeResourceBrush("ActivityGraphOrange");
+        _histories[ActivityCategory.Memory].SecondaryStroke = null;
+        _histories[ActivityCategory.Energy].PrimaryStroke =
+            new ThemeResourceBrush("ActivityGraphBlue");
+        _histories[ActivityCategory.Energy].SecondaryStroke = null;
+        _histories[ActivityCategory.Disk].PrimaryStroke =
+            new ThemeResourceBrush("ActivityGraphBlue");
+        _histories[ActivityCategory.Disk].SecondaryStroke =
+            new ThemeResourceBrush("ActivityGraphRed");
+        _histories[ActivityCategory.Network].PrimaryStroke =
+            new ThemeResourceBrush("ActivityGraphBlue");
+        _histories[ActivityCategory.Network].SecondaryStroke =
+            new ThemeResourceBrush("ActivityGraphRed");
+        _batteryHistory.PrimaryStroke = new ThemeResourceBrush("ActivityGraphGreen");
+        _batteryHistory.SecondaryStroke = null;
         RequestedTheme = ElementTheme.Light;
         RequestedThemeFamily = VisualThemeFamily.macOS;
         Background = new ThemeResourceBrush("PageBackground");
@@ -70,6 +124,7 @@ internal sealed class ActivityMonitorView : Grid
             RowHorizontalInset = 10,
             ShowRowGridLines = false,
             ShowSelectionIndicator = false,
+            IsReadOnly = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             CellValueBinding = FormatCell,
@@ -78,20 +133,45 @@ internal sealed class ActivityMonitorView : Grid
         _dataGrid.SelectionChanged += (_, _) =>
         {
             _selectedProcessId = SelectedProcess?.ProcessId;
+            UpdateSelectionCommands();
             SelectionChanged?.Invoke(this, EventArgs.Empty);
+        };
+        _dataGrid.DoubleTapped += (_, args) =>
+        {
+            if (SelectedProcess is not null)
+            {
+                InspectRequested?.Invoke(this, EventArgs.Empty);
+                args.Handled = true;
+            }
+        };
+        _dataGrid.KeyDown += (_, args) =>
+        {
+            if (args.Key == Silk.NET.Input.Key.Enter && SelectedProcess is not null)
+            {
+                InspectRequested?.Invoke(this, EventArgs.Empty);
+                args.Handled = true;
+            }
         };
         AddChild(_dataGrid);
         SetRow(_dataGrid, 1);
 
         _footer = new Grid
         {
+            Width = 580,
+            MaxWidth = 580,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(0, 14)
+        };
+        var footerFrame = new Grid
+        {
             Background = new ThemeResourceBrush("ActivityFooterBackground"),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
-            BorderThickness = new Thickness(0, 1, 0, 0),
-            Padding = new Thickness(0, 14, 0, 14)
+            BorderThickness = new Thickness(0, 1, 0, 0)
         };
-        AddChild(_footer);
-        SetRow(_footer, 2);
+        footerFrame.AddChild(_footer);
+        AddChild(footerFrame);
+        SetRow(footerFrame, 2);
 
         ConfigureCategory(ActivityCategory.Cpu);
     }
@@ -99,8 +179,11 @@ internal sealed class ActivityMonitorView : Grid
     public event EventHandler? SelectionChanged;
     public event EventHandler? RefreshRequested;
     public event EventHandler? InspectRequested;
-    public event EventHandler? QuitRequested;
-    public event EventHandler? ForceQuitRequested;
+    public event EventHandler? TerminationRequested;
+    public event EventHandler? SampleRequested;
+    public event EventHandler? SpindumpRequested;
+    public event EventHandler? SystemDiagnosticsRequested;
+    public event EventHandler<ActivityUpdateFrequencyChangedEventArgs>? UpdateFrequencyChanged;
 
     public ProcessSnapshot? SelectedProcess =>
         _dataGrid.SelectedIndex >= 0 &&
@@ -109,12 +192,24 @@ internal sealed class ActivityMonitorView : Grid
             : null;
 
     internal ActivityCategory ActiveCategory => _category;
+    internal ActivityProcessScope ProcessScope => _processScope;
     internal int VisibleProcessCount => _dataGrid.ItemsSource.Count;
     internal IReadOnlyList<string> ColumnHeaders =>
         _dataGrid.Columns.Select(column => column.Header).ToArray();
 
     internal void SelectCategory(ActivityCategory category) =>
         ConfigureCategory(category);
+
+    internal void SelectProcessScope(ActivityProcessScope scope)
+    {
+        _processScope = scope;
+        foreach ((ActivityProcessScope itemScope, RadioMenuFlyoutItem item) in _scopeItems)
+        {
+            item.IsChecked = itemScope == scope;
+        }
+        UpdateSubtitle();
+        RefreshVisibleRows();
+    }
 
     internal void SetSearchText(string text)
     {
@@ -125,6 +220,7 @@ internal sealed class ActivityMonitorView : Grid
     {
         _snapshot = snapshot;
         _status.Text = $"Updated {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}";
+        UpdateHistories(snapshot);
         RefreshVisibleRows();
         UpdateFooter(snapshot);
         _previousSystem = snapshot.System;
@@ -195,51 +291,59 @@ internal sealed class ActivityMonitorView : Grid
         identity.AddChild(titles);
         SetColumn(titles, 1);
 
-        Button quit = CreateToolbarButton("×", "Quit selected process");
-        quit.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
-        identity.AddChild(quit);
-        SetColumn(quit, 2);
-
-        Button inspect = CreateToolbarButton("i", "Inspect selected process");
-        inspect.Click += (_, _) => InspectRequested?.Invoke(this, EventArgs.Empty);
-        identity.AddChild(inspect);
-        SetColumn(inspect, 3);
-
-        Button more = CreateToolbarButton("•••", "Force quit selected process");
-        more.Click += (_, _) => ForceQuitRequested?.Invoke(this, EventArgs.Empty);
-        identity.AddChild(more);
-        SetColumn(more, 4);
-
-        var segmentBorder = new Border
+        var commandBar = new CommandBar
         {
+            Font = _font,
+            DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed,
+            OverflowButtonVisibility = CommandBarOverflowButtonVisibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _quitButton = CreateToolbarCommand("×", "Stop selected process");
+        _quitButton.Click += (_, _) => TerminationRequested?.Invoke(this, EventArgs.Empty);
+        commandBar.PrimaryCommands.Add(_quitButton);
+        _inspectButton = CreateToolbarCommand("ⓘ", "Inspect selected process");
+        _inspectButton.Click += (_, _) => InspectRequested?.Invoke(this, EventArgs.Empty);
+        commandBar.PrimaryCommands.Add(_inspectButton);
+        _actionsButton = CreateToolbarCommand("•••", "Process actions and view options");
+        _actionsButton.Flyout = BuildActionsFlyout();
+        commandBar.PrimaryCommands.Add(_actionsButton);
+        identity.AddChild(commandBar);
+        SetColumn(commandBar, 2);
+        SetColumnSpan(commandBar, 3);
+
+        _categorySelector = new SelectorBar
+        {
+            Font = _font,
+            FontSize = 13,
             Background = new ThemeResourceBrush("ActivitySegmentBackground"),
             BorderBrush = new ThemeResourceBrush("ActivitySegmentBorder"),
             BorderThickness = new Thickness(1),
-            CornerRadius = 20,
             Height = 46,
             MaxWidth = 480,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Padding = new Thickness(4)
+            VerticalAlignment = VerticalAlignment.Center
         };
-        var segments = new Grid();
-        for (int index = 0; index < 5; index++)
+        _categorySelector.SelectionChanged += (_, _) =>
         {
-            segments.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));
-        }
-        segmentBorder.Child = segments;
-        layout.AddChild(segmentBorder);
-        SetColumn(segmentBorder, 1);
+            if (_categorySelector.SelectedItem?.Tag is ActivityCategory category &&
+                category != _category)
+            {
+                ConfigureCategory(category);
+            }
+        };
+        layout.AddChild(_categorySelector);
+        SetColumn(_categorySelector, 1);
 
-        AddCategoryButton(segments, ActivityCategory.Cpu, "CPU", 0);
-        AddCategoryButton(segments, ActivityCategory.Memory, "Memory", 1);
-        AddCategoryButton(segments, ActivityCategory.Energy, "Energy", 2);
-        AddCategoryButton(segments, ActivityCategory.Disk, "Disk", 3);
-        AddCategoryButton(segments, ActivityCategory.Network, "Network", 4);
+        AddCategoryItem(ActivityCategory.Cpu, "CPU");
+        AddCategoryItem(ActivityCategory.Memory, "Memory");
+        AddCategoryItem(ActivityCategory.Energy, "Energy");
+        AddCategoryItem(ActivityCategory.Disk, "Disk");
+        AddCategoryItem(ActivityCategory.Network, "Network");
 
         var searchArea = new Grid();
         searchArea.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));
-        searchArea.ColumnDefinitions.Add(new GridLength(46, GridUnitType.Absolute));
+        searchArea.ColumnDefinitions.Add(new GridLength(1, GridUnitType.Star));
         _search = new TextBox
         {
             Font = _font,
@@ -253,10 +357,6 @@ internal sealed class ActivityMonitorView : Grid
         };
         _search.TextChanged += (_, _) => RefreshVisibleRows();
         searchArea.AddChild(_search);
-        Button refresh = CreateToolbarButton("↻", "Refresh now");
-        refresh.Click += (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty);
-        searchArea.AddChild(refresh);
-        SetColumn(refresh, 1);
         layout.AddChild(searchArea);
         SetColumn(searchArea, 2);
 
@@ -268,62 +368,44 @@ internal sealed class ActivityMonitorView : Grid
             Foreground = new ThemeResourceBrush("TextTertiary"),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 52, 0)
+            Visibility = Visibility.Collapsed
         };
         searchArea.AddChild(_status);
-        SetColumnSpan(_status, 2);
 
         return toolbar;
     }
 
-    private void AddCategoryButton(
-        Grid parent,
-        ActivityCategory category,
-        string label,
-        int column)
+    private void AddCategoryItem(ActivityCategory category, string label)
     {
-        var button = new Button
+        var item = new SelectorBarItem
         {
             Font = _font,
             FontSize = 13,
-            Content = new TextBlock
-            {
-                Text = label,
-                Font = _font,
-                FontSize = 13,
-                Foreground = new ThemeResourceBrush("TextPrimary"),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            },
-            Background = new ThemeResourceBrush("ActivityTransparent"),
-            BorderBrush = new ThemeResourceBrush("ActivityTransparent"),
-            CornerRadius = 17,
-            Padding = new Thickness(12, 5),
-            Margin = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
+            Text = label,
+            Tag = category,
+            MinWidth = 86
         };
-        button.Click += (_, _) => ConfigureCategory(category);
-        _categoryButtons.Add(category, button);
-        parent.AddChild(button);
-        SetColumn(button, column);
+        _categoryItems.Add(category, item);
+        _categorySelector.Items.Add(item);
     }
 
-    private Button CreateToolbarButton(string glyph, string automationName)
+    private AppBarButton CreateToolbarCommand(string glyph, string automationName)
     {
-        var button = new Button
+        var button = new AppBarButton
         {
             Font = _font,
-            Content = new TextBlock
+            Icon = new FontIcon
             {
-                Text = glyph,
                 Font = _font,
-                FontSize = glyph == "•••" ? 11 : 18,
-                FontWeight = FontWeights.SemiBold,
+                Glyph = glyph,
+                FontSize = glyph == "•••" ? 11 : 17,
                 Foreground = new ThemeResourceBrush("TextPrimary"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             },
+            Label = automationName,
+            LabelPosition = CommandBarLabelPosition.Collapsed,
+            IsCompact = true,
             Width = 34,
             Height = 34,
             CornerRadius = 17,
@@ -333,6 +415,104 @@ internal sealed class ActivityMonitorView : Grid
         };
         AutomationProperties.SetName(button, automationName);
         return button;
+    }
+
+    private MenuFlyout BuildActionsFlyout()
+    {
+        var flyout = new MenuFlyout
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Bottom
+        };
+        flyout.Items.Add(CreateMenuItem(
+            "Sample Process",
+            (_, _) => SampleRequested?.Invoke(this, EventArgs.Empty)));
+        flyout.Items.Add(CreateMenuItem(
+            "Spindump",
+            (_, _) => SpindumpRequested?.Invoke(this, EventArgs.Empty)));
+        flyout.Items.Add(CreateMenuItem(
+            "System Diagnostics…",
+            (_, _) => SystemDiagnosticsRequested?.Invoke(this, EventArgs.Empty)));
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        flyout.Items.Add(CreateMenuItem(
+            "Refresh Now",
+            (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty)));
+
+        var frequency = new MenuFlyoutSubItem
+        {
+            Text = "Update Frequency",
+            AreCheckStatesEnabled = true
+        };
+        frequency.Items.Add(CreateFrequencyItem("Very often (1 sec)", 1));
+        frequency.Items.Add(CreateFrequencyItem("Often (2 sec)", 2, true));
+        frequency.Items.Add(CreateFrequencyItem("Normally (5 sec)", 5));
+        flyout.Items.Add(frequency);
+
+        var scope = new MenuFlyoutSubItem
+        {
+            Text = "Process Scope",
+            AreCheckStatesEnabled = true
+        };
+        AddScopeItem(scope, ActivityProcessScope.AllProcesses, "All Processes", true);
+        AddScopeItem(scope, ActivityProcessScope.AllProcessesHierarchically, "All Processes, Hierarchically");
+        AddScopeItem(scope, ActivityProcessScope.MyProcesses, "My Processes");
+        AddScopeItem(scope, ActivityProcessScope.SystemProcesses, "System Processes");
+        AddScopeItem(scope, ActivityProcessScope.OtherUsersProcesses, "Other Users’ Processes");
+        AddScopeItem(scope, ActivityProcessScope.ActiveProcesses, "Active Processes");
+        AddScopeItem(scope, ActivityProcessScope.InactiveProcesses, "Inactive Processes");
+        AddScopeItem(scope, ActivityProcessScope.GpuProcesses, "GPU Processes");
+        AddScopeItem(scope, ActivityProcessScope.WindowedProcesses, "Windowed Processes");
+        AddScopeItem(scope, ActivityProcessScope.SelectedProcesses, "Selected Processes");
+        AddScopeItem(scope, ActivityProcessScope.ApplicationsInLast12Hours, "Applications in last 12 hours");
+        flyout.Items.Add(scope);
+        return flyout;
+    }
+
+    private static MenuFlyoutItem CreateMenuItem(
+        string text,
+        RoutedEventHandler clicked)
+    {
+        var item = new MenuFlyoutItem { Text = text };
+        item.Click += clicked;
+        return item;
+    }
+
+    private RadioMenuFlyoutItem CreateFrequencyItem(
+        string text,
+        double seconds,
+        bool isChecked = false)
+    {
+        var item = new RadioMenuFlyoutItem
+        {
+            Text = text,
+            GroupName = "ActivityMonitorUpdateFrequency",
+            IsChecked = isChecked
+        };
+        item.Click += (_, _) => UpdateFrequencyChanged?.Invoke(
+            this,
+            new ActivityUpdateFrequencyChangedEventArgs(TimeSpan.FromSeconds(seconds)));
+        return item;
+    }
+
+    private void AddScopeItem(
+        MenuFlyoutSubItem parent,
+        ActivityProcessScope scope,
+        string label,
+        bool isChecked = false)
+    {
+        var item = new RadioMenuFlyoutItem
+        {
+            Text = label,
+            GroupName = "ActivityMonitorProcessScope",
+            IsChecked = isChecked
+        };
+        item.Click += (_, _) =>
+        {
+            _processScope = scope;
+            UpdateSubtitle();
+            RefreshVisibleRows();
+        };
+        _scopeItems.Add(scope, item);
+        parent.Items.Add(item);
     }
 
     private static Ellipse CreateTrafficLight(string brushKey) => new()
@@ -348,15 +528,13 @@ internal sealed class ActivityMonitorView : Grid
     private void ConfigureCategory(ActivityCategory category)
     {
         _category = category;
-        foreach ((ActivityCategory key, Button button) in _categoryButtons)
+        if (_categoryItems.TryGetValue(category, out SelectorBarItem? selectedItem) &&
+            !ReferenceEquals(_categorySelector.SelectedItem, selectedItem))
         {
-            button.Background = new ThemeResourceBrush(
-                key == category ? "ActivitySegmentSelected" : "ActivityTransparent");
+            _categorySelector.SelectedItem = selectedItem;
         }
 
-        _subtitle.Text = category == ActivityCategory.Energy
-            ? "Applications"
-            : "All Processes";
+        UpdateSubtitle();
         ConfigureColumns();
         BuildFooter();
         RefreshVisibleRows();
@@ -364,6 +542,30 @@ internal sealed class ActivityMonitorView : Grid
         InvalidateArrange();
         Invalidate();
     }
+
+    private void UpdateSubtitle()
+    {
+        _subtitle.Text = EffectiveProcessScope switch
+        {
+            ActivityProcessScope.AllProcesses => "All Processes",
+            ActivityProcessScope.AllProcessesHierarchically => "All Processes, Hierarchically",
+            ActivityProcessScope.MyProcesses => "My Processes",
+            ActivityProcessScope.SystemProcesses => "System Processes",
+            ActivityProcessScope.OtherUsersProcesses => "Other Users’ Processes",
+            ActivityProcessScope.ActiveProcesses => "Active Processes",
+            ActivityProcessScope.InactiveProcesses => "Inactive Processes",
+            ActivityProcessScope.GpuProcesses => "GPU Processes",
+            ActivityProcessScope.WindowedProcesses => "Windowed Processes",
+            ActivityProcessScope.SelectedProcesses => "Selected Processes",
+            ActivityProcessScope.ApplicationsInLast12Hours => "Applications in last 12 hours",
+            _ => "All Processes"
+        };
+    }
+
+    private ActivityProcessScope EffectiveProcessScope =>
+        _category == ActivityCategory.Energy
+            ? ActivityProcessScope.ApplicationsInLast12Hours
+            : _processScope;
 
     private void ConfigureColumns()
     {
@@ -440,10 +642,30 @@ internal sealed class ActivityMonitorView : Grid
         int? selectedId = SelectedProcess?.ProcessId ?? _selectedProcessId;
         string query = _search.Text.Trim();
         IEnumerable<ProcessSnapshot> filtered = _snapshot.Processes;
-        if (_category == ActivityCategory.Energy)
+        string currentUser = Environment.UserName;
+        filtered = EffectiveProcessScope switch
         {
-            filtered = filtered.Where(process => process.IsApplication);
-        }
+            ActivityProcessScope.MyProcesses => filtered.Where(process =>
+                string.Equals(process.User, currentUser, StringComparison.Ordinal)),
+            ActivityProcessScope.SystemProcesses => filtered.Where(process =>
+                process.User == "root" || process.User.StartsWith('_')),
+            ActivityProcessScope.OtherUsersProcesses => filtered.Where(process =>
+                !string.Equals(process.User, currentUser, StringComparison.Ordinal) &&
+                process.User != "root" &&
+                !process.User.StartsWith('_')),
+            ActivityProcessScope.ActiveProcesses => filtered.Where(process =>
+                process.CpuPercent > 0.01 || process.GpuPercent > 0.01),
+            ActivityProcessScope.InactiveProcesses => filtered.Where(process =>
+                process.CpuPercent <= 0.01 && process.GpuPercent <= 0.01),
+            ActivityProcessScope.GpuProcesses => filtered.Where(process =>
+                process.GpuPercent > 0.01 || process.GpuTime > TimeSpan.Zero),
+            ActivityProcessScope.WindowedProcesses or
+                ActivityProcessScope.ApplicationsInLast12Hours =>
+                filtered.Where(process => process.IsApplication),
+            ActivityProcessScope.SelectedProcesses when selectedId.HasValue =>
+                filtered.Where(process => process.ProcessId == selectedId.Value),
+            _ => filtered
+        };
         if (query.Length > 0)
         {
             filtered = filtered.Where(process =>
@@ -480,13 +702,20 @@ internal sealed class ActivityMonitorView : Grid
             _dataGrid.SelectedIndex = _dataGrid.ItemsSource.FindIndex(
                 item => item is ProcessSnapshot process && process.ProcessId == selectedId.Value);
         }
+        UpdateSelectionCommands();
         _dataGrid.Invalidate();
+    }
+
+    private void UpdateSelectionCommands()
+    {
+        bool hasSelection = SelectedProcess is not null;
+        _quitButton.IsEnabled = hasSelection;
+        _inspectButton.IsEnabled = hasSelection;
     }
 
     private void BuildFooter()
     {
-        _historyHost?.ClearChildren();
-        _historyHost = null;
+        DetachGraphs();
         _footer.ClearChildren();
         _footer.ColumnDefinitions.Clear();
         _footer.RowDefinitions.Clear();
@@ -504,95 +733,130 @@ internal sealed class ActivityMonitorView : Grid
 
     private void UpdateFooter(ActivitySnapshot snapshot)
     {
-        _historyHost?.ClearChildren();
-        _historyHost = null;
+        DetachGraphs();
         _footer.ClearChildren();
         SystemSnapshot system = snapshot.System;
-        double elapsed = Math.Max(
-            0.001,
-            (snapshot.CapturedAt - (_previousCapturedAt ?? snapshot.CapturedAt)).TotalSeconds);
-        long diskReadRate = Rate(system.DiskReadBytes, _previousSystem?.DiskReadBytes, elapsed);
-        long diskWriteRate = Rate(system.DiskWrittenBytes, _previousSystem?.DiskWrittenBytes, elapsed);
-        long networkReadRate = Rate(system.NetworkReceivedBytes, _previousSystem?.NetworkReceivedBytes, elapsed);
-        long networkWriteRate = Rate(system.NetworkSentBytes, _previousSystem?.NetworkSentBytes, elapsed);
 
         switch (_category)
         {
             case ActivityCategory.Cpu:
-                ActiveHistory.Append(system.UserCpuPercent, system.SystemCpuPercent);
-                AddFooterPanel(0, "CPU", [
+                AddFooterPanel(0, string.Empty, [
                     $"System:  {system.SystemCpuPercent:N1}%",
                     $"User:      {system.UserCpuPercent:N1}%",
                     $"Idle:        {system.IdleCpuPercent:N1}%"
                 ]);
                 AddFooterGraph(1, "CPU LOAD");
-                AddFooterPanel(2, "TOTAL", [
+                AddFooterPanel(2, string.Empty, [
                     $"Threads:   {system.ThreadCount:N0}",
                     $"Processes: {system.ProcessCount:N0}"
                 ]);
                 break;
             case ActivityCategory.Memory:
-                ActiveHistory.Append(system.UsedMemoryBytes, system.PhysicalMemoryBytes);
                 AddFooterGraph(0, "MEMORY PRESSURE");
-                AddFooterPanel(1, "MEMORY", [
+                AddFooterPanel(1, string.Empty, [
                     $"Physical Memory: {ActivityMetricFormatter.Bytes(system.PhysicalMemoryBytes)}",
                     $"Memory Used:      {ActivityMetricFormatter.Bytes(system.UsedMemoryBytes)}",
                     $"Cached Files:       {ActivityMetricFormatter.Bytes(system.CachedMemoryBytes)}",
                     $"Swap Used:          {ActivityMetricFormatter.Bytes(system.SwapUsedBytes)}"
                 ]);
-                AddFooterPanel(2, "DETAIL", [
+                AddFooterPanel(2, string.Empty, [
                     $"App Memory:   {ActivityMetricFormatter.Bytes(system.AppMemoryBytes)}",
                     $"Wired Memory: {ActivityMetricFormatter.Bytes(system.WiredMemoryBytes)}",
                     $"Compressed:    {ActivityMetricFormatter.Bytes(system.CompressedMemoryBytes)}"
                 ]);
                 break;
             case ActivityCategory.Energy:
-                double energy = snapshot.Processes.Where(item => item.IsApplication).Sum(item => item.EnergyImpact);
-                ActiveHistory.Append(energy);
                 AddFooterGraph(0, "ENERGY IMPACT");
-                AddFooterPanel(1, "POWER", [
+                AddFooterPanel(1, string.Empty, [
                     $"Remaining charge: {system.Battery.ChargePercent:N0}%",
                     system.Battery.IsCharging ? "Battery Is Charging" : "Battery Is Not Charging",
-                    $"Power source:       {system.Battery.PowerSource}",
-                    $"Time remaining:     {system.Battery.TimeRemaining}"
+                    $"Time on AC:            {system.Battery.TimeRemaining}"
                 ]);
-                AddFooterPanel(2, "BATTERY", [
-                    system.Battery.IsPresent ? "Internal battery detected" : "No battery detected",
-                    $"Applications: {snapshot.Processes.Count(item => item.IsApplication):N0}"
-                ]);
+                AddFooterGraph(2, "BATTERY (Last 12 hours)", _batteryHistory);
                 break;
             case ActivityCategory.Disk:
-                ActiveHistory.Append(diskReadRate, diskWriteRate);
-                AddFooterPanel(0, "OPERATIONS", [
-                    $"Reads in/sec:    {ActivityMetricFormatter.Bytes(diskReadRate)}",
-                    $"Writes out/sec: {ActivityMetricFormatter.Bytes(diskWriteRate)}"
+                AddFooterPanel(0, string.Empty, [
+                    $"Reads in:             {system.DiskReadOperations:N0}",
+                    $"Writes out:           {system.DiskWriteOperations:N0}",
+                    $"Reads in/sec:    {_diskReadOperationsRate:N0}",
+                    $"Writes out/sec: {_diskWriteOperationsRate:N0}"
                 ]);
                 AddFooterGraph(1, "IO");
-                AddFooterPanel(2, "DATA", [
+                AddFooterPanel(2, string.Empty, [
                     $"Data read:          {ActivityMetricFormatter.Bytes(system.DiskReadBytes)}",
                     $"Data written:      {ActivityMetricFormatter.Bytes(system.DiskWrittenBytes)}",
-                    $"Data read/sec:    {ActivityMetricFormatter.Bytes(diskReadRate)}",
-                    $"Data written/sec: {ActivityMetricFormatter.Bytes(diskWriteRate)}"
+                    $"Data read/sec:    {ActivityMetricFormatter.Bytes(_diskReadRate)}",
+                    $"Data written/sec: {ActivityMetricFormatter.Bytes(_diskWriteRate)}"
                 ]);
                 break;
             case ActivityCategory.Network:
-                ActiveHistory.Append(networkReadRate, networkWriteRate);
-                AddFooterPanel(0, "PACKETS", [
-                    $"Data received/sec: {ActivityMetricFormatter.Bytes(networkReadRate)}",
-                    $"Data sent/sec:         {ActivityMetricFormatter.Bytes(networkWriteRate)}"
+                AddFooterPanel(0, string.Empty, [
+                    $"Packets in:          {system.NetworkReceivedPackets:N0}",
+                    $"Packets out:        {system.NetworkSentPackets:N0}",
+                    $"Packets in/sec:  {_networkReceivedPacketsRate:N0}",
+                    $"Packets out/sec: {_networkSentPacketsRate:N0}"
                 ]);
                 AddFooterGraph(1, "DATA");
-                AddFooterPanel(2, "TOTAL", [
+                AddFooterPanel(2, string.Empty, [
                     $"Data received: {ActivityMetricFormatter.Bytes(system.NetworkReceivedBytes)}",
                     $"Data sent:         {ActivityMetricFormatter.Bytes(system.NetworkSentBytes)}",
-                    $"Received/sec:    {ActivityMetricFormatter.Bytes(networkReadRate)}",
-                    $"Sent/sec:            {ActivityMetricFormatter.Bytes(networkWriteRate)}"
+                    $"Received/sec:    {ActivityMetricFormatter.Bytes(_networkReadRate)}",
+                    $"Sent/sec:            {ActivityMetricFormatter.Bytes(_networkWriteRate)}"
                 ]);
                 break;
         }
     }
 
-    private void AddFooterGraph(int column, string title)
+    private void UpdateHistories(ActivitySnapshot snapshot)
+    {
+        SystemSnapshot system = snapshot.System;
+        double elapsed = Math.Max(
+            0.001,
+            (snapshot.CapturedAt - (_previousCapturedAt ?? snapshot.CapturedAt)).TotalSeconds);
+        _diskReadRate = Rate(system.DiskReadBytes, _previousSystem?.DiskReadBytes, elapsed);
+        _diskWriteRate = Rate(system.DiskWrittenBytes, _previousSystem?.DiskWrittenBytes, elapsed);
+        _diskReadOperationsRate = Rate(
+            system.DiskReadOperations,
+            _previousSystem?.DiskReadOperations,
+            elapsed);
+        _diskWriteOperationsRate = Rate(
+            system.DiskWriteOperations,
+            _previousSystem?.DiskWriteOperations,
+            elapsed);
+        _networkReadRate = Rate(system.NetworkReceivedBytes, _previousSystem?.NetworkReceivedBytes, elapsed);
+        _networkWriteRate = Rate(system.NetworkSentBytes, _previousSystem?.NetworkSentBytes, elapsed);
+        _networkReceivedPacketsRate = Rate(
+            system.NetworkReceivedPackets,
+            _previousSystem?.NetworkReceivedPackets,
+            elapsed);
+        _networkSentPacketsRate = Rate(
+            system.NetworkSentPackets,
+            _previousSystem?.NetworkSentPackets,
+            elapsed);
+
+        _histories[ActivityCategory.Cpu].Append(
+            system.UserCpuPercent,
+            system.SystemCpuPercent);
+        _histories[ActivityCategory.Memory].Append(
+            system.UsedMemoryBytes,
+            system.PhysicalMemoryBytes);
+        _histories[ActivityCategory.Energy].Append(
+            snapshot.Processes
+                .Where(process => process.IsApplication)
+                .Sum(process => process.EnergyImpact));
+        _histories[ActivityCategory.Disk].Append(
+            _diskReadRate,
+            _diskWriteRate);
+        _histories[ActivityCategory.Network].Append(
+            _networkReadRate,
+            _networkWriteRate);
+        _batteryHistory.Append(system.Battery.ChargePercent);
+    }
+
+    private void AddFooterGraph(
+        int column,
+        string title,
+        Sparkline? graph = null)
     {
         var panel = new Grid
         {
@@ -612,9 +876,8 @@ internal sealed class ActivityMonitorView : Grid
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         });
-        HistoryGraph history = ActiveHistory;
+        Sparkline history = graph ?? ActiveHistory;
         panel.AddChild(history);
-        _historyHost = panel;
         SetRow(history, 1);
         _footer.AddChild(panel);
         SetColumn(panel, column);
@@ -634,15 +897,18 @@ internal sealed class ActivityMonitorView : Grid
             Spacing = 6,
             VerticalAlignment = VerticalAlignment.Center
         };
-        stack.AddChild(new TextBlock
+        if (title.Length > 0)
         {
-            Text = title,
-            Font = _font,
-            FontSize = 10.5f,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new ThemeResourceBrush("TextSecondary"),
-            HorizontalAlignment = HorizontalAlignment.Center
-        });
+            stack.AddChild(new TextBlock
+            {
+                Text = title,
+                Font = _font,
+                FontSize = 10.5f,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new ThemeResourceBrush("TextSecondary"),
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+        }
         foreach (string line in lines)
         {
             stack.AddChild(new TextBlock
@@ -658,7 +924,28 @@ internal sealed class ActivityMonitorView : Grid
         SetColumn(border, column);
     }
 
-    private HistoryGraph ActiveHistory => _histories[_category];
+    private Sparkline ActiveHistory => _histories[_category];
+
+    private void DetachGraphs()
+    {
+        foreach (Sparkline graph in _histories.Values.Append(_batteryHistory))
+        {
+            if (graph.Parent is Panel parent)
+            {
+                parent.Children.Remove(graph);
+            }
+        }
+    }
+
+    private static Sparkline CreateSparkline() => new()
+    {
+        MinHeight = 96,
+        PrimaryStroke = new ThemeResourceBrush("SystemAccentColor"),
+        SecondaryStroke = new ThemeResourceBrush("TabViewItemCloseHover"),
+        Background = new ThemeResourceBrush("CardBackground"),
+        BorderBrush = new ThemeResourceBrush("ControlBorder"),
+        BorderThickness = new Thickness(1)
+    };
 
     private static long Rate(long current, long? previous, double elapsedSeconds) =>
         previous.HasValue

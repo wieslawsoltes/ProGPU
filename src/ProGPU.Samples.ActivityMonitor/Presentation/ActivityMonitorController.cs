@@ -9,8 +9,10 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
 {
     private readonly IActivityMonitorDataSource _dataSource;
     private readonly ActivityMonitorView _view;
+    private readonly TtfFont _font;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private TimeSpan _updateInterval = TimeSpan.FromSeconds(2);
     private Task? _refreshLoop;
     private bool _disposed;
 
@@ -18,12 +20,26 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
         TtfFont font,
         IActivityMonitorDataSource dataSource)
     {
+        _font = font;
         _dataSource = dataSource;
         _view = new ActivityMonitorView(font);
         _view.RefreshRequested += (_, _) => RequestRefresh();
-        _view.InspectRequested += (_, _) => InspectSelected();
-        _view.QuitRequested += (_, _) => ConfirmTermination(ProcessTerminationMode.Quit);
-        _view.ForceQuitRequested += (_, _) => ConfirmTermination(ProcessTerminationMode.ForceQuit);
+        _view.InspectRequested += (_, _) => BeginUserAction(
+            "Inspect Failed",
+            InspectSelectedAsync);
+        _view.TerminationRequested += (_, _) => BeginUserAction(
+            "Quit Failed",
+            ConfirmTerminationAsync);
+        _view.UpdateFrequencyChanged += (_, args) => _updateInterval = args.Interval;
+        _view.SampleRequested += (_, _) => BeginUserAction(
+            "Sample Failed",
+            SampleSelectedAsync);
+        _view.SpindumpRequested += (_, _) => BeginUserAction(
+            "Spindump Failed",
+            () => RunDiagnosticAsync(ActivityDiagnosticKind.Spindump));
+        _view.SystemDiagnosticsRequested += (_, _) => BeginUserAction(
+            "System Diagnostics Failed",
+            () => RunDiagnosticAsync(ActivityDiagnosticKind.SystemDiagnostics));
     }
 
     public FrameworkElement View => _view;
@@ -61,7 +77,7 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             await RefreshAsync(cancellationToken).ConfigureAwait(false);
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(_updateInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -95,7 +111,7 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
         }
     }
 
-    private async void InspectSelected()
+    private async Task InspectSelectedAsync()
     {
         ProcessSnapshot? selected = _view.SelectedProcess;
         if (selected is null)
@@ -113,20 +129,27 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
             return;
         }
 
-        string content =
-            $"Process: {details.Name}\n" +
-            $"PID: {details.ProcessId}\n" +
-            $"Parent PID: {details.ParentProcessId}\n" +
-            $"User: {details.User}\n" +
-            $"CPU time: {ActivityMetricFormatter.Duration(details.Snapshot.CpuTime)}\n" +
-            $"Memory: {ActivityMetricFormatter.Bytes(details.Snapshot.MemoryBytes)}\n" +
-            $"Threads: {details.Snapshot.ThreadCount:N0}\n" +
-            $"Executable: {details.ExecutablePath}\n" +
-            $"Command: {details.CommandLine}";
-        await ShowMessageAsync(details.Name, content);
+        var dialog = new ContentDialog
+        {
+            Title = $"{details.Name} ({details.ProcessId})",
+            Content = new ProcessInspectorView(_font, details),
+            PrimaryButtonText = "Sample",
+            SecondaryButtonText = "Quit",
+            CloseButtonText = "Done",
+            FullSizeDesired = true
+        };
+        switch (await dialog.ShowAsync())
+        {
+            case ContentDialogResult.Primary:
+                BeginUserAction("Sample Failed", SampleSelectedAsync);
+                break;
+            case ContentDialogResult.Secondary:
+                BeginUserAction("Quit Failed", ConfirmTerminationAsync);
+                break;
+        }
     }
 
-    private async void ConfirmTermination(ProcessTerminationMode mode)
+    private async Task ConfirmTerminationAsync()
     {
         ProcessSnapshot? selected = _view.SelectedProcess;
         if (selected is null)
@@ -135,33 +158,97 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
             return;
         }
 
-        string verb = mode == ProcessTerminationMode.ForceQuit ? "Force Quit" : "Quit";
         var dialog = new ContentDialog
         {
-            Title = $"{verb} “{selected.Name}”?",
-            Content = mode == ProcessTerminationMode.ForceQuit
-                ? "The process will be stopped immediately and may lose unsaved data."
-                : "The process will receive a normal termination request.",
-            PrimaryButtonText = verb,
-            SecondaryButtonText = "Cancel"
+            Title = "Are you sure you want to quit this process?",
+            Content = $"Do you really want to quit “{selected.Name}”?",
+            PrimaryButtonText = "Quit",
+            SecondaryButtonText = "Force Quit",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        ContentDialogResult choice = await dialog.ShowAsync();
+        ProcessTerminationMode? mode = choice switch
+        {
+            ContentDialogResult.Primary => ProcessTerminationMode.Quit,
+            ContentDialogResult.Secondary => ProcessTerminationMode.ForceQuit,
+            _ => null
+        };
+        if (mode is null)
         {
             return;
         }
 
         ProcessActionResult result = await _dataSource.TerminateProcessAsync(
             selected.ProcessId,
-            mode,
+            mode.Value,
             _cancellation.Token);
         _view.SetStatus(result.Message);
         if (!result.Succeeded)
         {
+            string verb = mode == ProcessTerminationMode.ForceQuit
+                ? "Force Quit"
+                : "Quit";
             await ShowMessageAsync($"{verb} Failed", result.Message);
         }
         else
         {
             RequestRefresh();
+        }
+    }
+
+    private async Task SampleSelectedAsync()
+    {
+        ProcessSnapshot? selected = _view.SelectedProcess;
+        if (selected is null)
+        {
+            await ShowMessageAsync("Sample Process", "Select a process in the table first.");
+            return;
+        }
+
+        ProcessReportResult result = await _dataSource.SampleProcessAsync(
+            selected.ProcessId,
+            _cancellation.Token);
+        await ShowMessageAsync(
+            result.Succeeded ? $"Sample of {selected.Name}" : "Sample Failed",
+            result.Succeeded ? result.Report : result.Message);
+    }
+
+    private async Task RunDiagnosticAsync(ActivityDiagnosticKind kind)
+    {
+        int? processId = kind == ActivityDiagnosticKind.Spindump
+            ? _view.SelectedProcess?.ProcessId
+            : null;
+        ProcessActionResult result = await _dataSource.RunDiagnosticAsync(
+            kind,
+            processId,
+            _cancellation.Token);
+        _view.SetStatus(result.Message);
+        await ShowMessageAsync(
+            result.Succeeded ? "Diagnostic Started" : "Diagnostic Failed",
+            result.Message);
+    }
+
+    private void BeginUserAction(string failureTitle, Func<Task> action)
+    {
+        _ = ExecuteUserActionAsync(failureTitle, action);
+    }
+
+    private async Task ExecuteUserActionAsync(string failureTitle, Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+        }
+        catch (Exception exception)
+        {
+            await ShowMessageAsync(failureTitle, exception.Message);
         }
     }
 

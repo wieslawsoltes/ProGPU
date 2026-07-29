@@ -84,10 +84,17 @@ public sealed class App : Application
         Resources["ActivitySegmentBackground"] = new SolidColorBrush(new Vector4(1, 1, 1, 0.94f));
         Resources["ActivitySegmentBorder"] = new SolidColorBrush(new Vector4(0.84f, 0.84f, 0.84f, 1));
         Resources["ActivitySegmentSelected"] = new SolidColorBrush(new Vector4(0.86f, 0.86f, 0.86f, 1));
+        Resources["SelectorBarItemBackgroundSelected"] = Resources["ActivitySegmentSelected"];
+        Resources["SelectorBarItemBackgroundPointerOver"] = new SolidColorBrush(new Vector4(0.92f, 0.92f, 0.92f, 1));
         Resources["ActivityTrafficRed"] = new SolidColorBrush(new Vector4(1, 0.37f, 0.39f, 1));
         Resources["ActivityTrafficYellow"] = new SolidColorBrush(new Vector4(1, 0.75f, 0, 1));
         Resources["ActivityTrafficGreen"] = new SolidColorBrush(new Vector4(0.16f, 0.78f, 0.35f, 1));
         Resources["ActivityTrafficBorder"] = new SolidColorBrush(new Vector4(0, 0, 0, 0.18f));
         Resources["ActivityGraphBackground"] = new SolidColorBrush(new Vector4(1, 1, 1, 1));
+        Resources["ActivityInspectorBackground"] = new SolidColorBrush(new Vector4(0.985f, 0.985f, 0.985f, 1));
+        Resources["ActivityGraphBlue"] = new SolidColorBrush(new Vector4(0.0f, 0.72f, 0.9f, 1));
+        Resources["ActivityGraphRed"] = new SolidColorBrush(new Vector4(1.0f, 0.2f, 0.24f, 1));
+        Resources["ActivityGraphOrange"] = new SolidColorBrush(new Vector4(1.0f, 0.62f, 0.24f, 1));
+        Resources["ActivityGraphGreen"] = new SolidColorBrush(new Vector4(0.18f, 0.78f, 0.52f, 1));
     }
 }

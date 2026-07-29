@@ -36,7 +36,9 @@ public static class Program
             $"{source.PlatformName}: {snapshot.Processes.Count} processes, " +
             $"{snapshot.System.ThreadCount} threads, " +
             $"CPU {snapshot.System.UserCpuPercent + snapshot.System.SystemCpuPercent:F1}%, " +
-            $"memory {snapshot.System.UsedMemoryBytes:N0}/{snapshot.System.PhysicalMemoryBytes:N0} bytes");
+            $"memory {snapshot.System.UsedMemoryBytes:N0}/{snapshot.System.PhysicalMemoryBytes:N0} bytes, " +
+            $"disk {snapshot.System.DiskReadOperations:N0}/{snapshot.System.DiskWriteOperations:N0} ops, " +
+            $"network {snapshot.System.NetworkReceivedPackets:N0}/{snapshot.System.NetworkSentPackets:N0} packets");
 
         foreach (ProcessSnapshot process in snapshot.Processes
                      .OrderByDescending(item => item.CpuPercent)

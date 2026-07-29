@@ -73,6 +73,20 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             "/bin/ps",
             ["-p", processId.ToString(CultureInfo.InvariantCulture), "-o", "command="],
             cancellationToken).ConfigureAwait(false);
+        string openFilesOutput = await RunCommandAsync(
+            "/usr/sbin/lsof",
+            [
+                "-n",
+                "-P",
+                "-p",
+                processId.ToString(CultureInfo.InvariantCulture)
+            ],
+            cancellationToken).ConfigureAwait(false);
+        string[] openFilesAndPorts = openFilesOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Skip(1)
+            .Take(200)
+            .ToArray();
         DateTimeOffset? startTime = null;
         try
         {
@@ -92,7 +106,8 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             process.ExecutablePath,
             commandLine.Trim(),
             startTime,
-            process);
+            process,
+            openFilesAndPorts);
     }
 
     public ValueTask<ProcessActionResult> TerminateProcessAsync(
@@ -119,6 +134,119 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         return ValueTask.FromResult(new ProcessActionResult(
             false,
             $"Could not signal process {processId} (errno {error})."));
+    }
+
+    public async ValueTask<ProcessReportResult> SampleProcessAsync(
+        int processId,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (processId <= 0)
+        {
+            return new ProcessReportResult(
+                false,
+                "Select a valid process first.",
+                string.Empty);
+        }
+
+        CommandResult result = await RunCommandResultAsync(
+            "/usr/bin/sample",
+            [
+                processId.ToString(CultureInfo.InvariantCulture),
+                "1",
+                "1"
+            ],
+            cancellationToken).ConfigureAwait(false);
+        string report = result.StandardOutput.Length > 64_000
+            ? result.StandardOutput[..64_000] + "\n… report truncated …"
+            : result.StandardOutput;
+        return result.ExitCode == 0 && report.Length > 0
+            ? new ProcessReportResult(true, "Process sample captured.", report)
+            : new ProcessReportResult(
+                false,
+                result.StandardError.Length > 0
+                    ? result.StandardError.Trim()
+                    : $"sample exited with code {result.ExitCode}.",
+                report);
+    }
+
+    public ValueTask<ProcessActionResult> RunDiagnosticAsync(
+        ActivityDiagnosticKind kind,
+        int? processId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            string timestamp = DateTimeOffset.Now.ToString(
+                "yyyyMMdd-HHmmss",
+                CultureInfo.InvariantCulture);
+            string fileName;
+            string[] arguments;
+            string outputDescription;
+            switch (kind)
+            {
+                case ActivityDiagnosticKind.Spindump:
+                    if (processId is null or <= 0)
+                    {
+                        return ValueTask.FromResult(new ProcessActionResult(
+                            false,
+                            "Select a process before running Spindump."));
+                    }
+                    fileName = "/usr/sbin/spindump";
+                    string spindumpPath = Path.Combine(
+                        Path.GetTempPath(),
+                        $"ActivityMonitor-spindump-{processId}-{timestamp}.txt");
+                    arguments =
+                    [
+                        processId.Value.ToString(CultureInfo.InvariantCulture),
+                        "10",
+                        "10",
+                        "-file",
+                        spindumpPath
+                    ];
+                    outputDescription = $"Spindump started. Report: {spindumpPath}";
+                    break;
+                case ActivityDiagnosticKind.SystemDiagnostics:
+                    fileName = "/usr/bin/sysdiagnose";
+                    string diagnosticDirectory = Path.GetTempPath();
+                    arguments = ["-f", diagnosticDirectory];
+                    outputDescription =
+                        $"System Diagnostics started. Archive will be written to {diagnosticDirectory}.";
+                    break;
+                default:
+                    return ValueTask.FromResult(new ProcessActionResult(
+                        false,
+                        "Unsupported diagnostic."));
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            Process? process = Process.Start(startInfo);
+            process?.Dispose();
+            return ValueTask.FromResult(new ProcessActionResult(
+                process is not null,
+                process is not null
+                    ? outputDescription
+                    : $"Could not start {Path.GetFileName(fileName)}."));
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or
+            System.ComponentModel.Win32Exception)
+        {
+            return ValueTask.FromResult(new ProcessActionResult(
+                false,
+                exception.Message));
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -155,19 +283,21 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         CpuPercentages cpu = CaptureCpuPercentages();
         MemoryCounters memory = CaptureMemoryCounters(cancellationToken);
         BatterySnapshot battery = CaptureBattery(cancellationToken);
-        long diskRead = 0;
-        long diskWritten = 0;
-        long networkReceived = 0;
-        long networkSent = 0;
+        long processDiskRead = 0;
+        long processDiskWritten = 0;
+        long processNetworkReceived = 0;
+        long processNetworkSent = 0;
         int threads = 0;
         foreach (ProcessSnapshot process in processes)
         {
-            diskRead += process.DiskReadBytes;
-            diskWritten += process.DiskWrittenBytes;
-            networkReceived += process.NetworkReceivedBytes;
-            networkSent += process.NetworkSentBytes;
+            processDiskRead += process.DiskReadBytes;
+            processDiskWritten += process.DiskWrittenBytes;
+            processNetworkReceived += process.NetworkReceivedBytes;
+            processNetworkSent += process.NetworkSentBytes;
             threads += process.ThreadCount;
         }
+        IoCounters disk = CaptureDiskCounters(cancellationToken);
+        IoCounters network = CaptureNetworkCounters(cancellationToken);
 
         var system = new SystemSnapshot(
             cpu.User,
@@ -180,10 +310,14 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             memory.Wired,
             memory.Compressed,
             memory.SwapUsed,
-            diskRead,
-            diskWritten,
-            networkReceived,
-            networkSent,
+            disk.ReadBytes > 0 ? disk.ReadBytes : processDiskRead,
+            disk.WrittenBytes > 0 ? disk.WrittenBytes : processDiskWritten,
+            disk.ReadOperations,
+            disk.WriteOperations,
+            network.ReadBytes > 0 ? network.ReadBytes : processNetworkReceived,
+            network.WrittenBytes > 0 ? network.WrittenBytes : processNetworkSent,
+            network.ReadOperations,
+            network.WriteOperations,
             processes.Count,
             threads,
             battery);
@@ -595,6 +729,122 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         executablePath.StartsWith("/bin/", StringComparison.Ordinal) ||
         executablePath.StartsWith("/sbin/", StringComparison.Ordinal);
 
+    private static IoCounters CaptureDiskCounters(CancellationToken cancellationToken)
+    {
+        try
+        {
+            string output = RunCommand(
+                "/usr/sbin/ioreg",
+                ["-r", "-c", "IOBlockStorageDriver", "-k", "Statistics", "-l"],
+                cancellationToken);
+            return new IoCounters(
+                ExtractMaximumCounter(output, "\"Bytes (Read)\"="),
+                ExtractMaximumCounter(output, "\"Bytes (Write)\"="),
+                ExtractMaximumCounter(output, "\"Operations (Read)\"="),
+                ExtractMaximumCounter(output, "\"Operations (Write)\"="));
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or
+            System.ComponentModel.Win32Exception)
+        {
+            return default;
+        }
+    }
+
+    private static IoCounters CaptureNetworkCounters(CancellationToken cancellationToken)
+    {
+        try
+        {
+            string output = RunCommand(
+                "/usr/sbin/netstat",
+                ["-ibn"],
+                cancellationToken);
+            long receivedBytes = 0;
+            long sentBytes = 0;
+            long receivedPackets = 0;
+            long sentPackets = 0;
+            var interfaces = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string line in output.Split(
+                         '\n',
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string[] columns = line.Split(
+                    ' ',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (columns.Length < 10 ||
+                    !columns[2].StartsWith("<Link#", StringComparison.Ordinal) ||
+                    columns[0] == "lo0" ||
+                    columns[0].EndsWith('*') ||
+                    !interfaces.Add(columns[0]))
+                {
+                    continue;
+                }
+
+                int counters = columns.Length - 7;
+                if (!long.TryParse(columns[counters], out long inputPackets) ||
+                    !long.TryParse(columns[counters + 2], out long inputBytes) ||
+                    !long.TryParse(columns[counters + 3], out long outputPackets) ||
+                    !long.TryParse(columns[counters + 5], out long outputBytes))
+                {
+                    continue;
+                }
+
+                receivedPackets = SaturatingAdd(receivedPackets, inputPackets);
+                receivedBytes = SaturatingAdd(receivedBytes, inputBytes);
+                sentPackets = SaturatingAdd(sentPackets, outputPackets);
+                sentBytes = SaturatingAdd(sentBytes, outputBytes);
+            }
+
+            return new IoCounters(
+                receivedBytes,
+                sentBytes,
+                receivedPackets,
+                sentPackets);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or
+            System.ComponentModel.Win32Exception)
+        {
+            return default;
+        }
+    }
+
+    private static long ExtractMaximumCounter(string output, string marker)
+    {
+        long maximum = 0;
+        int searchStart = 0;
+        while (searchStart < output.Length)
+        {
+            int markerIndex = output.IndexOf(marker, searchStart, StringComparison.Ordinal);
+            if (markerIndex < 0)
+            {
+                break;
+            }
+
+            int valueStart = markerIndex + marker.Length;
+            int valueEnd = valueStart;
+            while (valueEnd < output.Length && char.IsAsciiDigit(output[valueEnd]))
+            {
+                valueEnd++;
+            }
+            if (long.TryParse(
+                    output.AsSpan(valueStart, valueEnd - valueStart),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out long value))
+            {
+                maximum = Math.Max(maximum, value);
+            }
+            searchStart = Math.Max(valueEnd, valueStart + 1);
+        }
+        return maximum;
+    }
+
+    private static long SaturatingAdd(long left, long right) =>
+        right > 0 && left > long.MaxValue - right
+            ? long.MaxValue
+            : left + right;
+
     private static T SafeRead<T>(Func<T> reader, T fallback = default!)
     {
         try
@@ -658,6 +908,22 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         return await output.ConfigureAwait(false);
+    }
+
+    private static async Task<CommandResult> RunCommandResultAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        using var process = CreateCommand(fileName, arguments);
+        process.Start();
+        Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        return new CommandResult(
+            process.ExitCode,
+            await output.ConfigureAwait(false),
+            await error.ConfigureAwait(false));
     }
 
     private static Process CreateCommand(string fileName, IReadOnlyList<string> arguments)
@@ -761,6 +1027,17 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         string User,
         double PsCpuPercent,
         string ExecutablePath);
+
+    private readonly record struct CommandResult(
+        int ExitCode,
+        string StandardOutput,
+        string StandardError);
+
+    private readonly record struct IoCounters(
+        long ReadBytes,
+        long WrittenBytes,
+        long ReadOperations,
+        long WriteOperations);
 
     private readonly record struct PreviousProcessSample(TimeSpan CpuTime, long WakeUps);
     private readonly record struct NetworkCounters(long Received, long Sent);

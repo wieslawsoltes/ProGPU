@@ -131,6 +131,14 @@ public sealed class ActivityMonitorViewTests
             Assert.Contains("Real Mem", view.ColumnHeaders);
             Assert.Equal(48, view.VisibleProcessCount);
 
+            view.SelectProcessScope(ActivityProcessScope.SystemProcesses);
+            Assert.Equal(ActivityProcessScope.SystemProcesses, view.ProcessScope);
+            Assert.Equal(9, view.VisibleProcessCount);
+
+            view.SelectProcessScope(ActivityProcessScope.OtherUsersProcesses);
+            Assert.Equal(39, view.VisibleProcessCount);
+
+            view.SelectProcessScope(ActivityProcessScope.AllProcesses);
             view.SelectCategory(ActivityCategory.Energy);
             Assert.Contains("Energy Impact", view.ColumnHeaders);
             Assert.Equal(12, view.VisibleProcessCount);
@@ -142,6 +150,65 @@ public sealed class ActivityMonitorViewTests
             Assert.Contains("Bytes Written", view.ColumnHeaders);
             view.SelectCategory(ActivityCategory.Network);
             Assert.Contains("Rcvd Bytes", view.ColumnHeaders);
+        }
+        finally
+        {
+            Application.Current = previousApplication;
+            ThemeManager.CurrentTheme = previousTheme;
+            ThemeManager.CurrentThemeFamily = previousFamily;
+            PopupService.DefaultFont = previousPopupFont;
+        }
+    }
+
+    [Fact]
+    public void ProcessInspectorRendersSummaryTabsAndOpenFileContent()
+    {
+        Application previousApplication = Application.Current;
+        ElementTheme previousTheme = ThemeManager.CurrentTheme;
+        VisualThemeFamily previousFamily = ThemeManager.CurrentThemeFamily;
+        TtfFont? previousPopupFont = PopupService.DefaultFont;
+        try
+        {
+            Application.Current = new App();
+            InterFontFamily.RegisterFonts();
+            PopupService.DefaultFont = InterFontFamily.Regular;
+            ProcessSnapshot process = CreateSnapshot().Processes[0];
+            var details = new ProcessDetails(
+                process.ProcessId,
+                process.ParentProcessId,
+                process.Name,
+                process.User,
+                process.ExecutablePath,
+                $"{process.ExecutablePath} --headless",
+                DateTimeOffset.Now.AddMinutes(-4),
+                process,
+                ["/Applications/Sample.app/Contents/MacOS/Sample", "TCP 127.0.0.1:8080"]);
+            var inspector = new ProcessInspectorView(InterFontFamily.Regular, details);
+
+            using var window = new HeadlessWindow(800, 500)
+            {
+                Content = inspector
+            };
+            window.Render();
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            int darkPixels = 0;
+            for (int index = 0; index < pixels.Length; index += 4)
+            {
+                if (pixels[index] < 120 &&
+                    pixels[index + 1] < 120 &&
+                    pixels[index + 2] < 120)
+                {
+                    darkPixels++;
+                }
+            }
+
+            window.SaveScreenshot(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "activity_monitor_inspector.png"));
+            Assert.True(
+                darkPixels > 500,
+                $"Expected inspector labels and values, found {darkPixels} dark pixels.");
         }
         finally
         {
@@ -194,8 +261,12 @@ public sealed class ActivityMonitorViewTests
             4_200_000_000,
             42_000_000_000,
             28_000_000_000,
+            410_000,
+            280_000,
             9_000_000_000,
             6_000_000_000,
+            90_000,
+            60_000,
             processes.Length,
             processes.Sum(process => process.ThreadCount),
             new BatterySnapshot(true, 78, false, "AC Power", "3:20"));

@@ -20,6 +20,15 @@ public interface IActivityMonitorDataSource : IAsyncDisposable
         int processId,
         ProcessTerminationMode mode,
         CancellationToken cancellationToken = default);
+
+    ValueTask<ProcessReportResult> SampleProcessAsync(
+        int processId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<ProcessActionResult> RunDiagnosticAsync(
+        ActivityDiagnosticKind kind,
+        int? processId = null,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record ActivityCaptureOptions(
@@ -70,8 +79,12 @@ public sealed record SystemSnapshot(
     long SwapUsedBytes,
     long DiskReadBytes,
     long DiskWrittenBytes,
+    long DiskReadOperations,
+    long DiskWriteOperations,
     long NetworkReceivedBytes,
     long NetworkSentBytes,
+    long NetworkReceivedPackets,
+    long NetworkSentPackets,
     int ProcessCount,
     int ThreadCount,
     BatterySnapshot Battery);
@@ -91,7 +104,8 @@ public sealed record ProcessDetails(
     string ExecutablePath,
     string CommandLine,
     DateTimeOffset? StartTime,
-    ProcessSnapshot Snapshot);
+    ProcessSnapshot Snapshot,
+    IReadOnlyList<string> OpenFilesAndPorts);
 
 public enum ProcessTerminationMode
 {
@@ -100,3 +114,14 @@ public enum ProcessTerminationMode
 }
 
 public sealed record ProcessActionResult(bool Succeeded, string Message);
+
+public sealed record ProcessReportResult(
+    bool Succeeded,
+    string Message,
+    string Report);
+
+public enum ActivityDiagnosticKind
+{
+    Spindump,
+    SystemDiagnostics
+}
