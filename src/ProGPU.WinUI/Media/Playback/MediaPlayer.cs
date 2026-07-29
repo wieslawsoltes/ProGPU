@@ -505,6 +505,13 @@ public sealed class MediaPlayer : IDisposable
             {
                 return;
             }
+            if (value is MediaSource mediaSource &&
+                MediaPlaybackItem.FindFromMediaSource(
+                    mediaSource) is not null)
+            {
+                throw new InvalidOperationException(
+                    "A MediaSource associated with a MediaPlaybackItem must be played through that item.");
+            }
 
             if (_typedSource is not null)
             {
@@ -855,6 +862,14 @@ public sealed class MediaPlayer : IDisposable
             MediaPlaybackState previousState =
                 PlaybackSession.PlaybackState;
             PlaybackSession.AcceptChange(args);
+            if ((args.Change &
+                 (MediaPlaybackChange.Source |
+                  MediaPlaybackChange.Download)) != 0)
+            {
+                GetCurrentPlaybackItem()?
+                    .SetTotalDownloadProgress(
+                        args.Snapshot.DownloadProgress);
+            }
             if ((args.Change & MediaPlaybackChange.State) != 0)
             {
                 MediaPlaybackState currentState =
@@ -904,6 +919,14 @@ public sealed class MediaPlayer : IDisposable
                     EventArgs.Empty);
             }
         });
+
+    private MediaPlaybackItem? GetCurrentPlaybackItem() =>
+        _source switch
+        {
+            MediaPlaybackItem item => item,
+            MediaPlaybackList list => list.CurrentItem,
+            _ => null
+        };
 
     private void OnEngineOpened(
         object? sender,

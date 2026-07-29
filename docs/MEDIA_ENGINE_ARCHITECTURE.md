@@ -81,6 +81,17 @@ design.
   remains blocked while any owner is playing or buffering without retaining
   disposed or abandoned players. Natural end-of-stream advancement bypasses
   this manual-navigation guard.
+- [`MediaPlaybackItem.FindFromMediaSource`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.findfrommediasource)
+  and Microsoft's
+  [media items and playlists guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-playback-with-mediasource)
+  establish a one-to-one `MediaSource`/`MediaPlaybackItem` association. The
+  typed source owns its associated item, rejects a second wrapper
+  transactionally, and prevents the already-associated raw source from being
+  assigned directly to a player. The official
+  [`TotalDownloadProgress`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.totaldownloadprogress)
+  value is projected from the active provider snapshot only onto the current
+  list item, remains in the documented 0–1 range, and starts complete for a
+  local file URI.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),

@@ -9,6 +9,8 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
     IProGpuMediaPlaybackSource
 {
     private readonly MediaSourceDescriptor _descriptor;
+    private readonly object _playbackItemGate = new();
+    private MediaPlaybackItem? _playbackItem;
     private int _disposed;
 
     private MediaSource(MediaSourceDescriptor descriptor)
@@ -43,6 +45,32 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
             Volatile.Read(ref _disposed) != 0,
             this);
         return _descriptor;
+    }
+
+    internal void AssociatePlaybackItem(
+        MediaPlaybackItem playbackItem)
+    {
+        ArgumentNullException.ThrowIfNull(playbackItem);
+        lock (_playbackItemGate)
+        {
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref _disposed) != 0,
+                this);
+            if (_playbackItem is not null)
+            {
+                throw new InvalidOperationException(
+                    "A MediaSource can be associated with only one MediaPlaybackItem.");
+            }
+            _playbackItem = playbackItem;
+        }
+    }
+
+    internal MediaPlaybackItem? FindPlaybackItem()
+    {
+        lock (_playbackItemGate)
+        {
+            return _playbackItem;
+        }
     }
 
     public static MediaSource CreateFromUri(Uri uri) =>

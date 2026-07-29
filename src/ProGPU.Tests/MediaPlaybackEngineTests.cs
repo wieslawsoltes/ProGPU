@@ -1320,6 +1320,108 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void WinUiPlaybackItemOwnsItsMediaSourceAssociation()
+    {
+        using MediaSource associatedSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/associated.mp4"));
+        using MediaSource previousSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/previous.mp4"));
+
+        Assert.Null(
+            MediaPlaybackItem.FindFromMediaSource(
+                associatedSource));
+
+        var item = new MediaPlaybackItem(associatedSource);
+
+        Assert.Same(
+            item,
+            MediaPlaybackItem.FindFromMediaSource(
+                associatedSource));
+        Assert.Throws<InvalidOperationException>(
+            () => new MediaPlaybackItem(associatedSource));
+
+        using var player = new MediaPlayer(
+            new MediaProviderRegistry(),
+            new MediaEffectRegistry());
+        player.Source = previousSource;
+
+        Assert.Throws<InvalidOperationException>(
+            () => player.Source = associatedSource);
+        Assert.Same(previousSource, player.Source);
+
+        player.Source = item;
+
+        Assert.Same(item, player.Source);
+    }
+
+    [Fact]
+    public void WinUiPlaybackItemProjectsItsOwnDownloadProgress()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/progress-first.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/progress-second.mp4"));
+        var first = new MediaPlaybackItem(firstSource);
+        var second = new MediaPlaybackItem(secondSource);
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+
+        player.Source = list;
+        RecordingProvider firstProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        firstProvider.Report(CreateSnapshot(0.35d));
+
+        Assert.Equal(0.35d, first.TotalDownloadProgress);
+        Assert.Equal(0d, second.TotalDownloadProgress);
+
+        Assert.Same(second, list.MoveNext());
+        RecordingProvider secondProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.NotSame(firstProvider, secondProvider);
+        secondProvider.Report(CreateSnapshot(0.65d));
+
+        Assert.Equal(0.35d, first.TotalDownloadProgress);
+        Assert.Equal(0.65d, second.TotalDownloadProgress);
+
+        static MediaPlaybackSnapshot CreateSnapshot(
+            double downloadProgress) =>
+            new(
+                MediaEnginePlaybackState.Paused,
+                TimeSpan.Zero,
+                TimeSpan.FromMinutes(2),
+                1920,
+                1080,
+                BufferingProgress: 1d,
+                DownloadProgress: downloadProgress,
+                PlaybackRate: 1d,
+                new MediaProviderCapabilities(
+                    CanPause: true,
+                    CanSeek: true,
+                    SupportsRate: true,
+                    SupportsFrameStepping: true,
+                    HardwareDecoded: true,
+                    HasAudio: true,
+                    HasVideo: true));
+    }
+
+    [Fact]
     public void WinUiPlaybackListAdvancesAtItemDurationLimit()
     {
         var registry = new MediaProviderRegistry();

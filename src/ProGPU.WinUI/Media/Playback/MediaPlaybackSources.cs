@@ -93,6 +93,8 @@ public sealed class MediaPlaybackItemFailedEventArgs : EventArgs
 public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     IProGpuMediaPlaybackSource
 {
+    private double _totalDownloadProgress;
+
     public MediaPlaybackItem(MediaSource source)
         : this(source, TimeSpan.Zero, null)
     {
@@ -118,7 +120,7 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         TimeSpan startTime,
         TimeSpan? durationLimit)
     {
-        Source = source ??
+        MediaSource validatedSource = source ??
             throw new ArgumentNullException(nameof(source));
         if (startTime < TimeSpan.Zero)
         {
@@ -133,6 +135,10 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
 
         StartTime = startTime;
         DurationLimit = durationLimit;
+        validatedSource.AssociatePlaybackItem(this);
+        Source = validatedSource;
+        _totalDownloadProgress =
+            validatedSource.Uri?.IsFile == true ? 1d : 0d;
     }
 
     public MediaSource Source { get; }
@@ -140,6 +146,22 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     public TimeSpan? DurationLimit { get; }
     public bool CanSkip { get; set; } = true;
     public bool IsDisabledInPlaybackList { get; set; }
+    public double TotalDownloadProgress =>
+        Volatile.Read(ref _totalDownloadProgress);
+
+    public static MediaPlaybackItem? FindFromMediaSource(
+        MediaSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.FindPlaybackItem();
+    }
+
+    internal void SetTotalDownloadProgress(double value) =>
+        Volatile.Write(
+            ref _totalDownloadProgress,
+            double.IsFinite(value)
+                ? Math.Clamp(value, 0d, 1d)
+                : 0d);
 
     MediaSourceDescriptor
         IProGpuMediaPlaybackSource.ResolveDescriptor() =>
