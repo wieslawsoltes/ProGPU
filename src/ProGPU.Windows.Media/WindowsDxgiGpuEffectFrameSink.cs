@@ -6,15 +6,18 @@ namespace ProGPU.Windows.Media;
 
 /// <summary>
 /// Bounded D3D11/Dawn/Media Foundation frame bridge for the built-in
-/// saturation and grayscale export effects and generated color frames.
+/// affine and Gaussian export effects and generated color frames.
 /// </summary>
 /// <remarks>
 /// Three source and three encoder targets are allocated once. Each frame
-/// performs one D3D11 GPU copy into the source ring and one fused WebGPU
-/// render into an encoder target. Generated colors replace the D3D11 copy
-/// with a WebGPU attachment clear. Pixel storage is never mapped or copied
-/// to the CPU. IMFTrackedSample returns targets asynchronously, so residency
-/// is O(width * height * ring-size) and independent of clip duration.
+/// performs one D3D11 GPU copy into the source ring and either one affine
+/// WebGPU render or two separable Gaussian passes into an encoder target.
+/// One intermediate texture is allocated lazily and retained. Generated
+/// colors replace the D3D11 copy with a WebGPU attachment clear and skip
+/// spatial blur because a clamped constant field is invariant. Pixel storage
+/// is never mapped or copied to the CPU. IMFTrackedSample returns targets
+/// asynchronously, so residency is O(width * height * ring-size) and
+/// independent of clip duration.
 /// </remarks>
 internal sealed unsafe class
     WindowsDxgiGpuEffectFrameSink :
@@ -26,6 +29,7 @@ internal sealed unsafe class
     private readonly nint _d3dDevice;
     private readonly nint _d3dContext;
     private readonly nint _readbackTexture;
+    private readonly WgpuContext _gpuContext;
     private readonly uint _width;
     private readonly uint _height;
     private readonly Queue<Slot> _availableSources = new();
@@ -36,6 +40,7 @@ internal sealed unsafe class
     private int _outstandingTargets;
     private bool _disposed;
     private bool _resourcesReleased;
+    private GpuTexture? _blurIntermediate;
 
     internal WindowsDxgiGpuEffectFrameSink(
         DawnGpuContext dawn,
@@ -47,6 +52,7 @@ internal sealed unsafe class
         ArgumentNullException.ThrowIfNull(dawn);
         _d3dDevice = d3dDevice;
         _d3dContext = d3dContext;
+        _gpuContext = dawn.Context;
         _width = width;
         _height = height;
         _sources = new Slot[RingSize];
@@ -96,7 +102,7 @@ internal sealed unsafe class
         uint sinkStream,
         long timestamp,
         long duration,
-        in GpuTextureColorTransform colorTransform,
+        in WindowsGpuVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -127,11 +133,12 @@ internal sealed unsafe class
                 Rent(
                     _availableTargets,
                     cancellationToken);
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                colorTransform);
+                effectPlan,
+                applySpatialEffect: true);
 
             source.Access.EndAccess();
             ReturnSource(source);
@@ -166,7 +173,7 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] ProcessAndReadback(
         nint decodedSample,
-        in GpuTextureColorTransform colorTransform,
+        in WindowsGpuVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -197,11 +204,12 @@ internal sealed unsafe class
                 Rent(
                     _availableTargets,
                     cancellationToken);
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                colorTransform);
+                effectPlan,
+                applySpatialEffect: true);
 
             source.Access.EndAccess();
             ReturnSource(source);
@@ -240,7 +248,7 @@ internal sealed unsafe class
         uint sinkStream,
         long timestamp,
         long duration,
-        in GpuTextureColorTransform colorTransform,
+        in WindowsGpuVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -265,11 +273,12 @@ internal sealed unsafe class
                 Rent(
                     _availableTargets,
                     cancellationToken);
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                colorTransform);
+                effectPlan,
+                applySpatialEffect: false);
 
             ReturnSource(source);
             sourceReturned = true;
@@ -302,7 +311,7 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] ProcessColorAndReadback(
         uint argbColor,
-        in GpuTextureColorTransform colorTransform,
+        in WindowsGpuVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -327,11 +336,12 @@ internal sealed unsafe class
                 Rent(
                     _availableTargets,
                     cancellationToken);
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                colorTransform);
+                effectPlan,
+                applySpatialEffect: false);
             ReturnSource(source);
             sourceReturned = true;
 
@@ -483,6 +493,44 @@ internal sealed unsafe class
             B = (argbColor & 0xff) * scale,
             A = ((argbColor >> 24) & 0xff) * scale
         };
+    }
+
+    private void Render(
+        GpuTexture source,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        in WindowsGpuVideoEffectPlan effectPlan,
+        bool applySpatialEffect)
+    {
+        if (!applySpatialEffect ||
+            !effectPlan.HasSpatialEffect)
+        {
+            GpuTextureBlitter.Blit(
+                source,
+                destinationView,
+                destinationFormat,
+                effectPlan.ColorTransform);
+            return;
+        }
+
+        _blurIntermediate ??=
+            new GpuTexture(
+                _gpuContext,
+                _width,
+                _height,
+                TextureFormat.Bgra8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Windows Media Gaussian Intermediate",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        GpuTextureGaussianBlur.Blur(
+            source,
+            _blurIntermediate,
+            destinationView,
+            destinationFormat,
+            effectPlan.BlurStandardDeviation,
+            effectPlan.ColorTransform);
     }
 
     private byte[] AllocateReadback() =>
@@ -755,6 +803,8 @@ internal sealed unsafe class
         }
         DisposeSlots(_targets);
         DisposeSlots(_sources);
+        _blurIntermediate?.Dispose();
+        _blurIntermediate = null;
         WindowsMediaNative.Release(
             _readbackTexture);
     }

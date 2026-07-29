@@ -448,6 +448,12 @@ public sealed class WindowsMediaProviderContractTests
             registry.Register(
                 new MediaVideoColorEffectFactory(
                     effectId));
+        const string blurEffectId =
+            "ProGPU.Tests.Windows.VideoGaussian";
+        using IDisposable blurRegistration =
+            registry.Register(
+                new MediaVideoGaussianBlurEffectFactory(
+                    blurEffectId));
         MediaCompositionExportRequest request =
             CreatePreciseRequest();
         MediaCompositionExportClip clip =
@@ -483,6 +489,15 @@ public sealed class WindowsMediaProviderContractTests
                                 MediaVideoColorEffectFactory
                                     .InvertPropertyName
                             ] = 0.1d
+                        }),
+                    new MediaCompositionEffectDefinition(
+                        blurEffectId,
+                        new Dictionary<string, object?>
+                        {
+                            [
+                                MediaVideoGaussianBlurEffectFactory
+                                    .StandardDeviationPropertyName
+                            ] = 4d
                         })
                 ]
             };
@@ -511,16 +526,18 @@ public sealed class WindowsMediaProviderContractTests
                     effects: registry));
         Assert.True(
             WindowsMediaFoundationCompositionExportProvider
-                .TryGetVideoColorTransform(
+                .TryGetVideoEffectPlan(
                     clip,
                     registry,
-                    out ProGPU.Backend
-                        .GpuTextureColorTransform
-                        transform));
+                    out var plan));
         Assert.NotEqual(
             ProGPU.Backend.GpuTextureColorTransform
                 .Identity,
-            transform);
+            plan.ColorTransform);
+        Assert.Equal(
+            4f,
+            plan.BlurStandardDeviation);
+        Assert.True(plan.HasSpatialEffect);
 
         Assert.False(
             WindowsMediaFoundationCompositionExportProvider
@@ -905,6 +922,14 @@ public sealed class WindowsMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "GpuTextureBlitter.Blit(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureGaussianBlur.Blur(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Windows Media Gaussian Intermediate",
             sink,
             StringComparison.Ordinal);
         Assert.Contains(

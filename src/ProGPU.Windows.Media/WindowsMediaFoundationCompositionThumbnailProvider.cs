@@ -105,7 +105,7 @@ public sealed class
                     clip.OriginalDuration -
                     clip.TrimTimeFromStart ||
                 !WindowsMediaFoundationCompositionExportProvider
-                    .TryGetVideoColorTransform(
+                    .TryGetVideoEffectPlan(
                         clip,
                         effects,
                         out _))
@@ -178,21 +178,21 @@ public sealed class
         WindowsDxgiGpuEffectFrameSink? renderer = null;
         ClipReader?[] readers =
             new ClipReader?[request.Composition.Clips.Count];
-        var colorTransforms =
-            new GpuTextureColorTransform[
+        var effectPlans =
+            new WindowsGpuVideoEffectPlan[
                 request.Composition.Clips.Count];
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             for (int index = 0;
-                 index < colorTransforms.Length;
+                 index < effectPlans.Length;
                  index++)
             {
                 if (!WindowsMediaFoundationCompositionExportProvider
-                        .TryGetVideoColorTransform(
+                        .TryGetVideoEffectPlan(
                             request.Composition.Clips[index],
                             effects,
-                            out colorTransforms[index]))
+                            out effectPlans[index]))
                 {
                     throw new InvalidOperationException(
                         "Validated Windows thumbnail effects became invalid.");
@@ -256,8 +256,8 @@ public sealed class
                 MediaCompositionExportClip clip =
                     request.Composition.Clips[
                         position.ClipIndex];
-                GpuTextureColorTransform colorTransform =
-                    colorTransforms[position.ClipIndex];
+                WindowsGpuVideoEffectPlan effectPlan =
+                    effectPlans[position.ClipIndex];
 
                 byte[] pixels;
                 if (clip.ArgbColor is uint color)
@@ -265,7 +265,7 @@ public sealed class
                     pixels =
                         renderer.ProcessColorAndReadback(
                             color,
-                            colorTransform,
+                            effectPlan,
                             cancellationToken);
                 }
                 else
@@ -281,7 +281,7 @@ public sealed class
                         pixels =
                             renderer.ProcessAndReadback(
                                 sample,
-                                colorTransform,
+                                effectPlan,
                                 cancellationToken);
                     }
                     finally

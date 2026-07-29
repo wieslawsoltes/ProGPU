@@ -4074,6 +4074,75 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public unsafe void
+        GpuTextureGaussianBlurIsSymmetricAndGpuResident()
+    {
+        using var window = new HeadlessWindow(5, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "GPU Gaussian source");
+        using var intermediate = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+            "GPU Gaussian intermediate");
+        using var destination = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "GPU Gaussian destination");
+        source.WritePixels(
+            new byte[]
+            {
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 255, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255
+            });
+
+        GpuTextureGaussianBlur.Blur(
+            source,
+            intermediate,
+            destination.ViewPtr,
+            destination.Format,
+            standardDeviation: 1f,
+            GpuTextureColorTransform.Identity);
+
+        byte[] pixels = destination.ReadPixels();
+        Assert.InRange(
+            Math.Abs(pixels[0] - pixels[16]),
+            0,
+            1);
+        Assert.InRange(
+            Math.Abs(pixels[4] - pixels[12]),
+            0,
+            1);
+        Assert.True(pixels[0] < pixels[4]);
+        Assert.True(pixels[4] < pixels[8]);
+        Assert.InRange(pixels[8], 100, 104);
+        for (int index = 0;
+             index < pixels.Length;
+             index += 4)
+        {
+            Assert.Equal(pixels[index], pixels[index + 1]);
+            Assert.Equal(pixels[index], pixels[index + 2]);
+            Assert.Equal(255, pixels[index + 3]);
+        }
+    }
+
+    [Fact]
     public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
     {
         using var window = new HeadlessWindow(4, 4);
