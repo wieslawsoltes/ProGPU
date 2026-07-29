@@ -274,6 +274,41 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
+    public void Test_MediaPlayerBenchmarkUri_RequiresAbsoluteUri()
+    {
+        const string variable =
+            "PROGPU_SAMPLE_BENCHMARK_MEDIA_URI";
+        string? original =
+            Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                variable,
+                "relative/video.mp4");
+            Assert.False(
+                MediaPlayerPage.TryGetBenchmarkMediaUri(
+                    out Uri? relativeSource));
+            Assert.Null(relativeSource);
+
+            Environment.SetEnvironmentVariable(
+                variable,
+                "file:///tmp/progpu-media.mp4");
+            Assert.True(
+                MediaPlayerPage.TryGetBenchmarkMediaUri(
+                    out Uri? absoluteSource));
+            Assert.Equal(
+                "file:///tmp/progpu-media.mp4",
+                absoluteSource!.AbsoluteUri);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                variable,
+                original);
+        }
+    }
+
+    [Fact]
     public void Test_NonLinearVideoEditorPage_Renders()
     {
         RunPageTest(

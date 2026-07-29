@@ -19,10 +19,14 @@ namespace ProGPU.Samples;
 
 public static class MediaPlayerPage
 {
+    private static MediaPlayer? s_benchmarkPlayer;
+    private static long s_benchmarkMaximumPositionTicks;
     private const string AudioGainEffectId =
         "ProGPU.Samples.AudioGain";
     private const string AudioBalanceEffectId =
         "ProGPU.Samples.AudioBalance";
+    private const string BenchmarkMediaUriVariable =
+        "PROGPU_SAMPLE_BENCHMARK_MEDIA_URI";
     private const string DefaultMediaUri =
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
@@ -359,6 +363,11 @@ public static class MediaPlayerPage
         player.PlaybackSession.PositionChanged +=
             (_, _) =>
             {
+                if (ReferenceEquals(s_benchmarkPlayer, player))
+                {
+                    RecordBenchmarkPosition(
+                        player.PlaybackSession.Position);
+                }
                 long now = Environment.TickCount64;
                 if (lastPositionChromeUpdate != long.MinValue &&
                     now - lastPositionChromeUpdate < 100)
@@ -382,6 +391,17 @@ public static class MediaPlayerPage
             SetText(
                 status,
                 $"Playback failed: {args.Error} — {args.ErrorMessage}");
+        if (TryGetBenchmarkMediaUri(out Uri? benchmarkMediaUri) &&
+            benchmarkMediaUri is not null)
+        {
+            s_benchmarkPlayer = player;
+            Interlocked.Exchange(
+                ref s_benchmarkMaximumPositionTicks,
+                0);
+            uri.Text = benchmarkMediaUri.AbsoluteUri;
+            loop.IsOn = true;
+            LoadSource(benchmarkMediaUri);
+        }
 
         var sourceRow = new StackPanel
         {
@@ -456,12 +476,86 @@ public static class MediaPlayerPage
         };
         root.Unloaded += (_, _) =>
         {
+            if (ReferenceEquals(s_benchmarkPlayer, player))
+            {
+                s_benchmarkPlayer = null;
+            }
             mediaMaterial.Dispose();
             player.Dispose();
             audioBalanceRegistration.Dispose();
             audioGainRegistration.Dispose();
         };
         return root;
+    }
+
+    internal static bool TryGetBenchmarkMediaUri(
+        out Uri? source)
+    {
+        string? value = Environment.GetEnvironmentVariable(
+            BenchmarkMediaUriVariable);
+        return Uri.TryCreate(
+            value,
+            UriKind.Absolute,
+            out source);
+    }
+
+    internal static bool TryGetBenchmarkPlaybackState(
+        out TimeSpan position,
+        out TimeSpan maximumPosition,
+        out string playbackState,
+        out string provider,
+        out bool hardwareDecoded,
+        out string transferMode)
+    {
+        MediaPlayer? player = s_benchmarkPlayer;
+        if (player is null)
+        {
+            position = default;
+            maximumPosition = default;
+            playbackState = "Unavailable";
+            provider = "none";
+            hardwareDecoded = false;
+            transferMode = "unavailable";
+            return false;
+        }
+
+        position = player.PlaybackSession.Position;
+        maximumPosition = TimeSpan.FromTicks(
+            Interlocked.Read(
+                ref s_benchmarkMaximumPositionTicks));
+        playbackState =
+            player.PlaybackSession.PlaybackState.ToString();
+        var diagnostics = player.GetProGpuDiagnostics();
+        provider = diagnostics.ProviderId ?? "none";
+        hardwareDecoded = diagnostics.HardwareDecoded;
+        transferMode =
+            diagnostics.TransferMode?.ToString() ??
+            "unavailable";
+        return maximumPosition > TimeSpan.Zero &&
+            !string.Equals(
+                provider,
+                "none",
+                StringComparison.Ordinal);
+    }
+
+    private static void RecordBenchmarkPosition(
+        TimeSpan position)
+    {
+        long candidate = position.Ticks;
+        long observed = Interlocked.Read(
+            ref s_benchmarkMaximumPositionTicks);
+        while (candidate > observed)
+        {
+            long previous = Interlocked.CompareExchange(
+                ref s_benchmarkMaximumPositionTicks,
+                candidate,
+                observed);
+            if (previous == observed)
+            {
+                return;
+            }
+            observed = previous;
+        }
     }
 
     private static Slider EffectSlider(

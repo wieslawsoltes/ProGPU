@@ -1290,11 +1290,58 @@ Each provider is incomplete until it has:
 6. matched Release measurements for startup, first frame, steady frame-time
    percentiles, allocation rate, queue depth, audio latency, and GPU memory.
 
+The Desktop sample accepts
+`PROGPU_SAMPLE_BENCHMARK_MEDIA_URI=<absolute-file-or-network-URI>` together
+with `PROGPU_SAMPLE_BENCHMARK_PAGE='GPU Media Player'`. Automated native and
+managed profilers therefore exercise looping decode, audio, WebGPU
+presentation, transport chrome, and compositor presentation rather than an
+idle media page.
+
 On macOS, performance conclusions additionally require matched Instruments
 Allocations/VM Tracker, Time Profiler, and Metal System Trace captures,
-correlated with EventPipe and Metal allocation counters. The current portable
-slice makes no throughput or latency improvement claim because those native
-provider measurements have not yet been collected.
+correlated with EventPipe and Metal allocation counters. A first deterministic
+local checkpoint has collected the CPU and Metal lanes below, but the full
+gate remains open because Allocations/VM Tracker and readable EventPipe
+evidence are still missing.
+
+The checkpoint used the native arm64 Release Desktop bundle on macOS 26.4.1,
+an Apple M3 Pro, Xcode 26.4.1, .NET 10.0.5, the built-in 3024x1964 120-Hz
+display, VSync, 180 warm-up frames, and 600 measured frames. The local
+five-second MDN flower fixture had SHA-256
+`0cd83d944a6ca7822b4a8306cecc60a36e859b041f6702c6a1ad9ead78924451`.
+Every result required `Playing`, provider
+`progpu.apple.avfoundation`, hardware decode, `NativeZeroCopy`, and an
+observed position above five seconds; maximum-position validation remains
+correct when the final sample lands on the loop seek to zero.
+
+Three fresh unprofiled processes measured median 120.26 wall FPS, 8.3037 ms
+mean total frame time, 0.8079 ms compositor time, and 7,230 managed
+bytes/frame. Two of 1,800 frames exceeded 16.667 ms, the largest frame was
+18.9545 ms, managed-heap growth remained between 52,168 and 55,112 bytes per
+run, and no generation collected during a measured interval. These are local
+functional/frame-pacing observations, not a cross-device throughput or power
+claim.
+
+The matched Metal System Trace retained 600 steady displayed frames: display
+interval p99 was 8.3375 ms; top-level GPU interval p95/p99/maximum was
+1.3416/2.2223/3.3867 ms; encoder-duration p99 was 0.1737 ms. The trace
+contained exactly 599 accesses each to the decoder's 960x540 ARGB IOSurface
+and the 2560x1600 presentation surface. `MTLDevice.currentAllocatedSize`
+returned to 50,675,712 bytes after a transient 76,087,296-byte peak. A
+separate Time Profiler trace kept playback at 120.50 wall FPS; in its final
+five-second running-CPU sample window, `libclrjit` accounted for 36.71%,
+CoreCLR 13.39%, and Dawn 5.29%, identifying remaining JIT/startup work rather
+than a proved GPU bottleneck.
+
+Xcode's Allocations template left the target suspended before application
+startup for exact-executable, exact-bundle, and attach attempts on this host;
+the failed trace bundles were retained as ignored diagnostics and are not
+counted as allocation evidence. The latest published `dotnet-trace`
+9.0.661903 completed bounded launch and attach captures against .NET 10 but
+its own parser rejected each with `Read past end of stream`; those files are
+likewise excluded. The remaining gate therefore still requires a working
+Allocations/VM Tracker capture, readable EventPipe correlation, repeated
+power/thermal data, and audible underrun/glitch measurements.
 
 The macOS functional gate was exercised with final app bundles using the
 public MDN flower MP4. In both Avalonia and `ProGPU.Samples.Desktop`,

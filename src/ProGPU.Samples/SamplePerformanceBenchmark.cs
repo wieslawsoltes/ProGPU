@@ -398,6 +398,28 @@ internal static class SamplePerformanceBenchmark
                 $" realizedParagraphs={s_lastRealizedRichParagraphs}" +
                 $" visibleRichCharacters={s_lastVisibleRichCharacters}";
         }
+        else if (string.Equals(RequestedPage, "GPU Media Player", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!MediaPlayerPage.TryGetBenchmarkPlaybackState(
+                    out TimeSpan mediaPosition,
+                    out TimeSpan mediaMaximumPosition,
+                    out string mediaPlaybackState,
+                    out string mediaProvider,
+                    out bool mediaHardwareDecoded,
+                    out string mediaTransferMode))
+            {
+                throw new InvalidOperationException(
+                    "GPU Media Player benchmark did not advance native playback with an active provider.");
+            }
+
+            workloadDetails =
+                $" mediaPositionMs={mediaPosition.TotalMilliseconds:F0}" +
+                $" mediaMaximumPositionMs={mediaMaximumPosition.TotalMilliseconds:F0}" +
+                $" mediaPlaybackState={mediaPlaybackState}" +
+                $" mediaProvider={mediaProvider}" +
+                $" mediaHardwareDecoded={mediaHardwareDecoded}" +
+                $" mediaTransfer={mediaTransferMode}";
+        }
 
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
