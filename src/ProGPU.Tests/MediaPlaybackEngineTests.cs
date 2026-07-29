@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Media3D;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Layout;
 using ProGPU.Media;
 using ProGPU.Media.Audio;
@@ -948,8 +949,8 @@ public sealed class MediaPlaybackEngineTests
     [Fact]
     public void WinUiMesh3DMaterialRendersNv12WithoutFallbackTexture()
     {
-        var window = HeadlessWindow.Shared;
-        window.Resize(160, 90);
+        using var window =
+            new HeadlessWindow(160, 90);
         using var player =
             new Windows.Media.Playback.MediaPlayer();
         MediaGpuSurface surface =
@@ -1037,6 +1038,266 @@ public sealed class MediaPlaybackEngineTests
         {
             window.Content = null;
         }
+    }
+
+    [Fact]
+    public void
+        WinUiMesh3DMaterialPreparesOneRgbGaussianForFrontAndBack()
+    {
+        using var window =
+            new HeadlessWindow(160, 90);
+        using var player =
+            new Windows.Media.Playback.MediaPlayer();
+        MediaGpuSurface surface =
+            player.GetProGpuSurface();
+        var texture = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Mesh3D retained RGB Gaussian source");
+        texture.WritePixels(
+            new byte[]
+            {
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 255, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255
+            });
+        surface.Publish(
+            new TestGpuFrame(
+                texture,
+                new MediaGpuFrameDescriptor(
+                    31,
+                    TimeSpan.Zero,
+                    TimeSpan.FromMilliseconds(16),
+                    5,
+                    1,
+                    MediaVideoPixelFormat.Rgba8,
+                    MediaTransferMode.NativeZeroCopy,
+                    new MediaColorInfo(
+                        MediaColorPrimaries.Bt709,
+                        MediaTransferFunction.Srgb,
+                        MediaMatrixCoefficients.Identity,
+                        FullRange: true))));
+        using var material =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = player,
+                Effects = new MediaVideoEffectOptions(
+                    blurSigma: 1f)
+            };
+        window.Content =
+            CreateMediaMeshViewport(material);
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<Mesh3DExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .Mesh3D));
+            Assert.Equal(
+                1,
+                extension.LiveMaterialBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveMaterialCount);
+            Assert.Equal(
+                1,
+                extension
+                    .LiveMaterialBlurSubmissionCount);
+            Assert.Equal(
+                1f,
+                material.Effects.BlurSigma);
+
+            byte[] pixels = window.ReadPixels();
+            Assert.True(
+                pixels.Count(value => value > 20) >
+                    1_000,
+                "Expected the retained RGB Gaussian result on the mesh.");
+
+            player.PlaybackSession.IsMirroring = true;
+            window.Render();
+            Assert.Equal(
+                1,
+                extension.LiveMaterialBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveMaterialCount);
+            Assert.Equal(
+                1,
+                extension
+                    .LiveMaterialBlurSubmissionCount);
+            Assert.Equal(
+                1f,
+                material.Effects.BlurSigma);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void
+        WinUiMesh3DMaterialPreparesOneNv12GaussianForFrontAndBack()
+    {
+        using var window =
+            new HeadlessWindow(160, 90);
+        using var player =
+            new Windows.Media.Playback.MediaPlayer();
+        MediaGpuSurface surface =
+            player.GetProGpuSurface();
+        var frame = new TestPlanarGpuFrame(window.Context);
+        frame.LumaTexture.WritePixels(
+            new byte[] { 63, 63, 63, 63, 63, 63, 63, 63 });
+        frame.ChromaTexture.WritePixels(
+            new byte[] { 102, 240, 102, 240 });
+        surface.Publish(frame);
+        using var material =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = player,
+                Effects = new MediaVideoEffectOptions(
+                    blurSigma: 1f)
+            };
+        window.Content =
+            CreateMediaMeshViewport(material);
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<Mesh3DExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .Mesh3D));
+            Assert.Equal(
+                1,
+                extension.LiveMaterialBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveMaterialCount);
+            Assert.Equal(
+                1,
+                extension
+                    .LiveMaterialBlurSubmissionCount);
+            Assert.Equal(
+                1f,
+                material.Effects.BlurSigma);
+
+            AssertFilledRedMediaMesh(
+                window.ReadPixels());
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public unsafe void
+        WinUiMesh3DMaterialPreparesTier1P010Gaussian()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn =
+            DawnGpuContext.CreateMetalPresentation();
+        Assert.True(
+            dawn.Context.SupportsTextureFormatsTier1);
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false
+            });
+        using var target = new GpuTexture(
+            dawn.Context,
+            160,
+            90,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Mesh3D retained P010 Gaussian target");
+        using var player =
+            new Windows.Media.Playback.MediaPlayer();
+        MediaGpuSurface surface =
+            player.GetProGpuSurface();
+        var frame = new TestPlanarGpuFrame(
+            dawn.Context,
+            p010: true);
+        frame.LumaTexture.WritePixels<ushort>(
+        [
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6,
+            252 << 6
+        ]);
+        frame.ChromaTexture.WritePixels<ushort>(
+        [
+            408 << 6,
+            960 << 6,
+            408 << 6,
+            960 << 6
+        ]);
+        surface.Publish(frame);
+        using var material =
+            new ProGpuMediaTextureMaterial
+            {
+                MediaPlayer = player,
+                Effects = new MediaVideoEffectOptions(
+                    blurSigma: 1f)
+            };
+        Viewport3D viewport =
+            CreateMediaMeshViewport(material);
+        viewport.Measure(new Vector2(160f, 90f));
+        viewport.Arrange(
+            new Rect(
+                0f,
+                0f,
+                160f,
+                90f));
+
+        compositor.RenderScene(
+            viewport,
+            160,
+            90,
+            target.ViewPtr);
+
+        var extension =
+            Assert.IsType<Mesh3DExtensionPipeline>(
+                compositor.GetExtension(
+                    CompositorBuiltInExtensions
+                        .Mesh3D));
+        Assert.Equal(
+            1,
+            extension.LiveMaterialBlurResourceCount);
+        Assert.Equal(
+            2,
+            extension.PreparedLiveMaterialCount);
+        Assert.Equal(
+            1,
+            extension.LiveMaterialBlurSubmissionCount);
+        Assert.Equal(
+            1f,
+            material.Effects.BlurSigma);
+        AssertFilledRedMediaMesh(
+            target.ReadPixels());
     }
 
     [Fact]
@@ -2096,6 +2357,78 @@ public sealed class MediaPlaybackEngineTests
                     FullRange: true)));
     }
 
+    private static Viewport3D CreateMediaMeshViewport(
+        Material material)
+    {
+        var mesh = new MeshGeometry3D
+        {
+            Positions =
+            [
+                new Vector3(-1.5f, -0.8f, 0f),
+                new Vector3(1.5f, -0.8f, 0f),
+                new Vector3(1.5f, 0.8f, 0f),
+                new Vector3(-1.5f, 0.8f, 0f)
+            ],
+            Normals =
+            [
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ
+            ],
+            TextureCoordinates =
+            [
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 0f)
+            ],
+            TriangleIndices = [0, 1, 2, 0, 2, 3]
+        };
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera
+            {
+                Width = 4f
+            },
+            ShadingMode = ShadingMode3D.Flat
+        };
+        viewport.Children.Add(
+            new ModelVisual3D
+            {
+                Content = new GeometryModel3D
+                {
+                    Geometry = mesh,
+                    Material = material,
+                    BackMaterial = material
+                }
+            });
+        return viewport;
+    }
+
+    private static void AssertFilledRedMediaMesh(
+        byte[] pixels)
+    {
+        int redVideoPixels = 0;
+        for (int offset = 0;
+             offset < pixels.Length;
+             offset += 4)
+        {
+            if (pixels[offset] >= 175 &&
+                pixels[offset + 1] <= 70 &&
+                pixels[offset + 2] <= 70 &&
+                pixels[offset + 3] == 255)
+            {
+                redVideoPixels++;
+            }
+        }
+
+        Assert.True(
+            redVideoPixels >= 1_000,
+            $"Expected a filled converted-red video mesh, " +
+            $"found {redVideoPixels} red pixels.");
+    }
+
     private sealed class RecordingProviderFactory :
         IMediaPlaybackProviderFactory
     {
@@ -2342,24 +2675,34 @@ public sealed class MediaPlaybackEngineTests
         private readonly SharedGpuTextureSource _chroma;
         private int _disposed;
 
-        public TestPlanarGpuFrame(WgpuContext context)
+        public TestPlanarGpuFrame(
+            WgpuContext context,
+            bool p010 = false)
         {
             LumaTexture = new GpuTexture(
                 context,
                 4,
                 2,
-                TextureFormat.R8Unorm,
+                p010
+                    ? ProGpuTextureFormats.R16Unorm
+                    : TextureFormat.R8Unorm,
                 TextureUsage.TextureBinding |
                 TextureUsage.CopyDst,
-                "Test NV12 luma");
+                p010
+                    ? "Test P010 luma"
+                    : "Test NV12 luma");
             ChromaTexture = new GpuTexture(
                 context,
                 2,
                 1,
-                TextureFormat.RG8Unorm,
+                p010
+                    ? ProGpuTextureFormats.RG16Unorm
+                    : TextureFormat.RG8Unorm,
                 TextureUsage.TextureBinding |
                 TextureUsage.CopyDst,
-                "Test NV12 chroma");
+                p010
+                    ? "Test P010 chroma"
+                    : "Test NV12 chroma");
             _luma = new SharedGpuTextureSource(LumaTexture);
             _chroma =
                 new SharedGpuTextureSource(ChromaTexture);
@@ -2369,7 +2712,9 @@ public sealed class MediaPlaybackEngineTests
                 TimeSpan.FromMilliseconds(16),
                 4,
                 2,
-                MediaVideoPixelFormat.Nv12,
+                p010
+                    ? MediaVideoPixelFormat.P010
+                    : MediaVideoPixelFormat.Nv12,
                 MediaTransferMode.NativeZeroCopy,
                 new MediaColorInfo(
                     MediaColorPrimaries.Bt709,

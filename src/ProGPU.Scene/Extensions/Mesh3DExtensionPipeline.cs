@@ -189,14 +189,149 @@ namespace ProGPU.Scene.Extensions
             }
         }
 
+        private sealed class LiveMaterialBlurResources :
+            IDisposable
+        {
+            private const TextureUsage Usage =
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment;
+
+            public LiveMaterialBlurResources(
+                GpuTexture source,
+                bool isPlanar,
+                int resourceIndex)
+            {
+                TextureFormat format = isPlanar
+                    ? TextureFormat.Rgba16float
+                    : source.Format;
+                GpuTextureAlphaMode alphaMode = isPlanar
+                    ? GpuTextureAlphaMode.Straight
+                    : source.AlphaMode;
+                IsPlanar = isPlanar;
+                Intermediate = new GpuTexture(
+                    source.Context,
+                    source.Width,
+                    source.Height,
+                    format,
+                    Usage,
+                    $"Live Mesh3D material blur intermediate {resourceIndex}",
+                    alphaMode: alphaMode);
+                try
+                {
+                    Output = new GpuTexture(
+                        source.Context,
+                        source.Width,
+                        source.Height,
+                        format,
+                        Usage,
+                        $"Live Mesh3D material blur output {resourceIndex}",
+                        alphaMode: alphaMode);
+                }
+                catch
+                {
+                    Intermediate.Dispose();
+                    throw;
+                }
+            }
+
+            public GpuTexture Intermediate { get; }
+            public GpuTexture Output { get; }
+            public bool IsPlanar { get; }
+            public ulong LastUsedFrame { get; set; }
+            public ulong PreparedFrame { get; set; }
+            public ulong PreparedSourceId { get; set; }
+            public uint PreparedSourceGeneration { get; set; }
+            public ulong PreparedChromaId { get; set; }
+            public uint PreparedChromaGeneration { get; set; }
+            public ImageEffectYuvConversion?
+                PreparedYuvConversion { get; set; }
+            public int PreparedSigmaBits { get; set; }
+
+            public bool MatchesStorage(
+                GpuTexture source,
+                bool isPlanar)
+            {
+                TextureFormat format = isPlanar
+                    ? TextureFormat.Rgba16float
+                    : source.Format;
+                GpuTextureAlphaMode alphaMode = isPlanar
+                    ? GpuTextureAlphaMode.Straight
+                    : source.AlphaMode;
+                return IsPlanar == isPlanar &&
+                    ReferenceEquals(
+                        Intermediate.Context,
+                        source.Context) &&
+                    Intermediate.Width == source.Width &&
+                    Intermediate.Height == source.Height &&
+                    Intermediate.Format == format &&
+                    Intermediate.AlphaMode == alphaMode &&
+                    !Intermediate.IsDisposed &&
+                    !Output.IsDisposed;
+            }
+
+            public bool MatchesPrepared(
+                GpuTexture source,
+                GpuTexture? chroma,
+                ImageEffectYuvConversion? yuvConversion,
+                float standardDeviation,
+                ulong frame)
+            {
+                return PreparedFrame == frame &&
+                    PreparedSourceId == source.Id &&
+                    PreparedSourceGeneration ==
+                        source.Generation &&
+                    PreparedChromaId ==
+                        (chroma?.Id ?? 0) &&
+                    PreparedChromaGeneration ==
+                        (chroma?.Generation ?? 0) &&
+                    YuvConversionsEqual(
+                        PreparedYuvConversion,
+                        yuvConversion) &&
+                    PreparedSigmaBits ==
+                        BitConverter.SingleToInt32Bits(
+                            standardDeviation);
+            }
+
+            private static bool YuvConversionsEqual(
+                ImageEffectYuvConversion? left,
+                ImageEffectYuvConversion? right)
+            {
+                if (!left.HasValue ||
+                    !right.HasValue)
+                {
+                    return left.HasValue ==
+                        right.HasValue;
+                }
+
+                return left.Value.Range ==
+                        right.Value.Range &&
+                    left.Value.Red == right.Value.Red &&
+                    left.Value.Green ==
+                        right.Value.Green &&
+                    left.Value.Blue ==
+                        right.Value.Blue;
+            }
+
+            public void Dispose()
+            {
+                Output.Dispose();
+                Intermediate.Dispose();
+            }
+        }
+
         private readonly Dictionary<object, CachedGeometry> _geometryCache = new();
         private readonly List<ViewportResource> _viewportResources = new();
         private readonly List<nint> _pendingCommandBuffers = new();
         private readonly List<nint> _pendingTextureBindGroups = new();
         private readonly List<IProGpuTextureLease> _pendingTextureLeases =
             new();
+        private readonly List<LiveMaterialBlurResources>
+            _liveMaterialBlurPool = new();
         private readonly Mesh3DCompileScratch _compileScratch =
             new();
+        private int _usedLiveMaterialBlurCount;
+        private int _preparedLiveMaterialCount;
+        private int _liveMaterialBlurSubmissionCount;
         private int _currentCompileIndex;
         private WgpuContext? _context;
         private unsafe BindGroupLayout* _solidBindGroupLayout;
@@ -212,6 +347,13 @@ namespace ProGPU.Scene.Extensions
         private unsafe RenderPipeline* _cachedPipelineMsaa;
         private unsafe RenderPipeline* _cachedBackFacePipelineMsaa;
         private unsafe RenderPipeline* _cachedWireframePipelineMsaa;
+
+        internal int LiveMaterialBlurResourceCount =>
+            _liveMaterialBlurPool.Count;
+        internal int PreparedLiveMaterialCount =>
+            _preparedLiveMaterialCount;
+        internal int LiveMaterialBlurSubmissionCount =>
+            _liveMaterialBlurSubmissionCount;
 
         private unsafe RenderPipeline* CreateMeshPipeline(
             Compositor compositor,
@@ -388,6 +530,9 @@ namespace ProGPU.Scene.Extensions
         public unsafe void BeginFrame(Compositor compositor)
         {
             _currentCompileIndex = 0;
+            _usedLiveMaterialBlurCount = 0;
+            _preparedLiveMaterialCount = 0;
+            _liveMaterialBlurSubmissionCount = 0;
             if (_pendingCommandBuffers.Count > 0)
             {
                 var wgpu = compositor.Context.Api;
@@ -446,6 +591,13 @@ namespace ProGPU.Scene.Extensions
             }
             _whiteTexture?.Dispose();
             _whiteTexture = null;
+            for (int index = 0;
+                 index < _liveMaterialBlurPool.Count;
+                 index++)
+            {
+                _liveMaterialBlurPool[index].Dispose();
+            }
+            _liveMaterialBlurPool.Clear();
             _viewportResources.Clear();
         }
 
@@ -476,7 +628,8 @@ namespace ProGPU.Scene.Extensions
             MeshCompilationEntry entry,
             out GpuTexture texture,
             out bool hasSourceTexture,
-            out bool hasYuvConversion)
+            out bool hasYuvConversion,
+            out bool hasPreparedGaussianBlur)
         {
             IProGpuTextureLease? lease = null;
             IProGpuTextureLease? chromaLease = null;
@@ -534,6 +687,27 @@ namespace ProGPU.Scene.Extensions
                 {
                     _pendingTextureLeases.Add(chromaLease);
                 }
+                hasPreparedGaussianBlur = false;
+                if (CanUseLiveMaterialBlur(
+                        compositor.Context,
+                        texture,
+                        chromaLease?.Texture,
+                        hasYuvConversion
+                            ? entry.YuvConversion
+                            : null,
+                        entry.TextureEffect.BlurSigma))
+                {
+                    texture = PrepareLiveMaterialBlur(
+                        compositor,
+                        texture,
+                        chromaLease?.Texture,
+                        entry.YuvConversion,
+                        entry.TextureEffect.BlurSigma);
+                    chromaTexture = texture;
+                    hasYuvConversion = false;
+                    hasPreparedGaussianBlur = true;
+                    _preparedLiveMaterialCount++;
+                }
                 return CreateTextureBindGroup(
                     compositor,
                     texture,
@@ -549,6 +723,7 @@ namespace ProGPU.Scene.Extensions
                     "Mesh3D fallback texture was not initialized.");
             hasSourceTexture = false;
             hasYuvConversion = false;
+            hasPreparedGaussianBlur = false;
             ref BindGroup* cached = ref (
                 entry.TextureSamplingMode ==
                     TextureSamplingMode.Nearest
@@ -564,6 +739,219 @@ namespace ProGPU.Scene.Extensions
                     retainUntilSubmit: false);
             }
             return cached;
+        }
+
+        private unsafe GpuTexture PrepareLiveMaterialBlur(
+            Compositor compositor,
+            GpuTexture source,
+            GpuTexture? chroma,
+            ImageEffectYuvConversion? yuvConversion,
+            float standardDeviation)
+        {
+            ulong frame = compositor.FrameNumber;
+            for (int index = 0;
+                 index < _usedLiveMaterialBlurCount;
+                 index++)
+            {
+                LiveMaterialBlurResources prepared =
+                    _liveMaterialBlurPool[index];
+                if (prepared.MatchesPrepared(
+                        source,
+                        chroma,
+                        yuvConversion,
+                        standardDeviation,
+                        frame))
+                {
+                    prepared.LastUsedFrame = frame;
+                    return prepared.Output;
+                }
+            }
+
+            LiveMaterialBlurResources resources =
+                AcquireLiveMaterialBlurResources(
+                    source,
+                    chroma is not null);
+            if (chroma is not null &&
+                yuvConversion.HasValue)
+            {
+                ImageEffectYuvConversion conversion =
+                    yuvConversion.Value;
+                var gpuConversion =
+                    new GpuPlanarYuvConversion(
+                        conversion.Range,
+                        conversion.Red,
+                        conversion.Green,
+                        conversion.Blue);
+                GpuTextureGaussianBlur.BlurPlanar(
+                    source,
+                    chroma,
+                    resources.Intermediate,
+                    resources.Output.ViewPtr,
+                    resources.Output.Format,
+                    standardDeviation,
+                    in gpuConversion,
+                    GpuTextureColorTransform.Identity);
+            }
+            else
+            {
+                GpuTextureGaussianBlur.Blur(
+                    source,
+                    resources.Intermediate,
+                    resources.Output.ViewPtr,
+                    resources.Output.Format,
+                    standardDeviation,
+                    GpuTextureColorTransform.Identity);
+            }
+
+            resources.Output.MarkContentsDirty();
+            resources.LastUsedFrame = frame;
+            resources.PreparedFrame = frame;
+            resources.PreparedSourceId = source.Id;
+            resources.PreparedSourceGeneration =
+                source.Generation;
+            resources.PreparedChromaId =
+                chroma?.Id ?? 0;
+            resources.PreparedChromaGeneration =
+                chroma?.Generation ?? 0;
+            resources.PreparedYuvConversion =
+                yuvConversion;
+            resources.PreparedSigmaBits =
+                BitConverter.SingleToInt32Bits(
+                    standardDeviation);
+            _liveMaterialBlurSubmissionCount++;
+            return resources.Output;
+        }
+
+        private LiveMaterialBlurResources
+            AcquireLiveMaterialBlurResources(
+                GpuTexture source,
+                bool isPlanar)
+        {
+            for (int index = _usedLiveMaterialBlurCount;
+                 index < _liveMaterialBlurPool.Count;
+                 index++)
+            {
+                LiveMaterialBlurResources candidate =
+                    _liveMaterialBlurPool[index];
+                if (!candidate.MatchesStorage(
+                        source,
+                        isPlanar))
+                {
+                    continue;
+                }
+
+                if (index != _usedLiveMaterialBlurCount)
+                {
+                    LiveMaterialBlurResources displaced =
+                        _liveMaterialBlurPool[
+                            _usedLiveMaterialBlurCount];
+                    _liveMaterialBlurPool[
+                        _usedLiveMaterialBlurCount] =
+                            candidate;
+                    _liveMaterialBlurPool[index] =
+                        displaced;
+                }
+
+                return _liveMaterialBlurPool[
+                    _usedLiveMaterialBlurCount++];
+            }
+
+            var created =
+                new LiveMaterialBlurResources(
+                    source,
+                    isPlanar,
+                    _liveMaterialBlurPool.Count);
+            _liveMaterialBlurPool.Add(created);
+            int createdIndex =
+                _liveMaterialBlurPool.Count - 1;
+            if (createdIndex !=
+                _usedLiveMaterialBlurCount)
+            {
+                LiveMaterialBlurResources displaced =
+                    _liveMaterialBlurPool[
+                        _usedLiveMaterialBlurCount];
+                _liveMaterialBlurPool[
+                    _usedLiveMaterialBlurCount] =
+                        created;
+                _liveMaterialBlurPool[createdIndex] =
+                    displaced;
+            }
+
+            return _liveMaterialBlurPool[
+                _usedLiveMaterialBlurCount++];
+        }
+
+        private static bool CanUseLiveMaterialBlur(
+            WgpuContext compositorContext,
+            GpuTexture source,
+            GpuTexture? chroma,
+            ImageEffectYuvConversion? yuvConversion,
+            float standardDeviation)
+        {
+            if (!float.IsFinite(standardDeviation) ||
+                standardDeviation <= 0.01f ||
+                standardDeviation >
+                    GpuTextureGaussianBlur
+                        .MaximumStandardDeviation ||
+                source.IsDisposed ||
+                !source.Context.SharesDeviceWith(
+                    compositorContext) ||
+                (source.Usage &
+                    TextureUsage.TextureBinding) == 0 ||
+                source.Dimension !=
+                    GpuTextureDimension.Dimension2D ||
+                source.DepthOrArrayLayers != 1 ||
+                source.SampleCount != 1)
+            {
+                return false;
+            }
+
+            bool hasChroma = chroma is not null;
+            if (hasChroma !=
+                yuvConversion.HasValue)
+            {
+                return false;
+            }
+
+            if (!hasChroma)
+            {
+                return source.Format is
+                    TextureFormat.Rgba8Unorm or
+                    TextureFormat.Rgba8UnormSrgb or
+                    TextureFormat.Bgra8Unorm or
+                    TextureFormat.Bgra8UnormSrgb or
+                    TextureFormat.Rgba16float;
+            }
+
+            GpuTexture chromaTexture = chroma!;
+            bool supportedPlaneFormats =
+                source.Format ==
+                    TextureFormat.R8Unorm &&
+                chromaTexture.Format ==
+                    TextureFormat.RG8Unorm ||
+                source.Context
+                        .SupportsTextureFormatsTier1 &&
+                    source.Format ==
+                        ProGpuTextureFormats.R16Unorm &&
+                    chromaTexture.Format ==
+                        ProGpuTextureFormats.RG16Unorm;
+            return supportedPlaneFormats &&
+                !chromaTexture.IsDisposed &&
+                chromaTexture.Context.SharesDeviceWith(
+                    compositorContext) &&
+                ReferenceEquals(
+                    source.Context,
+                    chromaTexture.Context) &&
+                chromaTexture.Width ==
+                    (source.Width + 1) / 2 &&
+                chromaTexture.Height ==
+                    (source.Height + 1) / 2 &&
+                (chromaTexture.Usage &
+                    TextureUsage.TextureBinding) != 0 &&
+                chromaTexture.Dimension ==
+                    GpuTextureDimension.Dimension2D &&
+                chromaTexture.DepthOrArrayLayers == 1 &&
+                chromaTexture.SampleCount == 1;
         }
 
         private unsafe BindGroup* CreateTextureBindGroup(
@@ -677,10 +1065,14 @@ namespace ProGPU.Scene.Extensions
                         mesh,
                         out GpuTexture materialTexture,
                         out bool hasMaterialTexture,
-                        out bool hasYuvConversion);
+                        out bool hasYuvConversion,
+                        out bool hasPreparedGaussianBlur);
                 MeshTextureEffect textureEffect =
                     hasMaterialTexture
-                        ? mesh.TextureEffect
+                        ? hasPreparedGaussianBlur
+                            ? mesh.TextureEffect
+                                .WithoutGaussianBlur()
+                            : mesh.TextureEffect
                         : MeshTextureEffect.Identity;
                 ImageEffectColorMatrix? colorMatrix =
                     textureEffect.ColorMatrix;
@@ -1084,6 +1476,23 @@ namespace ProGPU.Scene.Extensions
                 ReleasePendingTextureResources(
                     compositor.Context);
             }
+
+            ulong frame = compositor.FrameNumber;
+            for (int index =
+                    _liveMaterialBlurPool.Count - 1;
+                 index >= _usedLiveMaterialBlurCount;
+                 index--)
+            {
+                LiveMaterialBlurResources resources =
+                    _liveMaterialBlurPool[index];
+                if (frame - resources.LastUsedFrame <= 240)
+                {
+                    continue;
+                }
+
+                resources.Dispose();
+                _liveMaterialBlurPool.RemoveAt(index);
+            }
         }
 
         public unsafe void Render(
@@ -1249,5 +1658,17 @@ namespace ProGPU.Scene.Extensions
         public float BlurSigma { get; }
         public ImageEffectColorMatrix? ColorMatrix { get; }
         public bool LuminanceToAlpha { get; }
+
+        internal MeshTextureEffect WithoutGaussianBlur() =>
+            new(
+                Brightness,
+                Contrast,
+                Saturation,
+                Grayscale,
+                Sepia,
+                Invert,
+                blurSigma: 0f,
+                colorMatrix: ColorMatrix,
+                luminanceToAlpha: LuminanceToAlpha);
     }
 }

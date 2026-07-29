@@ -1,4 +1,4 @@
-// Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased RGB texture or atomic luma/chroma plane pair with a fixed nine-tap blur, convert YUV in the sampling pass, apply fused color effects, and evaluate bounded multi-light shading.
+// Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased RGB texture, retained separable-Gaussian RGB result, or atomic luma/chroma plane pair with the bounded fallback kernel, convert direct YUV samples, apply fused color effects, and evaluate bounded multi-light shading.
 // Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; RGB uses S texture samples and planar YUV uses 2S.
 // Space complexity: O(1) local/private storage, O(1) material records per mesh, and 1/9 RGB or 2/18 planar texture samples per fragment.
 struct VSUniforms {

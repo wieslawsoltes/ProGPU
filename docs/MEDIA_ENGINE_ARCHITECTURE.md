@@ -679,6 +679,13 @@ readback for ordinary presentation, and unbounded decoded-frame queues.
   same plan to Core Image on Metal, clamps the source extent, and uses
   [`CIImage.applyingGaussianBlur(sigma:)`](https://developer.apple.com/documentation/coreimage/ciimage/applyinggaussianblur%28sigma%3A%29)
   rather than the distinct radius-valued filter property.
+- Dawn's
+  [multi-planar format contract](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/multi_planar_formats.md)
+  identifies NV12 and P010 plane formats and explicitly motivates external
+  multi-planar textures for zero-copy video and lower memory bandwidth.
+  ProGPU adapts the plane-format and lifetime boundary, while keeping color
+  interpretation in the typed media descriptor instead of assigning
+  semantics to a generic WebGPU plane.
 - [WebRender's rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
   separates retained scene data, resource caching, frame building, and GPU
   rendering. ProGPU keeps media timing/provider state outside the retained
@@ -746,10 +753,17 @@ providers lease one texture. NV12/P010 providers implement the backend-neutral
 `IProGpuPlanarTextureLeaseSource`; the mesh pass atomically leases both native
 planes in the consuming device domain, retains them through queue submission,
 and performs range-aware BT.601/709/2020 conversion at each material sample.
-The same shader transforms the coordinate once, then fuses conversion, a
-fixed one-or-nine-tap blur, color adjustments, optional color matrix, and
-lighting. There is no intermediate 2D video texture or CPU conversion in
-either path. `MediaMesh3DPresentation` configures the shared
+For identity or unsupported spatial effects, the same shader transforms the
+coordinate once, then fuses conversion, a fixed bounded fallback kernel,
+color adjustments, optional color matrix, and lighting. For every supported
+finite nonzero Gaussian sigma, the Mesh3D extension instead leases two
+source-sized textures from a retained pool and runs the same full
+horizontal/vertical source-domain Gaussian graph as 2D presentation before
+the mesh pass. RGB is sampled directly; NV12 and capability-gated P010 decode
+to straight RGBA16F at each horizontal tap before the vertical RGB pass. The
+terminal material receives a transient RGB result with sigma and planar
+metadata cleared, while the retained `MeshCompilationEntry` remains
+unchanged. `MediaMesh3DPresentation` configures the shared
 `MeshCompilationEntry` directly for Avalonia, LibreWPF, LibreWinForms, WinUI,
 and custom hosts, while framework adapters only translate their material
 object models into that Scene contract. The WinUI
@@ -784,13 +798,14 @@ same source generations and sigma share one blurred texture in a frame.
 The compositor restores the original texture planes, conversion, spherical
 projection, and nonzero sigma after encoding, including on compiled-scene
 hits, so a changing native media allocation is processed every frame without
-corrupting retained commands or forcing scene recompilation. Repeated draw
-calls with the same luma/chroma generations, conversion rows, and sigma share
-one result in a frame; texture pairs are reused across frames and idle peak
+corrupting retained commands or forcing scene recompilation. Repeated 2D draw
+calls or 3D material entries with the same luma/chroma generations, conversion
+rows, and sigma share one result in a frame. This deduplicates the common
+front/back material pair. Texture pairs are reused across frames and idle peak
 resources are released after 240 frames. The preparation and main render are
 separate ordered queue submissions, with no CPU wait, readback, upload, or
 per-frame managed collection allocation after warmup. For D extension draw
-calls, U unique blurred sources, P source pixels, and
+calls or material entries, U unique blurred sources, P source pixels, and
 R = `ceil(3 * sigma)`, preparation is O(D + U * P * R) time and
 O(U * P) retained texture storage. NV12 doubles the horizontal sample count.
 P010 performs one luma plus four explicit chroma loads per Gaussian source
@@ -798,13 +813,14 @@ location because WebGPU forbids filtered R16/RG16 sampling; neither changes
 asymptotic work or residency.
 
 The current typed P010 lane covers separate high-bit-depth plane views on a
-Tier-1 Dawn device and Linux V4L2 P010 DMA-BUF capture. Apple and Windows
+Tier-1 Dawn device, retained 2D and Mesh3D Gaussian preparation, and Linux
+V4L2 P010 DMA-BUF capture. Apple and Windows
 providers still request BGRA playback surfaces, and the pinned managed Dawn
 ABI does not expose whole multi-planar P010 texture aspects. Those providers
 therefore retain their existing negotiated formats rather than claiming P010
-zero-copy. Mesh3D retains its direct bounded material kernel. A future typed
-whole-allocation/plane-aspect importer and material pass graph can extend
-those lanes without changing the public effect contract.
+zero-copy. Mesh3D retains its direct bounded material kernel only as the
+non-Gaussian fallback. A future typed whole-allocation/plane-aspect importer
+can extend those provider lanes without changing the public effect contract.
 
 The package dependency boundary is:
 
@@ -1815,3 +1831,18 @@ output, one retained resource pair and submission, and restoration of both
 source planes, conversion rows, and sigma. This is kernel and retained-graph
 evidence on Apple Silicon, not evidence that AVFoundation currently negotiates
 native P010 output or that Linux hardware import has been qualified.
+
+The retained Mesh3D Gaussian checkpoint now gives textured 3D visuals the
+same full source-domain graph instead of limiting them to the material
+shader's bounded nine-tap fallback. The mesh extension acquires the decoder
+lease first, prepares RGB, NV12, or capability-gated P010 into a retained
+texture pair, and binds only the transient RGB output to the offscreen mesh
+pass. Two entries using the same front/back media material share one
+submission; pool identity includes both plane generations, all conversion
+rows, and sigma. Executable regressions render RGB and NV12 through independent
+headless WebGPU compositors and P010 through a real Tier-1 Metal/Dawn device.
+All three require one resource pair and one submission for the two material
+entries, preserve the public material's nonzero sigma, and produce populated
+mesh pixels. Crop, rotation, mirroring, color adjustment, and lighting remain
+in the terminal material pass. This is functional GPU graph and ownership
+evidence, not a throughput, allocation, power, or platform-decoder P010 claim.
