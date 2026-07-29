@@ -962,6 +962,9 @@ async function seekCompositionElement(
 
 function writeCompositionUniform(device, visual) {
   const destination = visual.destination;
+  const red = visual.redTransform;
+  const green = visual.greenTransform;
+  const blue = visual.blueTransform;
   device.queue.writeBuffer(
     visual.uniform,
     0,
@@ -970,9 +973,21 @@ function writeCompositionUniform(device, visual) {
       destination.y,
       destination.width,
       destination.height,
-      visual.saturation,
-      visual.grayscale,
+      red[0],
+      red[1],
+      red[2],
+      red[3],
+      green[0],
+      green[1],
+      green[2],
+      green[3],
+      blue[0],
+      blue[1],
+      blue[2],
+      blue[3],
       visual.opacity,
+      0,
+      0,
       0
     ]));
 }
@@ -1291,15 +1306,19 @@ async function renderBrowserMediaComposition(
         element: null,
         texture: null,
         uniform: exportDevice.createBuffer({
-          size: 32,
+          size: 80,
           usage:
             GPUBufferUsage.UNIFORM |
             GPUBufferUsage.COPY_DST
         }),
         bindGroup: null,
         destination,
-        saturation: clip.saturation ?? 1,
-        grayscale: clip.grayscale ?? 0,
+        redTransform:
+          clip.redTransform ?? [1, 0, 0, 0],
+        greenTransform:
+          clip.greenTransform ?? [0, 1, 0, 0],
+        blueTransform:
+          clip.blueTransform ?? [0, 0, 1, 0],
         opacity,
         isColor: clip.argb !== undefined
       };

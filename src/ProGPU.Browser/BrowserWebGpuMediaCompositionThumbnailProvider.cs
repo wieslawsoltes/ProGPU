@@ -1,11 +1,12 @@
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Globalization;
+using System.Numerics;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
 using System.Text.Json;
 using ProGPU.Backend;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 
 namespace ProGPU.Browser;
 
@@ -35,11 +36,14 @@ public sealed partial class
                 BrowserWebGpuMediaCompositionThumbnailProvider),
             "BrowserMediaComposition.wgsl");
     private static int s_nextOperationId;
+    private readonly MediaEffectRegistry _effects;
 
     public BrowserWebGpuMediaCompositionThumbnailProvider(
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
     }
 
     public string Id =>
@@ -51,11 +55,13 @@ public sealed partial class
         MediaCompositionThumbnailRequest request) =>
         IsRequestSupported(
             request,
-            OperatingSystem.IsBrowser());
+            OperatingSystem.IsBrowser(),
+            _effects);
 
     internal static bool IsRequestSupported(
         MediaCompositionThumbnailRequest request,
-        bool isBrowser)
+        bool isBrowser,
+        MediaEffectRegistry? effects = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         MediaCompositionExportRequest composition =
@@ -87,6 +93,7 @@ public sealed partial class
                 composition.Clips[index];
             if (!IsSupportedVisualClip(
                     clip,
+                    effects ?? MediaEffectRegistry.Default,
                     out long clipDurationTicks))
             {
                 return false;
@@ -121,6 +128,7 @@ public sealed partial class
                     layer.Overlays[overlayIndex];
                 if (!IsSupportedVisualClip(
                         overlay.Clip,
+                        effects ?? MediaEffectRegistry.Default,
                         out _) ||
                     overlay.Delay < TimeSpan.Zero ||
                     !double.IsFinite(overlay.PositionX) ||
@@ -312,7 +320,7 @@ public sealed partial class
         }
     }
 
-    private static bool TryCreateRequestJson(
+    private bool TryCreateRequestJson(
         MediaCompositionThumbnailRequest request,
         out string json)
     {
@@ -433,14 +441,16 @@ public sealed partial class
         return true;
     }
 
-    private static bool WriteClip(
+    private bool WriteClip(
         Utf8JsonWriter writer,
         MediaCompositionExportClip clip)
     {
-        if (!TryGetBuiltInEffects(
-                clip.UserData,
-                out double saturation,
-                out double grayscale))
+        if (!BrowserWebGpuMediaCompositionExportProvider
+                .TryGetVideoColorTransform(
+                    clip,
+                    _effects,
+                    out MediaVideoColorTransform
+                        transform))
         {
             return false;
         }
@@ -468,18 +478,25 @@ public sealed partial class
             "trimStart",
             clip.TrimTimeFromStart);
         writer.WriteNumber("volume", 0d);
-        writer.WriteNumber(
-            "saturation",
-            saturation);
-        writer.WriteNumber(
-            "grayscale",
-            grayscale);
+        WriteTransformRow(
+            writer,
+            "redTransform",
+            transform.Red);
+        WriteTransformRow(
+            writer,
+            "greenTransform",
+            transform.Green);
+        WriteTransformRow(
+            writer,
+            "blueTransform",
+            transform.Blue);
         writer.WriteEndObject();
         return true;
     }
 
     private static bool IsSupportedVisualClip(
         MediaCompositionExportClip clip,
+        MediaEffectRegistry effects,
         out long durationTicks)
     {
         durationTicks = 0;
@@ -505,11 +522,11 @@ public sealed partial class
             clip.TrimTimeFromEnd.Ticks;
         return hasUri != hasColor &&
                durationTicks > 0 &&
-               clip.VideoEffectDefinitions.Count == 0 &&
-               TryGetBuiltInEffects(
-                   clip.UserData,
-                   out _,
-                   out _);
+               BrowserWebGpuMediaCompositionExportProvider
+                   .TryGetVideoColorTransform(
+                       clip,
+                       effects,
+                       out _);
     }
 
     private static bool IsBrowserMediaUri(
@@ -525,40 +542,18 @@ public sealed partial class
              "blob",
              StringComparison.OrdinalIgnoreCase));
 
-    private static bool TryGetBuiltInEffects(
-        IReadOnlyDictionary<string, string> userData,
-        out double saturation,
-        out double grayscale)
+    private static void WriteTransformRow(
+        Utf8JsonWriter writer,
+        string name,
+        Vector4 row)
     {
-        saturation = 1d;
-        grayscale = 0d;
-        if (userData.TryGetValue(
-                "progpu.saturation",
-                out string? saturationText) &&
-            (!double.TryParse(
-                saturationText,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out saturation) ||
-             !double.IsFinite(saturation) ||
-             saturation is < 0d or > 2d))
-        {
-            return false;
-        }
-        if (userData.TryGetValue(
-                "progpu.grayscale",
-                out string? grayscaleText) &&
-            (!double.TryParse(
-                grayscaleText,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out grayscale) ||
-             !double.IsFinite(grayscale) ||
-             grayscale is < 0d or > 1d))
-        {
-            return false;
-        }
-        return true;
+        writer.WritePropertyName(name);
+        writer.WriteStartArray();
+        writer.WriteNumberValue(row.X);
+        writer.WriteNumberValue(row.Y);
+        writer.WriteNumberValue(row.Z);
+        writer.WriteNumberValue(row.W);
+        writer.WriteEndArray();
     }
 
     private static void WriteTime(

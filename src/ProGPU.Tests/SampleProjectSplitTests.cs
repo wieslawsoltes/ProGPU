@@ -448,6 +448,26 @@ public sealed class SampleProjectSplitTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaCompositionVideoEffectResolver",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"redTransform\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "redTransform:",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "size: 80",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "red_transform: vec4<f32>",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "IsoBmffFastMediaCompositionExportProvider",
             fastProvider,
             StringComparison.Ordinal);
@@ -548,6 +568,10 @@ public sealed class SampleProjectSplitTests
             StringComparison.Ordinal);
         Assert.Contains(
             "BrowserMediaComposition.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetVideoColorTransform(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

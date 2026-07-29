@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using ProGPU.Backend;
@@ -93,8 +94,7 @@ public sealed partial class
                 clip.ArgbColor is not null ||
                 clip.Volume != 1d ||
                 clip.AudioEffectDefinitions.Count != 0 ||
-                HasNonIdentityBuiltInEffect(
-                    clip.UserData);
+                HasNonIdentityVideoEffect(clip);
         }
         for (int index = 0;
              index <
@@ -231,10 +231,9 @@ public sealed partial class
             !TryGetAudioEffectGain(
                 clip.AudioEffectDefinitions,
                 out _) ||
-            clip.VideoEffectDefinitions.Count != 0 ||
-            !TryGetBuiltInEffects(
-                clip.UserData,
-                out _,
+            !TryGetVideoColorTransform(
+                clip,
+                _effects,
                 out _))
         {
             return false;
@@ -257,15 +256,15 @@ public sealed partial class
              "blob",
              StringComparison.OrdinalIgnoreCase));
 
-    private static bool HasNonIdentityBuiltInEffect(
-        IReadOnlyDictionary<string, string> userData)
+    private bool HasNonIdentityVideoEffect(
+        MediaCompositionExportClip clip)
     {
-        TryGetBuiltInEffects(
-            userData,
-            out double saturation,
-            out double grayscale);
-        return saturation != 1d ||
-               grayscale != 0d;
+        return TryGetVideoColorTransform(
+                   clip,
+                   _effects,
+                   out MediaVideoColorTransform
+                       transform) &&
+               !transform.IsIdentity;
     }
 
     private static bool TryGetBuiltInEffects(
@@ -301,6 +300,36 @@ public sealed partial class
         {
             return false;
         }
+        return true;
+    }
+
+    internal static bool TryGetVideoColorTransform(
+        MediaCompositionExportClip clip,
+        MediaEffectRegistry effects,
+        out MediaVideoColorTransform transform)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(effects);
+        transform = MediaVideoColorTransform.Identity;
+        if (!TryGetBuiltInEffects(
+                clip.UserData,
+                out double saturation,
+                out double grayscale) ||
+            !MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    effects,
+                    clip.VideoEffectDefinitions,
+                    out MediaVideoColorTransform
+                        declared))
+        {
+            return false;
+        }
+
+        transform = MediaVideoColorEffectFactory
+            .CreateTransform(
+                saturation: (float)saturation,
+                grayscale: (float)grayscale)
+            .Then(declared);
         return true;
     }
 
@@ -446,10 +475,13 @@ public sealed partial class
         {
             return false;
         }
-        TryGetBuiltInEffects(
-            clip.UserData,
-            out double saturation,
-            out double grayscale);
+        if (!TryGetVideoColorTransform(
+                clip,
+                _effects,
+                out MediaVideoColorTransform transform))
+        {
+            return false;
+        }
         writer.WriteStartObject();
         if (clip.SourceUri is { } source)
         {
@@ -474,10 +506,34 @@ public sealed partial class
         writer.WriteNumber(
             "volume",
             clip.Volume * effectGain);
-        writer.WriteNumber("saturation", saturation);
-        writer.WriteNumber("grayscale", grayscale);
+        WriteTransformRow(
+            writer,
+            "redTransform",
+            transform.Red);
+        WriteTransformRow(
+            writer,
+            "greenTransform",
+            transform.Green);
+        WriteTransformRow(
+            writer,
+            "blueTransform",
+            transform.Blue);
         writer.WriteEndObject();
         return true;
+    }
+
+    private static void WriteTransformRow(
+        Utf8JsonWriter writer,
+        string name,
+        Vector4 row)
+    {
+        writer.WritePropertyName(name);
+        writer.WriteStartArray();
+        writer.WriteNumberValue(row.X);
+        writer.WriteNumberValue(row.Y);
+        writer.WriteNumberValue(row.Z);
+        writer.WriteNumberValue(row.W);
+        writer.WriteEndArray();
     }
 
     private bool TryGetAudioEffectGain(
