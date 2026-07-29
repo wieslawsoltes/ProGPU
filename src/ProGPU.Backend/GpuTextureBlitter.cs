@@ -27,8 +27,7 @@ public static unsafe class GpuTextureBlitter
             source,
             destinationView,
             destinationFormat,
-            saturation: 1f,
-            grayscale: 0f,
+            GpuTextureColorTransform.Identity,
             clearColor: clearColor);
     }
 
@@ -61,12 +60,48 @@ public static unsafe class GpuTextureBlitter
         {
             throw new NotSupportedException("GPU texture blit currently supports single-sample 2D textures with one layer.");
         }
-        if (!float.IsFinite(saturation) ||
-            !float.IsFinite(grayscale))
+        GpuTextureColorTransform colorTransform =
+            GpuTextureColorTransform
+                .CreateSaturationGrayscale(
+                    saturation,
+                    grayscale);
+
+        Blit(
+            source,
+            destinationView,
+            destinationFormat,
+            colorTransform,
+            clearColor);
+    }
+
+    /// <summary>
+    /// Performs one fullscreen GPU blit and applies one affine straight-RGB
+    /// transform. The retained shader performs one sample and one write per
+    /// output pixel; no intermediate texture or managed pixel buffer exists.
+    /// </summary>
+    public static void Blit(
+        GpuTexture source,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        in GpuTextureColorTransform colorTransform,
+        Color clearColor = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.IsDisposed)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(saturation),
-                "GPU blit effect values must be finite.");
+            throw new ObjectDisposedException(nameof(GpuTexture));
+        }
+        if (destinationView == null)
+        {
+            throw new ArgumentNullException(nameof(destinationView));
+        }
+        if (!source.Usage.HasFlag(TextureUsage.TextureBinding))
+        {
+            throw new InvalidOperationException("GPU texture blit requires TextureBinding usage on the source texture.");
+        }
+        if (source.Dimension != GpuTextureDimension.Dimension2D || source.DepthOrArrayLayers != 1 || source.SampleCount != 1)
+        {
+            throw new NotSupportedException("GPU texture blit currently supports single-sample 2D textures with one layer.");
         }
 
         var context = source.Context;
@@ -81,8 +116,7 @@ public static unsafe class GpuTextureBlitter
                 source,
                 destinationView,
                 destinationFormat,
-                Math.Clamp(saturation, 0f, 1f),
-                Math.Clamp(grayscale, 0f, 1f),
+                colorTransform,
                 clearColor);
         }
     }
@@ -91,8 +125,7 @@ public static unsafe class GpuTextureBlitter
         GpuTexture source,
         TextureView* destinationView,
         TextureFormat destinationFormat,
-        float saturation,
-        float grayscale,
+        in GpuTextureColorTransform colorTransform,
         Color clearColor)
     {
         var context = source.Context;
@@ -105,12 +138,20 @@ public static unsafe class GpuTextureBlitter
         try
         {
             Span<float> effectValues =
-                stackalloc float[4]
+                stackalloc float[12]
                 {
-                    saturation,
-                    grayscale,
-                    0f,
-                    0f
+                    colorTransform.Red.X,
+                    colorTransform.Red.Y,
+                    colorTransform.Red.Z,
+                    colorTransform.Red.W,
+                    colorTransform.Green.X,
+                    colorTransform.Green.Y,
+                    colorTransform.Green.Z,
+                    colorTransform.Green.W,
+                    colorTransform.Blue.X,
+                    colorTransform.Blue.Y,
+                    colorTransform.Blue.Z,
+                    colorTransform.Blue.W
                 };
             resources.EffectUniform.Write<float>(effectValues);
 
@@ -130,7 +171,7 @@ public static unsafe class GpuTextureBlitter
                 Binding = 2,
                 Buffer = resources.EffectUniform.BufferPtr,
                 Offset = 0,
-                Size = 16
+                Size = 48
             };
             var bindGroupDescriptor = new BindGroupDescriptor
             {
@@ -339,7 +380,7 @@ public static unsafe class GpuTextureBlitter
                 pipelineLayout = CreatePipelineLayout(_context, bindGroupLayout);
                 _effectUniform = new GpuBuffer(
                     _context,
-                    16,
+                    48,
                     BufferUsage.Uniform | BufferUsage.CopyDst,
                     "Texture Blitter Effects");
 
@@ -445,7 +486,7 @@ public static unsafe class GpuTextureBlitter
             {
                 Type = BufferBindingType.Uniform,
                 HasDynamicOffset = false,
-                MinBindingSize = 16
+                MinBindingSize = 48
             }
         };
         var descriptor = new BindGroupLayoutDescriptor

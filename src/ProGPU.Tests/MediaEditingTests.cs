@@ -8,7 +8,9 @@ using Windows.Storage.Streams;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 using Silk.NET.WebGPU;
+using System.Numerics;
 using System.Reflection;
 using Xunit;
 
@@ -16,6 +18,98 @@ namespace ProGPU.Tests;
 
 public sealed class MediaEditingTests
 {
+    [Fact]
+    public void TypedVideoEffectResolverPreservesDeclaredOrder()
+    {
+        const string effectId =
+            "ProGPU.Tests.VideoColor";
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new MediaVideoColorEffectFactory(
+                    effectId));
+        var definitions =
+            new MediaCompositionEffectDefinition[]
+            {
+                new(
+                    effectId,
+                    new Dictionary<string, object?>
+                    {
+                        [
+                            MediaVideoColorEffectFactory
+                                .InvertPropertyName
+                        ] = 1f
+                    }),
+                new(
+                    effectId,
+                    new Dictionary<string, object?>
+                    {
+                        [
+                            MediaVideoColorEffectFactory
+                                .BrightnessPropertyName
+                        ] = 0.1f
+                    })
+            };
+
+        Assert.True(
+            MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    registry,
+                    definitions,
+                    out MediaVideoColorTransform
+                        transform));
+
+        Vector3 result =
+            transform.Transform(
+                new Vector3(1f, 0f, 0f));
+        Assert.Equal(0.1f, result.X, 5);
+        Assert.Equal(1.1f, result.Y, 5);
+        Assert.Equal(1.1f, result.Z, 5);
+    }
+
+    [Fact]
+    public void TypedVideoEffectResolverRejectsUnknownAndInvalidNodes()
+    {
+        const string effectId =
+            "ProGPU.Tests.VideoColor.Invalid";
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new MediaVideoColorEffectFactory(
+                    effectId));
+
+        Assert.False(
+            MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    registry,
+                    [
+                        new(
+                            "ProGPU.Tests.Unregistered",
+                            new Dictionary<
+                                string,
+                                object?>())
+                    ],
+                    out _));
+        Assert.False(
+            MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    registry,
+                    [
+                        new(
+                            effectId,
+                            new Dictionary<
+                                string,
+                                object?>
+                            {
+                                [
+                                    MediaVideoColorEffectFactory
+                                        .ContrastPropertyName
+                                ] = double.NaN
+                            })
+                    ],
+                    out _));
+    }
+
     [Fact]
     public void SharedThumbnailPngEncoderPreservesBgraRowsAndStride()
     {

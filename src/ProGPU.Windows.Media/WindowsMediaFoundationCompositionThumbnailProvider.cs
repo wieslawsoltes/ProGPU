@@ -1,5 +1,7 @@
+using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 
 namespace ProGPU.Windows.Media;
 
@@ -23,11 +25,14 @@ public sealed class
         IMediaCompositionThumbnailProvider
 {
     private const uint MaximumDimension = 8_192;
+    private readonly MediaEffectRegistry _effects;
 
     public WindowsMediaFoundationCompositionThumbnailProvider(
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
     }
 
     public string Id =>
@@ -39,15 +44,26 @@ public sealed class
         MediaCompositionThumbnailRequest request) =>
         IsRequestSupported(
             request,
-            OperatingSystem.IsWindows()) &&
+            OperatingSystem.IsWindows(),
+            _effects) &&
         WindowsMediaFoundationCompositionExportProvider
             .TryGetActiveD3D12DawnContext(out _);
 
     internal static bool IsRequestSupported(
         MediaCompositionThumbnailRequest request,
-        bool isWindows)
+        bool isWindows) =>
+        IsRequestSupported(
+            request,
+            isWindows,
+            MediaEffectRegistry.Default);
+
+    internal static bool IsRequestSupported(
+        MediaCompositionThumbnailRequest request,
+        bool isWindows,
+        MediaEffectRegistry effects)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(effects);
         MediaCompositionExportRequest composition =
             request.Composition;
         MediaCompositionEncodingProfile profile =
@@ -88,11 +104,10 @@ public sealed class
                 clip.TrimTimeFromEnd >=
                     clip.OriginalDuration -
                     clip.TrimTimeFromStart ||
-                clip.VideoEffectDefinitions.Count != 0 ||
                 !WindowsMediaFoundationCompositionExportProvider
-                    .TryGetBuiltInEffects(
-                        clip.UserData,
-                        out _,
+                    .TryGetVideoColorTransform(
+                        clip,
+                        effects,
                         out _))
             {
                 return false;
@@ -144,6 +159,7 @@ public sealed class
             Task.Run(
                 () => RenderCore(
                     request,
+                    _effects,
                     cancellationToken),
                 CancellationToken.None));
     }
@@ -151,6 +167,7 @@ public sealed class
     private static IReadOnlyList<
         MediaCompositionThumbnail> RenderCore(
         MediaCompositionThumbnailRequest request,
+        MediaEffectRegistry effects,
         CancellationToken cancellationToken)
     {
         bool comInitialized = false;
@@ -161,9 +178,26 @@ public sealed class
         WindowsDxgiGpuEffectFrameSink? renderer = null;
         ClipReader?[] readers =
             new ClipReader?[request.Composition.Clips.Count];
+        var colorTransforms =
+            new GpuTextureColorTransform[
+                request.Composition.Clips.Count];
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            for (int index = 0;
+                 index < colorTransforms.Length;
+                 index++)
+            {
+                if (!WindowsMediaFoundationCompositionExportProvider
+                        .TryGetVideoColorTransform(
+                            request.Composition.Clips[index],
+                            effects,
+                            out colorTransforms[index]))
+                {
+                    throw new InvalidOperationException(
+                        "Validated Windows thumbnail effects became invalid.");
+                }
+            }
             WindowsMediaNative.InitializeCom();
             comInitialized = true;
             WindowsMediaNative.StartupMediaFoundation();
@@ -222,15 +256,8 @@ public sealed class
                 MediaCompositionExportClip clip =
                     request.Composition.Clips[
                         position.ClipIndex];
-                if (!WindowsMediaFoundationCompositionExportProvider
-                        .TryGetBuiltInEffects(
-                            clip.UserData,
-                            out float saturation,
-                            out float grayscale))
-                {
-                    throw new InvalidOperationException(
-                        "Validated Windows thumbnail effects became invalid.");
-                }
+                GpuTextureColorTransform colorTransform =
+                    colorTransforms[position.ClipIndex];
 
                 byte[] pixels;
                 if (clip.ArgbColor is uint color)
@@ -238,8 +265,7 @@ public sealed class
                     pixels =
                         renderer.ProcessColorAndReadback(
                             color,
-                            saturation,
-                            grayscale,
+                            colorTransform,
                             cancellationToken);
                 }
                 else
@@ -255,8 +281,7 @@ public sealed class
                         pixels =
                             renderer.ProcessAndReadback(
                                 sample,
-                                saturation,
-                                grayscale,
+                                colorTransform,
                                 cancellationToken);
                     }
                     finally

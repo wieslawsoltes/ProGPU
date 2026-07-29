@@ -96,8 +96,7 @@ internal sealed unsafe class
         uint sinkStream,
         long timestamp,
         long duration,
-        float saturation,
-        float grayscale,
+        in GpuTextureColorTransform colorTransform,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -132,8 +131,7 @@ internal sealed unsafe class
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                saturation,
-                grayscale);
+                colorTransform);
 
             source.Access.EndAccess();
             ReturnSource(source);
@@ -168,8 +166,7 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] ProcessAndReadback(
         nint decodedSample,
-        float saturation,
-        float grayscale,
+        in GpuTextureColorTransform colorTransform,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -204,8 +201,7 @@ internal sealed unsafe class
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                saturation,
-                grayscale);
+                colorTransform);
 
             source.Access.EndAccess();
             ReturnSource(source);
@@ -244,8 +240,7 @@ internal sealed unsafe class
         uint sinkStream,
         long timestamp,
         long duration,
-        float saturation,
-        float grayscale,
+        in GpuTextureColorTransform colorTransform,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -274,8 +269,7 @@ internal sealed unsafe class
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                saturation,
-                grayscale);
+                colorTransform);
 
             ReturnSource(source);
             sourceReturned = true;
@@ -308,8 +302,7 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] ProcessColorAndReadback(
         uint argbColor,
-        float saturation,
-        float grayscale,
+        in GpuTextureColorTransform colorTransform,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -338,8 +331,7 @@ internal sealed unsafe class
                 source.Access.Texture,
                 target.Access.Texture.ViewPtr,
                 target.Access.Texture.Format,
-                saturation,
-                grayscale);
+                colorTransform);
             ReturnSource(source);
             sourceReturned = true;
 

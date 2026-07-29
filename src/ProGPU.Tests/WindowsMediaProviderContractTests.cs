@@ -438,6 +438,100 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
+    public void
+        WindowsExportAndThumbnailsAcceptTypedVideoDefinitions()
+    {
+        const string effectId =
+            "ProGPU.Tests.Windows.VideoColor";
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new MediaVideoColorEffectFactory(
+                    effectId));
+        MediaCompositionExportRequest request =
+            CreatePreciseRequest();
+        MediaCompositionExportClip clip =
+            request.Clips[0] with
+            {
+                VideoEffectDefinitions =
+                [
+                    new MediaCompositionEffectDefinition(
+                        effectId,
+                        new Dictionary<string, object?>
+                        {
+                            [
+                                MediaVideoColorEffectFactory
+                                    .BrightnessPropertyName
+                            ] = 0.1d,
+                            [
+                                MediaVideoColorEffectFactory
+                                    .ContrastPropertyName
+                            ] = 1.25d,
+                            [
+                                MediaVideoColorEffectFactory
+                                    .SaturationPropertyName
+                            ] = 1.5d,
+                            [
+                                MediaVideoColorEffectFactory
+                                    .GrayscalePropertyName
+                            ] = 0.2d,
+                            [
+                                MediaVideoColorEffectFactory
+                                    .SepiaPropertyName
+                            ] = 0.4d,
+                            [
+                                MediaVideoColorEffectFactory
+                                    .InvertPropertyName
+                            ] = 0.1d
+                        })
+                ]
+            };
+        request = request with
+        {
+            Clips = [clip]
+        };
+
+        Assert.True(
+            WindowsMediaFoundationCompositionExportProvider
+                .IsRequestSupported(
+                    request,
+                    isWindows: true,
+                    effects: registry));
+        Assert.True(
+            WindowsMediaFoundationCompositionThumbnailProvider
+                .IsRequestSupported(
+                    new MediaCompositionThumbnailRequest(
+                        request,
+                        [TimeSpan.FromSeconds(1)],
+                        1280,
+                        720,
+                        MediaCompositionThumbnailPrecision
+                            .NearestFrame),
+                    isWindows: true,
+                    effects: registry));
+        Assert.True(
+            WindowsMediaFoundationCompositionExportProvider
+                .TryGetVideoColorTransform(
+                    clip,
+                    registry,
+                    out ProGPU.Backend
+                        .GpuTextureColorTransform
+                        transform));
+        Assert.NotEqual(
+            ProGPU.Backend.GpuTextureColorTransform
+                .Identity,
+            transform);
+
+        Assert.False(
+            WindowsMediaFoundationCompositionExportProvider
+                .IsRequestSupported(
+                    request,
+                    isWindows: true,
+                    effects:
+                        new MediaEffectRegistry()));
+    }
+
+    [Fact]
     public void WindowsPreciseExporterAcceptsGpuGeneratedColorClips()
     {
         MediaCompositionExportRequest request =

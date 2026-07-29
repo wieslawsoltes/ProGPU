@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Controls;
 using ProGPU.Backend;
 using ProGPU.Compute;
 using ProGPU.Fonts.Inter;
+using ProGPU.Media.Effects;
 using ProGPU.Scene;
 using ProGPU.Scene.Extensions;
 using ProGPU.Tests.Headless;
@@ -4006,6 +4007,70 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.InRange(pixel[1], 52, 56);
         Assert.InRange(pixel[2], 52, 56);
         Assert.Equal(255, pixel[3]);
+    }
+
+    [Fact]
+    public unsafe void
+        GpuTextureBlitterExecutesAffineVideoEffectInOnePass()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "GPU affine media-effect source");
+        using var destination = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "GPU affine media-effect destination");
+        source.WritePixels(
+            new byte[] { 255, 0, 0, 128 });
+        MediaVideoColorTransform effect =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    brightness: 0.1f,
+                    sepia: 1f);
+        var backendEffect =
+            new GpuTextureColorTransform(
+                effect.Red,
+                effect.Green,
+                effect.Blue);
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            backendEffect);
+
+        Vector3 expected =
+            effect.Transform(
+                new Vector3(1f, 0f, 0f));
+        byte[] pixel = destination.ReadPixels();
+        Assert.InRange(
+            pixel[0],
+            ToByte(expected.X) - 1,
+            ToByte(expected.X) + 1);
+        Assert.InRange(
+            pixel[1],
+            ToByte(expected.Y) - 1,
+            ToByte(expected.Y) + 1);
+        Assert.InRange(
+            pixel[2],
+            ToByte(expected.Z) - 1,
+            ToByte(expected.Z) + 1);
+        Assert.Equal(128, pixel[3]);
+
+        static int ToByte(float value) =>
+            (int)MathF.Round(
+                Math.Clamp(value, 0f, 1f) *
+                byte.MaxValue);
     }
 
     [Fact]
