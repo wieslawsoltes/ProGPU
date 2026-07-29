@@ -68,6 +68,115 @@ public sealed class MediaEditingTests
     }
 
     [Fact]
+    public void TypedVideoEffectPlanCombinesClampedGaussianVariance()
+    {
+        const string colorEffectId =
+            "ProGPU.Tests.VideoPlan.Color";
+        const string blurEffectId =
+            "ProGPU.Tests.VideoPlan.Blur";
+        var registry = new MediaEffectRegistry();
+        using IDisposable colorRegistration =
+            registry.Register(
+                new MediaVideoColorEffectFactory(
+                    colorEffectId));
+        using IDisposable blurRegistration =
+            registry.Register(
+                new MediaVideoGaussianBlurEffectFactory(
+                    blurEffectId));
+        var definitions =
+            new MediaCompositionEffectDefinition[]
+            {
+                new(
+                    blurEffectId,
+                    new Dictionary<string, object?>
+                    {
+                        [
+                            MediaVideoGaussianBlurEffectFactory
+                                .StandardDeviationPropertyName
+                        ] = 3f
+                    }),
+                new(
+                    colorEffectId,
+                    new Dictionary<string, object?>
+                    {
+                        [
+                            MediaVideoColorEffectFactory
+                                .InvertPropertyName
+                        ] = 1f
+                    }),
+                new(
+                    blurEffectId,
+                    new Dictionary<string, object?>
+                    {
+                        [
+                            MediaVideoGaussianBlurEffectFactory
+                                .StandardDeviationPropertyName
+                        ] = 4f
+                    })
+            };
+
+        Assert.True(
+            MediaCompositionVideoEffectResolver
+                .TryCapturePlan(
+                    registry,
+                    definitions,
+                    out MediaVideoEffectPlan plan));
+        Assert.True(plan.HasSpatialEffect);
+        Assert.Equal(
+            5f,
+            plan.BlurStandardDeviation,
+            5);
+        Assert.Equal(
+            Vector3.Zero,
+            plan.ColorTransform.Transform(
+                Vector3.One));
+        Assert.False(
+            MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    registry,
+                    definitions,
+                    out _));
+        Assert.True(
+            default(MediaVideoEffectPlan).IsIdentity);
+        Assert.Equal(
+            Vector3.One,
+            default(MediaVideoEffectPlan)
+                .ColorTransform
+                .Transform(Vector3.One));
+    }
+
+    [Fact]
+    public void TypedGaussianBlurRejectsInvalidPortableSigma()
+    {
+        const string effectId =
+            "ProGPU.Tests.VideoBlur.Invalid";
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new MediaVideoGaussianBlurEffectFactory(
+                    effectId));
+
+        Assert.False(
+            MediaCompositionVideoEffectResolver
+                .TryCapturePlan(
+                    registry,
+                    [
+                        new(
+                            effectId,
+                            new Dictionary<
+                                string,
+                                object?>
+                            {
+                                [
+                                    MediaVideoGaussianBlurEffectFactory
+                                        .StandardDeviationPropertyName
+                                ] = 33f
+                            })
+                    ],
+                    out _));
+    }
+
+    [Fact]
     public void TypedVideoEffectResolverRejectsUnknownAndInvalidNodes()
     {
         const string effectId =

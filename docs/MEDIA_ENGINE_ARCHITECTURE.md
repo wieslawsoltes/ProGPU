@@ -639,8 +639,23 @@ readback for ordinary presentation, and unbounded decoded-frame queues.
   documents that color matrices can be shader-linked while spatial kernels
   such as convolution require a sampling boundary. ProGPU therefore composes
   affine straight-RGB nodes into one unclamped 3x4 transform, preserves alpha,
-  lets the output format perform terminal clamping, and keeps blur as a future
-  separate spatial pass.
+  lets the output format perform terminal clamping, and represents Gaussian
+  blur as a separate typed spatial boundary.
+- [Skia Gaussian image filters](https://api.skia.org/classSkImageFilters.html)
+  expose separate X/Y sigma plus explicit edge tiling and cropping.
+  [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur)
+  defines the kernel radius as three standard deviations and distinguishes
+  transparent from bounded edge behavior. ProGPU adopts standard deviation as
+  the portable property, combines multiple clamped Gaussian nodes by variance,
+  preserves the encoded frame extent, and rejects a combined sigma beyond the
+  documented portable bound instead of silently truncating the kernel.
+- The [WebGPU texture-usage model](https://gpuweb.github.io/gpuweb/#textures)
+  prohibits reading and writing the same texture subresource in one usage
+  scope. Native WebGPU providers therefore require a separate reusable
+  intermediate texture for the two separable spatial passes; Apple maps the
+  same plan to Core Image on Metal, clamps the source extent, and uses
+  [`CIImage.applyingGaussianBlur(sigma:)`](https://developer.apple.com/documentation/coreimage/ciimage/applyinggaussianblur%28sigma%3A%29)
+  rather than the distinct radius-valued filter property.
 - [WebRender's rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
   separates retained scene data, resource caching, frame building, and GPU
   rendering. ProGPU keeps media timing/provider state outside the retained
@@ -665,10 +680,12 @@ original immutable three-row affine value with fixed O(1) composition.
 properties from the existing WinUI-shaped `IPropertySet` snapshot.
 `MediaCompositionVideoEffectResolver` activates definitions through
 `MediaEffectRegistry`, requires the typed `IMediaVideoGraphEffect` contract,
-and folds E compatible nodes in O(E) time with O(1) working storage. An
-unregistered or non-affine node is rejected during capability negotiation;
-there is no reflection, assembly scan, managed pixel callback, or silent
-effect drop.
+and folds E compatible nodes in O(E) time with O(1) working storage.
+`MediaVideoEffectPlan` retains the ordered affine result and one clamped
+Gaussian standard deviation; multiple Gaussian nodes add variance and remain
+one spatial boundary. An unregistered or unsupported node is rejected during
+capability negotiation; there is no reflection, assembly scan, managed pixel
+callback, or silent effect drop.
 
 ## Architecture
 
@@ -927,8 +944,8 @@ registered provider can faithfully encode the requested timeline.
 | Target | Provider status | Rendering status | Honest limitation |
 |---|---|---|---|
 | Browser | Runtime-validated worker-mode HTML media playback with seek/replay and a native Web Audio graph; typed gain nodes and stereo balance are applied live. Compatible edits use dependency-free compressed MP4 fast export; precise/effect/color/overlay/background-audio edits use the WebGPU plus native H.264/AAC MediaRecorder lane, including serialized registered gain definitions and registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes. WinUI-aligned single/batch thumbnails reuse the same WebGPU composition lane for URI/color clips, affine effects, overlays, endpoint mapping, and precise or browser-approximate seeking | WebGPU `copyExternalImageToTexture`, 2D effects and spherical projection; transferred `VideoFrame` ownership is bounded and decoded-frame copies are ordered inside the frame command packet. Export and thumbnails render through one retained OffscreenCanvas WebGPU pipeline per operation; the shared 80-byte per-layer uniform carries destination, three folded affine rows, and opacity into one sample/write pass. Thumbnails use the required PNG `convertToBlob` boundary and copy each encoded result directly into its final managed array | Playback, baked export, and thumbnails are browser-controlled GPU-copy/readback lanes, not zero-copy; baked export is real-time and requires runtime H.264/AAC MP4 recorder support plus a user-initiated action. URI export/thumbnails require CORS-readable media; `fastSeek` availability and approximation are browser-defined, with precise fallback; unregistered/non-affine video effects and custom compositors remain rejected |
-| macOS | Shared Apple AVFoundation/AVPlayer provider implemented; native audio with typed post-effects `MTAudioProcessingTap` callbacks, IOSurface-backed BGRA frames, AVFoundation H.264/AAC composition export, and WinUI-aligned single/batch composition thumbnails. Export and thumbnails support ordered clips, built-in positioned/opacity URI or color overlays, generated main-track colors, legacy saturation/grayscale metadata, and registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert | Runtime-validated hardware decode and Dawn IOSurface `NativeZeroCopy`; generated colors render once through Core Image/Metal into the AVAssetWriter adaptor's recyclable pixel-buffer pool and use exact rational presentation timestamps without CPU pixel access. URI clips and generated colors snapshot one folded affine transform and bake it in one Core Image/Metal matrix pass without CPU pixel access. One AVAssetImageGenerator and native composition are reused per thumbnail batch; ImageIO materializes the required encoded PNG result. `ProGPU.Samples.Desktop` presents through the same Dawn/Metal device | On macOS 26 the outer Avalonia shell currently uses its framebuffer fallback because Dawn does not accept the losslessly compressed `&BGA` CAMetalLayer IOSurface; AVFoundation owns encoder selection, so hardware encode is not guaranteed; encoded thumbnails are not zero-copy; export/thumbnail composition rejects unregistered, non-affine, spatial video effects and custom compositor definitions |
-| iOS | The shared Apple AVFoundation playback, decoded-audio effect, composition-export, and composition-thumbnail providers are registered by the iOS host; export includes typed scheduled audio effects plus the same native background-audio, URI/color standard-overlay, generated main-track color, and registered affine color-effect GPU-bake lanes as macOS | IOSurface external-frame ownership and same-device Dawn Metal `CAMetalLayer` presentation/import are implemented; generated colors and URI effects use Core Image/Metal and the native writer pool without managed pixel copies; audio effects operate on the native mix-tap buffer; native thumbnail composition is shared across each encoded batch | The deployable package must supply the exact WebGPUSharp ABI as `webgpu_dawn.xcframework`; without it the host deliberately selects the diagnosed wgpu-native UI-only fallback; Apple hardware encode remains runtime-selected, thumbnail runtime evidence is currently macOS-only, and unregistered/non-affine video-effect plus custom-compositor export remain pending |
+| macOS | Shared Apple AVFoundation/AVPlayer provider implemented; native audio with typed post-effects `MTAudioProcessingTap` callbacks, IOSurface-backed BGRA frames, AVFoundation H.264/AAC composition export, and WinUI-aligned single/batch composition thumbnails. Export and thumbnails support ordered clips, built-in positioned/opacity URI or color overlays, generated main-track colors, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert, and registered clamped Gaussian blur nodes | Runtime-validated hardware decode and Dawn IOSurface `NativeZeroCopy`; generated colors render once through Core Image/Metal into the AVAssetWriter adaptor's recyclable pixel-buffer pool and use exact rational presentation timestamps without CPU pixel access. URI clips snapshot one portable effect plan, execute one folded Core Image color matrix plus an optional clamped Core Image/Metal Gaussian blur, and crop back to the encoded frame without CPU pixel access. One AVAssetImageGenerator and native composition are reused per thumbnail batch; ImageIO materializes the required encoded PNG result. `ProGPU.Samples.Desktop` presents through the same Dawn/Metal device | On macOS 26 the outer Avalonia shell currently uses its framebuffer fallback because Dawn does not accept the losslessly compressed `&BGA` CAMetalLayer IOSurface; AVFoundation owns encoder selection, so hardware encode is not guaranteed; encoded thumbnails are not zero-copy; export/thumbnail composition rejects unregistered or unsupported video effects and custom compositor definitions |
+| iOS | The shared Apple AVFoundation playback, decoded-audio effect, composition-export, and composition-thumbnail providers are registered by the iOS host; export includes typed scheduled audio effects plus the same native background-audio, URI/color standard-overlay, generated main-track color, registered affine color-effect, and clamped Gaussian-blur GPU-bake lanes as macOS | IOSurface external-frame ownership and same-device Dawn Metal `CAMetalLayer` presentation/import are implemented; generated colors and URI effects use Core Image/Metal and the native writer pool without managed pixel copies; audio effects operate on the native mix-tap buffer; native thumbnail composition is shared across each encoded batch | The deployable package must supply the exact WebGPUSharp ABI as `webgpu_dawn.xcframework`; without it the host deliberately selects the diagnosed wgpu-native UI-only fallback; Apple hardware encode remains runtime-selected, thumbnail runtime evidence is currently macOS-only, and unsupported video-effect plus custom-compositor export remain pending |
 | Windows | Dependency-free, AOT-safe Media Foundation Media Engine playback, Source Reader/Sink Writer precise export, and WinUI-aligned single/batch composition thumbnails are implemented; native audio, D3D11 DXGI manager, WinUI-aligned audio category/endpoint role, rate, loop, seek, mute, volume, `IMFMediaEngineEx` balance/frame stepping, and live typed gain attenuation are supported. Fast mode retains compressed H.264/AAC MP4 remux. Precise export and thumbnails accept ordered trimmed URI/color clips, legacy saturation/grayscale metadata, and registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert; export additionally supports optional PCM/AAC and in-place 0–2× per-clip typed gain | Playback frames are GPU-blitted into a bounded keyed-mutex D3D11 texture ring and imported into Dawn D3D12. Identity export passes target-sized NV12 samples through one DXGI manager. GPU export/thumbnail composition reuses three shared BGRA source textures, three WebGPU targets, WebGPU color generation or one decoded-frame D3D11 copy, and one fused affine effect pass. A thumbnail batch adds exactly one retained staging texture for final BGRA readback/PNG; PCM16 export gain modifies native buffers in place without managed scratch | Playback, GPU export, and thumbnails report their actual GPU copies; encoded thumbnails are not zero-copy. Precise export and thumbnails reject overlays, spatial/arbitrary video effects, and custom compositors. D3D11/Dawn adapter compatibility is runtime-negotiated, and thumbnail runtime validation on Windows hardware remains. Direct Source Reader decoder-allocation playback and arbitrary MFT/WASAPI processing remain |
 | Android | Android MediaPlayer/MediaCodec playback, a registered precise/effect MediaExtractor/MediaCodec/MediaMuxer exporter, and WinUI-aligned single/batch composition thumbnails are implemented. Export supports ordered trimmed URI clips, video-only generated color clips, hardware H.264 surface input, legacy saturation/grayscale metadata plus registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, matching compressed AAC for URI-only timelines, transactional output, cancellation, and typed copy-path reporting. Thumbnails support ordered URI/color clips, exact or sync-frame selection, endpoint mapping, and the same affine effects. The shared fast exporter remains available for compatible H.264/AAC MP4 timelines | Playback uses AHardwareBuffer external ownership and Dawn Vulkan import. With an active Vulkan Dawn context, precise export and thumbnail effects reuse the bounded RGBA AHardwareBuffer/SyncFD WebGPU renderer and one fused 3x4 color pass; fallback uses the retained GLES surface program with the same three affine rows. A thumbnail batch retains one MediaMetadataRetriever per URI clip, one renderer, and one exact-sized ImageReader | The deployable package must supply the exact WebGPUSharp ABI as `libwebgpu_dawn.so`. Android thumbnail decode returns native Bitmaps and encoded PNG requires final readback, so thumbnails are not zero-copy; device runtime evidence remains pending. Thumbnail overlays and unregistered/non-affine effects are rejected. Export still rejects color audio, volume, background audio, overlays, spatial effects, differing/mismatched AAC, and non-H.264 profiles |
 | Linux | Seekable ISO-BMFF H.264/H.265 demux, Annex-B conversion, V4L2 stateful decode queues, timestamp pacing, seek/restart, EOS drain, dynamic source-change restart, explicit sample registration, and WinUI-aligned single/batch composition thumbnails are implemented; version-zero signed `sowt`/`twos` PCM uses native PipeWire output. Fast H.264/AAC MP4 export copies compatible compressed samples transactionally. The registered precise lane accepts ordered local H.264 and generated-color clips, legacy saturation/grayscale metadata plus registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, keeps one hardware H.264 encoder open across clip boundaries, derives `avcC`, transactionally rebuilds timing/sample tables, and preserves compatible selected AAC access units with exact edit-list trims/silence | Playback imports RGB DMA-BUF directly and NV12/NV12M as R8/RG8 planes. A single native-size identity URI export passes decoder-owned linear NV12 DMA-BUF directly into V4L2. Scaled output, multi-clip timelines, affine effects, and generated colors use three reusable output-sized GBM R8/RG8 targets, normalized bilinear WebGPU sampling, one command buffer per frame, one 64-byte aligned three-row transform uniform, Dawn SyncFD export, kernel fence import, and one stable V4L2 multi-planar encoder input; no decoded or rendered export pixel is mapped. Thumbnails group positions by URI clip, retain at most two decoded NV12 candidates, render through one reusable RGBA target, and use one aligned final WebGPU readback/PNG boundary. AAC remains compressed and is copied only by the final bounded writer | GBM/Dawn/V4L2 format compatibility is runtime-negotiated and still needs Linux hardware evidence. Encoded thumbnails are not zero-copy and local H.264 device validation remains pending. Precise AAC requires identical selected `mp4a` configuration matching the output bitrate/rate/channels. Audio gain/effects, background audio, thumbnail/export overlays, in-stream dynamic source-size changes, seamless in-place pool replacement, and unregistered/non-affine effects remain |
@@ -943,7 +960,7 @@ not mean a native media provider has already been completed for that target.
 | Platform | Decode/demux | Video interop target | Audio | Required fallback |
 |---|---|---|---|---|
 | Windows | Implemented Media Engine frame-server playback; precise export and thumbnails use Source Reader advanced processing with a DXGI manager, while Source Reader/MFT + DXVA direct-allocation playback remains planned | Bounded keyed-mutex D3D11/DXGI playback ring imported by Dawn D3D12; identity export exchanges NV12 samples through one DXGI manager; registered affine color definitions, generated colors, and thumbnails use the bounded shared BGRA/WebGPU ring. Thumbnail PNG adds one retained staging copy/map after GPU completion | Native Media Engine audio, balance, frame stepping, and typed gain attenuation; precise export combines `MediaClip.Volume` with registered serialized typed gain nodes, applies 0–2× Q15 gain with saturation directly to PCM16 before native AAC encoding, and reports color-clip audio gaps with stream ticks; registered arbitrary MFT/WASAPI processing remains planned | Playback, GPU composition export, and thumbnails report their GPU copies/readback; overlays, spatial/custom effects, mixing, gain above 2×, and other unsupported composition fail capability selection, native type/shared-adapter negotiation fails explicitly, and no Windows hardware measurements are claimed |
-| macOS/iOS | AVFoundation/VideoToolbox playback and AVAssetWriter/AVAssetExportSession composition export; generated main/overlay colors are prepared as native H.264 assets | CVPixelBuffer/IOSurface/Metal texture planes; generated colors use one immutable adaptor-pool BGRA buffer rendered by Core Image/Metal at exact rational timestamps; registered affine color definitions fold into one Core Image matrix pass | AVPlayer and export audio use typed post-effects `MTAudioProcessingTap`; immutable clip/background/overlay schedules process float PCM directly or through bounded planar scratch | GPU conversion pass for unsupported YUV sampling; unregistered/non-affine effects and unsupported tap PCM numeric layouts fail or pass through with explicit diagnostics; AVFoundation owns hardware-encoder selection |
+| macOS/iOS | AVFoundation/VideoToolbox playback and AVAssetWriter/AVAssetExportSession composition export; generated main/overlay colors are prepared as native H.264 assets | CVPixelBuffer/IOSurface/Metal texture planes; generated colors use one immutable adaptor-pool BGRA buffer rendered by Core Image/Metal at exact rational timestamps; registered affine color definitions fold into one Core Image matrix pass and registered Gaussian nodes execute as one clamped Core Image blur cropped to the frame extent | AVPlayer and export audio use typed post-effects `MTAudioProcessingTap`; immutable clip/background/overlay schedules process float PCM directly or through bounded planar scratch | GPU conversion pass for unsupported YUV sampling; unregistered/unsupported effects and unsupported tap PCM numeric layouts fail or pass through with explicit diagnostics; AVFoundation owns hardware-encoder selection |
 | Android | Implemented MediaPlayer/MediaCodec playback, MediaExtractor/MediaCodec/MediaMuxer precise export, and MediaMetadataRetriever composition thumbnails; export surfaces and video-only colors bypass CPU pixel access, while thumbnail URI decode follows Android's native Bitmap-returning contract | Playback uses ImageReader/AHardwareBuffer plus same-device Dawn Vulkan import/presentation; export uses a SurfaceTexture or WebGPU-generated color through the bounded encoder-Surface GPU path. Thumbnail effects reuse that renderer before one CPU-readable ImageReader/PNG boundary | Native playback gain uses volume/LoudnessEnhancer; export preserves exactly matching AAC access units on URI-only timelines, while general AAudio processing, silence generation, mixing, and gain baking remain planned | Missing exact-ABI Dawn packaging selects an explicitly diagnosed playback fallback. Encoded thumbnails are not zero-copy and still need Android device validation; thumbnail overlays and unsupported export audio/composition fail explicitly; hardware encode remains runtime-negotiated |
 | Linux | Built-in ISO-BMFF sample tables plus H.264/H.265 Annex-B conversion feed the implemented V4L2 stateful MMAP decoder OUTPUT queue; local seekable file/stream playback is registered in the Avalonia sample; a dynamic source change reopens at the preceding sync sample while old exported leases drain. Fast mode remuxes compatible H.264/AAC. Precise mode registers one V4L2 H.264 encoder for an ordered URI/color timeline, composes trimmed source timestamps with cumulative clip offsets, and muxes native encoder access units without an external codec/container dependency. Composition thumbnails reuse the demuxer/decoder per URI clip and normalize key-frame requests through the sync-sample index | Playback exposes RGB as one Dawn DMA-BUF texture and NV12/NV12M as R8/RG8 plane textures. Native-size single-URI identity export transfers decoder CAPTURE leases directly to encoder OUTPUT. Scaling, ordered timelines, registered affine color definitions, and generated limited-range BT.709 color planes use a bounded output-sized GBM R8/RG8 target ring with normalized bilinear sampling, one fused three-row transform, explicit Dawn SyncFD export, and DMA-BUF reservation-fence import before V4L2 queueing. Thumbnails use the same affine NV12 processor, a retained RGBA target, and exactly one aligned WebGPU staging buffer per batch | PipeWire float-PCM playback uses an allocation-free bounded SPSC callback ring with typed effects and native timing. Precise export preserves compatible selected AAC samples as `CompressedSampleCopy`; version-1 edit lists trim partial boundary frames and represent leading/internal silent spans without decode or PCM generation | Unsupported containers/codecs fail explicitly. Precise export requires a runtime-compatible GBM/Dawn/V4L2 DMA-BUF intersection; thumbnails require a compatible decoder/Dawn import path and final mapped PNG readback. AAC gain/effects, mixing, background audio, overlays, unregistered/non-affine effects, and incompatible source configurations remain rejected. It has executable capability/scaling/AAC-edit/timestamp/WebGPU-RGBA tests and source/build tests but no Linux hardware run yet. No CPU video conversion is disguised as zero-copy |
 | Browser | HTML media playback; dependency-free ISO-BMFF fast export, WebGPU/MediaRecorder effect-bake export, and HTML-media/WebGPU composition thumbnails; a future WebCodecs provider remains pluggable | Browser external images are explicitly copied into reusable WebGPU textures; export and thumbnails fold registered affine color definitions into one retained three-row shader pass; export uses OffscreenCanvas plus explicit `ImageBitmap` ownership transfer, while thumbnails encode the completed canvas directly to PNG | Native Web Audio source, typed GainNodes, StereoPanner, and export-time clip/background/overlay volumes multiplied by registered serialized gain effects; AudioWorklet extension planned | Browser-controlled decoded-frame copies and encoded-thumbnail readback are reported honestly; CORS can block URI media, `fastSeek` is optional, effect-baked export is real-time/user-initiated, unregistered/non-affine effects fail capability selection, and codec availability is runtime-probed |
@@ -995,10 +1012,13 @@ standard URI/color overlays, prepares generated main/overlay colors through
 the AVAssetWriter pixel-buffer pool, and bakes the editor's built-in
 saturation/grayscale preview edits through the registered WinUI
 `VideoEffectDefinition` contract and Core Image on Metal before final
-composition. New sample edits no longer write private effect metadata; the
-reader retains a legacy fallback for previously saved sample projects. Apple,
-Windows, Android, and Linux also register the portable compatible-MP4 fast
-remux fallback. Windows additionally registers its stricter precise
+composition. The editor also stores Gaussian blur as a separate registered
+definition, previews it through the retained Scene material, and exports it
+through the Apple Core Image/Metal spatial path. New sample edits no longer
+write private effect metadata; the reader retains a legacy fallback for
+previously saved sample projects. Apple, Windows, Android, and Linux also
+register the portable compatible-MP4 fast remux fallback. Windows additionally
+registers its stricter precise
 Source Reader/Sink Writer lane above that fallback. Linux additionally
 registers its conservative V4L2 decoder-DMA-BUF-to-encoder precise lane.
 Export returns the
@@ -1012,10 +1032,14 @@ Built-in video effects execute as WGSL render/compute passes over the leased
 frame. Fixed shaders live in `Shaders/` and include the repository's algorithm
 and complexity header. Compatible affine color operations are already folded
 in declared order into one 48-byte uniform and one fullscreen sample/write
-pass. Blur remains spatial and is not mislabeled as affine support. A future
-pass compiler may reuse transient textures and specialize YUV conversion,
-spatial kernels, and tone-mapping. User effects are activated through
-`MediaEffectRegistry`, never through reflection or assembly scanning.
+pass. Gaussian blur is a distinct typed spatial node measured in output-pixel
+standard deviations; clamped nodes combine by variance. Apple executes the
+plan through Core Image/Metal today. Native WebGPU providers will use a
+bounded reusable intermediate texture for their separable passes rather than
+sampling and writing one texture in the same usage scope. A future pass
+compiler may further specialize YUV conversion, spatial kernels, and
+tone-mapping. User effects are activated through `MediaEffectRegistry`, never
+through reflection or assembly scanning.
 
 Audio effects run on native real-time callback buffers. The callback path must
 be allocation-free, nonblocking, and free of UI dispatch, logging, locks,
@@ -1113,6 +1137,14 @@ flower sample through hardware AVFoundation `NativeZeroCopy`, and every
 captured player/editor frame retained visible video with no black/cleared
 sample. This is a functional ownership, timestamp, and flicker regression
 gate, not a throughput, allocation, or latency claim.
+
+The spatial-effect checkpoint rebuilt the final arm64 macOS app bundle and
+ran the same public flower MP4 through a registered Gaussian definition with
+standard deviation 4 plus the affine color definition. The URI path executed
+the clamped Core Image/Metal blur callback, cropped each result to 320 by 180,
+and reopened a 157,193-byte H.264 MP4 with one native video track and a
+2.002-second duration. Capability reporting remained `NativeGpuSurface` with
+`EffectsBakedOnGpu=true`; no managed pixel buffer or external codec was used.
 
 The Apple composition-audio effect lane was then exercised through a Release
 arm64 `ProGPU.Samples.Desktop` app using a two-second trim of the public
@@ -1580,16 +1612,17 @@ performance remain unvalidated.
 The NLE sample checkpoint registers its own typed
 `MediaVideoColorEffectFactory` and writes official
 `VideoEffectDefinition.Properties` for brightness, contrast, saturation,
-grayscale, sepia, and invert instead of new private metadata. The inspector
-previews all six through the existing retained Scene effect pipeline, and
-color clips evaluate the same portable transform on their constant source
-color. Old saved sample projects still read the two legacy keys until the user
-changes the effect, at which point the definition becomes the single source
-of truth. `ProGPU.Samples.Desktop` uses the same definition in its thumbnail
-and color-export smoke paths. The signed macOS Release app
-bundle built for x64 and arm64 with zero warnings/errors; its color smoke
-produced a 3,865-byte 320x180 H.264 MP4 with a 2.002-second native track,
-reported `NativeGpuSurface`, and reported `EffectsBakedOnGpu=true`. Startup
-also logged pre-existing optional Roslyn Workspaces `SQLitePCLRaw` assembly
-probe warnings; they did not affect the media operation or its verified
-output.
+grayscale, sepia, and invert instead of new private metadata. It registers a
+second Gaussian definition whose standard deviation is serialized by the
+standalone editing assembly. The inspector previews all seven controls through
+the existing retained Scene effect pipeline, and color clips evaluate the same
+portable affine transform on their constant source color. Old saved sample
+projects still read the two legacy keys until the user changes the effect, at
+which point the definitions become the single source of truth.
+`ProGPU.Samples.Desktop` uses the same definitions in its smoke paths. The
+signed macOS Release app bundle built for x64 and arm64 with zero
+warnings/errors; its URI blur smoke produced a 157,193-byte 320x180 H.264 MP4
+with a 2.002-second native track, reported `NativeGpuSurface`, and reported
+`EffectsBakedOnGpu=true`. Startup also logged pre-existing optional Roslyn
+Workspaces `SQLitePCLRaw` assembly probe warnings; they did not affect the
+media operation or its verified output.

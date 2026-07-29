@@ -92,7 +92,8 @@ public readonly record struct MediaVideoColorTransform
 
 public enum MediaVideoGraphEffectKind
 {
-    ColorTransform = 1
+    ColorTransform = 1,
+    GaussianBlur = 2
 }
 
 /// <summary>
@@ -104,7 +105,8 @@ public readonly record struct MediaVideoGraphEffectState
         MediaVideoGraphEffectKind kind,
         MediaVideoColorTransform colorTransform)
     {
-        if (!Enum.IsDefined(kind))
+        if (kind !=
+            MediaVideoGraphEffectKind.ColorTransform)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(kind));
@@ -112,11 +114,37 @@ public readonly record struct MediaVideoGraphEffectState
 
         Kind = kind;
         ColorTransform = colorTransform;
+        BlurStandardDeviation = 0f;
+    }
+
+    public MediaVideoGraphEffectState(
+        MediaVideoGraphEffectKind kind,
+        float blurStandardDeviation)
+    {
+        if (kind !=
+            MediaVideoGraphEffectKind.GaussianBlur ||
+            !float.IsFinite(blurStandardDeviation) ||
+            blurStandardDeviation < 0f ||
+            blurStandardDeviation >
+                MediaVideoGaussianBlurEffectFactory
+                    .MaximumStandardDeviation)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(blurStandardDeviation));
+        }
+
+        Kind = kind;
+        ColorTransform =
+            MediaVideoColorTransform.Identity;
+        BlurStandardDeviation =
+            blurStandardDeviation;
     }
 
     public MediaVideoGraphEffectKind Kind { get; }
 
     public MediaVideoColorTransform ColorTransform { get; }
+
+    public float BlurStandardDeviation { get; }
 }
 
 /// <summary>
@@ -127,6 +155,63 @@ public interface IMediaVideoGraphEffect :
     IMediaEffect
 {
     MediaVideoGraphEffectState CaptureState();
+}
+
+/// <summary>
+/// Allocation-free provider snapshot of the currently portable video-effect
+/// graph. Affine nodes are composed in declared order. For opaque encoded
+/// video, normalized clamped Gaussian convolution commutes with the affine RGB
+/// transform, so Gaussian nodes combine by adding their variances and
+/// providers execute at most one spatial blur boundary for the plan.
+/// </summary>
+public readonly record struct MediaVideoEffectPlan
+{
+    private readonly MediaVideoColorTransform
+        _colorTransform;
+    private readonly float _blurStandardDeviation;
+    private readonly bool _isInitialized;
+
+    public MediaVideoEffectPlan(
+        MediaVideoColorTransform colorTransform,
+        float blurStandardDeviation)
+    {
+        if (!float.IsFinite(blurStandardDeviation) ||
+            blurStandardDeviation < 0f ||
+            blurStandardDeviation >
+                MediaVideoGaussianBlurEffectFactory
+                    .MaximumStandardDeviation)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(blurStandardDeviation));
+        }
+
+        _colorTransform = colorTransform;
+        _blurStandardDeviation =
+            blurStandardDeviation;
+        _isInitialized = true;
+    }
+
+    public static MediaVideoEffectPlan Identity =>
+        new(
+            MediaVideoColorTransform.Identity,
+            0f);
+
+    public MediaVideoColorTransform ColorTransform =>
+        _isInitialized
+            ? _colorTransform
+            : MediaVideoColorTransform.Identity;
+
+    public float BlurStandardDeviation =>
+        _isInitialized
+            ? _blurStandardDeviation
+            : 0f;
+
+    public bool HasSpatialEffect =>
+        BlurStandardDeviation > 0f;
+
+    public bool IsIdentity =>
+        ColorTransform.IsIdentity &&
+        !HasSpatialEffect;
 }
 
 /// <summary>
@@ -451,6 +536,115 @@ public sealed class MediaVideoColorEffectFactory :
             new(
                 MediaVideoGraphEffectKind.ColorTransform,
                 _transform);
+
+        public void Dispose()
+        {
+        }
+    }
+}
+
+/// <summary>
+/// Built-in typed factory for a clamped Gaussian video blur. The effect uses
+/// standard deviation in output pixels and preserves the encoded frame
+/// extent. Providers execute the spatial node on the GPU and never expose a
+/// managed pixel callback.
+/// </summary>
+public sealed class MediaVideoGaussianBlurEffectFactory :
+    IMediaEffectFactory
+{
+    public const string StandardDeviationPropertyName =
+        "StandardDeviation";
+
+    public const float DefaultStandardDeviation = 3f;
+
+    public const float MaximumStandardDeviation = 32f;
+
+    public MediaVideoGaussianBlurEffectFactory(
+        string activatableClassId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            activatableClassId);
+        ActivatableClassId = activatableClassId;
+    }
+
+    public string ActivatableClassId { get; }
+
+    public IMediaEffect Create(
+        in MediaEffectDescriptor descriptor)
+    {
+        if (descriptor.Kind != MediaEffectKind.Video)
+        {
+            throw new ArgumentException(
+                "The Gaussian blur effect can be activated only as a video effect.",
+                nameof(descriptor));
+        }
+
+        float standardDeviation =
+            ReadStandardDeviation(
+                descriptor.Properties);
+        return new MediaVideoGaussianBlurEffect(
+            ActivatableClassId,
+            standardDeviation);
+    }
+
+    private static float ReadStandardDeviation(
+        IReadOnlyDictionary<string, object?> properties)
+    {
+        if (!properties.TryGetValue(
+                StandardDeviationPropertyName,
+                out object? value))
+        {
+            return DefaultStandardDeviation;
+        }
+
+        float number = value switch
+        {
+            byte typed => typed,
+            sbyte typed => typed,
+            short typed => typed,
+            ushort typed => typed,
+            int typed => typed,
+            uint typed => typed,
+            long typed => typed,
+            ulong typed => typed,
+            float typed => typed,
+            double typed => checked((float)typed),
+            decimal typed => checked((float)typed),
+            _ => throw new ArgumentException(
+                $"'{StandardDeviationPropertyName}' must be a numeric value.")
+        };
+        if (!float.IsFinite(number) ||
+            number < 0f ||
+            number > MaximumStandardDeviation)
+        {
+            throw new ArgumentOutOfRangeException(
+                StandardDeviationPropertyName);
+        }
+        return number;
+    }
+
+    private sealed class MediaVideoGaussianBlurEffect :
+        IMediaVideoGraphEffect
+    {
+        private readonly float _standardDeviation;
+
+        public MediaVideoGaussianBlurEffect(
+            string id,
+            float standardDeviation)
+        {
+            Id = id;
+            _standardDeviation = standardDeviation;
+        }
+
+        public string Id { get; }
+
+        public MediaEffectKind Kind =>
+            MediaEffectKind.Video;
+
+        public MediaVideoGraphEffectState CaptureState() =>
+            new(
+                MediaVideoGraphEffectKind.GaussianBlur,
+                _standardDeviation);
 
         public void Dispose()
         {

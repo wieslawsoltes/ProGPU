@@ -30,6 +30,8 @@ public static class NonLinearVideoEditorPage
         "ProGPU.Sample.Editing.AudioGain";
     private const string VideoColorEffectId =
         "ProGPU.Sample.Editing.VideoColor";
+    private const string VideoBlurEffectId =
+        "ProGPU.Sample.Editing.VideoGaussianBlur";
     private static readonly Lazy<IDisposable>
         s_audioGainRegistration =
             new(
@@ -44,6 +46,13 @@ public static class NonLinearVideoEditorPage
                     MediaEffectRegistry.Default.Register(
                         new MediaVideoColorEffectFactory(
                             VideoColorEffectId)));
+    private static readonly Lazy<IDisposable>
+        s_videoBlurRegistration =
+            new(
+                static () =>
+                    MediaEffectRegistry.Default.Register(
+                        new MediaVideoGaussianBlurEffectFactory(
+                            VideoBlurEffectId)));
 
     private sealed class InlineProgress(
         Action<double> report) :
@@ -67,6 +76,7 @@ public static class NonLinearVideoEditorPage
     {
         _ = s_audioGainRegistration.Value;
         _ = s_videoColorRegistration.Value;
+        _ = s_videoBlurRegistration.Value;
         var colorPreview = new Border
         {
             Height = 390f,
@@ -164,6 +174,13 @@ public static class NonLinearVideoEditorPage
         {
             Minimum = 0d,
             Maximum = 1d,
+            Value = 0d,
+            Width = 280f
+        };
+        var blur = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 20d,
             Value = 0d,
             Width = 280f
         };
@@ -277,6 +294,7 @@ public static class NonLinearVideoEditorPage
             grayscale,
             sepia,
             invert,
+            blur,
             volume,
             clipAudioGain,
             backgroundDelay,
@@ -609,6 +627,9 @@ public static class NonLinearVideoEditorPage
         inspector.AddChild(sepia);
         inspector.AddChild(Text("GPU invert"));
         inspector.AddChild(invert);
+        inspector.AddChild(Text(
+            "GPU Gaussian blur (standard deviation in pixels)"));
+        inspector.AddChild(blur);
         inspector.AddChild(Text("Clip audio volume"));
         inspector.AddChild(volume);
         inspector.AddChild(Text(
@@ -756,6 +777,7 @@ public static class NonLinearVideoEditorPage
         private readonly Slider _grayscale;
         private readonly Slider _sepia;
         private readonly Slider _invert;
+        private readonly Slider _blur;
         private readonly Slider _volume;
         private readonly Slider _clipAudioGain;
         private readonly Slider _backgroundDelay;
@@ -806,6 +828,7 @@ public static class NonLinearVideoEditorPage
             Slider grayscale,
             Slider sepia,
             Slider invert,
+            Slider blur,
             Slider volume,
             Slider clipAudioGain,
             Slider backgroundDelay,
@@ -839,6 +862,7 @@ public static class NonLinearVideoEditorPage
             _grayscale = grayscale;
             _sepia = sepia;
             _invert = invert;
+            _blur = blur;
             _volume = volume;
             _clipAudioGain = clipAudioGain;
             _backgroundDelay = backgroundDelay;
@@ -867,6 +891,7 @@ public static class NonLinearVideoEditorPage
             _grayscale.ValueChanged += OnEffectChanged;
             _sepia.ValueChanged += OnEffectChanged;
             _invert.ValueChanged += OnEffectChanged;
+            _blur.ValueChanged += OnEffectChanged;
             _volume.ValueChanged += OnVolumeChanged;
             _clipAudioGain.ValueChanged +=
                 OnClipAudioGainChanged;
@@ -1308,7 +1333,8 @@ public static class NonLinearVideoEditorPage
                     saturation: SaturationOf(clip),
                     grayscale: GrayscaleOf(clip),
                     sepia: SepiaOf(clip),
-                    invert: InvertOf(clip));
+                    invert: InvertOf(clip),
+                    blurSigma: BlurOf(clip));
         }
 
         private void ApplyColorPreview(MediaClip clip)
@@ -1685,6 +1711,8 @@ public static class NonLinearVideoEditorPage
                     SepiaOf(clip);
                 _invert.Value =
                     InvertOf(clip);
+                _blur.Value =
+                    BlurOf(clip);
                 _volume.Value =
                     clip.Volume;
                 _clipAudioGain.Value =
@@ -2023,6 +2051,9 @@ public static class NonLinearVideoEditorPage
                 (float)_grayscale.Value,
                 (float)_sepia.Value,
                 (float)_invert.Value);
+            SetVideoBlurEffect(
+                clip.VideoEffectDefinitions,
+                (float)_blur.Value);
             clip.UserData.Remove(SaturationKey);
             clip.UserData.Remove(GrayscaleKey);
             ApplyEffects(clip);
@@ -2392,6 +2423,47 @@ public static class NonLinearVideoEditorPage
                 minimum: 0f,
                 maximum: 1f);
 
+        private static float BlurOf(MediaClip clip)
+        {
+            for (int index = 0;
+                 index <
+                    clip.VideoEffectDefinitions.Count;
+                 index++)
+            {
+                IVideoEffectDefinition effect =
+                    clip.VideoEffectDefinitions[index];
+                if (!string.Equals(
+                        effect.ActivatableClassId,
+                        VideoBlurEffectId,
+                        StringComparison.Ordinal) ||
+                    !effect.Properties.TryGetValue(
+                        MediaVideoGaussianBlurEffectFactory
+                            .StandardDeviationPropertyName,
+                        out object? property))
+                {
+                    continue;
+                }
+
+                float value = property switch
+                {
+                    float number => number,
+                    double number => (float)number,
+                    decimal number => (float)number,
+                    int number => number,
+                    long number => number,
+                    _ => 0f
+                };
+                return float.IsFinite(value)
+                    ? Math.Clamp(
+                        value,
+                        0f,
+                        MediaVideoGaussianBlurEffectFactory
+                            .MaximumStandardDeviation)
+                    : 0f;
+            }
+            return 0f;
+        }
+
         private static float ReadVideoColorProperty(
             MediaClip clip,
             string propertyName,
@@ -2528,6 +2600,53 @@ public static class NonLinearVideoEditorPage
                 MediaVideoColorEffectFactory
                     .InvertPropertyName] =
                 invert;
+        }
+
+        private static void SetVideoBlurEffect(
+            IList<IVideoEffectDefinition> effects,
+            float standardDeviation)
+        {
+            int existingIndex = -1;
+            for (int index = 0;
+                 index < effects.Count;
+                 index++)
+            {
+                if (string.Equals(
+                        effects[index].ActivatableClassId,
+                        VideoBlurEffectId,
+                        StringComparison.Ordinal))
+                {
+                    existingIndex = index;
+                    break;
+                }
+            }
+
+            if (standardDeviation == 0f)
+            {
+                if (existingIndex >= 0)
+                {
+                    effects.RemoveAt(existingIndex);
+                }
+                return;
+            }
+
+            IVideoEffectDefinition definition;
+            if (existingIndex >= 0)
+            {
+                definition = effects[existingIndex];
+            }
+            else
+            {
+                definition =
+                    new VideoEffectDefinition(
+                        VideoBlurEffectId,
+                        new PropertySet());
+                effects.Add(definition);
+            }
+            definition.Properties[
+                MediaVideoGaussianBlurEffectFactory
+                    .StandardDeviationPropertyName] =
+                standardDeviation;
         }
 
         private static double AudioGainOf(
@@ -2823,7 +2942,9 @@ public static class NonLinearVideoEditorPage
                             sepia:
                                 SepiaOf(overlay.Clip),
                             invert:
-                                InvertOf(overlay.Clip));
+                                InvertOf(overlay.Clip),
+                            blurSigma:
+                                BlurOf(overlay.Clip));
                     Player.MediaOpened += OnMediaOpened;
                     Player.MediaEnded += OnMediaEnded;
                     Player.MediaFailed += OnMediaFailed;
@@ -3030,6 +3151,7 @@ public static class NonLinearVideoEditorPage
             _grayscale.ValueChanged -= OnEffectChanged;
             _sepia.ValueChanged -= OnEffectChanged;
             _invert.ValueChanged -= OnEffectChanged;
+            _blur.ValueChanged -= OnEffectChanged;
             _volume.ValueChanged -= OnVolumeChanged;
             _clipAudioGain.ValueChanged -=
                 OnClipAudioGainChanged;

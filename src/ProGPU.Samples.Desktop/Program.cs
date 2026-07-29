@@ -27,6 +27,8 @@ public static class Program
 #if MACOS
     private const string MediaColorEffectId =
         "ProGPU.Sample.Desktop.VideoColor";
+    private const string MediaBlurEffectId =
+        "ProGPU.Sample.Desktop.VideoGaussianBlur";
 #endif
 
     public static void Main(string[] args)
@@ -603,15 +605,28 @@ public static class Program
         {
             using IDisposable effectRegistration =
                 RegisterMediaColorEffect();
+            using IDisposable blurEffectRegistration =
+                RegisterMediaBlurEffect();
+            string? sourcePath =
+                Environment.GetEnvironmentVariable(
+                    "PROGPU_MEDIA_BLUR_SOURCE_PATH");
+            Uri? sourceUri =
+                !string.IsNullOrWhiteSpace(sourcePath) &&
+                File.Exists(sourcePath)
+                    ? new Uri(
+                        Path.GetFullPath(sourcePath))
+                    : null;
             var mainClip =
                 new MediaCompositionExportClip(
-                    SourceUri: null,
+                    SourceUri: sourceUri,
                     OriginalDuration:
                         TimeSpan.FromSeconds(2),
                     TrimTimeFromStart: TimeSpan.Zero,
                     TrimTimeFromEnd: TimeSpan.Zero,
                     Volume: 1d,
-                    ArgbColor: 0xffd02f78,
+                    ArgbColor: sourceUri is null
+                        ? 0xffd02f78
+                        : null,
                     UserData:
                         new Dictionary<string, string>())
                 {
@@ -627,6 +642,15 @@ public static class Program
                                 [MediaVideoColorEffectFactory
                                     .GrayscalePropertyName] =
                                     0.15f
+                            }),
+                        new MediaCompositionEffectDefinition(
+                            MediaBlurEffectId,
+                            new Dictionary<string, object?>
+                            {
+                                [
+                                    MediaVideoGaussianBlurEffectFactory
+                                        .StandardDeviationPropertyName
+                                ] = 4f
                             })
                     ]
                 };
@@ -742,6 +766,7 @@ public static class Program
                 $"metadata={metadata.Width}x" +
                     $"{metadata.Height}/" +
                     $"{metadata.Subtype} " +
+                $"spatialSource={sourceUri is not null} " +
                 $"videoPath={capabilities.VideoPath} " +
                 $"effectsGpu={capabilities.EffectsBakedOnGpu}");
             return valid ? 0 : 3;
@@ -759,5 +784,10 @@ public static class Program
         MediaEffectRegistry.Default.Register(
             new MediaVideoColorEffectFactory(
                 MediaColorEffectId));
+
+    private static IDisposable RegisterMediaBlurEffect() =>
+        MediaEffectRegistry.Default.Register(
+            new MediaVideoGaussianBlurEffectFactory(
+                MediaBlurEffectId));
 #endif
 }

@@ -168,11 +168,11 @@ public sealed class AppleMediaCompositionExportProvider :
             HardwareVideoEncoderGuaranteed: false,
             EffectsBakedOnGpu: effectsBakedOnGpu,
             Limitation: hasGpuPreparation
-                ? "Generated colors and registered affine color effects " +
-                  "are rendered by Core Image on the native Metal device " +
-                  "into the AVAssetWriter pixel-buffer pool. AVFoundation " +
-                  "owns codec selection and does not guarantee hardware " +
-                  "encode."
+                ? "Generated colors, registered affine color effects, and " +
+                  "clamped Gaussian blur are rendered by Core Image on the " +
+                  "native Metal device into the AVAssetWriter pixel-buffer " +
+                  "pool. AVFoundation owns codec selection and does not " +
+                  "guarantee hardware encode."
                 : "AVAssetExportSession owns the native video path and " +
                   "codec selection; ProGPU does not observe enough of " +
                   "that path to label it GPU-surface or compressed-copy.");
@@ -1610,11 +1610,37 @@ public sealed class AppleMediaCompositionExportProvider :
                             matrix.OutputImage ??
                             throw new InvalidOperationException(
                                 "Core Image produced no filtered frame.");
-                        using CIImage output =
-                            filtered.ImageByCroppingToRect(
-                                request.SourceImage
-                                    .Extent);
-                        request.Finish(output, context);
+                        if (effects.BlurStandardDeviation >
+                            0f)
+                        {
+                            using CIImage clamped =
+                                filtered
+                                    .CreateByClampingToExtent();
+                            using CIImage blurred =
+                                clamped
+                                    .CreateByApplyingGaussianBlur(
+                                        effects
+                                            .BlurStandardDeviation);
+                            using CIImage output =
+                                blurred
+                                    .ImageByCroppingToRect(
+                                        request.SourceImage
+                                            .Extent);
+                            request.Finish(
+                                output,
+                                context);
+                        }
+                        else
+                        {
+                            using CIImage output =
+                                filtered
+                                    .ImageByCroppingToRect(
+                                        request.SourceImage
+                                            .Extent);
+                            request.Finish(
+                                output,
+                                context);
+                        }
                     }
                     catch (Exception exception)
                     {
@@ -2181,10 +2207,10 @@ public sealed class AppleMediaCompositionExportProvider :
                 out float saturation,
                 out float grayscale) ||
             !MediaCompositionVideoEffectResolver
-                .TryCaptureColorTransform(
+                .TryCapturePlan(
                     _effects,
                     clip.VideoEffectDefinitions,
-                    out MediaVideoColorTransform
+                    out MediaVideoEffectPlan
                         declared))
         {
             effects = default;
@@ -2196,9 +2222,11 @@ public sealed class AppleMediaCompositionExportProvider :
                 .CreateTransform(
                     saturation: saturation,
                     grayscale: grayscale)
-                .Then(declared);
+                .Then(declared.ColorTransform);
         effects = new AppleBuiltInClipEffects(
-            combined);
+            new MediaVideoEffectPlan(
+                combined,
+                declared.BlurStandardDeviation));
         return true;
     }
 
@@ -2255,10 +2283,16 @@ public sealed class AppleMediaCompositionExportProvider :
     }
 
     private readonly record struct AppleBuiltInClipEffects(
-        MediaVideoColorTransform Transform)
+        MediaVideoEffectPlan Plan)
     {
+        public MediaVideoColorTransform Transform =>
+            Plan.ColorTransform;
+
+        public float BlurStandardDeviation =>
+            Plan.BlurStandardDeviation;
+
         public bool IsIdentity =>
-            Transform.IsIdentity;
+            Plan.IsIdentity;
     }
 
     private sealed class EffectPreparationProgress

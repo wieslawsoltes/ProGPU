@@ -326,11 +326,23 @@ public sealed class IosMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".TryCaptureColorTransform(",
+            ".TryCapturePlan(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
             "effects.Transform",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".CreateByApplyingGaussianBlur(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".CreateByClampingToExtent()",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effects.BlurStandardDeviation",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

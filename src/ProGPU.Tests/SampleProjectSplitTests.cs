@@ -319,6 +319,10 @@ public sealed class SampleProjectSplitTests
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
+            "\"ProGPU.Sample.Editing.VideoGaussianBlur\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "MediaEffectRegistry.Default.Register(",
             editor,
             StringComparison.Ordinal);
@@ -339,6 +343,10 @@ public sealed class SampleProjectSplitTests
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
+            "new MediaVideoGaussianBlurEffectFactory(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "Text(\"GPU brightness\")",
             editor,
             StringComparison.Ordinal);
@@ -352,6 +360,14 @@ public sealed class SampleProjectSplitTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Text(\"GPU invert\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GPU Gaussian blur",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "blurSigma: BlurOf(",
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
