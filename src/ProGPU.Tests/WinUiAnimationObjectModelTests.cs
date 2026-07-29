@@ -993,6 +993,36 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void MenuFlyoutPublishesWinUiRadioAndSubmenuContracts()
+    {
+        var radio = new RadioMenuFlyoutItem
+        {
+            Text = "All Processes",
+            GroupName = "Scope",
+            IsChecked = true
+        };
+        var submenu = new MenuFlyoutSubItem
+        {
+            Text = "Update Frequency",
+            AreCheckStatesEnabled = true
+        };
+        submenu.Items.Add(new RadioMenuFlyoutItem
+        {
+            Text = "Normally (5 sec)",
+            GroupName = "Frequency",
+            IsChecked = true
+        });
+
+        radio.Measure(new Vector2(300, 100));
+
+        Assert.True(radio.IsChecked);
+        Assert.Equal("Scope", radio.GroupName);
+        Assert.True(radio.DesiredSize.X >= 210);
+        Assert.True(submenu.AreCheckStatesEnabled);
+        Assert.IsType<RadioMenuFlyoutItem>(Assert.Single(submenu.Items));
+    }
+
+    [Fact]
     public void RangeControlsShareCanonicalDoubleRangeContract()
     {
         Assert.Equal(typeof(RangeBase), typeof(Slider).BaseType);
