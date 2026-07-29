@@ -1751,6 +1751,39 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Equal(
             2_560ul * 360,
             chroma.DmaBuf.Plane0.Offset);
+
+        var p010 = rgb with
+        {
+            PixelFormat =
+                V4l2DecodedPixelFormat.P010
+        };
+        Assert.False(
+            p010.TryCreateExternalDescriptor(out _));
+        Assert.True(
+            p010.TryCreatePlanarExternalDescriptors(
+                out ProGpuExternalTextureDescriptor
+                    p010Luma,
+                out ProGpuExternalTextureDescriptor
+                    p010Chroma));
+        Assert.Equal(
+            ProGpuTextureFormats.R16Unorm,
+            p010Luma.Format);
+        Assert.Equal(
+            ProGpuTextureFormats.RG16Unorm,
+            p010Chroma.Format);
+        Assert.Equal(
+            V4l2Constants.DrmR16,
+            p010Luma.DmaBuf.DrmFormat);
+        Assert.Equal(
+            V4l2Constants.DrmGr1616,
+            p010Chroma.DmaBuf.DrmFormat);
+        Assert.Equal(640u, p010Luma.Width);
+        Assert.Equal(360u, p010Luma.Height);
+        Assert.Equal(320u, p010Chroma.Width);
+        Assert.Equal(180u, p010Chroma.Height);
+        Assert.Equal(
+            2_560ul * 360,
+            p010Chroma.DmaBuf.Plane0.Offset);
     }
 
     [Fact]

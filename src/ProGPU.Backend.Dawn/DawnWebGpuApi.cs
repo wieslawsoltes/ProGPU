@@ -1315,6 +1315,10 @@ public sealed unsafe class DawnWebGpuApi :
             SW.TextureFormat.R16Uint => W.TextureFormat.R16Uint,
             SW.TextureFormat.R16Sint => W.TextureFormat.R16Sint,
             SW.TextureFormat.R16float => W.TextureFormat.R16Float,
+            var format when
+                format ==
+                    ProGpuTextureFormats.R16Unorm =>
+                W.TextureFormat.R16Unorm,
             SW.TextureFormat.RG8Unorm => W.TextureFormat.RG8Unorm,
             SW.TextureFormat.RG8Snorm => W.TextureFormat.RG8Snorm,
             SW.TextureFormat.RG8Uint => W.TextureFormat.RG8Uint,
@@ -1325,6 +1329,10 @@ public sealed unsafe class DawnWebGpuApi :
             SW.TextureFormat.RG16Uint => W.TextureFormat.RG16Uint,
             SW.TextureFormat.RG16Sint => W.TextureFormat.RG16Sint,
             SW.TextureFormat.RG16float => W.TextureFormat.RG16Float,
+            var format when
+                format ==
+                    ProGpuTextureFormats.RG16Unorm =>
+                W.TextureFormat.RG16Unorm,
             SW.TextureFormat.Rgba8Unorm => W.TextureFormat.RGBA8Unorm,
             SW.TextureFormat.Rgba8UnormSrgb => W.TextureFormat.RGBA8UnormSrgb,
             SW.TextureFormat.Rgba8Snorm => W.TextureFormat.RGBA8Snorm,

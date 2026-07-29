@@ -45,6 +45,7 @@ public sealed class WgpuContextTests
             BrowserWebGpuApi.DeviceHandle,
             BrowserWebGpuApi.QueueHandle,
             TextureFormat.Bgra8Unorm,
+            supportsTextureFormatsTier1: true,
             adapterBackendType: BackendType.Metal,
             adapterName: "Test Dawn Metal");
 
@@ -52,6 +53,7 @@ public sealed class WgpuContextTests
         Assert.Equal(WgpuBackendKind.DawnNative, context.BackendKind);
         Assert.Equal(BackendType.Metal, context.AdapterBackendType);
         Assert.Equal("Test Dawn Metal", context.AdapterName);
+        Assert.True(context.SupportsTextureFormatsTier1);
 
         context.PollDevice(wait: false);
         context.WaitIdle();
@@ -64,6 +66,32 @@ public sealed class WgpuContextTests
         Assert.True(lifetime.IsDisposed);
         Assert.Equal(2, lifetime.WaitingPollCount);
         Assert.False(context.IsInitialized);
+    }
+
+    [Fact]
+    public void Tier1TextureFormatsFailBeforeBackendAllocationWhenUnsupported()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+
+        Assert.False(
+            context.SupportsTextureFormatsTier1);
+        NotSupportedException error =
+            Assert.Throws<NotSupportedException>(
+                () => new GpuTexture(
+                    context,
+                    4,
+                    4,
+                    ProGpuTextureFormats.R16Unorm,
+                    TextureUsage.TextureBinding));
+
+        Assert.Contains(
+            "texture-formats-tier1",
+            error.Message,
+            StringComparison.Ordinal);
+        Assert.NotEqual(
+            ProGpuTextureFormats.R16Unorm,
+            ProGpuTextureFormats.RG16Unorm);
     }
 
     [Fact]

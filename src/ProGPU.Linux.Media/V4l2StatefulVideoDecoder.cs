@@ -10,7 +10,8 @@ internal enum V4l2DecodedPixelFormat
     Unsupported,
     Bgra8,
     Rgba8,
-    Nv12
+    Nv12,
+    P010
 }
 
 internal enum V4l2DecoderPumpResult
@@ -67,8 +68,13 @@ internal readonly record struct V4l2DecodedFrame(
         out ProGpuExternalTextureDescriptor luma,
         out ProGpuExternalTextureDescriptor chroma)
     {
-        if (PixelFormat !=
-                V4l2DecodedPixelFormat.Nv12 ||
+        bool isNv12 =
+            PixelFormat ==
+            V4l2DecodedPixelFormat.Nv12;
+        bool isP010 =
+            PixelFormat ==
+            V4l2DecodedPixelFormat.P010;
+        if ((!isNv12 && !isP010) ||
             DmaBuf.PlaneCount is 0 or > 2)
         {
             luma = default;
@@ -90,13 +96,17 @@ internal readonly record struct V4l2DecodedFrame(
                     sourceLuma.Stride);
         var lumaDmaBuf =
             new ProGpuDmaBufDescriptor(
-                V4l2Constants.DrmR8,
+                isP010
+                    ? V4l2Constants.DrmR16
+                    : V4l2Constants.DrmR8,
                 DmaBuf.DrmModifier,
                 1,
                 sourceLuma);
         var chromaDmaBuf =
             new ProGpuDmaBufDescriptor(
-                V4l2Constants.DrmGr88,
+                isP010
+                    ? V4l2Constants.DrmGr1616
+                    : V4l2Constants.DrmGr88,
                 DmaBuf.DrmModifier,
                 1,
                 sourceChroma);
@@ -106,7 +116,9 @@ internal readonly record struct V4l2DecodedFrame(
                 (nint)sourceLuma.FileDescriptor,
                 Width,
                 Height,
-                TextureFormat.R8Unorm,
+                isP010
+                    ? ProGpuTextureFormats.R16Unorm
+                    : TextureFormat.R8Unorm,
                 TextureUsage.TextureBinding,
                 GpuTextureAlphaMode.Straight,
                 IsInitialized: true)
@@ -119,7 +131,9 @@ internal readonly record struct V4l2DecodedFrame(
                 (nint)sourceChroma.FileDescriptor,
                 (Width + 1) / 2,
                 (Height + 1) / 2,
-                TextureFormat.RG8Unorm,
+                isP010
+                    ? ProGpuTextureFormats.RG16Unorm
+                    : TextureFormat.RG8Unorm,
                 TextureUsage.TextureBinding,
                 GpuTextureAlphaMode.Straight,
                 IsInitialized: true)
@@ -415,7 +429,7 @@ internal sealed unsafe class V4l2StatefulVideoDecoder : IDisposable
             V4l2DecodedPixelFormat.Unsupported)
         {
             throw new NotSupportedException(
-                $"V4L2 selected unsupported capture fourcc {FormatFourCc(format.Pixel.PixelFormat)}. The zero-copy provider currently accepts linear BGRA, RGBA, and NV12/NV12M DMA-BUF output.");
+                $"V4L2 selected unsupported capture fourcc {FormatFourCc(format.Pixel.PixelFormat)}. The zero-copy provider currently accepts linear BGRA, RGBA, NV12/NV12M, and P010 DMA-BUF output.");
         }
         if (format.Pixel.PlaneCount is 0 or >
             V4l2Constants.MaximumPlanes)
@@ -1203,6 +1217,7 @@ internal sealed unsafe class V4l2StatefulVideoDecoder : IDisposable
             format == V4l2Constants.Xrgb32 ? 3 :
             format == V4l2Constants.Nv12MultiPlanar ? 4 :
             format == V4l2Constants.Nv12 ? 5 :
+            format == V4l2Constants.P010 ? 6 :
             int.MaxValue;
     }
 
@@ -1218,6 +1233,8 @@ internal sealed unsafe class V4l2StatefulVideoDecoder : IDisposable
                   format ==
                   V4l2Constants.Nv12MultiPlanar
                     ? V4l2DecodedPixelFormat.Nv12
+                    : format == V4l2Constants.P010
+                        ? V4l2DecodedPixelFormat.P010
                     : V4l2DecodedPixelFormat.Unsupported;
 
     private static uint DrmFormatFor(uint format) =>
@@ -1233,6 +1250,9 @@ internal sealed unsafe class V4l2StatefulVideoDecoder : IDisposable
                           format ==
                           V4l2Constants.Nv12MultiPlanar
                             ? V4l2Constants.DrmNv12
+                            : format ==
+                              V4l2Constants.P010
+                                ? V4l2Constants.DrmP010
                             : throw new NotSupportedException(
                                 $"Unsupported V4L2 capture fourcc {FormatFourCc(format)}.");
 

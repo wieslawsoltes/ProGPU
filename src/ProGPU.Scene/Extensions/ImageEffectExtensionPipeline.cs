@@ -696,10 +696,18 @@ namespace ProGPU.Scene.Extensions
 
             GpuTexture chroma =
                 effect.ChromaTexture!;
-            return source.Format ==
+            bool supportedPlaneFormats =
+                source.Format ==
                     TextureFormat.R8Unorm &&
                 chroma.Format ==
-                    TextureFormat.RG8Unorm &&
+                    TextureFormat.RG8Unorm ||
+                compositorContext
+                        .SupportsTextureFormatsTier1 &&
+                    source.Format ==
+                        ProGpuTextureFormats.R16Unorm &&
+                    chroma.Format ==
+                        ProGpuTextureFormats.RG16Unorm;
+            return supportedPlaneFormats &&
                 chroma.Width ==
                     (source.Width + 1) / 2 &&
                 chroma.Height ==

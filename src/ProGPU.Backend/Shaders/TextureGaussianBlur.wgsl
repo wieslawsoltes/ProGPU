@@ -43,8 +43,8 @@ struct BlurEffects {
     yuvRed: vec4<f32>,
     yuvGreen: vec4<f32>,
     yuvBlue: vec4<f32>,
-    // x: positive texel offset after bilinear pair reduction,
-    // y: normalized weight for one side of the symmetric pair.
+    // x/y: positive offset/weight after bilinear pair reduction,
+    // z/w: explicit normalized weights used by the Tier-1 load kernel.
     taps: array<vec4<f32>, 48>,
 };
 

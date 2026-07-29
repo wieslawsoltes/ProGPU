@@ -211,6 +211,7 @@ public unsafe class GpuTexture : IDisposable
         SampleCount = sampleCount;
         AlphaMode = alphaMode;
 
+        ValidateFormatCapability(context, format);
         if (SampleCount != 1 && MipLevelCount != 1)
         {
             throw new NotSupportedException("Multisampled GPU textures cannot have mip levels.");
@@ -288,6 +289,7 @@ public unsafe class GpuTexture : IDisposable
         Generation = 1;
         ViewGeneration = 1;
 
+        ValidateFormatCapability(context, format);
         var viewDescriptor = new TextureViewDescriptor
         {
             Format = format,
@@ -1509,10 +1511,18 @@ public unsafe class GpuTexture : IDisposable
             TextureFormat.R16float or
             TextureFormat.Depth16Unorm => 2,
 
+            var value when
+                value == ProGpuTextureFormats.R16Unorm =>
+                2,
+
             TextureFormat.RG8Unorm or
             TextureFormat.RG8Snorm or
             TextureFormat.RG8Uint or
             TextureFormat.RG8Sint => 2,
+
+            var value when
+                value == ProGpuTextureFormats.RG16Unorm =>
+                4,
 
             TextureFormat.R32Uint or
             TextureFormat.R32Sint or
@@ -1546,6 +1556,20 @@ public unsafe class GpuTexture : IDisposable
 
             _ => throw new NotSupportedException($"Texture format {format} does not have a supported compact pixel size.")
         };
+    }
+
+    private static void ValidateFormatCapability(
+        WgpuContext context,
+        TextureFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (ProGpuTextureFormats
+                .RequiresTextureFormatsTier1(format) &&
+            !context.SupportsTextureFormatsTier1)
+        {
+            throw new NotSupportedException(
+                "R16Unorm and RG16Unorm textures require WebGPU texture-formats-tier1 support.");
+        }
     }
 
     private static TextureAspect GetTextureCopyAspect(TextureFormat format)

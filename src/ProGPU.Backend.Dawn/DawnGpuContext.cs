@@ -232,7 +232,7 @@ public sealed unsafe partial class DawnGpuContext :
             adapter = RequestMetalAdapter(instance);
 
             Span<W.FeatureName> requiredFeatures =
-                stackalloc W.FeatureName[3];
+                stackalloc W.FeatureName[4];
             requiredFeatures[0] =
                 DawnSharedTextureMemoryFeatures
                     .SharedTextureMemoryIOSurface;
@@ -252,6 +252,14 @@ public sealed unsafe partial class DawnGpuContext :
             {
                 requiredFeatures[featureCount++] =
                     W.FeatureName.BGRA8UnormStorage;
+            }
+            bool supportsTextureFormatsTier1 =
+                adapter.HasFeature(
+                    W.FeatureName.TextureFormatsTier1);
+            if (supportsTextureFormatsTier1)
+            {
+                requiredFeatures[featureCount++] =
+                    W.FeatureName.TextureFormatsTier1;
             }
 
             device = RequestDevice(
@@ -290,6 +298,8 @@ public sealed unsafe partial class DawnGpuContext :
                 maxSamplersPerShaderStage:
                     limits.MaxSamplersPerShaderStage,
                 maxBindGroups: limits.MaxBindGroups,
+                supportsTextureFormatsTier1:
+                    supportsTextureFormatsTier1,
                 adapterBackendType: SW.BackendType.Metal,
                 adapterName: "Dawn Metal");
 
@@ -391,9 +401,22 @@ public sealed unsafe partial class DawnGpuContext :
                 W.TextureFormat.R8Unorm,
             SW.TextureFormat.RG8Unorm =>
                 W.TextureFormat.RG8Unorm,
+            var format when
+                format ==
+                    ProGpuTextureFormats.R16Unorm =>
+                W.TextureFormat.R16Unorm,
+            var format when
+                format ==
+                    ProGpuTextureFormats.RG16Unorm =>
+                W.TextureFormat.RG16Unorm,
             _ => W.TextureFormat.Undefined
         };
-        if (dawnFormat == W.TextureFormat.Undefined)
+        if (dawnFormat == W.TextureFormat.Undefined ||
+            ProGpuTextureFormats
+                    .RequiresTextureFormatsTier1(
+                        descriptor.Format) &&
+                !targetContext
+                    .SupportsTextureFormatsTier1)
         {
             texture = null!;
             return false;

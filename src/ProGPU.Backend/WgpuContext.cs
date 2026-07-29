@@ -45,6 +45,7 @@ public unsafe class WgpuContext : IDisposable
     public uint MaxSamplersPerShaderStage { get; private set; } = 16;
     public uint MaxBindGroups { get; private set; } = 4;
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
+    public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
     public IProGpuExternalTextureImporter?
@@ -1274,6 +1275,7 @@ public unsafe class WgpuContext : IDisposable
         uint maxSamplersPerShaderStage = 16,
         uint maxBindGroups = 4,
         bool supportsReadOnlyAndReadWriteStorageTextures = false,
+        bool supportsTextureFormatsTier1 = false,
         BackendType adapterBackendType = BackendType.Undefined,
         string? adapterName = null)
     {
@@ -1302,6 +1304,8 @@ public unsafe class WgpuContext : IDisposable
         MaxBindGroups = Math.Max(4, maxBindGroups);
         SupportsReadOnlyAndReadWriteStorageTextures =
             supportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTextureFormatsTier1 =
+            supportsTextureFormatsTier1;
         AdapterBackendType = adapterBackendType;
         AdapterName = adapterName ?? string.Empty;
         _externalDeviceLifetime = lifetime;
@@ -1396,6 +1400,8 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTextureFormatsTier1 =
+            deviceOwner.SupportsTextureFormatsTier1;
         AdapterBackendType = deviceOwner.AdapterBackendType;
         AdapterName = deviceOwner.AdapterName;
         _deviceResourceDomain = deviceOwner._deviceResourceDomain;

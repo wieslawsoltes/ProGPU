@@ -35,6 +35,7 @@ internal static class V4l2Constants
     internal static readonly uint H265 = FourCc("HEVC");
     internal static readonly uint Nv12 = FourCc("NV12");
     internal static readonly uint Nv12MultiPlanar = FourCc("NM12");
+    internal static readonly uint P010 = FourCc("P010");
     internal static readonly uint Xbgr32 = FourCc("XR24");
     internal static readonly uint Abgr32 = FourCc("AR24");
     internal static readonly uint Xrgb32 = FourCc("BX24");
@@ -48,6 +49,9 @@ internal static class V4l2Constants
     internal static readonly uint DrmNv12 = FourCc("NV12");
     internal static readonly uint DrmR8 = FourCc("R8  ");
     internal static readonly uint DrmGr88 = FourCc("GR88");
+    internal static readonly uint DrmP010 = FourCc("P010");
+    internal static readonly uint DrmR16 = FourCc("R16 ");
+    internal static readonly uint DrmGr1616 = FourCc("GR32");
 
     // Linux UAPI ioctl encoding from asm-generic/ioctl.h. The structures below
     // use the fixed 64-bit ABI shared by supported Linux x64 and arm64 builds.

@@ -43,6 +43,10 @@ public static unsafe class GpuTextureGaussianBlur
         ShaderResource.Load(
             typeof(GpuTextureGaussianBlur),
             "TextureGaussianBlur.wgsl");
+    private static readonly string UnfilterableShaderSource =
+        ShaderResource.Load(
+            typeof(GpuTextureGaussianBlur),
+            "TextureGaussianBlurUnfilterable.wgsl");
     private static readonly object s_cacheLock = new();
     private static readonly Dictionary<WgpuContext, ResourceCache>
         s_caches = new();
@@ -95,8 +99,9 @@ public static unsafe class GpuTextureGaussianBlur
     }
 
     /// <summary>
-    /// Decodes R8/RG8 planar YUV samples into straight RGB while evaluating
-    /// the horizontal Gaussian axis, then evaluates the vertical RGB axis.
+    /// Decodes R8/RG8 or Tier-1 R16/RG16 planar YUV samples into straight RGB
+    /// while evaluating the horizontal Gaussian axis, then evaluates the
+    /// vertical RGB axis.
     /// Both axes use one command buffer and one queue submission.
     /// </summary>
     public static void BlurPlanar(
@@ -242,10 +247,19 @@ public static unsafe class GpuTextureGaussianBlur
                 "Planar Gaussian textures must belong to the same WebGPU device.",
                 nameof(sourceChroma));
         }
-        if (sourceLuma.Format !=
-                TextureFormat.R8Unorm ||
-            sourceChroma.Format !=
-                TextureFormat.RG8Unorm ||
+        bool is8Bit =
+            sourceLuma.Format ==
+                TextureFormat.R8Unorm &&
+            sourceChroma.Format ==
+                TextureFormat.RG8Unorm;
+        bool is16Bit =
+            sourceLuma.Format ==
+                ProGpuTextureFormats.R16Unorm &&
+            sourceChroma.Format ==
+                ProGpuTextureFormats.RG16Unorm &&
+            sourceLuma.Context
+                .SupportsTextureFormatsTier1;
+        if ((!is8Bit && !is16Bit) ||
             sourceChroma.Width !=
                 (sourceLuma.Width + 1) / 2 ||
             sourceChroma.Height !=
@@ -255,7 +269,7 @@ public static unsafe class GpuTextureGaussianBlur
                  TextureFormat.Rgba16float))
         {
             throw new NotSupportedException(
-                "Planar Gaussian blur requires an R8 luma plane, half-size RG8 chroma plane, and RGBA8 or RGBA16F intermediate.");
+                "Planar Gaussian blur requires matching R8/RG8 or Tier-1 R16/RG16 luma/chroma planes and an RGBA8 or RGBA16F intermediate.");
         }
         ValidateTexture(
             sourceChroma,
@@ -277,10 +291,17 @@ public static unsafe class GpuTextureGaussianBlur
     {
         WgpuContext context = source.Context;
         ResourceCache cache = GetCache(context);
+        bool unfilterableSource =
+            source.Format ==
+                ProGpuTextureFormats.R16Unorm;
         Resources horizontalResources =
-            cache.GetOrCreate(intermediate.Format);
+            cache.GetOrCreate(
+                intermediate.Format,
+                unfilterableSource);
         Resources verticalResources =
-            cache.GetOrCreate(destinationFormat);
+            cache.GetOrCreate(
+                destinationFormat,
+                unfilterableSource: false);
         Span<float> weights =
             stackalloc float[MaximumRadius + 1];
         int radius = Math.Min(
@@ -512,6 +533,10 @@ public static unsafe class GpuTextureGaussianBlur
             destination[uniformIndex] = offset;
             destination[uniformIndex + 1] =
                 combinedWeight;
+            destination[uniformIndex + 2] =
+                firstWeight;
+            destination[uniformIndex + 3] =
+                secondWeight;
         }
     }
 
@@ -685,10 +710,16 @@ public static unsafe class GpuTextureGaussianBlur
         private readonly object _lock = new();
         private readonly Dictionary<TextureFormat, IntPtr>
             _pipelines = new();
+        private readonly Dictionary<TextureFormat, IntPtr>
+            _unfilterablePipelines = new();
         private IntPtr _shader;
         private IntPtr _sampler;
         private IntPtr _bindGroupLayout;
         private IntPtr _pipelineLayout;
+        private IntPtr _unfilterableShader;
+        private IntPtr _unfilterableSampler;
+        private IntPtr _unfilterableBindGroupLayout;
+        private IntPtr _unfilterablePipelineLayout;
 
         public ResourceCache(
             WgpuContext context)
@@ -712,11 +743,41 @@ public static unsafe class GpuTextureGaussianBlur
         public GpuBuffer VerticalUniform { get; }
 
         public Resources GetOrCreate(
-            TextureFormat format)
+            TextureFormat format,
+            bool unfilterableSource)
         {
             lock (_lock)
             {
-                EnsureCommonResources();
+                if (unfilterableSource)
+                {
+                    EnsureUnfilterableResources();
+                    if (!_unfilterablePipelines
+                            .TryGetValue(
+                                format,
+                                out IntPtr
+                                    unfilterablePipeline))
+                    {
+                        unfilterablePipeline =
+                            (IntPtr)CreatePipeline(
+                                _context,
+                                (ShaderModule*)
+                                    _unfilterableShader,
+                                (PipelineLayout*)
+                                    _unfilterablePipelineLayout,
+                                format);
+                        _unfilterablePipelines.Add(
+                            format,
+                            unfilterablePipeline);
+                    }
+                    return new Resources(
+                        (Sampler*)_unfilterableSampler,
+                        (BindGroupLayout*)
+                            _unfilterableBindGroupLayout,
+                        (RenderPipeline*)
+                            unfilterablePipeline);
+                }
+
+                EnsureFilterableResources();
                 if (!_pipelines.TryGetValue(
                         format,
                         out IntPtr pipeline))
@@ -747,26 +808,49 @@ public static unsafe class GpuTextureGaussianBlur
                         _context.QueueRenderPipelineDisposal(
                             pipeline);
                     }
+                    foreach (IntPtr pipeline
+                             in _unfilterablePipelines
+                                 .Values)
+                    {
+                        _context
+                            .QueueRenderPipelineDisposal(
+                                pipeline);
+                    }
                     _context.QueuePipelineLayoutDisposal(
                         _pipelineLayout);
+                    _context.QueuePipelineLayoutDisposal(
+                        _unfilterablePipelineLayout);
                     _context.QueueBindGroupLayoutDisposal(
                         _bindGroupLayout);
+                    _context.QueueBindGroupLayoutDisposal(
+                        _unfilterableBindGroupLayout);
                     _context.QueueSamplerDisposal(
                         _sampler);
+                    _context.QueueSamplerDisposal(
+                        _unfilterableSampler);
                     _context.QueueShaderModuleDisposal(
                         _shader);
+                    _context.QueueShaderModuleDisposal(
+                        _unfilterableShader);
                     HorizontalUniform.Dispose();
                     VerticalUniform.Dispose();
                 }
                 _pipelines.Clear();
+                _unfilterablePipelines.Clear();
                 _pipelineLayout = IntPtr.Zero;
                 _bindGroupLayout = IntPtr.Zero;
                 _sampler = IntPtr.Zero;
                 _shader = IntPtr.Zero;
+                _unfilterablePipelineLayout =
+                    IntPtr.Zero;
+                _unfilterableBindGroupLayout =
+                    IntPtr.Zero;
+                _unfilterableSampler = IntPtr.Zero;
+                _unfilterableShader = IntPtr.Zero;
             }
         }
 
-        private void EnsureCommonResources()
+        private void EnsureFilterableResources()
         {
             if (_shader != IntPtr.Zero)
             {
@@ -779,10 +863,17 @@ public static unsafe class GpuTextureGaussianBlur
             PipelineLayout* pipelineLayout = null;
             try
             {
-                shader = CreateShader(_context);
-                sampler = CreateSampler(_context);
+                shader = CreateShader(
+                    _context,
+                    ShaderSource,
+                    "ProGPU Gaussian Blur Shader");
+                sampler = CreateSampler(
+                    _context,
+                    unfilterableSource: false);
                 bindGroupLayout =
-                    CreateBindGroupLayout(_context);
+                    CreateBindGroupLayout(
+                        _context,
+                        unfilterableSource: false);
                 pipelineLayout =
                     CreatePipelineLayout(
                         _context,
@@ -817,16 +908,78 @@ public static unsafe class GpuTextureGaussianBlur
                 throw;
             }
         }
+
+        private void EnsureUnfilterableResources()
+        {
+            if (_unfilterableShader != IntPtr.Zero)
+            {
+                return;
+            }
+
+            ShaderModule* shader = null;
+            Sampler* sampler = null;
+            BindGroupLayout* bindGroupLayout = null;
+            PipelineLayout* pipelineLayout = null;
+            try
+            {
+                shader = CreateShader(
+                    _context,
+                    UnfilterableShaderSource,
+                    "ProGPU P010 Gaussian Blur Shader");
+                sampler = CreateSampler(
+                    _context,
+                    unfilterableSource: true);
+                bindGroupLayout =
+                    CreateBindGroupLayout(
+                        _context,
+                        unfilterableSource: true);
+                pipelineLayout =
+                    CreatePipelineLayout(
+                        _context,
+                        bindGroupLayout);
+                _unfilterableShader =
+                    (IntPtr)shader;
+                _unfilterableSampler =
+                    (IntPtr)sampler;
+                _unfilterableBindGroupLayout =
+                    (IntPtr)bindGroupLayout;
+                _unfilterablePipelineLayout =
+                    (IntPtr)pipelineLayout;
+            }
+            catch
+            {
+                if (pipelineLayout != null)
+                {
+                    _context.Api.PipelineLayoutRelease(
+                        pipelineLayout);
+                }
+                if (bindGroupLayout != null)
+                {
+                    _context.Api.BindGroupLayoutRelease(
+                        bindGroupLayout);
+                }
+                if (sampler != null)
+                {
+                    _context.Api.SamplerRelease(sampler);
+                }
+                if (shader != null)
+                {
+                    _context.Api.ShaderModuleRelease(shader);
+                }
+                throw;
+            }
+        }
     }
 
     private static ShaderModule* CreateShader(
-        WgpuContext context)
+        WgpuContext context,
+        string source,
+        string label)
     {
         IntPtr sourcePointer =
-            SilkMarshal.StringToPtr(ShaderSource);
+            SilkMarshal.StringToPtr(source);
         IntPtr labelPointer =
-            SilkMarshal.StringToPtr(
-                "ProGPU Gaussian Blur Shader");
+            SilkMarshal.StringToPtr(label);
         try
         {
             var wgslDescriptor =
@@ -867,15 +1020,20 @@ public static unsafe class GpuTextureGaussianBlur
     }
 
     private static Sampler* CreateSampler(
-        WgpuContext context)
+        WgpuContext context,
+        bool unfilterableSource)
     {
         var descriptor = new SamplerDescriptor
         {
             AddressModeU = AddressMode.ClampToEdge,
             AddressModeV = AddressMode.ClampToEdge,
             AddressModeW = AddressMode.ClampToEdge,
-            MagFilter = FilterMode.Linear,
-            MinFilter = FilterMode.Linear,
+            MagFilter = unfilterableSource
+                ? FilterMode.Nearest
+                : FilterMode.Linear,
+            MinFilter = unfilterableSource
+                ? FilterMode.Nearest
+                : FilterMode.Linear,
             MipmapFilter =
                 MipmapFilterMode.Nearest,
             LodMinClamp = 0f,
@@ -896,7 +1054,8 @@ public static unsafe class GpuTextureGaussianBlur
 
     private static BindGroupLayout*
         CreateBindGroupLayout(
-            WgpuContext context)
+            WgpuContext context,
+            bool unfilterableSource)
     {
         var entries =
             stackalloc BindGroupLayoutEntry[4];
@@ -906,7 +1065,9 @@ public static unsafe class GpuTextureGaussianBlur
             Visibility = ShaderStage.Fragment,
             Sampler = new SamplerBindingLayout
             {
-                Type = SamplerBindingType.Filtering
+                Type = unfilterableSource
+                    ? SamplerBindingType.NonFiltering
+                    : SamplerBindingType.Filtering
             }
         };
         entries[1] = new BindGroupLayoutEntry
@@ -916,7 +1077,10 @@ public static unsafe class GpuTextureGaussianBlur
             Texture = new TextureBindingLayout
             {
                 SampleType =
-                    TextureSampleType.Float,
+                    unfilterableSource
+                        ? TextureSampleType
+                            .UnfilterableFloat
+                        : TextureSampleType.Float,
                 ViewDimension =
                     TextureViewDimension.Dimension2D,
                 Multisampled = false
@@ -929,7 +1093,10 @@ public static unsafe class GpuTextureGaussianBlur
             Texture = new TextureBindingLayout
             {
                 SampleType =
-                    TextureSampleType.Float,
+                    unfilterableSource
+                        ? TextureSampleType
+                            .UnfilterableFloat
+                        : TextureSampleType.Float,
                 ViewDimension =
                     TextureViewDimension.Dimension2D,
                 Multisampled = false

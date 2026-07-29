@@ -64,7 +64,7 @@ public sealed unsafe partial class DawnGpuContext
                 SelectSurfaceFormat(capabilities.Formats);
 
             Span<W.FeatureName> requiredFeatures =
-                stackalloc W.FeatureName[4];
+                stackalloc W.FeatureName[5];
             int featureCount = 0;
             if (format == W.TextureFormat.BGRA8Unorm &&
                 adapter.HasFeature(W.FeatureName.BGRA8UnormStorage))
@@ -149,6 +149,14 @@ public sealed unsafe partial class DawnGpuContext
                     DawnSharedTextureMemoryFeatures
                         .SharedFenceMTLSharedEvent;
             }
+            bool supportsTextureFormatsTier1 =
+                adapter.HasFeature(
+                    W.FeatureName.TextureFormatsTier1);
+            if (supportsTextureFormatsTier1)
+            {
+                requiredFeatures[featureCount++] =
+                    W.FeatureName.TextureFormatsTier1;
+            }
 
             device = RequestDevice(
                 instance,
@@ -186,6 +194,8 @@ public sealed unsafe partial class DawnGpuContext
                 maxSamplersPerShaderStage:
                     limits.MaxSamplersPerShaderStage,
                 maxBindGroups: limits.MaxBindGroups,
+                supportsTextureFormatsTier1:
+                    supportsTextureFormatsTier1,
                 adapterBackendType:
                     ToSilkBackendType(source.BackendType),
                 adapterName: source.BackendName);

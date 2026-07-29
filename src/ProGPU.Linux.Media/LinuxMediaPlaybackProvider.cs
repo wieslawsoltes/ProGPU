@@ -1106,12 +1106,16 @@ internal sealed class LinuxMediaPlaybackProvider :
                     V4l2DecodedPixelFormat.Nv12
                     ? MediaVideoPixelFormat.Nv12
                     : frame.PixelFormat ==
+                      V4l2DecodedPixelFormat.P010
+                        ? MediaVideoPixelFormat.P010
+                    : frame.PixelFormat ==
                       V4l2DecodedPixelFormat.Bgra8
                         ? MediaVideoPixelFormat.Bgra8
                         : MediaVideoPixelFormat.Rgba8,
                 MediaTransferMode.NativeZeroCopy,
-                frame.PixelFormat ==
-                    V4l2DecodedPixelFormat.Nv12
+                frame.PixelFormat is
+                    V4l2DecodedPixelFormat.Nv12 or
+                    V4l2DecodedPixelFormat.P010
                     ? new MediaColorInfo(
                         MediaColorPrimaries.Bt709,
                         MediaTransferFunction.Bt709,
