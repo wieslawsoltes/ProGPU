@@ -284,35 +284,16 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
             .ResolvePlaybackRange();
     }
 
-    public bool MoveNext()
+    public MediaPlaybackItem? MoveNext() =>
+        MoveNextCore(MediaPlaybackItemChangedReason.AppRequested)
+            ? CurrentItem
+            : null;
+
+    public MediaPlaybackItem? MovePrevious()
     {
         if (_items.Count == 0)
         {
-            return false;
-        }
-
-        IReadOnlyList<MediaPlaybackItem> order =
-            GetPlaybackOrder();
-        int orderIndex = IndexOf(order, CurrentItem);
-        int next = orderIndex + 1;
-        if (next >= order.Count)
-        {
-            if (!AutoRepeatEnabled)
-            {
-                return false;
-            }
-            next = 0;
-        }
-        return SetCurrentIndex(
-            FindEnabled(order, next, forward: true),
-            MediaPlaybackItemChangedReason.AppRequested);
-    }
-
-    public bool MovePrevious()
-    {
-        if (_items.Count == 0)
-        {
-            return false;
+            return null;
         }
 
         IReadOnlyList<MediaPlaybackItem> order =
@@ -323,24 +304,28 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         {
             if (!AutoRepeatEnabled)
             {
-                return false;
+                return null;
             }
             previous = order.Count - 1;
         }
         return SetCurrentIndex(
-            FindEnabled(order, previous, forward: false),
-            MediaPlaybackItemChangedReason.AppRequested);
+                FindEnabled(order, previous, forward: false),
+                MediaPlaybackItemChangedReason.AppRequested)
+            ? CurrentItem
+            : null;
     }
 
-    public bool MoveTo(uint itemIndex)
+    public MediaPlaybackItem? MoveTo(uint itemIndex)
     {
         if (itemIndex >= _items.Count)
         {
-            return false;
+            return null;
         }
         return SetCurrentIndex(
-            checked((int)itemIndex),
-            MediaPlaybackItemChangedReason.AppRequested);
+                checked((int)itemIndex),
+                MediaPlaybackItemChangedReason.AppRequested)
+            ? CurrentItem
+            : null;
     }
 
     public void SetShuffledItems(

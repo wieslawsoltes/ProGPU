@@ -1400,6 +1400,47 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void WinUiPlaybackListNavigationReturnsCurrentItem()
+    {
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/first.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/second.mp4"));
+        using MediaSource thirdSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/third.mp4"));
+        var first = new MediaPlaybackItem(firstSource);
+        var second = new MediaPlaybackItem(secondSource)
+        {
+            IsDisabledInPlaybackList = true
+        };
+        var third = new MediaPlaybackItem(thirdSource);
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+        list.Items.Add(third);
+
+        Assert.Equal(
+            typeof(MediaPlaybackItem),
+            typeof(MediaPlaybackList)
+                .GetMethod(nameof(MediaPlaybackList.MoveNext))!
+                .ReturnType);
+        Assert.Same(first, list.CurrentItem);
+        Assert.Same(third, list.MoveNext());
+        Assert.Null(list.MoveNext());
+        Assert.Same(third, list.CurrentItem);
+        Assert.Same(first, list.MovePrevious());
+        Assert.Same(third, list.MoveTo(2));
+        Assert.Null(list.MoveTo(3));
+
+        list.AutoRepeatEnabled = true;
+
+        Assert.Same(first, list.MoveNext());
+    }
+
+    [Fact]
     public void WinUiPlayerProjectsLegacyStateAndProviderConfiguration()
     {
         var registry = new MediaProviderRegistry();

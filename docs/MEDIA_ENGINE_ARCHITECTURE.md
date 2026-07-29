@@ -67,6 +67,13 @@ design.
   ProGPU keeps providers in absolute source time and performs one typed O(1)
   translation at the engine boundary for updates, seeks, looping, and end
   transitions.
+- [`MediaPlaybackList.MoveNext`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacklist.movenext),
+  [`MovePrevious`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacklist.moveprevious),
+  and
+  [`MoveTo`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacklist.moveto)
+  establish that navigation returns the resulting `MediaPlaybackItem`.
+  ProGPU retains a nullable annotation for the no-item/end-of-list case while
+  preserving the official CLR return type.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -651,7 +658,10 @@ the source offset, a duration boundary publishes the normal ended transition,
 and playlists continue with the next enabled item. Native full-source looping
 is disabled for ranged items so the engine can restart at `StartTime` without
 exposing frames outside the item. This projection is fixed O(1) work per
-provider state update and allocates no per-frame range objects. The editing
+provider state update and allocates no per-frame range objects.
+`MediaPlaybackList.MoveNext`, `MovePrevious`, and `MoveTo` return the
+resulting item, matching the official WinRT API rather than exposing an
+implementation-specific Boolean. The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay
 clips, custom compositor definitions, composition duration,
