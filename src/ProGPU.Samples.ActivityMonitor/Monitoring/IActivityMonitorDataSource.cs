@@ -11,6 +11,15 @@ public interface IActivityMonitorDataSource : IAsyncDisposable
     ValueTask<ActivitySnapshot> CaptureAsync(
         ActivityCaptureOptions options,
         CancellationToken cancellationToken = default);
+
+    ValueTask<ProcessDetails?> GetProcessDetailsAsync(
+        int processId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<ProcessActionResult> TerminateProcessAsync(
+        int processId,
+        ProcessTerminationMode mode,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record ActivityCaptureOptions(
@@ -37,6 +46,15 @@ public sealed record ProcessSnapshot(
     long NetworkReceivedBytes,
     long NetworkSentBytes,
     double EnergyImpact,
+    double TwelveHourPower,
+    long IdleWakeUps,
+    int PortCount,
+    double GpuPercent,
+    TimeSpan GpuTime,
+    bool AppNap,
+    bool PreventingSleep,
+    string Kind,
+    string ExecutablePath,
     bool IsApplication);
 
 public sealed record SystemSnapshot(
@@ -53,3 +71,21 @@ public sealed record SystemSnapshot(
     long NetworkSentBytes,
     int ProcessCount,
     int ThreadCount);
+
+public sealed record ProcessDetails(
+    int ProcessId,
+    int ParentProcessId,
+    string Name,
+    string User,
+    string ExecutablePath,
+    string CommandLine,
+    DateTimeOffset? StartTime,
+    ProcessSnapshot Snapshot);
+
+public enum ProcessTerminationMode
+{
+    Quit,
+    ForceQuit
+}
+
+public sealed record ProcessActionResult(bool Succeeded, string Message);
