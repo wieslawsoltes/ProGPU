@@ -17,12 +17,14 @@ namespace ProGPU.Linux.Media;
 /// views. Managed pixel storage is one tightly packed RGBA result. The final
 /// WebGPU map means this type does not provide a zero-copy encoded result.
 /// </remarks>
-internal sealed class
+internal sealed unsafe class
     LinuxWebGpuCompositionThumbnailRenderer :
         IDisposable
 {
     private readonly WgpuContext _context;
     private readonly GpuTexture _target;
+    private readonly GpuTexture _blurSource;
+    private readonly GpuTexture _blurIntermediate;
     private readonly GpuTextureReadbackBuffer _readback;
     private readonly uint _width;
     private readonly uint _height;
@@ -36,38 +38,58 @@ internal sealed class
         _context = context;
         _width = width;
         _height = height;
-        GpuTexture target =
-            new GpuTexture(
-                context,
-                width,
-                height,
-                TextureFormat.Rgba8Unorm,
-                TextureUsage.RenderAttachment |
-                TextureUsage.CopySrc,
-                "Linux Media Composition Thumbnail RGBA");
+        GpuTexture? target = null;
+        GpuTexture? blurSource = null;
+        GpuTexture? blurIntermediate = null;
+        GpuTextureReadbackBuffer? readback = null;
         try
         {
-            var readback =
-                new GpuTextureReadbackBuffer(
-                    context);
-            try
-            {
-                readback.EnsureCapacity(
+            target =
+                new GpuTexture(
+                    context,
                     width,
                     height,
-                    bytesPerPixel: 4);
-                _target = target;
-                _readback = readback;
-            }
-            catch
-            {
-                readback.Dispose();
-                throw;
-            }
+                    TextureFormat.Rgba8Unorm,
+                    TextureUsage.RenderAttachment |
+                    TextureUsage.CopySrc,
+                    "Linux Media Composition Thumbnail RGBA");
+            blurSource =
+                new GpuTexture(
+                    context,
+                    width,
+                    height,
+                    TextureFormat.Rgba8Unorm,
+                    TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                    "Linux Media Thumbnail Gaussian Source");
+            blurIntermediate =
+                new GpuTexture(
+                    context,
+                    width,
+                    height,
+                    TextureFormat.Rgba8Unorm,
+                    TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                    "Linux Media Thumbnail Gaussian Intermediate");
+            readback =
+                new GpuTextureReadbackBuffer(
+                    context);
+            readback.EnsureCapacity(
+                width,
+                height,
+                bytesPerPixel: 4);
+            _target = target;
+            _blurSource = blurSource;
+            _blurIntermediate =
+                blurIntermediate;
+            _readback = readback;
         }
         catch
         {
-            target.Dispose();
+            readback?.Dispose();
+            blurIntermediate?.Dispose();
+            blurSource?.Dispose();
+            target?.Dispose();
             throw;
         }
     }
@@ -118,7 +140,7 @@ internal sealed class
     /// </summary>
     internal byte[] RenderFrame(
         in V4l2DecodedFrame frame,
-        GpuTextureColorTransform transform)
+        LinuxGpuVideoEffectPlan effectPlan)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -164,12 +186,31 @@ internal sealed class
             }
             chromaOwner = null;
 
-            GpuNv12Processor.ProcessToRgba(
-                luma,
-                chroma,
-                _target,
-                transform,
-                inFlightSlot: 0);
+            if (effectPlan.HasSpatialEffect)
+            {
+                GpuNv12Processor.ProcessToRgba(
+                    luma,
+                    chroma,
+                    _blurSource,
+                    GpuTextureColorTransform.Identity,
+                    inFlightSlot: 0);
+                GpuTextureGaussianBlur.Blur(
+                    _blurSource,
+                    _blurIntermediate,
+                    _target.ViewPtr,
+                    _target.Format,
+                    effectPlan.BlurStandardDeviation,
+                    effectPlan.ColorTransform);
+            }
+            else
+            {
+                GpuNv12Processor.ProcessToRgba(
+                    luma,
+                    chroma,
+                    _target,
+                    effectPlan.ColorTransform,
+                    inFlightSlot: 0);
+            }
             byte[] pixels =
                 GC.AllocateUninitializedArray<byte>(
                     checked(
@@ -193,7 +234,7 @@ internal sealed class
 
     internal byte[] RenderColor(
         uint argbColor,
-        GpuTextureColorTransform transform)
+        LinuxGpuVideoEffectPlan effectPlan)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -201,7 +242,7 @@ internal sealed class
         Color color =
             ApplyEffects(
                 argbColor,
-                transform);
+                effectPlan.ColorTransform);
         GpuTextureClearer.Clear(
             _target,
             color);
@@ -226,6 +267,8 @@ internal sealed class
             return;
         }
         _readback.Dispose();
+        _blurIntermediate.Dispose();
+        _blurSource.Dispose();
         _target.Dispose();
         _context.CleanupPendingResources();
     }

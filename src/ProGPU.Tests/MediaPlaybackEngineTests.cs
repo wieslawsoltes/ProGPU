@@ -1150,6 +1150,82 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Nv12ProcessorEncodesRgbaForNativeVideoTargets()
+    {
+        WgpuContext context =
+            HeadlessWindow.Shared.Context;
+        using var source =
+            new GpuTexture(
+                context,
+                4,
+                2,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+                "RGBA to NV12 source");
+        using var luma =
+            new GpuTexture(
+                context,
+                4,
+                2,
+                TextureFormat.R8Unorm,
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+                "RGBA to NV12 luma");
+        using var chroma =
+            new GpuTexture(
+                context,
+                2,
+                1,
+                TextureFormat.RG8Unorm,
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+                "RGBA to NV12 chroma");
+        using var decoded =
+            new GpuTexture(
+                context,
+                4,
+                2,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+                "RGBA to NV12 verification");
+        byte[] sourcePixels =
+            new byte[4 * 2 * 4];
+        for (int offset = 0;
+             offset < sourcePixels.Length;
+             offset += 4)
+        {
+            sourcePixels[offset] = 255;
+            sourcePixels[offset + 3] = 255;
+        }
+        source.WritePixels(sourcePixels);
+
+        GpuNv12Processor.ProcessRgbaToNv12(
+            source,
+            luma,
+            chroma,
+            inFlightSlot: 0);
+        GpuNv12Processor.ProcessToRgba(
+            luma,
+            chroma,
+            decoded,
+            GpuTextureColorTransform.Identity,
+            inFlightSlot: 1);
+
+        byte[] pixels = decoded.ReadPixels();
+        for (int offset = 0;
+             offset < pixels.Length;
+             offset += 4)
+        {
+            Assert.InRange(pixels[offset], 245, 255);
+            Assert.InRange(pixels[offset + 1], 0, 12);
+            Assert.InRange(pixels[offset + 2], 0, 12);
+            Assert.Equal(255, pixels[offset + 3]);
+        }
+    }
+
+    [Fact]
     public void WinUiMesh3DMaterialAppliesSessionCropRotationAndMirror()
     {
         var window = HeadlessWindow.Shared;

@@ -120,7 +120,7 @@ public sealed class
                     clip.TrimTimeFromEnd >=
                     clip.OriginalDuration ||
                 !LinuxV4l2PreciseMediaCompositionExportProvider
-                    .TryGetVideoColorTransform(
+                    .TryGetVideoEffectPlan(
                         clip,
                         effects ?? MediaEffectRegistry.Default,
                         out _))
@@ -239,11 +239,11 @@ public sealed class
                     request.Composition.Clips[
                         position.ClipIndex];
                 if (!LinuxV4l2PreciseMediaCompositionExportProvider
-                        .TryGetVideoColorTransform(
+                        .TryGetVideoEffectPlan(
                             clip,
                             _effects,
-                            out GpuTextureColorTransform
-                                transform))
+                            out LinuxGpuVideoEffectPlan
+                                effectPlan))
                 {
                     throw new InvalidDataException(
                         "The clip contains an unsupported video effect.");
@@ -253,7 +253,7 @@ public sealed class
                     byte[] pixels =
                         renderer.RenderColor(
                             color,
-                            transform);
+                            effectPlan);
                     results[index] =
                         Encode(
                             request,
@@ -614,11 +614,11 @@ public sealed class
                     nameof(FrameCandidate));
             _frame = null;
             if (!LinuxV4l2PreciseMediaCompositionExportProvider
-                    .TryGetVideoColorTransform(
+                    .TryGetVideoEffectPlan(
                         clip,
                         effects,
-                        out GpuTextureColorTransform
-                            transform))
+                        out LinuxGpuVideoEffectPlan
+                            effectPlan))
             {
                 throw new InvalidDataException(
                     "The clip contains an unsupported video effect.");
@@ -626,7 +626,7 @@ public sealed class
             byte[] pixels =
                 renderer.RenderFrame(
                     in frame,
-                    transform);
+                    effectPlan);
             _thumbnail =
                 Encode(
                     request,

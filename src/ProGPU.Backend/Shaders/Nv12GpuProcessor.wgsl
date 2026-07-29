@@ -1,5 +1,5 @@
-// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply one fused affine straight-RGB transform, and render either RGBA or separate output-sized luma/chroma planes.
-// Time complexity: O(P) for P output texels; the RGBA/luma passes use one Y/UV sample pair and three four-term dot products, while the quarter-resolution chroma pass uses four Y/UV sample pairs and twelve dot products per output texel.
+// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply one fused affine straight-RGB transform, and render RGBA or output-sized luma/chroma planes; the reverse lane encodes sampled RGBA into NV12 planes.
+// Time complexity: O(P) for P output texels; the NV12-to-RGBA/luma passes use one Y/UV sample pair and three four-term dot products, NV12 chroma uses four Y/UV pairs and twelve dot products, RGBA luma uses one sample, and RGBA chroma uses four samples.
 // Space complexity: O(1) private storage per fragment, two sampled textures, one 64-byte uniform block, and one output write per fragment.
 // The two render passes are encoded into one command buffer. Chroma is the
 // average of a 2x2 reconstructed block so subsampling remains centered. RGB
@@ -111,6 +111,48 @@ fn fs_chroma(input: VertexOutput) -> @location(0) vec4<f32> {
         decodeBt709(input.uv + vec2<f32>(halfTexel.x, halfTexel.y))));
     let chroma =
         (encoded0.yz + encoded1.yz + encoded2.yz + encoded3.yz) *
+        0.25;
+    return vec4<f32>(chroma, 0.0, 1.0);
+}
+
+fn sampleRgba(uv: vec2<f32>) -> vec3<f32> {
+    return textureSampleLevel(
+        lumaTexture,
+        planeSampler,
+        uv,
+        0.0).rgb;
+}
+
+@fragment
+fn fs_rgba_luma(input: VertexOutput) -> @location(0) vec4<f32> {
+    let encoded = encodeBt709(sampleRgba(input.uv));
+    return vec4<f32>(encoded.x, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_rgba_chroma(input: VertexOutput) -> @location(0) vec4<f32> {
+    let halfTexel = uniforms.inverseLumaSize * 0.5;
+    let encoded0 = encodeBt709(
+        sampleRgba(
+            input.uv +
+            vec2<f32>(-halfTexel.x, -halfTexel.y)));
+    let encoded1 = encodeBt709(
+        sampleRgba(
+            input.uv +
+            vec2<f32>(halfTexel.x, -halfTexel.y)));
+    let encoded2 = encodeBt709(
+        sampleRgba(
+            input.uv +
+            vec2<f32>(-halfTexel.x, halfTexel.y)));
+    let encoded3 = encodeBt709(
+        sampleRgba(
+            input.uv +
+            vec2<f32>(halfTexel.x, halfTexel.y)));
+    let chroma =
+        (encoded0.yz +
+         encoded1.yz +
+         encoded2.yz +
+         encoded3.yz) *
         0.25;
     return vec4<f32>(chroma, 0.0, 1.0);
 }

@@ -17,7 +17,7 @@ namespace ProGPU.Linux.Media;
 /// resulting SyncFD into the DMA-BUF reservation object, and queues the same
 /// allocation to V4L2. No decoded or rendered pixel is CPU mapped or copied.
 /// </remarks>
-internal sealed class LinuxWebGpuNv12EncoderFrameSink :
+internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
     IDisposable
 {
     private const int TargetCount =
@@ -25,9 +25,15 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     private readonly object _gate = new();
     private readonly LinuxGbmDevice _device;
     private readonly TargetSlot[] _slots;
+    private readonly WgpuContext _context;
+    private readonly uint _width;
+    private readonly uint _height;
     private readonly Queue<int> _available =
         new(TargetCount);
     private int _disposed;
+    private GpuTexture? _rgbaSource;
+    private GpuTexture? _blurIntermediate;
+    private GpuTexture? _blurOutput;
 
     private LinuxWebGpuNv12EncoderFrameSink(
         LinuxGbmDevice device,
@@ -35,6 +41,9 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     {
         _device = device;
         _slots = slots;
+        _context = slots[0].Context;
+        _width = slots[0].LumaAccess.Texture.Width;
+        _height = slots[0].LumaAccess.Texture.Height;
         for (int index = 0;
              index < slots.Length;
              index++)
@@ -130,7 +139,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     internal bool TryProcessFrame(
         in V4l2DecodedFrame frame,
         TimeSpan presentationTime,
-        GpuTextureColorTransform transform,
+        LinuxGpuVideoEffectPlan effectPlan,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -189,13 +198,38 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
             }
             chromaOwner = null;
 
-            GpuNv12Processor.Process(
-                sourceLuma,
-                sourceChroma,
-                slot.LumaAccess.Texture,
-                slot.ChromaAccess.Texture,
-                transform,
-                slot.Index);
+            if (effectPlan.HasSpatialEffect)
+            {
+                EnsureSpatialTextures();
+                GpuNv12Processor.ProcessToRgba(
+                    sourceLuma,
+                    sourceChroma,
+                    _rgbaSource!,
+                    GpuTextureColorTransform.Identity,
+                    slot.Index);
+                GpuTextureGaussianBlur.Blur(
+                    _rgbaSource!,
+                    _blurIntermediate!,
+                    _blurOutput!.ViewPtr,
+                    _blurOutput.Format,
+                    effectPlan.BlurStandardDeviation,
+                    effectPlan.ColorTransform);
+                GpuNv12Processor.ProcessRgbaToNv12(
+                    _blurOutput,
+                    slot.LumaAccess.Texture,
+                    slot.ChromaAccess.Texture,
+                    slot.Index);
+            }
+            else
+            {
+                GpuNv12Processor.Process(
+                    sourceLuma,
+                    sourceChroma,
+                    slot.LumaAccess.Texture,
+                    slot.ChromaAccess.Texture,
+                    effectPlan.ColorTransform,
+                    slot.Index);
+            }
             submissionStarted = true;
             SubmitRenderedSlot(
                 slot,
@@ -220,7 +254,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     internal bool TryProcessColorFrame(
         uint argbColor,
         TimeSpan presentationTime,
-        GpuTextureColorTransform transform,
+        LinuxGpuVideoEffectPlan effectPlan,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -249,7 +283,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
                 slot.LumaAccess.Texture,
                 slot.ChromaAccess.Texture,
                 argbColor,
-                transform);
+                effectPlan.ColorTransform);
             submissionStarted = true;
             SubmitRenderedSlot(
                 slot,
@@ -380,6 +414,32 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
         }
     }
 
+    private void EnsureSpatialTextures()
+    {
+        _rgbaSource ??=
+            CreateSpatialTexture(
+                "Linux Media Gaussian Source");
+        _blurIntermediate ??=
+            CreateSpatialTexture(
+                "Linux Media Gaussian Intermediate");
+        _blurOutput ??=
+            CreateSpatialTexture(
+                "Linux Media Gaussian Output");
+    }
+
+    private GpuTexture CreateSpatialTexture(
+        string label) =>
+        new(
+            _context,
+            _width,
+            _height,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+            label,
+            alphaMode:
+                GpuTextureAlphaMode.Straight);
+
     private void RearmAfterFailure(
         TargetSlot slot,
         bool lumaAccessEnded,
@@ -466,6 +526,12 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
         {
             return;
         }
+        _rgbaSource?.Dispose();
+        _blurIntermediate?.Dispose();
+        _blurOutput?.Dispose();
+        _rgbaSource = null;
+        _blurIntermediate = null;
+        _blurOutput = null;
         for (int index = 0;
              index < _slots.Length;
              index++)

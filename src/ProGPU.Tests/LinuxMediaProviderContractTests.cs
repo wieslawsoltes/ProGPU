@@ -7,6 +7,7 @@ using ProGPU.Backend;
 using ProGPU.Browser;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Containers;
+using ProGPU.Media.Effects;
 using Windows.Media.Editing;
 using Windows.Storage;
 
@@ -70,6 +71,73 @@ public sealed class LinuxMediaProviderContractTests
                     hasNativeTwoPlaneH264EncoderPath:
                         false,
                     gpuAvailable: true));
+    }
+
+    [Fact]
+    public void LinuxPreciseCapabilityAcceptsRegisteredGaussianPlan()
+    {
+        const string effectId =
+            "ProGPU.Tests.Linux.Gaussian";
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new MediaVideoGaussianBlurEffectFactory(
+                    effectId));
+        var clip =
+            new MediaCompositionExportClip(
+                new Uri("file:///tmp/source.mp4"),
+                TimeSpan.FromSeconds(1),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                1d,
+                null,
+                new Dictionary<string, string>())
+            {
+                VideoEffectDefinitions =
+                [
+                    new MediaCompositionEffectDefinition(
+                        effectId,
+                        new Dictionary<string, object?>
+                        {
+                            [
+                                MediaVideoGaussianBlurEffectFactory
+                                    .StandardDeviationPropertyName
+                            ] = 5d
+                        })
+                ]
+            };
+        MediaCompositionExportRequest request =
+            CreateLinuxPreciseRequest([clip]);
+
+        Assert.True(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: true,
+                    effectRegistry: registry));
+        Assert.False(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: false,
+                    effectRegistry: registry));
+        MediaCompositionExportCapabilities capabilities =
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .GetCapabilitiesForRequest(
+                    request,
+                    registry);
+        Assert.Equal(
+            MediaCompositionExportVideoPath.GpuCopy,
+            capabilities.VideoPath);
+        Assert.True(capabilities.EffectsBakedOnGpu);
     }
 
     [Fact]
@@ -425,6 +493,14 @@ public sealed class LinuxMediaProviderContractTests
             sink,
             StringComparison.Ordinal);
         Assert.Contains(
+            "GpuTextureGaussianBlur.Blur(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuNv12Processor.ProcessRgbaToNv12(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "GpuNv12Processor.RenderSolidColor(",
             sink,
             StringComparison.Ordinal);
@@ -457,7 +533,7 @@ public sealed class LinuxMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "GpuTextureColorTransform transform",
+            "LinuxGpuVideoEffectPlan effectPlan",
             sink,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -657,8 +733,12 @@ public sealed class LinuxMediaProviderContractTests
             renderer,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryGetVideoColorTransform(",
+            "TryGetVideoEffectPlan(",
             provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureGaussianBlur.Blur(",
+            renderer,
             StringComparison.Ordinal);
         Assert.Contains(
             "TextureUsage.RenderAttachment |",
@@ -674,6 +754,10 @@ public sealed class LinuxMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "public static void ProcessToRgba(",
+            processor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static void ProcessRgbaToNv12(",
             processor,
             StringComparison.Ordinal);
         Assert.Contains(

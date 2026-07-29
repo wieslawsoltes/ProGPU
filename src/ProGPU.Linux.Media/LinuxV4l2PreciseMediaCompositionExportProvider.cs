@@ -123,18 +123,17 @@ public sealed class
         {
             MediaCompositionExportClip clip =
                 request.Clips[index];
-            if (!TryGetVideoColorTransform(
+            if (!TryGetVideoEffectPlan(
                     clip,
                     effectRegistry ??
                         MediaEffectRegistry.Default,
-                    out GpuTextureColorTransform
-                        transform))
+                    out LinuxGpuVideoEffectPlan
+                        effectPlan))
             {
                 return false;
             }
             bool hasEffects =
-                transform !=
-                    GpuTextureColorTransform.Identity;
+                !effectPlan.IsIdentity;
             bool hasSource =
                 clip.SourceUri is
                     { IsFile: true };
@@ -257,14 +256,13 @@ public sealed class
             MediaCompositionExportClip clip =
                 request.Clips[index];
             effects |=
-                TryGetVideoColorTransform(
+                TryGetVideoEffectPlan(
                     clip,
                     effectRegistry ??
                         MediaEffectRegistry.Default,
-                    out GpuTextureColorTransform
-                        transform) &&
-                transform !=
-                    GpuTextureColorTransform.Identity;
+                    out LinuxGpuVideoEffectPlan
+                        effectPlan) &&
+                !effectPlan.IsIdentity;
         }
         bool gpuComposition =
             RequiresGpuComposition(
@@ -419,17 +417,17 @@ public sealed class
 
         MediaCompositionExportClip clip =
             request.Clips[0];
-        if (!TryGetVideoColorTransform(
+        if (!TryGetVideoEffectPlan(
                 clip,
                 _effects,
-                out GpuTextureColorTransform transform))
+                out LinuxGpuVideoEffectPlan
+                    effectPlan))
         {
             throw new InvalidDataException(
                 "The WebGPU effect graph is invalid.");
         }
         bool effects =
-            transform !=
-                GpuTextureColorTransform.Identity;
+            !effectPlan.IsIdentity;
         bool gpuComposition =
             effects ||
             clip.ArgbColor.HasValue;
@@ -446,7 +444,7 @@ public sealed class
             TranscodeColor(
                 request,
                 argbColor,
-                transform,
+                effectPlan,
                 dawn!,
                 audioTrack,
                 spoolPath,
@@ -627,7 +625,7 @@ public sealed class
                             if (effectSink.TryProcessFrame(
                                     in pendingFrame,
                                     outputTime,
-                                    transform,
+                                    effectPlan,
                                     encoder))
                             {
                                 pendingFrame = default;
@@ -746,7 +744,7 @@ public sealed class
     private void TranscodeColor(
         MediaCompositionExportRequest request,
         uint argbColor,
-        GpuTextureColorTransform transform,
+        LinuxGpuVideoEffectPlan effectPlan,
         DawnGpuContext dawn,
         IsoBmffCompositionTrack? audioTrack,
         string spoolPath,
@@ -797,7 +795,7 @@ public sealed class
                     effectSink.TryProcessColorFrame(
                         argbColor,
                         TimeSpan.FromTicks(frameOffset),
-                        transform,
+                        effectPlan,
                         encoder))
                 {
                     progress?.Report(
@@ -900,11 +898,11 @@ public sealed class
                     .ThrowIfCancellationRequested();
                 MediaCompositionExportClip clip =
                     request.Clips[clipIndex];
-                if (!TryGetVideoColorTransform(
+                if (!TryGetVideoEffectPlan(
                         clip,
                         _effects,
-                        out GpuTextureColorTransform
-                            transform))
+                        out LinuxGpuVideoEffectPlan
+                            effectPlan))
                 {
                     throw new InvalidDataException(
                         "The WebGPU effect graph is invalid.");
@@ -918,7 +916,7 @@ public sealed class
                     ProcessTimelineColorClip(
                         request,
                         argbColor,
-                        transform,
+                        effectPlan,
                         timelineOffset,
                         clipDuration,
                         clipIndex,
@@ -933,7 +931,7 @@ public sealed class
                     ProcessTimelineUriClip(
                         request,
                         clip,
-                        transform,
+                        effectPlan,
                         timelineOffset,
                         clipIndex,
                         encoder,
@@ -971,7 +969,7 @@ public sealed class
     private static void ProcessTimelineColorClip(
         MediaCompositionExportRequest request,
         uint argbColor,
-        GpuTextureColorTransform transform,
+        LinuxGpuVideoEffectPlan effectPlan,
         TimeSpan timelineOffset,
         TimeSpan duration,
         int clipIndex,
@@ -995,7 +993,7 @@ public sealed class
             if (frameSink.TryProcessColorFrame(
                     argbColor,
                     presentationTime,
-                    transform,
+                    effectPlan,
                     encoder))
             {
                 ReportTimelineProgress(
@@ -1026,7 +1024,7 @@ public sealed class
     private void ProcessTimelineUriClip(
         MediaCompositionExportRequest request,
         MediaCompositionExportClip clip,
-        GpuTextureColorTransform transform,
+        LinuxGpuVideoEffectPlan effectPlan,
         TimeSpan timelineOffset,
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
@@ -1168,7 +1166,7 @@ public sealed class
                         if (frameSink.TryProcessFrame(
                                 in pendingFrame,
                                 outputTime,
-                                transform,
+                                effectPlan,
                                 encoder))
                         {
                             pendingFrame = default;
@@ -1635,23 +1633,23 @@ public sealed class
         return true;
     }
 
-    internal static bool TryGetVideoColorTransform(
+    internal static bool TryGetVideoEffectPlan(
         MediaCompositionExportClip clip,
         MediaEffectRegistry effects,
-        out GpuTextureColorTransform transform)
+        out LinuxGpuVideoEffectPlan plan)
     {
         ArgumentNullException.ThrowIfNull(clip);
         ArgumentNullException.ThrowIfNull(effects);
-        transform = GpuTextureColorTransform.Identity;
+        plan = LinuxGpuVideoEffectPlan.Identity;
         if (!TryGetBuiltInEffects(
                 clip.UserData,
                 out float saturation,
                 out float grayscale) ||
             !MediaCompositionVideoEffectResolver
-                .TryCaptureColorTransform(
+                .TryCapturePlan(
                     effects,
                     clip.VideoEffectDefinitions,
-                    out MediaVideoColorTransform
+                    out MediaVideoEffectPlan
                         declared))
         {
             return false;
@@ -1662,11 +1660,13 @@ public sealed class
                 .CreateTransform(
                     saturation: saturation,
                     grayscale: grayscale)
-                .Then(declared);
-        transform = new GpuTextureColorTransform(
-            combined.Red,
-            combined.Green,
-            combined.Blue);
+                .Then(declared.ColorTransform);
+        plan = new LinuxGpuVideoEffectPlan(
+            new GpuTextureColorTransform(
+                combined.Red,
+                combined.Green,
+                combined.Blue),
+            declared.BlurStandardDeviation);
         return true;
     }
 
@@ -1698,13 +1698,12 @@ public sealed class
             {
                 return true;
             }
-            if (TryGetVideoColorTransform(
+            if (TryGetVideoEffectPlan(
                     clip,
                     effects,
-                    out GpuTextureColorTransform
-                        transform) &&
-                transform !=
-                    GpuTextureColorTransform.Identity)
+                    out LinuxGpuVideoEffectPlan
+                        plan) &&
+                !plan.IsIdentity)
             {
                 return true;
             }
