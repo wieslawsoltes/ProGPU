@@ -4,6 +4,7 @@ using Android.Media;
 using Android.Views;
 using Java.Nio;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 using AndroidUri = Android.Net.Uri;
 
 namespace ProGPU.Android.Media;
@@ -33,11 +34,14 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
         s_emptyHeaders =
             new Dictionary<string, string>(
                 StringComparer.Ordinal);
+    private readonly MediaEffectRegistry _effects;
 
     public AndroidMediaCompositionThumbnailProvider(
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
     }
 
     public string Id => ProviderId;
@@ -48,11 +52,13 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
         MediaCompositionThumbnailRequest request) =>
         IsRequestSupported(
             request,
-            OperatingSystem.IsAndroid());
+            OperatingSystem.IsAndroid(),
+            _effects);
 
     internal static bool IsRequestSupported(
         MediaCompositionThumbnailRequest request,
-        bool isAndroid)
+        bool isAndroid,
+        MediaEffectRegistry? effects = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         MediaCompositionExportRequest composition =
@@ -96,11 +102,10 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 clip.TrimTimeFromEnd.Ticks;
             if (hasUri == hasColor ||
                 clipDurationTicks <= 0 ||
-                clip.VideoEffectDefinitions.Count != 0 ||
                 !AndroidMediaCodecCompositionExportProvider
-                    .TryGetBuiltInEffects(
-                        clip.UserData,
-                        out _,
+                    .TryGetVideoColorTransform(
+                        clip,
+                        effects ?? MediaEffectRegistry.Default,
                         out _))
             {
                 return false;
@@ -153,6 +158,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
             Task.Run(
                 () => RenderCore(
                     request,
+                    _effects,
                     cancellationToken),
                 CancellationToken.None));
     }
@@ -160,6 +166,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
     private static IReadOnlyList<
         MediaCompositionThumbnail> RenderCore(
         MediaCompositionThumbnailRequest request,
+        MediaEffectRegistry effects,
         CancellationToken cancellationToken)
     {
         int width =
@@ -207,11 +214,16 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 MediaCompositionExportClip clip =
                     request.Composition.Clips[
                         frame.ClipIndex];
-                AndroidMediaCodecCompositionExportProvider
-                    .TryGetBuiltInEffects(
-                        clip.UserData,
-                        out float saturation,
-                        out float grayscale);
+                if (!AndroidMediaCodecCompositionExportProvider
+                        .TryGetVideoColorTransform(
+                            clip,
+                            effects,
+                            out MediaVideoColorTransform
+                                transform))
+                {
+                    throw new InvalidOperationException(
+                        "The clip contains an unsupported video effect.");
+                }
                 long presentationTimeMicroseconds =
                     Math.Max(
                         0,
@@ -223,8 +235,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     renderer.DrawColorFrame(
                         presentationTimeMicroseconds,
                         color,
-                        saturation,
-                        grayscale,
+                        transform,
                         cancellationToken);
                 }
                 else
@@ -253,8 +264,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                         paint);
                     renderer.DrawFrame(
                         presentationTimeMicroseconds,
-                        saturation,
-                        grayscale,
+                        transform,
                         cancellationToken);
                 }
 

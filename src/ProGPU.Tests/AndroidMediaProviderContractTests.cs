@@ -400,6 +400,26 @@ public sealed class AndroidMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaCompositionVideoEffectResolver",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".TryCaptureColorTransform(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "u_red_transform",
+            fragment,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "u_green_transform",
+            fragment,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "u_blue_transform",
+            fragment,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "u_use_solid_color",
             fragment,
             StringComparison.Ordinal);
@@ -549,6 +569,10 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "renderer.DrawColorFrame(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetVideoColorTransform(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

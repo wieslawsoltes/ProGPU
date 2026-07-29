@@ -10,6 +10,7 @@ using Java.Nio;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 using Silk.NET.WebGPU;
 using AndroidSurfaceTexture = Android.Graphics.SurfaceTexture;
 using AndroidSurface = Android.Views.Surface;
@@ -187,8 +188,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
 
     public void DrawFrame(
         long presentationTimeMicroseconds,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -238,8 +238,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
                 source.Access.Texture,
                 encoderFrame.Texture.ViewPtr,
                 encoderFrame.Texture.Format,
-                saturation,
-                grayscale);
+                ToGpuTransform(transform));
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
@@ -267,8 +266,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     public void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -320,8 +318,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
                 source.Access.Texture,
                 encoderFrame.Texture.ViewPtr,
                 encoderFrame.Texture.Format,
-                saturation,
-                grayscale);
+                ToGpuTransform(transform));
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
@@ -358,6 +355,14 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             A = ((argbColor >> 24) & 0xff) * scale
         };
     }
+
+    private static GpuTextureColorTransform
+        ToGpuTransform(
+            MediaVideoColorTransform transform) =>
+        new(
+            transform.Red,
+            transform.Green,
+            transform.Blue);
 
     public ValueTask DrainAsync(
         CancellationToken cancellationToken)
@@ -823,8 +828,9 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
     private int _decoderPositionLocation;
     private int _decoderTexCoordLocation;
     private int _decoderTransformLocation;
-    private int _decoderSaturationLocation;
-    private int _decoderGrayscaleLocation;
+    private int _decoderRedTransformLocation;
+    private int _decoderGreenTransformLocation;
+    private int _decoderBlueTransformLocation;
     private int _disposed;
 
     internal AndroidHardwareBufferEglPresenter(
@@ -1085,11 +1091,23 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
                 false,
                 _textureTransform,
                 0);
-            GLES20.GlUniform1f(
-                _decoderSaturationLocation,
-                1f);
-            GLES20.GlUniform1f(
-                _decoderGrayscaleLocation,
+            GLES20.GlUniform4f(
+                _decoderRedTransformLocation,
+                1f,
+                0f,
+                0f,
+                0f);
+            GLES20.GlUniform4f(
+                _decoderGreenTransformLocation,
+                0f,
+                1f,
+                0f,
+                0f);
+            GLES20.GlUniform4f(
+                _decoderBlueTransformLocation,
+                0f,
+                0f,
+                1f,
                 0f);
             GLES20.GlDrawArrays(
                 GLES20.GlTriangleStrip,
@@ -1452,14 +1470,18 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
             GLES20.GlGetUniformLocation(
                 _decoderProgram,
                 "u_tex_transform");
-        _decoderSaturationLocation =
+        _decoderRedTransformLocation =
             GLES20.GlGetUniformLocation(
                 _decoderProgram,
-                "u_saturation");
-        _decoderGrayscaleLocation =
+                "u_red_transform");
+        _decoderGreenTransformLocation =
             GLES20.GlGetUniformLocation(
                 _decoderProgram,
-                "u_grayscale");
+                "u_green_transform");
+        _decoderBlueTransformLocation =
+            GLES20.GlGetUniformLocation(
+                _decoderProgram,
+                "u_blue_transform");
         int sourceLocation =
             GLES20.GlGetUniformLocation(
                 _decoderProgram,

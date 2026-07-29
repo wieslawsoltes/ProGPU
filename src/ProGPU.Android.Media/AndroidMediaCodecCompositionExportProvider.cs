@@ -9,6 +9,7 @@ using Java.Nio;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 using IOPath = System.IO.Path;
 using OperationCanceledException =
     System.OperationCanceledException;
@@ -22,15 +23,13 @@ internal interface IAndroidEncoderSurfaceRenderer :
 
     void DrawFrame(
         long presentationTimeMicroseconds,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken);
 
     void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken);
 }
 
@@ -61,11 +60,14 @@ public sealed class
     private const int MaximumCompressedAudioSample =
         16 * 1024 * 1024;
     private const long CodecTimeoutMicroseconds = 10_000;
+    private readonly MediaEffectRegistry _effects;
 
     public AndroidMediaCodecCompositionExportProvider(
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
     }
 
     public string Id => ProviderId;
@@ -75,11 +77,13 @@ public sealed class
         MediaCompositionExportRequest request) =>
         IsRequestSupported(
             request,
-            OperatingSystem.IsAndroid());
+            OperatingSystem.IsAndroid(),
+            _effects);
 
     internal static bool IsRequestSupported(
         MediaCompositionExportRequest request,
-        bool isAndroid)
+        bool isAndroid,
+        MediaEffectRegistry? effects = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         MediaCompositionEncodingProfile profile =
@@ -137,25 +141,23 @@ public sealed class
                  profile.AudioSubtype is not null) ||
                 clip.Volume != 1d ||
                 clip.AudioEffectDefinitions.Count != 0 ||
-                clip.VideoEffectDefinitions.Count != 0 ||
                 clip.OriginalDuration <= TimeSpan.Zero ||
                 clip.TrimTimeFromStart < TimeSpan.Zero ||
                 clip.TrimTimeFromEnd < TimeSpan.Zero ||
                 clip.TrimTimeFromStart +
                     clip.TrimTimeFromEnd >=
                     clip.OriginalDuration ||
-                !TryGetBuiltInEffects(
-                    clip.UserData,
-                    out float saturation,
-                    out float grayscale))
+                !TryGetVideoColorTransform(
+                    clip,
+                    effects ?? MediaEffectRegistry.Default,
+                    out MediaVideoColorTransform transform))
             {
                 return false;
             }
 
             requiresTranscode |=
                 hasColor ||
-                saturation != 1f ||
-                grayscale != 0f;
+                !transform.IsIdentity;
         }
 
         return requiresTranscode;
@@ -172,7 +174,7 @@ public sealed class
                 nameof(request));
         }
 
-        bool effects = HasBuiltInEffects(request);
+        bool effects = HasVideoEffects(request);
         bool webGpu = HasActiveVulkanDawnContext();
         return new MediaCompositionExportCapabilities(
             ProviderId,
@@ -188,7 +190,7 @@ public sealed class
             EffectsBakedOnGpu: effects,
             Limitation:
                 "The provider selects a hardware-accelerated H.264 " +
-                "MediaCodec at runtime. Built-in saturation/grayscale " +
+                "MediaCodec at runtime. Registered affine color effects " +
                 (webGpu
                     ? "use the active Vulkan Dawn device and a bounded " +
                       "AHardwareBuffer/SyncFD WebGPU lane when EGL interop " +
@@ -199,8 +201,8 @@ public sealed class
                 "is remuxed only when every source exactly matches the " +
                 "requested sample rate, channels, bitrate, and codec " +
                 "configuration. Solid-color clips are GPU-generated for " +
-                "video-only output; mixing, gain, overlays, and declared " +
-                "effects remain rejected.");
+                "video-only output; mixing, gain, overlays, and spatial " +
+                "or unregistered effects remain rejected.");
     }
 
     public ValueTask<MediaCompositionExportFailure>
@@ -221,6 +223,7 @@ public sealed class
             Task.Run(
                 () => RenderCore(
                     request,
+                    _effects,
                     progress,
                     cancellationToken),
                 CancellationToken.None));
@@ -228,6 +231,7 @@ public sealed class
 
     private static MediaCompositionExportFailure RenderCore(
         MediaCompositionExportRequest request,
+        MediaEffectRegistry effects,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
@@ -253,6 +257,7 @@ public sealed class
             MediaCompositionExportFailure result =
                 RenderNative(
                     request,
+                    effects,
                     temporary,
                     reporter,
                     cancellationToken);
@@ -292,6 +297,7 @@ public sealed class
 
     private static MediaCompositionExportFailure RenderNative(
         MediaCompositionExportRequest request,
+        MediaEffectRegistry effects,
         string temporary,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -355,10 +361,15 @@ public sealed class
                 cancellationToken.ThrowIfCancellationRequested();
                 MediaCompositionExportClip clip =
                     request.Clips[index];
-                TryGetBuiltInEffects(
-                    clip.UserData,
-                    out float saturation,
-                    out float grayscale);
+                if (!TryGetVideoColorTransform(
+                        clip,
+                        effects,
+                        out MediaVideoColorTransform
+                            transform))
+                {
+                    throw new InvalidOperationException(
+                        "The clip contains an unsupported video effect.");
+                }
                 long sourceStart =
                     ToMicroseconds(clip.TrimTimeFromStart);
                 long clipDuration =
@@ -383,8 +394,7 @@ public sealed class
                         ref muxerStarted,
                         clipDuration,
                         timelineOffset,
-                        saturation,
-                        grayscale,
+                        transform,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -403,8 +413,7 @@ public sealed class
                         sourceStart,
                         sourceEnd,
                         timelineOffset,
-                        saturation,
-                        grayscale,
+                        transform,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -476,8 +485,7 @@ public sealed class
         ref bool muxerStarted,
         long clipDuration,
         long timelineOffset,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -492,8 +500,7 @@ public sealed class
             renderer.DrawColorFrame(
                 outputTimestamp,
                 argbColor,
-                saturation,
-                grayscale,
+                transform,
                 cancellationToken);
             DrainEncoder(
                 encoder,
@@ -579,8 +586,7 @@ public sealed class
         long sourceStart,
         long sourceEnd,
         long timelineOffset,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -697,8 +703,7 @@ public sealed class
                                 sourceStart);
                         renderer.DrawFrame(
                             outputTimestamp,
-                            saturation,
-                            grayscale,
+                            transform,
                             cancellationToken);
                         DrainEncoder(
                             encoder,
@@ -1292,18 +1297,49 @@ public sealed class
         return true;
     }
 
-    private static bool HasBuiltInEffects(
+    internal static bool TryGetVideoColorTransform(
+        MediaCompositionExportClip clip,
+        MediaEffectRegistry effects,
+        out MediaVideoColorTransform transform)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(effects);
+        transform = MediaVideoColorTransform.Identity;
+        if (!TryGetBuiltInEffects(
+                clip.UserData,
+                out float saturation,
+                out float grayscale) ||
+            !MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    effects,
+                    clip.VideoEffectDefinitions,
+                    out MediaVideoColorTransform
+                        declared))
+        {
+            return false;
+        }
+
+        transform = MediaVideoColorEffectFactory
+            .CreateTransform(
+                saturation: saturation,
+                grayscale: grayscale)
+            .Then(declared);
+        return true;
+    }
+
+    private bool HasVideoEffects(
         MediaCompositionExportRequest request)
     {
         for (int index = 0;
              index < request.Clips.Count;
              index++)
         {
-            TryGetBuiltInEffects(
-                request.Clips[index].UserData,
-                out float saturation,
-                out float grayscale);
-            if (saturation != 1f || grayscale != 0f)
+            if (TryGetVideoColorTransform(
+                    request.Clips[index],
+                    _effects,
+                    out MediaVideoColorTransform
+                        transform) &&
+                !transform.IsIdentity)
             {
                 return true;
             }
@@ -1460,8 +1496,9 @@ internal sealed class AndroidEncoderSurfaceRenderer :
     private int _positionLocation;
     private int _texCoordLocation;
     private int _transformLocation;
-    private int _saturationLocation;
-    private int _grayscaleLocation;
+    private int _redTransformLocation;
+    private int _greenTransformLocation;
+    private int _blueTransformLocation;
     private int _useSolidColorLocation;
     private int _solidColorLocation;
     private int _disposed;
@@ -1510,8 +1547,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
 
     public void DrawFrame(
         long presentationTimeMicroseconds,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1539,8 +1575,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
 
         DrawGpuFrame(
             presentationTimeMicroseconds,
-            saturation,
-            grayscale,
+            transform,
             useSolidColor: false,
             argbColor: 0);
     }
@@ -1548,8 +1583,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
     public void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1563,16 +1597,14 @@ internal sealed class AndroidEncoderSurfaceRenderer :
             this);
         DrawGpuFrame(
             presentationTimeMicroseconds,
-            saturation,
-            grayscale,
+            transform,
             useSolidColor: true,
             argbColor: argbColor);
     }
 
     private void DrawGpuFrame(
         long presentationTimeMicroseconds,
-        float saturation,
-        float grayscale,
+        MediaVideoColorTransform transform,
         bool useSolidColor,
         uint argbColor)
     {
@@ -1609,12 +1641,24 @@ internal sealed class AndroidEncoderSurfaceRenderer :
             false,
             _textureTransform,
             0);
-        GLES20.GlUniform1f(
-            _saturationLocation,
-            saturation);
-        GLES20.GlUniform1f(
-            _grayscaleLocation,
-            grayscale);
+        GLES20.GlUniform4f(
+            _redTransformLocation,
+            transform.Red.X,
+            transform.Red.Y,
+            transform.Red.Z,
+            transform.Red.W);
+        GLES20.GlUniform4f(
+            _greenTransformLocation,
+            transform.Green.X,
+            transform.Green.Y,
+            transform.Green.Z,
+            transform.Green.W);
+        GLES20.GlUniform4f(
+            _blueTransformLocation,
+            transform.Blue.X,
+            transform.Blue.Y,
+            transform.Blue.Z,
+            transform.Blue.W);
         GLES20.GlUniform1f(
             _useSolidColorLocation,
             useSolidColor ? 1f : 0f);
@@ -1760,14 +1804,18 @@ internal sealed class AndroidEncoderSurfaceRenderer :
             GLES20.GlGetUniformLocation(
                 _program,
                 "u_tex_transform");
-        _saturationLocation =
+        _redTransformLocation =
             GLES20.GlGetUniformLocation(
                 _program,
-                "u_saturation");
-        _grayscaleLocation =
+                "u_red_transform");
+        _greenTransformLocation =
             GLES20.GlGetUniformLocation(
                 _program,
-                "u_grayscale");
+                "u_green_transform");
+        _blueTransformLocation =
+            GLES20.GlGetUniformLocation(
+                _program,
+                "u_blue_transform");
         _useSolidColorLocation =
             GLES20.GlGetUniformLocation(
                 _program,
