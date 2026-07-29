@@ -322,15 +322,19 @@ public sealed class IosMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "effects.Saturation *",
+            "MediaCompositionVideoEffectResolver",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "(1f - effects.Grayscale)",
+            ".TryCaptureColorTransform(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "clip.VideoEffectDefinitions.Count != 0",
+            "effects.Transform",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VideoEffectDefinitions = []",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

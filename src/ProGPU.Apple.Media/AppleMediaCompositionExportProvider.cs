@@ -11,6 +11,7 @@ using ProGPU.Media.Editing;
 using ProGPU.Media.Effects;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Numerics;
 
 namespace ProGPU.Apple.Media;
 
@@ -72,9 +73,8 @@ public sealed class AppleMediaCompositionExportProvider :
                 clip.Volume is < 0d or > 1d ||
                 !AreAudioEffectsRegistered(
                     clip.AudioEffectDefinitions) ||
-                clip.VideoEffectDefinitions.Count != 0 ||
-                !TryGetBuiltInClipEffects(
-                    clip.UserData,
+                !TryGetClipEffects(
+                    clip,
                     out _))
             {
                 return false;
@@ -118,9 +118,8 @@ public sealed class AppleMediaCompositionExportProvider :
                     clip.Volume is < 0d or > 1d ||
                     !AreAudioEffectsRegistered(
                         clip.AudioEffectDefinitions) ||
-                    clip.VideoEffectDefinitions.Count != 0 ||
-                    !TryGetBuiltInClipEffects(
-                        clip.UserData,
+                    !TryGetClipEffects(
+                        clip,
                         out _) ||
                     overlay.Delay < TimeSpan.Zero ||
                     !double.IsFinite(overlay.PositionX) ||
@@ -169,10 +168,11 @@ public sealed class AppleMediaCompositionExportProvider :
             HardwareVideoEncoderGuaranteed: false,
             EffectsBakedOnGpu: effectsBakedOnGpu,
             Limitation: hasGpuPreparation
-                ? "Generated colors and built-in saturation/grayscale are " +
-                  "rendered by Core Image on the native Metal device into " +
-                  "the AVAssetWriter pixel-buffer pool. AVFoundation owns " +
-                  "codec selection and does not guarantee hardware encode."
+                ? "Generated colors and registered affine color effects " +
+                  "are rendered by Core Image on the native Metal device " +
+                  "into the AVAssetWriter pixel-buffer pool. AVFoundation " +
+                  "owns codec selection and does not guarantee hardware " +
+                  "encode."
                 : "AVAssetExportSession owns the native video path and " +
                   "codec selection; ProGPU does not observe enough of " +
                   "that path to label it GPU-surface or compressed-copy.");
@@ -216,9 +216,8 @@ public sealed class AppleMediaCompositionExportProvider :
                 clip.TrimTimeFromEnd;
             if (!HasExactlyOneVideoSource(clip) ||
                 clipDuration <= TimeSpan.Zero ||
-                clip.VideoEffectDefinitions.Count != 0 ||
-                !TryGetBuiltInClipEffects(
-                    clip.UserData,
+                !TryGetClipEffects(
+                    clip,
                     out _))
             {
                 return false;
@@ -245,9 +244,8 @@ public sealed class AppleMediaCompositionExportProvider :
                 MediaCompositionExportClip clip =
                     overlay.Clip;
                 if (!HasExactlyOneVideoSource(clip) ||
-                    clip.VideoEffectDefinitions.Count != 0 ||
-                    !TryGetBuiltInClipEffects(
-                        clip.UserData,
+                    !TryGetClipEffects(
+                        clip,
                         out _) ||
                     overlay.Delay < TimeSpan.Zero ||
                     !double.IsFinite(overlay.PositionX) ||
@@ -1010,7 +1008,7 @@ public sealed class AppleMediaCompositionExportProvider :
         return duration;
     }
 
-    private static int CountEffectClips(
+    private int CountEffectClips(
         MediaCompositionExportRequest request)
     {
         int count = 0;
@@ -1018,8 +1016,8 @@ public sealed class AppleMediaCompositionExportProvider :
              index < request.Clips.Count;
              index++)
         {
-            if (TryGetBuiltInClipEffects(
-                    request.Clips[index].UserData,
+            if (TryGetClipEffects(
+                    request.Clips[index],
                     out AppleBuiltInClipEffects effects) &&
                 !effects.IsIdentity)
             {
@@ -1036,9 +1034,9 @@ public sealed class AppleMediaCompositionExportProvider :
                  overlayIndex < layer.Overlays.Count;
                  overlayIndex++)
             {
-                if (TryGetBuiltInClipEffects(
+                if (TryGetClipEffects(
                         layer.Overlays[overlayIndex]
-                            .Clip.UserData,
+                            .Clip,
                         out AppleBuiltInClipEffects effects) &&
                     !effects.IsIdentity)
                 {
@@ -1049,7 +1047,7 @@ public sealed class AppleMediaCompositionExportProvider :
         return count;
     }
 
-    private static int CountPreparedClips(
+    private int CountPreparedClips(
         MediaCompositionExportRequest request)
     {
         int count = 0;
@@ -1060,8 +1058,8 @@ public sealed class AppleMediaCompositionExportProvider :
             MediaCompositionExportClip clip =
                 request.Clips[index];
             if (clip.ArgbColor is not null ||
-                TryGetBuiltInClipEffects(
-                    clip.UserData,
+                TryGetClipEffects(
+                    clip,
                     out AppleBuiltInClipEffects effects) &&
                 !effects.IsIdentity)
             {
@@ -1081,8 +1079,8 @@ public sealed class AppleMediaCompositionExportProvider :
                 MediaCompositionExportClip clip =
                     layer.Overlays[overlayIndex].Clip;
                 if (clip.ArgbColor is not null ||
-                    TryGetBuiltInClipEffects(
-                        clip.UserData,
+                    TryGetClipEffects(
+                        clip,
                         out AppleBuiltInClipEffects effects) &&
                     !effects.IsIdentity)
                 {
@@ -1093,7 +1091,7 @@ public sealed class AppleMediaCompositionExportProvider :
         return count;
     }
 
-    private static async Task<MediaCompositionExportRequest>
+    private async Task<MediaCompositionExportRequest>
         PrepareEffectRequestAsync(
             MediaCompositionExportRequest request,
             string temporaryDirectory,
@@ -1164,7 +1162,7 @@ public sealed class AppleMediaCompositionExportProvider :
         };
     }
 
-    private static async Task<MediaCompositionExportClip>
+    private async Task<MediaCompositionExportClip>
         PrepareEffectClipAsync(
             MediaCompositionExportClip clip,
             MediaCompositionEncodingProfile profile,
@@ -1172,8 +1170,8 @@ public sealed class AppleMediaCompositionExportProvider :
             EffectPreparationProgress progress,
             CancellationToken cancellationToken)
     {
-        if (!TryGetBuiltInClipEffects(
-                clip.UserData,
+        if (!TryGetClipEffects(
+                clip,
                 out AppleBuiltInClipEffects effects))
         {
             return clip;
@@ -1242,7 +1240,8 @@ public sealed class AppleMediaCompositionExportProvider :
             TrimTimeFromEnd = TimeSpan.Zero,
             UserData =
                 new ReadOnlyDictionary<string, string>(
-                    userData)
+                    userData),
+            VideoEffectDefinitions = []
         };
     }
 
@@ -1531,20 +1530,13 @@ public sealed class AppleMediaCompositionExportProvider :
             ((argbColor >> 8) & 0xff) / 255f;
         float blue =
             (argbColor & 0xff) / 255f;
-        float saturation =
-            effects.Saturation *
-            (1f - effects.Grayscale);
-        float luminance =
-            red * 0.2126f +
-            green * 0.7152f +
-            blue * 0.0722f;
+        Vector3 transformed =
+            effects.Transform.Transform(
+                new Vector3(red, green, blue));
         return (
-            luminance +
-                (red - luminance) * saturation,
-            luminance +
-                (green - luminance) * saturation,
-            luminance +
-                (blue - luminance) * saturation,
+            transformed.X,
+            transformed.Y,
+            transformed.Z,
             alpha);
     }
 
@@ -1571,32 +1563,31 @@ public sealed class AppleMediaCompositionExportProvider :
         using CIContext context =
             CIContext.FromMetalDevice(device);
 
-        float saturation =
-            effects.Saturation *
-            (1f - effects.Grayscale);
-        float inverse = 1f - saturation;
-        const float luminanceR = 0.2126f;
-        const float luminanceG = 0.7152f;
-        const float luminanceB = 0.0722f;
+        MediaVideoColorTransform transform =
+            effects.Transform;
         using var red = new CIVector(
-            luminanceR * inverse + saturation,
-            luminanceG * inverse,
-            luminanceB * inverse,
+            transform.Red.X,
+            transform.Red.Y,
+            transform.Red.Z,
             0f);
         using var green = new CIVector(
-            luminanceR * inverse,
-            luminanceG * inverse + saturation,
-            luminanceB * inverse,
+            transform.Green.X,
+            transform.Green.Y,
+            transform.Green.Z,
             0f);
         using var blue = new CIVector(
-            luminanceR * inverse,
-            luminanceG * inverse,
-            luminanceB * inverse + saturation,
+            transform.Blue.X,
+            transform.Blue.Y,
+            transform.Blue.Z,
             0f);
         using var alpha =
             new CIVector(0f, 0f, 0f, 1f);
         using var bias =
-            new CIVector(0f, 0f, 0f, 0f);
+            new CIVector(
+                transform.Red.W,
+                transform.Green.W,
+                transform.Blue.W,
+                0f);
         using AVMutableVideoComposition videoComposition =
             AVMutableVideoComposition.GetVideoComposition(
                 asset,
@@ -2181,31 +2172,60 @@ public sealed class AppleMediaCompositionExportProvider :
         (clip.SourceUri is { IsAbsoluteUri: true }) ^
         (clip.ArgbColor is not null);
 
-    private static bool TryGetBuiltInClipEffects(
-        IReadOnlyDictionary<string, string> userData,
+    private bool TryGetClipEffects(
+        MediaCompositionExportClip clip,
         out AppleBuiltInClipEffects effects)
     {
+        if (!TryGetBuiltInClipEffects(
+                clip.UserData,
+                out float saturation,
+                out float grayscale) ||
+            !MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    _effects,
+                    clip.VideoEffectDefinitions,
+                    out MediaVideoColorTransform
+                        declared))
+        {
+            effects = default;
+            return false;
+        }
+
+        MediaVideoColorTransform combined =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    saturation: saturation,
+                    grayscale: grayscale)
+                .Then(declared);
+        effects = new AppleBuiltInClipEffects(
+            combined);
+        return true;
+    }
+
+    private static bool TryGetBuiltInClipEffects(
+        IReadOnlyDictionary<string, string> userData,
+        out float saturation,
+        out float grayscale)
+    {
+        saturation = 1f;
+        grayscale = 0f;
         if (!TryReadEffect(
                 userData,
                 "progpu.saturation",
                 1f,
                 0f,
                 2f,
-                out float saturation) ||
+                out saturation) ||
             !TryReadEffect(
                 userData,
                 "progpu.grayscale",
                 0f,
                 0f,
                 1f,
-                out float grayscale))
+                out grayscale))
         {
-            effects = default;
             return false;
         }
-        effects = new AppleBuiltInClipEffects(
-            saturation,
-            grayscale);
         return true;
     }
 
@@ -2235,12 +2255,10 @@ public sealed class AppleMediaCompositionExportProvider :
     }
 
     private readonly record struct AppleBuiltInClipEffects(
-        float Saturation,
-        float Grayscale)
+        MediaVideoColorTransform Transform)
     {
         public bool IsIdentity =>
-            Saturation == 1f &&
-            Grayscale == 0f;
+            Transform.IsIdentity;
     }
 
     private sealed class EffectPreparationProgress
