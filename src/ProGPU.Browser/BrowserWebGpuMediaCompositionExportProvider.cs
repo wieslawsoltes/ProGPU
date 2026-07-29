@@ -28,6 +28,11 @@ public sealed partial class
             typeof(
                 BrowserWebGpuMediaCompositionExportProvider),
             "BrowserMediaComposition.wgsl");
+    private static readonly string
+        s_gaussianShaderSource =
+            ShaderResource.Load(
+                typeof(GpuTextureGaussianBlur),
+                "TextureGaussianBlur.wgsl");
     private static int s_nextOperationId;
     private readonly MediaEffectRegistry _effects;
 
@@ -204,7 +209,8 @@ public sealed partial class
             StartCore(
                 operationId,
                 requestJson,
-                s_shaderSource);
+                s_shaderSource,
+                s_gaussianShaderSource);
             int result = await completion
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -231,7 +237,7 @@ public sealed partial class
             !TryGetAudioEffectGain(
                 clip.AudioEffectDefinitions,
                 out _) ||
-            !TryGetVideoColorTransform(
+            !TryGetVideoEffectPlan(
                 clip,
                 _effects,
                 out _))
@@ -259,12 +265,11 @@ public sealed partial class
     private bool HasNonIdentityVideoEffect(
         MediaCompositionExportClip clip)
     {
-        return TryGetVideoColorTransform(
+        return TryGetVideoEffectPlan(
                    clip,
                    _effects,
-                   out MediaVideoColorTransform
-                       transform) &&
-               !transform.IsIdentity;
+                   out MediaVideoEffectPlan plan) &&
+               !plan.IsIdentity;
     }
 
     private static bool TryGetBuiltInEffects(
@@ -303,33 +308,39 @@ public sealed partial class
         return true;
     }
 
-    internal static bool TryGetVideoColorTransform(
+    internal static bool TryGetVideoEffectPlan(
         MediaCompositionExportClip clip,
         MediaEffectRegistry effects,
-        out MediaVideoColorTransform transform)
+        out MediaVideoEffectPlan plan)
     {
         ArgumentNullException.ThrowIfNull(clip);
         ArgumentNullException.ThrowIfNull(effects);
-        transform = MediaVideoColorTransform.Identity;
+        plan = MediaVideoEffectPlan.Identity;
         if (!TryGetBuiltInEffects(
                 clip.UserData,
                 out double saturation,
                 out double grayscale) ||
             !MediaCompositionVideoEffectResolver
-                .TryCaptureColorTransform(
+                .TryCapturePlan(
                     effects,
                     clip.VideoEffectDefinitions,
-                    out MediaVideoColorTransform
+                    out MediaVideoEffectPlan
                         declared))
         {
             return false;
         }
 
-        transform = MediaVideoColorEffectFactory
-            .CreateTransform(
-                saturation: (float)saturation,
-                grayscale: (float)grayscale)
-            .Then(declared);
+        MediaVideoColorTransform transform =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    saturation:
+                        (float)saturation,
+                    grayscale:
+                        (float)grayscale)
+                .Then(declared.ColorTransform);
+        plan = new MediaVideoEffectPlan(
+            transform,
+            declared.BlurStandardDeviation);
         return true;
     }
 
@@ -475,10 +486,10 @@ public sealed partial class
         {
             return false;
         }
-        if (!TryGetVideoColorTransform(
+        if (!TryGetVideoEffectPlan(
                 clip,
                 _effects,
-                out MediaVideoColorTransform transform))
+                out MediaVideoEffectPlan plan))
         {
             return false;
         }
@@ -509,15 +520,18 @@ public sealed partial class
         WriteTransformRow(
             writer,
             "redTransform",
-            transform.Red);
+            plan.ColorTransform.Red);
         WriteTransformRow(
             writer,
             "greenTransform",
-            transform.Green);
+            plan.ColorTransform.Green);
         WriteTransformRow(
             writer,
             "blueTransform",
-            transform.Blue);
+            plan.ColorTransform.Blue);
+        writer.WriteNumber(
+            "blurStandardDeviation",
+            plan.BlurStandardDeviation);
         writer.WriteEndObject();
         return true;
     }
@@ -560,7 +574,8 @@ public sealed partial class
     private static partial void StartCore(
         int operationId,
         string requestJson,
-        string shaderSource);
+        string shaderSource,
+        string gaussianShaderSource);
 
     [JSImport(
         "cancelBrowserMediaCompositionExport",
@@ -637,12 +652,20 @@ public static partial class BrowserMediaExportSmokeTest
 {
     private const string AudioGainEffectId =
         "ProGPU.Browser.Smoke.AudioGain";
+    private const string GaussianBlurEffectId =
+        "ProGPU.Browser.Smoke.GaussianBlur";
     private static readonly Lazy<IDisposable>
         s_audioGainRegistration = new(
             static () =>
                 MediaEffectRegistry.Default.Register(
                     new MediaAudioGainEffectFactory(
                         AudioGainEffectId)));
+    private static readonly Lazy<IDisposable>
+        s_gaussianBlurRegistration = new(
+            static () =>
+                MediaEffectRegistry.Default.Register(
+                    new MediaVideoGaussianBlurEffectFactory(
+                        GaussianBlurEffectId)));
 
     [JSExport]
     public static async Task<int> RunAsync(
@@ -666,6 +689,23 @@ public static partial class BrowserMediaExportSmokeTest
             1d,
             null,
             userData);
+        if (applyEffect)
+        {
+            _ = s_gaussianBlurRegistration.Value;
+            clip = clip with
+            {
+                VideoEffectDefinitions =
+                [
+                    new MediaCompositionEffectDefinition(
+                        GaussianBlurEffectId,
+                        new Dictionary<string, object?>
+                        {
+                            [MediaVideoGaussianBlurEffectFactory
+                                .StandardDeviationPropertyName] = 4f
+                        })
+                ]
+            };
+        }
         if (includeAudio)
         {
             _ = s_audioGainRegistration.Value;

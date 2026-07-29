@@ -35,6 +35,11 @@ public sealed partial class
             typeof(
                 BrowserWebGpuMediaCompositionThumbnailProvider),
             "BrowserMediaComposition.wgsl");
+    private static readonly string
+        s_gaussianShaderSource =
+            ShaderResource.Load(
+                typeof(GpuTextureGaussianBlur),
+                "TextureGaussianBlur.wgsl");
     private static int s_nextOperationId;
     private readonly MediaEffectRegistry _effects;
 
@@ -200,7 +205,8 @@ public sealed partial class
             StartCore(
                 operationId,
                 requestJson,
-                s_shaderSource);
+                s_shaderSource,
+                s_gaussianShaderSource);
             BrowserMediaThumbnailCompletion outcome =
                 await completion
                     .WaitAsync(cancellationToken)
@@ -446,11 +452,10 @@ public sealed partial class
         MediaCompositionExportClip clip)
     {
         if (!BrowserWebGpuMediaCompositionExportProvider
-                .TryGetVideoColorTransform(
+                .TryGetVideoEffectPlan(
                     clip,
                     _effects,
-                    out MediaVideoColorTransform
-                        transform))
+                    out MediaVideoEffectPlan plan))
         {
             return false;
         }
@@ -481,15 +486,18 @@ public sealed partial class
         WriteTransformRow(
             writer,
             "redTransform",
-            transform.Red);
+            plan.ColorTransform.Red);
         WriteTransformRow(
             writer,
             "greenTransform",
-            transform.Green);
+            plan.ColorTransform.Green);
         WriteTransformRow(
             writer,
             "blueTransform",
-            transform.Blue);
+            plan.ColorTransform.Blue);
+        writer.WriteNumber(
+            "blurStandardDeviation",
+            plan.BlurStandardDeviation);
         writer.WriteEndObject();
         return true;
     }
@@ -523,7 +531,7 @@ public sealed partial class
         return hasUri != hasColor &&
                durationTicks > 0 &&
                BrowserWebGpuMediaCompositionExportProvider
-                   .TryGetVideoColorTransform(
+                   .TryGetVideoEffectPlan(
                        clip,
                        effects,
                        out _);
@@ -570,7 +578,8 @@ public sealed partial class
     private static partial void StartCore(
         int operationId,
         string requestJson,
-        string shaderSource);
+        string shaderSource,
+        string gaussianShaderSource);
 
     [JSImport(
         "copyBrowserMediaCompositionThumbnail",
@@ -653,8 +662,17 @@ public static partial class BrowserMediaThumbnailCallbacks
 
 public static partial class BrowserMediaThumbnailSmokeTest
 {
+    private const string GaussianBlurEffectId =
+        "ProGPU.Browser.Smoke.ThumbnailGaussianBlur";
+    private static readonly Lazy<IDisposable>
+        s_gaussianBlurRegistration = new(
+            static () =>
+                MediaEffectRegistry.Default.Register(
+                    new MediaVideoGaussianBlurEffectFactory(
+                        GaussianBlurEffectId)));
+
     [JSExport]
-    public static async Task<int> RunAsync()
+    public static Task<int> RunAsync()
     {
         var profile =
             new MediaCompositionEncodingProfile(
@@ -705,7 +723,76 @@ public static partial class BrowserMediaThumbnailSmokeTest
                 90,
                 MediaCompositionThumbnailPrecision
                     .NearestFrame);
+        return RenderAndValidateAsync(request);
+    }
 
+    [JSExport]
+    public static Task<int> RunEffectAsync(
+        string sourceUri)
+    {
+        _ = s_gaussianBlurRegistration.Value;
+        var profile =
+            new MediaCompositionEncodingProfile(
+                "PNG",
+                "RGBA",
+                null,
+                160,
+                90,
+                0,
+                30,
+                1,
+                0,
+                0,
+                0);
+        var clip =
+            new MediaCompositionExportClip(
+                new Uri(sourceUri),
+                TimeSpan.FromSeconds(5.055),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                0d,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["progpu.saturation"] = "1",
+                    ["progpu.grayscale"] = "0.5"
+                })
+            {
+                VideoEffectDefinitions =
+                [
+                    new MediaCompositionEffectDefinition(
+                        GaussianBlurEffectId,
+                        new Dictionary<string, object?>
+                        {
+                            [MediaVideoGaussianBlurEffectFactory
+                                .StandardDeviationPropertyName] = 4f
+                        })
+                ]
+            };
+        var request =
+            new MediaCompositionThumbnailRequest(
+                new MediaCompositionExportRequest(
+                    string.Empty,
+                    [clip],
+                    MediaCompositionTrimmingMode.Precise,
+                    profile,
+                    new Dictionary<string, string>()),
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(2),
+                    TimeSpan.FromSeconds(5.055)
+                ],
+                160,
+                90,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+        return RenderAndValidateAsync(request);
+    }
+
+    private static async Task<int>
+        RenderAndValidateAsync(
+            MediaCompositionThumbnailRequest request)
+    {
         IReadOnlyList<MediaCompositionThumbnail> results =
             await new BrowserWebGpuMediaCompositionThumbnailProvider()
                 .RenderAsync(

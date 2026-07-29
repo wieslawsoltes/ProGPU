@@ -992,6 +992,54 @@ function writeCompositionUniform(device, visual) {
     ]));
 }
 
+function createCompositionGaussianUniform(
+  standardDeviation,
+  directionX,
+  directionY) {
+  const sigma =
+    Math.max(
+      0.0001,
+      Math.min(32, Number(standardDeviation)));
+  const radius = Math.min(96, Math.ceil(3 * sigma));
+  const weights = new Float64Array(radius + 1);
+  weights[0] = 1;
+  let total = 1;
+  const denominator = 2 * sigma * sigma;
+  for (let index = 1; index <= radius; index++) {
+    const weight =
+      Math.exp(-(index * index) / denominator);
+    weights[index] = weight;
+    total += 2 * weight;
+  }
+  const values = new Float32Array(208);
+  values[0] = directionX;
+  values[1] = directionY;
+  values[2] = 1 / total;
+  const pairCount = Math.ceil(radius / 2);
+  values[3] = pairCount;
+  values[4] = 1;
+  values[9] = 1;
+  values[14] = 1;
+  for (let pair = 0; pair < pairCount; pair++) {
+    const first = pair * 2 + 1;
+    const second = first + 1;
+    const firstWeight = weights[first];
+    const secondWeight =
+      second <= radius ? weights[second] : 0;
+    const combined = firstWeight + secondWeight;
+    const offset =
+      combined > 0
+        ? (first * firstWeight +
+           second * secondWeight) /
+          combined
+        : first;
+    const uniformIndex = 16 + pair * 4;
+    values[uniformIndex] = offset;
+    values[uniformIndex + 1] = combined / total;
+  }
+  return values;
+}
+
 async function writeBrowserCompositionBlob(token, name, blob) {
   const handle = state.saveFileHandles.get(token);
   if (handle) {
@@ -1141,7 +1189,8 @@ function compositionTimelineEntry(
 async function renderBrowserMediaComposition(
   operationId,
   requestJson,
-  shaderSource) {
+  shaderSource,
+  gaussianShaderSource) {
   const operation = {
     aborted: false,
     recorder: null,
@@ -1204,6 +1253,17 @@ async function renderBrowserMediaComposition(
            request.thumbnailPositions.length > 0))) {
       return 2;
     }
+    const requestedVisualClips = [
+      ...request.clips,
+      ...(request.overlayLayers || [])
+        .flatMap(layer =>
+          layer.map(overlay => overlay.clip))
+    ];
+    const hasGaussian =
+      requestedVisualClips.some(
+        clip =>
+          clip.argb === undefined &&
+          Number(clip.blurStandardDeviation) > 0);
     if (request.includeAudio) {
       // Construct and unlock Web Audio before the first asynchronous GPU or
       // media wait. Browsers consume transient user activation at task
@@ -1292,8 +1352,38 @@ async function renderBrowserMediaComposition(
         topology: 'triangle-list'
       }
     });
+    let gaussianPipeline = null;
+    if (hasGaussian) {
+      const gaussianShader =
+        exportDevice.createShaderModule({
+          label: 'ProGPU browser media Gaussian blur',
+          code: gaussianShaderSource
+        });
+      gaussianPipeline =
+        await exportDevice.createRenderPipelineAsync({
+          label:
+            'ProGPU browser media Gaussian blur pipeline',
+          layout: 'auto',
+          vertex: {
+            module: gaussianShader,
+            entryPoint: 'vs_main'
+          },
+          fragment: {
+            module: gaussianShader,
+            entryPoint: 'fs_main',
+            targets: [{
+              format: 'rgba8unorm'
+            }]
+          },
+          primitive: {
+            topology: 'triangle-list'
+          }
+        });
+    }
     phase('pipeline');
     const sampler = exportDevice.createSampler({
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
       minFilter: 'linear',
       magFilter: 'linear'
     });
@@ -1319,6 +1409,19 @@ async function renderBrowserMediaComposition(
           clip.greenTransform ?? [0, 1, 0, 0],
         blueTransform:
           clip.blueTransform ?? [0, 0, 1, 0],
+        blurStandardDeviation:
+          Math.max(
+            0,
+            Math.min(
+              32,
+              Number(
+                clip.blurStandardDeviation) || 0)),
+        blurIntermediate: null,
+        blurOutput: null,
+        blurHorizontalUniform: null,
+        blurVerticalUniform: null,
+        blurHorizontalBindGroup: null,
+        blurVerticalBindGroup: null,
         opacity,
         isColor: clip.argb !== undefined
       };
@@ -1363,14 +1466,128 @@ async function renderBrowserMediaComposition(
         });
       }
       resources.push(visual.texture);
+      if (!visual.isColor &&
+          visual.blurStandardDeviation > 0) {
+        if (!gaussianPipeline) {
+          throw new Error(
+            'The Gaussian media pipeline was not created.');
+        }
+        const blurSize = [
+          Math.max(1, visual.element.videoWidth),
+          Math.max(1, visual.element.videoHeight),
+          1
+        ];
+        const blurOutputWidth =
+          Math.max(
+            1,
+            request.width *
+              Math.abs(destination.width));
+        const blurOutputHeight =
+          Math.max(
+            1,
+            request.height *
+              Math.abs(destination.height));
+        const blurUsage =
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.RENDER_ATTACHMENT;
+        visual.blurIntermediate =
+          exportDevice.createTexture({
+            size: blurSize,
+            format: 'rgba8unorm',
+            usage: blurUsage
+          });
+        visual.blurOutput =
+          exportDevice.createTexture({
+            size: blurSize,
+            format: 'rgba8unorm',
+            usage: blurUsage
+          });
+        visual.blurHorizontalUniform =
+          exportDevice.createBuffer({
+            size: 832,
+            usage:
+              GPUBufferUsage.UNIFORM |
+              GPUBufferUsage.COPY_DST
+          });
+        visual.blurVerticalUniform =
+          exportDevice.createBuffer({
+            size: 832,
+            usage:
+              GPUBufferUsage.UNIFORM |
+              GPUBufferUsage.COPY_DST
+          });
+        resources.push(
+          visual.blurIntermediate,
+          visual.blurOutput,
+          visual.blurHorizontalUniform,
+          visual.blurVerticalUniform);
+        exportDevice.queue.writeBuffer(
+          visual.blurHorizontalUniform,
+          0,
+          createCompositionGaussianUniform(
+            visual.blurStandardDeviation,
+            1 / blurOutputWidth,
+            0));
+        exportDevice.queue.writeBuffer(
+          visual.blurVerticalUniform,
+          0,
+          createCompositionGaussianUniform(
+            visual.blurStandardDeviation,
+            0,
+            1 / blurOutputHeight));
+        const gaussianLayout =
+          gaussianPipeline.getBindGroupLayout(0);
+        visual.blurHorizontalBindGroup =
+          exportDevice.createBindGroup({
+            layout: gaussianLayout,
+            entries: [
+              { binding: 0, resource: sampler },
+              {
+                binding: 1,
+                resource:
+                  visual.texture.createView()
+              },
+              {
+                binding: 2,
+                resource: {
+                  buffer:
+                    visual.blurHorizontalUniform
+                }
+              }
+            ]
+          });
+        visual.blurVerticalBindGroup =
+          exportDevice.createBindGroup({
+            layout: gaussianLayout,
+            entries: [
+              { binding: 0, resource: sampler },
+              {
+                binding: 1,
+                resource:
+                  visual.blurIntermediate
+                    .createView()
+              },
+              {
+                binding: 2,
+                resource: {
+                  buffer:
+                    visual.blurVerticalUniform
+                }
+              }
+            ]
+          });
+      }
       writeCompositionUniform(exportDevice, visual);
+      const compositionTexture =
+        visual.blurOutput || visual.texture;
       visual.bindGroup = exportDevice.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: sampler },
           {
             binding: 1,
-            resource: visual.texture.createView()
+            resource:
+              compositionTexture.createView()
           },
           {
             binding: 2,
@@ -1555,6 +1772,53 @@ async function renderBrowserMediaComposition(
         exportDevice.createCommandEncoder({
           label: 'ProGPU browser media composition frame'
         });
+      const activeBase =
+        isClearOnlyProbe
+          ? null
+          : baseEntries.find(
+              entry => entry.active);
+      const activeOverlays =
+        isClearOnlyProbe
+          ? []
+          : overlayEntries.filter(
+              entry => entry.active);
+      const encodeGaussianPass = (
+        visual,
+        target,
+        bindGroup) => {
+        const blurPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: target.createView(),
+            clearValue: {
+              r: 0,
+              g: 0,
+              b: 0,
+              a: 0
+            },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }]
+        });
+        blurPass.setPipeline(gaussianPipeline);
+        blurPass.setBindGroup(0, bindGroup);
+        blurPass.draw(3);
+        blurPass.end();
+      };
+      for (const entry of [
+        ...(activeBase ? [activeBase] : []),
+        ...activeOverlays
+      ]) {
+        const visual = entry.visual;
+        if (!visual.blurOutput) continue;
+        encodeGaussianPass(
+          visual,
+          visual.blurIntermediate,
+          visual.blurHorizontalBindGroup);
+        encodeGaussianPass(
+          visual,
+          visual.blurOutput,
+          visual.blurVerticalBindGroup);
+      }
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view:
@@ -1570,21 +1834,13 @@ async function renderBrowserMediaComposition(
         }]
       });
       pass.setPipeline(pipeline);
-      const activeBase =
-        isClearOnlyProbe
-          ? null
-          : baseEntries.find(
-              entry => entry.active);
       if (activeBase) {
         pass.setBindGroup(
           0,
           activeBase.visual.bindGroup);
         pass.draw(6);
       }
-      for (const entry of isClearOnlyProbe
-        ? []
-        : overlayEntries) {
-        if (!entry.active) continue;
+      for (const entry of activeOverlays) {
         pass.setBindGroup(
           0,
           entry.visual.bindGroup);
@@ -1903,11 +2159,13 @@ async function renderBrowserMediaComposition(
 function startBrowserMediaCompositionExport(
   operationId,
   requestJson,
-  shaderSource) {
+  shaderSource,
+  gaussianShaderSource) {
   void renderBrowserMediaComposition(
     operationId,
     requestJson,
-    shaderSource).then(
+    shaderSource,
+    gaussianShaderSource).then(
       result =>
         state.dispatchMediaExportCompletion(
           operationId,
@@ -1925,11 +2183,13 @@ function startBrowserMediaCompositionExport(
 function startBrowserMediaCompositionThumbnails(
   operationId,
   requestJson,
-  shaderSource) {
+  shaderSource,
+  gaussianShaderSource) {
   void renderBrowserMediaComposition(
     operationId,
     requestJson,
-    shaderSource).then(
+    shaderSource,
+    gaussianShaderSource).then(
       result => {
         if (result !== 0) {
           state.dispatchMediaThumbnailCompletion(
@@ -3344,13 +3604,23 @@ if (isDispatcherWorker) {
   const thumbnailSmoke =
     new URLSearchParams(globalThis.location.search)
       .get('progpuMediaThumbnailSmoke');
-  if (thumbnailSmoke === '1') {
+  if (thumbnailSmoke === '1' ||
+      thumbnailSmoke === 'effect') {
     globalThis.setTimeout(
       async () => {
         try {
+          const thumbnailSource =
+            new URLSearchParams(globalThis.location.search)
+              .get('progpuMediaExportSource') ||
+            'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
           const result =
-            await browserExports.ProGPU.Browser
-              .BrowserMediaThumbnailSmokeTest.RunAsync();
+            thumbnailSmoke === 'effect'
+              ? await browserExports.ProGPU.Browser
+                  .BrowserMediaThumbnailSmokeTest
+                  .RunEffectAsync(thumbnailSource)
+              : await browserExports.ProGPU.Browser
+                  .BrowserMediaThumbnailSmokeTest
+                  .RunAsync();
           document.documentElement.dataset.progpuMediaThumbnailSmokeResult =
             String(result);
         } catch (error) {

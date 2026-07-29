@@ -496,6 +496,18 @@ public sealed class SampleProjectSplitTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "TextureGaussianBlur.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_gaussianBlurRegistration",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "StandardDeviationPropertyName",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "MediaCompositionVideoEffectResolver",
             provider,
             StringComparison.Ordinal);
@@ -509,6 +521,26 @@ public sealed class SampleProjectSplitTests
             StringComparison.Ordinal);
         Assert.Contains(
             "size: 80",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "size: 832",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "createCompositionGaussianUniform(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.width *",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Math.abs(destination.width)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "visual.blurHorizontalBindGroup",
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -619,7 +651,27 @@ public sealed class SampleProjectSplitTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryGetVideoColorTransform(",
+            "TryGetVideoEffectPlan(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureGaussianBlur.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "visual.blurVerticalBindGroup",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "thumbnailSmoke === 'effect'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RunEffectAsync(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_gaussianBlurRegistration",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
