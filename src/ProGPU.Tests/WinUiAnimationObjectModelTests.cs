@@ -930,6 +930,69 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void SelectorBarSynchronizesWinUiSelectedItemAndItemState()
+    {
+        var selectorBar = new SelectorBar();
+        var cpu = new SelectorBarItem { Text = "CPU" };
+        var memory = new SelectorBarItem { Text = "Memory" };
+        int changes = 0;
+        selectorBar.SelectionChanged += (_, _) => changes++;
+        selectorBar.Items.Add(cpu);
+        selectorBar.Items.Add(memory);
+
+        selectorBar.SelectedItem = cpu;
+
+        Assert.True(cpu.IsSelected);
+        Assert.False(memory.IsSelected);
+        Assert.Equal(1, changes);
+
+        memory.IsSelected = true;
+
+        Assert.Same(memory, selectorBar.SelectedItem);
+        Assert.False(cpu.IsSelected);
+        Assert.Equal(2, changes);
+
+        selectorBar.Items.Remove(memory);
+
+        Assert.Null(selectorBar.SelectedItem);
+        Assert.Throws<ArgumentException>(
+            () => selectorBar.SelectedItem = new SelectorBarItem());
+    }
+
+    [Fact]
+    public void SparklineKeepsAConfiguredBoundedHistory()
+    {
+        var sparkline = new Sparkline { Capacity = 3 };
+
+        sparkline.Append(1);
+        sparkline.Append(2);
+        sparkline.Append(3);
+        sparkline.Append(4);
+
+        Assert.Equal(3, sparkline.ValueCount);
+        sparkline.Clear();
+        Assert.Equal(0, sparkline.ValueCount);
+    }
+
+    [Fact]
+    public void DataGridReadOnlyAndUserColumnContractsMatchToolkitSurface()
+    {
+        var dataGrid = new DataGrid
+        {
+            IsReadOnly = true,
+            CanUserSortColumns = false,
+            CanUserResizeColumns = false
+        };
+        dataGrid.AddItem("row");
+        dataGrid.SelectedIndex = 0;
+
+        Assert.True(dataGrid.IsReadOnly);
+        Assert.False(dataGrid.CanUserSortColumns);
+        Assert.False(dataGrid.CanUserResizeColumns);
+        Assert.Equal("row", dataGrid.SelectedItem);
+    }
+
+    [Fact]
     public void RangeControlsShareCanonicalDoubleRangeContract()
     {
         Assert.Equal(typeof(RangeBase), typeof(Slider).BaseType);

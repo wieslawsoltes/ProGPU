@@ -108,6 +108,27 @@ public class DataGrid : Control
             typeof(DataGrid),
             new PropertyMetadata(null) { AffectsRender = true });
 
+    public static readonly DependencyProperty IsReadOnlyProperty =
+        DependencyProperty.Register(
+            nameof(IsReadOnly),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(false));
+
+    public static readonly DependencyProperty CanUserSortColumnsProperty =
+        DependencyProperty.Register(
+            nameof(CanUserSortColumns),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(true));
+
+    public static readonly DependencyProperty CanUserResizeColumnsProperty =
+        DependencyProperty.Register(
+            nameof(CanUserResizeColumns),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(true));
+
     public List<object> ItemsSource => _itemsSource;
 
     public Brush? SelectionBackground
@@ -120,6 +141,24 @@ public class DataGrid : Control
     {
         get => GetValue(SelectionForegroundProperty) as Brush;
         set => SetValue(SelectionForegroundProperty, value);
+    }
+
+    public bool IsReadOnly
+    {
+        get => (bool)(GetValue(IsReadOnlyProperty) ?? false);
+        set => SetValue(IsReadOnlyProperty, value);
+    }
+
+    public bool CanUserSortColumns
+    {
+        get => (bool)(GetValue(CanUserSortColumnsProperty) ?? true);
+        set => SetValue(CanUserSortColumnsProperty, value);
+    }
+
+    public bool CanUserResizeColumns
+    {
+        get => (bool)(GetValue(CanUserResizeColumnsProperty) ?? true);
+        set => SetValue(CanUserResizeColumnsProperty, value);
     }
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
@@ -265,6 +304,11 @@ public class DataGrid : Control
             }
         }
     }
+
+    public object? SelectedItem =>
+        _selectedIndex >= 0 && _selectedIndex < _itemsSource.Count
+            ? _itemsSource[_selectedIndex]
+            : null;
 
     public DataGridColumn? SortingColumn
     {
@@ -750,7 +794,7 @@ public class DataGrid : Control
             {
                 // First check if within 4px of any column separator for resizing
                 float runningX = Padding.Left;
-                for (int i = 0; i < Columns.Count; i++)
+                for (int i = 0; CanUserResizeColumns && i < Columns.Count; i++)
                 {
                     float separatorX = runningX + Columns[i].ActualWidth;
                     if (Math.Abs(e.Position.X - separatorX) <= 4f)
@@ -771,6 +815,10 @@ public class DataGrid : Control
                 {
                     if (e.Position.X >= runningX && e.Position.X <= runningX + col.ActualWidth)
                     {
+                        if (!CanUserSortColumns)
+                        {
+                            break;
+                        }
                         if (SortingColumn == col)
                         {
                             col.IsAscending = !col.IsAscending;
@@ -1111,7 +1159,7 @@ public class DataGrid : Control
 
     private void SortColumn(int columnIndex)
     {
-        if (columnIndex < 0 || columnIndex >= Columns.Count) return;
+        if (!CanUserSortColumns || columnIndex < 0 || columnIndex >= Columns.Count) return;
         var column = Columns[columnIndex];
         if (SortingColumn == column) column.IsAscending = !column.IsAscending;
         else column.IsAscending = true;
@@ -1477,7 +1525,7 @@ public class DataGrid : Control
     {
         if (IsEnabled)
         {
-            if (e.Key == Key.Enter)
+            if (!IsReadOnly && e.Key == Key.Enter)
             {
                 if (SelectedIndex >= 0 && SelectedIndex < _itemsSource.Count && _editingRow == -1)
                 {
@@ -1492,7 +1540,8 @@ public class DataGrid : Control
 
     public void BeginEdit(int row, int col)
     {
-        if (row < 0 || row >= _itemsSource.Count || col < 0 || col >= Columns.Count)
+        if (IsReadOnly ||
+            row < 0 || row >= _itemsSource.Count || col < 0 || col >= Columns.Count)
             return;
 
         _editingRow = row;
