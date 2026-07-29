@@ -544,6 +544,18 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
+            "const commandBufferSubmission = [null]",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "overlayEntries.filter(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "...(activeBase ?",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "red_transform: vec4<f32>",
             shader,
             StringComparison.Ordinal);

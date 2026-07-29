@@ -1626,7 +1626,10 @@ uniform and one sample/write pass. Gaussian visuals additionally retain two
 RGBA8 work textures and two 832-byte uniforms generated from the same
 three-sigma, adjacent-linear-tap kernel used by the native WebGPU providers.
 Both blur axes and the terminal composition pass are encoded into one command
-buffer; no intermediate canvas or managed pixel buffer is introduced.
+buffer; the fixed visual-entry list and one-element submission array are
+reused, and active layers are selected by indexed scans without per-frame
+filtered/spread lists or scheduling closures. No intermediate canvas or
+managed pixel buffer is introduced.
 `ProGPU.Browser` and the Debug WebAssembly sample built with zero warnings and
 errors, `progpu-browser.js` passed Node syntax validation, and 55 focused
 browser source-contract, editing, and shader-resource tests passed. The fresh

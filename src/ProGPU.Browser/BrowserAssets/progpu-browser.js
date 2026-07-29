@@ -1677,6 +1677,10 @@ async function renderBrowserMediaComposition(
       ...overlayEntries,
       ...backgroundEntries
     ];
+    const visualEntries = [
+      ...baseEntries,
+      ...overlayEntries
+    ];
 
     let audioDestination = null;
     if (request.includeAudio) {
@@ -1745,79 +1749,98 @@ async function renderBrowserMediaComposition(
       entry.active = active;
     };
 
+    const encodeGaussianPass = (
+      encoder,
+      target,
+      bindGroup) => {
+      const blurPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: target.createView(),
+          clearValue: {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0
+          },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      });
+      blurPass.setPipeline(gaussianPipeline);
+      blurPass.setBindGroup(0, bindGroup);
+      blurPass.draw(3);
+      blurPass.end();
+    };
+    const commandBufferSubmission = [null];
+
     const renderActiveVisuals = async () => {
-      for (const entry of isClearOnlyProbe
-        ? []
-        : [
-            ...baseEntries,
-            ...overlayEntries
-          ]) {
-        const visual = entry.visual;
-        if (!entry.active ||
-            !visual?.element ||
-            visual.element.readyState <
-              HTMLMediaElement.HAVE_CURRENT_DATA) {
-          continue;
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < visualEntries.length;
+             index++) {
+          const entry = visualEntries[index];
+          const visual = entry.visual;
+          if (!entry.active ||
+              !visual?.element ||
+              visual.element.readyState <
+                HTMLMediaElement.HAVE_CURRENT_DATA) {
+            continue;
+          }
+          exportDevice.queue.copyExternalImageToTexture(
+            { source: visual.element },
+            { texture: visual.texture },
+            {
+              width: visual.element.videoWidth,
+              height: visual.element.videoHeight
+            });
         }
-        exportDevice.queue.copyExternalImageToTexture(
-          { source: visual.element },
-          { texture: visual.texture },
-          {
-            width: visual.element.videoWidth,
-            height: visual.element.videoHeight
-          });
       }
 
       const encoder =
         exportDevice.createCommandEncoder({
           label: 'ProGPU browser media composition frame'
         });
-      const activeBase =
-        isClearOnlyProbe
-          ? null
-          : baseEntries.find(
-              entry => entry.active);
-      const activeOverlays =
-        isClearOnlyProbe
-          ? []
-          : overlayEntries.filter(
-              entry => entry.active);
-      const encodeGaussianPass = (
-        visual,
-        target,
-        bindGroup) => {
-        const blurPass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: target.createView(),
-            clearValue: {
-              r: 0,
-              g: 0,
-              b: 0,
-              a: 0
-            },
-            loadOp: 'clear',
-            storeOp: 'store'
-          }]
-        });
-        blurPass.setPipeline(gaussianPipeline);
-        blurPass.setBindGroup(0, bindGroup);
-        blurPass.draw(3);
-        blurPass.end();
-      };
-      for (const entry of [
-        ...(activeBase ? [activeBase] : []),
-        ...activeOverlays
-      ]) {
-        const visual = entry.visual;
-        if (!visual.blurOutput) continue;
+      let activeBase = null;
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < baseEntries.length;
+             index++) {
+          if (baseEntries[index].active) {
+            activeBase = baseEntries[index];
+            break;
+          }
+        }
+      }
+      if (activeBase?.visual.blurOutput) {
+        const visual = activeBase.visual;
         encodeGaussianPass(
-          visual,
+          encoder,
           visual.blurIntermediate,
           visual.blurHorizontalBindGroup);
         encodeGaussianPass(
-          visual,
+          encoder,
           visual.blurOutput,
           visual.blurVerticalBindGroup);
+      }
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < overlayEntries.length;
+             index++) {
+          const entry = overlayEntries[index];
+          if (!entry.active ||
+              !entry.visual.blurOutput) {
+            continue;
+          }
+          const visual = entry.visual;
+          encodeGaussianPass(
+            encoder,
+            visual.blurIntermediate,
+            visual.blurHorizontalBindGroup);
+          encodeGaussianPass(
+            encoder,
+            visual.blurOutput,
+            visual.blurVerticalBindGroup);
+        }
       }
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
@@ -1840,14 +1863,22 @@ async function renderBrowserMediaComposition(
           activeBase.visual.bindGroup);
         pass.draw(6);
       }
-      for (const entry of activeOverlays) {
+      for (let index = 0;
+           !isClearOnlyProbe &&
+           index < overlayEntries.length;
+           index++) {
+        const entry = overlayEntries[index];
+        if (!entry.active) continue;
         pass.setBindGroup(
           0,
           entry.visual.bindGroup);
         pass.draw(6);
       }
       pass.end();
-      exportDevice.queue.submit([encoder.finish()]);
+      commandBufferSubmission[0] =
+        encoder.finish();
+      exportDevice.queue.submit(
+        commandBufferSubmission);
       await exportDevice.queue.onSubmittedWorkDone();
       if (exportGpuError) {
         throw exportGpuError;
@@ -1855,10 +1886,6 @@ async function renderBrowserMediaComposition(
     };
 
     if (isThumbnail) {
-      const visualEntries = [
-        ...baseEntries,
-        ...overlayEntries
-      ];
       const frameDuration =
         1 / Math.max(1, Number(request.frameRate));
       const finalEntry =
