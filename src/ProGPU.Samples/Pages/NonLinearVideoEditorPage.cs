@@ -125,6 +125,20 @@ public static class NonLinearVideoEditorPage
             Value = 10d,
             Width = 280f
         };
+        var brightness = new Slider
+        {
+            Minimum = -1d,
+            Maximum = 1d,
+            Value = 0d,
+            Width = 280f
+        };
+        var contrast = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 2d,
+            Value = 1d,
+            Width = 280f
+        };
         var saturation = new Slider
         {
             Minimum = 0d,
@@ -133,6 +147,20 @@ public static class NonLinearVideoEditorPage
             Width = 280f
         };
         var grayscale = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 1d,
+            Value = 0d,
+            Width = 280f
+        };
+        var sepia = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 1d,
+            Value = 0d,
+            Width = 280f
+        };
+        var invert = new Slider
         {
             Minimum = 0d,
             Maximum = 1d,
@@ -243,8 +271,12 @@ public static class NonLinearVideoEditorPage
             playhead,
             trimIn,
             trimOut,
+            brightness,
+            contrast,
             saturation,
             grayscale,
+            sepia,
+            invert,
             volume,
             clipAudioGain,
             backgroundDelay,
@@ -565,10 +597,18 @@ public static class NonLinearVideoEditorPage
         inspector.AddChild(trimIn);
         inspector.AddChild(Text("Trim out (seconds)"));
         inspector.AddChild(trimOut);
+        inspector.AddChild(Text("GPU brightness"));
+        inspector.AddChild(brightness);
+        inspector.AddChild(Text("GPU contrast"));
+        inspector.AddChild(contrast);
         inspector.AddChild(Text("GPU saturation"));
         inspector.AddChild(saturation);
         inspector.AddChild(Text("GPU grayscale"));
         inspector.AddChild(grayscale);
+        inspector.AddChild(Text("GPU sepia"));
+        inspector.AddChild(sepia);
+        inspector.AddChild(Text("GPU invert"));
+        inspector.AddChild(invert);
         inspector.AddChild(Text("Clip audio volume"));
         inspector.AddChild(volume);
         inspector.AddChild(Text(
@@ -710,8 +750,12 @@ public static class NonLinearVideoEditorPage
         private readonly Slider _playhead;
         private readonly Slider _trimIn;
         private readonly Slider _trimOut;
+        private readonly Slider _brightness;
+        private readonly Slider _contrast;
         private readonly Slider _saturation;
         private readonly Slider _grayscale;
+        private readonly Slider _sepia;
+        private readonly Slider _invert;
         private readonly Slider _volume;
         private readonly Slider _clipAudioGain;
         private readonly Slider _backgroundDelay;
@@ -756,8 +800,12 @@ public static class NonLinearVideoEditorPage
             Slider playhead,
             Slider trimIn,
             Slider trimOut,
+            Slider brightness,
+            Slider contrast,
             Slider saturation,
             Slider grayscale,
+            Slider sepia,
+            Slider invert,
             Slider volume,
             Slider clipAudioGain,
             Slider backgroundDelay,
@@ -785,8 +833,12 @@ public static class NonLinearVideoEditorPage
             _playhead = playhead;
             _trimIn = trimIn;
             _trimOut = trimOut;
+            _brightness = brightness;
+            _contrast = contrast;
             _saturation = saturation;
             _grayscale = grayscale;
+            _sepia = sepia;
+            _invert = invert;
             _volume = volume;
             _clipAudioGain = clipAudioGain;
             _backgroundDelay = backgroundDelay;
@@ -809,8 +861,12 @@ public static class NonLinearVideoEditorPage
             _playhead.ValueChanged += OnPlayheadChanged;
             _trimIn.ValueChanged += OnTrimChanged;
             _trimOut.ValueChanged += OnTrimChanged;
+            _brightness.ValueChanged += OnEffectChanged;
+            _contrast.ValueChanged += OnEffectChanged;
             _saturation.ValueChanged += OnEffectChanged;
             _grayscale.ValueChanged += OnEffectChanged;
+            _sepia.ValueChanged += OnEffectChanged;
+            _invert.ValueChanged += OnEffectChanged;
             _volume.ValueChanged += OnVolumeChanged;
             _clipAudioGain.ValueChanged +=
                 OnClipAudioGainChanged;
@@ -1247,8 +1303,12 @@ public static class NonLinearVideoEditorPage
             }
             _playerElement.ProGpuVideoEffects =
                 new MediaVideoEffectOptions(
+                    brightness: BrightnessOf(clip),
+                    contrast: ContrastOf(clip),
                     saturation: SaturationOf(clip),
-                    grayscale: GrayscaleOf(clip));
+                    grayscale: GrayscaleOf(clip),
+                    sepia: SepiaOf(clip),
+                    invert: InvertOf(clip));
         }
 
         private void ApplyColorPreview(MediaClip clip)
@@ -1268,10 +1328,18 @@ public static class NonLinearVideoEditorPage
             System.Numerics.Vector3 transformed =
                 MediaVideoColorEffectFactory
                     .CreateTransform(
+                        brightness:
+                            BrightnessOf(clip),
+                        contrast:
+                            ContrastOf(clip),
                         saturation:
                             SaturationOf(clip),
                         grayscale:
-                            GrayscaleOf(clip))
+                            GrayscaleOf(clip),
+                        sepia:
+                            SepiaOf(clip),
+                        invert:
+                            InvertOf(clip))
                     .Transform(
                         new System.Numerics.Vector3(
                             color.R / 255f,
@@ -1605,10 +1673,18 @@ public static class NonLinearVideoEditorPage
                     StartOf(clip).TotalSeconds;
                 _trimOut.Value =
                     EndOf(clip).TotalSeconds;
+                _brightness.Value =
+                    BrightnessOf(clip);
+                _contrast.Value =
+                    ContrastOf(clip);
                 _saturation.Value =
                     SaturationOf(clip);
                 _grayscale.Value =
                     GrayscaleOf(clip);
+                _sepia.Value =
+                    SepiaOf(clip);
+                _invert.Value =
+                    InvertOf(clip);
                 _volume.Value =
                     clip.Volume;
                 _clipAudioGain.Value =
@@ -1941,8 +2017,12 @@ public static class NonLinearVideoEditorPage
             }
             SetVideoColorEffect(
                 clip.VideoEffectDefinitions,
+                (float)_brightness.Value,
+                (float)_contrast.Value,
                 (float)_saturation.Value,
-                (float)_grayscale.Value);
+                (float)_grayscale.Value,
+                (float)_sepia.Value,
+                (float)_invert.Value);
             clip.UserData.Remove(SaturationKey);
             clip.UserData.Remove(GrayscaleKey);
             ApplyEffects(clip);
@@ -2268,6 +2348,50 @@ public static class NonLinearVideoEditorPage
                 0f,
                 1f);
 
+        private static float BrightnessOf(
+            MediaClip clip) =>
+            ReadVideoColorProperty(
+                clip,
+                MediaVideoColorEffectFactory
+                    .BrightnessPropertyName,
+                legacyKey: string.Empty,
+                fallback: 0f,
+                minimum: -1f,
+                maximum: 1f);
+
+        private static float ContrastOf(
+            MediaClip clip) =>
+            ReadVideoColorProperty(
+                clip,
+                MediaVideoColorEffectFactory
+                    .ContrastPropertyName,
+                legacyKey: string.Empty,
+                fallback: 1f,
+                minimum: 0f,
+                maximum: 2f);
+
+        private static float SepiaOf(
+            MediaClip clip) =>
+            ReadVideoColorProperty(
+                clip,
+                MediaVideoColorEffectFactory
+                    .SepiaPropertyName,
+                legacyKey: string.Empty,
+                fallback: 0f,
+                minimum: 0f,
+                maximum: 1f);
+
+        private static float InvertOf(
+            MediaClip clip) =>
+            ReadVideoColorProperty(
+                clip,
+                MediaVideoColorEffectFactory
+                    .InvertPropertyName,
+                legacyKey: string.Empty,
+                fallback: 0f,
+                minimum: 0f,
+                maximum: 1f);
+
         private static float ReadVideoColorProperty(
             MediaClip clip,
             string propertyName,
@@ -2313,7 +2437,8 @@ public static class NonLinearVideoEditorPage
                     : fallback;
             }
 
-            return clip.UserData.TryGetValue(
+            return !string.IsNullOrEmpty(legacyKey) &&
+            clip.UserData.TryGetValue(
                 legacyKey,
                 out string? text) &&
             float.TryParse(
@@ -2330,8 +2455,12 @@ public static class NonLinearVideoEditorPage
 
         private static void SetVideoColorEffect(
             IList<IVideoEffectDefinition> effects,
+            float brightness,
+            float contrast,
             float saturation,
-            float grayscale)
+            float grayscale,
+            float sepia,
+            float invert)
         {
             int existingIndex = -1;
             for (int index = 0;
@@ -2348,8 +2477,12 @@ public static class NonLinearVideoEditorPage
                 }
             }
 
-            if (saturation == 1f &&
-                grayscale == 0f)
+            if (brightness == 0f &&
+                contrast == 1f &&
+                saturation == 1f &&
+                grayscale == 0f &&
+                sepia == 0f &&
+                invert == 0f)
             {
                 if (existingIndex >= 0)
                 {
@@ -2373,12 +2506,28 @@ public static class NonLinearVideoEditorPage
             }
             definition.Properties[
                 MediaVideoColorEffectFactory
+                    .BrightnessPropertyName] =
+                brightness;
+            definition.Properties[
+                MediaVideoColorEffectFactory
+                    .ContrastPropertyName] =
+                contrast;
+            definition.Properties[
+                MediaVideoColorEffectFactory
                     .SaturationPropertyName] =
                 saturation;
             definition.Properties[
                 MediaVideoColorEffectFactory
                     .GrayscalePropertyName] =
                 grayscale;
+            definition.Properties[
+                MediaVideoColorEffectFactory
+                    .SepiaPropertyName] =
+                sepia;
+            definition.Properties[
+                MediaVideoColorEffectFactory
+                    .InvertPropertyName] =
+                invert;
         }
 
         private static double AudioGainOf(
@@ -2663,10 +2812,18 @@ public static class NonLinearVideoEditorPage
                         overlay.Clip.Volume;
                     playerElement.ProGpuVideoEffects =
                         new MediaVideoEffectOptions(
-                        saturation:
-                            SaturationOf(overlay.Clip),
-                        grayscale:
-                            GrayscaleOf(overlay.Clip));
+                            brightness:
+                                BrightnessOf(overlay.Clip),
+                            contrast:
+                                ContrastOf(overlay.Clip),
+                            saturation:
+                                SaturationOf(overlay.Clip),
+                            grayscale:
+                                GrayscaleOf(overlay.Clip),
+                            sepia:
+                                SepiaOf(overlay.Clip),
+                            invert:
+                                InvertOf(overlay.Clip));
                     Player.MediaOpened += OnMediaOpened;
                     Player.MediaEnded += OnMediaEnded;
                     Player.MediaFailed += OnMediaFailed;
@@ -2867,8 +3024,12 @@ public static class NonLinearVideoEditorPage
             _playhead.ValueChanged -= OnPlayheadChanged;
             _trimIn.ValueChanged -= OnTrimChanged;
             _trimOut.ValueChanged -= OnTrimChanged;
+            _brightness.ValueChanged -= OnEffectChanged;
+            _contrast.ValueChanged -= OnEffectChanged;
             _saturation.ValueChanged -= OnEffectChanged;
             _grayscale.ValueChanged -= OnEffectChanged;
+            _sepia.ValueChanged -= OnEffectChanged;
+            _invert.ValueChanged -= OnEffectChanged;
             _volume.ValueChanged -= OnVolumeChanged;
             _clipAudioGain.ValueChanged -=
                 OnClipAudioGainChanged;

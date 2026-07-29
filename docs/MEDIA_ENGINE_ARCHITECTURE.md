@@ -1579,11 +1579,14 @@ performance remain unvalidated.
 
 The NLE sample checkpoint registers its own typed
 `MediaVideoColorEffectFactory` and writes official
-`VideoEffectDefinition.Properties` for saturation/grayscale instead of new
-private metadata. Old saved sample projects still read the two legacy keys
-until the user changes the effect, at which point the definition becomes the
-single source of truth. `ProGPU.Samples.Desktop` uses the same definition in
-its thumbnail and color-export smoke paths. The signed macOS Release app
+`VideoEffectDefinition.Properties` for brightness, contrast, saturation,
+grayscale, sepia, and invert instead of new private metadata. The inspector
+previews all six through the existing retained Scene effect pipeline, and
+color clips evaluate the same portable transform on their constant source
+color. Old saved sample projects still read the two legacy keys until the user
+changes the effect, at which point the definition becomes the single source
+of truth. `ProGPU.Samples.Desktop` uses the same definition in its thumbnail
+and color-export smoke paths. The signed macOS Release app
 bundle built for x64 and arm64 with zero warnings/errors; its color smoke
 produced a 3,865-byte 320x180 H.264 MP4 with a 2.002-second native track,
 reported `NativeGpuSurface`, and reported `EffectsBakedOnGpu=true`. Startup

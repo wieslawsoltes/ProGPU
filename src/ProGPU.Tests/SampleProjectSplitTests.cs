@@ -339,6 +339,22 @@ public sealed class SampleProjectSplitTests
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
+            "Text(\"GPU brightness\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU contrast\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU sepia\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU invert\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "OnClipAudioGainChanged",
             editor,
             StringComparison.Ordinal);
