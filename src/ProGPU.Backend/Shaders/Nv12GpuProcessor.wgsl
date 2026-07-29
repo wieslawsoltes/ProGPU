@@ -1,8 +1,10 @@
-// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply fused saturation/grayscale in RGB, and render either RGBA or separate output-sized luma/chroma planes.
-// Time complexity: O(P) for P output texels; the RGBA/luma passes use one Y/UV sample pair and the quarter-resolution chroma pass uses four Y/UV sample pairs per output texel.
-// Space complexity: O(1) private storage per fragment, two sampled textures, one 16-byte uniform block, and one output write per fragment.
+// Algorithm: Linearly resample limited-range BT.709 NV12 in normalized coordinates, apply one fused affine straight-RGB transform, and render either RGBA or separate output-sized luma/chroma planes.
+// Time complexity: O(P) for P output texels; the RGBA/luma passes use one Y/UV sample pair and three four-term dot products, while the quarter-resolution chroma pass uses four Y/UV sample pairs and twelve dot products per output texel.
+// Space complexity: O(1) private storage per fragment, two sampled textures, one 64-byte uniform block, and one output write per fragment.
 // The two render passes are encoded into one command buffer. Chroma is the
-// average of a 2x2 reconstructed block so subsampling remains centered.
+// average of a 2x2 reconstructed block so subsampling remains centered. RGB
+// is not clamped between folded effect stages; destination encoding performs
+// the terminal representable-format clamp.
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -30,8 +32,9 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
 struct ProcessorUniforms {
     inverseLumaSize: vec2<f32>,
-    saturation: f32,
-    grayscale: f32,
+    redTransform: vec4<f32>,
+    greenTransform: vec4<f32>,
+    blueTransform: vec4<f32>,
 };
 
 @group(0) @binding(3) var<uniform> uniforms: ProcessorUniforms;
@@ -59,20 +62,11 @@ fn decodeBt709(uv: vec2<f32>) -> vec3<f32> {
 }
 
 fn applyEffects(source: vec3<f32>) -> vec3<f32> {
-    let weights = vec3<f32>(0.2126, 0.7152, 0.0722);
-    let sourceLuminance = dot(source, weights);
-    let saturated = mix(
-        vec3<f32>(sourceLuminance),
-        source,
-        uniforms.saturation);
-    let resultLuminance = dot(saturated, weights);
-    return clamp(
-        mix(
-            saturated,
-            vec3<f32>(resultLuminance),
-            uniforms.grayscale),
-        vec3<f32>(0.0),
-        vec3<f32>(1.0));
+    let affineInput = vec4<f32>(source, 1.0);
+    return vec3<f32>(
+        dot(uniforms.redTransform, affineInput),
+        dot(uniforms.greenTransform, affineInput),
+        dot(uniforms.blueTransform, affineInput));
 }
 
 fn encodeBt709(rgb: vec3<f32>) -> vec3<f32> {

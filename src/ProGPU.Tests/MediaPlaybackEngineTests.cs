@@ -1095,6 +1095,61 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Nv12ProcessorAppliesAffineColorTransform()
+    {
+        WgpuContext context =
+            HeadlessWindow.Shared.Context;
+        using var frame =
+            new TestPlanarGpuFrame(context);
+        frame.LumaTexture.WritePixels(
+            new byte[]
+            {
+                63, 63, 63, 63,
+                63, 63, 63, 63
+            });
+        frame.ChromaTexture.WritePixels(
+            new byte[]
+            {
+                102, 240,
+                102, 240
+            });
+        using var target =
+            new GpuTexture(
+                context,
+                4,
+                2,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+                "NV12 affine RGBA test");
+        MediaVideoColorTransform effect =
+            MediaVideoColorEffectFactory
+                .CreateTransform(invert: 1f);
+
+        GpuNv12Processor.ProcessToRgba(
+            frame.LumaTexture,
+            frame.ChromaTexture,
+            target,
+            new GpuTextureColorTransform(
+                effect.Red,
+                effect.Green,
+                effect.Blue),
+            inFlightSlot: 0);
+        byte[] pixels =
+            target.ReadPixels();
+
+        for (int offset = 0;
+             offset < pixels.Length;
+             offset += 4)
+        {
+            Assert.InRange(pixels[offset], 0, 70);
+            Assert.InRange(pixels[offset + 1], 190, 255);
+            Assert.InRange(pixels[offset + 2], 190, 255);
+            Assert.Equal(255, pixels[offset + 3]);
+        }
+    }
+
+    [Fact]
     public void WinUiMesh3DMaterialAppliesSessionCropRotationAndMirror()
     {
         var window = HeadlessWindow.Shared;

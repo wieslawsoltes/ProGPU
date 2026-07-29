@@ -1,5 +1,6 @@
 using Silk.NET.Core.Native;
 using Silk.NET.WebGPU;
+using System.Numerics;
 
 namespace ProGPU.Backend;
 
@@ -44,7 +45,21 @@ public static unsafe class GpuNv12Processor
         GpuTexture destinationChroma,
         uint argbColor,
         float saturation,
-        float grayscale)
+        float grayscale) =>
+        RenderSolidColor(
+            destinationLuma,
+            destinationChroma,
+            argbColor,
+            GpuTextureColorTransform
+                .CreateSaturationGrayscale(
+                    saturation,
+                    grayscale));
+
+    public static void RenderSolidColor(
+        GpuTexture destinationLuma,
+        GpuTexture destinationChroma,
+        uint argbColor,
+        GpuTextureColorTransform transform)
     {
         ArgumentNullException.ThrowIfNull(destinationLuma);
         ArgumentNullException.ThrowIfNull(destinationChroma);
@@ -90,18 +105,9 @@ public static unsafe class GpuNv12Processor
             throw new InvalidOperationException(
                 "NV12 solid-color destinations must be render attachments.");
         }
-        if (!float.IsFinite(saturation) ||
-            !float.IsFinite(grayscale))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(saturation),
-                "NV12 solid-color effect values must be finite.");
-        }
-
         GetEncodedSolidColor(
             argbColor,
-            Math.Clamp(saturation, 0f, 1f),
-            Math.Clamp(grayscale, 0f, 1f),
+            transform,
             out Color luma,
             out Color chroma);
         lock (context.RenderLock)
@@ -125,6 +131,24 @@ public static unsafe class GpuNv12Processor
         GpuTexture destinationChroma,
         float saturation,
         float grayscale,
+        int inFlightSlot) =>
+        Process(
+            sourceLuma,
+            sourceChroma,
+            destinationLuma,
+            destinationChroma,
+            GpuTextureColorTransform
+                .CreateSaturationGrayscale(
+                    saturation,
+                    grayscale),
+            inFlightSlot);
+
+    public static void Process(
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture destinationLuma,
+        GpuTexture destinationChroma,
+        GpuTextureColorTransform transform,
         int inFlightSlot)
     {
         ArgumentNullException.ThrowIfNull(sourceLuma);
@@ -170,13 +194,6 @@ public static unsafe class GpuNv12Processor
             throw new InvalidOperationException(
                 "NV12 source planes must be sampleable and destination planes must be render attachments.");
         }
-        if (!float.IsFinite(saturation) ||
-            !float.IsFinite(grayscale))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(saturation),
-                "NV12 effect values must be finite.");
-        }
         if ((uint)inFlightSlot >=
             MaxInFlightSlots)
         {
@@ -195,8 +212,7 @@ public static unsafe class GpuNv12Processor
                 sourceChroma,
                 destinationLuma,
                 destinationChroma,
-                Math.Clamp(saturation, 0f, 1f),
-                Math.Clamp(grayscale, 0f, 1f),
+                transform,
                 inFlightSlot);
         }
     }
@@ -216,6 +232,22 @@ public static unsafe class GpuNv12Processor
         GpuTexture destination,
         float saturation,
         float grayscale,
+        int inFlightSlot) =>
+        ProcessToRgba(
+            sourceLuma,
+            sourceChroma,
+            destination,
+            GpuTextureColorTransform
+                .CreateSaturationGrayscale(
+                    saturation,
+                    grayscale),
+            inFlightSlot);
+
+    public static void ProcessToRgba(
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture destination,
+        GpuTextureColorTransform transform,
         int inFlightSlot)
     {
         ArgumentNullException.ThrowIfNull(sourceLuma);
@@ -257,13 +289,6 @@ public static unsafe class GpuNv12Processor
             throw new InvalidOperationException(
                 "NV12 source planes must be sampleable and the RGBA destination must be a render attachment.");
         }
-        if (!float.IsFinite(saturation) ||
-            !float.IsFinite(grayscale))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(saturation),
-                "NV12-to-RGBA effect values must be finite.");
-        }
         if ((uint)inFlightSlot >= MaxInFlightSlots)
         {
             throw new ArgumentOutOfRangeException(
@@ -280,8 +305,7 @@ public static unsafe class GpuNv12Processor
                 sourceLuma,
                 sourceChroma,
                 destination,
-                Math.Clamp(saturation, 0f, 1f),
-                Math.Clamp(grayscale, 0f, 1f),
+                transform,
                 inFlightSlot);
         }
     }
@@ -292,8 +316,7 @@ public static unsafe class GpuNv12Processor
         GpuTexture sourceChroma,
         GpuTexture destinationLuma,
         GpuTexture destinationChroma,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         int inFlightSlot)
     {
         Resources resources =
@@ -305,12 +328,24 @@ public static unsafe class GpuNv12Processor
         try
         {
             Span<float> values =
-                stackalloc float[4]
+                stackalloc float[16]
                 {
                     1f / sourceLuma.Width,
                     1f / sourceLuma.Height,
-                    saturation,
-                    grayscale
+                    0f,
+                    0f,
+                    transform.Red.X,
+                    transform.Red.Y,
+                    transform.Red.Z,
+                    transform.Red.W,
+                    transform.Green.X,
+                    transform.Green.Y,
+                    transform.Green.Z,
+                    transform.Green.W,
+                    transform.Blue.X,
+                    transform.Blue.Y,
+                    transform.Blue.Z,
+                    transform.Blue.W
                 };
             uint uniformOffset = checked(
                 (uint)inFlightSlot *
@@ -341,7 +376,7 @@ public static unsafe class GpuNv12Processor
                 Binding = 3,
                 Buffer = resources.Uniform.BufferPtr,
                 Offset = uniformOffset,
-                Size = 16
+                Size = 64
             };
             var bindGroupDescriptor =
                 new BindGroupDescriptor
@@ -420,8 +455,7 @@ public static unsafe class GpuNv12Processor
         GpuTexture sourceLuma,
         GpuTexture sourceChroma,
         GpuTexture destination,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         int inFlightSlot)
     {
         Resources resources =
@@ -434,12 +468,24 @@ public static unsafe class GpuNv12Processor
         try
         {
             Span<float> values =
-                stackalloc float[4]
+                stackalloc float[16]
                 {
                     1f / sourceLuma.Width,
                     1f / sourceLuma.Height,
-                    saturation,
-                    grayscale
+                    0f,
+                    0f,
+                    transform.Red.X,
+                    transform.Red.Y,
+                    transform.Red.Z,
+                    transform.Red.W,
+                    transform.Green.X,
+                    transform.Green.Y,
+                    transform.Green.Z,
+                    transform.Green.W,
+                    transform.Blue.X,
+                    transform.Blue.Y,
+                    transform.Blue.Z,
+                    transform.Blue.W
                 };
             uint uniformOffset = checked(
                 (uint)inFlightSlot * UniformStride);
@@ -469,7 +515,7 @@ public static unsafe class GpuNv12Processor
                 Binding = 3,
                 Buffer = resources.Uniform.BufferPtr,
                 Offset = uniformOffset,
-                Size = 16
+                Size = 64
             };
             var bindGroupDescriptor =
                 new BindGroupDescriptor
@@ -601,8 +647,7 @@ public static unsafe class GpuNv12Processor
 
     private static void GetEncodedSolidColor(
         uint argbColor,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         out Color luma,
         out Color chroma)
     {
@@ -617,35 +662,15 @@ public static unsafe class GpuNv12Processor
         float blue =
             (argbColor & 0xff) *
             byteScale;
-        float sourceLuminance =
-            red * 0.2126f +
-            green * 0.7152f +
-            blue * 0.0722f;
-        red =
-            sourceLuminance +
-            (red - sourceLuminance) *
-            saturation;
-        green =
-            sourceLuminance +
-            (green - sourceLuminance) *
-            saturation;
-        blue =
-            sourceLuminance +
-            (blue - sourceLuminance) *
-            saturation;
-        float processedLuminance =
-            red * 0.2126f +
-            green * 0.7152f +
-            blue * 0.0722f;
-        red +=
-            (processedLuminance - red) *
-            grayscale;
-        green +=
-            (processedLuminance - green) *
-            grayscale;
-        blue +=
-            (processedLuminance - blue) *
-            grayscale;
+        Vector3 processed =
+            transform.Transform(
+                new Vector3(
+                    red,
+                    green,
+                    blue));
+        red = processed.X;
+        green = processed.Y;
+        blue = processed.Z;
 
         float y =
             red * 0.2126f +
@@ -1119,7 +1144,7 @@ public static unsafe class GpuNv12Processor
             Buffer = new BufferBindingLayout
             {
                 Type = BufferBindingType.Uniform,
-                MinBindingSize = 16
+                MinBindingSize = 64
             }
         };
         var descriptor =

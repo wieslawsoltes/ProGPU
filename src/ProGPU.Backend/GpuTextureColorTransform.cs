@@ -39,6 +39,12 @@ public readonly record struct GpuTextureColorTransform
 
     public Vector4 Blue { get; }
 
+    public Vector3 Transform(Vector3 color) =>
+        new(
+            Dot(Red, color),
+            Dot(Green, color),
+            Dot(Blue, color));
+
     public static GpuTextureColorTransform
         CreateSaturationGrayscale(
             float saturation,
@@ -125,7 +131,15 @@ public readonly record struct GpuTextureColorTransform
             next.X * current.Red.W +
                 next.Y * current.Green.W +
                 next.Z * current.Blue.W +
-                next.W);
+            next.W);
+
+    private static float Dot(
+        Vector4 row,
+        Vector3 color) =>
+        row.X * color.X +
+        row.Y * color.Y +
+        row.Z * color.Z +
+        row.W;
 
     private static bool IsFinite(Vector4 value) =>
         float.IsFinite(value.X) &&

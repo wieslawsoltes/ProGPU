@@ -130,8 +130,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     internal bool TryProcessFrame(
         in V4l2DecodedFrame frame,
         TimeSpan presentationTime,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -195,8 +194,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
                 sourceChroma,
                 slot.LumaAccess.Texture,
                 slot.ChromaAccess.Texture,
-                saturation,
-                grayscale,
+                transform,
                 slot.Index);
             submissionStarted = true;
             SubmitRenderedSlot(
@@ -222,8 +220,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
     internal bool TryProcessColorFrame(
         uint argbColor,
         TimeSpan presentationTime,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -252,8 +249,7 @@ internal sealed class LinuxWebGpuNv12EncoderFrameSink :
                 slot.LumaAccess.Texture,
                 slot.ChromaAccess.Texture,
                 argbColor,
-                saturation,
-                grayscale);
+                transform);
             submissionStarted = true;
             SubmitRenderedSlot(
                 slot,

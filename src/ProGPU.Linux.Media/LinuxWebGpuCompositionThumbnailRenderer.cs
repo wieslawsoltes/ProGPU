@@ -1,6 +1,7 @@
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using Silk.NET.WebGPU;
+using System.Numerics;
 
 namespace ProGPU.Linux.Media;
 
@@ -117,8 +118,7 @@ internal sealed class
     /// </summary>
     internal byte[] RenderFrame(
         in V4l2DecodedFrame frame,
-        float saturation,
-        float grayscale)
+        GpuTextureColorTransform transform)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -168,8 +168,7 @@ internal sealed class
                 luma,
                 chroma,
                 _target,
-                saturation,
-                grayscale,
+                transform,
                 inFlightSlot: 0);
             byte[] pixels =
                 GC.AllocateUninitializedArray<byte>(
@@ -194,8 +193,7 @@ internal sealed class
 
     internal byte[] RenderColor(
         uint argbColor,
-        float saturation,
-        float grayscale)
+        GpuTextureColorTransform transform)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -203,8 +201,7 @@ internal sealed class
         Color color =
             ApplyEffects(
                 argbColor,
-                saturation,
-                grayscale);
+                transform);
         GpuTextureClearer.Clear(
             _target,
             color);
@@ -235,59 +232,39 @@ internal sealed class
 
     private static Color ApplyEffects(
         uint argbColor,
-        float saturation,
-        float grayscale)
+        GpuTextureColorTransform transform)
     {
-        saturation = Math.Clamp(
-            saturation,
-            0f,
-            1f);
-        grayscale = Math.Clamp(
-            grayscale,
-            0f,
-            1f);
         const double scale =
             1d / byte.MaxValue;
-        double red =
+        float red =
             ((argbColor >> 16) & 0xff) *
-            scale;
-        double green =
+            (float)scale;
+        float green =
             ((argbColor >> 8) & 0xff) *
-            scale;
-        double blue =
+            (float)scale;
+        float blue =
             (argbColor & 0xff) *
-            scale;
-        double luminance =
-            red * 0.2126d +
-            green * 0.7152d +
-            blue * 0.0722d;
-        red = luminance +
-              (red - luminance) *
-              saturation;
-        green = luminance +
-                (green - luminance) *
-                saturation;
-        blue = luminance +
-               (blue - luminance) *
-               saturation;
-        luminance =
-            red * 0.2126d +
-            green * 0.7152d +
-            blue * 0.0722d;
-        red +=
-            (luminance - red) *
-            grayscale;
-        green +=
-            (luminance - green) *
-            grayscale;
-        blue +=
-            (luminance - blue) *
-            grayscale;
+            (float)scale;
+        Vector3 processed =
+            transform.Transform(
+                new Vector3(
+                    red,
+                    green,
+                    blue));
         return new Color
         {
-            R = Math.Clamp(red, 0d, 1d),
-            G = Math.Clamp(green, 0d, 1d),
-            B = Math.Clamp(blue, 0d, 1d),
+            R = Math.Clamp(
+                processed.X,
+                0f,
+                1f),
+            G = Math.Clamp(
+                processed.Y,
+                0f,
+                1f),
+            B = Math.Clamp(
+                processed.Z,
+                0f,
+                1f),
             A = ((argbColor >> 24) & 0xff) *
                 scale
         };

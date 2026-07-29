@@ -1,6 +1,8 @@
+using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Media.Containers;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 
 namespace ProGPU.Linux.Media;
 
@@ -26,16 +28,20 @@ public sealed class
     private readonly
         LinuxV4l2PreciseMediaCompositionExportProvider
         _decoderSelector;
+    private readonly MediaEffectRegistry _effects;
 
     public LinuxV4l2MediaCompositionThumbnailProvider(
         LinuxNativeMediaCapabilitySnapshot capabilities,
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         _capabilities = capabilities;
+        _effects = effects ?? MediaEffectRegistry.Default;
         _decoderSelector =
             new LinuxV4l2PreciseMediaCompositionExportProvider(
                 capabilities,
-                priority);
+                priority,
+                _effects);
         Priority = priority;
     }
 
@@ -57,14 +63,16 @@ public sealed class
             request,
             OperatingSystem.IsLinux(),
             hasDecoder,
-            hasGpu);
+            hasGpu,
+            _effects);
     }
 
     internal static bool CanRenderRequest(
         MediaCompositionThumbnailRequest request,
         bool isLinux,
         bool hasH264Decoder,
-        bool hasVulkanWebGpu)
+        bool hasVulkanWebGpu,
+        MediaEffectRegistry? effects = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         MediaCompositionExportRequest composition =
@@ -111,12 +119,10 @@ public sealed class
                 clip.TrimTimeFromStart +
                     clip.TrimTimeFromEnd >=
                     clip.OriginalDuration ||
-                clip.VideoEffectDefinitions.Count !=
-                    0 ||
                 !LinuxV4l2PreciseMediaCompositionExportProvider
-                    .TryGetBuiltInEffects(
-                        clip.UserData,
-                        out _,
+                    .TryGetVideoColorTransform(
+                        clip,
+                        effects ?? MediaEffectRegistry.Default,
                         out _))
             {
                 return false;
@@ -232,18 +238,22 @@ public sealed class
                 MediaCompositionExportClip clip =
                     request.Composition.Clips[
                         position.ClipIndex];
-                LinuxV4l2PreciseMediaCompositionExportProvider
-                    .TryGetBuiltInEffects(
-                        clip.UserData,
-                        out float saturation,
-                        out float grayscale);
+                if (!LinuxV4l2PreciseMediaCompositionExportProvider
+                        .TryGetVideoColorTransform(
+                            clip,
+                            _effects,
+                            out GpuTextureColorTransform
+                                transform))
+                {
+                    throw new InvalidDataException(
+                        "The clip contains an unsupported video effect.");
+                }
                 if (clip.ArgbColor is uint color)
                 {
                     byte[] pixels =
                         renderer.RenderColor(
                             color,
-                            saturation,
-                            grayscale);
+                            transform);
                     results[index] =
                         Encode(
                             request,
@@ -413,7 +423,8 @@ public sealed class
                             selected.Render(
                                 request,
                                 renderer,
-                                clip);
+                                clip,
+                                _effects);
                         workIndex++;
                     }
                     previous?.Dispose();
@@ -451,7 +462,8 @@ public sealed class
                             previous.Render(
                                 request,
                                 renderer,
-                                clip);
+                                clip,
+                                _effects);
                         workIndex++;
                     }
                 }
@@ -589,7 +601,8 @@ public sealed class
         internal MediaCompositionThumbnail Render(
             MediaCompositionThumbnailRequest request,
             LinuxWebGpuCompositionThumbnailRenderer renderer,
-            MediaCompositionExportClip clip)
+            MediaCompositionExportClip clip,
+            MediaEffectRegistry effects)
         {
             if (_thumbnail is not null)
             {
@@ -600,16 +613,20 @@ public sealed class
                 throw new ObjectDisposedException(
                     nameof(FrameCandidate));
             _frame = null;
-            LinuxV4l2PreciseMediaCompositionExportProvider
-                .TryGetBuiltInEffects(
-                    clip.UserData,
-                    out float saturation,
-                    out float grayscale);
+            if (!LinuxV4l2PreciseMediaCompositionExportProvider
+                    .TryGetVideoColorTransform(
+                        clip,
+                        effects,
+                        out GpuTextureColorTransform
+                            transform))
+            {
+                throw new InvalidDataException(
+                    "The clip contains an unsupported video effect.");
+            }
             byte[] pixels =
                 renderer.RenderFrame(
                     in frame,
-                    saturation,
-                    grayscale);
+                    transform);
             _thumbnail =
                 Encode(
                     request,

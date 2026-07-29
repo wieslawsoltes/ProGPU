@@ -3,6 +3,7 @@ using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Media.Containers;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 using Silk.NET.WebGPU;
 
 namespace ProGPU.Linux.Media;
@@ -30,13 +31,16 @@ public sealed class
         "progpu.linux.v4l2.precise-export";
     private readonly LinuxNativeMediaCapabilitySnapshot
         _capabilities;
+    private readonly MediaEffectRegistry _effects;
 
     public LinuxV4l2PreciseMediaCompositionExportProvider(
         LinuxNativeMediaCapabilitySnapshot capabilities,
-        int priority = 100)
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
     {
         _capabilities = capabilities;
         Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
     }
 
     public string Id => ProviderId;
@@ -48,7 +52,9 @@ public sealed class
     {
         ArgumentNullException.ThrowIfNull(request);
         bool requiresGpu =
-            RequiresGpuComposition(request);
+            RequiresGpuComposition(
+                request,
+                _effects);
         bool gpuAvailable =
             !requiresGpu ||
             LinuxGbmNative.IsAvailable() &&
@@ -58,7 +64,8 @@ public sealed class
             OperatingSystem.IsLinux(),
             HasNativeH264Path(),
             HasNativeH264EncoderPath(),
-            gpuAvailable);
+            gpuAvailable,
+            _effects);
     }
 
     internal static bool CanRenderRequest(
@@ -66,7 +73,8 @@ public sealed class
         bool isLinux,
         bool hasNativeH264Path,
         bool hasNativeTwoPlaneH264EncoderPath,
-        bool gpuAvailable)
+        bool gpuAvailable,
+        MediaEffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         bool audioRequested =
@@ -115,16 +123,18 @@ public sealed class
         {
             MediaCompositionExportClip clip =
                 request.Clips[index];
-            if (!TryGetBuiltInEffects(
-                    clip.UserData,
-                    out float saturation,
-                    out float grayscale))
+            if (!TryGetVideoColorTransform(
+                    clip,
+                    effectRegistry ??
+                        MediaEffectRegistry.Default,
+                    out GpuTextureColorTransform
+                        transform))
             {
                 return false;
             }
-            bool effects =
-                saturation != 1f ||
-                grayscale != 0f;
+            bool hasEffects =
+                transform !=
+                    GpuTextureColorTransform.Identity;
             bool hasSource =
                 clip.SourceUri is
                     { IsFile: true };
@@ -186,8 +196,6 @@ public sealed class
                     clip.OriginalDuration ||
                 clip.Volume != 1d ||
                 clip.AudioEffectDefinitions.Count !=
-                    0 ||
-                clip.VideoEffectDefinitions.Count !=
                     0)
             {
                 return false;
@@ -195,7 +203,7 @@ public sealed class
 
             hasUriClip |= hasSource;
             requiresGpu |=
-                effects ||
+                hasEffects ||
                 hasColor ||
                 scaling;
         }
@@ -230,12 +238,15 @@ public sealed class
                 "The request is not supported by this provider.",
                 nameof(request));
         }
-        return GetCapabilitiesForRequest(request);
+        return GetCapabilitiesForRequest(
+            request,
+            _effects);
     }
 
     internal static MediaCompositionExportCapabilities
         GetCapabilitiesForRequest(
-            MediaCompositionExportRequest request)
+            MediaCompositionExportRequest request,
+            MediaEffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         bool effects = false;
@@ -245,16 +256,21 @@ public sealed class
         {
             MediaCompositionExportClip clip =
                 request.Clips[index];
-            TryGetBuiltInEffects(
-                clip.UserData,
-                out float saturation,
-                out float grayscale);
             effects |=
-                saturation != 1f ||
-                grayscale != 0f;
+                TryGetVideoColorTransform(
+                    clip,
+                    effectRegistry ??
+                        MediaEffectRegistry.Default,
+                    out GpuTextureColorTransform
+                        transform) &&
+                transform !=
+                    GpuTextureColorTransform.Identity;
         }
         bool gpuComposition =
-            RequiresGpuComposition(request);
+            RequiresGpuComposition(
+                request,
+                effectRegistry ??
+                    MediaEffectRegistry.Default);
         return new MediaCompositionExportCapabilities(
             ProviderId,
             gpuComposition
@@ -274,15 +290,15 @@ public sealed class
                 "The current Linux precise lane accepts ordered local " +
                 "H.264 and generated-color clips and requires " +
                 "compatible NV12 DMA-BUF sharing " +
-                "between V4L2, GBM, and Dawn/Vulkan. Saturation and " +
-                "grayscale plus output scaling are fused into a bounded " +
+                "between V4L2, GBM, and Dawn/Vulkan. Registered affine " +
+                "color effects plus output scaling are fused into a bounded " +
                 "zero-copy WebGPU lane. A single native-size identity URI " +
                 "clip retains direct " +
                 "decoder-to-encoder DMA-BUF transfer; ordered timelines " +
                 "use one GPU normalization pass. Matching selected AAC " +
                 "tracks remain compressed; edit lists retain exact trims " +
                 "and silent source/color spans. Audio gain/effects, " +
-                "background audio, overlays, and arbitrary effects are " +
+                "background audio, overlays, and spatial effects are " +
                 "not yet accepted.");
     }
 
@@ -403,17 +419,17 @@ public sealed class
 
         MediaCompositionExportClip clip =
             request.Clips[0];
-        if (!TryGetBuiltInEffects(
-                clip.UserData,
-                out float saturation,
-                out float grayscale))
+        if (!TryGetVideoColorTransform(
+                clip,
+                _effects,
+                out GpuTextureColorTransform transform))
         {
             throw new InvalidDataException(
-                "The built-in WebGPU effect values are invalid.");
+                "The WebGPU effect graph is invalid.");
         }
         bool effects =
-            saturation != 1f ||
-            grayscale != 0f;
+            transform !=
+                GpuTextureColorTransform.Identity;
         bool gpuComposition =
             effects ||
             clip.ArgbColor.HasValue;
@@ -430,8 +446,7 @@ public sealed class
             TranscodeColor(
                 request,
                 argbColor,
-                saturation,
-                grayscale,
+                transform,
                 dawn!,
                 audioTrack,
                 spoolPath,
@@ -612,8 +627,7 @@ public sealed class
                             if (effectSink.TryProcessFrame(
                                     in pendingFrame,
                                     outputTime,
-                                    saturation,
-                                    grayscale,
+                                    transform,
                                     encoder))
                             {
                                 pendingFrame = default;
@@ -732,8 +746,7 @@ public sealed class
     private void TranscodeColor(
         MediaCompositionExportRequest request,
         uint argbColor,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         DawnGpuContext dawn,
         IsoBmffCompositionTrack? audioTrack,
         string spoolPath,
@@ -784,8 +797,7 @@ public sealed class
                     effectSink.TryProcessColorFrame(
                         argbColor,
                         TimeSpan.FromTicks(frameOffset),
-                        saturation,
-                        grayscale,
+                        transform,
                         encoder))
                 {
                     progress?.Report(
@@ -888,13 +900,14 @@ public sealed class
                     .ThrowIfCancellationRequested();
                 MediaCompositionExportClip clip =
                     request.Clips[clipIndex];
-                if (!TryGetBuiltInEffects(
-                        clip.UserData,
-                        out float saturation,
-                        out float grayscale))
+                if (!TryGetVideoColorTransform(
+                        clip,
+                        _effects,
+                        out GpuTextureColorTransform
+                            transform))
                 {
                     throw new InvalidDataException(
-                        "The built-in WebGPU effect values are invalid.");
+                        "The WebGPU effect graph is invalid.");
                 }
 
                 TimeSpan clipDuration =
@@ -905,8 +918,7 @@ public sealed class
                     ProcessTimelineColorClip(
                         request,
                         argbColor,
-                        saturation,
-                        grayscale,
+                        transform,
                         timelineOffset,
                         clipDuration,
                         clipIndex,
@@ -921,8 +933,7 @@ public sealed class
                     ProcessTimelineUriClip(
                         request,
                         clip,
-                        saturation,
-                        grayscale,
+                        transform,
                         timelineOffset,
                         clipIndex,
                         encoder,
@@ -960,8 +971,7 @@ public sealed class
     private static void ProcessTimelineColorClip(
         MediaCompositionExportRequest request,
         uint argbColor,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         TimeSpan timelineOffset,
         TimeSpan duration,
         int clipIndex,
@@ -985,8 +995,7 @@ public sealed class
             if (frameSink.TryProcessColorFrame(
                     argbColor,
                     presentationTime,
-                    saturation,
-                    grayscale,
+                    transform,
                     encoder))
             {
                 ReportTimelineProgress(
@@ -1017,8 +1026,7 @@ public sealed class
     private void ProcessTimelineUriClip(
         MediaCompositionExportRequest request,
         MediaCompositionExportClip clip,
-        float saturation,
-        float grayscale,
+        GpuTextureColorTransform transform,
         TimeSpan timelineOffset,
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
@@ -1160,8 +1168,7 @@ public sealed class
                         if (frameSink.TryProcessFrame(
                                 in pendingFrame,
                                 outputTime,
-                                saturation,
-                                grayscale,
+                                transform,
                                 encoder))
                         {
                             pendingFrame = default;
@@ -1628,8 +1635,44 @@ public sealed class
         return true;
     }
 
+    internal static bool TryGetVideoColorTransform(
+        MediaCompositionExportClip clip,
+        MediaEffectRegistry effects,
+        out GpuTextureColorTransform transform)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(effects);
+        transform = GpuTextureColorTransform.Identity;
+        if (!TryGetBuiltInEffects(
+                clip.UserData,
+                out float saturation,
+                out float grayscale) ||
+            !MediaCompositionVideoEffectResolver
+                .TryCaptureColorTransform(
+                    effects,
+                    clip.VideoEffectDefinitions,
+                    out MediaVideoColorTransform
+                        declared))
+        {
+            return false;
+        }
+
+        MediaVideoColorTransform combined =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    saturation: saturation,
+                    grayscale: grayscale)
+                .Then(declared);
+        transform = new GpuTextureColorTransform(
+            combined.Red,
+            combined.Green,
+            combined.Blue);
+        return true;
+    }
+
     private static bool RequiresGpuComposition(
-        MediaCompositionExportRequest request)
+        MediaCompositionExportRequest request,
+        MediaEffectRegistry effects)
     {
         if (request.Clips.Count > 1)
         {
@@ -1655,12 +1698,13 @@ public sealed class
             {
                 return true;
             }
-            if (TryGetBuiltInEffects(
-                    clip.UserData,
-                    out float saturation,
-                    out float grayscale) &&
-                (saturation != 1f ||
-                 grayscale != 0f))
+            if (TryGetVideoColorTransform(
+                    clip,
+                    effects,
+                    out GpuTextureColorTransform
+                        transform) &&
+                transform !=
+                    GpuTextureColorTransform.Identity)
             {
                 return true;
             }

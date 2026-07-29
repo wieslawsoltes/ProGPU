@@ -453,6 +453,22 @@ public sealed class LinuxMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaCompositionVideoEffectResolver",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureColorTransform transform",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "redTransform: vec4<f32>",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Size = 64",
+            processor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "two attachment clears in one",
             processor,
             StringComparison.Ordinal);
@@ -639,6 +655,10 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Contains(
             "GpuNv12Processor.ProcessToRgba(",
             renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetVideoColorTransform(",
+            provider,
             StringComparison.Ordinal);
         Assert.Contains(
             "TextureUsage.RenderAttachment |",
