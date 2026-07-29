@@ -15,5 +15,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
   </ItemGroup>
 </Project>

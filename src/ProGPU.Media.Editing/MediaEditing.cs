@@ -3,6 +3,7 @@ using System.Text.Json;
 using ProGPU.Media.Containers;
 using ProGPU.Media.Editing;
 using Windows.Foundation.Collections;
+using Windows.Graphics.Imaging;
 using Windows.Media.Effects;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
@@ -538,6 +539,196 @@ public sealed class MediaComposition
     public static MediaEncodingProfile CreateDefaultEncodingProfile() =>
         MediaEncodingProfile.CreateMp4(
             VideoEncodingQuality.HD720p);
+
+    public async Task<ImageStream> GetThumbnailAsync(
+        TimeSpan timeFromStart,
+        int scaledWidth,
+        int scaledHeight,
+        VideoFramePrecision framePrecision)
+    {
+        IReadOnlyList<ImageStream> result =
+            await GetThumbnailsAsync(
+                [timeFromStart],
+                scaledWidth,
+                scaledHeight,
+                framePrecision).ConfigureAwait(false);
+        return result[0];
+    }
+
+    public async Task<IReadOnlyList<ImageStream>>
+        GetThumbnailsAsync(
+        IEnumerable<TimeSpan> timesFromStart,
+        int scaledWidth,
+        int scaledHeight,
+        VideoFramePrecision framePrecision)
+    {
+        ArgumentNullException.ThrowIfNull(timesFromStart);
+        if (scaledWidth < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(scaledWidth));
+        }
+        if (scaledHeight < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(scaledHeight));
+        }
+        if (!Enum.IsDefined(framePrecision))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(framePrecision));
+        }
+
+        TimeSpan[] positions =
+            timesFromStart.ToArray();
+        if (positions.Length == 0)
+        {
+            return Array.Empty<ImageStream>();
+        }
+
+        TimeSpan duration = Duration;
+        for (int index = 0;
+             index < positions.Length;
+             index++)
+        {
+            if (positions[index] < TimeSpan.Zero ||
+                positions[index] > duration)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(timesFromStart),
+                    "Thumbnail positions must lie within the composition timeline.");
+            }
+        }
+
+        (uint pixelWidth, uint pixelHeight) =
+            ResolveThumbnailDimensions(
+                scaledWidth,
+                scaledHeight);
+        MediaEncodingProfile profile =
+            CreateDefaultEncodingProfile();
+        profile.Width = pixelWidth;
+        profile.Height = pixelHeight;
+        MediaCompositionExportRequest composition =
+            CreateExportRequest(
+                destinationPath: string.Empty,
+                MediaTrimmingPreference.Precise,
+                profile);
+        var request =
+            new MediaCompositionThumbnailRequest(
+                composition,
+                Array.AsReadOnly(positions),
+                pixelWidth,
+                pixelHeight,
+                framePrecision ==
+                    VideoFramePrecision.NearestKeyFrame
+                    ? MediaCompositionThumbnailPrecision
+                        .NearestKeyFrame
+                    : MediaCompositionThumbnailPrecision
+                        .NearestFrame);
+        IReadOnlyList<MediaCompositionThumbnail>
+            thumbnails =
+                await MediaCompositionThumbnailRegistry
+                    .Default.RenderAsync(request)
+                    .ConfigureAwait(false);
+
+        var streams =
+            new ImageStream[thumbnails.Count];
+        for (int index = 0;
+             index < thumbnails.Count;
+             index++)
+        {
+            MediaCompositionThumbnail thumbnail =
+                thumbnails[index];
+            if (thumbnail.EncodedBytes.Length == 0 ||
+                string.IsNullOrWhiteSpace(
+                    thumbnail.ContentType) ||
+                thumbnail.PixelWidth != pixelWidth ||
+                thumbnail.PixelHeight != pixelHeight)
+            {
+                throw new InvalidOperationException(
+                    "The thumbnail provider returned an invalid encoded image.");
+            }
+            streams[index] =
+                new ImageStream(
+                    thumbnail.EncodedBytes,
+                    thumbnail.ContentType);
+        }
+        return Array.AsReadOnly(streams);
+    }
+
+    private (uint Width, uint Height)
+        ResolveThumbnailDimensions(
+        int scaledWidth,
+        int scaledHeight)
+    {
+        uint naturalWidth = 1280;
+        uint naturalHeight = 720;
+        for (int index = 0;
+             index < _clips.Count;
+             index++)
+        {
+            VideoEncodingProperties video =
+                _clips[index]
+                    .GetVideoEncodingProperties();
+            if (video.Width != 0 &&
+                video.Height != 0)
+            {
+                naturalWidth = video.Width;
+                naturalHeight = video.Height;
+                break;
+            }
+        }
+
+        if (scaledWidth == 0 &&
+            scaledHeight == 0)
+        {
+            return (naturalWidth, naturalHeight);
+        }
+        if (scaledWidth == 0)
+        {
+            return (
+                ScaleThumbnailDimension(
+                    scaledHeight,
+                    naturalWidth,
+                    naturalHeight),
+                checked((uint)scaledHeight));
+        }
+        if (scaledHeight == 0)
+        {
+            return (
+                checked((uint)scaledWidth),
+                ScaleThumbnailDimension(
+                    scaledWidth,
+                    naturalHeight,
+                    naturalWidth));
+        }
+        return (
+            checked((uint)scaledWidth),
+            checked((uint)scaledHeight));
+    }
+
+    private static uint ScaleThumbnailDimension(
+        int requestedDimension,
+        uint dependentNaturalDimension,
+        uint requestedNaturalDimension)
+    {
+        double scaled =
+            requestedDimension *
+            ((double)dependentNaturalDimension /
+             requestedNaturalDimension);
+        if (!double.IsFinite(scaled) ||
+            scaled < 1d ||
+            scaled > uint.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestedDimension));
+        }
+        return checked((uint)Math.Max(
+            1d,
+            Math.Round(
+                scaled,
+                MidpointRounding.AwayFromZero)));
+    }
 
     /// <summary>
     /// Serializes the editable project. This intentionally stores the

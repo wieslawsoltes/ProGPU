@@ -3,6 +3,8 @@ using Windows.Storage;
 using Windows.Media.Effects;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
+using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Media.Editing;
@@ -603,6 +605,107 @@ public sealed class MediaEditingTests
     }
 
     [Fact]
+    public async Task ThumbnailApiBatchesRequestsAndPreservesAspectRatio()
+    {
+        var provider = new TestThumbnailProvider();
+        using IDisposable registration =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                provider);
+        var composition = new MediaComposition();
+        MediaClip clip = MediaClip.CreateFromUri(
+            new Uri(
+                "https://thumbnail.example.test/clip.mp4"),
+            TimeSpan.FromSeconds(8));
+        clip.SetProGpuEncodingProperties(
+            new VideoEncodingProperties
+            {
+                Subtype = "H264",
+                Width = 640,
+                Height = 360
+            });
+        composition.Clips.Add(clip);
+        TimeSpan[] positions =
+        [
+            TimeSpan.Zero,
+            TimeSpan.FromSeconds(4),
+            TimeSpan.FromSeconds(8)
+        ];
+
+        IReadOnlyList<ImageStream> thumbnails =
+            await composition.GetThumbnailsAsync(
+                positions,
+                scaledWidth: 320,
+                scaledHeight: 0,
+                VideoFramePrecision.NearestFrame);
+
+        Assert.Equal(1, provider.CallCount);
+        Assert.NotNull(provider.Request);
+        Assert.Equal(positions, provider.Request!.Positions);
+        Assert.Equal(320u, provider.Request.PixelWidth);
+        Assert.Equal(180u, provider.Request.PixelHeight);
+        Assert.Equal(
+            MediaCompositionThumbnailPrecision
+                .NearestFrame,
+            provider.Request.Precision);
+        Assert.Equal(3, thumbnails.Count);
+        Assert.All(
+            thumbnails,
+            thumbnail =>
+            {
+                Assert.Equal(
+                    "image/test-thumbnail",
+                    thumbnail.ContentType);
+                Assert.Equal(3UL, thumbnail.Size);
+            });
+
+        ImageStream first = thumbnails[0];
+        provider.FirstBuffer![0] = 99;
+        Assert.Equal(1, first.AsStream().ReadByte());
+        first.Seek(0);
+        using IRandomAccessStream clone =
+            first.CloneStream();
+        Assert.Equal(0UL, first.Position);
+        Assert.Equal(0UL, clone.Position);
+        first.Seek(2);
+        Assert.Equal(2UL, first.Position);
+        Assert.Equal(0UL, clone.Position);
+    }
+
+    [Fact]
+    public async Task ThumbnailRegistryRejectsIncompleteProviderBatch()
+    {
+        var registry =
+            new MediaCompositionThumbnailRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new IncompleteThumbnailProvider());
+        MediaCompositionExportRequest composition =
+            CreateCapabilityRequest();
+        var request =
+            new MediaCompositionThumbnailRequest(
+                composition,
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromMilliseconds(500)
+                ],
+                160,
+                90,
+                MediaCompositionThumbnailPrecision
+                    .NearestKeyFrame);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<
+                InvalidOperationException>(
+                async () =>
+                    await registry.RenderAsync(request));
+
+        Assert.Contains(
+            "returned 1 images for 2 requested",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RenderUsesRegisteredNativeProviderAndOfficialResult()
     {
         var provider = new TestExportProvider();
@@ -870,5 +973,86 @@ public sealed class MediaEditingTests
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(
                 MediaCompositionExportFailure.None);
+    }
+
+    private sealed class TestThumbnailProvider :
+        IMediaCompositionThumbnailProvider
+    {
+        public string Id => "test.thumbnail";
+        public int Priority => int.MaxValue;
+        public int CallCount { get; private set; }
+        public byte[]? FirstBuffer { get; private set; }
+        public MediaCompositionThumbnailRequest? Request
+        {
+            get;
+            private set;
+        }
+
+        public bool CanRender(
+            MediaCompositionThumbnailRequest request) =>
+            request.Composition.Clips.Any(
+                static clip =>
+                    clip.SourceUri?.Host ==
+                    "thumbnail.example.test");
+
+        public ValueTask<IReadOnlyList<
+            MediaCompositionThumbnail>> RenderAsync(
+            MediaCompositionThumbnailRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CallCount++;
+            Request = request;
+            var result =
+                new MediaCompositionThumbnail[
+                    request.Positions.Count];
+            for (int index = 0;
+                 index < result.Length;
+                 index++)
+            {
+                byte[] bytes =
+                    [1, 2, checked((byte)index)];
+                if (index == 0)
+                {
+                    FirstBuffer = bytes;
+                }
+                result[index] =
+                    new MediaCompositionThumbnail(
+                        bytes,
+                        "image/test-thumbnail",
+                        request.PixelWidth,
+                        request.PixelHeight);
+            }
+            return ValueTask.FromResult<
+                IReadOnlyList<
+                    MediaCompositionThumbnail>>(
+                Array.AsReadOnly(result));
+        }
+    }
+
+    private sealed class IncompleteThumbnailProvider :
+        IMediaCompositionThumbnailProvider
+    {
+        public string Id => "test.incomplete-thumbnail";
+        public int Priority => 0;
+
+        public bool CanRender(
+            MediaCompositionThumbnailRequest request) =>
+            true;
+
+        public ValueTask<IReadOnlyList<
+            MediaCompositionThumbnail>> RenderAsync(
+            MediaCompositionThumbnailRequest request,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult<
+                IReadOnlyList<
+                    MediaCompositionThumbnail>>(
+                [
+                    new MediaCompositionThumbnail(
+                        [1],
+                        "image/test",
+                        request.PixelWidth,
+                        request.PixelHeight)
+                ]);
     }
 }

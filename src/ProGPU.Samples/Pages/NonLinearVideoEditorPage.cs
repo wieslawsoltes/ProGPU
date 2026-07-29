@@ -8,6 +8,7 @@ using ProGPU.Media.Effects;
 using ProGPU.Media.Rendering;
 using ProGPU.Vector;
 using Windows.Foundation.Collections;
+using Windows.Graphics.Imaging;
 using Windows.Media.Core;
 using Windows.Media.Editing;
 using Windows.Media.Effects;
@@ -267,6 +268,8 @@ public static class NonLinearVideoEditorPage
         var saveProject = new Button { Content = "Save project" };
         var loadProject = new Button { Content = "Load project" };
         var export = new Button { Content = "Export MP4" };
+        var thumbnails =
+            new Button { Content = "Refresh thumbnails" };
 
         addUri.Click += (_, _) =>
         {
@@ -470,6 +473,8 @@ public static class NonLinearVideoEditorPage
                     $"Export failed: {exception.Message}");
             }
         };
+        thumbnails.Click += async (_, _) =>
+            await session.RefreshTimelineThumbnailsAsync();
 
         var importRow = new StackPanel
         {
@@ -519,6 +524,7 @@ public static class NonLinearVideoEditorPage
         AddCommand(editGrid, saveProject, 2, 0);
         AddCommand(editGrid, loadProject, 2, 1);
         AddCommand(editGrid, export, 2, 2);
+        AddCommand(editGrid, thumbnails, 2, 3);
 
         var main = new StackPanel
         {
@@ -715,6 +721,9 @@ public static class NonLinearVideoEditorPage
             _backgroundPlayback = [];
         private readonly List<OverlayPlayback>
             _overlayPlayback = [];
+        private EncodedImageSource[]?
+            _timelineThumbnails;
+        private int _thumbnailRequestVersion;
         private int _selectedIndex = -1;
         private int _selectedBackgroundIndex = -1;
         private int _selectedOverlayIndex = -1;
@@ -1280,18 +1289,42 @@ public static class NonLinearVideoEditorPage
             for (int index = 0; index < _clips.Count; index++)
             {
                 MediaClip clip = _clips[index];
+                float width = Math.Clamp(
+                    90f +
+                        (float)clip.TrimmedDuration.TotalSeconds *
+                        8f,
+                    110f,
+                    260f);
+                EncodedImageSource[]? thumbnails =
+                    _timelineThumbnails;
+                bool hasThumbnail =
+                    thumbnails is not null &&
+                    thumbnails.Length == _clips.Count;
+                var content = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    Width = width - 16f
+                };
+                if (hasThumbnail)
+                {
+                    content.AddChild(
+                        new Image
+                        {
+                            Source = thumbnails![index],
+                            Height = 42f,
+                            Width = width - 20f,
+                            Stretch = Stretch.UniformToFill
+                        });
+                }
+                content.AddChild(
+                    Text(
+                        $"{index + 1}. {NameOf(clip)}\n" +
+                        $"{clip.TrimmedDuration:mm\\:ss\\.fff}"));
                 var button = new Button
                 {
-                    Content =
-                        $"{index + 1}. {NameOf(clip)}\n" +
-                        $"{clip.TrimmedDuration:mm\\:ss\\.fff}",
-                    Width = Math.Clamp(
-                        90f +
-                            (float)clip.TrimmedDuration.TotalSeconds *
-                            8f,
-                        110f,
-                        260f),
-                    Height = 58f
+                    Content = content,
+                    Width = width,
+                    Height = hasThumbnail ? 94f : 58f
                 };
                 int captured = index;
                 button.Click += (_, _) =>
@@ -1299,6 +1332,100 @@ public static class NonLinearVideoEditorPage
                 _timeline.AddChild(button);
             }
             UpdateDuration();
+        }
+
+        public async Task RefreshTimelineThumbnailsAsync()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_clips.Count == 0)
+            {
+                _timelineThumbnails = null;
+                RebuildTimeline();
+                SetStatus(
+                    "Add a clip before generating thumbnails.");
+                return;
+            }
+
+            int requestVersion =
+                ++_thumbnailRequestVersion;
+            var positions =
+                new TimeSpan[_clips.Count];
+            TimeSpan timelinePosition = TimeSpan.Zero;
+            for (int index = 0;
+                 index < _clips.Count;
+                 index++)
+            {
+                TimeSpan duration =
+                    _clips[index].TrimmedDuration;
+                positions[index] =
+                    timelinePosition +
+                    TimeSpan.FromTicks(
+                        duration.Ticks / 2);
+                timelinePosition += duration;
+            }
+
+            try
+            {
+                SetStatus(
+                    $"Generating {_clips.Count} timeline thumbnails with the native batch provider...");
+                IReadOnlyList<ImageStream> streams =
+                    await _composition.GetThumbnailsAsync(
+                        positions,
+                        scaledWidth: 160,
+                        scaledHeight: 90,
+                        VideoFramePrecision.NearestFrame);
+                var sources =
+                    new EncodedImageSource[streams.Count];
+                try
+                {
+                    for (int index = 0;
+                         index < streams.Count;
+                         index++)
+                    {
+                        using var buffer =
+                            new MemoryStream();
+                        streams[index]
+                            .AsStream()
+                            .CopyTo(buffer);
+                        sources[index] =
+                            new EncodedImageSource(
+                                buffer.ToArray(),
+                                suggestedWidth: 160,
+                                suggestedHeight: 90);
+                    }
+                }
+                finally
+                {
+                    for (int index = 0;
+                         index < streams.Count;
+                         index++)
+                    {
+                        streams[index].Dispose();
+                    }
+                }
+
+                if (_disposed ||
+                    requestVersion !=
+                        _thumbnailRequestVersion ||
+                    sources.Length != _clips.Count)
+                {
+                    return;
+                }
+                _timelineThumbnails = sources;
+                RebuildTimeline();
+                SetStatus(
+                    $"Generated {sources.Length} native timeline thumbnails in one batch.");
+            }
+            catch (Exception exception)
+            {
+                if (requestVersion !=
+                    _thumbnailRequestVersion)
+                {
+                    return;
+                }
+                SetStatus(
+                    $"Thumbnail generation unavailable: {exception.Message}");
+            }
         }
 
         private void RebuildBackgroundTimeline()
@@ -2616,6 +2743,7 @@ public static class NonLinearVideoEditorPage
                 return;
             }
             _disposed = true;
+            _thumbnailRequestVersion++;
             _player.MediaOpened -= OnMediaOpened;
             _player.MediaEnded -= OnMediaEnded;
             _player.MediaFailed -= OnMediaFailed;

@@ -12,6 +12,7 @@ using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Effects;
 using System.Runtime.InteropServices;
+using Windows.Graphics.Imaging;
 using Windows.Media.Editing;
 using Windows.Media.MediaProperties;
 using Windows.Storage;
@@ -26,6 +27,17 @@ public static class Program
 #if MACOS
         using IDisposable mediaRegistration =
             ProGPU.Apple.Media.AppleMedia.Register();
+        if (TryGetMediaThumbnailSmokeDirectory(
+                args,
+                out string? thumbnailDirectory))
+        {
+            Environment.ExitCode =
+                RunMediaThumbnailSmokeAsync(
+                    thumbnailDirectory)
+                    .GetAwaiter()
+                    .GetResult();
+            return;
+        }
         if (TryGetMediaAudioEffectExportSmokePaths(
                 args,
                 out string? audioSourcePath,
@@ -119,6 +131,135 @@ public static class Program
     }
 
 #if MACOS
+    private static bool TryGetMediaThumbnailSmokeDirectory(
+        IReadOnlyList<string> args,
+        out string outputDirectory)
+    {
+        const string option =
+            "--media-thumbnail-smoke";
+        for (int index = 0; index < args.Count; index++)
+        {
+            if (!string.Equals(
+                    args[index],
+                    option,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+            outputDirectory =
+                index + 1 < args.Count
+                    ? Path.GetFullPath(args[index + 1])
+                    : Path.Combine(
+                        Path.GetTempPath(),
+                        "ProGPU-media-thumbnail-smoke");
+            return true;
+        }
+        outputDirectory = string.Empty;
+        return false;
+    }
+
+    private static async Task<int>
+        RunMediaThumbnailSmokeAsync(
+        string outputDirectory)
+    {
+        try
+        {
+            Directory.CreateDirectory(outputDirectory);
+            var composition = new MediaComposition();
+            MediaClip first = MediaClip.CreateFromColor(
+                Windows.UI.Color.FromArgb(
+                    255, 208, 47, 120),
+                TimeSpan.FromSeconds(2));
+            first.UserData["progpu.saturation"] = "0.8";
+            first.UserData["progpu.grayscale"] = "0.15";
+            composition.Clips.Add(first);
+            composition.Clips.Add(
+                MediaClip.CreateFromColor(
+                    Windows.UI.Color.FromArgb(
+                        255, 30, 64, 175),
+                    TimeSpan.FromSeconds(1)));
+            var layer = new MediaOverlayLayer();
+            layer.Overlays.Add(
+                new MediaOverlay(
+                    MediaClip.CreateFromColor(
+                        Windows.UI.Color.FromArgb(
+                            255, 54, 211, 153),
+                        TimeSpan.FromSeconds(1)),
+                    new Windows.Foundation.Rect(
+                        100, 10, 48, 48),
+                    opacity: 0.8)
+                {
+                    Delay =
+                        TimeSpan.FromMilliseconds(500),
+                    AudioEnabled = false
+                });
+            composition.OverlayLayers.Add(layer);
+
+            IReadOnlyList<ImageStream> images =
+                await composition.GetThumbnailsAsync(
+                    [
+                        TimeSpan.Zero,
+                        TimeSpan.FromSeconds(1),
+                        composition.Duration
+                    ],
+                    scaledWidth: 160,
+                    scaledHeight: 90,
+                    VideoFramePrecision.NearestFrame);
+            bool valid = images.Count == 3;
+            long totalBytes = 0;
+            try
+            {
+                for (int index = 0;
+                     index < images.Count;
+                     index++)
+                {
+                    ImageStream image = images[index];
+                    using var buffer = new MemoryStream();
+                    image.AsStream().CopyTo(buffer);
+                    byte[] bytes = buffer.ToArray();
+                    totalBytes += bytes.LongLength;
+                    valid &=
+                        image.ContentType == "image/png" &&
+                        bytes.Length >= 8 &&
+                        bytes[0] == 0x89 &&
+                        bytes[1] == 0x50 &&
+                        bytes[2] == 0x4e &&
+                        bytes[3] == 0x47;
+                    await File.WriteAllBytesAsync(
+                        Path.Combine(
+                            outputDirectory,
+                            $"thumbnail-{index}.png"),
+                        bytes);
+                }
+            }
+            finally
+            {
+                for (int index = 0;
+                     index < images.Count;
+                     index++)
+                {
+                    images[index].Dispose();
+                }
+            }
+
+            Console.WriteLine(
+                "MEDIA_THUMBNAIL_SMOKE " +
+                $"valid={valid} " +
+                $"count={images.Count} " +
+                $"bytes={totalBytes} " +
+                $"size=160x90 " +
+                $"path={outputDirectory}");
+            return valid ? 0 : 8;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(
+                "MEDIA_THUMBNAIL_SMOKE exception=" +
+                exception);
+            return 9;
+        }
+    }
+
     private static bool
         TryGetMediaAudioEffectExportSmokePaths(
             IReadOnlyList<string> args,

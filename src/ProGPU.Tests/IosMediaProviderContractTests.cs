@@ -345,6 +345,26 @@ public sealed class IosMediaProviderContractTests
             "MediaCompositionExportRegistry.Default.Register(",
             registration,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "IMediaCompositionThumbnailProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AVAssetImageGenerator(composition)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CopyCGImageAtTime(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CGImageDestination.Create(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionThumbnailRegistry.Default.Register(",
+            registration,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "ffmpeg",
             provider,

@@ -27,9 +27,14 @@ public static class AppleMedia
         IDisposable playback =
             (registry ?? MediaProviderRegistry.Default).Register(
                 new AppleMediaPlaybackProviderFactory(priority));
+        var compositionProvider =
+            new AppleMediaCompositionExportProvider(priority);
         IDisposable export =
             MediaCompositionExportRegistry.Default.Register(
-                new AppleMediaCompositionExportProvider(priority));
+                compositionProvider);
+        IDisposable thumbnails =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                compositionProvider);
         IDisposable fastExport =
             MediaCompositionExportRegistry.Default.Register(
                 new IsoBmffFastMediaCompositionExportProvider(
@@ -39,6 +44,7 @@ public static class AppleMedia
         return new AppleMediaRegistrations(
             playback,
             export,
+            thumbnails,
             fastExport);
     }
 
@@ -46,15 +52,18 @@ public static class AppleMedia
     {
         private IDisposable? _playback;
         private IDisposable? _export;
+        private IDisposable? _thumbnails;
         private IDisposable? _fastExport;
 
         public AppleMediaRegistrations(
             IDisposable playback,
             IDisposable export,
+            IDisposable thumbnails,
             IDisposable fastExport)
         {
             _playback = playback;
             _export = export;
+            _thumbnails = thumbnails;
             _fastExport = fastExport;
         }
 
@@ -62,6 +71,9 @@ public static class AppleMedia
         {
             Interlocked.Exchange(
                 ref _fastExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _thumbnails,
                 null)?.Dispose();
             Interlocked.Exchange(ref _export, null)?.Dispose();
             Interlocked.Exchange(ref _playback, null)?.Dispose();

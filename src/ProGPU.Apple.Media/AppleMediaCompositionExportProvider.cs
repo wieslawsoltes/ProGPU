@@ -4,6 +4,7 @@ using CoreImage;
 using CoreMedia;
 using CoreVideo;
 using Foundation;
+using ImageIO;
 using Metal;
 using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
@@ -20,7 +21,8 @@ namespace ProGPU.Apple.Media;
 /// </summary>
 public sealed class AppleMediaCompositionExportProvider :
     IMediaCompositionExportProvider,
-    IMediaCompositionExportCapabilityProvider
+    IMediaCompositionExportCapabilityProvider,
+    IMediaCompositionThumbnailProvider
 {
     private const int MediaTimeScale = 600;
     private const string ProviderId =
@@ -174,6 +176,172 @@ public sealed class AppleMediaCompositionExportProvider :
                 : "AVAssetExportSession owns the native video path and " +
                   "codec selection; ProGPU does not observe enough of " +
                   "that path to label it GPU-surface or compressed-copy.");
+    }
+
+    bool IMediaCompositionThumbnailProvider.CanRender(
+        MediaCompositionThumbnailRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        MediaCompositionExportRequest composition =
+            request.Composition;
+        if ((!OperatingSystem.IsIOS() &&
+             !OperatingSystem.IsMacOS()) ||
+            request.Positions.Count == 0 ||
+            !Enum.IsDefined(request.Precision) ||
+            request.PixelWidth == 0 ||
+            request.PixelHeight == 0 ||
+            composition.Clips.Count == 0 ||
+            composition.EncodingProfile.Width !=
+                request.PixelWidth ||
+            composition.EncodingProfile.Height !=
+                request.PixelHeight ||
+            composition.EncodingProfile
+                .FrameRateNumerator == 0 ||
+            composition.EncodingProfile
+                .FrameRateDenominator == 0)
+        {
+            return false;
+        }
+
+        TimeSpan duration = TimeSpan.Zero;
+        for (int index = 0;
+             index < composition.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                composition.Clips[index];
+            TimeSpan clipDuration =
+                clip.OriginalDuration -
+                clip.TrimTimeFromStart -
+                clip.TrimTimeFromEnd;
+            if (!HasExactlyOneVideoSource(clip) ||
+                clipDuration <= TimeSpan.Zero ||
+                clip.VideoEffectDefinitions.Count != 0 ||
+                !TryGetBuiltInClipEffects(
+                    clip.UserData,
+                    out _))
+            {
+                return false;
+            }
+            duration += clipDuration;
+        }
+
+        for (int layerIndex = 0;
+             layerIndex < composition.OverlayLayers.Count;
+             layerIndex++)
+        {
+            MediaCompositionExportOverlayLayer layer =
+                composition.OverlayLayers[layerIndex];
+            if (layer.CustomCompositorDefinition is not null)
+            {
+                return false;
+            }
+            for (int overlayIndex = 0;
+                 overlayIndex < layer.Overlays.Count;
+                 overlayIndex++)
+            {
+                MediaCompositionExportOverlay overlay =
+                    layer.Overlays[overlayIndex];
+                MediaCompositionExportClip clip =
+                    overlay.Clip;
+                if (!HasExactlyOneVideoSource(clip) ||
+                    clip.VideoEffectDefinitions.Count != 0 ||
+                    !TryGetBuiltInClipEffects(
+                        clip.UserData,
+                        out _) ||
+                    overlay.Delay < TimeSpan.Zero ||
+                    !double.IsFinite(overlay.PositionX) ||
+                    !double.IsFinite(overlay.PositionY) ||
+                    !double.IsFinite(
+                        overlay.PositionWidth) ||
+                    !double.IsFinite(
+                        overlay.PositionHeight) ||
+                    overlay.PositionWidth <= 0d ||
+                    overlay.PositionHeight <= 0d ||
+                    !double.IsFinite(overlay.Opacity) ||
+                    overlay.Opacity is < 0d or > 1d)
+                {
+                    return false;
+                }
+            }
+        }
+
+        for (int index = 0;
+             index < request.Positions.Count;
+             index++)
+        {
+            TimeSpan position = request.Positions[index];
+            if (position < TimeSpan.Zero ||
+                position > duration)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    async ValueTask<IReadOnlyList<
+        MediaCompositionThumbnail>>
+        IMediaCompositionThumbnailProvider.RenderAsync(
+        MediaCompositionThumbnailRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!((IMediaCompositionThumbnailProvider)this)
+                .CanRender(request))
+        {
+            throw new ArgumentException(
+                "The thumbnail request is not supported by this provider.",
+                nameof(request));
+        }
+
+        MediaCompositionExportRequest composition =
+            request.Composition;
+        int preparedClipCount =
+            CountPreparedClips(composition);
+        string? temporaryDirectory = null;
+        try
+        {
+            if (preparedClipCount != 0)
+            {
+                temporaryDirectory = Path.Combine(
+                    Path.GetTempPath(),
+                    "ProGPU.Media.Thumbnails",
+                    Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(
+                    temporaryDirectory);
+                composition =
+                    await PrepareEffectRequestAsync(
+                        composition,
+                        temporaryDirectory,
+                        new EffectPreparationProgress(
+                            target: null,
+                            preparedClipCount,
+                            maximum: 100d),
+                        cancellationToken)
+                        .ConfigureAwait(false);
+            }
+
+            MediaCompositionExportRequest prepared =
+                composition;
+            return await Task.Run(
+                () => RenderThumbnailsCore(
+                    request with
+                    {
+                        Composition = prepared
+                    },
+                    cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (temporaryDirectory is not null)
+            {
+                TryDeleteDirectory(
+                    temporaryDirectory);
+            }
+        }
     }
 
     public async ValueTask<MediaCompositionExportFailure> RenderAsync(
@@ -605,6 +773,241 @@ public sealed class AppleMediaCompositionExportProvider :
                 audioParameters[index]?.Dispose();
             }
         }
+    }
+
+    private static IReadOnlyList<
+        MediaCompositionThumbnail> RenderThumbnailsCore(
+        MediaCompositionThumbnailRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        MediaCompositionExportRequest source =
+            request.Composition;
+        using var composition = new AVMutableComposition();
+        CMTime insertionTime = CMTime.Zero;
+        for (int index = 0;
+             index < source.Clips.Count;
+             index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            MediaCompositionExportClip clip =
+                source.Clips[index];
+            TimeSpan duration =
+                clip.OriginalDuration -
+                clip.TrimTimeFromStart -
+                clip.TrimTimeFromEnd;
+            if (duration <= TimeSpan.Zero)
+            {
+                continue;
+            }
+
+            using NSUrl sourceUrl =
+                CreateUrl(clip.SourceUri!);
+            using var asset = new AVUrlAsset(sourceUrl);
+            var range = new CMTimeRange
+            {
+                Start = ToMediaTime(
+                    clip.TrimTimeFromStart),
+                Duration = ToMediaTime(duration)
+            };
+            if (!composition.Insert(
+                    range,
+                    asset,
+                    insertionTime,
+                    out NSError? insertionError))
+            {
+                string message =
+                    insertionError?
+                        .LocalizedDescription ??
+                    "AVFoundation could not insert a thumbnail source.";
+                insertionError?.Dispose();
+                throw new InvalidOperationException(message);
+            }
+            insertionError?.Dispose();
+            insertionTime =
+                CMTime.Add(
+                    insertionTime,
+                    range.Duration);
+        }
+
+        AVAssetTrack[] mainVideoTracks =
+            composition.GetTracks(AVMediaTypes.Video);
+        if (mainVideoTracks.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "The composition contains no native video track.");
+        }
+
+        var overlayVideoTracks =
+            new List<AppleOverlayVideoTrack>();
+        var unusedAudioTracks =
+            new List<AppleAuxiliaryAudioTrack>();
+        MediaCompositionExportFailure overlayFailure =
+            AddOverlayTracks(
+                composition,
+                source.OverlayLayers,
+                overlayVideoTracks,
+                unusedAudioTracks,
+                includeAudio: false,
+                cancellationToken);
+        if (overlayFailure !=
+            MediaCompositionExportFailure.None)
+        {
+            throw new InvalidOperationException(
+                "AVFoundation could not compose the thumbnail overlays.");
+        }
+
+        AVMutableVideoComposition? videoComposition = null;
+        AVMutableVideoCompositionInstruction?
+            videoInstruction = null;
+        AVMutableVideoCompositionLayerInstruction[]
+            videoLayerInstructions = [];
+        try
+        {
+            (videoComposition,
+             videoInstruction,
+             videoLayerInstructions) =
+                CreateVideoComposition(
+                    composition,
+                    mainVideoTracks,
+                    overlayVideoTracks,
+                    source.EncodingProfile);
+            using var generator =
+                new AVAssetImageGenerator(composition)
+                {
+                    AppliesPreferredTrackTransform = false,
+                    MaximumSize = new CGSize(
+                        request.PixelWidth,
+                        request.PixelHeight),
+                    VideoComposition = videoComposition
+                };
+            if (request.Precision ==
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame)
+            {
+                generator.RequestedTimeToleranceBefore =
+                    CMTime.Zero;
+                generator.RequestedTimeToleranceAfter =
+                    CMTime.Zero;
+            }
+            else
+            {
+                generator.RequestedTimeToleranceBefore =
+                    CMTime.PositiveInfinity;
+                generator.RequestedTimeToleranceAfter =
+                    CMTime.PositiveInfinity;
+            }
+
+            using CancellationTokenRegistration registration =
+                cancellationToken.Register(
+                    generator.CancelAllCGImageGeneration);
+            var results =
+                new MediaCompositionThumbnail[
+                    request.Positions.Count];
+            TimeSpan duration =
+                GetCompositionDuration(source.Clips);
+            double frameSeconds =
+                (double)source.EncodingProfile
+                    .FrameRateDenominator /
+                source.EncodingProfile
+                    .FrameRateNumerator;
+            TimeSpan finalFrameStart =
+                duration -
+                TimeSpan.FromSeconds(frameSeconds);
+            if (finalFrameStart < TimeSpan.Zero)
+            {
+                finalFrameStart = TimeSpan.Zero;
+            }
+
+            for (int index = 0;
+                 index < request.Positions.Count;
+                 index++)
+            {
+                cancellationToken
+                    .ThrowIfCancellationRequested();
+                TimeSpan requested =
+                    request.Positions[index];
+                TimeSpan nativePosition =
+                    requested >= duration
+                        ? finalFrameStart
+                        : requested;
+                CGImage? image =
+                    generator.CopyCGImageAtTime(
+                        ToMediaTime(nativePosition),
+                        out _,
+                        out NSError? imageError);
+                if (image is null)
+                {
+                    string message =
+                        imageError?
+                            .LocalizedDescription ??
+                        "AVFoundation returned no thumbnail image.";
+                    imageError?.Dispose();
+                    throw new InvalidOperationException(message);
+                }
+                using (image)
+                {
+                    imageError?.Dispose();
+                    cancellationToken
+                        .ThrowIfCancellationRequested();
+                    byte[] encoded = EncodePng(image);
+                    results[index] =
+                        new MediaCompositionThumbnail(
+                            encoded,
+                            "image/png",
+                            checked((uint)image.Width),
+                            checked((uint)image.Height));
+                }
+            }
+            return Array.AsReadOnly(results);
+        }
+        finally
+        {
+            videoComposition?.Dispose();
+            videoInstruction?.Dispose();
+            for (int index = 0;
+                 index < videoLayerInstructions.Length;
+                 index++)
+            {
+                videoLayerInstructions[index]?.Dispose();
+            }
+        }
+    }
+
+    private static byte[] EncodePng(CGImage image)
+    {
+        using var data = new NSMutableData();
+        var options =
+            new CGImageDestinationOptions();
+        using CGImageDestination destination =
+            CGImageDestination.Create(
+                data,
+                "public.png",
+                imageCount: 1,
+                options) ??
+            throw new InvalidOperationException(
+                "ImageIO could not create a PNG destination.");
+        destination.AddImage(image, options);
+        if (!destination.Close())
+        {
+            throw new InvalidOperationException(
+                "ImageIO could not encode the thumbnail.");
+        }
+        return data.ToArray();
+    }
+
+    private static TimeSpan GetCompositionDuration(
+        IReadOnlyList<MediaCompositionExportClip> clips)
+    {
+        TimeSpan duration = TimeSpan.Zero;
+        for (int index = 0; index < clips.Count; index++)
+        {
+            duration +=
+                clips[index].OriginalDuration -
+                clips[index].TrimTimeFromStart -
+                clips[index].TrimTimeFromEnd;
+        }
+        return duration;
     }
 
     private static int CountEffectClips(
