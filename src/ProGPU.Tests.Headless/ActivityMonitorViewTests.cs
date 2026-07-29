@@ -18,6 +18,7 @@ public sealed class ActivityMonitorViewTests
         Application previousApplication = Application.Current;
         ElementTheme previousTheme = ThemeManager.CurrentTheme;
         VisualThemeFamily previousFamily = ThemeManager.CurrentThemeFamily;
+        TtfFont? previousPopupFont = PopupService.DefaultFont;
         try
         {
             var application = new App();
@@ -72,12 +73,42 @@ public sealed class ActivityMonitorViewTests
             Assert.True(bluePixels > 50, $"Expected chart blue accents, found {bluePixels} blue pixels.");
             Assert.Equal(ActivityCategory.Cpu, view.ActiveCategory);
             Assert.Equal(48, view.VisibleProcessCount);
+
+            foreach (ActivityCategory category in Enum.GetValues<ActivityCategory>())
+            {
+                view.SelectCategory(category);
+                window.Render();
+                window.Render();
+                Assert.True(view.VisibleProcessCount > 0);
+                byte[] categoryPixels = window.ReadPixels();
+                int darkLeftPixels = 0;
+                for (int y = 0; y < 700; y++)
+                {
+                    for (int x = 0; x < 400; x++)
+                    {
+                        int pixel = (y * 1440 + x) * 4;
+                        if (categoryPixels[pixel] < 100 &&
+                            categoryPixels[pixel + 1] < 100 &&
+                            categoryPixels[pixel + 2] < 100)
+                        {
+                            darkLeftPixels++;
+                        }
+                    }
+                }
+                Assert.True(
+                    darkLeftPixels > 200,
+                    $"Expected {category} content in the left process column, found {darkLeftPixels} dark pixels.");
+                window.SaveScreenshot(Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    $"activity_monitor_{category.ToString().ToLowerInvariant()}.png"));
+            }
         }
         finally
         {
             Application.Current = previousApplication;
             ThemeManager.CurrentTheme = previousTheme;
             ThemeManager.CurrentThemeFamily = previousFamily;
+            PopupService.DefaultFont = previousPopupFont;
         }
     }
 
@@ -85,6 +116,9 @@ public sealed class ActivityMonitorViewTests
     public void CategoriesAndSearchReconfigureTheProcessTable()
     {
         Application previousApplication = Application.Current;
+        ElementTheme previousTheme = ThemeManager.CurrentTheme;
+        VisualThemeFamily previousFamily = ThemeManager.CurrentThemeFamily;
+        TtfFont? previousPopupFont = PopupService.DefaultFont;
         try
         {
             Application.Current = new App();
@@ -112,6 +146,9 @@ public sealed class ActivityMonitorViewTests
         finally
         {
             Application.Current = previousApplication;
+            ThemeManager.CurrentTheme = previousTheme;
+            ThemeManager.CurrentThemeFamily = previousFamily;
+            PopupService.DefaultFont = previousPopupFont;
         }
     }
 

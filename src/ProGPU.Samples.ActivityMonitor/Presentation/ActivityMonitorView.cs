@@ -28,7 +28,14 @@ internal sealed class ActivityMonitorView : Grid
     private TextBlock _status = null!;
     private TextBox _search = null!;
     private readonly Grid _footer;
-    private readonly HistoryGraph _history;
+    private readonly Dictionary<ActivityCategory, HistoryGraph> _histories = new()
+    {
+        [ActivityCategory.Cpu] = new HistoryGraph(),
+        [ActivityCategory.Memory] = new HistoryGraph(),
+        [ActivityCategory.Energy] = new HistoryGraph(),
+        [ActivityCategory.Disk] = new HistoryGraph(),
+        [ActivityCategory.Network] = new HistoryGraph()
+    };
     private Grid? _historyHost;
     private readonly Dictionary<ActivityCategory, Button> _categoryButtons = new();
     private ActivitySnapshot? _snapshot;
@@ -83,7 +90,6 @@ internal sealed class ActivityMonitorView : Grid
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(0, 14, 0, 14)
         };
-        _history = new HistoryGraph();
         AddChild(_footer);
         SetRow(_footer, 2);
 
@@ -354,6 +360,9 @@ internal sealed class ActivityMonitorView : Grid
         ConfigureColumns();
         BuildFooter();
         RefreshVisibleRows();
+        InvalidateMeasure();
+        InvalidateArrange();
+        Invalidate();
     }
 
     private void ConfigureColumns()
@@ -412,6 +421,8 @@ internal sealed class ActivityMonitorView : Grid
                 AddColumn("User", 180, "User");
                 break;
         }
+        _dataGrid.InvalidateMeasure();
+        _dataGrid.InvalidateArrange();
     }
 
     private void AddColumn(string header, DataGridLength width, string property)
@@ -508,7 +519,7 @@ internal sealed class ActivityMonitorView : Grid
         switch (_category)
         {
             case ActivityCategory.Cpu:
-                _history.Append(system.UserCpuPercent, system.SystemCpuPercent);
+                ActiveHistory.Append(system.UserCpuPercent, system.SystemCpuPercent);
                 AddFooterPanel(0, "CPU", [
                     $"System:  {system.SystemCpuPercent:N1}%",
                     $"User:      {system.UserCpuPercent:N1}%",
@@ -521,7 +532,7 @@ internal sealed class ActivityMonitorView : Grid
                 ]);
                 break;
             case ActivityCategory.Memory:
-                _history.Append(system.UsedMemoryBytes, system.PhysicalMemoryBytes);
+                ActiveHistory.Append(system.UsedMemoryBytes, system.PhysicalMemoryBytes);
                 AddFooterGraph(0, "MEMORY PRESSURE");
                 AddFooterPanel(1, "MEMORY", [
                     $"Physical Memory: {ActivityMetricFormatter.Bytes(system.PhysicalMemoryBytes)}",
@@ -537,7 +548,7 @@ internal sealed class ActivityMonitorView : Grid
                 break;
             case ActivityCategory.Energy:
                 double energy = snapshot.Processes.Where(item => item.IsApplication).Sum(item => item.EnergyImpact);
-                _history.Append(energy);
+                ActiveHistory.Append(energy);
                 AddFooterGraph(0, "ENERGY IMPACT");
                 AddFooterPanel(1, "POWER", [
                     $"Remaining charge: {system.Battery.ChargePercent:N0}%",
@@ -551,7 +562,7 @@ internal sealed class ActivityMonitorView : Grid
                 ]);
                 break;
             case ActivityCategory.Disk:
-                _history.Append(diskReadRate, diskWriteRate);
+                ActiveHistory.Append(diskReadRate, diskWriteRate);
                 AddFooterPanel(0, "OPERATIONS", [
                     $"Reads in/sec:    {ActivityMetricFormatter.Bytes(diskReadRate)}",
                     $"Writes out/sec: {ActivityMetricFormatter.Bytes(diskWriteRate)}"
@@ -565,7 +576,7 @@ internal sealed class ActivityMonitorView : Grid
                 ]);
                 break;
             case ActivityCategory.Network:
-                _history.Append(networkReadRate, networkWriteRate);
+                ActiveHistory.Append(networkReadRate, networkWriteRate);
                 AddFooterPanel(0, "PACKETS", [
                     $"Data received/sec: {ActivityMetricFormatter.Bytes(networkReadRate)}",
                     $"Data sent/sec:         {ActivityMetricFormatter.Bytes(networkWriteRate)}"
@@ -601,9 +612,10 @@ internal sealed class ActivityMonitorView : Grid
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         });
-        panel.AddChild(_history);
+        HistoryGraph history = ActiveHistory;
+        panel.AddChild(history);
         _historyHost = panel;
-        SetRow(_history, 1);
+        SetRow(history, 1);
         _footer.AddChild(panel);
         SetColumn(panel, column);
     }
@@ -645,6 +657,8 @@ internal sealed class ActivityMonitorView : Grid
         _footer.AddChild(border);
         SetColumn(border, column);
     }
+
+    private HistoryGraph ActiveHistory => _histories[_category];
 
     private static long Rate(long current, long? previous, double elapsedSeconds) =>
         previous.HasValue
