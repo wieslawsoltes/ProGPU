@@ -34,9 +34,21 @@ public static class MediaPlayerPage
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Stretch = Stretch.Uniform,
-            AutoPlay = false
+            AutoPlay = false,
+            AreTransportControlsEnabled = true
         };
         MediaPlayer player = playerElement.MediaPlayer;
+        MediaTransportControls transport =
+            playerElement.TransportControls!;
+        transport.ShowAndHideAutomatically = false;
+        transport.IsSkipBackwardButtonVisible = true;
+        transport.IsSkipBackwardEnabled = true;
+        transport.IsSkipForwardButtonVisible = true;
+        transport.IsSkipForwardEnabled = true;
+        transport.IsPlaybackRateButtonVisible = true;
+        transport.IsPlaybackRateEnabled = true;
+        transport.IsRepeatButtonVisible = true;
+        transport.IsRepeatEnabled = true;
         var mediaMaterial =
             new ProGpuMediaTextureMaterial
             {
@@ -380,19 +392,19 @@ public static class MediaPlayerPage
         sourceRow.AddChild(load);
         sourceRow.AddChild(open);
 
-        var transport = new StackPanel
+        var transportRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 8, 0, 8)
         };
-        transport.AddChild(play);
-        transport.AddChild(pause);
-        transport.AddChild(previousFrame);
-        transport.AddChild(nextFrame);
-        transport.AddChild(mute);
-        transport.AddChild(loop);
-        transport.AddChild(mirror);
-        transport.AddChild(use3D);
+        transportRow.AddChild(play);
+        transportRow.AddChild(pause);
+        transportRow.AddChild(previousFrame);
+        transportRow.AddChild(nextFrame);
+        transportRow.AddChild(mute);
+        transportRow.AddChild(loop);
+        transportRow.AddChild(mirror);
+        transportRow.AddChild(use3D);
 
         var preview = new StackPanel
         {
@@ -403,7 +415,7 @@ public static class MediaPlayerPage
         preview.AddChild(sourceRow);
         preview.AddChild(videoHost);
         preview.AddChild(position);
-        preview.AddChild(transport);
+        preview.AddChild(transportRow);
         preview.AddChild(status);
 
         var effects = new StackPanel

@@ -106,9 +106,13 @@ design.
   [WebGPU coordinate and sampler contract](https://gpuweb.github.io/gpuweb/#coordinate-systems)
   establishes normalized texture coordinates and clamp-to-edge behavior.
 - [Windows App SDK `MediaPlayerElement`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement)
-  and [MediaPlayerPresenter](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerpresenter)
+  and [MediaPlayerPresenter](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerpresenter),
+  [`MediaPlayerElement.PosterSource`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement.postersource),
+  [`MediaTransportControls`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediatransportcontrols),
+  [`AreTransportControlsEnabled`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement.aretransportcontrolsenabled),
+  and [`ThumbnailRequested`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediatransportcontrols.thumbnailrequested)
   establish the lightweight control/presenter split and `Stretch`,
-  `IsFullWindow`, source, and transport-control contracts.
+  `IsFullWindow`, source, poster, and transport-control contracts.
 - [`Windows.Media.Editing.MediaComposition`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.mediacomposition)
   and [`MediaClip`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.mediaclip)
   establish ordered clip ownership, non-destructive start/end trimming,
@@ -923,6 +927,33 @@ ProGPU can provide the documented semantics on every registered provider.
 `Windows.Media.MediaProperties.MediaRotation` type rather than declaring a
 lookalike enum in the playback namespace. Crop, mirroring, and rotation are
 shared by the 2D presenter and Mesh3D material path.
+`MediaTransportControls` uses the official property names and documented
+defaults, remains linked to the element's player through
+`MediaPlaybackCommandManager`, and exposes the official
+`ThumbnailRequested` event with `GetDeferral` and
+`SetThumbnailImage(IInputStream)`. Its retained command elements are created
+once, use dynamic theme resources, update status text at most once per media
+second, drop optional commands by the official attached dropout order when
+width is constrained, and auto-hide after inactivity while pointer
+interaction restores them. Disabling the command manager disables command
+dispatch rather than bypassing the documented link. Encoded seek thumbnails
+are read asynchronously through a pooled 32 KiB buffer with a 16 MiB bound;
+the newest completed request wins and only final image decoding/upload is
+demand-driven on the render device. `MediaPlayerElement.PosterSource` accepts
+the portable `ImageSource` contract, uses the same `Stretch` as video, remains
+visible before the first decoded video frame or for audio-only media, and
+hides on the first leased GPU frame.
+
+This control behavior was designed clean-room from the public Microsoft Learn
+contracts above and the
+[public Microsoft UI XAML API metadata](https://github.com/microsoft/microsoft-ui-xaml/blob/main/src/dxaml/xcp/tools/XCPTypesAutoGen/XamlOM/Model/Microsoft.UI.Xaml.Controls.cs).
+ProGPU adopts the observable defaults, command-manager link,
+dropout ordering, poster transition, and thumbnail deferral contract. It
+adapts WinUI's template states into a retained typed control tree so the same
+behavior is reusable by Avalonia, LibreWPF, and LibreWinForms hosts. It rejects
+private WinUI template implementation details, Windows-only media objects,
+reflection-based template lookup, and any claim that encoded poster or
+thumbnail decoding is zero-copy.
 `MediaPlaybackItem(MediaSource, StartTime, DurationLimit)` is enforced by the
 framework-neutral engine instead of being facade-only metadata: provider
 absolute timestamps are projected into an item-relative session, seeks add

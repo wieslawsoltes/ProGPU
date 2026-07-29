@@ -1171,12 +1171,18 @@ public sealed class WinUiAnimationObjectModelTests
             global::Windows.Media.Playback.MediaPlaybackState.None,
             element.MediaPlayer.PlaybackSession.PlaybackState);
         Assert.NotNull(element.TransportControls);
-        Assert.Equal(2, element.Children.Count);
+        Assert.Same(
+            element.MediaPlayer,
+            element.TransportControls!.AttachedMediaPlayer);
+        Assert.Equal(3, element.Children.Count);
 
         element.AreTransportControlsEnabled = false;
 
-        Assert.Single(element.Children);
-        element.TransportControls!.Hide();
+        Assert.Equal(2, element.Children.Count);
+        Assert.Same(
+            element.MediaPlayer,
+            element.TransportControls.AttachedMediaPlayer);
+        element.TransportControls.Hide();
         Assert.Equal(Visibility.Collapsed, element.TransportControls.Visibility);
         Assert.Equal(0, (int)FastPlayFallbackBehaviour.Skip);
         Assert.Equal(2, (int)FastPlayFallbackBehaviour.Disable);

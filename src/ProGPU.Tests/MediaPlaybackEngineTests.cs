@@ -1,5 +1,7 @@
 using System.Numerics;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Media3D;
 using ProGPU.Backend;
@@ -21,6 +23,7 @@ using Windows.Media.Core;
 using Windows.Media;
 using Windows.Media.Playback;
 using Windows.Media.MediaProperties;
+using Windows.Storage.Streams;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -2738,6 +2741,285 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void WinUiTransportControlDefaultsMatchOfficialContract()
+    {
+        var controls = new MediaTransportControls();
+
+        Assert.True(controls.IsZoomButtonVisible);
+        Assert.True(controls.IsZoomEnabled);
+        Assert.False(controls.IsFastForwardButtonVisible);
+        Assert.False(controls.IsFastForwardEnabled);
+        Assert.False(controls.IsFastRewindButtonVisible);
+        Assert.False(controls.IsFastRewindEnabled);
+        Assert.False(controls.IsStopButtonVisible);
+        Assert.False(controls.IsStopEnabled);
+        Assert.True(controls.IsVolumeButtonVisible);
+        Assert.True(controls.IsVolumeEnabled);
+        Assert.False(
+            controls.IsPlaybackRateButtonVisible);
+        Assert.False(controls.IsPlaybackRateEnabled);
+        Assert.True(controls.IsSeekBarVisible);
+        Assert.True(controls.IsSeekEnabled);
+        Assert.False(controls.IsCompact);
+        Assert.False(controls.IsSkipForwardButtonVisible);
+        Assert.False(controls.IsSkipForwardEnabled);
+        Assert.False(
+            controls.IsSkipBackwardButtonVisible);
+        Assert.False(controls.IsSkipBackwardEnabled);
+        Assert.False(controls.IsNextTrackButtonVisible);
+        Assert.False(
+            controls.IsPreviousTrackButtonVisible);
+        Assert.Equal(
+            FastPlayFallbackBehaviour.Skip,
+            controls.FastPlayFallbackBehaviour);
+        Assert.True(controls.ShowAndHideAutomatically);
+        Assert.False(controls.IsRepeatEnabled);
+        Assert.False(controls.IsRepeatButtonVisible);
+    }
+
+    [Fact]
+    public void WinUiTransportControlsDriveAttachedPlayer()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        var element = new MediaPlayerElement();
+        element.SetMediaPlayer(player);
+        MediaTransportControls controls =
+            Assert.IsType<MediaTransportControls>(
+                element.TransportControls);
+        controls.IsStopEnabled = true;
+        controls.IsRepeatEnabled = true;
+        controls.IsPlaybackRateEnabled = true;
+
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/transport.mp4"));
+        element.Source = source;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+
+        Assert.Same(player, controls.AttachedMediaPlayer);
+
+        controls.ExecutePlayPause();
+        Assert.Equal(1, provider.PlayCalls);
+
+        provider.Report(new MediaPlaybackSnapshot(
+            MediaEnginePlaybackState.Playing,
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            TransportCapabilities()));
+        controls.ExecutePlayPause();
+        Assert.Equal(1, provider.PauseCalls);
+
+        controls.ExecuteSeek(TimeSpan.FromSeconds(37));
+        Assert.Equal(
+            TimeSpan.FromSeconds(37),
+            provider.LastSeek);
+
+        controls.ExecuteVolume(0.25d);
+        Assert.Equal(0.25d, provider.Volume);
+
+        controls.ExecutePlaybackRate(1.5d);
+        Assert.Equal(1.5d, provider.Rate);
+
+        controls.ExecuteRepeat();
+        Assert.True(provider.Looping);
+
+        controls.ExecuteStop();
+        Assert.Equal(2, provider.PauseCalls);
+        Assert.Equal(TimeSpan.Zero, provider.LastSeek);
+
+        player.CommandManager.IsEnabled = false;
+        controls.ExecutePlayPause();
+        controls.ExecuteSeek(TimeSpan.FromSeconds(10));
+        controls.ExecuteVolume(0.75d);
+
+        Assert.Equal(1, provider.PlayCalls);
+        Assert.Equal(TimeSpan.Zero, provider.LastSeek);
+        Assert.Equal(0.25d, provider.Volume);
+
+        static MediaProviderCapabilities
+            TransportCapabilities() =>
+            new(
+                CanPause: true,
+                CanSeek: true,
+                SupportsRate: true,
+                SupportsFrameStepping: true,
+                HardwareDecoded: true,
+                HasAudio: true,
+                HasVideo: true);
+    }
+
+    [Fact]
+    public void WinUiPlayerPointerRestoresAutoHiddenControls()
+    {
+        var element = new MediaPlayerElement
+        {
+            Width = 640f,
+            Height = 360f,
+            AreTransportControlsEnabled = true
+        };
+        element.Measure(new Vector2(640f, 360f));
+        element.Arrange(
+            new ProGPU.Scene.Rect(
+                0f,
+                0f,
+                640f,
+                360f));
+        MediaTransportControls controls =
+            Assert.IsType<MediaTransportControls>(
+                element.TransportControls);
+        controls.Hide();
+        WindowInputState previous = InputSystem.Current;
+        try
+        {
+            InputSystem.Current =
+                InputSystem.CreateExternalState(element);
+            FrameworkElement hit =
+                Assert.IsAssignableFrom<FrameworkElement>(
+                    InputSystem.HitTest(
+                        new Vector2(320f, 180f)));
+
+            hit.OnPointerPressed(
+                new PointerRoutedEventArgs
+                {
+                    Position =
+                        new Vector2(320f, 180f)
+                });
+
+            Assert.Equal(
+                Visibility.Visible,
+                controls.Visibility);
+        }
+        finally
+        {
+            InputSystem.Current = previous;
+        }
+    }
+
+    [Fact]
+    public void WinUiTransportControlsRenderVisibleChrome()
+    {
+        using var window = new HeadlessWindow(640, 360);
+        var element = new MediaPlayerElement
+        {
+            Width = 640f,
+            Height = 360f
+        };
+        window.Content = element;
+        window.Render();
+        byte[] hiddenPixels = window.ReadPixels();
+
+        element.AreTransportControlsEnabled = true;
+        element.TransportControls!
+            .ShowAndHideAutomatically = false;
+        window.Render();
+        byte[] visiblePixels = window.ReadPixels();
+
+        int changedPixels = 0;
+        for (int offset = 0;
+             offset < hiddenPixels.Length;
+             offset += 4)
+        {
+            if (!hiddenPixels.AsSpan(offset, 4)
+                    .SequenceEqual(
+                        visiblePixels.AsSpan(offset, 4)))
+            {
+                changedPixels++;
+            }
+        }
+
+        Assert.True(
+            changedPixels >= 1_000,
+            $"Expected visible transport chrome, but only " +
+            $"{changedPixels} pixels changed.");
+    }
+
+    [Fact]
+    public void WinUiThumbnailRequestHonorsDeferralAndStream()
+    {
+        var element = new MediaPlayerElement();
+        MediaTransportControls controls =
+            Assert.IsType<MediaTransportControls>(
+                element.TransportControls);
+        var stream = new TestInputStream();
+        Windows.Foundation.Deferral? deferral = null;
+        int raised = 0;
+        controls.ThumbnailRequested +=
+            (_, args) =>
+            {
+                raised++;
+                deferral = args.GetDeferral();
+                args.SetThumbnailImage(stream);
+            };
+
+        controls.RaiseThumbnailRequested();
+
+        Assert.Equal(1, raised);
+        Assert.Null(controls.LastThumbnailImage);
+
+        deferral!.Complete();
+
+        Assert.Same(
+            stream,
+            controls.LastThumbnailImage);
+    }
+
+    [Fact]
+    public void WinUiPlayerElementShowsPosterUntilFirstVideoFrame()
+    {
+        using var player = new MediaPlayer();
+        var element = new MediaPlayerElement();
+        element.SetMediaPlayer(player);
+        var poster =
+            new EncodedImageSource(
+                new byte[] { 1, 2, 3, 4 },
+                suggestedWidth: 320,
+                suggestedHeight: 180);
+
+        element.PosterSource = poster;
+        element.Stretch = Stretch.UniformToFill;
+
+        Assert.Same(poster, element.PosterImage.Source);
+        Assert.Equal(
+            Stretch.UniformToFill,
+            element.PosterImage.Stretch);
+        Assert.Equal(
+            Visibility.Visible,
+            element.PosterImage.Visibility);
+
+        player.GetProGpuSurface().Publish(
+            CreateFrame(sequence: 91));
+
+        Assert.Equal(
+            Visibility.Collapsed,
+            element.PosterImage.Visibility);
+
+        using MediaSource nextSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/next-poster.mp4"));
+        element.Source = nextSource;
+
+        Assert.Equal(
+            Visibility.Visible,
+            element.PosterImage.Visibility);
+    }
+
+    [Fact]
     public void WinUiPlayerProjectsLegacyStateAndProviderConfiguration()
     {
         var registry = new MediaProviderRegistry();
@@ -3311,6 +3593,13 @@ public sealed class MediaPlaybackEngineTests
 
         public void Dispose() =>
             Interlocked.Exchange(ref _disposed, 1);
+    }
+
+    private sealed class TestInputStream : IInputStream
+    {
+        private readonly MemoryStream _stream = new();
+
+        public Stream AsStream() => _stream;
     }
 
     private sealed class TestGpuFrame :
