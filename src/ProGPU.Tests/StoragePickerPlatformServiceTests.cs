@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Windows.Storage;
 using Xunit;
 
 namespace ProGPU.Tests;

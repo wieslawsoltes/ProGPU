@@ -1147,6 +1147,8 @@ public unsafe partial class Compositor : IDisposable
         public TextureSamplingMode TextureSamplingMode;
         public byte TextureMaxAnisotropy;
         public GpuTextureAlphaMode TextureAlphaMode;
+        public bool HasImageEffect;
+        public ImageEffectCommandData ImageEffect;
 
         // Custom Extension properties
         public int ExtensionId;
@@ -1169,6 +1171,7 @@ public unsafe partial class Compositor : IDisposable
     private readonly List<VectorVertex> _vectorVerticesList = new();
     private readonly List<uint> _vectorIndicesList = new();
     private readonly List<GlyphInstance> _textVerticesList = new();
+    private static readonly ulong GlyphInstanceStride = (ulong)Unsafe.SizeOf<GlyphInstance>();
     private readonly List<VectorVertex> _textureVerticesList = new();
     private readonly List<uint> _textureIndicesList = new();
     public readonly struct TextureCacheKey : IEquatable<TextureCacheKey>
@@ -1224,6 +1227,8 @@ public unsafe partial class Compositor : IDisposable
     }
 
     private readonly List<CompositorDrawCall> _drawCalls = new();
+    private readonly List<RetainedResourceLease>
+        _frameRetainedResources = new();
     private readonly List<CompiledVisualVersion> _compiledExternalLayers = new();
     private readonly List<CompiledLayerVersion> _compiledLayerOwners = new();
     private readonly Dictionary<TextureCacheKey, CachedBindGroup> _persistentTextureBindGroups = new();
@@ -2539,7 +2544,22 @@ public unsafe partial class Compositor : IDisposable
                 ProGpuSceneDiagnostics.WriteLine(
                     "[Compositor] Retrying frame compilation after recoverable PathAtlas capacity exhaustion.");
             }
+            finally
+            {
+                ReleaseFrameRetainedResources();
+            }
         }
+    }
+
+    private void ReleaseFrameRetainedResources()
+    {
+        for (int index = 0;
+             index < _frameRetainedResources.Count;
+             index++)
+        {
+            _frameRetainedResources[index].Dispose();
+        }
+        _frameRetainedResources.Clear();
     }
 
     private void RenderSceneCore(Visual root, uint width, uint height, TextureView* targetView)
@@ -3189,8 +3209,10 @@ SceneStateUploadComplete:
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -3691,6 +3713,7 @@ SceneStateUploadComplete:
         _compiledSceneCacheStateReason =
             !Options.EnableCompiledSceneCache ? "Compiled scene cache disabled" :
             hasDynamicDiagnostics ? "Dynamic diagnostics active" :
+            _frameRetainedResources.Count != 0 ? "Frame-owned resources active" :
             _compiledSceneContainsDrawingVisual ? "Drawing visuals active" :
             _maskRenderPasses.Count != 0 ? "Mask render passes active" :
             _effectTextures.Count != 0 ? "Effects active" :
@@ -4892,6 +4915,8 @@ SceneStateUploadComplete:
             {
                 if (usesPooledContext)
                 {
+                    ctx.MoveRetainedResourcesTo(
+                        _frameRetainedResources);
                     ctx.Clear();
                     ReleaseDrawingContext();
                 }
@@ -5181,6 +5206,10 @@ SceneStateUploadComplete:
             IntParam = localCommand.IntParam,
             FloatParam = localCommand.FloatParam,
             DataParam = localCommand.DataParam,
+            Texture = localCommand.Texture,
+            TextureSamplingMode = localCommand.TextureSamplingMode,
+            HasImageEffect = localCommand.HasImageEffect,
+            ImageEffect = localCommand.ImageEffect,
             PointBufferOffset = (int)_pendingVectorStart,
             PointBufferCount =
                 (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
@@ -5455,6 +5484,10 @@ SceneStateUploadComplete:
                                 IntParam = localCmd.IntParam,
                                 FloatParam = localCmd.FloatParam,
                                 DataParam = localCmd.DataParam,
+                                Texture = localCmd.Texture,
+                                TextureSamplingMode = localCmd.TextureSamplingMode,
+                                HasImageEffect = localCmd.HasImageEffect,
+                                ImageEffect = localCmd.ImageEffect,
                                 PointBufferOffset = (int)_pendingVectorStart,
                                 PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
                                 DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -14443,8 +14476,10 @@ SceneStateUploadComplete:
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -15145,6 +15180,10 @@ SceneStateUploadComplete:
                                     IntParam = localCmd.IntParam,
                                     FloatParam = localCmd.FloatParam,
                                     DataParam = localCmd.DataParam,
+                                    Texture = localCmd.Texture,
+                                    TextureSamplingMode = localCmd.TextureSamplingMode,
+                                    HasImageEffect = localCmd.HasImageEffect,
+                                    ImageEffect = localCmd.ImageEffect,
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -15590,6 +15629,10 @@ SceneStateUploadComplete:
                                     IntParam = localCmd.IntParam,
                                     FloatParam = localCmd.FloatParam,
                                     DataParam = localCmd.DataParam,
+                                    Texture = localCmd.Texture,
+                                    TextureSamplingMode = localCmd.TextureSamplingMode,
+                                    HasImageEffect = localCmd.HasImageEffect,
+                                    ImageEffect = localCmd.ImageEffect,
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -15942,14 +15985,17 @@ SceneStateUploadComplete:
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 1, atlasBg, 0, null);
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
 
-                    if (sb.TextVertexBuffer != null)
-                    {
-                        var buffer = sb.TextVertexBuffer.BufferPtr;
-                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.TextVertexBuffer.Size);
-                    }
                     currentType = DrawCallType.Text;
                 }
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+
+                if (sb.TextVertexBuffer != null)
+                {
+                    var buffer = sb.TextVertexBuffer.BufferPtr;
+                    var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                    var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                    _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
+                }
             }
             else if (dc.Type == DrawCallType.Extension)
             {
@@ -18170,11 +18216,14 @@ SceneStateUploadComplete:
                         }
                         _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
-                        var buffer = _textVertexBuffer.BufferPtr;
-                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
                         currentType = DrawCallType.Text;
                     }
-                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+
+                    var buffer = _textVertexBuffer.BufferPtr;
+                    var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                    var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                    _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
                 }
                 else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
                 {

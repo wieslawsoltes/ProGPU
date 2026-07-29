@@ -3,6 +3,14 @@
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
   <Project Path="ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
+  <Project Path="ProGPU.Media/ProGPU.Media.csproj" />
+  <Project Path="ProGPU.Media.Editing/ProGPU.Media.Editing.csproj" />
+  <Project Path="ProGPU.Media.Scene/ProGPU.Media.Scene.csproj" />
+  <Project Path="ProGPU.WinRT/ProGPU.WinRT.csproj" />
+  <Project Path="ProGPU.Apple.Media/ProGPU.Apple.Media.csproj" />
+  <Project Path="ProGPU.Windows.Media/ProGPU.Windows.Media.csproj" />
+  <Project Path="ProGPU.Android.Media/ProGPU.Android.Media.csproj" />
+  <Project Path="ProGPU.Linux.Media/ProGPU.Linux.Media.csproj" />
   <Project Path="ProGPU.Browser/ProGPU.Browser.csproj" />
   <Project Path="ProGPU.Android/ProGPU.Android.csproj" />
   <Project Path="ProGPU.DirectX/ProGPU.DirectX.csproj" />

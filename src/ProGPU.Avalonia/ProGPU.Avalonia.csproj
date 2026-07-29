@@ -19,5 +19,6 @@
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
   </ItemGroup>
 </Project>

@@ -81,6 +81,25 @@ public class ProGpuHostControlTests
     }
 
     [Fact]
+    public void BackgroundDevicePollingIsLimitedToSilkNativeContexts()
+    {
+        string source = File.ReadAllText(
+            FindProGpuHostControlSource()).Replace(
+                "\r\n",
+                "\n");
+
+        Assert.Contains(
+            "_wgpuContext.BackendKind ==\n            " +
+            "WgpuBackendKind.SilkNative",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_ownsContext)\n            StartPolling();",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HostControlCanFallbackWhenSharedImageImportFails()
     {
         var resizeMethod = typeof(ProGpuHostControl).GetMethod(

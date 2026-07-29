@@ -12,7 +12,9 @@ using System.Text;
 
 namespace System.Drawing;
 
-public class Graphics : IDisposable
+public class Graphics :
+    IDisposable,
+    IProGpuDrawingContextSource
 {
     private readonly DrawingContext _context;
     private readonly Bitmap? _bitmap;
@@ -224,6 +226,32 @@ public class Graphics : IDisposable
     }
 
     private Matrix3x2 CombinedTransform => _transform.Value * GetPageTransform() * _baseTransform;
+
+    bool IProGpuDrawingContextSource.TryGetProGpuDrawingContext(
+        out ProGpuDrawingContextState state)
+    {
+        Matrix3x2 transform = CombinedTransform;
+        state = new ProGpuDrawingContextState(
+            _context,
+            new Matrix4x4(
+                transform.M11,
+                transform.M12,
+                0f,
+                0f,
+                transform.M21,
+                transform.M22,
+                0f,
+                0f,
+                0f,
+                0f,
+                1f,
+                0f,
+                transform.M31,
+                transform.M32,
+                0f,
+                1f));
+        return true;
+    }
 
     private Matrix3x2 GetPageTransform()
     {

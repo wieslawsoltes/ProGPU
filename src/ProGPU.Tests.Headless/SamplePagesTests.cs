@@ -7,6 +7,7 @@ using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.WinUI.Designer;
 using Microsoft.UI.Xaml;
+using Windows.Storage;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
@@ -262,6 +263,22 @@ public class SamplePagesTests : IDisposable
                     brightHeaderPixels > 100,
                     $"The retained rich-text header disappeared after the stabilized second frame ({brightHeaderPixels} bright pixels).");
             });
+    }
+
+    [Fact]
+    public void Test_MediaPlayerPage_Renders()
+    {
+        RunPageTest(
+            MediaPlayerPage.Create(),
+            "GPU Media Player");
+    }
+
+    [Fact]
+    public void Test_NonLinearVideoEditorPage_Renders()
+    {
+        RunPageTest(
+            NonLinearVideoEditorPage.Create(),
+            "Video Editor");
     }
 
     [Fact]

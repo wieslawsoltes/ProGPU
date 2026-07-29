@@ -67,6 +67,122 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void ExternalTextureOwnerIsReleasedOnlyAfterGpuQueueCleanup()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        var descriptor = new TextureDescriptor
+        {
+            Usage = TextureUsage.TextureBinding,
+            Dimension = TextureDimension.Dimension2D,
+            Size = new Extent3D
+            {
+                Width = 4,
+                Height = 4,
+                DepthOrArrayLayers = 1
+            },
+            Format = TextureFormat.Rgba8Unorm,
+            MipLevelCount = 1,
+            SampleCount = 1
+        };
+        Texture* nativeTexture =
+            context.Api.DeviceCreateTexture(
+                context.Device,
+                &descriptor);
+        Assert.True(nativeTexture != null);
+        var owner = new RecordingDisposable();
+        var texture = GpuTexture.WrapOwnedExternal(
+            context,
+            nativeTexture,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding,
+            externalOwner: owner);
+
+        texture.Dispose();
+
+        Assert.False(owner.IsDisposed);
+        Assert.Single(context.PendingExternalTextureOwners);
+        Assert.Single(context.PendingTextures);
+        Assert.Single(context.PendingTextureViews);
+
+        context.CleanupPendingResources();
+
+        Assert.True(owner.IsDisposed);
+        Assert.Empty(context.PendingExternalTextureOwners);
+    }
+
+    [Fact]
+    public unsafe void ContextDisposalReleasesLiveExternalTextureOwner()
+    {
+        var context = new WgpuContext();
+        context.Initialize(null);
+        var descriptor = new TextureDescriptor
+        {
+            Usage = TextureUsage.TextureBinding,
+            Dimension = TextureDimension.Dimension2D,
+            Size = new Extent3D
+            {
+                Width = 4,
+                Height = 4,
+                DepthOrArrayLayers = 1
+            },
+            Format = TextureFormat.Rgba8Unorm,
+            MipLevelCount = 1,
+            SampleCount = 1
+        };
+        Texture* nativeTexture =
+            context.Api.DeviceCreateTexture(
+                context.Device,
+                &descriptor);
+        Assert.True(nativeTexture != null);
+        var owner = new RecordingDisposable();
+        var texture = GpuTexture.WrapOwnedExternal(
+            context,
+            nativeTexture,
+            4,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding,
+            externalOwner: owner);
+
+        context.Dispose();
+
+        Assert.True(texture.IsDisposed);
+        Assert.True(owner.IsDisposed);
+        texture.Dispose();
+    }
+
+    [Fact]
+    public void FailedExternalTextureImportLeavesNativeOwnerWithCaller()
+    {
+        using var context = new WgpuContext();
+        var importer = new RejectingExternalTextureImporter();
+        context.SetExternalTextureImporter(importer);
+        var owner = new RecordingDisposable();
+        var descriptor = new ProGpuExternalTextureDescriptor(
+            ProGpuExternalTextureHandleKind.IOSurface,
+            1,
+            4,
+            4,
+            TextureFormat.Bgra8Unorm,
+            TextureUsage.TextureBinding,
+            GpuTextureAlphaMode.Premultiplied,
+            IsInitialized: true);
+
+        bool imported = context.TryImportExternalTexture(
+            in descriptor,
+            owner,
+            out GpuTexture texture);
+
+        Assert.False(imported);
+        Assert.Null(texture);
+        Assert.False(owner.IsDisposed);
+        Assert.Same(context, importer.LastContext);
+    }
+
+    [Fact]
     public void ChooseSurfaceFormat_PrefersNonSrgbRgbaOverSrgbFirstEntry()
     {
         TextureFormat selected = WgpuContext.ChooseSurfaceFormat(
@@ -442,6 +558,34 @@ public sealed class WgpuContextTests
             return targetMethod?.ReturnType.IsValueType == true
                 ? Activator.CreateInstance(targetMethod.ReturnType)
                 : null;
+        }
+    }
+
+    private sealed class RecordingDisposable : IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            Assert.False(IsDisposed);
+            IsDisposed = true;
+        }
+    }
+
+    private sealed class RejectingExternalTextureImporter :
+        IProGpuExternalTextureImporter
+    {
+        public WgpuContext? LastContext { get; private set; }
+
+        public bool TryImportExternalTexture(
+            WgpuContext targetContext,
+            in ProGpuExternalTextureDescriptor descriptor,
+            IDisposable nativeOwner,
+            out GpuTexture texture)
+        {
+            LastContext = targetContext;
+            texture = null!;
+            return false;
         }
     }
 

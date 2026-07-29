@@ -15,11 +15,58 @@ public static class DawnSharedTextureMemoryFeatures
 {
     private const int DawnNativeEnumBase = 0x0005_0000;
 
+    public static FeatureName SharedTextureMemoryAHardwareBuffer =>
+        (FeatureName)(DawnNativeEnumBase + 30);
+
+    public static FeatureName SharedTextureMemoryDmaBuf =>
+        (FeatureName)(DawnNativeEnumBase + 31);
+
+    public static FeatureName SharedTextureMemoryDXGISharedHandle =>
+        (FeatureName)(DawnNativeEnumBase + 34);
+
+    public static FeatureName SharedTextureMemoryD3D11Texture2D =>
+        (FeatureName)(DawnNativeEnumBase + 35);
+
     public static FeatureName SharedTextureMemoryIOSurface =>
         (FeatureName)(DawnNativeEnumBase + 36);
 
+    public static FeatureName SharedFenceDXGISharedHandle =>
+        (FeatureName)(DawnNativeEnumBase + 41);
+
     public static FeatureName SharedFenceMTLSharedEvent =>
         (FeatureName)(DawnNativeEnumBase + 42);
+
+    public static FeatureName SharedFenceSyncFD =>
+        (FeatureName)(DawnNativeEnumBase + 39);
+
+    public static bool SupportsDxgiSharedHandle(Adapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter.HasFeature(
+            SharedTextureMemoryDXGISharedHandle);
+    }
+
+    public static bool SupportsAHardwareBuffer(Adapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter.HasFeature(
+            SharedTextureMemoryAHardwareBuffer);
+    }
+
+    public static bool SupportsDmaBuf(Adapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter.HasFeature(SharedTextureMemoryDmaBuf);
+    }
+
+    public static bool SupportsAndroidGpuEncoderInterop(
+        Adapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter.HasFeature(
+                   SharedTextureMemoryAHardwareBuffer) &&
+               adapter.HasFeature(SharedFenceSyncFD);
+    }
 
     public static bool SupportsMacPresentation(Adapter adapter)
     {
@@ -47,6 +94,67 @@ public static class DawnSharedTextureMemoryFeatures
         destination[0] = SharedTextureMemoryIOSurface;
         destination[1] = SharedFenceMTLSharedEvent;
         return 2;
+    }
+}
+
+/// <summary>
+/// Owns a duplicated POSIX sync-file descriptor exported by one Dawn
+/// end-access operation.
+/// </summary>
+/// <remarks>
+/// Dawn owns the descriptor returned by <c>SharedFenceExportInfo</c> and
+/// closes it when the end-access state is freed. ProGPU duplicates it before
+/// freeing that state. The caller may transfer the duplicate to EGL with
+/// <see cref="DetachHandle"/>; otherwise <see cref="Dispose"/> closes it.
+/// </remarks>
+public sealed class DawnSyncFdEndAccessResult : IDisposable
+{
+    private int _handle = -1;
+
+    public bool Initialized { get; private set; }
+
+    public int Handle => Volatile.Read(ref _handle);
+
+    public bool HasFence => Handle >= 0;
+
+    public ulong SignaledValue { get; private set; }
+
+    public int DetachHandle()
+    {
+        int handle = Interlocked.Exchange(ref _handle, -1);
+        if (handle < 0)
+        {
+            throw new InvalidOperationException(
+                "The end-access result does not own a sync-file descriptor.");
+        }
+
+        return handle;
+    }
+
+    public void Dispose()
+    {
+        int handle = Interlocked.Exchange(ref _handle, -1);
+        if (handle >= 0)
+        {
+            PosixFileDescriptor.Close(handle);
+        }
+    }
+
+    internal void Set(
+        bool initialized,
+        int handle,
+        ulong signaledValue)
+    {
+        int previous = Interlocked.Exchange(
+            ref _handle,
+            handle);
+        if (previous >= 0 && previous != handle)
+        {
+            PosixFileDescriptor.Close(previous);
+        }
+
+        Initialized = initialized;
+        SignaledValue = signaledValue;
     }
 }
 
@@ -183,6 +291,167 @@ public sealed unsafe class DawnSharedTextureMemoryFeature
         return new DawnSharedTextureMemory(memory);
     }
 
+    public DawnSharedTextureMemory ImportAHardwareBuffer(
+        nint hardwareBuffer)
+    {
+        if (hardwareBuffer == 0)
+        {
+            throw new ArgumentException(
+                "A valid AHardwareBuffer is required.",
+                nameof(hardwareBuffer));
+        }
+
+        var hardwareBufferDescriptor =
+            new DawnSharedTextureMemoryAHardwareBufferDescriptorNative
+            {
+                Chain = new ChainedStruct
+                {
+                    SType =
+                        SType
+                            .SharedTextureMemoryAHardwareBufferDescriptor
+                },
+                Handle = hardwareBuffer
+            };
+        var descriptor = new DawnSharedTextureMemoryDescriptorNative
+        {
+            NextInChain = &hardwareBufferDescriptor.Chain,
+            Label = StringViewFFI.NullValue
+        };
+        nint memory =
+            DawnNativeSharedTextureMemory
+                .DeviceImportSharedTextureMemory(
+                    _device,
+                    &descriptor);
+        if (memory == 0)
+        {
+            throw new InvalidOperationException(
+                "Dawn could not import the AHardwareBuffer.");
+        }
+
+        return new DawnSharedTextureMemory(memory);
+    }
+
+    public DawnSharedTextureMemory ImportDmaBuf(
+        uint width,
+        uint height,
+        in ProGpuDmaBufDescriptor dmaBuf)
+    {
+        if (width == 0 || height == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                "DMA-BUF dimensions must be nonzero.");
+        }
+        if (dmaBuf.PlaneCount is 0 or > 4)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(dmaBuf),
+                "DMA-BUF images require between one and four planes.");
+        }
+
+        DawnSharedTextureMemoryDmaBufPlaneNative* planes =
+            stackalloc DawnSharedTextureMemoryDmaBufPlaneNative[
+                checked((int)dmaBuf.PlaneCount)];
+        for (int index = 0;
+             index < checked((int)dmaBuf.PlaneCount);
+             index++)
+        {
+            ProGpuDmaBufPlane source = dmaBuf.GetPlane(index);
+            if (source.FileDescriptor < 0 || source.Stride == 0)
+            {
+                throw new ArgumentException(
+                    "Every DMA-BUF plane requires a valid file descriptor and stride.",
+                    nameof(dmaBuf));
+            }
+            planes[index] =
+                new DawnSharedTextureMemoryDmaBufPlaneNative
+                {
+                    FileDescriptor = source.FileDescriptor,
+                    Offset = source.Offset,
+                    Stride = source.Stride
+                };
+        }
+
+        var dmaBufDescriptor =
+            new DawnSharedTextureMemoryDmaBufDescriptorNative
+            {
+                Chain = new ChainedStruct
+                {
+                    SType =
+                        SType.SharedTextureMemoryDmaBufDescriptor
+                },
+                Size = new Extent3D
+                {
+                    Width = width,
+                    Height = height,
+                    DepthOrArrayLayers = 1
+                },
+                DrmFormat = dmaBuf.DrmFormat,
+                DrmModifier = dmaBuf.DrmModifier,
+                PlaneCount = dmaBuf.PlaneCount,
+                Planes = planes
+            };
+        var descriptor = new DawnSharedTextureMemoryDescriptorNative
+        {
+            NextInChain = &dmaBufDescriptor.Chain,
+            Label = StringViewFFI.NullValue
+        };
+        nint memory =
+            DawnNativeSharedTextureMemory
+                .DeviceImportSharedTextureMemory(
+                    _device,
+                    &descriptor);
+        if (memory == 0)
+        {
+            throw new InvalidOperationException(
+                "Dawn could not import the DMA-BUF image.");
+        }
+
+        return new DawnSharedTextureMemory(memory);
+    }
+
+    public DawnSharedTextureMemory ImportDXGISharedHandle(
+        nint sharedHandle,
+        bool useKeyedMutex = false)
+    {
+        if (sharedHandle == 0)
+        {
+            throw new ArgumentException(
+                "A valid DXGI shared HANDLE is required.",
+                nameof(sharedHandle));
+        }
+
+        var dxgiDescriptor =
+            new DawnSharedTextureMemoryDXGISharedHandleDescriptorNative
+            {
+                Chain = new ChainedStruct
+                {
+                    SType =
+                        SType
+                            .SharedTextureMemoryDXGISharedHandleDescriptor
+                },
+                Handle = sharedHandle,
+                UseKeyedMutex = useKeyedMutex
+            };
+        var descriptor = new DawnSharedTextureMemoryDescriptorNative
+        {
+            NextInChain = &dxgiDescriptor.Chain,
+            Label = StringViewFFI.NullValue
+        };
+        nint memory =
+            DawnNativeSharedTextureMemory
+                .DeviceImportSharedTextureMemory(
+                    _device,
+                    &descriptor);
+        if (memory == 0)
+        {
+            throw new InvalidOperationException(
+                "Dawn could not import the DXGI shared handle.");
+        }
+
+        return new DawnSharedTextureMemory(memory);
+    }
+
     public DawnSharedFence ImportMetalSharedEvent(nint sharedEvent)
     {
         if (sharedEvent == 0)
@@ -212,6 +481,47 @@ public sealed unsafe class DawnSharedTextureMemoryFeature
         {
             throw new InvalidOperationException(
                 "Dawn could not import the MTLSharedEvent.");
+        }
+
+        return new DawnSharedFence(fence);
+    }
+
+    /// <summary>
+    /// Imports one caller-owned POSIX sync-file descriptor. Dawn duplicates
+    /// the descriptor; ownership of <paramref name="syncFd"/> remains with
+    /// the caller.
+    /// </summary>
+    public DawnSharedFence ImportSyncFd(int syncFd)
+    {
+        if (syncFd < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(syncFd),
+                "A valid sync-file descriptor is required.");
+        }
+
+        var syncFdDescriptor =
+            new DawnSharedFenceSyncFDDescriptorNative
+            {
+                Chain = new ChainedStruct
+                {
+                    SType = SType.SharedFenceSyncFDDescriptor
+                },
+                Handle = syncFd
+            };
+        var descriptor = new DawnSharedFenceDescriptorNative
+        {
+            NextInChain = &syncFdDescriptor.Chain,
+            Label = StringViewFFI.NullValue
+        };
+        nint fence =
+            DawnNativeSharedTextureMemory.DeviceImportSharedFence(
+                _device,
+                &descriptor);
+        if (fence == 0)
+        {
+            throw new InvalidOperationException(
+                "Dawn could not import the sync-file fence.");
         }
 
         return new DawnSharedFence(fence);
@@ -343,6 +653,36 @@ public sealed unsafe class DawnSharedTextureMemory : IDisposable
     }
 
     /// <summary>
+    /// Ends read access after the target queue is idle when the native producer
+    /// is synchronized by allocation ownership rather than a shared fence.
+    /// </summary>
+    public void EndAccess(TextureHandle texture)
+    {
+        if (texture == TextureHandle.Null)
+        {
+            throw new ArgumentException(
+                "A live Dawn texture is required.",
+                nameof(texture));
+        }
+        var state =
+            new DawnSharedTextureMemoryEndAccessStateNative();
+        try
+        {
+            ThrowIfError(
+                DawnNativeSharedTextureMemory.SharedTextureMemoryEndAccess(
+                    GetHandle(),
+                    texture,
+                    &state),
+                "end shared texture access");
+        }
+        finally
+        {
+            DawnNativeSharedTextureMemory
+                .SharedTextureMemoryEndAccessStateFreeMembers(state);
+        }
+    }
+
+    /// <summary>
     /// Ends access and updates a caller-owned reusable result without a
     /// per-frame managed allocation.
     /// </summary>
@@ -427,6 +767,117 @@ public sealed unsafe class DawnSharedTextureMemory : IDisposable
                 metalInfo.SharedEvent,
                 state.SignaledValues[0],
                 metalState.CommandsScheduledFuture);
+        }
+        finally
+        {
+            DawnNativeSharedTextureMemory
+                .SharedTextureMemoryEndAccessStateFreeMembers(state);
+        }
+    }
+
+    /// <summary>
+    /// Ends access and duplicates the binary sync-file fence returned by
+    /// Dawn. The duplicate remains valid after Dawn's returned arrays and
+    /// shared-fence references are released.
+    /// </summary>
+    public DawnSyncFdEndAccessResult EndAccessAndExportSyncFd(
+        TextureHandle texture)
+    {
+        var result = new DawnSyncFdEndAccessResult();
+        try
+        {
+            EndAccessAndExportSyncFd(texture, result);
+            return result;
+        }
+        catch
+        {
+            result.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Ends access and updates a caller-owned reusable result without a
+    /// per-frame managed allocation.
+    /// </summary>
+    public void EndAccessAndExportSyncFd(
+        TextureHandle texture,
+        DawnSyncFdEndAccessResult destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (texture == TextureHandle.Null)
+        {
+            throw new ArgumentException(
+                "A live Dawn texture is required.",
+                nameof(texture));
+        }
+
+        var state =
+            new DawnSharedTextureMemoryEndAccessStateNative();
+        ThrowIfError(
+            DawnNativeSharedTextureMemory.SharedTextureMemoryEndAccess(
+                GetHandle(),
+                texture,
+                &state),
+            "end shared texture access");
+        try
+        {
+            if (state.FenceCount != state.SignaledValueCount)
+            {
+                throw new InvalidOperationException(
+                    "Dawn returned mismatched fence and signal-value counts.");
+            }
+            if (state.FenceCount == 0)
+            {
+                destination.Set(
+                    state.Initialized,
+                    -1,
+                    0);
+                return;
+            }
+            if (state.FenceCount != 1 ||
+                state.Fences == null ||
+                state.SignaledValues == null)
+            {
+                throw new NotSupportedException(
+                    "ProGPU currently requires one binary sync-file fence per shared texture access.");
+            }
+
+            var syncFdInfo =
+                new DawnSharedFenceSyncFDExportInfoNative
+                {
+                    Chain = new DawnChainedStructOut
+                    {
+                        SType = SType.SharedFenceSyncFDExportInfo
+                    },
+                    Handle = -1
+                };
+            var exportInfo =
+                new DawnSharedFenceExportInfoNative
+                {
+                    NextInChain = &syncFdInfo.Chain
+                };
+            DawnNativeSharedTextureMemory.SharedFenceExportInfo(
+                state.Fences[0],
+                &exportInfo);
+            if (exportInfo.Type != DawnSharedFenceType.SyncFD ||
+                syncFdInfo.Handle < 0)
+            {
+                throw new InvalidOperationException(
+                    "Dawn did not export a sync-file fence.");
+            }
+            if (state.SignaledValues[0] != 1)
+            {
+                throw new InvalidOperationException(
+                    "A sync-file fence must use the binary signal value 1.");
+            }
+
+            int ownedHandle =
+                PosixFileDescriptor.Duplicate(syncFdInfo.Handle);
+            destination.Set(
+                state.Initialized,
+                ownedHandle,
+                state.SignaledValues[0]);
         }
         finally
         {
@@ -560,6 +1011,40 @@ internal struct DawnSharedTextureMemoryIOSurfaceDescriptorNative
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct DawnSharedTextureMemoryAHardwareBufferDescriptorNative
+{
+    public ChainedStruct Chain;
+    public nint Handle;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct DawnSharedTextureMemoryDmaBufPlaneNative
+{
+    public int FileDescriptor;
+    public ulong Offset;
+    public uint Stride;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct DawnSharedTextureMemoryDmaBufDescriptorNative
+{
+    public ChainedStruct Chain;
+    public Extent3D Size;
+    public uint DrmFormat;
+    public ulong DrmModifier;
+    public nuint PlaneCount;
+    public DawnSharedTextureMemoryDmaBufPlaneNative* Planes;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct DawnSharedTextureMemoryDXGISharedHandleDescriptorNative
+{
+    public ChainedStruct Chain;
+    public nint Handle;
+    public WebGPUBool UseKeyedMutex;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct DawnSharedTextureMemoryPropertiesNative
 {
     public DawnChainedStructOut* NextInChain;
@@ -613,6 +1098,13 @@ internal struct DawnSharedFenceMTLSharedEventDescriptorNative
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct DawnSharedFenceSyncFDDescriptorNative
+{
+    public ChainedStruct Chain;
+    public int Handle;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct DawnSharedFenceExportInfoNative
 {
     public DawnChainedStructOut* NextInChain;
@@ -624,6 +1116,49 @@ internal struct DawnSharedFenceMTLSharedEventExportInfoNative
 {
     public DawnChainedStructOut Chain;
     public nint SharedEvent;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct DawnSharedFenceSyncFDExportInfoNative
+{
+    public DawnChainedStructOut Chain;
+    public int Handle;
+}
+
+internal static partial class PosixFileDescriptor
+{
+    private const string LibC = "libc";
+
+    [LibraryImport(
+        LibC,
+        EntryPoint = "dup",
+        SetLastError = true)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int DuplicateNative(int descriptor);
+
+    [LibraryImport(
+        LibC,
+        EntryPoint = "close",
+        SetLastError = true)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int CloseNative(int descriptor);
+
+    internal static int Duplicate(int descriptor)
+    {
+        int duplicate = DuplicateNative(descriptor);
+        if (duplicate < 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not duplicate the sync-file descriptor: errno {Marshal.GetLastPInvokeError()}.");
+        }
+
+        return duplicate;
+    }
+
+    internal static void Close(int descriptor)
+    {
+        _ = CloseNative(descriptor);
+    }
 }
 
 internal static unsafe partial class DawnNativeSharedTextureMemory

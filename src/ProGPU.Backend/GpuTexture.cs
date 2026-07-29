@@ -32,6 +32,8 @@ public unsafe class GpuTexture : IDisposable
     public static event Action<ulong>? OnDisposedWithId;
 
     private readonly WgpuContext _context;
+    private IDisposable? _externalOwner;
+    private bool _tracksContextDisposal;
     private string _label;
 
     public ulong Id { get; }
@@ -235,7 +237,8 @@ public unsafe class GpuTexture : IDisposable
         TextureFormat format,
         TextureUsage usage,
         string label = "External GpuTexture",
-        GpuTextureAlphaMode alphaMode = GpuTextureAlphaMode.Straight)
+        GpuTextureAlphaMode alphaMode = GpuTextureAlphaMode.Straight,
+        IDisposable? externalOwner = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (texture == null)
@@ -257,7 +260,8 @@ public unsafe class GpuTexture : IDisposable
             format,
             usage,
             label,
-            alphaMode);
+            alphaMode,
+            externalOwner);
     }
 
     private GpuTexture(
@@ -268,7 +272,8 @@ public unsafe class GpuTexture : IDisposable
         TextureFormat format,
         TextureUsage usage,
         string label,
-        GpuTextureAlphaMode alphaMode)
+        GpuTextureAlphaMode alphaMode,
+        IDisposable? externalOwner)
     {
         Id = (ulong)Interlocked.Increment(ref s_idCounter);
         _context = context;
@@ -279,6 +284,7 @@ public unsafe class GpuTexture : IDisposable
         Usage = usage;
         _label = label;
         AlphaMode = alphaMode;
+        _externalOwner = externalOwner;
         Generation = 1;
         ViewGeneration = 1;
 
@@ -297,10 +303,25 @@ public unsafe class GpuTexture : IDisposable
             &viewDescriptor);
         if (ViewPtr == null)
         {
-            _context.Api.TextureRelease(TexturePtr);
-            TexturePtr = null;
+            try
+            {
+                Interlocked.Exchange(
+                    ref _externalOwner,
+                    null)?.Dispose();
+            }
+            finally
+            {
+                _context.Api.TextureRelease(TexturePtr);
+                TexturePtr = null;
+            }
             throw new InvalidOperationException(
                 $"Failed to create a view for external GPU texture {Width}x{Height}.");
+        }
+
+        if (_externalOwner is not null)
+        {
+            WgpuContext.Disposing += OnContextDisposing;
+            _tracksContextDisposal = true;
         }
     }
 
@@ -1694,6 +1715,7 @@ public unsafe class GpuTexture : IDisposable
     private void ReleaseResources(bool immediate = false)
     {
         OnDisposedWithId?.Invoke(Id);
+        StopTrackingContextDisposal();
 
         lock (_context.RenderLock)
         {
@@ -1701,6 +1723,9 @@ public unsafe class GpuTexture : IDisposable
             {
                 ViewPtr = null;
                 TexturePtr = null;
+                Interlocked.Exchange(
+                    ref _externalOwner,
+                    null)?.Dispose();
                 return;
             }
 
@@ -1712,11 +1737,20 @@ public unsafe class GpuTexture : IDisposable
                     ViewPtr = null;
                 }
 
-                if (TexturePtr != null)
+                try
                 {
-                    _context.Api.TextureDestroy(TexturePtr);
-                    _context.Api.TextureRelease(TexturePtr);
-                    TexturePtr = null;
+                    Interlocked.Exchange(
+                        ref _externalOwner,
+                        null)?.Dispose();
+                }
+                finally
+                {
+                    if (TexturePtr != null)
+                    {
+                        _context.Api.TextureDestroy(TexturePtr);
+                        _context.Api.TextureRelease(TexturePtr);
+                        TexturePtr = null;
+                    }
                 }
             }
             else
@@ -1725,6 +1759,16 @@ public unsafe class GpuTexture : IDisposable
                 {
                     _context.QueueTextureViewDisposal((IntPtr)ViewPtr);
                     ViewPtr = null;
+                }
+
+                IDisposable? externalOwner =
+                    Interlocked.Exchange(
+                        ref _externalOwner,
+                        null);
+                if (externalOwner is not null)
+                {
+                    _context.QueueExternalTextureOwnerDisposal(
+                        externalOwner);
                 }
 
                 if (TexturePtr != null)
@@ -1765,6 +1809,8 @@ public unsafe class GpuTexture : IDisposable
 
         var view = (IntPtr)ViewPtr;
         var texture = (IntPtr)TexturePtr;
+        IDisposable? externalOwner =
+            Interlocked.Exchange(ref _externalOwner, null);
         ViewPtr = null;
         TexturePtr = null;
 
@@ -1777,8 +1823,16 @@ public unsafe class GpuTexture : IDisposable
         }
 
         var context = _context;
+        StopTrackingContextDisposal();
         if (context is null || context.IsDisposed)
         {
+            try
+            {
+                externalOwner?.Dispose();
+            }
+            catch
+            {
+            }
             return;
         }
 
@@ -1793,9 +1847,38 @@ public unsafe class GpuTexture : IDisposable
             {
                 context.QueueTextureDisposal(texture);
             }
+            if (externalOwner is not null)
+            {
+                context.QueueExternalTextureOwnerDisposal(
+                    externalOwner);
+            }
         }
         catch
         {
+            try
+            {
+                externalOwner?.Dispose();
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void OnContextDisposing(WgpuContext context)
+    {
+        if (ReferenceEquals(context, _context))
+        {
+            Dispose();
+        }
+    }
+
+    private void StopTrackingContextDisposal()
+    {
+        if (_tracksContextDisposal)
+        {
+            WgpuContext.Disposing -= OnContextDisposing;
+            _tracksContextDisposal = false;
         }
     }
 }

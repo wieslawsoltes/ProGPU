@@ -50,7 +50,8 @@ public enum BrowserGpuOpcode : ushort
     Submit = 70,
     QueueWriteBuffer = 71,
     QueueWriteTexture = 72,
-    BufferUnmap = 73
+    BufferUnmap = 73,
+    CopyExternalMediaFrame = 74
 }
 
 [Flags]

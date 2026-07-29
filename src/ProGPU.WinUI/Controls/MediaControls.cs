@@ -1,8 +1,11 @@
 using System;
 using System.Numerics;
 using Microsoft.UI.Xaml.Media;
+using ProGPU.Backend;
 using ProGPU.Layout;
+using ProGPU.Media.Rendering;
 using ProGPU.Scene;
+using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
 
 namespace Microsoft.UI.Xaml.Controls;
@@ -82,30 +85,254 @@ public class MediaTransportControls : Control
 /// </summary>
 public class MediaPlayerPresenter : FrameworkElement
 {
+    private MediaGpuSurfacePresenter? _surfacePresenter;
     public static readonly DependencyProperty MediaPlayerProperty = Register<MediaPlayer?>(nameof(MediaPlayer), null, OnMediaPlayerChanged);
     public static readonly DependencyProperty StretchProperty = Register(nameof(Stretch), Stretch.Uniform);
     public static readonly DependencyProperty IsFullWindowProperty = Register(nameof(IsFullWindow), false);
+    public static readonly DependencyProperty ProGpuVideoEffectsProperty =
+        Register(
+            nameof(ProGpuVideoEffects),
+            MediaVideoEffectOptions.Identity);
 
     public MediaPlayer? MediaPlayer { get => GetValue(MediaPlayerProperty) as MediaPlayer; set => SetValue(MediaPlayerProperty, value); }
     public Stretch Stretch { get => (Stretch)(GetValue(StretchProperty) ?? Stretch.Uniform); set => SetValue(StretchProperty, value); }
     public bool IsFullWindow { get => (bool)(GetValue(IsFullWindowProperty) ?? false); set => SetValue(IsFullWindowProperty, value); }
+    public MediaVideoEffectOptions ProGpuVideoEffects
+    {
+        get => (MediaVideoEffectOptions)(
+            GetValue(ProGpuVideoEffectsProperty) ??
+            MediaVideoEffectOptions.Identity);
+        set => SetValue(ProGpuVideoEffectsProperty, value);
+    }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize) =>
-        new(
-            float.IsFinite(availableSize.X) ? availableSize.X : 320f,
-            float.IsFinite(availableSize.Y) ? availableSize.Y : 180f);
+        MeasureMedia(availableSize, GetNaturalSize(), Stretch);
+
+    public override void OnRender(DrawingContext context)
+    {
+        MediaPlayer? player = MediaPlayer;
+        WgpuContext? gpuContext = GetActiveWgpuContext();
+        Vector2 controlSize = Size;
+        if (player is null ||
+            gpuContext is null ||
+            controlSize.X <= 0f ||
+            controlSize.Y <= 0f)
+        {
+            return;
+        }
+
+        MediaPlaybackSession session = player.PlaybackSession;
+        Windows.Foundation.Rect normalized =
+            session.NormalizedSourceRect;
+        var presentation = new MediaVideoPresentationOptions(
+            stretch: ToMediaStretch(Stretch),
+            normalizedSourceRect: new Vector4(
+                (float)normalized.X,
+                (float)normalized.Y,
+                (float)normalized.Width,
+                (float)normalized.Height),
+            rotation: ToMediaRotation(session.PlaybackRotation),
+            isMirrored: session.IsMirroring,
+            effects: ProGpuVideoEffects,
+            sphericalProjection:
+                ToSphericalProjection(
+                    session.SphericalVideoProjection));
+        _surfacePresenter?.Record(
+            context,
+            gpuContext,
+            new Rect(Vector2.Zero, controlSize),
+            in presentation);
+    }
+
+    private WgpuContext? GetActiveWgpuContext()
+    {
+        IReadOnlyList<Window> windows = WindowManager.ActiveWindows;
+        if (windows.Count == 0)
+        {
+            return WgpuContext.Current;
+        }
+        if (windows.Count == 1)
+        {
+            return windows[0].WgpuContext;
+        }
+
+        Visual? current = this;
+        while (current is not null)
+        {
+            for (int index = 0; index < windows.Count; index++)
+            {
+                if (ReferenceEquals(windows[index].Content, current))
+                {
+                    return windows[index].WgpuContext;
+                }
+            }
+            current = current.Parent;
+        }
+        return WgpuContext.Current;
+    }
 
     private static void OnMediaPlayerChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
     {
         var presenter = (MediaPlayerPresenter)dependencyObject;
         if (args.OldValue is MediaPlayer oldPlayer)
-            oldPlayer.PlaybackStateChanged -= presenter.OnPlaybackStateChanged;
+        {
+            oldPlayer.PlaybackSession.NaturalVideoSizeChanged -=
+                presenter.OnNaturalVideoSizeChanged;
+            oldPlayer.PlaybackSession.PresentationChanged -=
+                presenter.OnPresentationChanged;
+        }
+        presenter._surfacePresenter?.Dispose();
+        presenter._surfacePresenter = null;
         if (args.NewValue is MediaPlayer newPlayer)
-            newPlayer.PlaybackStateChanged += presenter.OnPlaybackStateChanged;
+        {
+            presenter._surfacePresenter =
+                new MediaGpuSurfacePresenter(
+                    newPlayer.ProGpuVideoSurface,
+                    presenter.Invalidate,
+                    ownerDispatcher:
+                        static action =>
+                        {
+                            Action<Action>? dispatcher =
+                                Microsoft.UI.Xaml.Input
+                                    .InputSystem
+                                    .DispatcherQueue;
+                            if (dispatcher is not null)
+                            {
+                                dispatcher(action);
+                            }
+                            else
+                            {
+                                UIThread.Post(action);
+                            }
+                        });
+            newPlayer.PlaybackSession.NaturalVideoSizeChanged +=
+                presenter.OnNaturalVideoSizeChanged;
+            newPlayer.PlaybackSession.PresentationChanged +=
+                presenter.OnPresentationChanged;
+        }
+        presenter.InvalidateMeasure();
         presenter.Invalidate();
     }
 
-    private void OnPlaybackStateChanged(object? sender, EventArgs args) => Invalidate();
+    private void OnNaturalVideoSizeChanged(
+        MediaPlaybackSession sender,
+        object args)
+    {
+        InvalidateMeasure();
+        Invalidate();
+    }
+
+    private void OnPresentationChanged(
+        object? sender,
+        EventArgs args)
+    {
+        InvalidateMeasure();
+        Invalidate();
+    }
+
+    private Vector2 GetNaturalSize()
+    {
+        MediaPlaybackSession? session = MediaPlayer?.PlaybackSession;
+        if (session is null ||
+            session.NaturalVideoWidth == 0 ||
+            session.NaturalVideoHeight == 0)
+        {
+            return Vector2.Zero;
+        }
+
+        Windows.Foundation.Rect crop =
+            session.NormalizedSourceRect;
+        float width =
+            (float)(session.NaturalVideoWidth * crop.Width);
+        float height =
+            (float)(session.NaturalVideoHeight * crop.Height);
+        return session.PlaybackRotation is
+            MediaRotation.Clockwise90Degrees or
+            MediaRotation.Clockwise270Degrees
+                ? new Vector2(height, width)
+                : new Vector2(width, height);
+    }
+
+    private static Vector2 MeasureMedia(
+        Vector2 availableSize,
+        Vector2 naturalSize,
+        Stretch stretch)
+    {
+        if (naturalSize.X <= 0f || naturalSize.Y <= 0f)
+        {
+            naturalSize = new Vector2(320f, 180f);
+        }
+
+        bool finiteWidth = float.IsFinite(availableSize.X);
+        bool finiteHeight = float.IsFinite(availableSize.Y);
+        if (!finiteWidth && !finiteHeight)
+        {
+            return naturalSize;
+        }
+        if (stretch == Stretch.None)
+        {
+            return naturalSize;
+        }
+        if (stretch is Stretch.Fill or Stretch.UniformToFill)
+        {
+            return new Vector2(
+                finiteWidth ? availableSize.X : naturalSize.X,
+                finiteHeight ? availableSize.Y : naturalSize.Y);
+        }
+        if (!finiteWidth)
+        {
+            float scale = availableSize.Y / naturalSize.Y;
+            return new Vector2(naturalSize.X * scale, availableSize.Y);
+        }
+        if (!finiteHeight)
+        {
+            float scale = availableSize.X / naturalSize.X;
+            return new Vector2(availableSize.X, naturalSize.Y * scale);
+        }
+
+        float uniformScale = Math.Min(
+            availableSize.X / naturalSize.X,
+            availableSize.Y / naturalSize.Y);
+        return naturalSize * uniformScale;
+    }
+
+    private static MediaVideoStretch ToMediaStretch(Stretch stretch) =>
+        stretch switch
+        {
+            Stretch.None => MediaVideoStretch.None,
+            Stretch.Fill => MediaVideoStretch.Fill,
+            Stretch.UniformToFill =>
+                MediaVideoStretch.UniformToFill,
+            _ => MediaVideoStretch.Uniform
+        };
+
+    private static MediaVideoRotation ToMediaRotation(
+        MediaRotation rotation) =>
+        rotation switch
+        {
+            MediaRotation.Clockwise90Degrees =>
+                MediaVideoRotation.Clockwise90Degrees,
+            MediaRotation.Clockwise180Degrees =>
+                MediaVideoRotation.Clockwise180Degrees,
+            MediaRotation.Clockwise270Degrees =>
+                MediaVideoRotation.Clockwise270Degrees,
+            _ => MediaVideoRotation.None
+        };
+
+    private static MediaSphericalProjectionOptions
+        ToSphericalProjection(
+            MediaPlaybackSphericalVideoProjection projection) =>
+        new(
+            projection.IsEnabled &&
+                projection.ProjectionMode ==
+                    SphericalVideoProjectionMode.Spherical,
+            projection.FrameFormat ==
+                Windows.Media.MediaProperties
+                    .SphericalVideoFrameFormat.Equirectangular
+                ? MediaSphericalVideoFrameFormat.Equirectangular
+                : MediaSphericalVideoFrameFormat.None,
+            (float)projection.HorizontalFieldOfViewInDegrees,
+            projection.ViewOrientation);
 
     private static DependencyProperty Register<T>(
         string name,
@@ -125,15 +352,21 @@ public class MediaPlayerElement : Control
 {
     private readonly MediaPlayerPresenter _presenter;
     private MediaPlayer _mediaPlayer;
+    private bool _ownsMediaPlayer = true;
 
     public static readonly DependencyProperty SourceProperty = Register<IMediaPlaybackSource?>(nameof(Source), null, OnSourceChanged);
     public static readonly DependencyProperty TransportControlsProperty = Register<MediaTransportControls?>(nameof(TransportControls), null, OnTransportControlsChanged);
-    public static readonly DependencyProperty AreTransportControlsEnabledProperty = Register(nameof(AreTransportControlsEnabled), true, OnTransportControlsEnabledChanged);
+    public static readonly DependencyProperty AreTransportControlsEnabledProperty = Register(nameof(AreTransportControlsEnabled), false, OnTransportControlsEnabledChanged);
     public static readonly DependencyProperty PosterSourceProperty = Register<ImageSource?>(nameof(PosterSource), null);
     public static readonly DependencyProperty StretchProperty = Register(nameof(Stretch), Stretch.Uniform, OnStretchChanged);
     public static readonly DependencyProperty AutoPlayProperty = Register(nameof(AutoPlay), false, OnAutoPlayChanged);
     public static readonly DependencyProperty IsFullWindowProperty = Register(nameof(IsFullWindow), false, OnFullWindowChanged);
     public static readonly DependencyProperty MediaPlayerProperty = Register<MediaPlayer?>(nameof(MediaPlayer), null);
+    public static readonly DependencyProperty ProGpuVideoEffectsProperty =
+        Register(
+            nameof(ProGpuVideoEffects),
+            MediaVideoEffectOptions.Identity,
+            OnProGpuVideoEffectsChanged);
 
     public MediaPlayerElement()
     {
@@ -146,22 +379,42 @@ public class MediaPlayerElement : Control
 
     public IMediaPlaybackSource? Source { get => GetValue(SourceProperty) as IMediaPlaybackSource; set => SetValue(SourceProperty, value); }
     public MediaTransportControls? TransportControls { get => GetValue(TransportControlsProperty) as MediaTransportControls; set => SetValue(TransportControlsProperty, value); }
-    public bool AreTransportControlsEnabled { get => (bool)(GetValue(AreTransportControlsEnabledProperty) ?? true); set => SetValue(AreTransportControlsEnabledProperty, value); }
+    public bool AreTransportControlsEnabled { get => (bool)(GetValue(AreTransportControlsEnabledProperty) ?? false); set => SetValue(AreTransportControlsEnabledProperty, value); }
     public ImageSource? PosterSource { get => GetValue(PosterSourceProperty) as ImageSource; set => SetValue(PosterSourceProperty, value); }
     public Stretch Stretch { get => (Stretch)(GetValue(StretchProperty) ?? Stretch.Uniform); set => SetValue(StretchProperty, value); }
     public bool AutoPlay { get => (bool)(GetValue(AutoPlayProperty) ?? false); set => SetValue(AutoPlayProperty, value); }
     public bool IsFullWindow { get => (bool)(GetValue(IsFullWindowProperty) ?? false); set => SetValue(IsFullWindowProperty, value); }
+    public MediaVideoEffectOptions ProGpuVideoEffects
+    {
+        get => (MediaVideoEffectOptions)(
+            GetValue(ProGpuVideoEffectsProperty) ??
+            MediaVideoEffectOptions.Identity);
+        set => SetValue(ProGpuVideoEffectsProperty, value);
+    }
     public MediaPlayer MediaPlayer => _mediaPlayer;
 
     public void SetMediaPlayer(MediaPlayer mediaPlayer)
     {
         ArgumentNullException.ThrowIfNull(mediaPlayer);
+        if (ReferenceEquals(_mediaPlayer, mediaPlayer))
+        {
+            return;
+        }
+
+        MediaPlayer previous = _mediaPlayer;
+        bool disposePrevious = _ownsMediaPlayer;
         _mediaPlayer = mediaPlayer;
+        _ownsMediaPlayer = false;
         SetValue(MediaPlayerProperty, mediaPlayer);
         _presenter.MediaPlayer = mediaPlayer;
+        mediaPlayer.AutoPlay = AutoPlay;
         mediaPlayer.Source = Source;
         if (AutoPlay)
             mediaPlayer.Play();
+        if (disposePrevious)
+        {
+            previous.Dispose();
+        }
     }
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -223,12 +476,23 @@ public class MediaPlayerElement : Control
     private static void OnAutoPlayChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
     {
         var element = (MediaPlayerElement)dependencyObject;
-        if ((bool)(args.NewValue ?? false))
+        bool autoPlay = (bool)(args.NewValue ?? false);
+        element._mediaPlayer.AutoPlay = autoPlay;
+        if (autoPlay)
             element._mediaPlayer.Play();
     }
 
     private static void OnFullWindowChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args) =>
         ((MediaPlayerElement)dependencyObject)._presenter.IsFullWindow = (bool)(args.NewValue ?? false);
+
+    private static void OnProGpuVideoEffectsChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs args) =>
+        ((MediaPlayerElement)dependencyObject)
+            ._presenter.ProGpuVideoEffects =
+                (MediaVideoEffectOptions)(
+                    args.NewValue ??
+                    MediaVideoEffectOptions.Identity);
 
     private static DependencyProperty Register<T>(
         string name,

@@ -9,14 +9,18 @@
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.Virtualization\ProGPU.Virtualization.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
-    <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Voxel\ProGPU.Voxel.csproj" />
     <ProjectReference Include="..\ProGPU.Voxel.WinUI\ProGPU.Voxel.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml\ProGPU.Xaml.csproj" />
-    <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj" />
+    <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
@@ -30,8 +34,10 @@
 
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input.Common" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Common" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Common"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,4 +60,14 @@
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProGpuSamplesMobile)' == 'true'">
+    <DefineConstants>$(DefineConstants);PROGPU_SAMPLES_MOBILE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(ProGpuSamplesMobile)' == 'true'">
+    <Compile Remove="Pages\MarkdownPage.cs" />
+    <Compile Remove="Pages\VisualDesignerPage.cs" />
+    <Compile Remove="Pages\XamlPlaygroundPage.cs" />
+  </ItemGroup>
 </Project>

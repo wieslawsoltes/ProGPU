@@ -81,6 +81,18 @@
                             <TextBlock Text="Visual Designer Canvas" FontWeight="Medium"/>
                         </StackPanel>
                     </ListBoxItem>
+                    <ListBoxItem x:Name="ItemMediaPlayer" Tag="MediaPlayer">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="▶" FontSize="14"/>
+                            <TextBlock Text="GPU Media Player" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="ItemVideoEditor" Tag="VideoEditor">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="✂" FontSize="14"/>
+                            <TextBlock Text="Video Editor" FontWeight="Medium"/>
+                        </StackPanel>
+                    </ListBoxItem>
                 </ListBox>
 
                 <!-- Footer details -->

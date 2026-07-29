@@ -7,9 +7,18 @@
       <Frameworks>Metal</Frameworks>
     </NativeReference>
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'ios' And '$(ProGpuDawnIOSXCFramework)' != '' And Exists('$(ProGpuDawnIOSXCFramework)')">
+    <NativeReference Include="$(ProGpuDawnIOSXCFramework)">
+      <Kind>Framework</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <IsCxx>true</IsCxx>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+  </ItemGroup>
   <Target Name="ProGpuPackageWarnMissingIosWgpuNative"
           BeforeTargets="PrepareForBuild"
-          Condition="'$(TargetPlatformIdentifier)' == 'ios' And ('$(ProGpuWgpuNativeXCFramework)' == '' Or !Exists('$(ProGpuWgpuNativeXCFramework)'))">
-    <Warning Text="ProGPU.iOS requires wgpu_native.xcframework at deployment time. Set ProGpuWgpuNativeXCFramework to the output of eng/build-wgpu-native-ios.sh." />
+          Condition="'$(TargetPlatformIdentifier)' == 'ios' And ('$(ProGpuWgpuNativeXCFramework)' == '' Or !Exists('$(ProGpuWgpuNativeXCFramework)')) And ('$(ProGpuDawnIOSXCFramework)' == '' Or !Exists('$(ProGpuDawnIOSXCFramework)'))">
+    <Warning Text="ProGPU.iOS requires a native WebGPU framework at deployment time. Run eng/build-webgpu-dawn-ios.sh for zero-copy media, or set ProGpuWgpuNativeXCFramework for the UI-only fallback." />
   </Target>
 </Project>

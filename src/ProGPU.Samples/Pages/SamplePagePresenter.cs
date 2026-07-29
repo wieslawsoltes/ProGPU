@@ -12,6 +12,7 @@ using ProGPU.Text;
 using ProGPU.Compute;
 using ProGPU.Virtualization;
 using Microsoft.UI.Xaml;
+using Windows.Storage;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
@@ -50,7 +51,7 @@ public static class SamplePagePresenter
         stack.AddChild(title);
 
         var description = new RichTextBlock { Font = AppState.GetFont(), FontSize = 12f, Margin = new Thickness(0, 0, 0, 20) };
-        description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker, FolderPicker) to query system dialogs. Reads and writes files asynchronously using WinUI's StorageFile platform subsystem."));
+        description.Inlines.Add(new Run("Use standard native asynchronous pickers (FileOpenPicker, FileSavePicker, FolderPicker) to query system dialogs. Reads and writes files asynchronously using the shared Windows.Storage.StorageFile platform contract."));
         stack.AddChild(description);
 
         var actionsRow = new WrapPanel

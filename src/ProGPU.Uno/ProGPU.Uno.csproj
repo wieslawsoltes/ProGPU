@@ -21,5 +21,8 @@
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj">
       <Aliases>ProGpu</Aliases>
     </ProjectReference>
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj">
+      <Aliases>ProGpu</Aliases>
+    </ProjectReference>
   </ItemGroup>
 </Project>

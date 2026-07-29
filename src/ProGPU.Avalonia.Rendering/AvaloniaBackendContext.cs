@@ -48,6 +48,7 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
         bool requireNativeCompositionScene,
         bool useDawnMetalPresentation,
         bool requireDawnMetalPresentation,
+        bool prewarmDawnMetalDevice,
         bool useDawnNativePresentation,
         bool requireDawnNativePresentation)
     {
@@ -65,6 +66,13 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
             requireDawnNativePresentation;
         _requireDawnNativePresentation =
             requireDawnNativePresentation;
+        if (prewarmDawnMetalDevice &&
+            OperatingSystem.IsMacOS() &&
+            _platformGraphics is IMetalDevice)
+        {
+            _dawnContext =
+                DawnGpuContext.CreateMetalPresentation();
+        }
 
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
         var compositionServerBackend =
@@ -90,6 +98,7 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
 #else
         _ = useDawnMetalPresentation;
         _ = requireDawnMetalPresentation;
+        _ = prewarmDawnMetalDevice;
         _ = useDawnNativePresentation;
         _ = requireDawnNativePresentation;
         PublicFeatures = s_noFeatures;

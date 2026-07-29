@@ -1991,6 +1991,28 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void PooledDrawingContextMovesRetainedResourcesThroughFrameSubmission()
+    {
+        var context = new DrawingContext();
+        var resource = new CountingDisposable();
+        var frameResources =
+            new List<RetainedResourceLease>();
+        context.RetainResource(resource);
+
+        context.MoveRetainedResourcesTo(frameResources);
+        context.Clear();
+
+        Assert.Equal(0, context.RetainedResourceCount);
+        Assert.Single(frameResources);
+        Assert.Equal(0, resource.DisposeCount);
+
+        frameResources[0].Dispose();
+        frameResources.Clear();
+
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
     public void ShaderToyAcceptsBitwiseCompoundAssignments()
     {
         var wgsl = ShaderToyTranspiler.Translate(
@@ -3950,6 +3972,40 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 255, 0, 0, 255, 255, 255, 255, 255
             },
             destination.ReadPixels());
+    }
+
+    [Fact]
+    public unsafe void GpuTextureBlitterFusesMediaColorEffectsOnGpu()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "GPU media-effect blit source");
+        using var destination = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "GPU media-effect blit destination");
+        source.WritePixels(new byte[] { 255, 0, 0, 255 });
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            saturation: 1f,
+            grayscale: 1f);
+
+        byte[] pixel = destination.ReadPixels();
+        Assert.InRange(pixel[0], 52, 56);
+        Assert.InRange(pixel[1], 52, 56);
+        Assert.InRange(pixel[2], 52, 56);
+        Assert.Equal(255, pixel[3]);
     }
 
     [Fact]

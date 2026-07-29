@@ -33,11 +33,16 @@ namespace ProGPU.Scene.Extensions
     {
         public Vector3 Position;
         public Vector3 Normal;
+        public Vector2 TextureCoordinate;
 
-        public GpuVertex3D(Vector3 position, Vector3 normal)
+        public GpuVertex3D(
+            Vector3 position,
+            Vector3 normal,
+            Vector2 textureCoordinate)
         {
             Position = position;
             Normal = normal;
+            TextureCoordinate = textureCoordinate;
         }
     }
 
@@ -55,6 +60,20 @@ namespace ProGPU.Scene.Extensions
         public float RenderMode;              // 0.0f = Solid, 1.0f = Wireframe, 2.0f = SolidWireframe
         public float ShadingMode;             // AutoCAD Shading Mode (0=Realistic, 1=Conceptual, 2=Flat, 3=HiddenLine, 4=ShadesOfGray, 5=XRay, 6=Normals)
         private float _pad2;
+        public Vector4 TextureEffects0;        // brightness, contrast, saturation, grayscale
+        public Vector4 TextureEffects1;        // sepia, invert, blur sigma, texture enabled
+        public Vector4 TextureInfo;            // width, height, premultiplied source, luminance-to-alpha
+        public Vector4 ColorMatrixRed;
+        public Vector4 ColorMatrixGreen;
+        public Vector4 ColorMatrixBlue;
+        public Vector4 ColorMatrixAlpha;
+        public Vector4 ColorMatrixOffset;
+        public Vector4 TextureFlags;           // color matrix, YUV, quarter turns, mirrored
+        public Vector4 YuvRange;
+        public Vector4 YuvRed;
+        public Vector4 YuvGreen;
+        public Vector4 YuvBlue;
+        public Vector4 TextureSourceRect;      // normalized x, y, width, height
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -64,6 +83,70 @@ namespace ProGPU.Scene.Extensions
         public Matrix4x4 View;
         public Vector3 CameraPosition;
         private float _pad;
+    }
+
+    internal sealed class Mesh3DCompileScratch
+    {
+        private GpuMesh3DRecord[] _records =
+            Array.Empty<GpuMesh3DRecord>();
+        private nint[] _textureBindGroups =
+            Array.Empty<nint>();
+        private uint[] _recordIndices =
+            Array.Empty<uint>();
+
+        internal int Capacity => _records.Length;
+
+        internal Span<GpuMesh3DRecord> Records =>
+            _records;
+
+        internal Span<nint> TextureBindGroups =>
+            _textureBindGroups;
+
+        internal Span<uint> RecordIndices =>
+            _recordIndices;
+
+        internal void EnsureCapacity(int requiredCapacity)
+        {
+            if (requiredCapacity < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(requiredCapacity));
+            }
+            if (requiredCapacity <= _records.Length)
+            {
+                return;
+            }
+            if (requiredCapacity > Array.MaxLength)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(requiredCapacity));
+            }
+
+            int capacity = Math.Max(4, _records.Length);
+            while (capacity < requiredCapacity)
+            {
+                int growth = Math.Max(4, capacity);
+                capacity = capacity >
+                    Array.MaxLength - growth
+                        ? Array.MaxLength
+                        : capacity + growth;
+            }
+
+            var records =
+                new GpuMesh3DRecord[capacity];
+            var textureBindGroups =
+                new nint[capacity];
+            var recordIndices =
+                new uint[capacity];
+            _records.AsSpan().CopyTo(records);
+            _textureBindGroups.AsSpan().CopyTo(
+                textureBindGroups);
+            _recordIndices.AsSpan().CopyTo(
+                recordIndices);
+            _records = records;
+            _textureBindGroups = textureBindGroups;
+            _recordIndices = recordIndices;
+        }
     }
 
     public class Mesh3DExtensionPipeline : ICompositorExtension
@@ -85,6 +168,7 @@ namespace ProGPU.Scene.Extensions
         {
             public GpuBuffer UniformsBuffer;
             public GpuBuffer? DynamicRecordsBuffer;
+            public GpuBuffer? RecordIndexBuffer;
             public unsafe BindGroup* SolidBindGroup;
             public unsafe BindGroup* WireframeBindGroup;
             public int RecordGen = -1;
@@ -99,6 +183,7 @@ namespace ProGPU.Scene.Extensions
             {
                 UniformsBuffer.Dispose();
                 DynamicRecordsBuffer?.Dispose();
+                RecordIndexBuffer?.Dispose();
                 if (SolidBindGroup != null) context.Api.BindGroupRelease(SolidBindGroup);
                 if (WireframeBindGroup != null) context.Api.BindGroupRelease(WireframeBindGroup);
             }
@@ -107,8 +192,19 @@ namespace ProGPU.Scene.Extensions
         private readonly Dictionary<object, CachedGeometry> _geometryCache = new();
         private readonly List<ViewportResource> _viewportResources = new();
         private readonly List<nint> _pendingCommandBuffers = new();
+        private readonly List<nint> _pendingTextureBindGroups = new();
+        private readonly List<IProGpuTextureLease> _pendingTextureLeases =
+            new();
+        private readonly Mesh3DCompileScratch _compileScratch =
+            new();
         private int _currentCompileIndex;
         private WgpuContext? _context;
+        private unsafe BindGroupLayout* _solidBindGroupLayout;
+        private unsafe BindGroupLayout* _textureBindGroupLayout;
+        private unsafe PipelineLayout* _solidPipelineLayout;
+        private GpuTexture? _whiteTexture;
+        private unsafe BindGroup* _whiteLinearBindGroup;
+        private unsafe BindGroup* _whiteNearestBindGroup;
         
         private unsafe RenderPipeline* _cachedPipelineSingle;
         private unsafe RenderPipeline* _cachedBackFacePipelineSingle;
@@ -124,23 +220,41 @@ namespace ProGPU.Scene.Extensions
             string shaderLabel,
             string pipelineKey,
             CullMode cullMode,
-            uint sampleCount)
+            uint sampleCount,
+            PipelineLayout* pipelineLayout = null)
         {
             var shaderModule = compositor.PipelineCache.GetOrCreateShader(shaderKey, shaderCode, shaderLabel);
 
-            Span<VertexAttribute> attrs = stackalloc VertexAttribute[2];
+            Span<VertexAttribute> attrs = stackalloc VertexAttribute[3];
             attrs[0] = new VertexAttribute { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }; // Position
             attrs[1] = new VertexAttribute { Format = VertexFormat.Float32x3, Offset = 12, ShaderLocation = 1 }; // Normal
+            attrs[2] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 24, ShaderLocation = 2 }; // UV
 
-            Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[1];
+            Span<VertexAttribute> recordIndexAttrs = stackalloc VertexAttribute[1];
+            recordIndexAttrs[0] = new VertexAttribute
+            {
+                Format = VertexFormat.Uint32,
+                Offset = 0,
+                ShaderLocation = 3
+            };
+
+            Span<VertexBufferLayout> layouts = stackalloc VertexBufferLayout[2];
             fixed (VertexAttribute* attrsPtr = attrs)
+            fixed (VertexAttribute* recordIndexAttrsPtr = recordIndexAttrs)
             {
                 layouts[0] = new VertexBufferLayout
                 {
                     ArrayStride = (uint)Unsafe.SizeOf<GpuVertex3D>(),
                     StepMode = VertexStepMode.Vertex,
-                    AttributeCount = 2,
+                    AttributeCount = 3,
                     Attributes = attrsPtr
+                };
+                layouts[1] = new VertexBufferLayout
+                {
+                    ArrayStride = sizeof(uint),
+                    StepMode = VertexStepMode.Instance,
+                    AttributeCount = 1,
+                    Attributes = recordIndexAttrsPtr
                 };
 
                 return compositor.PipelineCache.GetOrCreateRenderPipeline(
@@ -154,9 +268,121 @@ namespace ProGPU.Scene.Extensions
                     sampleCount: sampleCount,
                     depthWriteEnabled: true,
                     depthCompare: CompareFunction.LessEqual,
-                    cullMode: cullMode
+                    cullMode: cullMode,
+                    pipelineLayout: pipelineLayout
                 );
             }
+        }
+
+        private unsafe void EnsureSolidLayouts(Compositor compositor)
+        {
+            if (_solidPipelineLayout != null)
+            {
+                return;
+            }
+
+            var wgpu = compositor.Context.Api;
+            var device = compositor.Context.Device;
+
+            var solidEntries = stackalloc BindGroupLayoutEntry[2];
+            solidEntries[0] = new BindGroupLayoutEntry
+            {
+                Binding = 0,
+                Visibility = ShaderStage.Vertex | ShaderStage.Fragment,
+                Buffer = new BufferBindingLayout
+                {
+                    Type = BufferBindingType.Uniform,
+                    HasDynamicOffset = false,
+                    MinBindingSize = 0
+                }
+            };
+            solidEntries[1] = new BindGroupLayoutEntry
+            {
+                Binding = 1,
+                Visibility = ShaderStage.Vertex | ShaderStage.Fragment,
+                Buffer = new BufferBindingLayout
+                {
+                    Type = BufferBindingType.ReadOnlyStorage,
+                    HasDynamicOffset = false,
+                    MinBindingSize = 0
+                }
+            };
+            var solidLayoutDesc = new BindGroupLayoutDescriptor
+            {
+                EntryCount = 2,
+                Entries = solidEntries
+            };
+            _solidBindGroupLayout =
+                wgpu.DeviceCreateBindGroupLayout(
+                    device,
+                    &solidLayoutDesc);
+
+            var textureEntries = stackalloc BindGroupLayoutEntry[3];
+            textureEntries[0] = new BindGroupLayoutEntry
+            {
+                Binding = 0,
+                Visibility = ShaderStage.Fragment,
+                Sampler = new SamplerBindingLayout
+                {
+                    Type = SamplerBindingType.Filtering
+                }
+            };
+            textureEntries[1] = new BindGroupLayoutEntry
+            {
+                Binding = 1,
+                Visibility = ShaderStage.Fragment,
+                Texture = new TextureBindingLayout
+                {
+                    SampleType = TextureSampleType.Float,
+                    ViewDimension = TextureViewDimension.Dimension2D,
+                    Multisampled = false
+                }
+            };
+            textureEntries[2] = new BindGroupLayoutEntry
+            {
+                Binding = 2,
+                Visibility = ShaderStage.Fragment,
+                Texture = new TextureBindingLayout
+                {
+                    SampleType = TextureSampleType.Float,
+                    ViewDimension = TextureViewDimension.Dimension2D,
+                    Multisampled = false
+                }
+            };
+            var textureLayoutDesc = new BindGroupLayoutDescriptor
+            {
+                EntryCount = 3,
+                Entries = textureEntries
+            };
+            _textureBindGroupLayout =
+                wgpu.DeviceCreateBindGroupLayout(
+                    device,
+                    &textureLayoutDesc);
+
+            var layouts = stackalloc BindGroupLayout*[2];
+            layouts[0] = _solidBindGroupLayout;
+            layouts[1] = _textureBindGroupLayout;
+            var pipelineLayoutDesc = new PipelineLayoutDescriptor
+            {
+                BindGroupLayoutCount = 2,
+                BindGroupLayouts = layouts
+            };
+            _solidPipelineLayout =
+                wgpu.DeviceCreatePipelineLayout(
+                    device,
+                    &pipelineLayoutDesc);
+
+            _whiteTexture = new GpuTexture(
+                compositor.Context,
+                1,
+                1,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.CopyDst,
+                "Mesh3D white material texture",
+                alphaMode: GpuTextureAlphaMode.Straight);
+            _whiteTexture.WritePixels(
+                new byte[] { 255, 255, 255, 255 });
         }
 
         public unsafe void BeginFrame(Compositor compositor)
@@ -171,6 +397,7 @@ namespace ProGPU.Scene.Extensions
                 }
                 _pendingCommandBuffers.Clear();
             }
+            ReleasePendingTextureResources(compositor.Context);
         }
 
         public unsafe void Dispose()
@@ -187,8 +414,201 @@ namespace ProGPU.Scene.Extensions
                 {
                     res.Dispose(_context);
                 }
+                ReleasePendingTextureResources(_context);
+                var wgpu = _context.Api;
+                if (_whiteLinearBindGroup != null)
+                {
+                    wgpu.BindGroupRelease(_whiteLinearBindGroup);
+                    _whiteLinearBindGroup = null;
+                }
+                if (_whiteNearestBindGroup != null)
+                {
+                    wgpu.BindGroupRelease(_whiteNearestBindGroup);
+                    _whiteNearestBindGroup = null;
+                }
+                if (_solidPipelineLayout != null)
+                {
+                    wgpu.PipelineLayoutRelease(_solidPipelineLayout);
+                    _solidPipelineLayout = null;
+                }
+                if (_textureBindGroupLayout != null)
+                {
+                    wgpu.BindGroupLayoutRelease(
+                        _textureBindGroupLayout);
+                    _textureBindGroupLayout = null;
+                }
+                if (_solidBindGroupLayout != null)
+                {
+                    wgpu.BindGroupLayoutRelease(
+                        _solidBindGroupLayout);
+                    _solidBindGroupLayout = null;
+                }
             }
+            _whiteTexture?.Dispose();
+            _whiteTexture = null;
             _viewportResources.Clear();
+        }
+
+        private unsafe void ReleasePendingTextureResources(
+            WgpuContext context)
+        {
+            var wgpu = context.Api;
+            for (int index = 0;
+                 index < _pendingTextureBindGroups.Count;
+                 index++)
+            {
+                wgpu.BindGroupRelease(
+                    (BindGroup*)_pendingTextureBindGroups[index]);
+            }
+            _pendingTextureBindGroups.Clear();
+
+            for (int index = 0;
+                 index < _pendingTextureLeases.Count;
+                 index++)
+            {
+                _pendingTextureLeases[index].Dispose();
+            }
+            _pendingTextureLeases.Clear();
+        }
+
+        private unsafe BindGroup* GetTextureBindGroup(
+            Compositor compositor,
+            MeshCompilationEntry entry,
+            out GpuTexture texture,
+            out bool hasSourceTexture,
+            out bool hasYuvConversion)
+        {
+            IProGpuTextureLease? lease = null;
+            IProGpuTextureLease? chromaLease = null;
+            bool acquired = false;
+            bool requestedYuv =
+                entry.YuvConversion.HasValue &&
+                entry.TextureSource is
+                    IProGpuPlanarTextureLeaseSource;
+            if (requestedYuv)
+            {
+                acquired =
+                    ((IProGpuPlanarTextureLeaseSource)
+                    entry.TextureSource!)
+                    .TryAcquireGpuPlaneTextureLeases(
+                        compositor.Context,
+                        out lease,
+                        out chromaLease);
+            }
+            else if (entry.TextureSource is
+                    IProGpuContextTextureLeaseSource contextSource)
+            {
+                acquired =
+                    contextSource.TryAcquireGpuTextureLease(
+                    compositor.Context,
+                    out lease);
+            }
+            else
+            {
+                acquired =
+                    entry.TextureSource
+                        ?.TryAcquireGpuTextureLease(
+                            out lease) == true;
+            }
+
+            if (acquired &&
+                lease is not null &&
+                !lease.Texture.IsDisposed &&
+                lease.Texture.Context.SharesDeviceWith(
+                    compositor.Context) &&
+                (!requestedYuv ||
+                 chromaLease is not null &&
+                 !chromaLease.Texture.IsDisposed &&
+                 chromaLease.Texture.Context.SharesDeviceWith(
+                     compositor.Context)))
+            {
+                texture = lease.Texture;
+                GpuTexture chromaTexture =
+                    chromaLease?.Texture ?? texture;
+                hasSourceTexture = true;
+                hasYuvConversion =
+                    requestedYuv &&
+                    chromaLease is not null;
+                _pendingTextureLeases.Add(lease);
+                if (chromaLease is not null)
+                {
+                    _pendingTextureLeases.Add(chromaLease);
+                }
+                return CreateTextureBindGroup(
+                    compositor,
+                    texture,
+                    chromaTexture,
+                    entry.TextureSamplingMode,
+                    retainUntilSubmit: true);
+            }
+
+            lease?.Dispose();
+            chromaLease?.Dispose();
+            texture = _whiteTexture ??
+                throw new InvalidOperationException(
+                    "Mesh3D fallback texture was not initialized.");
+            hasSourceTexture = false;
+            hasYuvConversion = false;
+            ref BindGroup* cached = ref (
+                entry.TextureSamplingMode ==
+                    TextureSamplingMode.Nearest
+                    ? ref _whiteNearestBindGroup
+                    : ref _whiteLinearBindGroup);
+            if (cached == null)
+            {
+                cached = CreateTextureBindGroup(
+                    compositor,
+                    texture,
+                    texture,
+                    entry.TextureSamplingMode,
+                    retainUntilSubmit: false);
+            }
+            return cached;
+        }
+
+        private unsafe BindGroup* CreateTextureBindGroup(
+            Compositor compositor,
+            GpuTexture texture,
+            GpuTexture chromaTexture,
+            TextureSamplingMode samplingMode,
+            bool retainUntilSubmit)
+        {
+            var entries = stackalloc BindGroupEntry[3];
+            entries[0] = new BindGroupEntry
+            {
+                Binding = 0,
+                Sampler = compositor.GetTextureSampler(samplingMode)
+            };
+            entries[1] = new BindGroupEntry
+            {
+                Binding = 1,
+                TextureView = texture.ViewPtr
+            };
+            entries[2] = new BindGroupEntry
+            {
+                Binding = 2,
+                TextureView = chromaTexture.ViewPtr
+            };
+            var descriptor = new BindGroupDescriptor
+            {
+                Layout = _textureBindGroupLayout,
+                EntryCount = 3,
+                Entries = entries
+            };
+            BindGroup* bindGroup =
+                compositor.Context.Api.DeviceCreateBindGroup(
+                    compositor.Context.Device,
+                    &descriptor);
+            if (bindGroup == null)
+            {
+                throw new InvalidOperationException(
+                    "Failed to create Mesh3D texture bind group.");
+            }
+            if (retainUntilSubmit)
+            {
+                _pendingTextureBindGroups.Add((nint)bindGroup);
+            }
+            return bindGroup;
         }
 
         public unsafe void Compile(
@@ -205,6 +625,7 @@ namespace ProGPU.Scene.Extensions
             var device = compositor.Context.Device;
             var queue = compositor.Context.Queue;
             uint sampleCount = payload.SampleCount is 1 or 4 ? payload.SampleCount : 4u;
+            EnsureSolidLayouts(compositor);
 
             uint uniformsSize = (uint)Marshal.SizeOf<GpuMesh3DUniforms>();
 
@@ -225,13 +646,48 @@ namespace ProGPU.Scene.Extensions
                 res.DynamicRecordsBuffer = new GpuBuffer(compositor.Context, reqRecordsSize * 2, BufferUsage.Storage | BufferUsage.CopyDst, "Dynamic Mesh3D Records Buffer");
                 res.RecordGen = -1; // Force bind group recreation
             }
+            uint reqRecordIndicesSize = (uint)recordCount * sizeof(uint);
+            if (res.RecordIndexBuffer == null ||
+                res.RecordIndexBuffer.Size < reqRecordIndicesSize)
+            {
+                res.RecordIndexBuffer?.Dispose();
+                res.RecordIndexBuffer = new GpuBuffer(
+                    compositor.Context,
+                    reqRecordIndicesSize * 2,
+                    BufferUsage.Vertex | BufferUsage.CopyDst,
+                    "Dynamic Mesh3D Record Indices Buffer");
+            }
 
             // 2. Upload records data
-            var cpuRecords = new GpuMesh3DRecord[recordCount];
-            int n = payload.Meshes.Count;
+            _compileScratch.EnsureCapacity(recordCount);
+            Span<GpuMesh3DRecord> cpuRecords =
+                _compileScratch.Records[..recordCount];
+            Span<nint> textureBindGroups =
+                _compileScratch.TextureBindGroups[..recordCount];
+            Span<uint> recordIndices =
+                _compileScratch.RecordIndices[..recordCount];
+            int n = recordCount;
             for (int i = 0; i < n; i++)
             {
+                recordIndices[i] = (uint)i;
                 var mesh = payload.Meshes[i];
+                textureBindGroups[i] =
+                    (nint)GetTextureBindGroup(
+                        compositor,
+                        mesh,
+                        out GpuTexture materialTexture,
+                        out bool hasMaterialTexture,
+                        out bool hasYuvConversion);
+                MeshTextureEffect textureEffect =
+                    hasMaterialTexture
+                        ? mesh.TextureEffect
+                        : MeshTextureEffect.Identity;
+                ImageEffectColorMatrix? colorMatrix =
+                    textureEffect.ColorMatrix;
+                ImageEffectYuvConversion? yuvConversion =
+                    hasYuvConversion
+                        ? mesh.YuvConversion
+                        : null;
                 float rMode = 0.0f; // Solid
                 if (payload.RenderMode == RenderMode3D.Wireframe)
                 {
@@ -259,10 +715,58 @@ namespace ProGPU.Scene.Extensions
                     MaterialAmbient = new Vector4(mesh.AmbientColor, 1.0f),
                     Opacity = mesh.Opacity * compositor.ActiveOpacity,
                     RenderMode = rMode,
-                    ShadingMode = (float)payload.ShadingMode
+                    ShadingMode = (float)payload.ShadingMode,
+                    TextureEffects0 = new Vector4(
+                        textureEffect.Brightness,
+                        textureEffect.Contrast,
+                        textureEffect.Saturation,
+                        textureEffect.Grayscale),
+                    TextureEffects1 = new Vector4(
+                        textureEffect.Sepia,
+                        textureEffect.Invert,
+                        textureEffect.BlurSigma,
+                        hasMaterialTexture ? 1f : 0f),
+                    TextureInfo = new Vector4(
+                        materialTexture.Width,
+                        materialTexture.Height,
+                        materialTexture.AlphaMode ==
+                            GpuTextureAlphaMode.Premultiplied
+                                ? 1f
+                                : 0f,
+                        textureEffect.LuminanceToAlpha ? 1f : 0f),
+                    ColorMatrixRed =
+                        colorMatrix?.Red ?? default,
+                    ColorMatrixGreen =
+                        colorMatrix?.Green ?? default,
+                    ColorMatrixBlue =
+                        colorMatrix?.Blue ?? default,
+                    ColorMatrixAlpha =
+                        colorMatrix?.Alpha ?? default,
+                    ColorMatrixOffset =
+                        colorMatrix?.Offset ?? default,
+                    TextureFlags = new Vector4(
+                        colorMatrix.HasValue ? 1f : 0f,
+                        yuvConversion.HasValue ? 1f : 0f,
+                        mesh.TexturePresentation
+                            .ClockwiseQuarterTurns,
+                        mesh.TexturePresentation.IsMirrored
+                            ? 1f
+                            : 0f),
+                    YuvRange =
+                        yuvConversion?.Range ?? default,
+                    YuvRed =
+                        yuvConversion?.Red ?? default,
+                    YuvGreen =
+                        yuvConversion?.Green ?? default,
+                    YuvBlue =
+                        yuvConversion?.Blue ?? default,
+                    TextureSourceRect =
+                        mesh.TexturePresentation
+                            .NormalizedSourceRect
                 };
             }
             res.DynamicRecordsBuffer.Write(cpuRecords);
+            res.RecordIndexBuffer.Write(recordIndices);
 
             Matrix4x4.Invert(cmd.CameraView, out var invView);
             Vector3 cameraPos = invView.Translation;
@@ -289,7 +793,8 @@ namespace ProGPU.Scene.Extensions
                     "Mesh3D WGSL 3D Solid Shader",
                     $"Mesh3DPipeline_3D_v3_{sampleCount}",
                     CullMode.Back,
-                    sampleCount);
+                    sampleCount,
+                    _solidPipelineLayout);
                 if (sampleCount == 1) _cachedPipelineSingle = cachedPipeline;
                 else _cachedPipelineMsaa = cachedPipeline;
             }
@@ -303,7 +808,8 @@ namespace ProGPU.Scene.Extensions
                     "Mesh3D WGSL 3D Solid Shader",
                     $"Mesh3DBackFacePipeline_3D_v3_{sampleCount}",
                     CullMode.Front,
-                    sampleCount);
+                    sampleCount,
+                    _solidPipelineLayout);
                 if (sampleCount == 1) _cachedBackFacePipelineSingle = cachedBackFacePipeline;
                 else _cachedBackFacePipelineMsaa = cachedBackFacePipeline;
             }
@@ -350,10 +856,9 @@ namespace ProGPU.Scene.Extensions
                 };
 
                 // Bind group for Solid Pipeline
-                var pipelineLayout = wgpu.RenderPipelineGetBindGroupLayout(cachedPipeline, 0);
                 var bgDesc = new BindGroupDescriptor
                 {
-                    Layout = pipelineLayout,
+                    Layout = _solidBindGroupLayout,
                     EntryCount = 2,
                     Entries = bgEntries,
                     Label = (byte*)SilkMarshal.StringToPtr("Mesh3D 3D BindGroup")
@@ -376,6 +881,7 @@ namespace ProGPU.Scene.Extensions
                 if (res.WireframeBindGroup != null) wgpu.BindGroupRelease(res.WireframeBindGroup);
                 res.WireframeBindGroup = wgpu.DeviceCreateBindGroup(device, &wireframeBgDesc);
                 SilkMarshal.Free((nint)wireframeBgDesc.Label);
+                wgpu.BindGroupLayoutRelease(wireframeLayout);
             }
 
             // 6. Begin offscreen WebGPU Render Pass targeting the custom color and depth textures!
@@ -443,7 +949,14 @@ namespace ProGPU.Scene.Extensions
                         int vIdx = entry.Indices[idx];
                         var pos = (vIdx >= 0 && vIdx < entry.Positions.Length) ? entry.Positions[vIdx] : Vector3.Zero;
                         var norm = (vIdx >= 0 && vIdx < entry.Normals.Length) ? entry.Normals[vIdx] : Vector3.UnitY;
-                        cpuVertices[idx] = new GpuVertex3D(pos, norm);
+                        var uv =
+                            (vIdx >= 0 &&
+                             vIdx <
+                                entry.TextureCoordinates.Length)
+                                ? entry.TextureCoordinates[vIdx]
+                                : Vector2.Zero;
+                        cpuVertices[idx] =
+                            new GpuVertex3D(pos, norm, uv);
                     }
 
                     uint vSize = (uint)cpuVertices.Length * (uint)Marshal.SizeOf<GpuVertex3D>();
@@ -474,11 +987,19 @@ namespace ProGPU.Scene.Extensions
 
                     var cache = _geometryCache[entry.Geometry];
 
+                    wgpu.RenderPassEncoderSetBindGroup(
+                        pass,
+                        1,
+                        (BindGroup*)textureBindGroups[i],
+                        0,
+                        null);
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
-                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, (uint)i);
+                    wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
+                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
                 }
 
                 wgpu.RenderPassEncoderSetPipeline(pass, cachedBackFacePipeline);
+                wgpu.RenderPassEncoderSetBindGroup(pass, 0, res.SolidBindGroup, 0, null);
                 for (int i = 0; i < payload.Meshes.Count; i++)
                 {
                     var entry = payload.Meshes[i];
@@ -486,8 +1007,15 @@ namespace ProGPU.Scene.Extensions
 
                     var cache = _geometryCache[entry.Geometry];
 
+                    wgpu.RenderPassEncoderSetBindGroup(
+                        pass,
+                        1,
+                        (BindGroup*)textureBindGroups[i],
+                        0,
+                        null);
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
-                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, (uint)i);
+                    wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
+                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
                 }
             }
             else if (mode == RenderMode3D.Wireframe || mode == RenderMode3D.SolidWireframe)
@@ -502,7 +1030,8 @@ namespace ProGPU.Scene.Extensions
                     var cache = _geometryCache[entry.Geometry];
 
                     wgpu.RenderPassEncoderSetVertexBuffer(pass, 0, cache.VertexBuffer.BufferPtr, 0, cache.VertexBuffer.Size);
-                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, (uint)i);
+                    wgpu.RenderPassEncoderSetVertexBuffer(pass, 1, res.RecordIndexBuffer.BufferPtr, (ulong)i * sizeof(uint), sizeof(uint));
+                    wgpu.RenderPassEncoderDraw(pass, cache.VertexCount, 1, 0, 0);
                 }
             }
 
@@ -547,6 +1076,13 @@ namespace ProGPU.Scene.Extensions
                     wgpu.CommandBufferRelease((CommandBuffer*)_pendingCommandBuffers[i]);
                 }
                 _pendingCommandBuffers.Clear();
+                ReleasePendingTextureResources(
+                    compositor.Context);
+            }
+            else
+            {
+                ReleasePendingTextureResources(
+                    compositor.Context);
             }
         }
 
@@ -585,6 +1121,16 @@ namespace ProGPU.Scene.Extensions
         public Vector3[] Positions { get; set; } = Array.Empty<Vector3>();
         public Vector3[] Normals { get; set; } = Array.Empty<Vector3>();
         public int[] Indices { get; set; } = Array.Empty<int>();
+        public Vector2[] TextureCoordinates { get; set; } =
+            Array.Empty<Vector2>();
+        public IProGpuTextureLeaseSource? TextureSource { get; set; }
+        public MeshTextureEffect TextureEffect { get; set; } =
+            MeshTextureEffect.Identity;
+        public TextureSamplingMode TextureSamplingMode { get; set; } =
+            TextureSamplingMode.Linear;
+        public ImageEffectYuvConversion? YuvConversion { get; set; }
+        public MeshTexturePresentation TexturePresentation { get; set; } =
+            MeshTexturePresentation.Identity;
         public Matrix4x4 ModelTransform { get; set; } = Matrix4x4.Identity;
         public Vector4 Color { get; set; } = Vector4.One;
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
@@ -592,5 +1138,116 @@ namespace ProGPU.Scene.Extensions
         public Vector3 AmbientColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Opacity { get; set; } = 1.0f;
         public bool IsBackFace { get; set; } = false;
+    }
+
+    /// <summary>
+    /// Normalized texture presentation state evaluated in the mesh fragment
+    /// pass. Rotation is clockwise in quarter turns and mirroring is applied
+    /// horizontally after rotation, matching media playback presentation.
+    /// </summary>
+    public readonly struct MeshTexturePresentation
+    {
+        public MeshTexturePresentation()
+            : this(
+                new Vector4(0f, 0f, 1f, 1f),
+                clockwiseQuarterTurns: 0,
+                isMirrored: false)
+        {
+        }
+
+        public MeshTexturePresentation(
+            Vector4 normalizedSourceRect,
+            int clockwiseQuarterTurns = 0,
+            bool isMirrored = false)
+        {
+            if (!float.IsFinite(normalizedSourceRect.X) ||
+                !float.IsFinite(normalizedSourceRect.Y) ||
+                !float.IsFinite(normalizedSourceRect.Z) ||
+                !float.IsFinite(normalizedSourceRect.W))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(normalizedSourceRect));
+            }
+
+            float x = Math.Clamp(
+                normalizedSourceRect.X,
+                0f,
+                1f);
+            float y = Math.Clamp(
+                normalizedSourceRect.Y,
+                0f,
+                1f);
+            float width = Math.Clamp(
+                normalizedSourceRect.Z,
+                0f,
+                1f - x);
+            float height = Math.Clamp(
+                normalizedSourceRect.W,
+                0f,
+                1f - y);
+            NormalizedSourceRect =
+                width > 0f && height > 0f
+                    ? new Vector4(x, y, width, height)
+                    : new Vector4(0f, 0f, 1f, 1f);
+            ClockwiseQuarterTurns =
+                ((clockwiseQuarterTurns % 4) + 4) % 4;
+            IsMirrored = isMirrored;
+        }
+
+        public static MeshTexturePresentation Identity => new();
+
+        public Vector4 NormalizedSourceRect { get; }
+        public int ClockwiseQuarterTurns { get; }
+        public bool IsMirrored { get; }
+    }
+
+    /// <summary>
+    /// Immutable shader parameters for texture-backed 3D materials. The source
+    /// texture itself is leased separately so decoder-owned frames can be
+    /// sampled without a staging texture or CPU readback.
+    /// </summary>
+    public readonly struct MeshTextureEffect
+    {
+        public MeshTextureEffect()
+            : this(
+                brightness: 0f,
+                contrast: 1f,
+                saturation: 1f)
+        {
+        }
+
+        public MeshTextureEffect(
+            float brightness = 0f,
+            float contrast = 1f,
+            float saturation = 1f,
+            float grayscale = 0f,
+            float sepia = 0f,
+            float invert = 0f,
+            float blurSigma = 0f,
+            ImageEffectColorMatrix? colorMatrix = null,
+            bool luminanceToAlpha = false)
+        {
+            Brightness = brightness;
+            Contrast = contrast;
+            Saturation = saturation;
+            Grayscale = grayscale;
+            Sepia = sepia;
+            Invert = invert;
+            BlurSigma = blurSigma;
+            ColorMatrix = colorMatrix;
+            LuminanceToAlpha = luminanceToAlpha;
+        }
+
+        public static MeshTextureEffect Identity => new();
+
+        public float Brightness { get; }
+        public float Contrast { get; }
+        public float Saturation { get; }
+        public float Grayscale { get; }
+        public float Sepia { get; }
+        public float Invert { get; }
+        public float BlurSigma { get; }
+        public ImageEffectColorMatrix? ColorMatrix { get; }
+        public bool LuminanceToAlpha { get; }
     }
 }

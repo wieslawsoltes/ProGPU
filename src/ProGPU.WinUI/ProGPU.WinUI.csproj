@@ -18,6 +18,9 @@
     <ProjectReference Include="..\ProGPU.Compute\ProGPU.Compute.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
+    <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Scene\ProGPU.Media.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.Virtualization\ProGPU.Virtualization.csproj" />
   </ItemGroup>
 </Project>

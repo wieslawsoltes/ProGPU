@@ -69,10 +69,10 @@ internal static class SamplePerformanceBenchmark
     private static ulong s_glyphAtlasEvictionsAtStart;
     private static ulong s_glyphAtlasClearsAtStart;
     private static ulong s_pathAtlasGenerationAtStart;
-    private static int s_markdownStateSamples;
-    private static int s_markdownStateFailures;
-    private static int s_lastMarkdownCharacters;
-    private static float s_maximumMarkdownOffset;
+    private static int s_markdownStateSamples = 0;
+    private static int s_markdownStateFailures = 0;
+    private static int s_lastMarkdownCharacters = 0;
+    private static float s_maximumMarkdownOffset = 0f;
     private static bool s_workloadStarted;
     private static bool s_finished;
     private static int s_richTextStateSamples;
@@ -555,8 +555,10 @@ internal static class SamplePerformanceBenchmark
     {
         if (string.Equals(page, "Font Glyph Browser", StringComparison.OrdinalIgnoreCase))
             FontGlyphBrowserPage.AdvanceBenchmarkScroll(s_scrollStep);
+#if !PROGPU_SAMPLES_MOBILE
         else if (string.Equals(page, "Markdown Playground", StringComparison.OrdinalIgnoreCase))
             MarkdownPage.AdvanceBenchmarkScroll();
+#endif
         else if (string.Equals(page, "Inter Typeface", StringComparison.OrdinalIgnoreCase))
             InterShowcasePage.AdvanceBenchmarkScroll(s_scrollStep);
         else if (string.Equals(page, "Data Virtualization", StringComparison.OrdinalIgnoreCase))
@@ -634,6 +636,9 @@ internal static class SamplePerformanceBenchmark
 
     private static void RecordMarkdownState()
     {
+#if PROGPU_SAMPLES_MOBILE
+        return;
+#else
         if (!MarkdownPage.TryGetBenchmarkRenderState(
                 out int positionedCharacters,
                 out float scrollOffset,
@@ -646,6 +651,7 @@ internal static class SamplePerformanceBenchmark
         s_markdownStateSamples++;
         s_lastMarkdownCharacters = positionedCharacters;
         s_maximumMarkdownOffset = Math.Max(s_maximumMarkdownOffset, scrollOffset);
+#endif
     }
 
     private static string? ReadRequestedPage()

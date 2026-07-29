@@ -55,6 +55,8 @@ public partial class MainWindow : global::Avalonia.Controls.Window
             "Glyphs" => ItemGlyphs,
             "DataGrid" => ItemDataGrid,
             "Designer" => ItemDesigner,
+            "MediaPlayer" => ItemMediaPlayer,
+            "VideoEditor" => ItemVideoEditor,
             _ => throw new InvalidOperationException(
                 $"Unknown ProGPU Avalonia sample '{Program.RequestedSample}'.")
         };
@@ -128,6 +130,8 @@ public partial class MainWindow : global::Avalonia.Controls.Window
                 "Glyphs" => FontGlyphBrowserPage.Create(),
                 "DataGrid" => DataVirtualizationPage.Create(),
                 "Designer" => VisualDesignerPage.Create(),
+                "MediaPlayer" => MediaPlayerPage.Create(),
+                "VideoEditor" => NonLinearVideoEditorPage.Create(),
                 _ => throw new InvalidOperationException(
                     $"Unknown ProGPU Avalonia sample '{pageKey}'.")
             };

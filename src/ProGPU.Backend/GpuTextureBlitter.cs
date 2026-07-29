@@ -23,6 +23,27 @@ public static unsafe class GpuTextureBlitter
         TextureFormat destinationFormat,
         Color clearColor = default)
     {
+        Blit(
+            source,
+            destinationView,
+            destinationFormat,
+            saturation: 1f,
+            grayscale: 0f,
+            clearColor: clearColor);
+    }
+
+    /// <summary>
+    /// Performs one fullscreen GPU blit with fused Rec.709
+    /// saturation/grayscale processing.
+    /// </summary>
+    public static void Blit(
+        GpuTexture source,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        float saturation,
+        float grayscale,
+        Color clearColor = default)
+    {
         ArgumentNullException.ThrowIfNull(source);
         if (source.IsDisposed)
         {
@@ -40,6 +61,13 @@ public static unsafe class GpuTextureBlitter
         {
             throw new NotSupportedException("GPU texture blit currently supports single-sample 2D textures with one layer.");
         }
+        if (!float.IsFinite(saturation) ||
+            !float.IsFinite(grayscale))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(saturation),
+                "GPU blit effect values must be finite.");
+        }
 
         var context = source.Context;
         lock (context.RenderLock)
@@ -49,7 +77,13 @@ public static unsafe class GpuTextureBlitter
                 throw new ObjectDisposedException(nameof(WgpuContext));
             }
 
-            BlitCore(source, destinationView, destinationFormat, clearColor);
+            BlitCore(
+                source,
+                destinationView,
+                destinationFormat,
+                Math.Clamp(saturation, 0f, 1f),
+                Math.Clamp(grayscale, 0f, 1f),
+                clearColor);
         }
     }
 
@@ -57,6 +91,8 @@ public static unsafe class GpuTextureBlitter
         GpuTexture source,
         TextureView* destinationView,
         TextureFormat destinationFormat,
+        float saturation,
+        float grayscale,
         Color clearColor)
     {
         var context = source.Context;
@@ -68,7 +104,17 @@ public static unsafe class GpuTextureBlitter
         CommandBuffer* commandBuffer = null;
         try
         {
-            var entries = stackalloc BindGroupEntry[2];
+            Span<float> effectValues =
+                stackalloc float[4]
+                {
+                    saturation,
+                    grayscale,
+                    0f,
+                    0f
+                };
+            resources.EffectUniform.Write<float>(effectValues);
+
+            var entries = stackalloc BindGroupEntry[3];
             entries[0] = new BindGroupEntry
             {
                 Binding = 0,
@@ -79,10 +125,17 @@ public static unsafe class GpuTextureBlitter
                 Binding = 1,
                 TextureView = source.ViewPtr
             };
+            entries[2] = new BindGroupEntry
+            {
+                Binding = 2,
+                Buffer = resources.EffectUniform.BufferPtr,
+                Offset = 0,
+                Size = 16
+            };
             var bindGroupDescriptor = new BindGroupDescriptor
             {
                 Layout = resources.BindGroupLayout,
-                EntryCount = 2,
+                EntryCount = 3,
                 Entries = entries
             };
             bindGroup = wgpu.DeviceCreateBindGroup(context.Device, &bindGroupDescriptor);
@@ -184,16 +237,22 @@ public static unsafe class GpuTextureBlitter
 
     private readonly struct Resources
     {
-        public Resources(Sampler* sampler, BindGroupLayout* bindGroupLayout, RenderPipeline* pipeline)
+        public Resources(
+            Sampler* sampler,
+            BindGroupLayout* bindGroupLayout,
+            RenderPipeline* pipeline,
+            GpuBuffer effectUniform)
         {
             Sampler = sampler;
             BindGroupLayout = bindGroupLayout;
             Pipeline = pipeline;
+            EffectUniform = effectUniform;
         }
 
         public Sampler* Sampler { get; }
         public BindGroupLayout* BindGroupLayout { get; }
         public RenderPipeline* Pipeline { get; }
+        public GpuBuffer EffectUniform { get; }
     }
 
     private sealed class ResourceCache
@@ -205,6 +264,7 @@ public static unsafe class GpuTextureBlitter
         private IntPtr _sampler;
         private IntPtr _bindGroupLayout;
         private IntPtr _pipelineLayout;
+        private GpuBuffer? _effectUniform;
 
         public ResourceCache(WgpuContext context)
         {
@@ -229,7 +289,8 @@ public static unsafe class GpuTextureBlitter
                 return new Resources(
                     (Sampler*)_sampler,
                     (BindGroupLayout*)_bindGroupLayout,
-                    (RenderPipeline*)pipeline);
+                    (RenderPipeline*)pipeline,
+                    _effectUniform!);
             }
         }
 
@@ -247,6 +308,7 @@ public static unsafe class GpuTextureBlitter
                     _context.QueueBindGroupLayoutDisposal(_bindGroupLayout);
                     _context.QueueSamplerDisposal(_sampler);
                     _context.QueueShaderModuleDisposal(_shader);
+                    _effectUniform?.Dispose();
                 }
 
                 _pipelines.Clear();
@@ -254,6 +316,7 @@ public static unsafe class GpuTextureBlitter
                 _bindGroupLayout = IntPtr.Zero;
                 _sampler = IntPtr.Zero;
                 _shader = IntPtr.Zero;
+                _effectUniform = null;
             }
         }
 
@@ -274,6 +337,11 @@ public static unsafe class GpuTextureBlitter
                 sampler = CreateSampler(_context);
                 bindGroupLayout = CreateBindGroupLayout(_context);
                 pipelineLayout = CreatePipelineLayout(_context, bindGroupLayout);
+                _effectUniform = new GpuBuffer(
+                    _context,
+                    16,
+                    BufferUsage.Uniform | BufferUsage.CopyDst,
+                    "Texture Blitter Effects");
 
                 _shader = (IntPtr)shader;
                 _sampler = (IntPtr)sampler;
@@ -282,6 +350,8 @@ public static unsafe class GpuTextureBlitter
             }
             catch
             {
+                _effectUniform?.Dispose();
+                _effectUniform = null;
                 if (pipelineLayout != null) _context.Api.PipelineLayoutRelease(pipelineLayout);
                 if (bindGroupLayout != null) _context.Api.BindGroupLayoutRelease(bindGroupLayout);
                 if (sampler != null) _context.Api.SamplerRelease(sampler);
@@ -349,7 +419,7 @@ public static unsafe class GpuTextureBlitter
 
     private static BindGroupLayout* CreateBindGroupLayout(WgpuContext context)
     {
-        var entries = stackalloc BindGroupLayoutEntry[2];
+        var entries = stackalloc BindGroupLayoutEntry[3];
         entries[0] = new BindGroupLayoutEntry
         {
             Binding = 0,
@@ -367,9 +437,20 @@ public static unsafe class GpuTextureBlitter
                 Multisampled = false
             }
         };
+        entries[2] = new BindGroupLayoutEntry
+        {
+            Binding = 2,
+            Visibility = ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout
+            {
+                Type = BufferBindingType.Uniform,
+                HasDynamicOffset = false,
+                MinBindingSize = 16
+            }
+        };
         var descriptor = new BindGroupLayoutDescriptor
         {
-            EntryCount = 2,
+            EntryCount = 3,
             Entries = entries
         };
         var bindGroupLayout = context.Api.DeviceCreateBindGroupLayout(context.Device, &descriptor);

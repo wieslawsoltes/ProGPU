@@ -83,6 +83,21 @@ public unsafe interface IWebGpuApi
 }
 
 /// <summary>
+/// Optional native-presentation contract for an exact-ABI external WebGPU
+/// backend. It lets a host resize an already selected external device without
+/// routing surface descriptors through a second ABI.
+/// </summary>
+public unsafe interface IWebGpuExternalSurfaceApi
+{
+    void ConfigureExternalSurface(
+        Surface* surface,
+        uint width,
+        uint height);
+
+    void UnconfigureExternalSurface(Surface* surface);
+}
+
+/// <summary>
 /// Owns the instance, adapter, device, and queue behind an externally created
 /// native <see cref="IWebGpuApi"/> implementation.
 /// </summary>

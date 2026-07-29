@@ -1,6 +1,6 @@
-// Algorithm: Transform an image-effect quad, sample the source and either texture-mask or affine analytic rounded-mask coverage, then apply color/effect parameters.
-// Time complexity: O(1) per vertex and fragment.
-// Space complexity: O(1) local storage; texture masks add one sample while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no mask texture bandwidth.
+// Algorithm: Transform an image-effect quad, optionally map each perspective ray into an equirectangular source, sample RGB or planar YUV with an optional bounded 2D Gaussian footprint, apply fused color operations, and combine texture-mask or affine analytic rounded-mask coverage.
+// Time complexity: O(1) per vertex and fragment because spherical mapping is fixed work and blur radius R is clamped to 5; RGB performs 1 source sample without blur or at most 121 samples, planar YUV performs 2 or at most 242 samples, and a mask adds at most one sample.
+// Space complexity: O(1) local/private storage per invocation and O(1) uniform storage; spherical mapping, planar conversion, and fused effects use no intermediate texture, while blur has a fixed bounded source-texture bandwidth cost.
 struct VSUniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -19,12 +19,22 @@ struct EffectUniforms {
     effects1: vec4<f32>,
     texture0: vec4<f32>,
     flags0: vec4<f32>,
+    yuvRange: vec4<f32>,
+    yuvRed: vec4<f32>,
+    yuvGreen: vec4<f32>,
+    yuvBlue: vec4<f32>,
+    spherical0: vec4<f32>,
+    sphericalUvRect: vec4<f32>,
+    sphericalRotation0: vec4<f32>,
+    sphericalRotation1: vec4<f32>,
+    sphericalRotation2: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> effect: EffectUniforms;
 
 @group(2) @binding(0) var texSampler: sampler;
 @group(2) @binding(1) var texTexture: texture_2d<f32>;
+@group(2) @binding(2) var chromaTexture: texture_2d<f32>;
 
 @group(3) @binding(0) var maskSampler: sampler;
 @group(3) @binding(1) var maskTexture: texture_2d<f32>;
@@ -109,9 +119,72 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return output;
 }
 
+fn sample_source(texCoord: vec2<f32>) -> vec4<f32> {
+    if (effect.flags0.x > 0.5) {
+        let rawY = textureSample(
+            texTexture,
+            texSampler,
+            texCoord).r;
+        let rawChroma = textureSample(
+            chromaTexture,
+            texSampler,
+            texCoord).rg;
+        let components = vec3<f32>(
+            (rawY - effect.yuvRange.x) *
+                effect.yuvRange.y,
+            (rawChroma.x - effect.yuvRange.z) *
+                effect.yuvRange.w,
+            (rawChroma.y - effect.yuvRange.z) *
+                effect.yuvRange.w);
+        return vec4<f32>(
+            dot(components, effect.yuvRed.xyz),
+            dot(components, effect.yuvGreen.xyz),
+            dot(components, effect.yuvBlue.xyz),
+            1.0);
+    }
+    return textureSample(texTexture, texSampler, texCoord);
+}
+
+fn project_source_coordinate(texCoord: vec2<f32>) -> vec2<f32> {
+    if (effect.spherical0.x < 0.5) {
+        return texCoord;
+    }
+
+    let localCoordinate =
+        (texCoord - effect.sphericalUvRect.xy) /
+        max(
+            effect.sphericalUvRect.zw,
+            vec2<f32>(0.000001));
+    let output = vec2<f32>(
+        localCoordinate.x * 2.0 - 1.0,
+        1.0 - localCoordinate.y * 2.0);
+    let tanHalfHorizontal =
+        tan(effect.spherical0.y * 0.5);
+    let tanHalfVertical =
+        tanHalfHorizontal /
+        max(effect.spherical0.z, 0.000001);
+    let viewRay = normalize(vec3<f32>(
+        output.x * tanHalfHorizontal,
+        output.y * tanHalfVertical,
+        1.0));
+    let direction = normalize(vec3<f32>(
+        dot(viewRay, effect.sphericalRotation0.xyz),
+        dot(viewRay, effect.sphericalRotation1.xyz),
+        dot(viewRay, effect.sphericalRotation2.xyz)));
+    let longitude = atan2(direction.x, direction.z);
+    let latitude = asin(clamp(direction.y, -1.0, 1.0));
+    let equirectangular = vec2<f32>(
+        0.5 + longitude * 0.15915494309189535,
+        0.5 - latitude * 0.3183098861837907);
+    return effect.sphericalUvRect.xy +
+        equirectangular * effect.sphericalUvRect.zw;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(0.0);
+    let sourceCoordinate =
+        project_source_coordinate(input.texCoord);
 
     let sigma = effect.effects1.z;
     if (sigma > 0.01) {
@@ -125,13 +198,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             for (var dx = -radius; dx <= radius; dx = dx + 1) {
                 let offset = vec2<f32>(f32(dx), f32(dy)) * texel;
                 let weight = exp(-f32(dx * dx + dy * dy) / (2.0 * sigma * sigma));
-                color = color + textureSample(texTexture, texSampler, input.texCoord + offset) * weight;
+                color = color +
+                    sample_source(sourceCoordinate + offset) *
+                    weight;
                 totalWeight = totalWeight + weight;
             }
         }
         color = color / totalWeight;
     } else {
-        color = textureSample(texTexture, texSampler, input.texCoord);
+        color = sample_source(sourceCoordinate);
     }
 
     var straightColor = color;

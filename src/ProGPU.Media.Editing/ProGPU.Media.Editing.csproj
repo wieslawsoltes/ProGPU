@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Reusable non-destructive ProGPU media composition, project serialization, overlays, effects, and native export coordination.</Description>
+    <PackageDescription>Reusable non-destructive ProGPU media composition, project serialization, overlays, effects, and native export coordination.</PackageDescription>
+    <PackageTags>progpu;media;editing;composition;video;audio;cross-platform</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
+  </ItemGroup>
+</Project>

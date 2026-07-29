@@ -15,7 +15,7 @@ public sealed unsafe partial class DawnGpuContext
     /// <remarks>
     /// Startup performs one adapter request, one device request, and one
     /// surface-capability query. It allocates no full-frame pixel storage and
-    /// keeps presentation on D3D12 (Win32) or Vulkan (Xlib).
+    /// keeps presentation on D3D12 (Win32) or Vulkan (Xlib/Wayland).
     /// </remarks>
     public static DawnGpuContext CreateNativePresentation(
         DawnNativeWindowSource source)
@@ -64,13 +64,90 @@ public sealed unsafe partial class DawnGpuContext
                 SelectSurfaceFormat(capabilities.Formats);
 
             Span<W.FeatureName> requiredFeatures =
-                stackalloc W.FeatureName[1];
+                stackalloc W.FeatureName[4];
             int featureCount = 0;
             if (format == W.TextureFormat.BGRA8Unorm &&
                 adapter.HasFeature(W.FeatureName.BGRA8UnormStorage))
             {
                 requiredFeatures[featureCount++] =
                     W.FeatureName.BGRA8UnormStorage;
+            }
+            if (source.Kind == DawnNativeWindowKind.Win32 &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryDXGISharedHandle))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryDXGISharedHandle;
+            }
+            if (source.Kind == DawnNativeWindowKind.Win32 &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceDXGISharedHandle))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceDXGISharedHandle;
+            }
+            if (source.Kind == DawnNativeWindowKind.Android &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryAHardwareBuffer))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryAHardwareBuffer;
+            }
+            if (source.Kind == DawnNativeWindowKind.Android &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceSyncFD))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceSyncFD;
+            }
+            if ((source.Kind is
+                     DawnNativeWindowKind.Xlib or
+                     DawnNativeWindowKind.Wayland) &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryDmaBuf))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryDmaBuf;
+            }
+            if ((source.Kind is
+                     DawnNativeWindowKind.Xlib or
+                     DawnNativeWindowKind.Wayland) &&
+                adapter.HasFeature(
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceSyncFD))
+            {
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceSyncFD;
+            }
+            if (source.Kind == DawnNativeWindowKind.MetalLayer)
+            {
+                if (!adapter.HasFeature(
+                        DawnSharedTextureMemoryFeatures
+                            .SharedTextureMemoryIOSurface) ||
+                    !adapter.HasFeature(
+                        DawnSharedTextureMemoryFeatures
+                            .SharedFenceMTLSharedEvent))
+                {
+                    throw new NotSupportedException(
+                        "The Dawn Metal adapter does not expose IOSurface shared memory and MTLSharedEvent synchronization.");
+                }
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedTextureMemoryIOSurface;
+                requiredFeatures[featureCount++] =
+                    DawnSharedTextureMemoryFeatures
+                        .SharedFenceMTLSharedEvent;
             }
 
             device = RequestDevice(
@@ -207,6 +284,55 @@ public sealed unsafe partial class DawnGpuContext
         catch
         {
             surface.Release();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Attaches a Dawn-owned swapchain surface to the ordinary ProGPU context,
+    /// keeping presentation and external-memory import on the same device.
+    /// </summary>
+    public void AttachNativePresentation(
+        DawnNativeWindowSource source,
+        uint width,
+        uint height)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (Context.Surface != null)
+        {
+            throw new InvalidOperationException(
+                "A native presentation surface is already attached.");
+        }
+        if (Context.Api is not DawnWebGpuApi api)
+        {
+            throw new InvalidOperationException(
+                "The context does not use the exact-ABI Dawn API.");
+        }
+
+        DawnNativePresentationSurface presentation =
+            CreatePresentationSurface(source);
+        bool attachedToApi = false;
+        try
+        {
+            SW.Surface* surface =
+                api.AttachPresentationSurface(presentation);
+            attachedToApi = true;
+            Context.AttachExternalNativePresentationSurface(
+                surface,
+                presentation.Format,
+                width,
+                height);
+        }
+        catch
+        {
+            if (attachedToApi)
+            {
+                api.SurfaceRelease(presentation.SilkSurface);
+            }
+            else
+            {
+                presentation.Dispose();
+            }
             throw;
         }
     }
@@ -424,6 +550,9 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
     public bool UsesPremultipliedAlpha =>
         _alphaMode == W.CompositeAlphaMode.Premultiplied;
 
+    internal SW.Surface* SilkSurface =>
+        (SW.Surface*)_surface.GetAddress();
+
     public DawnNativePresentationFrame Acquire(
         uint width,
         uint height)
@@ -515,6 +644,88 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
             }
         }
     }
+
+    internal void ConfigureExternal(uint width, uint height)
+    {
+        if (width == 0 || height == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                "Presentation dimensions must be nonzero.");
+        }
+        lock (_owner.Context.RenderLock)
+        {
+            ObjectDisposedException.ThrowIf(
+                _surface == SurfaceHandle.Null,
+                this);
+            ConfigureIfNeeded(width, height);
+        }
+    }
+
+    internal void GetCurrentTexture(SW.SurfaceTexture* target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        lock (_owner.Context.RenderLock)
+        {
+            ObjectDisposedException.ThrowIf(
+                _surface == SurfaceHandle.Null,
+                this);
+            SurfaceTextureFFI acquired = default;
+            _surface.GetCurrentTexture(ref acquired);
+            bool acquiredTexture =
+                acquired.Texture != TextureHandle.Null;
+            *target = new SW.SurfaceTexture
+            {
+                Texture = (SW.Texture*)acquired.Texture.GetAddress(),
+                Suboptimal =
+                    acquired.Status ==
+                    W.SurfaceGetCurrentTextureStatus.SuccessSuboptimal,
+                Status = acquiredTexture
+                    ? ToSilkStatus(acquired.Status)
+                    : SW.SurfaceGetCurrentTextureStatus.Lost
+            };
+            if (target->Status !=
+                SW.SurfaceGetCurrentTextureStatus.Success &&
+                acquired.Texture != TextureHandle.Null)
+            {
+                acquired.Texture.Release();
+                target->Texture = null;
+            }
+            _reconfigureAfterPresent =
+                acquired.Status ==
+                W.SurfaceGetCurrentTextureStatus.SuccessSuboptimal;
+        }
+    }
+
+    internal void UnconfigureExternal()
+    {
+        lock (_owner.Context.RenderLock)
+        {
+            if (_surface == SurfaceHandle.Null || !_configured)
+            {
+                return;
+            }
+            _surface.Unconfigure();
+            _configured = false;
+            _reconfigureAfterPresent = false;
+        }
+    }
+
+    private static SW.SurfaceGetCurrentTextureStatus ToSilkStatus(
+        W.SurfaceGetCurrentTextureStatus status) =>
+        status switch
+        {
+            W.SurfaceGetCurrentTextureStatus.SuccessOptimal or
+            W.SurfaceGetCurrentTextureStatus.SuccessSuboptimal =>
+                SW.SurfaceGetCurrentTextureStatus.Success,
+            W.SurfaceGetCurrentTextureStatus.Timeout =>
+                SW.SurfaceGetCurrentTextureStatus.Timeout,
+            W.SurfaceGetCurrentTextureStatus.Outdated =>
+                SW.SurfaceGetCurrentTextureStatus.Outdated,
+            W.SurfaceGetCurrentTextureStatus.Lost =>
+                SW.SurfaceGetCurrentTextureStatus.Lost,
+            _ => SW.SurfaceGetCurrentTextureStatus.Lost
+        };
 
     private void ConfigureIfNeeded(uint width, uint height)
     {

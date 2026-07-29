@@ -16,6 +16,19 @@ namespace ProGPU.Tests;
 
 public sealed class WinUiAnimationObjectModelTests
 {
+    [Fact]
+    public void ToggleSwitchRaisesToggledAfterStateChanges()
+    {
+        var toggle = new Microsoft.UI.Xaml.Controls.ToggleSwitch();
+        int raised = 0;
+        toggle.Toggled += (_, _) => raised++;
+
+        toggle.IsOn = true;
+        toggle.IsOn = false;
+
+        Assert.Equal(2, raised);
+    }
+
     private sealed class UnsupportedTimeline : Timeline
     {
     }
@@ -53,7 +66,8 @@ public sealed class WinUiAnimationObjectModelTests
         protected override DataTemplate? SelectTemplateCore(object? item, DependencyObject container) => template;
     }
 
-    private sealed class MediaSource : Windows.Media.Playback.IMediaPlaybackSource
+    private sealed class MediaSource :
+        global::Windows.Media.Playback.IMediaPlaybackSource
     {
     }
 
@@ -1146,12 +1160,16 @@ public sealed class WinUiAnimationObjectModelTests
         {
             Source = source,
             AutoPlay = true,
+            AreTransportControlsEnabled = true,
             Stretch = Stretch.UniformToFill,
             IsFullWindow = true
         };
 
         Assert.Same(source, element.MediaPlayer.Source);
-        Assert.Equal(Windows.Media.Playback.MediaPlaybackState.Playing, element.MediaPlayer.PlaybackState);
+        Assert.True(element.MediaPlayer.AutoPlay);
+        Assert.Equal(
+            global::Windows.Media.Playback.MediaPlaybackState.None,
+            element.MediaPlayer.PlaybackSession.PlaybackState);
         Assert.NotNull(element.TransportControls);
         Assert.Equal(2, element.Children.Count);
 

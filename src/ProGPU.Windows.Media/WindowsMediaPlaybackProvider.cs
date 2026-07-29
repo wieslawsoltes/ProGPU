@@ -1,0 +1,1054 @@
+using System.Collections.Concurrent;
+using ProGPU.Backend;
+using ProGPU.Media.Audio;
+using ProGPU.Media.Diagnostics;
+using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
+using ProGPU.Media.Extensibility;
+using ProGPU.Media.Playback;
+using Silk.NET.WebGPU;
+
+namespace ProGPU.Windows.Media;
+
+/// <summary>
+/// Registers the dependency-free Media Foundation provider. Registration is
+/// explicit so applications can replace it with a higher-priority provider.
+/// </summary>
+public static class WindowsMedia
+{
+    public static IDisposable Register(
+        MediaProviderRegistry? registry = null,
+        int priority = 100)
+    {
+        IDisposable playback =
+            (registry ?? MediaProviderRegistry.Default).Register(
+                new WindowsMediaPlaybackProviderFactory(priority));
+        IDisposable preciseExport =
+            MediaCompositionExportRegistry.Default.Register(
+                new WindowsMediaFoundationCompositionExportProvider(
+                    priority));
+        IDisposable fastExport =
+            MediaCompositionExportRegistry.Default.Register(
+                new IsoBmffFastMediaCompositionExportProvider(
+                    LowerPriority(priority)));
+        return new WindowsMediaRegistrations(
+            playback,
+            preciseExport,
+            fastExport);
+    }
+
+    private static int LowerPriority(int priority) =>
+        priority == int.MinValue
+            ? int.MinValue
+            : priority - 1;
+
+    private sealed class WindowsMediaRegistrations :
+        IDisposable
+    {
+        private IDisposable? _playback;
+        private IDisposable? _preciseExport;
+        private IDisposable? _fastExport;
+
+        public WindowsMediaRegistrations(
+            IDisposable playback,
+            IDisposable preciseExport,
+            IDisposable fastExport)
+        {
+            _playback = playback;
+            _preciseExport = preciseExport;
+            _fastExport = fastExport;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(
+                ref _fastExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _preciseExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _playback,
+                null)?.Dispose();
+        }
+    }
+}
+
+public sealed class WindowsMediaPlaybackProviderFactory :
+    IMediaPlaybackProviderFactory
+{
+    public WindowsMediaPlaybackProviderFactory(int priority = 100)
+    {
+        Priority = priority;
+    }
+
+    public string Id => "progpu.windows.mediafoundation";
+    public int Priority { get; }
+
+    public bool CanOpen(MediaSourceDescriptor source) =>
+        OperatingSystem.IsWindows() &&
+        source.Kind == MediaSourceKind.Uri &&
+        source.Uri is { IsAbsoluteUri: true };
+
+    public ValueTask<IMediaPlaybackProvider> CreateAsync(
+        MediaSourceDescriptor source,
+        IMediaPlaybackSink sink,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(sink);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanOpen(source))
+        {
+            throw new NotSupportedException(
+                "The Media Foundation provider accepts absolute URI media sources on Windows.");
+        }
+
+        return ValueTask.FromResult<IMediaPlaybackProvider>(
+            new WindowsMediaPlaybackProvider(source.Uri!, sink));
+    }
+}
+
+/// <summary>
+/// Uses IMFMediaEngine in frame-server mode for native hardware decode and
+/// audio presentation. Video stays on the GPU: Media Foundation blits into a
+/// pooled shared D3D11 texture which Dawn imports through a DXGI HANDLE.
+/// </summary>
+internal sealed class WindowsMediaPlaybackProvider :
+    IMediaPlaybackProvider,
+    IMediaPlaybackConfigurationProvider
+{
+    private const int EventError = 5;
+    private const int EventLoadedMetadata = 10;
+    private const int EventSeeked = 17;
+    private const int EventEnded = 19;
+    private const int EventFormatChange = 1000;
+    private const int EventStreamRenderingError = 1014;
+    private const int FlagMetadata = 1 << 0;
+    private const int FlagSeeked = 1 << 1;
+    private const int FlagEnded = 1 << 2;
+    private const int FlagFormatChange = 1 << 3;
+    private const int FlagError = 1 << 4;
+    private const int FramePoolSize = 3;
+    private static readonly TimeSpan s_workerJoinTimeout =
+        TimeSpan.FromSeconds(5);
+    private const string TransferDiagnostic =
+        "Media Foundation frame-server mode performs one GPU-local blit into a shared D3D11 texture. No CPU readback or upload occurs; direct decoder-allocation zero-copy requires the future Source Reader lane.";
+
+    private readonly Uri _uri;
+    private readonly IMediaPlaybackSink _sink;
+    private readonly ConcurrentQueue<Action<nint>> _commands = new();
+    private readonly object _audioEffectGate = new();
+    private readonly List<AudioGraphEffectBinding>
+        _audioEffects = [];
+    private readonly ManualResetEventSlim _stop = new(false);
+    private readonly TaskCompletionSource _opened =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private MediaPlaybackConfiguration _configuration =
+        MediaPlaybackConfiguration.Default;
+    private Thread? _worker;
+    private MediaPlaybackSnapshot _snapshot =
+        MediaPlaybackSnapshot.Empty;
+    private double _volume = 1d;
+    private double _balance;
+    private double _rate = 1d;
+    private bool _muted;
+    private bool _looping;
+    private long _sequence;
+    private long _droppedFrames;
+    private nuint _nativeError;
+    private int _nativeEvents;
+    private int _started;
+    private int _stopDisposed;
+    private int _disposed;
+
+    internal WindowsMediaPlaybackProvider(
+        Uri uri,
+        IMediaPlaybackSink sink)
+    {
+        _uri = uri;
+        _sink = sink;
+    }
+
+    public string Id => "progpu.windows.mediafoundation";
+
+    public async ValueTask OpenAsync(
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "Media Foundation playback is available only on Windows.");
+        }
+        if (Interlocked.Exchange(ref _started, 1) != 0)
+        {
+            throw new InvalidOperationException(
+                "A Media Foundation provider can be opened only once.");
+        }
+
+        var thread = new Thread(WorkerMain)
+        {
+            IsBackground = true,
+            Name = "ProGPU Media Foundation"
+        };
+        _worker = thread;
+        thread.Start();
+
+        using CancellationTokenRegistration registration =
+            cancellationToken.Register(
+                static state =>
+                    ((WindowsMediaPlaybackProvider)state!).CancelOpen(),
+                this);
+        await _opened.Task.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public void Play() =>
+        Enqueue(WindowsMediaNative.Play);
+
+    public void Pause() =>
+        Enqueue(WindowsMediaNative.Pause);
+
+    public void Seek(TimeSpan position)
+    {
+        double seconds = Math.Max(0d, position.TotalSeconds);
+        Enqueue(engine =>
+            WindowsMediaNative.SetCurrentTime(engine, seconds));
+    }
+
+    public void SetPlaybackRate(double value)
+    {
+        ThrowIfDisposed();
+        _rate = value;
+        Enqueue(engine =>
+            WindowsMediaNative.SetPlaybackRate(engine, value));
+    }
+
+    public void SetVolume(
+        double volume,
+        double balance,
+        bool muted)
+    {
+        ThrowIfDisposed();
+        _volume = volume;
+        _balance = balance;
+        _muted = muted;
+        Enqueue(ApplyAudioGraph);
+    }
+
+    public void SetLooping(bool enabled)
+    {
+        ThrowIfDisposed();
+        _looping = enabled;
+        Enqueue(engine =>
+            WindowsMediaNative.SetLoop(engine, enabled));
+    }
+
+    public bool StepForwardOneFrame()
+    {
+        if (Volatile.Read(ref _started) == 0 ||
+            Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+        Enqueue(static engine =>
+            WindowsMediaNative.FrameStep(
+                engine,
+                forward: true));
+        return true;
+    }
+
+    public bool StepBackwardOneFrame()
+    {
+        if (Volatile.Read(ref _started) == 0 ||
+            Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+        Enqueue(static engine =>
+            WindowsMediaNative.FrameStep(
+                engine,
+                forward: false));
+        return true;
+    }
+
+    public void AddEffect(IMediaEffect effect, bool optional)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        if (effect is not IMediaAudioGraphEffect
+            graphEffect ||
+            graphEffect.CaptureState().Kind !=
+                MediaAudioGraphEffectKind.Gain)
+        {
+            if (!optional)
+            {
+                throw new NotSupportedException(
+                    "Media Foundation accepts typed gain IMediaAudioGraphEffect nodes in the built-in lane. Arbitrary PCM effects require an IMFTransform or WASAPI processing provider.");
+            }
+            return;
+        }
+
+        lock (_audioEffectGate)
+        {
+            ThrowIfDisposed();
+            _audioEffects.Add(
+                new AudioGraphEffectBinding(
+                    graphEffect,
+                    OnAudioEffectStateChanged));
+        }
+        Enqueue(ApplyAudioGraph);
+    }
+
+    public void RemoveAllEffects()
+    {
+        AudioGraphEffectBinding[] bindings;
+        lock (_audioEffectGate)
+        {
+            bindings = [.. _audioEffects];
+            _audioEffects.Clear();
+        }
+        for (int index = 0;
+             index < bindings.Length;
+             index++)
+        {
+            bindings[index].Dispose();
+        }
+        Enqueue(ApplyAudioGraph);
+    }
+
+    public void ApplyConfiguration(
+        in MediaPlaybackConfiguration configuration)
+    {
+        ThrowIfDisposed();
+        _configuration = configuration;
+        if (Volatile.Read(ref _started) != 0)
+        {
+            PublishDiagnostics(
+                "MediaAudioCategory is applied when IMFMediaEngine is created; changing it on an open source takes effect on the next source.");
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _stop.Set();
+        Thread? worker = Interlocked.Exchange(ref _worker, null);
+        if (worker is not null &&
+            worker != Thread.CurrentThread &&
+            worker.IsAlive)
+        {
+            _ = worker.Join(s_workerJoinTimeout);
+        }
+        _opened.TrySetCanceled();
+        AudioGraphEffectBinding[] bindings;
+        lock (_audioEffectGate)
+        {
+            bindings = [.. _audioEffects];
+            _audioEffects.Clear();
+        }
+        for (int index = 0;
+             index < bindings.Length;
+             index++)
+        {
+            bindings[index].Dispose();
+        }
+        if (worker is null || !worker.IsAlive)
+        {
+            DisposeStopSignal();
+        }
+    }
+
+    private void WorkerMain()
+    {
+        nint attributes = 0;
+        nint d3dDevice = 0;
+        nint d3dContext = 0;
+        nint dxgiManager = 0;
+        nint factory = 0;
+        nint engine = 0;
+        MediaEngineNotification? notification = null;
+        SharedTexturePool? pool = null;
+        bool comInitialized = false;
+        bool mediaFoundationStarted = false;
+        try
+        {
+            WindowsMediaNative.InitializeCom();
+            comInitialized = true;
+            WindowsMediaNative.StartupMediaFoundation();
+            mediaFoundationStarted = true;
+            notification =
+                new MediaEngineNotification(OnNativeEvent);
+            d3dDevice =
+                WindowsMediaNative.CreateD3D11Device(out d3dContext);
+            dxgiManager =
+                WindowsMediaNative.CreateDxgiDeviceManager(d3dDevice);
+            attributes = WindowsMediaNative.CreateAttributes(5);
+            WindowsMediaNative.SetAttributeUnknown(
+                attributes,
+                in WindowsMediaNative.MediaEngineCallback,
+                notification.NativePointer);
+            WindowsMediaNative.SetAttributeUnknown(
+                attributes,
+                in WindowsMediaNative.MediaEngineDxgiManager,
+                dxgiManager);
+            WindowsMediaNative.SetAttributeUInt32(
+                attributes,
+                in WindowsMediaNative.MediaEngineVideoOutputFormat,
+                WindowsMediaNative.DxgiFormatB8G8R8A8Unorm);
+            WindowsMediaNative.SetAttributeUInt32(
+                attributes,
+                in WindowsMediaNative.MediaEngineAudioCategory,
+                unchecked((uint)_configuration.AudioCategory));
+            WindowsMediaNative.SetAttributeUInt32(
+                attributes,
+                in WindowsMediaNative.MediaEngineAudioEndpointRole,
+                unchecked((uint)_configuration.AudioDeviceRole));
+            factory = WindowsMediaNative.CreateMediaEngineFactory();
+            engine =
+                WindowsMediaNative.CreateMediaEngine(
+                    factory,
+                    attributes,
+                    _configuration.RealTimePlayback);
+            ApplyInitialSettings(engine);
+            WindowsMediaNative.SetSource(engine, _uri.AbsoluteUri);
+            WindowsMediaNative.Load(engine);
+
+            WaitForMetadata(engine);
+            bool hasVideo = WindowsMediaNative.HasVideo(engine);
+            bool hasAudio = WindowsMediaNative.HasAudio(engine);
+            uint width = 0;
+            uint height = 0;
+            if (hasVideo)
+            {
+                WindowsMediaNative.GetNativeVideoSize(
+                    engine,
+                    out width,
+                    out height);
+                if (width != 0 && height != 0)
+                {
+                    pool = new SharedTexturePool(
+                        d3dDevice,
+                        width,
+                        height,
+                        FramePoolSize);
+                }
+            }
+
+            double durationSeconds =
+                WindowsMediaNative.GetDuration(engine);
+            _snapshot = new MediaPlaybackSnapshot(
+                MediaEnginePlaybackState.Paused,
+                TimeSpan.Zero,
+                ToTimeSpan(durationSeconds),
+                width,
+                height,
+                BufferingProgress: 1d,
+                DownloadProgress: 0d,
+                PlaybackRate: _rate,
+                new MediaProviderCapabilities(
+                    CanPause: true,
+                    CanSeek:
+                        double.IsFinite(durationSeconds) &&
+                        durationSeconds > 0d,
+                    SupportsRate: true,
+                    SupportsFrameStepping: true,
+                    HardwareDecoded: true,
+                    HasAudio: hasAudio,
+                    HasVideo: hasVideo));
+            _sink.Opened(in _snapshot);
+            PublishDiagnostics(TransferDiagnostic);
+            _opened.TrySetResult();
+
+            RunPlaybackLoop(engine, d3dDevice, ref pool);
+        }
+        catch (OperationCanceledException)
+        {
+            _opened.TrySetCanceled();
+        }
+        catch (Exception exception)
+        {
+            bool wasOpened = _opened.Task.IsCompletedSuccessfully;
+            if (!wasOpened)
+            {
+                _opened.TrySetException(exception);
+            }
+            if (wasOpened &&
+                Volatile.Read(ref _disposed) == 0)
+            {
+                _sink.Failed(
+                    MediaPlaybackFailure.Decode,
+                    exception.Message,
+                    exception);
+            }
+        }
+        finally
+        {
+            pool?.Dispose();
+            WindowsMediaNative.ShutdownMediaEngine(engine);
+            WindowsMediaNative.Release(engine);
+            WindowsMediaNative.Release(factory);
+            WindowsMediaNative.Release(attributes);
+            WindowsMediaNative.Release(dxgiManager);
+            WindowsMediaNative.Release(d3dContext);
+            WindowsMediaNative.Release(d3dDevice);
+            notification?.Dispose();
+            if (mediaFoundationStarted)
+            {
+                WindowsMediaNative.ShutdownMediaFoundation();
+            }
+            if (comInitialized)
+            {
+                WindowsMediaNative.UninitializeCom();
+            }
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                DisposeStopSignal();
+            }
+        }
+    }
+
+    private void WaitForMetadata(nint engine)
+    {
+        SharedTexturePool? unusedPool = null;
+        while (WindowsMediaNative.GetReadyState(engine) < 1)
+        {
+            ThrowIfStopping();
+            ProcessCommands(engine);
+            ProcessNativeEvents(engine, ref unusedPool);
+            _stop.Wait(5);
+        }
+    }
+
+    private void RunPlaybackLoop(
+        nint engine,
+        nint d3dDevice,
+        ref SharedTexturePool? pool)
+    {
+        long nextSnapshot =
+            Environment.TickCount64;
+        while (!_stop.IsSet)
+        {
+            ProcessCommands(engine);
+            ProcessNativeEvents(engine, ref pool, d3dDevice);
+            PresentVideoFrame(engine, pool);
+
+            long now = Environment.TickCount64;
+            if (now >= nextSnapshot)
+            {
+                UpdateSnapshot(engine);
+                nextSnapshot = now + 16;
+            }
+            _stop.Wait(2);
+        }
+    }
+
+    private void ProcessCommands(nint engine)
+    {
+        while (_commands.TryDequeue(out Action<nint>? command))
+        {
+            command(engine);
+        }
+    }
+
+    private void ProcessNativeEvents(
+        nint engine,
+        ref SharedTexturePool? pool,
+        nint d3dDevice = 0)
+    {
+        int events = Interlocked.Exchange(ref _nativeEvents, 0);
+        if ((events & FlagError) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Media Foundation reported native error 0x{Volatile.Read(ref _nativeError):x}.");
+        }
+        if ((events & FlagSeeked) != 0)
+        {
+            _sink.SeekCompleted(
+                ToTimeSpan(
+                    WindowsMediaNative.GetCurrentTime(engine)));
+        }
+        if ((events & FlagEnded) != 0 && !_looping)
+        {
+            _sink.Ended();
+        }
+        if ((events & FlagFormatChange) != 0 &&
+            d3dDevice != 0 &&
+            WindowsMediaNative.HasVideo(engine))
+        {
+            WindowsMediaNative.GetNativeVideoSize(
+                engine,
+                out uint width,
+                out uint height);
+            if (width != 0 &&
+                height != 0 &&
+                (pool is null ||
+                 pool.Width != width ||
+                 pool.Height != height))
+            {
+                var replacement = new SharedTexturePool(
+                    d3dDevice,
+                    width,
+                    height,
+                    FramePoolSize);
+                SharedTexturePool? previous = pool;
+                pool = replacement;
+                previous?.Dispose();
+                _snapshot = _snapshot with
+                {
+                    NaturalVideoWidth = width,
+                    NaturalVideoHeight = height
+                };
+            }
+        }
+    }
+
+    private void PresentVideoFrame(
+        nint engine,
+        SharedTexturePool? pool)
+    {
+        if (pool is null ||
+            !WindowsMediaNative.TryGetVideoTick(
+                engine,
+                out long presentationTime))
+        {
+            return;
+        }
+        if (!pool.TryRent(out SharedTextureSlotLease? lease) ||
+            lease is null)
+        {
+            Interlocked.Increment(ref _droppedFrames);
+            PublishDiagnostics(TransferDiagnostic);
+            return;
+        }
+
+        try
+        {
+            if (!WindowsMediaNative.TryAcquireKeyedMutex(
+                    lease.KeyedMutex,
+                    timeoutMilliseconds: 0))
+            {
+                Interlocked.Increment(ref _droppedFrames);
+                lease.Dispose();
+                return;
+            }
+            try
+            {
+                WindowsMediaNative.TransferVideoFrame(
+                    engine,
+                    lease.Texture,
+                    pool.Width,
+                    pool.Height);
+            }
+            finally
+            {
+                WindowsMediaNative.ReleaseKeyedMutex(
+                    lease.KeyedMutex);
+            }
+
+            var descriptor = new MediaGpuFrameDescriptor(
+                Interlocked.Increment(ref _sequence),
+                TimeSpan.FromTicks(presentationTime),
+                TimeSpan.Zero,
+                pool.Width,
+                pool.Height,
+                MediaVideoPixelFormat.Bgra8,
+                MediaTransferMode.GpuCopy,
+                new MediaColorInfo(
+                    MediaColorPrimaries.Bt709,
+                    MediaTransferFunction.Srgb,
+                    MediaMatrixCoefficients.Identity,
+                    FullRange: true));
+            var externalDescriptor =
+                new ProGpuExternalTextureDescriptor(
+                    ProGpuExternalTextureHandleKind.DxgiSharedHandle,
+                    lease.SharedHandle,
+                    pool.Width,
+                    pool.Height,
+                    TextureFormat.Bgra8Unorm,
+                    TextureUsage.TextureBinding,
+                    GpuTextureAlphaMode.Straight,
+                    IsInitialized: true)
+                {
+                    UsesKeyedMutex = true
+                };
+            _sink.Present(new ExternalMediaGpuFrame(
+                in descriptor,
+                in externalDescriptor,
+                lease));
+            lease = null;
+        }
+        catch
+        {
+            Interlocked.Increment(ref _droppedFrames);
+            throw;
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    private void UpdateSnapshot(nint engine)
+    {
+        ushort ready = WindowsMediaNative.GetReadyState(engine);
+        bool paused = WindowsMediaNative.IsPaused(engine);
+        bool ended = WindowsMediaNative.IsEnded(engine);
+        MediaEnginePlaybackState state =
+            paused || ended
+                ? MediaEnginePlaybackState.Paused
+                : ready < 3
+                    ? MediaEnginePlaybackState.Buffering
+                    : MediaEnginePlaybackState.Playing;
+        _snapshot = _snapshot with
+        {
+            State = state,
+            Position = ToTimeSpan(
+                WindowsMediaNative.GetCurrentTime(engine)),
+            BufferingProgress =
+                ready >= 3
+                    ? 1d
+                    : Math.Clamp(ready / 3d, 0d, 1d),
+            PlaybackRate =
+                WindowsMediaNative.GetPlaybackRate(engine)
+        };
+        _sink.Update(in _snapshot);
+    }
+
+    private void ApplyInitialSettings(nint engine)
+    {
+        WindowsMediaNative.SetPlaybackRate(engine, _rate);
+        ApplyAudioGraph(engine);
+        WindowsMediaNative.SetLoop(engine, _looping);
+    }
+
+    private void ApplyAudioGraph(nint engine)
+    {
+        float gain = GetCombinedGain();
+        double effectiveVolume =
+            Math.Clamp(
+                _volume * Math.Min(1d, gain),
+                0d,
+                1d);
+        WindowsMediaNative.SetVolume(
+            engine,
+            effectiveVolume);
+        WindowsMediaNative.SetMuted(
+            engine,
+            _muted);
+        WindowsMediaNative.SetBalance(
+            engine,
+            Math.Clamp(_balance, -1d, 1d));
+        if (gain > 1f)
+        {
+            PublishDiagnostics(
+                "The Media Engine volume stage is bounded to unity; gain above 1.0 requires the registered IMFTransform processing lane.");
+        }
+    }
+
+    private float GetCombinedGain()
+    {
+        float gain = 1f;
+        lock (_audioEffectGate)
+        {
+            for (int index = 0;
+                 index < _audioEffects.Count;
+                 index++)
+            {
+                gain *= _audioEffects[index]
+                    .Effect
+                    .CaptureState()
+                    .Parameter0;
+                if (!float.IsFinite(gain))
+                {
+                    return float.MaxValue;
+                }
+            }
+        }
+        return gain;
+    }
+
+    private void OnAudioEffectStateChanged() =>
+        Enqueue(ApplyAudioGraph);
+
+    private void OnNativeEvent(
+        uint eventCode,
+        nuint parameter1,
+        uint parameter2)
+    {
+        _ = parameter2;
+        int flag = eventCode switch
+        {
+            EventLoadedMetadata => FlagMetadata,
+            EventSeeked => FlagSeeked,
+            EventEnded => FlagEnded,
+            EventFormatChange => FlagFormatChange,
+            EventError or EventStreamRenderingError => FlagError,
+            _ => 0
+        };
+        if (flag == FlagError)
+        {
+            Volatile.Write(ref _nativeError, parameter1);
+        }
+        if (flag != 0)
+        {
+            Interlocked.Or(ref _nativeEvents, flag);
+        }
+    }
+
+    private void Enqueue(Action<nint> command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ThrowIfDisposed();
+        _commands.Enqueue(command);
+    }
+
+    private void CancelOpen()
+    {
+        _stop.Set();
+        _opened.TrySetCanceled();
+    }
+
+    private void ThrowIfStopping()
+    {
+        if (_stop.IsSet)
+        {
+            throw new OperationCanceledException();
+        }
+    }
+
+    private void PublishDiagnostics(string? fallbackReason)
+    {
+        _sink.UpdateDiagnostics(
+            new MediaProviderDiagnostics(
+                HardwareDecoded: true,
+                TransferMode: MediaTransferMode.GpuCopy,
+                DroppedFrames:
+                    Interlocked.Read(ref _droppedFrames),
+                VideoQueueDepth: FramePoolSize,
+                AudioQueueDepth: 0,
+                AudioLatency: TimeSpan.Zero,
+                LastFallbackReason: fallbackReason));
+    }
+
+    private static TimeSpan ToTimeSpan(double seconds) =>
+        double.IsFinite(seconds) &&
+        seconds > 0d &&
+        seconds <= TimeSpan.MaxValue.TotalSeconds
+            ? TimeSpan.FromSeconds(seconds)
+            : TimeSpan.Zero;
+
+    private void DisposeStopSignal()
+    {
+        if (Interlocked.Exchange(ref _stopDisposed, 1) == 0)
+        {
+            _stop.Dispose();
+        }
+    }
+
+    private sealed class AudioGraphEffectBinding :
+        IDisposable
+    {
+        private readonly Action _changed;
+
+        public AudioGraphEffectBinding(
+            IMediaAudioGraphEffect effect,
+            Action changed)
+        {
+            Effect = effect;
+            _changed = changed;
+            Effect.StateChanged += _changed;
+        }
+
+        public IMediaAudioGraphEffect Effect { get; }
+
+        public void Dispose() =>
+            Effect.StateChanged -= _changed;
+    }
+
+    private void ThrowIfDisposed() =>
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+}
+
+/// <summary>
+/// Fixed-size D3D11 texture ring. Disposal is deferred until every frame owner
+/// has ended Dawn access, so shared HANDLEs and keyed mutexes cannot be reused
+/// or destroyed while a WebGPU submission still references them.
+/// </summary>
+internal sealed class SharedTexturePool : IDisposable
+{
+    private readonly object _gate = new();
+    private readonly SharedTextureSlot[] _slots;
+    private int _active;
+    private bool _disposeRequested;
+    private bool _resourcesReleased;
+
+    internal SharedTexturePool(
+        nint d3dDevice,
+        uint width,
+        uint height,
+        int capacity)
+    {
+        Width = width;
+        Height = height;
+        _slots = new SharedTextureSlot[capacity];
+        try
+        {
+            for (int index = 0; index < capacity; index++)
+            {
+                nint texture =
+                    WindowsMediaNative.CreateSharedVideoTexture(
+                        d3dDevice,
+                        width,
+                        height,
+                        out nint sharedHandle,
+                        out nint keyedMutex);
+                _slots[index] = new SharedTextureSlot(
+                    texture,
+                    sharedHandle,
+                    keyedMutex);
+            }
+        }
+        catch
+        {
+            ReleaseResources();
+            throw;
+        }
+    }
+
+    internal uint Width { get; }
+    internal uint Height { get; }
+
+    internal bool TryRent(out SharedTextureSlotLease? lease)
+    {
+        lock (_gate)
+        {
+            if (_disposeRequested)
+            {
+                lease = null;
+                return false;
+            }
+            for (int index = 0; index < _slots.Length; index++)
+            {
+                SharedTextureSlot? slot = _slots[index];
+                if (slot is not null && !slot.Busy)
+                {
+                    slot.Busy = true;
+                    _active++;
+                    lease =
+                        new SharedTextureSlotLease(this, slot);
+                    return true;
+                }
+            }
+        }
+        lease = null;
+        return false;
+    }
+
+    internal void Return(SharedTextureSlot slot)
+    {
+        bool release;
+        lock (_gate)
+        {
+            if (!slot.Busy)
+            {
+                return;
+            }
+            slot.Busy = false;
+            _active--;
+            release = _disposeRequested && _active == 0;
+        }
+        if (release)
+        {
+            ReleaseResources();
+        }
+    }
+
+    public void Dispose()
+    {
+        bool release;
+        lock (_gate)
+        {
+            _disposeRequested = true;
+            release = _active == 0;
+        }
+        if (release)
+        {
+            ReleaseResources();
+        }
+    }
+
+    private void ReleaseResources()
+    {
+        lock (_gate)
+        {
+            if (_resourcesReleased)
+            {
+                return;
+            }
+            _resourcesReleased = true;
+            for (int index = 0; index < _slots.Length; index++)
+            {
+                SharedTextureSlot? slot = _slots[index];
+                if (slot is null)
+                {
+                    continue;
+                }
+                WindowsMediaNative.Release(slot.KeyedMutex);
+                WindowsMediaNative.CloseSharedHandle(
+                    slot.SharedHandle);
+                WindowsMediaNative.Release(slot.Texture);
+            }
+        }
+    }
+}
+
+internal sealed class SharedTextureSlot
+{
+    internal SharedTextureSlot(
+        nint texture,
+        nint sharedHandle,
+        nint keyedMutex)
+    {
+        Texture = texture;
+        SharedHandle = sharedHandle;
+        KeyedMutex = keyedMutex;
+    }
+
+    internal nint Texture { get; }
+    internal nint SharedHandle { get; }
+    internal nint KeyedMutex { get; }
+    internal bool Busy { get; set; }
+}
+
+internal sealed class SharedTextureSlotLease : IDisposable
+{
+    private SharedTexturePool? _pool;
+    private readonly SharedTextureSlot _slot;
+
+    internal SharedTextureSlotLease(
+        SharedTexturePool pool,
+        SharedTextureSlot slot)
+    {
+        _pool = pool;
+        _slot = slot;
+    }
+
+    internal nint Texture => _slot.Texture;
+    internal nint SharedHandle => _slot.SharedHandle;
+    internal nint KeyedMutex => _slot.KeyedMutex;
+
+    public void Dispose()
+    {
+        SharedTexturePool? pool =
+            Interlocked.Exchange(ref _pool, null);
+        pool?.Return(_slot);
+    }
+}

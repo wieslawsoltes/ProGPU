@@ -6,12 +6,14 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Fonts.Inter;
 using ProGPU.Fonts.Noto;
 using ProGPU.Text;
 using Silk.NET.Input;
 using System.Runtime.InteropServices;
 using Windows.Graphics.Display;
+using Windows.Storage;
 using Windows.UI.Core;
 using XamlWindow = Microsoft.UI.Xaml.Window;
 
@@ -226,7 +228,7 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
         if (_nativeWindow != 0 && _hosted is { Context: not null } hosted)
         {
             StopFrameLoop();
-            hosted.Context.DetachAndroidNativeWindow();
+            hosted.Context.DetachExternalNativePresentationSurface();
             ReleaseNativeWindow();
         }
 
@@ -240,7 +242,7 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
         StopFrameLoop();
         if (_hosted is { Context: not null } hosted)
         {
-            hosted.Context.DetachAndroidNativeWindow();
+            hosted.Context.DetachExternalNativePresentationSurface();
         }
         ReleaseNativeWindow();
     }
@@ -257,10 +259,22 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
             try
             {
                 AndroidRenderMetrics replacementMetrics = _renderView.Metrics;
-                existingContext.AttachAndroidNativeWindow(
-                    nativeWindow,
-                    replacementMetrics.Width,
-                    replacementMetrics.Height);
+                if (hosted.DawnContext is { } existingDawn)
+                {
+                    using DawnNativeWindowSource replacementSource =
+                        DawnNativeWindowSource.CreateAndroid(nativeWindow);
+                    existingDawn.AttachNativePresentation(
+                        replacementSource,
+                        replacementMetrics.Width,
+                        replacementMetrics.Height);
+                }
+                else
+                {
+                    existingContext.AttachAndroidNativeWindow(
+                        nativeWindow,
+                        replacementMetrics.Width,
+                        replacementMetrics.Height);
+                }
                 _nativeWindow = nativeWindow;
                 _javaSurfaceHandle = surface.Handle;
                 PublishDisplayInformation(replacementMetrics);
@@ -276,13 +290,38 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
             }
         }
 
-        var context = new WgpuContext { VSync = true };
+        WgpuContext? context = null;
+        DawnGpuContext? dawnContext = null;
         try
         {
             AndroidRenderMetrics metrics = _renderView.Metrics;
-            context.InitializeAndroidNativeWindow(nativeWindow, metrics.Width, metrics.Height);
+            if (DawnGpuContext.IsNativeLibraryAvailable())
+            {
+                using DawnNativeWindowSource source =
+                    DawnNativeWindowSource.CreateAndroid(nativeWindow);
+                dawnContext =
+                    DawnGpuContext.CreateNativePresentation(source);
+                dawnContext.AttachNativePresentation(
+                    source,
+                    metrics.Width,
+                    metrics.Height);
+                context = dawnContext.Context;
+            }
+            else
+            {
+                context = new WgpuContext { VSync = true };
+                context.InitializeAndroidNativeWindow(
+                    nativeWindow,
+                    metrics.Width,
+                    metrics.Height);
+                global::Android.Util.Log.Warn(
+                    "ProGPU.Android",
+                    "libwebgpu_dawn.so is unavailable; using the wgpu-native UI fallback. " +
+                    "AHardwareBuffer media frames cannot be imported by this fallback device.");
+            }
             hosted.Window.InitializeExternalRenderer(context, metrics.DpiScale);
             hosted.Context = context;
+            hosted.DawnContext = dawnContext;
             _nativeWindow = nativeWindow;
             _javaSurfaceHandle = surface.Handle;
             if (hosted.Window.InputState is { } inputState)
@@ -295,7 +334,11 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
         }
         catch
         {
-            context.Dispose();
+            dawnContext?.Dispose();
+            if (dawnContext is null)
+            {
+                context?.Dispose();
+            }
             AndroidNativeWindow.Release(nativeWindow);
             throw;
         }
@@ -376,7 +419,16 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
     {
         WgpuContext? context = hosted.Context;
         hosted.Context = null;
-        context?.Dispose();
+        DawnGpuContext? dawn = hosted.DawnContext;
+        hosted.DawnContext = null;
+        if (dawn is not null)
+        {
+            dawn.Dispose();
+        }
+        else
+        {
+            context?.Dispose();
+        }
     }
 
     private void ReleaseNativeWindow()
@@ -506,6 +558,7 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
     {
         public XamlWindow Window { get; } = window;
         public WgpuContext? Context { get; set; }
+        public DawnGpuContext? DawnContext { get; set; }
         public bool IsVisible { get; set; } = true;
     }
 

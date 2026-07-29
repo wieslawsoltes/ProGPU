@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <OutputType Condition="'$(TargetFramework)' != 'net10.0-macos'">WinExe</OutputType>
+    <OutputType Condition="'$(TargetFramework)' == 'net10.0-macos'">Exe</OutputType>
+    <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos'">org.progpu.samples.avalonia</ApplicationId>
+    <ApplicationTitle Condition="'$(TargetFramework)' == 'net10.0-macos'">ProGPU Avalonia Samples</ApplicationTitle>
+    <TargetFrameworks>net10.0;net10.0-macos</TargetFrameworks>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -10,6 +13,10 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Native"
+                      Condition="'$(TargetFramework)' == 'net10.0-macos'" />
+    <PackageReference Include="Avalonia.Win32"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="Avalonia.HarfBuzz" />
@@ -25,5 +32,11 @@
     <ProjectReference Include="..\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj" />
     <ProjectReference Include="..\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.Apple.Media\ProGPU.Apple.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0-macos'" />
+    <ProjectReference Include="..\ProGPU.Windows.Media\ProGPU.Windows.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="..\ProGPU.Linux.Media\ProGPU.Linux.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
   </ItemGroup>
 </Project>

@@ -22,33 +22,96 @@ namespace ProGPU.Scene
             TextureSamplingMode samplingMode = TextureSamplingMode.Linear,
             ImageEffectColorMatrix? colorMatrix = null,
             bool luminanceToAlpha = false,
-            Matrix4x4 transform = default)
+            Matrix4x4 transform = default,
+            ImageEffectSphericalProjection?
+                sphericalProjection = null)
         {
             if (texture == null) return;
 
-            var p = new ImageEffectParams
+            context.Commands.Add(new RenderCommand
             {
+                Type = RenderCommandType.DrawExtension,
+                ExtensionId = CompositorBuiltInExtensions.ImageEffect,
                 Texture = texture,
                 Rect = rect,
-                SourceRect = sourceRect ?? Rect.Empty,
-                SamplingMode = samplingMode,
-                Brightness = brightness,
-                Contrast = contrast,
-                Saturation = saturation,
-                Grayscale = grayscale,
-                Sepia = sepia,
-                Invert = invert,
-                BlurSigma = blurSigma,
-                MaskTexture = maskTexture,
-                ColorMatrix = colorMatrix,
-                LuminanceToAlpha = luminanceToAlpha
-            };
+                SrcRect = sourceRect ?? Rect.Empty,
+                TextureSamplingMode = samplingMode,
+                HasImageEffect = true,
+                ImageEffect = new ImageEffectCommandData(
+                    brightness,
+                    contrast,
+                    saturation,
+                    grayscale,
+                    sepia,
+                    invert,
+                    blurSigma,
+                    maskTexture,
+                    colorMatrix,
+                    luminanceToAlpha,
+                    sphericalProjection:
+                        sphericalProjection),
+                Transform = transform
+            });
+        }
 
-            context.DrawExtension(
-                CompositorBuiltInExtensions.ImageEffect,
-                dataParam: p,
-                transform: transform
-            );
+        /// <summary>
+        /// Records one fused WebGPU pass that samples separate luma and
+        /// interleaved chroma planes, converts them to RGB, and applies the
+        /// ordinary image-effect chain without an intermediate texture.
+        /// </summary>
+        public static void DrawPlanarImageWithEffect(
+            this DrawingContext context,
+            GpuTexture lumaTexture,
+            GpuTexture chromaTexture,
+            Rect rect,
+            in ImageEffectYuvConversion conversion,
+            float brightness = 0f,
+            float contrast = 1f,
+            float saturation = 1f,
+            float grayscale = 0f,
+            float sepia = 0f,
+            float invert = 0f,
+            float blurSigma = 0f,
+            GpuTexture? maskTexture = null,
+            Rect? sourceRect = null,
+            TextureSamplingMode samplingMode =
+                TextureSamplingMode.Linear,
+            ImageEffectColorMatrix? colorMatrix = null,
+            bool luminanceToAlpha = false,
+            Matrix4x4 transform = default,
+            ImageEffectSphericalProjection?
+                sphericalProjection = null)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(lumaTexture);
+            ArgumentNullException.ThrowIfNull(chromaTexture);
+
+            context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawExtension,
+                ExtensionId =
+                    CompositorBuiltInExtensions.ImageEffect,
+                Texture = lumaTexture,
+                Rect = rect,
+                SrcRect = sourceRect ?? Rect.Empty,
+                TextureSamplingMode = samplingMode,
+                HasImageEffect = true,
+                ImageEffect = new ImageEffectCommandData(
+                    brightness,
+                    contrast,
+                    saturation,
+                    grayscale,
+                    sepia,
+                    invert,
+                    blurSigma,
+                    maskTexture,
+                    colorMatrix,
+                    luminanceToAlpha,
+                    chromaTexture,
+                    conversion,
+                    sphericalProjection),
+                Transform = transform
+            });
         }
     }
 }

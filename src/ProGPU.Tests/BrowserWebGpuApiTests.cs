@@ -163,6 +163,49 @@ public unsafe sealed class BrowserWebGpuApiTests
             ReadOpcodes(packets[0]));
     }
 
+    [Fact]
+    public void ExternalMediaCopyStaysInTheFrameCommandPacket()
+    {
+        var packets = new List<byte[]>();
+        using var api = new BrowserWebGpuApi(
+            packet => packets.Add(packet.WrittenSpan.ToArray()));
+        var textureDescriptor = new TextureDescriptor
+        {
+            Size = new Extent3D
+            {
+                Width = 960,
+                Height = 540,
+                DepthOrArrayLayers = 1
+            },
+            Format = TextureFormat.Rgba8Unorm,
+            Dimension = TextureDimension.Dimension2D,
+            MipLevelCount = 1,
+            SampleCount = 1,
+            Usage = TextureUsage.TextureBinding |
+                TextureUsage.CopyDst |
+                TextureUsage.RenderAttachment
+        };
+        var texture = api.DeviceCreateTexture(
+            BrowserWebGpuApi.DeviceHandle,
+            &textureDescriptor);
+
+        api.CopyExternalMediaFrame(7, texture, 960, 540);
+        api.QueueSubmit(
+            BrowserWebGpuApi.QueueHandle,
+            0,
+            null);
+
+        Assert.Single(packets);
+        Assert.Equal(
+            new[]
+            {
+                BrowserGpuOpcode.CreateTexture,
+                BrowserGpuOpcode.CopyExternalMediaFrame,
+                BrowserGpuOpcode.Submit
+            },
+            ReadOpcodes(packets[0]));
+    }
+
     private static BrowserGpuOpcode[] ReadOpcodes(byte[] packet)
     {
         var result = new List<BrowserGpuOpcode>();

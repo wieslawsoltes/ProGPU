@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Platform-neutral WinRT-shaped value, storage, property-set, and media contracts shared by ProGPU framework adapters.</Description>
+    <PackageDescription>Platform-neutral WinRT-shaped value, storage, property-set, and media contracts shared by ProGPU framework adapters.</PackageDescription>
+    <PackageTags>progpu;winrt;contracts;storage;media;cross-platform</PackageTags>
+  </PropertyGroup>
+</Project>
