@@ -907,7 +907,10 @@ async function createCompositionMediaElement(uri, audioOnly = false) {
   return element;
 }
 
-async function seekCompositionElement(element, seconds) {
+async function seekCompositionElement(
+  element,
+  seconds,
+  approximateForSpeed = false) {
   const duration = Number.isFinite(element.duration)
     ? element.duration
     : Number.MAX_SAFE_INTEGER;
@@ -940,6 +943,16 @@ async function seekCompositionElement(element, seconds) {
         'seeked');
     element.currentTime = primingTarget;
     await primed;
+    return;
+  }
+  if (approximateForSpeed &&
+      typeof element.fastSeek === 'function') {
+    const seeked =
+      waitForMediaEvent(
+        element,
+        'seeked');
+    element.fastSeek(target);
+    await seeked;
     return;
   }
   const seeked = waitForMediaEvent(element, 'seeked');
@@ -1117,7 +1130,8 @@ async function renderBrowserMediaComposition(
   const operation = {
     aborted: false,
     recorder: null,
-    animationFrame: 0
+    animationFrame: 0,
+    thumbnailBytes: null
   };
   state.mediaCompositionExports ??= new Map();
   state.mediaCompositionExports.set(operationId, operation);
@@ -1128,6 +1142,7 @@ async function renderBrowserMediaComposition(
   let exportDevice = null;
   let exportCanvas = null;
   let captureCanvas = null;
+  let isThumbnail = false;
 
   const progress = value => {
     if (state.dispatchMediaExportProgress) {
@@ -1148,19 +1163,30 @@ async function renderBrowserMediaComposition(
   try {
     phase('starting');
     const request = JSON.parse(requestJson);
+    isThumbnail =
+      Array.isArray(request.thumbnailPositions);
     const mimeType =
-      browserMp4RecorderMimeType(Boolean(request.includeAudio));
-    if (!mimeType ||
+      isThumbnail
+        ? 'image/png'
+        : browserMp4RecorderMimeType(
+            Boolean(request.includeAudio));
+    if ((!isThumbnail && !mimeType) ||
         !navigator.gpu ||
         typeof OffscreenCanvas !== 'function' ||
-        typeof HTMLCanvasElement.prototype.captureStream !==
-          'function') {
+        (isThumbnail &&
+         typeof OffscreenCanvas.prototype.convertToBlob !==
+           'function') ||
+        (!isThumbnail &&
+         typeof HTMLCanvasElement.prototype.captureStream !==
+           'function')) {
       return 3;
     }
     if (!(request.width > 0 && request.height > 0 &&
           request.frameRate > 0 &&
           Array.isArray(request.clips) &&
-          request.clips.length > 0)) {
+          request.clips.length > 0 &&
+          (!isThumbnail ||
+           request.thumbnailPositions.length > 0))) {
       return 2;
     }
     if (request.includeAudio) {
@@ -1483,46 +1509,7 @@ async function renderBrowserMediaComposition(
       entry.active = active;
     };
 
-    captureCanvas =
-      document.createElement('canvas');
-    captureCanvas.width = request.width;
-    captureCanvas.height = request.height;
-    captureCanvas.style.position = 'fixed';
-    captureCanvas.style.left = '-10000px';
-    captureCanvas.style.top = '0';
-    captureCanvas.style.width = '1px';
-    captureCanvas.style.height = '1px';
-    if (isMemoryProbe) {
-      captureCanvas.style.left = 'auto';
-      captureCanvas.style.right = '8px';
-      captureCanvas.style.bottom = '8px';
-      captureCanvas.style.top = 'auto';
-      captureCanvas.style.width = '320px';
-      captureCanvas.style.height = '180px';
-      captureCanvas.style.zIndex = '99999';
-      captureCanvas.style.border =
-        '2px solid #22c55e';
-    }
-    document.body.appendChild(captureCanvas);
-    const captureContext =
-      captureCanvas.getContext('2d', {
-        alpha: false,
-        desynchronized: true
-      });
-    if (!captureContext) return 3;
-    const canvasStream =
-      captureCanvas.captureStream(0);
-    const captureTrack =
-      canvasStream.getVideoTracks()[0] || null;
-    if (!captureTrack) return 3;
-
-    const renderFrame = async timelineSeconds => {
-      for (const entry of allEntries) {
-        updateEntry(entry, timelineSeconds);
-      }
-      if (operation.playError) {
-        throw operation.playError;
-      }
+    const renderActiveVisuals = async () => {
       for (const entry of isClearOnlyProbe
         ? []
         : [
@@ -1590,6 +1577,129 @@ async function renderBrowserMediaComposition(
       if (exportGpuError) {
         throw exportGpuError;
       }
+    };
+
+    if (isThumbnail) {
+      const visualEntries = [
+        ...baseEntries,
+        ...overlayEntries
+      ];
+      const frameDuration =
+        1 / Math.max(1, Number(request.frameRate));
+      const finalFrameStart =
+        Math.max(0, totalDuration - frameDuration);
+      const approximateForSpeed =
+        Number(request.thumbnailPrecision) === 1;
+      const thumbnailBytes = [];
+      for (const requestedPosition of
+           request.thumbnailPositions) {
+        if (operation.aborted) return 1;
+        const requested =
+          Number(requestedPosition);
+        if (!Number.isFinite(requested) ||
+            requested < 0 ||
+            requested > totalDuration) {
+          return 2;
+        }
+        const timelineSeconds =
+          requested >= totalDuration
+            ? finalFrameStart
+            : requested;
+        const seeks = [];
+        for (const entry of visualEntries) {
+          const active =
+            timelineSeconds >= entry.start &&
+            timelineSeconds < entry.end;
+          if (entry.element) {
+            entry.element.pause();
+            if (active) {
+              const desired =
+                entry.trimStart +
+                timelineSeconds -
+                entry.start;
+              seeks.push(
+                seekCompositionElement(
+                  entry.element,
+                  desired,
+                  approximateForSpeed));
+            }
+          }
+          entry.active = active;
+        }
+        await Promise.all(seeks);
+        if (operation.aborted) return 1;
+        await renderActiveVisuals();
+        const blob =
+          await exportCanvas.convertToBlob({
+            type: 'image/png'
+          });
+        if (blob.type !== 'image/png' ||
+            blob.size === 0) {
+          throw new Error(
+            'The browser returned an invalid PNG thumbnail.');
+        }
+        thumbnailBytes.push(
+          new Uint8Array(
+            await blob.arrayBuffer()));
+      }
+      operation.thumbnailBytes =
+        thumbnailBytes;
+      const metadata = JSON.stringify({
+        contentType: 'image/png',
+        width: request.width,
+        height: request.height,
+        lengths:
+          thumbnailBytes.map(
+            bytes => bytes.byteLength)
+      });
+      state.dispatchMediaThumbnailCompletion(
+        operationId,
+        0,
+        metadata);
+      return 0;
+    }
+
+    captureCanvas =
+      document.createElement('canvas');
+    captureCanvas.width = request.width;
+    captureCanvas.height = request.height;
+    captureCanvas.style.position = 'fixed';
+    captureCanvas.style.left = '-10000px';
+    captureCanvas.style.top = '0';
+    captureCanvas.style.width = '1px';
+    captureCanvas.style.height = '1px';
+    if (isMemoryProbe) {
+      captureCanvas.style.left = 'auto';
+      captureCanvas.style.right = '8px';
+      captureCanvas.style.bottom = '8px';
+      captureCanvas.style.top = 'auto';
+      captureCanvas.style.width = '320px';
+      captureCanvas.style.height = '180px';
+      captureCanvas.style.zIndex = '99999';
+      captureCanvas.style.border =
+        '2px solid #22c55e';
+    }
+    document.body.appendChild(captureCanvas);
+    const captureContext =
+      captureCanvas.getContext('2d', {
+        alpha: false,
+        desynchronized: true
+      });
+    if (!captureContext) return 3;
+    const canvasStream =
+      captureCanvas.captureStream(0);
+    const captureTrack =
+      canvasStream.getVideoTracks()[0] || null;
+    if (!captureTrack) return 3;
+
+    const renderFrame = async timelineSeconds => {
+      for (const entry of allEntries) {
+        updateEntry(entry, timelineSeconds);
+      }
+      if (operation.playError) {
+        throw operation.playError;
+      }
+      await renderActiveVisuals();
       if (!operation.aborted) {
         const bitmap =
           exportCanvas.transferToImageBitmap();
@@ -1718,14 +1828,18 @@ async function renderBrowserMediaComposition(
   } catch (error) {
     if (!operation.aborted) {
       console.error(
-        '[ProGPU] Browser WebGPU media export failed.',
+        isThumbnail
+          ? '[ProGPU] Browser WebGPU media thumbnails failed.'
+          : '[ProGPU] Browser WebGPU media export failed.',
         error);
     }
     const result =
       error?.name === 'NotSupportedError' ? 3 : 1;
-    state.dispatchMediaExportCompletion(
-      operationId,
-      result);
+    if (!isThumbnail) {
+      state.dispatchMediaExportCompletion(
+        operationId,
+        result);
+    }
     return result;
   } finally {
     if (operation.animationFrame) {
@@ -1756,7 +1870,10 @@ async function renderBrowserMediaComposition(
     if (exportDevice) {
       try { exportDevice.destroy(); } catch { }
     }
-    state.mediaCompositionExports.delete(operationId);
+    if (!operation.thumbnailBytes ||
+        operation.aborted) {
+      state.mediaCompositionExports.delete(operationId);
+    }
   }
 }
 
@@ -1780,6 +1897,66 @@ function startBrowserMediaCompositionExport(
           operationId,
           1);
       });
+}
+
+function startBrowserMediaCompositionThumbnails(
+  operationId,
+  requestJson,
+  shaderSource) {
+  void renderBrowserMediaComposition(
+    operationId,
+    requestJson,
+    shaderSource).then(
+      result => {
+        if (result !== 0) {
+          state.dispatchMediaThumbnailCompletion(
+            operationId,
+            result,
+            '');
+        }
+      },
+      error => {
+        console.error(
+          '[ProGPU] Browser media thumbnail callback failed.',
+          error);
+        state.dispatchMediaThumbnailCompletion(
+          operationId,
+          1,
+          '');
+      });
+}
+
+function copyBrowserMediaCompositionThumbnail(
+  operationId,
+  index,
+  destination,
+  length) {
+  const bytes =
+    state.mediaCompositionExports
+      ?.get(operationId)
+      ?.thumbnailBytes?.[index];
+  if (!bytes ||
+      bytes.byteLength !== length) {
+    return -1;
+  }
+  const heap = runtime.localHeapViewU8();
+  if (destination < 0 ||
+      destination + length > heap.byteLength) {
+    throw new RangeError(
+      'Thumbnail destination is outside WASM memory.');
+  }
+  heap.set(bytes, destination);
+  return length;
+}
+
+function clearBrowserMediaCompositionThumbnails(
+  operationId) {
+  const operation =
+    state.mediaCompositionExports?.get(operationId);
+  if (operation) {
+    operation.thumbnailBytes = null;
+  }
+  state.mediaCompositionExports?.delete(operationId);
 }
 
 function cancelBrowserMediaCompositionExport(operationId) {
@@ -3132,14 +3309,37 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
   state.dispatchMediaEvent = browserExports.ProGPU.Browser.BrowserMediaCallbacks.DispatchEvent;
   state.dispatchMediaExportProgress = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchProgress;
   state.dispatchMediaExportCompletion = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchCompletion;
+  state.dispatchMediaThumbnailCompletion = browserExports.ProGPU.Browser.BrowserMediaThumbnailCallbacks.DispatchCompletion;
   state.dispatchMediaStageCompletion = browserExports.ProGPU.Browser.BrowserMediaStagingCallbacks.DispatchCompletion;
+  const thumbnailSmoke =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuMediaThumbnailSmoke');
+  if (thumbnailSmoke === '1') {
+    globalThis.setTimeout(
+      async () => {
+        try {
+          const result =
+            await browserExports.ProGPU.Browser
+              .BrowserMediaThumbnailSmokeTest.RunAsync();
+          document.documentElement.dataset.progpuMediaThumbnailSmokeResult =
+            String(result);
+        } catch (error) {
+          document.documentElement.dataset.progpuMediaThumbnailSmokeResult =
+            'exception';
+          console.error(
+            '[ProGPU] Browser media thumbnail smoke test failed.',
+            error);
+        }
+      },
+      0);
+  }
   const exportSmoke =
     new URLSearchParams(globalThis.location.search)
       .get('progpuMediaExportSmoke');

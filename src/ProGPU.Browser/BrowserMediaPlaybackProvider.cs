@@ -25,6 +25,10 @@ public static class BrowserMedia
             MediaCompositionExportRegistry.Default.Register(
                 new BrowserWebGpuMediaCompositionExportProvider(
                     priority));
+        IDisposable thumbnails =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                new BrowserWebGpuMediaCompositionThumbnailProvider(
+                    priority));
         IDisposable fastExport =
             MediaCompositionExportRegistry.Default.Register(
                 new BrowserFastMediaCompositionExportProvider(
@@ -34,6 +38,7 @@ public static class BrowserMedia
         return new BrowserMediaRegistrations(
             playback,
             export,
+            thumbnails,
             fastExport);
     }
 
@@ -42,15 +47,18 @@ public static class BrowserMedia
     {
         private IDisposable? _playback;
         private IDisposable? _export;
+        private IDisposable? _thumbnails;
         private IDisposable? _fastExport;
 
         public BrowserMediaRegistrations(
             IDisposable playback,
             IDisposable export,
+            IDisposable thumbnails,
             IDisposable fastExport)
         {
             _playback = playback;
             _export = export;
+            _thumbnails = thumbnails;
             _fastExport = fastExport;
         }
 
@@ -58,6 +66,9 @@ public static class BrowserMedia
         {
             Interlocked.Exchange(
                 ref _fastExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _thumbnails,
                 null)?.Dispose();
             Interlocked.Exchange(
                 ref _export,

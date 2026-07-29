@@ -522,6 +522,81 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserCompositionThumbnailsReuseTheWebGpuCompositionLane()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string provider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuMediaCompositionThumbnailProvider.cs");
+        string registration = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "IMediaCompositionThumbnailProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ShaderResource.Load(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserMediaComposition.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserWebGpuMediaCompositionThumbnailProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const renderActiveVisuals = async () =>",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "copyExternalImageToTexture(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "convertToBlob({",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "startBrowserMediaCompositionThumbnails(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "copyBrowserMediaCompositionThumbnail(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "heap.set(bytes, destination)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dispatchMediaThumbnailCompletion",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpuMediaThumbnailSmokeResult",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "does not claim zero-copy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BrowserWorkerClosesEveryTransferredMediaFrameOwnershipPath()
     {
         var browserAsset = Read(
