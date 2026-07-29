@@ -966,7 +966,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
         return false;
     }
 
-    private static bool TryGetBuiltInEffects(
+    internal static bool TryGetBuiltInEffects(
         IReadOnlyDictionary<string, string> userData,
         out float saturation,
         out float grayscale)
@@ -1002,7 +1002,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
         return true;
     }
 
-    private static bool TryGetActiveD3D12DawnContext(
+    internal static bool TryGetActiveD3D12DawnContext(
         out DawnGpuContext? dawn)
     {
         IReadOnlyList<WgpuContext> contexts =
@@ -1043,7 +1043,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
         return Math.Max(1, duration);
     }
 
-    private static string ToSourceUrl(Uri uri) =>
+    internal static string ToSourceUrl(Uri uri) =>
         uri.IsFile
             ? uri.LocalPath
             : uri.AbsoluteUri;

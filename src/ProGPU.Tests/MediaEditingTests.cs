@@ -17,6 +17,67 @@ namespace ProGPU.Tests;
 public sealed class MediaEditingTests
 {
     [Fact]
+    public void SharedThumbnailPngEncoderPreservesBgraRowsAndStride()
+    {
+        byte[] pixels =
+        [
+            0, 0, 255, 255,
+            0, 255, 0, 255,
+            9, 9, 9, 9,
+            255, 0, 0, 255,
+            255, 255, 255, 255
+        ];
+
+        byte[] encoded =
+            MediaPngEncoder.Encode(
+                pixels,
+                2,
+                2,
+                12,
+                MediaPngPixelOrder.Bgra);
+
+        Assert.True(
+            encoded.AsSpan(0, 8).SequenceEqual(
+                new byte[]
+                {
+                    137, 80, 78, 71,
+                    13, 10, 26, 10
+                }));
+        using SkiaSharp.SKBitmap bitmap =
+            SkiaSharp.SKBitmap.Decode(encoded);
+        Assert.Equal(2, bitmap.Width);
+        Assert.Equal(2, bitmap.Height);
+        Assert.Equal(
+            new SkiaSharp.SKColor(
+                255,
+                0,
+                0,
+                255),
+            bitmap.GetPixel(0, 0));
+        Assert.Equal(
+            new SkiaSharp.SKColor(
+                0,
+                255,
+                0,
+                255),
+            bitmap.GetPixel(1, 0));
+        Assert.Equal(
+            new SkiaSharp.SKColor(
+                0,
+                0,
+                255,
+                255),
+            bitmap.GetPixel(0, 1));
+        Assert.Equal(
+            new SkiaSharp.SKColor(
+                255,
+                255,
+                255,
+                255),
+            bitmap.GetPixel(1, 1));
+    }
+
+    [Fact]
     public void CompositionLoadMatchesOfficialStaticFactory()
     {
         MethodInfo? official = typeof(MediaComposition)

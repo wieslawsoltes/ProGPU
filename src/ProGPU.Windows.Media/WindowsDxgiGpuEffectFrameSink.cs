@@ -23,7 +23,11 @@ internal sealed unsafe class
     private const int RingSize = 3;
     private const uint MutexTimeoutMilliseconds = 10_000;
     private readonly object _gate = new();
+    private readonly nint _d3dDevice;
     private readonly nint _d3dContext;
+    private readonly nint _readbackTexture;
+    private readonly uint _width;
+    private readonly uint _height;
     private readonly Queue<Slot> _availableSources = new();
     private readonly Queue<Slot> _availableTargets = new();
     private readonly Slot[] _sources;
@@ -41,7 +45,10 @@ internal sealed unsafe class
         uint height)
     {
         ArgumentNullException.ThrowIfNull(dawn);
+        _d3dDevice = d3dDevice;
         _d3dContext = d3dContext;
+        _width = width;
+        _height = height;
         _sources = new Slot[RingSize];
         _targets = new Slot[RingSize];
         try
@@ -70,6 +77,11 @@ internal sealed unsafe class
                 _targets[index] = target;
                 _availableTargets.Enqueue(target);
             }
+            _readbackTexture =
+                WindowsMediaNative.CreateBgraReadbackTexture(
+                    _d3dDevice,
+                    width,
+                    height);
         }
         catch
         {
@@ -151,6 +163,78 @@ internal sealed unsafe class
     }
 
     /// <summary>
+    /// Applies the fused WebGPU effect pass and reads the final BGRA target
+    /// through one retained D3D11 staging texture for PNG encoding.
+    /// </summary>
+    internal byte[] ProcessAndReadback(
+        nint decodedSample,
+        float saturation,
+        float grayscale,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        Slot source =
+            Rent(
+                _availableSources,
+                cancellationToken);
+        Slot? target = null;
+        bool sourceReturned = false;
+        nint decodedTexture = 0;
+        try
+        {
+            PrepareForD3D(source);
+            decodedTexture =
+                WindowsMediaNative.GetSampleD3D11Texture(
+                    decodedSample);
+            WindowsMediaNative.CopyD3D11Texture(
+                _d3dContext,
+                source.Texture,
+                decodedTexture);
+            WindowsMediaNative.ReleaseKeyedMutex(
+                source.KeyedMutex);
+            source.MutexOwned = false;
+            source.Access.BeginAccess(initialized: true);
+
+            target =
+                Rent(
+                    _availableTargets,
+                    cancellationToken);
+            GpuTextureBlitter.Blit(
+                source.Access.Texture,
+                target.Access.Texture.ViewPtr,
+                target.Access.Texture.Format,
+                saturation,
+                grayscale);
+
+            source.Access.EndAccess();
+            ReturnSource(source);
+            sourceReturned = true;
+
+            byte[] pixels =
+                AllocateReadback();
+            Slot readbackTarget = target;
+            target = null;
+            ReadTarget(
+                readbackTarget,
+                pixels);
+            return pixels;
+        }
+        finally
+        {
+            WindowsMediaNative.Release(decodedTexture);
+            if (!sourceReturned)
+            {
+                RecoverSource(source);
+            }
+            if (target is not null)
+            {
+                RecoverTargetBeforeTracking(target);
+            }
+        }
+    }
+
+    /// <summary>
     /// Generates one solid-color frame on the GPU, applies the same fused
     /// WebGPU effects as decoded video, and submits a tracked DXGI sample.
     /// </summary>
@@ -204,6 +288,69 @@ internal sealed unsafe class
                 sinkStream,
                 timestamp,
                 duration);
+        }
+        finally
+        {
+            if (!sourceReturned)
+            {
+                ReturnSource(source);
+            }
+            if (target is not null)
+            {
+                RecoverTargetBeforeTracking(target);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Generates a solid frame and applies effects on WebGPU before the final
+    /// retained-staging readback required by PNG encoding.
+    /// </summary>
+    internal byte[] ProcessColorAndReadback(
+        uint argbColor,
+        float saturation,
+        float grayscale,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        Slot source =
+            Rent(
+                _availableSources,
+                cancellationToken);
+        Slot? target = null;
+        bool sourceReturned = false;
+        try
+        {
+            if (!source.Access.IsAccessActive)
+            {
+                source.Access.BeginAccess(
+                    initialized: true);
+            }
+            GpuTextureClearer.Clear(
+                source.Access.Texture,
+                ToWebGpuColor(argbColor));
+            target =
+                Rent(
+                    _availableTargets,
+                    cancellationToken);
+            GpuTextureBlitter.Blit(
+                source.Access.Texture,
+                target.Access.Texture.ViewPtr,
+                target.Access.Texture.Format,
+                saturation,
+                grayscale);
+            ReturnSource(source);
+            sourceReturned = true;
+
+            byte[] pixels =
+                AllocateReadback();
+            Slot readbackTarget = target;
+            target = null;
+            ReadTarget(
+                readbackTarget,
+                pixels);
+            return pixels;
         }
         finally
         {
@@ -346,6 +493,42 @@ internal sealed unsafe class
         };
     }
 
+    private byte[] AllocateReadback() =>
+        GC.AllocateUninitializedArray<byte>(
+            checked(
+                (int)_width *
+                (int)_height *
+                4));
+
+    private void ReadTarget(
+        Slot target,
+        Span<byte> destination)
+    {
+        target.Access.EndAccess();
+        try
+        {
+            if (!WindowsMediaNative.TryAcquireKeyedMutex(
+                    target.KeyedMutex,
+                    MutexTimeoutMilliseconds))
+            {
+                throw new TimeoutException(
+                    "Timed out acquiring the WebGPU thumbnail target from Dawn.");
+            }
+            target.MutexOwned = true;
+            WindowsMediaNative.ReadBgraTexture(
+                _d3dContext,
+                target.Texture,
+                _readbackTexture,
+                _width,
+                _height,
+                destination);
+        }
+        finally
+        {
+            RecoverTargetBeforeTracking(target);
+        }
+    }
+
     private void RecoverSource(
         Slot source)
     {
@@ -387,6 +570,12 @@ internal sealed unsafe class
     {
         try
         {
+            if (target.MutexOwned)
+            {
+                WindowsMediaNative.ReleaseKeyedMutex(
+                    target.KeyedMutex);
+                target.MutexOwned = false;
+            }
             if (!target.Access.IsAccessActive)
             {
                 target.Access.BeginAccess(
@@ -574,6 +763,8 @@ internal sealed unsafe class
         }
         DisposeSlots(_targets);
         DisposeSlots(_sources);
+        WindowsMediaNative.Release(
+            _readbackTexture);
     }
 
     private sealed class Slot

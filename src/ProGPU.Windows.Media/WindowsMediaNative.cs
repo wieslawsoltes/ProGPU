@@ -9,6 +9,8 @@ internal static unsafe partial class WindowsMediaNative
     internal const uint DxgiFormatB8G8R8A8Unorm = 87;
     internal const uint D3D11BindShaderResource = 0x8;
     internal const uint D3D11BindRenderTarget = 0x20;
+    internal const uint D3D11CpuAccessRead = 0x20_000;
+    internal const uint D3D11UsageStaging = 3;
     internal const uint D3D11ResourceMiscSharedKeyedMutex = 0x100;
     internal const uint D3D11ResourceMiscSharedNtHandle = 0x800;
     internal const uint DxgiSharedResourceRead = 0x8000_0000;
@@ -63,6 +65,14 @@ internal static unsafe partial class WindowsMediaNative
         internal uint BindFlags;
         internal uint CpuAccessFlags;
         internal uint MiscFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MappedSubresource
+    {
+        internal byte* Data;
+        internal uint RowPitch;
+        internal uint DepthPitch;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -612,6 +622,145 @@ internal static unsafe partial class WindowsMediaNative
         {
             Release(texture);
             throw;
+        }
+    }
+
+    internal static nint CreateBgraReadbackTexture(
+        nint device,
+        uint width,
+        uint height)
+    {
+        var description =
+            new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = DxgiFormatB8G8R8A8Unorm,
+                SampleDescription =
+                    new SampleDescription
+                    {
+                        Count = 1
+                    },
+                Usage = D3D11UsageStaging,
+                CpuAccessFlags = D3D11CpuAccessRead
+            };
+        nint texture = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            Texture2DDescription*,
+            void*,
+            nint*,
+            int> createTexture =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                Texture2DDescription*,
+                void*,
+                nint*,
+                int>)VTable(device)[5];
+        ThrowIfFailed(
+            createTexture(
+                device,
+                &description,
+                null,
+                &texture),
+            "create a D3D11 thumbnail readback texture");
+        return texture;
+    }
+
+    internal static void ReadBgraTexture(
+        nint immediateContext,
+        nint source,
+        nint staging,
+        uint width,
+        uint height,
+        Span<byte> destination)
+    {
+        int rowBytes =
+            checked((int)width * 4);
+        int required =
+            checked(rowBytes * (int)height);
+        if (destination.Length < required)
+        {
+            throw new ArgumentException(
+                "The thumbnail readback destination is too small.",
+                nameof(destination));
+        }
+
+        CopyD3D11Texture(
+            immediateContext,
+            staging,
+            source);
+        var mapped =
+            new MappedSubresource();
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint,
+            uint,
+            uint,
+            uint,
+            MappedSubresource*,
+            int> map =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                nint,
+                uint,
+                uint,
+                uint,
+                MappedSubresource*,
+                int>)VTable(immediateContext)[14];
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint,
+            uint,
+            void> unmap =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                nint,
+                uint,
+                void>)VTable(immediateContext)[15];
+        bool isMapped = false;
+        try
+        {
+            ThrowIfFailed(
+                map(
+                    immediateContext,
+                    staging,
+                    0,
+                    1,
+                    0,
+                    &mapped),
+                "map the D3D11 thumbnail readback texture");
+            isMapped = true;
+            if (mapped.Data is null ||
+                mapped.RowPitch < rowBytes)
+            {
+                throw new InvalidDataException(
+                    "D3D11 returned an invalid thumbnail row layout.");
+            }
+            for (uint y = 0;
+                 y < height;
+                 y++)
+            {
+                new ReadOnlySpan<byte>(
+                    mapped.Data +
+                    checked((nint)(y * mapped.RowPitch)),
+                    rowBytes).CopyTo(
+                        destination.Slice(
+                            checked((int)y * rowBytes),
+                            rowBytes));
+            }
+        }
+        finally
+        {
+            if (isMapped)
+            {
+                unmap(
+                    immediateContext,
+                    staging,
+                    0);
+            }
         }
     }
 

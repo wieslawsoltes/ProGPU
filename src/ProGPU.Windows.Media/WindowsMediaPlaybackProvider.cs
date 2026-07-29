@@ -27,6 +27,10 @@ public static class WindowsMedia
             MediaCompositionExportRegistry.Default.Register(
                 new WindowsMediaFoundationCompositionExportProvider(
                     priority));
+        IDisposable thumbnails =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                new WindowsMediaFoundationCompositionThumbnailProvider(
+                    priority));
         IDisposable fastExport =
             MediaCompositionExportRegistry.Default.Register(
                 new IsoBmffFastMediaCompositionExportProvider(
@@ -34,6 +38,7 @@ public static class WindowsMedia
         return new WindowsMediaRegistrations(
             playback,
             preciseExport,
+            thumbnails,
             fastExport);
     }
 
@@ -47,15 +52,18 @@ public static class WindowsMedia
     {
         private IDisposable? _playback;
         private IDisposable? _preciseExport;
+        private IDisposable? _thumbnails;
         private IDisposable? _fastExport;
 
         public WindowsMediaRegistrations(
             IDisposable playback,
             IDisposable preciseExport,
+            IDisposable thumbnails,
             IDisposable fastExport)
         {
             _playback = playback;
             _preciseExport = preciseExport;
+            _thumbnails = thumbnails;
             _fastExport = fastExport;
         }
 
@@ -63,6 +71,9 @@ public static class WindowsMedia
         {
             Interlocked.Exchange(
                 ref _fastExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _thumbnails,
                 null)?.Dispose();
             Interlocked.Exchange(
                 ref _preciseExport,

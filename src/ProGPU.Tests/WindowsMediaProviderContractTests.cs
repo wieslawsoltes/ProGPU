@@ -6,6 +6,9 @@ using ProGPU.Media.Effects;
 using WindowsMediaFoundationCompositionExportProvider =
     WindowsMediaProvider::ProGPU.Windows.Media
         .WindowsMediaFoundationCompositionExportProvider;
+using WindowsMediaFoundationCompositionThumbnailProvider =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsMediaFoundationCompositionThumbnailProvider;
 using WindowsPcm16GainProcessor =
     WindowsMediaProvider::ProGPU.Windows.Media
         .WindowsPcm16GainProcessor;
@@ -15,6 +18,62 @@ namespace ProGPU.Tests;
 
 public sealed class WindowsMediaProviderContractTests
 {
+    [Fact]
+    public void WindowsThumbnailProviderAcceptsGpuComposableTimelines()
+    {
+        MediaCompositionExportRequest composition =
+            CreatePreciseRequest();
+        var request =
+            new MediaCompositionThumbnailRequest(
+                composition,
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(7)
+                ],
+                1280,
+                720,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+
+        Assert.True(
+            WindowsMediaFoundationCompositionThumbnailProvider
+                .IsRequestSupported(
+                    request,
+                    isWindows: true));
+        Assert.False(
+            WindowsMediaFoundationCompositionThumbnailProvider
+                .IsRequestSupported(
+                    request,
+                    isWindows: false));
+        Assert.False(
+            WindowsMediaFoundationCompositionThumbnailProvider
+                .IsRequestSupported(
+                    request with
+                    {
+                        Positions =
+                        [
+                            TimeSpan.FromSeconds(8)
+                        ]
+                    },
+                    isWindows: true));
+        Assert.False(
+            WindowsMediaFoundationCompositionThumbnailProvider
+                .IsRequestSupported(
+                    request with
+                    {
+                        Composition =
+                            composition with
+                            {
+                                OverlayLayers =
+                                [
+                                    new MediaCompositionExportOverlayLayer(
+                                        [])
+                                ]
+                            }
+                    },
+                    isWindows: true));
+    }
+
     [Fact]
     public void WindowsPreciseExporterAcceptsOnlyItsNativeContract()
     {
@@ -810,6 +869,92 @@ public sealed class WindowsMediaProviderContractTests
             "WaitIdle(",
             sink,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsThumbnailsRetainNativeDecodeGpuAndReadbackState()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaFoundationCompositionThumbnailProvider.cs");
+        string sink = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsDxgiGpuEffectFrameSink.cs");
+        string native = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaNative.cs");
+        string registration = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaPlaybackProvider.cs");
+        string project = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "ProGPU.Windows.Media.csproj");
+
+        Assert.Contains(
+            "IMediaCompositionThumbnailProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ClipReader?[] readers",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WindowsDxgiGpuEffectFrameSink",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProcessAndReadback(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProcessColorAndReadback(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPngEncoder.Encode(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new WindowsMediaFoundationCompositionThumbnailProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private readonly nint _readbackTexture;",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateBgraReadbackTexture(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ReadBgraTexture(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureBlitter.Blit(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(immediateContext)[14]",
+            native,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

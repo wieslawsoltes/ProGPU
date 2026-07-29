@@ -8,12 +8,13 @@
     <IsAotCompatible>true</IsAotCompatible>
     <PublishTrimmed>true</PublishTrimmed>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
-    <Description>Native Media Foundation media playback, audio, and D3D/WebGPU frame interop for ProGPU on Windows.</Description>
-    <PackageTags>progpu;media;media-foundation;windows;d3d11;dxgi;webgpu</PackageTags>
+    <Description>Native Media Foundation playback, audio, composition export and WebGPU composition thumbnails for ProGPU on Windows.</Description>
+    <PackageTags>progpu;media;media-foundation;windows;d3d11;dxgi;webgpu;editing;thumbnails</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />

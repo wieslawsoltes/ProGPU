@@ -11,4 +11,9 @@
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
     <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Windows.Media, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Linux.Media, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
 </Project>

@@ -1586,8 +1586,12 @@ async function renderBrowserMediaComposition(
       ];
       const frameDuration =
         1 / Math.max(1, Number(request.frameRate));
+      const finalEntry =
+        baseEntries[baseEntries.length - 1];
       const finalFrameStart =
-        Math.max(0, totalDuration - frameDuration);
+        Math.max(
+          finalEntry.start,
+          totalDuration - frameDuration);
       const approximateForSpeed =
         Number(request.thumbnailPrecision) === 1;
       const thumbnailBytes = [];
