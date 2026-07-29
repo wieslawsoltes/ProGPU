@@ -35,6 +35,7 @@
   </Folder>
   <Project Path="ProGPU.Uno/ProGPU.Uno.csproj" />
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />
+  <Project Path="ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj" />
   <Project Path="ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj" />
   <Project Path="ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj" />
   <Project Path="ProGPU.Samples.Android/ProGPU.Samples.Android.csproj" />
