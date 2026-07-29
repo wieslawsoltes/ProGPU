@@ -734,6 +734,30 @@ object models into that Scene contract. The WinUI
 `ProGpuMediaTextureMaterial` observes playback-session presentation changes
 and invalidates only its consuming viewport.
 
+Ordinary RGB 2D image-effect draw calls use a retained Scene pre-pass when
+Gaussian standard deviation is finite and no planar conversion or spherical
+projection changes the sampling domain. The image-effect extension leases two
+same-device, source-sized textures per simultaneously distinct blur, executes
+the shared horizontal/vertical WebGPU kernel, and substitutes its output only
+in the current frame's draw-call copy. The compositor restores the original
+texture and nonzero sigma after encoding, including on compiled-scene hits, so
+a changing native media texture is processed every frame without corrupting
+retained commands or forcing scene recompilation. Repeated draw calls with the
+same texture generation and sigma share one result in a frame; texture pairs
+are reused across frames and idle peak resources are released after 240
+frames. The preparation and main render are separate ordered queue
+submissions, with no CPU wait, readback, upload, or per-frame managed
+collection allocation after warmup. For D extension draw calls, U unique
+blurred sources, P source pixels, and R = `ceil(3 * sigma)`, preparation is
+O(D + U * P * R) time and O(U * P) retained texture storage.
+
+Planar YUV and spherical-projection draw calls deliberately retain the bounded
+fragment-shader fallback for now: moving Gaussian ahead of conversion or
+equirectangular projection would change observable sampling semantics. Mesh3D
+also retains its direct bounded material kernel. A future typed conversion and
+projection pass graph can promote those lanes without changing the public
+effect contract.
+
 The package dependency boundary is:
 
 ```mermaid
@@ -1050,8 +1074,12 @@ standard deviations; clamped nodes combine by variance. Apple executes the
 plan through Core Image/Metal. Windows, Android, Linux, and browser providers
 reuse one backend-owned two-axis WGSL kernel with bounded reusable
 intermediates rather than sampling and writing one texture in the same usage
-scope. A future pass compiler may further specialize YUV conversion, spatial
-kernels, and tone-mapping. User effects are activated through
+scope. The shared Scene image-effect extension now uses that kernel for live
+RGB 2D presentation as a retained, queue-ordered pre-pass; affine effects stay
+in the terminal compositor pass, while planar and spherical inputs preserve
+their existing fused bounded fallback. A future pass compiler may further
+specialize YUV conversion, projection, spatial kernels, and tone-mapping. User
+effects are activated through
 `MediaEffectRegistry`, never through reflection or assembly scanning.
 
 Audio effects run on native real-time callback buffers. The callback path must
@@ -1675,3 +1703,19 @@ with a 2.002-second native track, reported `NativeGpuSurface`, and reported
 `EffectsBakedOnGpu=true`. Startup also logged pre-existing optional Roslyn
 Workspaces `SQLitePCLRaw` assembly probe warnings; they did not affect the
 media operation or its verified output.
+
+The retained live-RGB Gaussian checkpoint adds the typed extension
+preparation seam described above and validates both primary and offscreen
+compositor paths. The executable headless regression renders one impulse
+texture twice, verifies symmetric output, one shared Gaussian submission,
+one retained texture pair across compiled-scene replay, and restoration of
+the original texture plus sigma after every encoding pass. The focused
+compositor and shader-resource run passed 197 tests. The native macOS arm64
+Release builds completed for both `ProGPU.Samples.Desktop` and
+`ProGPU.Samples.Avalonia`; the latter retained three pre-existing Avalonia and
+WindowsBase warnings. In the Desktop runtime, the public flower MP4 reported
+AVFoundation hardware decode and Dawn `NativeZeroCopy`, remained visibly
+blurred, and produced 15 sampled non-black video-region frames over the clip
+without a blank-frame luminance spike. This sampling is a functional flicker
+regression gate, not a frame-perfect quality comparison or a latency,
+throughput, memory, power, or cross-platform hardware claim.

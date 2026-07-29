@@ -129,6 +129,25 @@ namespace ProGPU.Scene
         public ImageEffectYuvConversion? YuvConversion { get; }
         public ImageEffectSphericalProjection?
             SphericalProjection { get; }
+
+        internal ImageEffectCommandData WithBlurSigma(
+            float blurSigma)
+        {
+            return new ImageEffectCommandData(
+                Brightness,
+                Contrast,
+                Saturation,
+                Grayscale,
+                Sepia,
+                Invert,
+                blurSigma,
+                MaskTexture,
+                ColorMatrix,
+                LuminanceToAlpha,
+                ChromaTexture,
+                YuvConversion,
+                SphericalProjection);
+        }
     }
 
     /// <summary>

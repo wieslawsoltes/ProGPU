@@ -48,6 +48,85 @@ namespace ProGPU.Scene.Extensions
             public nint BindGroupPtr; // BindGroup*
         }
 
+        private sealed class LiveBlurResources : IDisposable
+        {
+            private const TextureUsage Usage =
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment;
+
+            public LiveBlurResources(
+                GpuTexture source,
+                int resourceIndex)
+            {
+                Intermediate = new GpuTexture(
+                    source.Context,
+                    source.Width,
+                    source.Height,
+                    source.Format,
+                    Usage,
+                    $"Live image blur intermediate {resourceIndex}",
+                    alphaMode: source.AlphaMode);
+                try
+                {
+                    Output = new GpuTexture(
+                        source.Context,
+                        source.Width,
+                        source.Height,
+                        source.Format,
+                        Usage,
+                        $"Live image blur output {resourceIndex}",
+                        alphaMode: source.AlphaMode);
+                }
+                catch
+                {
+                    Intermediate.Dispose();
+                    throw;
+                }
+            }
+
+            public GpuTexture Intermediate { get; }
+            public GpuTexture Output { get; }
+            public ulong LastUsedFrame { get; set; }
+            public ulong PreparedFrame { get; set; }
+            public ulong PreparedSourceId { get; set; }
+            public uint PreparedSourceGeneration { get; set; }
+            public int PreparedSigmaBits { get; set; }
+
+            public bool MatchesStorage(GpuTexture source)
+            {
+                return
+                    ReferenceEquals(
+                        Intermediate.Context,
+                        source.Context) &&
+                    Intermediate.Width == source.Width &&
+                    Intermediate.Height == source.Height &&
+                    Intermediate.Format == source.Format &&
+                    Intermediate.AlphaMode == source.AlphaMode &&
+                    !Intermediate.IsDisposed &&
+                    !Output.IsDisposed;
+            }
+
+            public bool MatchesPrepared(
+                GpuTexture source,
+                float standardDeviation,
+                ulong frame)
+            {
+                return PreparedFrame == frame &&
+                    PreparedSourceId == source.Id &&
+                    PreparedSourceGeneration ==
+                        source.Generation &&
+                    PreparedSigmaBits ==
+                        BitConverter.SingleToInt32Bits(
+                            standardDeviation);
+            }
+
+            public void Dispose()
+            {
+                Output.Dispose();
+                Intermediate.Dispose();
+            }
+        }
+
         private readonly Dictionary<(bool IsOffscreen, GpuTextureAlphaMode PipelineSourceAlphaMode, GpuBlendMode BlendMode), nint> _cachedPipelines = new();
         private WgpuContext? _contextRef;
         private BindGroupLayout* _effectBindGroupLayout;
@@ -58,6 +137,18 @@ namespace ProGPU.Scene.Extensions
         // Dynamic pool to recycle uniform buffers and bind groups without frame allocation
         private readonly List<EffectGpuResources> _pool = new();
         private int _usedCount;
+        private readonly List<LiveBlurResources>
+            _liveBlurPool = new();
+        private int _usedLiveBlurCount;
+        private int _preparedLiveBlurDrawCallCount;
+        private int _liveBlurSubmissionCount;
+
+        internal int LiveBlurResourceCount =>
+            _liveBlurPool.Count;
+        internal int PreparedLiveBlurDrawCallCount =>
+            _preparedLiveBlurDrawCallCount;
+        internal int LiveBlurSubmissionCount =>
+            _liveBlurSubmissionCount;
 
         // Texture bind groups cache
         private readonly record struct TexturePairCacheKey(
@@ -278,6 +369,9 @@ namespace ProGPU.Scene.Extensions
         public void BeginFrame(Compositor compositor)
         {
             _usedCount = 0;
+            _usedLiveBlurCount = 0;
+            _preparedLiveBlurDrawCallCount = 0;
+            _liveBlurSubmissionCount = 0;
         }
 
         public void EndFrame(Compositor compositor)
@@ -314,6 +408,189 @@ namespace ProGPU.Scene.Extensions
                     PooledRemovalBuffer.Return(keysToRemove, keysToRemoveCount);
                 }
             }
+
+            for (int index = _liveBlurPool.Count - 1;
+                 index >= _usedLiveBlurCount;
+                 index--)
+            {
+                LiveBlurResources resources =
+                    _liveBlurPool[index];
+                if (frame - resources.LastUsedFrame <= 240)
+                {
+                    continue;
+                }
+
+                resources.Dispose();
+                _liveBlurPool.RemoveAt(index);
+            }
+        }
+
+        public bool TryPrepareDrawCall(
+            Compositor compositor,
+            bool isOffscreen,
+            in Compositor.CompositorDrawCall drawCall,
+            out Compositor.CompositorDrawCall preparedDrawCall)
+        {
+            preparedDrawCall = drawCall;
+            if (!TryGetDrawCallState(
+                    in drawCall,
+                    out GpuTexture source,
+                    out ImageEffectCommandData effect,
+                    out _,
+                    out ImageEffectParams? legacyParameters) ||
+                !CanUseLiveBlurPrepass(
+                    compositor.Context,
+                    source,
+                    in effect))
+            {
+                return false;
+            }
+
+            GpuTexture output = PrepareLiveBlur(
+                compositor,
+                source,
+                effect.BlurSigma);
+            preparedDrawCall.Texture = output;
+            preparedDrawCall.TextureAlphaMode =
+                output.AlphaMode;
+            preparedDrawCall.HasImageEffect = true;
+            preparedDrawCall.ImageEffect =
+                effect.WithBlurSigma(0f);
+            _preparedLiveBlurDrawCallCount++;
+
+            if (legacyParameters?.LastError?.StartsWith(
+                    CrossContextTextureErrorPrefix,
+                    StringComparison.Ordinal) == true)
+            {
+                legacyParameters.LastError = null;
+            }
+
+            return true;
+        }
+
+        private GpuTexture PrepareLiveBlur(
+            Compositor compositor,
+            GpuTexture source,
+            float standardDeviation)
+        {
+            ulong frame = compositor.FrameNumber;
+            for (int index = 0;
+                 index < _usedLiveBlurCount;
+                 index++)
+            {
+                LiveBlurResources prepared =
+                    _liveBlurPool[index];
+                if (prepared.MatchesPrepared(
+                        source,
+                        standardDeviation,
+                        frame))
+                {
+                    prepared.LastUsedFrame = frame;
+                    return prepared.Output;
+                }
+            }
+
+            LiveBlurResources resources =
+                AcquireLiveBlurResources(source);
+            GpuTextureGaussianBlur.Blur(
+                source,
+                resources.Intermediate,
+                resources.Output.ViewPtr,
+                resources.Output.Format,
+                standardDeviation,
+                GpuTextureColorTransform.Identity);
+            resources.Output.MarkContentsDirty();
+            resources.LastUsedFrame = frame;
+            resources.PreparedFrame = frame;
+            resources.PreparedSourceId = source.Id;
+            resources.PreparedSourceGeneration =
+                source.Generation;
+            resources.PreparedSigmaBits =
+                BitConverter.SingleToInt32Bits(
+                    standardDeviation);
+            _liveBlurSubmissionCount++;
+            return resources.Output;
+        }
+
+        private LiveBlurResources AcquireLiveBlurResources(
+            GpuTexture source)
+        {
+            for (int index = _usedLiveBlurCount;
+                 index < _liveBlurPool.Count;
+                 index++)
+            {
+                LiveBlurResources candidate =
+                    _liveBlurPool[index];
+                if (!candidate.MatchesStorage(source))
+                {
+                    continue;
+                }
+
+                if (index != _usedLiveBlurCount)
+                {
+                    LiveBlurResources displaced =
+                        _liveBlurPool[_usedLiveBlurCount];
+                    _liveBlurPool[_usedLiveBlurCount] =
+                        candidate;
+                    _liveBlurPool[index] = displaced;
+                }
+
+                return _liveBlurPool[
+                    _usedLiveBlurCount++];
+            }
+
+            var created = new LiveBlurResources(
+                source,
+                _liveBlurPool.Count);
+            _liveBlurPool.Add(created);
+            int createdIndex = _liveBlurPool.Count - 1;
+            if (createdIndex != _usedLiveBlurCount)
+            {
+                LiveBlurResources displaced =
+                    _liveBlurPool[_usedLiveBlurCount];
+                _liveBlurPool[_usedLiveBlurCount] =
+                    created;
+                _liveBlurPool[createdIndex] =
+                    displaced;
+            }
+
+            return _liveBlurPool[_usedLiveBlurCount++];
+        }
+
+        private static bool CanUseLiveBlurPrepass(
+            WgpuContext compositorContext,
+            GpuTexture source,
+            in ImageEffectCommandData effect)
+        {
+            if (!float.IsFinite(effect.BlurSigma) ||
+                effect.BlurSigma <= 0.01f ||
+                effect.BlurSigma >
+                    GpuTextureGaussianBlur
+                        .MaximumStandardDeviation ||
+                effect.ChromaTexture != null ||
+                effect.YuvConversion.HasValue ||
+                effect.SphericalProjection.HasValue ||
+                !ValidateTextureContext(
+                    compositorContext,
+                    source,
+                    "source",
+                    out _) ||
+                (source.Usage &
+                    TextureUsage.TextureBinding) == 0 ||
+                source.Dimension !=
+                    GpuTextureDimension.Dimension2D ||
+                source.DepthOrArrayLayers != 1 ||
+                source.SampleCount != 1)
+            {
+                return false;
+            }
+
+            return source.Format is
+                TextureFormat.Rgba8Unorm or
+                TextureFormat.Rgba8UnormSrgb or
+                TextureFormat.Bgra8Unorm or
+                TextureFormat.Bgra8UnormSrgb or
+                TextureFormat.Rgba16float;
         }
 
         public unsafe void Render(
@@ -690,6 +967,13 @@ namespace ProGPU.Scene.Extensions
 
         public void Dispose()
         {
+            for (int index = 0;
+                 index < _liveBlurPool.Count;
+                 index++)
+            {
+                _liveBlurPool[index].Dispose();
+            }
+
             if (_contextRef != null && !_contextRef.IsDisposed)
             {
                 for (int i = 0; i < _pool.Count; i++)
@@ -739,6 +1023,7 @@ namespace ProGPU.Scene.Extensions
             }
 
             _pool.Clear();
+            _liveBlurPool.Clear();
             _textureBindGroups.Clear();
         }
 

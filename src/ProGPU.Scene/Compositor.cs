@@ -811,7 +811,14 @@ public unsafe partial class Compositor : IDisposable
 
     private readonly List<ICompositorExtension> _registeredExtensions = new();
     private readonly Dictionary<int, ICompositorExtension> _extensionsById = new();
+    private readonly List<PreparedExtensionDrawCallRestore>
+        _preparedExtensionDrawCallRestores = new();
     private int _extensionFrameDepth;
+
+    private readonly record struct PreparedExtensionDrawCallRestore(
+        List<CompositorDrawCall> DrawCalls,
+        int Index,
+        CompositorDrawCall Original);
 
     public void RegisterExtension(int id, ICompositorExtension extension)
     {
@@ -880,6 +887,79 @@ public unsafe partial class Compositor : IDisposable
         finally
         {
             _extensionFrameDepth--;
+        }
+    }
+
+    private int PrepareExtensionDrawCalls(bool isOffscreen)
+    {
+        int restoreStart = _preparedExtensionDrawCallRestores.Count;
+        try
+        {
+            Span<CompositorDrawCall> drawCalls =
+                CollectionsMarshal.AsSpan(_drawCalls);
+            for (int index = 0; index < drawCalls.Length; index++)
+            {
+                CompositorDrawCall original = drawCalls[index];
+                if (original.Type != DrawCallType.Extension)
+                {
+                    continue;
+                }
+
+                ICompositorExtension? extension =
+                    GetExtension(original.ExtensionId);
+                if (extension == null ||
+                    !extension.TryPrepareDrawCall(
+                        this,
+                        isOffscreen,
+                        in original,
+                        out CompositorDrawCall prepared))
+                {
+                    continue;
+                }
+
+                _preparedExtensionDrawCallRestores.Add(
+                    new PreparedExtensionDrawCallRestore(
+                        _drawCalls,
+                        index,
+                        original));
+                drawCalls[index] = prepared;
+            }
+
+            return restoreStart;
+        }
+        catch
+        {
+            RestorePreparedExtensionDrawCalls(restoreStart);
+            throw;
+        }
+    }
+
+    private void RestorePreparedExtensionDrawCalls(int restoreStart)
+    {
+        if (restoreStart < 0 ||
+            restoreStart > _preparedExtensionDrawCallRestores.Count)
+        {
+            return;
+        }
+
+        for (int index =
+                 _preparedExtensionDrawCallRestores.Count - 1;
+             index >= restoreStart;
+             index--)
+        {
+            PreparedExtensionDrawCallRestore restore =
+                _preparedExtensionDrawCallRestores[index];
+            restore.DrawCalls[restore.Index] = restore.Original;
+        }
+
+        int restoreCount =
+            _preparedExtensionDrawCallRestores.Count -
+            restoreStart;
+        if (restoreCount > 0)
+        {
+            _preparedExtensionDrawCallRestores.RemoveRange(
+                restoreStart,
+                restoreCount);
         }
     }
 
@@ -2675,6 +2755,7 @@ public unsafe partial class Compositor : IDisposable
         var extensionFrame = BeginExtensionFrame();
         bool glyphBatchActive = false;
         CommandEncoder* encoder = null;
+        int preparedExtensionDrawCallRestoreStart = -1;
         System.Diagnostics.Stopwatch uploadSw = null!;
         System.Diagnostics.Stopwatch passSw = null!;
         try
@@ -3080,6 +3161,13 @@ SceneStateUploadComplete:
             CreateMsaaResources(renderWidth, renderHeight);
         }
 
+        // Let extensions encode retained GPU preparation before a compositor
+        // render pass exists. The transient draw-call substitutions are
+        // restored in the frame finally block so compiled-scene replay keeps
+        // its original command state.
+        preparedExtensionDrawCallRestoreStart =
+            PrepareExtensionDrawCalls(isOffscreen: false);
+
         // 5. WebGPU Command Encoder and Render Pass Execution
         encoder = CreateCommandEncoder("Compositor Command Encoder\0"u8);
         EncodePendingSceneUploads(encoder);
@@ -3410,6 +3498,9 @@ SceneStateUploadComplete:
         }
         finally
         {
+            RestorePreparedExtensionDrawCalls(
+                preparedExtensionDrawCallRestoreStart);
+            preparedExtensionDrawCallRestoreStart = -1;
             if (glyphBatchActive)
             {
                 glyphBatchActive = false;
@@ -14176,6 +14267,7 @@ SceneStateUploadComplete:
         var extensionFrame = BeginExtensionFrame();
         var pathAtlasGenerationAtCompilationStart = _pathAtlas.Generation;
         CommandEncoder* encoder = null;
+        int preparedExtensionDrawCallRestoreStart = -1;
         var extensionFrameEnded = false;
         try
         {
@@ -14284,6 +14376,9 @@ SceneStateUploadComplete:
         _pathAtlas.RasterizePendingPaths();
         RefreshAtlasBindGroupsIfNeeded();
         long uploadEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        preparedExtensionDrawCallRestoreStart =
+            PrepareExtensionDrawCalls(isOffscreen: true);
 
         // Render target view for offscreen GpuTexture
         var targetView = targetTexture.ViewPtr;
@@ -14642,6 +14737,9 @@ SceneStateUploadComplete:
                 GpuBlendMode.Src,
                 copyPassResource);
         }
+        RestorePreparedExtensionDrawCalls(
+            preparedExtensionDrawCallRestoreStart);
+        preparedExtensionDrawCallRestoreStart = -1;
         EndExtensionFrame(extensionFrame);
         extensionFrameEnded = true;
 
@@ -14825,6 +14923,9 @@ SceneStateUploadComplete:
         }
         finally
         {
+            RestorePreparedExtensionDrawCalls(
+                preparedExtensionDrawCallRestoreStart);
+            preparedExtensionDrawCallRestoreStart = -1;
             if (!extensionFrameEnded)
             {
                 EndExtensionFrame(extensionFrame);

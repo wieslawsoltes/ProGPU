@@ -4143,6 +4143,148 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void
+        ImageEffectLiveGaussianReusesGpuResourcesAndRestoresRetainedDrawCalls()
+    {
+        using var window = new HeadlessWindow(10, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Live image Gaussian source");
+        source.WritePixels(
+            new byte[]
+            {
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 255, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255
+            });
+        var visual =
+            new RepeatedLiveBlurImageVisual(source);
+        window.Content = visual;
+        using var offscreenTarget = new GpuTexture(
+            window.Context,
+            10,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Live image Gaussian offscreen target");
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<ImageEffectExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .ImageEffect));
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+
+            Compositor.CompositorDrawCall[] drawCalls =
+                GetDrawCalls(window.Compositor);
+            Assert.Equal(2, drawCalls.Length);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in drawCalls)
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.True(drawCall.HasImageEffect);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            byte[] firstFrame = window.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                int left = pixel * 4;
+                int right = (pixel + 5) * 4;
+                Assert.Equal(
+                    firstFrame[left],
+                    firstFrame[right]);
+                Assert.Equal(
+                    firstFrame[left + 1],
+                    firstFrame[right + 1]);
+                Assert.Equal(
+                    firstFrame[left + 2],
+                    firstFrame[right + 2]);
+                Assert.Equal(
+                    firstFrame[left + 3],
+                    firstFrame[right + 3]);
+            }
+            Assert.InRange(
+                Math.Abs(firstFrame[0] - firstFrame[16]),
+                0,
+                1);
+            Assert.InRange(
+                Math.Abs(firstFrame[4] - firstFrame[12]),
+                0,
+                1);
+            Assert.True(firstFrame[0] < firstFrame[4]);
+            Assert.True(firstFrame[4] < firstFrame[8]);
+
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            window.Compositor.RenderOffscreen(
+                visual,
+                width: 10,
+                height: 1,
+                targetTexture: offscreenTarget,
+                padding: 0f,
+                dpiScale: 1f);
+
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            byte[] offscreenPixels =
+                offscreenTarget.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                Assert.Equal(
+                    offscreenPixels[pixel * 4],
+                    offscreenPixels[(pixel + 5) * 4]);
+            }
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
     {
         using var window = new HeadlessWindow(4, 4);
@@ -6377,6 +6519,37 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 _texture,
                 new Rect(0f, 0f, 16f, 16f),
                 blurSigma: 1f);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurImageVisual :
+        FrameworkElement
+    {
+        private readonly GpuTexture _texture;
+
+        public RepeatedLiveBlurImageVisual(
+            GpuTexture texture)
+        {
+            _texture = texture;
+            Width = 10f;
+            Height = 1f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            context.DrawImageWithEffect(
+                _texture,
+                new Rect(0f, 0f, 5f, 1f),
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+            context.DrawImageWithEffect(
+                _texture,
+                new Rect(5f, 0f, 5f, 1f),
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
         }
     }
 
