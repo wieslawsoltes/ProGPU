@@ -53,7 +53,12 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
         IsRequestSupported(
             request,
             OperatingSystem.IsAndroid(),
-            _effects);
+            _effects) &&
+        (!HasSpatialEffects(
+             request,
+             _effects) ||
+         AndroidMediaCodecCompositionExportProvider
+             .HasActiveVulkanDawnContext());
 
     internal static bool IsRequestSupported(
         MediaCompositionThumbnailRequest request,
@@ -103,7 +108,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
             if (hasUri == hasColor ||
                 clipDurationTicks <= 0 ||
                 !AndroidMediaCodecCompositionExportProvider
-                    .TryGetVideoColorTransform(
+                    .TryGetVideoEffectPlan(
                         clip,
                         effects ?? MediaEffectRegistry.Default,
                         out _))
@@ -186,7 +191,10 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     throw new InvalidOperationException(
                         "Android did not create a thumbnail output surface."),
                     width,
-                    height);
+                    height,
+                    HasSpatialEffects(
+                        request,
+                        effects));
         using var paint =
             new Paint(PaintFlags.FilterBitmap);
         var sourceRect = new Rect();
@@ -215,11 +223,11 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     request.Composition.Clips[
                         frame.ClipIndex];
                 if (!AndroidMediaCodecCompositionExportProvider
-                        .TryGetVideoColorTransform(
+                        .TryGetVideoEffectPlan(
                             clip,
                             effects,
-                            out MediaVideoColorTransform
-                                transform))
+                            out MediaVideoEffectPlan
+                                effectPlan))
                 {
                     throw new InvalidOperationException(
                         "The clip contains an unsupported video effect.");
@@ -235,7 +243,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     renderer.DrawColorFrame(
                         presentationTimeMicroseconds,
                         color,
-                        transform,
+                        effectPlan,
                         cancellationToken);
                 }
                 else
@@ -264,7 +272,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                         paint);
                     renderer.DrawFrame(
                         presentationTimeMicroseconds,
-                        transform,
+                        effectPlan,
                         cancellationToken);
                 }
 
@@ -290,6 +298,29 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
         }
 
         return Array.AsReadOnly(results);
+    }
+
+    private static bool HasSpatialEffects(
+        MediaCompositionThumbnailRequest request,
+        MediaEffectRegistry effects)
+    {
+        IReadOnlyList<MediaCompositionExportClip> clips =
+            request.Composition.Clips;
+        for (int index = 0;
+             index < clips.Count;
+             index++)
+        {
+            if (AndroidMediaCodecCompositionExportProvider
+                    .TryGetVideoEffectPlan(
+                        clips[index],
+                        effects,
+                        out MediaVideoEffectPlan plan) &&
+                plan.HasSpatialEffect)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static MediaMetadataRetriever CreateRetriever(

@@ -23,13 +23,13 @@ internal interface IAndroidEncoderSurfaceRenderer :
 
     void DrawFrame(
         long presentationTimeMicroseconds,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken);
 
     void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken);
 }
 
@@ -78,7 +78,11 @@ public sealed class
         IsRequestSupported(
             request,
             OperatingSystem.IsAndroid(),
-            _effects);
+            _effects) &&
+        (!HasSpatialVideoEffects(
+             request,
+             _effects) ||
+         HasActiveVulkanDawnContext());
 
     internal static bool IsRequestSupported(
         MediaCompositionExportRequest request,
@@ -147,17 +151,17 @@ public sealed class
                 clip.TrimTimeFromStart +
                     clip.TrimTimeFromEnd >=
                     clip.OriginalDuration ||
-                !TryGetVideoColorTransform(
+                !TryGetVideoEffectPlan(
                     clip,
                     effects ?? MediaEffectRegistry.Default,
-                    out MediaVideoColorTransform transform))
+                    out MediaVideoEffectPlan plan))
             {
                 return false;
             }
 
             requiresTranscode |=
                 hasColor ||
-                !transform.IsIdentity;
+                !plan.IsIdentity;
         }
 
         return requiresTranscode;
@@ -194,14 +198,16 @@ public sealed class
                 (webGpu
                     ? "use the active Vulkan Dawn device and a bounded " +
                       "AHardwareBuffer/SyncFD WebGPU lane when EGL interop " +
-                      "validation succeeds; otherwise rendering falls back " +
-                      "to the direct native GPU surface lane. "
+                      "validation succeeds. Registered clamped Gaussian " +
+                      "effects use one retained intermediate and a two-axis " +
+                      "WebGPU submission. Affine-only rendering can fall " +
+                      "back to the direct native GPU surface lane. "
                     : "use a decoder-surface to encoder-surface native GPU pass. ") +
                 "AAC " +
                 "is remuxed only when every source exactly matches the " +
                 "requested sample rate, channels, bitrate, and codec " +
                 "configuration. Solid-color clips are GPU-generated for " +
-                "video-only output; mixing, gain, overlays, and spatial " +
+                "video-only output; mixing, gain, overlays, unsupported " +
                 "or unregistered effects remain rejected.");
     }
 
@@ -345,7 +351,10 @@ public sealed class
             renderer = CreateRenderer(
                 encoderSurface,
                 checked((int)request.EncodingProfile.Width),
-                checked((int)request.EncodingProfile.Height));
+                checked((int)request.EncodingProfile.Height),
+                HasSpatialVideoEffects(
+                    request,
+                    effects));
             encoder.Start();
             encoderStarted = true;
 
@@ -361,11 +370,11 @@ public sealed class
                 cancellationToken.ThrowIfCancellationRequested();
                 MediaCompositionExportClip clip =
                     request.Clips[index];
-                if (!TryGetVideoColorTransform(
+                if (!TryGetVideoEffectPlan(
                         clip,
                         effects,
-                        out MediaVideoColorTransform
-                            transform))
+                        out MediaVideoEffectPlan
+                            effectPlan))
                 {
                     throw new InvalidOperationException(
                         "The clip contains an unsupported video effect.");
@@ -394,7 +403,7 @@ public sealed class
                         ref muxerStarted,
                         clipDuration,
                         timelineOffset,
-                        transform,
+                        effectPlan,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -413,7 +422,7 @@ public sealed class
                         sourceStart,
                         sourceEnd,
                         timelineOffset,
-                        transform,
+                        effectPlan,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -485,7 +494,7 @@ public sealed class
         ref bool muxerStarted,
         long clipDuration,
         long timelineOffset,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -500,7 +509,7 @@ public sealed class
             renderer.DrawColorFrame(
                 outputTimestamp,
                 argbColor,
-                transform,
+                effectPlan,
                 cancellationToken);
             DrainEncoder(
                 encoder,
@@ -586,7 +595,7 @@ public sealed class
         long sourceStart,
         long sourceEnd,
         long timelineOffset,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -703,7 +712,7 @@ public sealed class
                                 sourceStart);
                         renderer.DrawFrame(
                             outputTimestamp,
-                            transform,
+                            effectPlan,
                             cancellationToken);
                         DrainEncoder(
                             encoder,
@@ -738,7 +747,8 @@ public sealed class
     internal static IAndroidEncoderSurfaceRenderer CreateRenderer(
         Surface encoderSurface,
         int width,
-        int height)
+        int height,
+        bool requiresSpatialEffects = false)
     {
         IReadOnlyList<WgpuContext> contexts =
             WgpuContext.ActiveContexts;
@@ -769,13 +779,19 @@ public sealed class
             }
         }
 
+        if (requiresSpatialEffects)
+        {
+            throw new NotSupportedException(
+                "Android Gaussian media effects require the active Vulkan Dawn AHardwareBuffer lane.");
+        }
+
         return new AndroidEncoderSurfaceRenderer(
             encoderSurface,
             width,
             height);
     }
 
-    private static bool HasActiveVulkanDawnContext()
+    internal static bool HasActiveVulkanDawnContext()
     {
         IReadOnlyList<WgpuContext> contexts =
             WgpuContext.ActiveContexts;
@@ -1297,33 +1313,37 @@ public sealed class
         return true;
     }
 
-    internal static bool TryGetVideoColorTransform(
+    internal static bool TryGetVideoEffectPlan(
         MediaCompositionExportClip clip,
         MediaEffectRegistry effects,
-        out MediaVideoColorTransform transform)
+        out MediaVideoEffectPlan plan)
     {
         ArgumentNullException.ThrowIfNull(clip);
         ArgumentNullException.ThrowIfNull(effects);
-        transform = MediaVideoColorTransform.Identity;
+        plan = MediaVideoEffectPlan.Identity;
         if (!TryGetBuiltInEffects(
                 clip.UserData,
                 out float saturation,
                 out float grayscale) ||
             !MediaCompositionVideoEffectResolver
-                .TryCaptureColorTransform(
+                .TryCapturePlan(
                     effects,
                     clip.VideoEffectDefinitions,
-                    out MediaVideoColorTransform
+                    out MediaVideoEffectPlan
                         declared))
         {
             return false;
         }
 
-        transform = MediaVideoColorEffectFactory
-            .CreateTransform(
-                saturation: saturation,
-                grayscale: grayscale)
-            .Then(declared);
+        MediaVideoColorTransform transform =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    saturation: saturation,
+                    grayscale: grayscale)
+                .Then(declared.ColorTransform);
+        plan = new MediaVideoEffectPlan(
+            transform,
+            declared.BlurStandardDeviation);
         return true;
     }
 
@@ -1334,12 +1354,31 @@ public sealed class
              index < request.Clips.Count;
              index++)
         {
-            if (TryGetVideoColorTransform(
+            if (TryGetVideoEffectPlan(
                     request.Clips[index],
                     _effects,
-                    out MediaVideoColorTransform
-                        transform) &&
-                !transform.IsIdentity)
+                    out MediaVideoEffectPlan plan) &&
+                !plan.IsIdentity)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasSpatialVideoEffects(
+        MediaCompositionExportRequest request,
+        MediaEffectRegistry effects)
+    {
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            if (TryGetVideoEffectPlan(
+                    request.Clips[index],
+                    effects,
+                    out MediaVideoEffectPlan plan) &&
+                plan.HasSpatialEffect)
             {
                 return true;
             }
@@ -1547,7 +1586,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
 
     public void DrawFrame(
         long presentationTimeMicroseconds,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1575,7 +1614,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
 
         DrawGpuFrame(
             presentationTimeMicroseconds,
-            transform,
+            RequireAffine(effectPlan),
             useSolidColor: false,
             argbColor: 0);
     }
@@ -1583,7 +1622,7 @@ internal sealed class AndroidEncoderSurfaceRenderer :
     public void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1597,9 +1636,20 @@ internal sealed class AndroidEncoderSurfaceRenderer :
             this);
         DrawGpuFrame(
             presentationTimeMicroseconds,
-            transform,
+            RequireAffine(effectPlan),
             useSolidColor: true,
             argbColor: argbColor);
+    }
+
+    private static MediaVideoColorTransform RequireAffine(
+        MediaVideoEffectPlan effectPlan)
+    {
+        if (effectPlan.HasSpatialEffect)
+        {
+            throw new NotSupportedException(
+                "The Android EGL fallback cannot execute spatial media effects.");
+        }
+        return effectPlan.ColorTransform;
     }
 
     private void DrawGpuFrame(

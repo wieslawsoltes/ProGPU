@@ -404,7 +404,7 @@ public sealed class AndroidMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".TryCaptureColorTransform(",
+            ".TryCapturePlan(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -572,7 +572,11 @@ public sealed class AndroidMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryGetVideoColorTransform(",
+            "TryGetVideoEffectPlan(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HasSpatialEffects(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -661,6 +665,14 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "GpuTextureBlitter.Blit(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureGaussianBlur.Blur(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Android Media Gaussian Intermediate",
             sink,
             StringComparison.Ordinal);
         Assert.Contains(

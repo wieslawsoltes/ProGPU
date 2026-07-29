@@ -39,6 +39,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     private readonly SourceSlot[] _sourceSlots;
     private readonly Queue<int> _available = new(TargetCount);
     private readonly AndroidHardwareBufferEglPresenter _presenter;
+    private GpuTexture? _blurIntermediate;
     private int _outstanding;
     private int _nextSourceSlot;
     private int _disposed;
@@ -188,7 +189,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
 
     public void DrawFrame(
         long presentationTimeMicroseconds,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -234,11 +235,12 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
                     "The bounded Android encoder-target ring is full.");
             }
 
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 encoderFrame.Texture.ViewPtr,
                 encoderFrame.Texture.Format,
-                ToGpuTransform(transform));
+                effectPlan,
+                applySpatialEffect: true);
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
@@ -266,7 +268,7 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     public void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
-        MediaVideoColorTransform transform,
+        MediaVideoEffectPlan effectPlan,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -314,11 +316,12 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
                     "The bounded Android encoder-target ring is full.");
             }
 
-            GpuTextureBlitter.Blit(
+            Render(
                 source.Access.Texture,
                 encoderFrame.Texture.ViewPtr,
                 encoderFrame.Texture.Format,
-                ToGpuTransform(transform));
+                effectPlan,
+                applySpatialEffect: false);
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
@@ -363,6 +366,48 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             transform.Red,
             transform.Green,
             transform.Blue);
+
+    private void Render(
+        GpuTexture source,
+        Silk.NET.WebGPU.TextureView*
+            destinationView,
+        TextureFormat destinationFormat,
+        MediaVideoEffectPlan effectPlan,
+        bool applySpatialEffect)
+    {
+        GpuTextureColorTransform transform =
+            ToGpuTransform(
+                effectPlan.ColorTransform);
+        if (!applySpatialEffect ||
+            !effectPlan.HasSpatialEffect)
+        {
+            GpuTextureBlitter.Blit(
+                source,
+                destinationView,
+                destinationFormat,
+                transform);
+            return;
+        }
+
+        _blurIntermediate ??=
+            new GpuTexture(
+                Context,
+                Width,
+                Height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Android Media Gaussian Intermediate",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        GpuTextureGaussianBlur.Blur(
+            source,
+            _blurIntermediate,
+            destinationView,
+            destinationFormat,
+            effectPlan.BlurStandardDeviation,
+            transform);
+    }
 
     public ValueTask DrainAsync(
         CancellationToken cancellationToken)
@@ -502,6 +547,8 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             return;
         }
 
+        _blurIntermediate?.Dispose();
+        _blurIntermediate = null;
         for (int index = 0; index < _slots.Length; index++)
         {
             Slot? slot = _slots[index];
