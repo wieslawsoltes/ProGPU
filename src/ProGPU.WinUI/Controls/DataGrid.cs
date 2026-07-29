@@ -87,10 +87,40 @@ public class DataGrid : Control
     private float _minRowHeight = 28f;
     private float _estimatedRowHeight = 40f;
     private TextWrapping _cellTextWrapping = TextWrapping.NoWrap;
+    private float _rowCornerRadius;
+    private float _rowHorizontalInset;
+    private bool _showRowGridLines = true;
+    private bool _showSelectionIndicator = true;
 
     public List<DataGridColumn> Columns { get; } = new();
 
+    public static readonly DependencyProperty SelectionBackgroundProperty =
+        DependencyProperty.Register(
+            nameof(SelectionBackground),
+            typeof(Brush),
+            typeof(DataGrid),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty SelectionForegroundProperty =
+        DependencyProperty.Register(
+            nameof(SelectionForeground),
+            typeof(Brush),
+            typeof(DataGrid),
+            new PropertyMetadata(null) { AffectsRender = true });
+
     public List<object> ItemsSource => _itemsSource;
+
+    public Brush? SelectionBackground
+    {
+        get => GetValue(SelectionBackgroundProperty) as Brush;
+        set => SetValue(SelectionBackgroundProperty, value);
+    }
+
+    public Brush? SelectionForeground
+    {
+        get => GetValue(SelectionForegroundProperty) as Brush;
+        set => SetValue(SelectionForegroundProperty, value);
+    }
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
@@ -117,6 +147,25 @@ public class DataGrid : Control
                 throw new ArgumentOutOfRangeException(nameof(value));
             _rowHeight = value;
             InvalidateRowMeasurements();
+            Invalidate();
+        }
+    }
+
+    public float HeaderHeight
+    {
+        get => _headerHeight;
+        set
+        {
+            if (!float.IsFinite(value) || value <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_headerHeight == value)
+            {
+                return;
+            }
+            _headerHeight = value;
+            InvalidateMeasure();
             Invalidate();
         }
     }
@@ -155,6 +204,50 @@ public class DataGrid : Control
             if (_cellTextWrapping == value) return;
             _cellTextWrapping = value;
             InvalidateRowMeasurements();
+            Invalidate();
+        }
+    }
+
+    public float RowCornerRadius
+    {
+        get => _rowCornerRadius;
+        set
+        {
+            if (!float.IsFinite(value) || value < 0f)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _rowCornerRadius = value;
+            Invalidate();
+        }
+    }
+
+    public float RowHorizontalInset
+    {
+        get => _rowHorizontalInset;
+        set
+        {
+            if (!float.IsFinite(value) || value < 0f)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _rowHorizontalInset = value;
+            Invalidate();
+        }
+    }
+
+    public bool ShowRowGridLines
+    {
+        get => _showRowGridLines;
+        set
+        {
+            _showRowGridLines = value;
+            Invalidate();
+        }
+    }
+
+    public bool ShowSelectionIndicator
+    {
+        get => _showSelectionIndicator;
+        set
+        {
+            _showSelectionIndicator = value;
             Invalidate();
         }
     }
@@ -207,6 +300,7 @@ public class DataGrid : Control
     public int EditingCol => _editingCol;
 
     public Func<object, string, string>? CellValueBinding { get; set; }
+    public Func<object, string, IComparable?>? CellSortValueBinding { get; set; }
 
     public event EventHandler? SelectionChanged;
 
@@ -547,6 +641,14 @@ public class DataGrid : Control
 
         _itemsSource.Sort((x, y) =>
         {
+            if (CellSortValueBinding != null)
+            {
+                IComparable? rawX = CellSortValueBinding(x, prop);
+                IComparable? rawY = CellSortValueBinding(y, prop);
+                int rawComparison = CompareSortValues(rawX, rawY);
+                return asc ? rawComparison : -rawComparison;
+            }
+
             string valX = GetCellValue(x, prop);
             string valY = GetCellValue(y, prop);
 
@@ -560,6 +662,34 @@ public class DataGrid : Control
         SortingColumn = column;
         InvalidateRowMeasurements();
         Invalidate();
+    }
+
+    private static int CompareSortValues(IComparable? left, IComparable? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left is null)
+        {
+            return -1;
+        }
+        if (right is null)
+        {
+            return 1;
+        }
+
+        try
+        {
+            return left.CompareTo(right);
+        }
+        catch (ArgumentException)
+        {
+            return string.Compare(
+                Convert.ToString(left, CultureInfo.CurrentCulture),
+                Convert.ToString(right, CultureInfo.CurrentCulture),
+                StringComparison.CurrentCultureIgnoreCase);
+        }
     }
 
     public override void OnPointerWheelChanged(PointerRoutedEventArgs e)
@@ -1218,7 +1348,7 @@ public class DataGrid : Control
                 Brush? rowBg = null;
                 if (r == SelectedIndex)
                 {
-                    rowBg = ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
+                    rowBg = SelectionBackground ?? ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
                 }
                 else if (r == _hoveredRowIndex)
                 {
@@ -1229,14 +1359,25 @@ public class DataGrid : Control
                     rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
                 }
 
-                Rect rowRect = new Rect(0, rowY, Size.X, currentRowHeight);
+                Rect rowRect = new Rect(
+                    _rowHorizontalInset,
+                    rowY,
+                    Math.Max(0, Size.X - _rowHorizontalInset * 2),
+                    currentRowHeight);
                 if (rowBg != null)
                 {
-                    context.DrawRectangle(rowBg, null, rowRect);
+                    if (_rowCornerRadius > 0f)
+                    {
+                        context.DrawRoundedRectangle(rowBg, null, rowRect, _rowCornerRadius);
+                    }
+                    else
+                    {
+                        context.DrawRectangle(rowBg, null, rowRect);
+                    }
                 }
 
                 // Draw active selection vertical indicator stripe on far-left
-                if (r == SelectedIndex)
+                if (r == SelectedIndex && ShowSelectionIndicator)
                 {
                     Rect selectionStripe = LogicalToPhysical(new Rect(0f, rowY + 2f, 3f, currentRowHeight - 4f));
                     context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
@@ -1270,7 +1411,9 @@ public class DataGrid : Control
                             val,
                             activeFont,
                             FontSize,
-                            ThemeManager.GetBrush("TextPrimary"),
+                            r == SelectedIndex
+                                ? SelectionForeground ?? ThemeManager.GetBrush("TextPrimary")
+                                : ThemeManager.GetBrush("TextPrimary"),
                             new Vector2(cellTextBounds.X, cellTextY),
                             Matrix4x4.Identity,
                             cellTextBounds,
@@ -1284,7 +1427,10 @@ public class DataGrid : Control
                 }
 
                 // Draw thin grid lines
-                context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
+                if (ShowRowGridLines)
+                {
+                    context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
+                }
 
                 if (rowSizes != null && r == endRow && r + 1 < _itemsSource.Count &&
                     rowY + currentRowHeight < _headerHeight + ViewportHeight)

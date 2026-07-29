@@ -154,6 +154,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
 
         CpuPercentages cpu = CaptureCpuPercentages();
         MemoryCounters memory = CaptureMemoryCounters(cancellationToken);
+        BatterySnapshot battery = CaptureBattery(cancellationToken);
         long diskRead = 0;
         long diskWritten = 0;
         long networkReceived = 0;
@@ -175,13 +176,17 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             memory.Physical,
             memory.Used,
             memory.Cached,
+            memory.App,
+            memory.Wired,
+            memory.Compressed,
             memory.SwapUsed,
             diskRead,
             diskWritten,
             networkReceived,
             networkSent,
             processes.Count,
-            threads);
+            threads,
+            battery);
 
         _previousCaptureTime = capturedAt;
         return new ActivitySnapshot(capturedAt, processes, system);
@@ -326,6 +331,9 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         long inactivePages = 0;
         long speculativePages = 0;
         long fileBackedPages = 0;
+        long anonymousPages = 0;
+        long wiredPages = 0;
+        long compressedPages = 0;
         long physical = GetSystemUInt64("hw.memsize");
         long swapUsed = GetSwapUsed();
 
@@ -375,13 +383,74 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                 case "File-backed pages":
                     fileBackedPages = value;
                     break;
+                case "Anonymous pages":
+                    anonymousPages = value;
+                    break;
+                case "Pages wired down":
+                    wiredPages = value;
+                    break;
+                case "Pages occupied by compressor":
+                    compressedPages = value;
+                    break;
             }
         }
 
         long cached = Math.Max(0, (inactivePages + speculativePages + fileBackedPages) * pageSize);
         long available = Math.Max(0, (freePages + inactivePages + speculativePages) * pageSize);
         long used = Math.Max(0, physical - Math.Min(physical, available));
-        return new MemoryCounters(physical, used, cached, swapUsed);
+        return new MemoryCounters(
+            physical,
+            used,
+            cached,
+            Math.Max(0, anonymousPages * pageSize),
+            Math.Max(0, wiredPages * pageSize),
+            Math.Max(0, compressedPages * pageSize),
+            swapUsed);
+    }
+
+    private static BatterySnapshot CaptureBattery(CancellationToken cancellationToken)
+    {
+        string output = RunCommand("/usr/bin/pmset", ["-g", "batt"], cancellationToken);
+        string powerSource = output.Contains("'Battery Power'", StringComparison.Ordinal)
+            ? "Battery"
+            : "AC Power";
+        string batteryLine = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(line => line.Contains('%', StringComparison.Ordinal)) ?? string.Empty;
+        int percentMarker = batteryLine.IndexOf('%');
+        double charge = 0;
+        if (percentMarker > 0)
+        {
+            int start = percentMarker - 1;
+            while (start >= 0 && char.IsAsciiDigit(batteryLine[start]))
+            {
+                start--;
+            }
+            double.TryParse(
+                batteryLine.AsSpan(start + 1, percentMarker - start - 1),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out charge);
+        }
+
+        bool charging = batteryLine.Contains("charging", StringComparison.OrdinalIgnoreCase) &&
+                        !batteryLine.Contains("not charging", StringComparison.OrdinalIgnoreCase);
+        string remaining = "Calculating";
+        string[] parts = batteryLine.Split(';', StringSplitOptions.TrimEntries);
+        foreach (string part in parts)
+        {
+            if (part.Contains("remaining", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = part.Replace(" remaining", string.Empty, StringComparison.OrdinalIgnoreCase);
+                break;
+            }
+        }
+
+        return new BatterySnapshot(
+            batteryLine.Length > 0,
+            Math.Clamp(charge, 0, 100),
+            charging,
+            powerSource,
+            remaining);
     }
 
     private static Dictionary<int, PsProcessMetadata> CaptureProcessMetadata(
@@ -433,6 +502,8 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                 }
             };
             process.StartInfo.ArgumentList.Add("-P");
+            process.StartInfo.ArgumentList.Add("-c");
+            process.StartInfo.ArgumentList.Add("-n");
             process.StartInfo.ArgumentList.Add("-L");
             process.StartInfo.ArgumentList.Add("0");
             process.StartInfo.ArgumentList.Add("-x");
@@ -695,5 +766,12 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     private readonly record struct NetworkCounters(long Received, long Sent);
     private readonly record struct CpuTicks(ulong User, ulong System, ulong Idle, ulong Nice);
     private readonly record struct CpuPercentages(double User, double System, double Idle);
-    private readonly record struct MemoryCounters(long Physical, long Used, long Cached, long SwapUsed);
+    private readonly record struct MemoryCounters(
+        long Physical,
+        long Used,
+        long Cached,
+        long App,
+        long Wired,
+        long Compressed,
+        long SwapUsed);
 }

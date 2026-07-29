@@ -118,6 +118,27 @@ public class DataGridValueProviderTests
     }
 
     [Fact]
+    public void DataGrid_UsesTypedSortValuesWhenDisplayTextContainsUnits()
+    {
+        var column = new DataGridColumn("Memory", 120f, "Memory");
+        var dataGrid = new DataGrid
+        {
+            CellValueBinding = (item, _) => $"{((SortRow)item).Bytes / 1_000_000d:N1} MB",
+            CellSortValueBinding = (item, _) => ((SortRow)item).Bytes
+        };
+        var large = new SortRow(900_000_000);
+        var small = new SortRow(80_000_000);
+        dataGrid.Columns.Add(column);
+        dataGrid.AddItem(large);
+        dataGrid.AddItem(small);
+
+        dataGrid.SortItems(column);
+
+        Assert.Same(small, dataGrid.ItemsSource[0]);
+        Assert.Same(large, dataGrid.ItemsSource[1]);
+    }
+
+    [Fact]
     public void DataGrid_CommitsEditsThroughValueProvider()
     {
         var row = new ProviderRow("Alpha");
@@ -274,4 +295,6 @@ public class DataGridValueProviderTests
 
         throw new FileNotFoundException($"Could not find {relativePath} from {Directory.GetCurrentDirectory()}.");
     }
+
+    private sealed record SortRow(long Bytes);
 }

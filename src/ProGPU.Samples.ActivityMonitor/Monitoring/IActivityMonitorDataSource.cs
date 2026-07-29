@@ -64,13 +64,24 @@ public sealed record SystemSnapshot(
     long PhysicalMemoryBytes,
     long UsedMemoryBytes,
     long CachedMemoryBytes,
+    long AppMemoryBytes,
+    long WiredMemoryBytes,
+    long CompressedMemoryBytes,
     long SwapUsedBytes,
     long DiskReadBytes,
     long DiskWrittenBytes,
     long NetworkReceivedBytes,
     long NetworkSentBytes,
     int ProcessCount,
-    int ThreadCount);
+    int ThreadCount,
+    BatterySnapshot Battery);
+
+public sealed record BatterySnapshot(
+    bool IsPresent,
+    double ChargePercent,
+    bool IsCharging,
+    string PowerSource,
+    string TimeRemaining);
 
 public sealed record ProcessDetails(
     int ProcessId,

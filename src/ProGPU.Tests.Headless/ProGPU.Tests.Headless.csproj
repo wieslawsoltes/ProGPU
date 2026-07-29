@@ -26,6 +26,7 @@
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.Samples.ActivityMonitor\ProGPU.Samples.ActivityMonitor.csproj" />
     <ProjectReference Include="..\ProGPU.Transpiler\ProGPU.Transpiler.csproj" />
     <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />
   </ItemGroup>

@@ -1,20 +1,27 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Fonts.Inter;
+using ProGPU.Samples.ActivityMonitor.Monitoring;
+using ProGPU.Samples.ActivityMonitor.Presentation;
 using ProGPU.Text;
 using ProGPU.Vector;
 using ProGPU.WinUI.Themes.Fluent;
+using System.Numerics;
 
 namespace ProGPU.Samples.ActivityMonitor;
 
 public sealed class App : Application
 {
     private Window? _window;
+    private ActivityMonitorController? _controller;
     private bool _started;
 
     public App()
     {
         FluentThemeResources.Apply(this);
+        ThemeManager.CurrentTheme = ElementTheme.Light;
+        ThemeManager.CurrentThemeFamily = VisualThemeFamily.macOS;
+        RegisterActivityResources();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -52,51 +59,35 @@ public sealed class App : Application
             window.Compositor.ClearColor = ThemeManager.GetColor("PageBackground");
         }
 
-        window.Content = ActivityMonitorShell.Create(font);
+        _controller = new ActivityMonitorController(
+            font,
+            ActivityMonitorDataSourceFactory.Create());
+        window.Content = _controller.View;
+        _controller.Start();
+        window.Closed += OnClosed;
     }
-}
 
-internal static class ActivityMonitorShell
-{
-    public static FrameworkElement Create(TtfFont font)
+    private async void OnClosed(object? sender, EventArgs args)
     {
-        var root = new Grid
+        if (_controller is not null)
         {
-            Background = new ThemeResourceBrush("PageBackground")
-        };
-        root.RowDefinitions.Add(new GridLength(84, GridUnitType.Absolute));
-        root.RowDefinitions.Add(new GridLength(1, GridUnitType.Star));
+            await _controller.DisposeAsync();
+            _controller = null;
+        }
+    }
 
-        var header = new Border
-        {
-            Background = new ThemeResourceBrush("HeaderBackground"),
-            BorderBrush = new ThemeResourceBrush("ControlBorder"),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(24, 16)
-        };
-        var title = new TextBlock
-        {
-            Text = "Activity Monitor",
-            Font = font,
-            FontSize = 22,
-            Foreground = new ThemeResourceBrush("TextPrimary"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        header.Child = title;
-        root.AddChild(header);
-
-        var status = new TextBlock
-        {
-            Text = "Preparing live macOS process telemetry…",
-            Font = font,
-            FontSize = 14,
-            Foreground = new ThemeResourceBrush("TextSecondary"),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        root.AddChild(status);
-        Grid.SetRow(status, 1);
-
-        return root;
+    private void RegisterActivityResources()
+    {
+        Resources["ActivityTransparent"] = new SolidColorBrush(new Vector4(0, 0, 0, 0));
+        Resources["ActivityToolbarBackground"] = new SolidColorBrush(new Vector4(0.975f, 0.975f, 0.975f, 1));
+        Resources["ActivityFooterBackground"] = new SolidColorBrush(new Vector4(0.985f, 0.985f, 0.985f, 1));
+        Resources["ActivitySegmentBackground"] = new SolidColorBrush(new Vector4(1, 1, 1, 0.94f));
+        Resources["ActivitySegmentBorder"] = new SolidColorBrush(new Vector4(0.84f, 0.84f, 0.84f, 1));
+        Resources["ActivitySegmentSelected"] = new SolidColorBrush(new Vector4(0.86f, 0.86f, 0.86f, 1));
+        Resources["ActivityTrafficRed"] = new SolidColorBrush(new Vector4(1, 0.37f, 0.39f, 1));
+        Resources["ActivityTrafficYellow"] = new SolidColorBrush(new Vector4(1, 0.75f, 0, 1));
+        Resources["ActivityTrafficGreen"] = new SolidColorBrush(new Vector4(0.16f, 0.78f, 0.35f, 1));
+        Resources["ActivityTrafficBorder"] = new SolidColorBrush(new Vector4(0, 0, 0, 0.18f));
+        Resources["ActivityGraphBackground"] = new SolidColorBrush(new Vector4(1, 1, 1, 1));
     }
 }
