@@ -24,7 +24,8 @@ public sealed partial class
         {
             MediaCompositionExportClip clip =
                 request.Clips[index];
-            if (clip.Volume != 1d ||
+            if (clip.ArgbColor.HasValue ||
+                clip.Volume != 1d ||
                 clip.AudioEffectDefinitions.Count != 0)
             {
                 return true;
@@ -108,6 +109,7 @@ public sealed partial class
                 new MediaCodec.BufferInfo();
             int muxerTrack = -1;
             long pcmFrameCursor = 0;
+            long timelineTicks = 0;
 
             for (int index = 0;
                  index < request.Clips.Count;
@@ -117,6 +119,19 @@ public sealed partial class
                     .ThrowIfCancellationRequested();
                 MediaCompositionExportClip clip =
                     request.Clips[index];
+                timelineTicks =
+                    checked(
+                        timelineTicks +
+                        (clip.OriginalDuration -
+                         clip.TrimTimeFromStart -
+                         clip.TrimTimeFromEnd)
+                            .Ticks);
+                long targetEndFrame =
+                    MediaPcmTimelineMath
+                        .GetDurationFrameCountCeiling(
+                            TimeSpan.FromTicks(
+                                timelineTicks),
+                            profile.AudioSampleRate);
                 if (!TryGetEffectiveAudioLevels(
                         clip,
                         effects,
@@ -127,17 +142,34 @@ public sealed partial class
                         "The Android audio timeline contains an unsupported effect graph.");
                 }
 
-                DecodeClipIntoAudioEncoder(
-                    clip,
-                    profile,
-                    levels,
-                    encoder,
-                    muxer,
-                    encoderInfo,
-                    ref muxerTrack,
-                    ref muxerStarted,
-                    ref pcmFrameCursor,
-                    cancellationToken);
+                if (clip.ArgbColor.HasValue)
+                {
+                    QueueSilenceToFrame(
+                        targetEndFrame,
+                        profile,
+                        encoder,
+                        muxer,
+                        encoderInfo,
+                        ref muxerTrack,
+                        ref muxerStarted,
+                        ref pcmFrameCursor,
+                        cancellationToken);
+                }
+                else
+                {
+                    DecodeClipIntoAudioEncoder(
+                        clip,
+                        profile,
+                        levels,
+                        targetEndFrame,
+                        encoder,
+                        muxer,
+                        encoderInfo,
+                        ref muxerTrack,
+                        ref muxerStarted,
+                        ref pcmFrameCursor,
+                        cancellationToken);
+                }
             }
 
             QueueAudioEncoderEndOfStream(
@@ -183,10 +215,113 @@ public sealed partial class
         }
     }
 
+    /// <summary>
+    /// Fills native AAC-encoder input buffers until an exact cumulative
+    /// timeline frame. Work is O(S) for S zeroed samples with O(1) managed
+    /// storage.
+    /// </summary>
+    private static void QueueSilenceToFrame(
+        long targetEndFrame,
+        MediaCompositionEncodingProfile profile,
+        MediaCodec encoder,
+        MediaMuxer muxer,
+        MediaCodec.BufferInfo encoderInfo,
+        ref int muxerTrack,
+        ref bool muxerStarted,
+        ref long pcmFrameCursor,
+        CancellationToken cancellationToken)
+    {
+        if (targetEndFrame < pcmFrameCursor)
+        {
+            throw new InvalidDataException(
+                "Android audio timeline moved behind its encoded PCM cursor.");
+        }
+        long remainingFrames =
+            targetEndFrame -
+            pcmFrameCursor;
+        int bytesPerFrame =
+            checked(
+                (int)profile.AudioChannelCount *
+                sizeof(short));
+        while (remainingFrames > 0)
+        {
+            cancellationToken
+                .ThrowIfCancellationRequested();
+            int inputIndex =
+                encoder.DequeueInputBuffer(
+                    CodecTimeoutMicroseconds);
+            if (inputIndex < 0)
+            {
+                DrainAudioEncoder(
+                    encoder,
+                    muxer,
+                    encoderInfo,
+                    ref muxerTrack,
+                    ref muxerStarted,
+                    waitForEndOfStream: false,
+                    cancellationToken);
+                continue;
+            }
+
+            ByteBuffer input =
+                encoder.GetInputBuffer(
+                    inputIndex) ??
+                throw new InvalidOperationException(
+                    "Android AAC encoder returned no PCM input buffer.");
+            input.Clear();
+            int capacityFrames =
+                input.Remaining() /
+                bytesPerFrame;
+            if (capacityFrames <= 0)
+            {
+                throw new InvalidDataException(
+                    "An Android AAC encoder input buffer cannot hold one PCM frame.");
+            }
+            int frameCount =
+                checked(
+                    (int)Math.Min(
+                        remainingFrames,
+                        capacityFrames));
+            int byteLength =
+                checked(
+                    frameCount *
+                    bytesPerFrame);
+            GetWritableDirectPcm16Span(
+                    input,
+                    byteLength)
+                .Clear();
+
+            encoder.QueueInputBuffer(
+                inputIndex,
+                0,
+                byteLength,
+                MediaPcmTimelineMath
+                    .GetFrameTimestampMicroseconds(
+                        pcmFrameCursor,
+                        profile.AudioSampleRate),
+                MediaCodecBufferFlags.None);
+            pcmFrameCursor =
+                checked(
+                    pcmFrameCursor +
+                    frameCount);
+            remainingFrames -=
+                frameCount;
+            DrainAudioEncoder(
+                encoder,
+                muxer,
+                encoderInfo,
+                ref muxerTrack,
+                ref muxerStarted,
+                waitForEndOfStream: false,
+                cancellationToken);
+        }
+    }
+
     private static void DecodeClipIntoAudioEncoder(
         MediaCompositionExportClip clip,
         MediaCompositionEncodingProfile profile,
         in MediaAudioStereoLevels levels,
+        long targetEndFrame,
         MediaCodec encoder,
         MediaMuxer muxer,
         MediaCodec.BufferInfo encoderInfo,
@@ -342,6 +477,7 @@ public sealed partial class
                                 sourceEnd,
                                 profile,
                                 levels,
+                                targetEndFrame,
                                 encoder,
                                 muxer,
                                 encoderInfo,
@@ -362,6 +498,16 @@ public sealed partial class
                             false);
                     }
                 }
+                QueueSilenceToFrame(
+                    targetEndFrame,
+                    profile,
+                    encoder,
+                    muxer,
+                    encoderInfo,
+                    ref muxerTrack,
+                    ref muxerStarted,
+                    ref pcmFrameCursor,
+                    cancellationToken);
             }
             finally
             {
@@ -457,6 +603,7 @@ public sealed partial class
         long sourceEnd,
         MediaCompositionEncodingProfile profile,
         in MediaAudioStereoLevels levels,
+        long targetEndFrame,
         MediaCodec encoder,
         MediaMuxer muxer,
         MediaCodec.BufferInfo encoderInfo,
@@ -517,6 +664,7 @@ public sealed partial class
             decoded,
             profile,
             levels,
+            targetEndFrame,
             encoder,
             muxer,
             encoderInfo,
@@ -530,6 +678,7 @@ public sealed partial class
         ByteBuffer source,
         MediaCompositionEncodingProfile profile,
         in MediaAudioStereoLevels levels,
+        long targetEndFrame,
         MediaCodec encoder,
         MediaMuxer muxer,
         MediaCodec.BufferInfo encoderInfo,
@@ -542,7 +691,8 @@ public sealed partial class
             checked(
                 (int)profile.AudioChannelCount *
                 sizeof(short));
-        while (source.HasRemaining)
+        while (source.HasRemaining &&
+               pcmFrameCursor < targetEndFrame)
         {
             cancellationToken
                 .ThrowIfCancellationRequested();
@@ -572,6 +722,16 @@ public sealed partial class
                 Math.Min(
                     source.Remaining(),
                     input.Remaining());
+            long remainingTimelineBytes =
+                checked(
+                    (targetEndFrame -
+                     pcmFrameCursor) *
+                    bytesPerFrame);
+            chunk =
+                checked(
+                    (int)Math.Min(
+                        chunk,
+                        remainingTimelineBytes));
             chunk -= chunk % bytesPerFrame;
             if (chunk <= 0)
             {
@@ -634,6 +794,34 @@ public sealed partial class
             throw new InvalidDataException(
                 "Android PCM16 channel layout is invalid.");
         }
+        Span<short> samples =
+            GetWritableDirectPcm16Span(
+                buffer,
+                byteLength);
+        int channelOffset = 0;
+        MediaPcm16StereoProcessor.ApplyStereo(
+            samples,
+            channelCount,
+            levels,
+            ref channelOffset);
+        if (channelOffset != 0)
+        {
+            throw new InvalidDataException(
+                "Android PCM16 input ended on a partial channel frame.");
+        }
+    }
+
+    private static unsafe Span<short>
+        GetWritableDirectPcm16Span(
+        ByteBuffer buffer,
+        int byteLength)
+    {
+        if (byteLength < 0 ||
+            (byteLength & 1) != 0)
+        {
+            throw new InvalidDataException(
+                "Android PCM16 byte length is invalid.");
+        }
         nint address =
             JNIEnv.GetDirectBufferAddress(
                 buffer.Handle);
@@ -647,20 +835,9 @@ public sealed partial class
                 "Android AAC encoder did not expose a writable direct PCM buffer.");
         }
 
-        var samples = new Span<short>(
+        return new Span<short>(
             (void*)address,
             byteLength / sizeof(short));
-        int channelOffset = 0;
-        MediaPcm16StereoProcessor.ApplyStereo(
-            samples,
-            channelCount,
-            levels,
-            ref channelOffset);
-        if (channelOffset != 0)
-        {
-            throw new InvalidDataException(
-                "Android PCM16 input ended on a partial channel frame.");
-        }
     }
 
     private static void QueueAudioEncoderEndOfStream(

@@ -506,6 +506,18 @@ public sealed class AndroidMediaProviderContractTests
             audio,
             StringComparison.Ordinal);
         Assert.Contains(
+            "QueueSilenceToFrame(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".GetDurationFrameCountCeiling(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetWritableDirectPcm16Span(",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "MediaAudioGraphEffectResolver" +
             "\n                .TryCaptureCombinedStereoLevels(",
             audio.Replace(

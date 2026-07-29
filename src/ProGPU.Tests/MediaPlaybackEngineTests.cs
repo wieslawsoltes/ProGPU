@@ -909,6 +909,50 @@ public sealed class MediaPlaybackEngineTests
                 .GetFrameTimestampMicroseconds(
                     sampleRate * 3_600L,
                     sampleRate));
+        Assert.Equal(
+            1,
+            MediaPcmTimelineMath
+                .GetDurationFrameCountCeiling(
+                    TimeSpan.FromTicks(1),
+                    sampleRate));
+        Assert.Equal(
+            48_000,
+            MediaPcmTimelineMath
+                .GetDurationFrameCountCeiling(
+                    TimeSpan.FromSeconds(1),
+                    sampleRate));
+        Assert.Equal(
+            172_800_000,
+            MediaPcmTimelineMath
+                .GetDurationFrameCountCeiling(
+                    TimeSpan.FromHours(1),
+                    sampleRate));
+
+        long previousFrame = 0;
+        long accumulatedFrames = 0;
+        for (long timelineTicks = 1;
+             timelineTicks <= 10_000;
+             timelineTicks++)
+        {
+            long targetFrame =
+                MediaPcmTimelineMath
+                    .GetDurationFrameCountCeiling(
+                        TimeSpan.FromTicks(
+                            timelineTicks),
+                        sampleRate);
+            long clipFrames =
+                targetFrame -
+                previousFrame;
+            Assert.InRange(
+                clipFrames,
+                0,
+                1);
+            accumulatedFrames +=
+                clipFrames;
+            previousFrame =
+                targetFrame;
+        }
+        Assert.Equal(48, accumulatedFrames);
     }
 
     [Fact]

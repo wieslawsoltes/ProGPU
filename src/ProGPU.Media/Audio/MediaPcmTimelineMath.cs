@@ -79,4 +79,35 @@ internal static class MediaPcmTimelineMath
                 MicrosecondsPerSecond /
                 sampleRate);
     }
+
+    internal static long GetDurationFrameCountCeiling(
+        TimeSpan duration,
+        uint sampleRate)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(duration));
+        }
+        if (sampleRate == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sampleRate));
+        }
+
+        const long ticksPerSecond =
+            TimeSpan.TicksPerSecond;
+        long ticks =
+            duration.Ticks;
+        return checked(
+            ticks /
+                ticksPerSecond *
+                sampleRate +
+            (ticks %
+                 ticksPerSecond *
+                 sampleRate +
+             ticksPerSecond -
+             1) /
+                ticksPerSecond);
+    }
 }

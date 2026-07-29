@@ -144,8 +144,6 @@ public sealed partial class
             bool hasColor =
                 clip.ArgbColor.HasValue;
             if (hasSource == hasColor ||
-                (hasColor &&
-                 profile.AudioSubtype is not null) ||
                 !double.IsFinite(clip.Volume) ||
                 clip.Volume is < 0d or > 1d ||
                 (profile.AudioSubtype is null &&
@@ -226,9 +224,9 @@ public sealed partial class
                 "direct PCM16 MediaCodec buffers, applies registered gain " +
                 "and stereo-balance levels in place, and is encoded by the " +
                 "native AAC codec without managed PCM copies. Solid-color " +
-                "clips are GPU-generated for video-only output; mixing, " +
-                "overlays, unsupported or unregistered effects remain " +
-                "rejected.");
+                "clips generate bounded native PCM16 silence when audio is " +
+                "requested. Mixing, overlays, unsupported or unregistered " +
+                "effects remain rejected.");
     }
 
     public ValueTask<MediaCompositionExportFailure>
