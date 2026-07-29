@@ -171,6 +171,44 @@ public sealed class DawnSharedTextureMemoryContractTests
     }
 
     [Fact]
+    public void IosurfaceImportDrainsMetalAutoreleasedTemporaries()
+    {
+        string sharedMemory = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnSharedTextureMemory.cs");
+        string context = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnGpuContext.cs");
+
+        Assert.Contains(
+            "internal readonly partial struct DawnMetalAutoreleasePool",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EntryPoint = \"objc_autoreleasePoolPush\"",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EntryPoint = \"objc_autoreleasePoolPop\"",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnMetalAutoreleasePool.Enter(isIOSurface)",
+            context,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "useMetalAutoreleasePool: isIOSurface",
+            context,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnMetalAutoreleasePool.Enter(\n                    _useMetalAutoreleasePool)",
+            context,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AndroidEncoderAccessExportsFenceBeforeDeferredDisposal()
     {
         string source = ReadRepoFile(

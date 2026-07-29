@@ -947,6 +947,64 @@ internal static unsafe partial class DawnMetalObjectLifetime
 }
 
 /// <summary>
+/// Drains temporary Objective-C objects created by one Metal interop
+/// operation. The scope is a no-op on non-Apple platforms.
+/// </summary>
+/// <remarks>
+/// Dawn owns the retained WebGPU and Metal resources that escape the scope.
+/// This pool releases only autoreleased temporaries such as descriptors and
+/// dictionaries. Entering and leaving the scope is O(1), allocation-free on
+/// the managed heap, and must occur on the same thread.
+/// </remarks>
+internal readonly partial struct DawnMetalAutoreleasePool :
+    IDisposable
+{
+    private const string ObjectiveCLibrary =
+        "/usr/lib/libobjc.A.dylib";
+
+    private readonly nint _token;
+
+    private DawnMetalAutoreleasePool(nint token)
+    {
+        _token = token;
+    }
+
+    internal static DawnMetalAutoreleasePool Enter(
+        bool enabled)
+    {
+        if (!enabled ||
+            !(OperatingSystem.IsMacOS() ||
+              OperatingSystem.IsIOS()))
+        {
+            return default;
+        }
+
+        return new DawnMetalAutoreleasePool(
+            PushNative());
+    }
+
+    public void Dispose()
+    {
+        if (_token != 0)
+        {
+            PopNative(_token);
+        }
+    }
+
+    [LibraryImport(
+        ObjectiveCLibrary,
+        EntryPoint = "objc_autoreleasePoolPush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial nint PushNative();
+
+    [LibraryImport(
+        ObjectiveCLibrary,
+        EntryPoint = "objc_autoreleasePoolPop")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial void PopNative(nint token);
+}
+
+/// <summary>
 /// Owns one Dawn shared-fence reference imported from an external GPU object.
 /// </summary>
 public sealed class DawnSharedFence : IDisposable

@@ -425,6 +425,8 @@ public sealed unsafe partial class DawnGpuContext :
         DawnSharedTextureMemory? sharedMemory = null;
         TextureHandle importedTexture = TextureHandle.Null;
         bool accessBegan = false;
+        using DawnMetalAutoreleasePool autoreleasePool =
+            DawnMetalAutoreleasePool.Enter(isIOSurface);
         try
         {
             sharedMemory = isIOSurface
@@ -467,7 +469,8 @@ public sealed unsafe partial class DawnGpuContext :
             var owner = new ImportedSharedTextureOwner(
                 sharedMemory,
                 importedTexture,
-                nativeOwner);
+                nativeOwner,
+                useMetalAutoreleasePool: isIOSurface);
             sharedMemory = null;
             TextureHandle ownedTexture = importedTexture;
             importedTexture = TextureHandle.Null;
@@ -517,19 +520,26 @@ public sealed unsafe partial class DawnGpuContext :
         private DawnSharedTextureMemory? _sharedMemory;
         private IDisposable? _nativeOwner;
         private readonly TextureHandle _texture;
+        private readonly bool _useMetalAutoreleasePool;
 
         public ImportedSharedTextureOwner(
             DawnSharedTextureMemory sharedMemory,
             TextureHandle texture,
-            IDisposable nativeOwner)
+            IDisposable nativeOwner,
+            bool useMetalAutoreleasePool)
         {
             _sharedMemory = sharedMemory;
             _texture = texture;
             _nativeOwner = nativeOwner;
+            _useMetalAutoreleasePool =
+                useMetalAutoreleasePool;
         }
 
         public void Dispose()
         {
+            using DawnMetalAutoreleasePool autoreleasePool =
+                DawnMetalAutoreleasePool.Enter(
+                    _useMetalAutoreleasePool);
             DawnSharedTextureMemory? sharedMemory =
                 Interlocked.Exchange(
                     ref _sharedMemory,

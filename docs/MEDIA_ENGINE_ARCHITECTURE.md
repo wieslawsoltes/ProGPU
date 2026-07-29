@@ -1335,13 +1335,63 @@ than a proved GPU bottleneck.
 
 Xcode's Allocations template left the target suspended before application
 startup for exact-executable, exact-bundle, and attach attempts on this host;
-the failed trace bundles were retained as ignored diagnostics and are not
-counted as allocation evidence. The latest published `dotnet-trace`
+the subsequent exact-PID attach and exact-executable launch attempts reached
+Xcode 26.4.1 but required an administrator credential to authorize analysis,
+even with `--no-prompt`. No credential was supplied. The failed trace bundles
+were retained as ignored diagnostics and are not counted as allocation
+evidence. The latest published `dotnet-trace`
 9.0.661903 completed bounded launch and attach captures against .NET 10 but
 its own parser rejected each with `Read past end of stream`; those files are
 likewise excluded. The remaining gate therefore still requires a working
 Allocations/VM Tracker capture, readable EventPipe correlation, repeated
 power/thermal data, and audible underrun/glitch measurements.
+
+Command-line `heap`, `vmmap`, and `footprint` snapshots were still available
+to the same user and exposed one actionable native-lifetime defect. Across
+61.344 seconds of looping `NativeZeroCopy` playback, live
+`MTLTextureDescriptorInternal` objects grew from 472 to 2,156, or 27.45
+objects/second, while total live malloc bytes grew from 25,417,304 to
+26,750,632. A matched `Basic Input` control created no live Metal texture
+descriptors, isolating the growth to the IOSurface import boundary rather than
+ordinary WebGPU presentation.
+
+The Dawn adapter now enters one Apple autorelease scope around each IOSurface
+import and its matching end-access/release operation. Retained WebGPU,
+shared-memory, pixel-buffer, and texture handles continue to escape under
+their existing typed owners; only temporary Objective-C descriptors and
+dictionaries are drained. Repeating the media workload after the change
+showed zero live `MTLTextureDescriptorInternal` objects in both snapshots
+56.679 seconds apart, while total live malloc bytes fell from 26,118,776 to
+25,803,224. Three fresh unprofiled 600-frame processes measured median 120.20
+wall FPS and 8.3052 ms mean total frame time with zero of 1,800 frames over
+16.667 ms. The earlier equivalent median was 120.26 FPS and 8.3037 ms, so the
+fix removes the measured descriptor slope without a supported end-to-end
+throughput regression claim. Snapshot pauses are excluded from frame-pacing
+statistics.
+
+This ownership change was designed clean-room from public contracts and
+independent measurements. Apple's
+[autorelease-pool contract](https://developer.apple.com/documentation/foundation/nsautoreleasepool)
+requires long-lived threads that create autoreleased objects to drain local
+pools. Upstream
+[Dawn Metal tests](https://dawn.googlesource.com/dawn/+/48f5ceeea3ef22d294effa5b8cc00f4ebad4a735/src/dawn/tests/white_box/MetalAutoreleasePoolTests.mm)
+and
+[Skia Graphite Metal command creation](https://github.com/google/skia/blob/78afc18c9ba01a2a6c13d530992241b3a6f82205/src/gpu/graphite/mtl/MtlCommandBuffer.mm)
+separate retained objects that outlive a local pool from temporary
+autoreleased objects. WebRender similarly scopes
+[CoreText/glyph work](https://github.com/servo/webrender/blob/e1c924ebad9ffdfe8c8c606aba77eb3f888c396a/wr_glyph_rasterizer/src/platform/macos/font.rs),
+and HarfBuzz's
+[Metal GPU demo](https://github.com/harfbuzz/harfbuzz/blob/5b54d30ce7ade7b1c675bd71eb33fa5fa754fa8f/util/gpu/demo-metal.mm)
+uses a per-display autorelease scope. Vello
+[delegates native API ownership to wgpu](https://github.com/linebender/vello)
+and Parley
+[stops at reusable text layout](https://github.com/linebender/parley), so
+neither supplies the direct Dawn/IOSurface boundary ProGPU owns. Direct2D and
+Win2D use a COM/device-resource model instead; their relevant transferable
+concept is deterministic device-resource ownership and recreation, not an
+Objective-C pool
+([Direct2D resources](https://learn.microsoft.com/windows/win32/direct2d/resources-and-resource-domains),
+[Win2D device loss](https://microsoft.github.io/Win2D/WinUI3/html/HandlingDeviceLost.htm)).
 
 The macOS functional gate was exercised with final app bundles using the
 public MDN flower MP4. In both Avalonia and `ProGPU.Samples.Desktop`,
