@@ -57,7 +57,7 @@ public sealed class
         "progpu.android.mediacodec.export";
     private const string VideoMime = "video/avc";
     private const string AudioMime = "audio/mp4a-latm";
-    private const int MaximumDimension = 8_192;
+    internal const int MaximumDimension = 8_192;
     private const int MaximumCompressedAudioSample =
         16 * 1024 * 1024;
     private const long CodecTimeoutMicroseconds = 10_000;
@@ -730,7 +730,7 @@ public sealed class
         }
     }
 
-    private static IAndroidEncoderSurfaceRenderer CreateRenderer(
+    internal static IAndroidEncoderSurfaceRenderer CreateRenderer(
         Surface encoderSurface,
         int width,
         int height)
@@ -1256,7 +1256,7 @@ public sealed class
         return result;
     }
 
-    private static bool TryGetBuiltInEffects(
+    internal static bool TryGetBuiltInEffects(
         IReadOnlyDictionary<string, string> userData,
         out float saturation,
         out float grayscale)

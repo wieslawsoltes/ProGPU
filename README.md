@@ -57,7 +57,7 @@ intentionally not packed.
 | `LibreWPF.Interop` | LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWPF.Interop.svg)](https://www.nuget.org/packages/LibreWPF.Interop/) |
 | `ProGPU.Android` | Native Android `SurfaceView` host using WebGPU over Vulkan. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Android.svg)](https://www.nuget.org/packages/ProGPU.Android/) |
 | `ProGPU.iOS` | Native UIKit/`CAMetalLayer` host using WebGPU over Metal. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.iOS.svg)](https://www.nuget.org/packages/ProGPU.iOS/) |
-| `ProGPU.Android.Media` | Android MediaCodec playback, AHardwareBuffer WebGPU interop, audio, and composition export. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Android.Media.svg)](https://www.nuget.org/packages/ProGPU.Android.Media/) |
+| `ProGPU.Android.Media` | Android MediaCodec playback, AHardwareBuffer WebGPU interop, audio, composition export, and native composition thumbnails. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Android.Media.svg)](https://www.nuget.org/packages/ProGPU.Android.Media/) |
 | `ProGPU.Apple.Media` | Shared macOS/iOS AVFoundation playback, IOSurface WebGPU interop, audio, and composition export. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Apple.Media.svg)](https://www.nuget.org/packages/ProGPU.Apple.Media/) |
 
 Local package build:

@@ -34,6 +34,10 @@ public static class AndroidMedia
             MediaCompositionExportRegistry.Default.Register(
                 new AndroidMediaCodecCompositionExportProvider(
                     priority));
+        IDisposable thumbnails =
+            MediaCompositionThumbnailRegistry.Default.Register(
+                new AndroidMediaCompositionThumbnailProvider(
+                    priority));
         IDisposable fastExport =
             MediaCompositionExportRegistry.Default.Register(
                 new IsoBmffFastMediaCompositionExportProvider(
@@ -41,6 +45,7 @@ public static class AndroidMedia
         return new AndroidMediaRegistrations(
             playback,
             preciseExport,
+            thumbnails,
             fastExport);
     }
 
@@ -54,15 +59,18 @@ public static class AndroidMedia
     {
         private IDisposable? _playback;
         private IDisposable? _preciseExport;
+        private IDisposable? _thumbnails;
         private IDisposable? _fastExport;
 
         public AndroidMediaRegistrations(
             IDisposable playback,
             IDisposable preciseExport,
+            IDisposable thumbnails,
             IDisposable fastExport)
         {
             _playback = playback;
             _preciseExport = preciseExport;
+            _thumbnails = thumbnails;
             _fastExport = fastExport;
         }
 
@@ -70,6 +78,9 @@ public static class AndroidMedia
         {
             Interlocked.Exchange(
                 ref _fastExport,
+                null)?.Dispose();
+            Interlocked.Exchange(
+                ref _thumbnails,
                 null)?.Dispose();
             Interlocked.Exchange(
                 ref _preciseExport,

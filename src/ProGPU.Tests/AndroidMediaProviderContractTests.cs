@@ -500,6 +500,84 @@ public sealed class AndroidMediaProviderContractTests
     }
 
     [Fact]
+    public void AndroidCompositionThumbnailsReuseNativeBatchStateAndGpuEffects()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCompositionThumbnailProvider.cs");
+        string registration = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaPlaybackProvider.cs");
+        string project = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "ProGPU.Android.Media.csproj");
+
+        Assert.Contains(
+            "IMediaCompositionThumbnailProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AndroidMediaCompositionThumbnailProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionThumbnailRegistry.Default.Register(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaMetadataRetriever?[",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetScaledFrameAtTime(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Option.ClosestSync",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".CreateRenderer(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderer.DrawFrame(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderer.DrawColorFrame(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ImageReader.NewInstance(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AcquireNextImage()",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Bitmap.CompressFormat.Png",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU.Media.Editing.csproj",
+            project,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ffmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void AndroidWebGpuEncoderSinkUsesBoundedBidirectionalFences()
     {
         string sink = ReadRepoFile(

@@ -8,11 +8,12 @@
     <SupportedOSPlatformVersion>30.0</SupportedOSPlatformVersion>
     <IsAotCompatible>true</IsAotCompatible>
     <PublishTrimmed>true</PublishTrimmed>
-    <Description>Dependency-free Android MediaPlayer, ImageReader, AHardwareBuffer, and native audio provider for ProGPU.Media.</Description>
-    <PackageTags>progpu;media;android;mediacodec;ahardwarebuffer;webgpu;audio</PackageTags>
+    <Description>Dependency-free Android MediaPlayer, ImageReader, AHardwareBuffer, native audio, composition export, and thumbnail provider for ProGPU.Media.</Description>
+    <PackageTags>progpu;media;android;mediacodec;ahardwarebuffer;webgpu;audio;editing;thumbnails</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
   </ItemGroup>
 </Project>
