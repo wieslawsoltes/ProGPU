@@ -74,6 +74,13 @@ design.
   establish that navigation returns the resulting `MediaPlaybackItem`.
   ProGPU retains a nullable annotation for the no-item/end-of-list case while
   preserving the official CLR return type.
+- [`MediaPlaybackItem.CanSkip`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.canskip)
+  establishes that app-requested list navigation must fail while an
+  unskippable current item is actively playing. ProGPU tracks attached
+  players through weak typed entries, so a list shared by multiple players
+  remains blocked while any owner is playing or buffering without retaining
+  disposed or abandoned players. Natural end-of-stream advancement bypasses
+  this manual-navigation guard.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -661,7 +668,10 @@ exposing frames outside the item. This projection is fixed O(1) work per
 provider state update and allocates no per-frame range objects.
 `MediaPlaybackList.MoveNext`, `MovePrevious`, and `MoveTo` return the
 resulting item, matching the official WinRT API rather than exposing an
-implementation-specific Boolean. The editing
+implementation-specific Boolean. Manual navigation and `StartingItem`
+changes honor `MediaPlaybackItem.CanSkip` while any attached player has
+active playback; command-manager Next/Previous enablement uses the same
+decision. Natural completion remains able to advance the list. The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay
 clips, custom compositor definitions, composition duration,

@@ -549,26 +549,13 @@ public sealed class MediaPlaybackCommandManager
 
     private bool CanMoveNext()
     {
-        if (MediaPlayer.Source is not MediaPlaybackList list ||
-            list.Items.Count == 0)
-        {
-            return false;
-        }
-        return list.AutoRepeatEnabled ||
-            list.CurrentItemIndex == uint.MaxValue ||
-            list.CurrentItemIndex + 1u <
-                (uint)list.Items.Count;
+        return MediaPlayer.Source is MediaPlaybackList list &&
+            list.CanMoveNextManually();
     }
 
     private bool CanMovePrevious()
     {
-        if (MediaPlayer.Source is not MediaPlaybackList list ||
-            list.Items.Count == 0)
-        {
-            return false;
-        }
-        return list.AutoRepeatEnabled ||
-            list.CurrentItemIndex == uint.MaxValue ||
-            list.CurrentItemIndex > 0u;
+        return MediaPlayer.Source is MediaPlaybackList list &&
+            list.CanMovePreviousManually();
     }
 }

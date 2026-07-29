@@ -163,6 +163,8 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
 {
     private readonly ObservableCollection<MediaPlaybackItem> _items =
         [];
+    private readonly object _playbackOwnersGate = new();
+    private readonly List<PlaybackOwnerEntry> _playbackOwners = [];
     private int _currentIndex = -1;
     private MediaPlaybackItem[] _shuffledItems = [];
     private bool _shuffleEnabled;
@@ -228,12 +230,18 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
                     "StartingItem must belong to Items.",
                     nameof(value));
             }
-            _startingItem = value;
             if (value is not null)
             {
+                int targetIndex = _items.IndexOf(value);
+                EnsureCanChangeCurrentItem(targetIndex);
+                _startingItem = value;
                 SetCurrentIndex(
-                    _items.IndexOf(value),
+                    targetIndex,
                     MediaPlaybackItemChangedReason.AppRequested);
+            }
+            else
+            {
+                _startingItem = null;
             }
         }
     }
@@ -285,7 +293,9 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     }
 
     public MediaPlaybackItem? MoveNext() =>
-        MoveNextCore(MediaPlaybackItemChangedReason.AppRequested)
+        MoveNextCore(
+            MediaPlaybackItemChangedReason.AppRequested,
+            enforceCanSkip: true)
             ? CurrentItem
             : null;
 
@@ -308,8 +318,11 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
             }
             previous = order.Count - 1;
         }
+        int targetIndex =
+            FindEnabled(order, previous, forward: false);
+        EnsureCanChangeCurrentItem(targetIndex);
         return SetCurrentIndex(
-                FindEnabled(order, previous, forward: false),
+                targetIndex,
                 MediaPlaybackItemChangedReason.AppRequested)
             ? CurrentItem
             : null;
@@ -321,8 +334,10 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         {
             return null;
         }
+        int targetIndex = checked((int)itemIndex);
+        EnsureCanChangeCurrentItem(targetIndex);
         return SetCurrentIndex(
-                checked((int)itemIndex),
+                targetIndex,
                 MediaPlaybackItemChangedReason.AppRequested)
             ? CurrentItem
             : null;
@@ -355,7 +370,114 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     }
 
     internal bool MoveNextAfterEnd() =>
-        MoveNextCore(MediaPlaybackItemChangedReason.EndOfStream);
+        MoveNextCore(
+            MediaPlaybackItemChangedReason.EndOfStream,
+            enforceCanSkip: false);
+
+    internal bool CanMoveNextManually() =>
+        TryResolveNextIndex(out int targetIndex) &&
+        targetIndex != _currentIndex &&
+        CanChangeCurrentItem(targetIndex);
+
+    internal bool CanMovePreviousManually()
+    {
+        if (_items.Count == 0)
+        {
+            return false;
+        }
+
+        IReadOnlyList<MediaPlaybackItem> order =
+            GetPlaybackOrder();
+        int orderIndex = IndexOf(order, CurrentItem);
+        int previous = orderIndex - 1;
+        if (previous < 0)
+        {
+            if (!AutoRepeatEnabled)
+            {
+                return false;
+            }
+            previous = order.Count - 1;
+        }
+
+        int targetIndex =
+            FindEnabled(order, previous, forward: false);
+        return targetIndex >= 0 &&
+            targetIndex != _currentIndex &&
+            CanChangeCurrentItem(targetIndex);
+    }
+
+    internal void AttachPlayer(MediaPlayer player)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+        lock (_playbackOwnersGate)
+        {
+            for (int index = _playbackOwners.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                PlaybackOwnerEntry entry =
+                    _playbackOwners[index];
+                if (!entry.Player.TryGetTarget(
+                        out MediaPlayer? existing))
+                {
+                    _playbackOwners.RemoveAt(index);
+                }
+                else if (ReferenceEquals(existing, player))
+                {
+                    entry.IsPlaybackActive = false;
+                    return;
+                }
+            }
+
+            _playbackOwners.Add(
+                new PlaybackOwnerEntry(player));
+        }
+    }
+
+    internal void DetachPlayer(MediaPlayer player)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+        lock (_playbackOwnersGate)
+        {
+            for (int index = _playbackOwners.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                if (!_playbackOwners[index].Player.TryGetTarget(
+                        out MediaPlayer? existing) ||
+                    ReferenceEquals(existing, player))
+                {
+                    _playbackOwners.RemoveAt(index);
+                }
+            }
+        }
+    }
+
+    internal void SetPlayerPlaybackActive(
+        MediaPlayer player,
+        bool isActive)
+    {
+        lock (_playbackOwnersGate)
+        {
+            for (int index = _playbackOwners.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                PlaybackOwnerEntry entry =
+                    _playbackOwners[index];
+                if (!entry.Player.TryGetTarget(
+                        out MediaPlayer? existing))
+                {
+                    _playbackOwners.RemoveAt(index);
+                }
+                else if (ReferenceEquals(existing, player))
+                {
+                    entry.IsPlaybackActive = isActive;
+                    return;
+                }
+            }
+        }
+    }
 
     internal void RaiseItemOpened()
     {
@@ -381,12 +503,28 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     }
 
     private bool MoveNextCore(
-        MediaPlaybackItemChangedReason reason)
+        MediaPlaybackItemChangedReason reason,
+        bool enforceCanSkip)
     {
+        if (!TryResolveNextIndex(out int targetIndex))
+        {
+            return false;
+        }
+        if (enforceCanSkip)
+        {
+            EnsureCanChangeCurrentItem(targetIndex);
+        }
+        return SetCurrentIndex(targetIndex, reason);
+    }
+
+    private bool TryResolveNextIndex(out int targetIndex)
+    {
+        targetIndex = -1;
         if (_items.Count == 0)
         {
             return false;
         }
+
         IReadOnlyList<MediaPlaybackItem> order =
             GetPlaybackOrder();
         int orderIndex = IndexOf(order, CurrentItem);
@@ -399,9 +537,48 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
             }
             next = 0;
         }
-        return SetCurrentIndex(
-            FindEnabled(order, next, forward: true),
-            reason);
+        targetIndex =
+            FindEnabled(order, next, forward: true);
+        return targetIndex >= 0;
+    }
+
+    private void EnsureCanChangeCurrentItem(int targetIndex)
+    {
+        if (!CanChangeCurrentItem(targetIndex))
+        {
+            throw new InvalidOperationException(
+                "The current MediaPlaybackItem cannot be skipped while it is playing.");
+        }
+    }
+
+    private bool CanChangeCurrentItem(int targetIndex) =>
+        targetIndex < 0 ||
+        targetIndex == _currentIndex ||
+        CurrentItem?.CanSkip != false ||
+        !HasActivePlaybackOwner();
+
+    private bool HasActivePlaybackOwner()
+    {
+        lock (_playbackOwnersGate)
+        {
+            bool isActive = false;
+            for (int index = _playbackOwners.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                PlaybackOwnerEntry entry =
+                    _playbackOwners[index];
+                if (!entry.Player.TryGetTarget(out _))
+                {
+                    _playbackOwners.RemoveAt(index);
+                }
+                else
+                {
+                    isActive |= entry.IsPlaybackActive;
+                }
+            }
+            return isActive;
+        }
     }
 
     private int FindEnabled(
@@ -471,5 +648,16 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
                 reason));
         SourceInvalidated?.Invoke(this, EventArgs.Empty);
         return newItem is not null;
+    }
+
+    private sealed class PlaybackOwnerEntry
+    {
+        public PlaybackOwnerEntry(MediaPlayer player)
+        {
+            Player = new WeakReference<MediaPlayer>(player);
+        }
+
+        public WeakReference<MediaPlayer> Player { get; }
+        public bool IsPlaybackActive { get; set; }
     }
 }

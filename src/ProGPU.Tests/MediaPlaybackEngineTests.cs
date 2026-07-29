@@ -1339,7 +1339,10 @@ public sealed class MediaPlaybackEngineTests
         var first = new MediaPlaybackItem(
             firstSource,
             TimeSpan.FromSeconds(30),
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(5))
+        {
+            CanSkip = false
+        };
         var second = new MediaPlaybackItem(
             secondSource,
             TimeSpan.FromSeconds(60),
@@ -1438,6 +1441,107 @@ public sealed class MediaPlaybackEngineTests
         list.AutoRepeatEnabled = true;
 
         Assert.Same(first, list.MoveNext());
+    }
+
+    [Fact]
+    public void WinUiPlaybackListCanSkipBlocksOnlyManualActiveNavigation()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/unskippable.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/skippable.mp4"));
+        var first = new MediaPlaybackItem(firstSource)
+        {
+            CanSkip = false
+        };
+        var second = new MediaPlaybackItem(secondSource);
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+        player.Source = list;
+
+        Assert.True(player.CommandManager.NextBehavior.IsEnabled);
+        player.Play();
+
+        Assert.Equal(
+            MediaPlaybackState.Playing,
+            player.PlaybackSession.PlaybackState);
+        Assert.False(player.CommandManager.NextBehavior.IsEnabled);
+        Assert.False(
+            player.TryDispatchProGpuCommand(
+                new ProGpuMediaPlaybackCommand(
+                    ProGpuMediaPlaybackCommandKind.Next)));
+        Assert.Throws<InvalidOperationException>(
+            () => list.MoveNext());
+        Assert.Throws<InvalidOperationException>(
+            () => list.MoveTo(1));
+        Assert.Throws<InvalidOperationException>(
+            () => list.StartingItem = second);
+        Assert.Null(list.StartingItem);
+        Assert.Same(first, list.MoveTo(0));
+        Assert.Same(first, list.CurrentItem);
+
+        player.Pause();
+
+        Assert.True(player.CommandManager.NextBehavior.IsEnabled);
+        Assert.True(
+            player.TryDispatchProGpuCommand(
+                new ProGpuMediaPlaybackCommand(
+                    ProGpuMediaPlaybackCommandKind.Next)));
+        Assert.Same(second, list.CurrentItem);
+    }
+
+    [Fact]
+    public void SharedPlaybackListTracksEveryAttachedPlayerIndependently()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var firstPlayer = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using var secondPlayer = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/shared-first.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri("https://example.invalid/shared-second.mp4"));
+        var first = new MediaPlaybackItem(firstSource)
+        {
+            CanSkip = false
+        };
+        var second = new MediaPlaybackItem(secondSource);
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+        firstPlayer.Source = list;
+        secondPlayer.Source = list;
+
+        firstPlayer.Play();
+        secondPlayer.Play();
+
+        Assert.Throws<InvalidOperationException>(
+            () => list.MoveNext());
+
+        firstPlayer.Source = null;
+
+        Assert.Throws<InvalidOperationException>(
+            () => list.MoveNext());
+
+        secondPlayer.Pause();
+
+        Assert.Same(second, list.MoveNext());
     }
 
     [Fact]

@@ -511,9 +511,17 @@ public sealed class MediaPlayer : IDisposable
                 _typedSource.SourceInvalidated -=
                     OnSourceInvalidated;
             }
+            if (_source is MediaPlaybackList previousList)
+            {
+                previousList.DetachPlayer(this);
+            }
 
             _source = value;
             _typedSource = value as IProGpuMediaPlaybackSource;
+            if (_source is MediaPlaybackList currentList)
+            {
+                currentList.AttachPlayer(this);
+            }
             if (_typedSource is not null)
             {
                 _typedSource.SourceInvalidated +=
@@ -847,11 +855,16 @@ public sealed class MediaPlayer : IDisposable
             MediaPlaybackState previousState =
                 PlaybackSession.PlaybackState;
             PlaybackSession.AcceptChange(args);
-            CommandManager.Refresh();
             if ((args.Change & MediaPlaybackChange.State) != 0)
             {
                 MediaPlaybackState currentState =
                     PlaybackSession.PlaybackState;
+                (_source as MediaPlaybackList)?
+                    .SetPlayerPlaybackActive(
+                        this,
+                        currentState is
+                            MediaPlaybackState.Playing or
+                            MediaPlaybackState.Buffering);
                 CurrentStateChanged?.Invoke(
                     this,
                     EventArgs.Empty);
@@ -874,6 +887,7 @@ public sealed class MediaPlayer : IDisposable
                         EventArgs.Empty);
                 }
             }
+            CommandManager.Refresh();
             if ((args.Change &
                  MediaPlaybackChange.PlaybackRate) != 0)
             {
@@ -1065,6 +1079,10 @@ public sealed class MediaPlayer : IDisposable
         {
             _typedSource.SourceInvalidated -=
                 OnSourceInvalidated;
+        }
+        if (_source is MediaPlaybackList list)
+        {
+            list.DetachPlayer(this);
         }
         _engine.Changed -= OnEngineChanged;
         _engine.Opened -= OnEngineOpened;
