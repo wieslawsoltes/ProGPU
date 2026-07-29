@@ -28,6 +28,8 @@ public static class NonLinearVideoEditorPage
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
     private const string AudioGainEffectId =
         "ProGPU.Sample.Editing.AudioGain";
+    private const string AudioBalanceEffectId =
+        "ProGPU.Sample.Editing.AudioBalance";
     private const string VideoColorEffectId =
         "ProGPU.Sample.Editing.VideoColor";
     private const string VideoBlurEffectId =
@@ -39,6 +41,13 @@ public static class NonLinearVideoEditorPage
                     MediaEffectRegistry.Default.Register(
                         new MediaAudioGainEffectFactory(
                             AudioGainEffectId)));
+    private static readonly Lazy<IDisposable>
+        s_audioBalanceRegistration =
+            new(
+                static () =>
+                    MediaEffectRegistry.Default.Register(
+                        new MediaAudioStereoBalanceEffectFactory(
+                            AudioBalanceEffectId)));
     private static readonly Lazy<IDisposable>
         s_videoColorRegistration =
             new(
@@ -75,6 +84,7 @@ public static class NonLinearVideoEditorPage
     public static FrameworkElement Create()
     {
         _ = s_audioGainRegistration.Value;
+        _ = s_audioBalanceRegistration.Value;
         _ = s_videoColorRegistration.Value;
         _ = s_videoBlurRegistration.Value;
         var colorPreview = new Border
@@ -198,6 +208,13 @@ public static class NonLinearVideoEditorPage
             Value = 1d,
             Width = 280f
         };
+        var clipAudioBalance = new Slider
+        {
+            Minimum = -1d,
+            Maximum = 1d,
+            Value = 0d,
+            Width = 280f
+        };
         var backgroundDelay = new Slider
         {
             Minimum = -30d,
@@ -217,6 +234,13 @@ public static class NonLinearVideoEditorPage
             Minimum = 0d,
             Maximum = 2d,
             Value = 1d,
+            Width = 280f
+        };
+        var backgroundAudioBalance = new Slider
+        {
+            Minimum = -1d,
+            Maximum = 1d,
+            Value = 0d,
             Width = 280f
         };
         var overlayDelay = new Slider
@@ -297,9 +321,11 @@ public static class NonLinearVideoEditorPage
             blur,
             volume,
             clipAudioGain,
+            clipAudioBalance,
             backgroundDelay,
             backgroundVolume,
             backgroundAudioGain,
+            backgroundAudioBalance,
             overlayDelay,
             overlayX,
             overlayY,
@@ -635,6 +661,9 @@ public static class NonLinearVideoEditorPage
         inspector.AddChild(Text(
             "Clip audio effect gain (0–2×; exported through the typed native effect graph)"));
         inspector.AddChild(clipAudioGain);
+        inspector.AddChild(Text(
+            "Clip audio balance (-1 left, 0 center, +1 right)"));
+        inspector.AddChild(clipAudioBalance);
         inspector.AddChild(Header("Selected background audio"));
         inspector.AddChild(Text(
             "Delay (seconds; negative advances the source)"));
@@ -644,6 +673,9 @@ public static class NonLinearVideoEditorPage
         inspector.AddChild(Text(
             "Background audio effect gain (0–2×)"));
         inspector.AddChild(backgroundAudioGain);
+        inspector.AddChild(Text(
+            "Background audio balance (-1 left, 0 center, +1 right)"));
+        inspector.AddChild(backgroundAudioBalance);
         inspector.AddChild(Header("Selected overlay"));
         inspector.AddChild(Text("Overlay delay (seconds)"));
         inspector.AddChild(overlayDelay);
@@ -780,9 +812,11 @@ public static class NonLinearVideoEditorPage
         private readonly Slider _blur;
         private readonly Slider _volume;
         private readonly Slider _clipAudioGain;
+        private readonly Slider _clipAudioBalance;
         private readonly Slider _backgroundDelay;
         private readonly Slider _backgroundVolume;
         private readonly Slider _backgroundAudioGain;
+        private readonly Slider _backgroundAudioBalance;
         private readonly Slider _overlayDelay;
         private readonly Slider _overlayX;
         private readonly Slider _overlayY;
@@ -831,9 +865,11 @@ public static class NonLinearVideoEditorPage
             Slider blur,
             Slider volume,
             Slider clipAudioGain,
+            Slider clipAudioBalance,
             Slider backgroundDelay,
             Slider backgroundVolume,
             Slider backgroundAudioGain,
+            Slider backgroundAudioBalance,
             Slider overlayDelay,
             Slider overlayX,
             Slider overlayY,
@@ -865,10 +901,13 @@ public static class NonLinearVideoEditorPage
             _blur = blur;
             _volume = volume;
             _clipAudioGain = clipAudioGain;
+            _clipAudioBalance = clipAudioBalance;
             _backgroundDelay = backgroundDelay;
             _backgroundVolume = backgroundVolume;
             _backgroundAudioGain =
                 backgroundAudioGain;
+            _backgroundAudioBalance =
+                backgroundAudioBalance;
             _overlayDelay = overlayDelay;
             _overlayX = overlayX;
             _overlayY = overlayY;
@@ -895,12 +934,16 @@ public static class NonLinearVideoEditorPage
             _volume.ValueChanged += OnVolumeChanged;
             _clipAudioGain.ValueChanged +=
                 OnClipAudioGainChanged;
+            _clipAudioBalance.ValueChanged +=
+                OnClipAudioBalanceChanged;
             _backgroundDelay.ValueChanged +=
                 OnBackgroundSettingsChanged;
             _backgroundVolume.ValueChanged +=
                 OnBackgroundSettingsChanged;
             _backgroundAudioGain.ValueChanged +=
                 OnBackgroundAudioGainChanged;
+            _backgroundAudioBalance.ValueChanged +=
+                OnBackgroundAudioBalanceChanged;
             _overlayDelay.ValueChanged +=
                 OnOverlaySettingsChanged;
             _overlayX.ValueChanged +=
@@ -1589,12 +1632,16 @@ public static class NonLinearVideoEditorPage
                 _backgroundAudioGain.Value =
                     AudioGainOf(
                         track.AudioEffectDefinitions);
+                _backgroundAudioBalance.Value =
+                    AudioBalanceOf(
+                        track.AudioEffectDefinitions);
             }
             else
             {
                 _backgroundDelay.Value = 0d;
                 _backgroundVolume.Value = 1d;
                 _backgroundAudioGain.Value = 1d;
+                _backgroundAudioBalance.Value = 0d;
             }
             _updatingControls = false;
         }
@@ -1717,6 +1764,9 @@ public static class NonLinearVideoEditorPage
                     clip.Volume;
                 _clipAudioGain.Value =
                     AudioGainOf(
+                        clip.AudioEffectDefinitions);
+                _clipAudioBalance.Value =
+                    AudioBalanceOf(
                         clip.AudioEffectDefinitions);
             }
             _updatingControls = false;
@@ -1841,7 +1891,7 @@ public static class NonLinearVideoEditorPage
             if (_disposed ||
                 !_pendingPlay ||
                 Selected is not
-                    { ProGpuColor: not null } clip)
+                { ProGpuColor: not null } clip)
             {
                 return;
             }
@@ -2092,6 +2142,26 @@ public static class NonLinearVideoEditorPage
                 $"{_clipAudioGain.Value:0.00}×.");
         }
 
+        private void OnClipAudioBalanceChanged(
+            object? sender,
+            EventArgs args)
+        {
+            MediaClip? clip = Selected;
+            if (_updatingControls || clip is null)
+            {
+                return;
+            }
+            SetAudioBalance(
+                clip.AudioEffectDefinitions,
+                _clipAudioBalance.Value);
+            ApplyAudioEffects(
+                _player,
+                clip.AudioEffectDefinitions);
+            SetStatus(
+                $"Clip audio balance set to " +
+                $"{_clipAudioBalance.Value:+0.00;-0.00;0.00}.");
+        }
+
         private void OnBackgroundSettingsChanged(
             object? sender,
             EventArgs args)
@@ -2144,6 +2214,32 @@ public static class NonLinearVideoEditorPage
             SetStatus(
                 $"Background audio gain set to " +
                 $"{_backgroundAudioGain.Value:0.00}×.");
+        }
+
+        private void OnBackgroundAudioBalanceChanged(
+            object? sender,
+            EventArgs args)
+        {
+            if (_updatingControls ||
+                _selectedBackgroundIndex < 0 ||
+                _selectedBackgroundIndex >=
+                    _backgroundAudioTracks.Count)
+            {
+                return;
+            }
+            BackgroundAudioTrack track =
+                _backgroundAudioTracks[
+                    _selectedBackgroundIndex];
+            SetAudioBalance(
+                track.AudioEffectDefinitions,
+                _backgroundAudioBalance.Value);
+            ApplyAudioEffects(
+                _backgroundPlayback[
+                    _selectedBackgroundIndex].Player,
+                track.AudioEffectDefinitions);
+            SetStatus(
+                $"Background audio balance set to " +
+                $"{_backgroundAudioBalance.Value:+0.00;-0.00;0.00}.");
         }
 
         private void OnOverlaySettingsChanged(
@@ -2685,6 +2781,42 @@ public static class NonLinearVideoEditorPage
             return 1d;
         }
 
+        private static double AudioBalanceOf(
+            IList<IAudioEffectDefinition> effects)
+        {
+            for (int index = 0;
+                 index < effects.Count;
+                 index++)
+            {
+                IAudioEffectDefinition effect =
+                    effects[index];
+                if (!string.Equals(
+                        effect.ActivatableClassId,
+                        AudioBalanceEffectId,
+                        StringComparison.Ordinal) ||
+                    !effect.Properties.TryGetValue(
+                        MediaAudioStereoBalanceEffectFactory
+                            .BalancePropertyName,
+                        out object? value))
+                {
+                    continue;
+                }
+                double balance = value switch
+                {
+                    float number => number,
+                    double number => number,
+                    decimal number => (double)number,
+                    int number => number,
+                    long number => number,
+                    _ => 0d
+                };
+                return double.IsFinite(balance)
+                    ? Math.Clamp(balance, -1d, 1d)
+                    : 0d;
+            }
+            return 0d;
+        }
+
         private static void SetAudioGain(
             IList<IAudioEffectDefinition> effects,
             double gain)
@@ -2728,6 +2860,51 @@ public static class NonLinearVideoEditorPage
             definition.Properties[
                 MediaAudioGainEffectFactory
                     .GainPropertyName] = gain;
+        }
+
+        private static void SetAudioBalance(
+            IList<IAudioEffectDefinition> effects,
+            double balance)
+        {
+            int existingIndex = -1;
+            for (int index = 0;
+                 index < effects.Count;
+                 index++)
+            {
+                if (string.Equals(
+                        effects[index].ActivatableClassId,
+                        AudioBalanceEffectId,
+                        StringComparison.Ordinal))
+                {
+                    existingIndex = index;
+                    break;
+                }
+            }
+
+            if (Math.Abs(balance) < 0.000_001d)
+            {
+                if (existingIndex >= 0)
+                {
+                    effects.RemoveAt(existingIndex);
+                }
+                return;
+            }
+
+            IAudioEffectDefinition definition;
+            if (existingIndex >= 0)
+            {
+                definition = effects[existingIndex];
+            }
+            else
+            {
+                definition = new AudioEffectDefinition(
+                    AudioBalanceEffectId,
+                    new PropertySet());
+                effects.Add(definition);
+            }
+            definition.Properties[
+                MediaAudioStereoBalanceEffectFactory
+                    .BalancePropertyName] = balance;
         }
 
         private static void ApplyAudioEffects(
@@ -3155,12 +3332,16 @@ public static class NonLinearVideoEditorPage
             _volume.ValueChanged -= OnVolumeChanged;
             _clipAudioGain.ValueChanged -=
                 OnClipAudioGainChanged;
+            _clipAudioBalance.ValueChanged -=
+                OnClipAudioBalanceChanged;
             _backgroundDelay.ValueChanged -=
                 OnBackgroundSettingsChanged;
             _backgroundVolume.ValueChanged -=
                 OnBackgroundSettingsChanged;
             _backgroundAudioGain.ValueChanged -=
                 OnBackgroundAudioGainChanged;
+            _backgroundAudioBalance.ValueChanged -=
+                OnBackgroundAudioBalanceChanged;
             _overlayDelay.ValueChanged -=
                 OnOverlaySettingsChanged;
             _overlayX.ValueChanged -=

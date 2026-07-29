@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using ProGPU.Media.Audio;
 
 namespace ProGPU.Windows.Media;
 
@@ -580,7 +581,26 @@ internal static unsafe partial class WindowsMediaNative
         nint sample,
         double gain)
     {
-        if (gain == 1d)
+        float value = checked((float)gain);
+        ApplyPcm16StereoLevels(
+            sample,
+            channelCount: 1,
+            new MediaAudioStereoLevels(
+                value,
+                value));
+    }
+
+    /// <summary>
+    /// Applies in-place PCM16 gain and stereo balance to every native buffer
+    /// in an audio sample. Channel phase is carried across buffer boundaries,
+    /// and no managed scratch storage is allocated.
+    /// </summary>
+    internal static void ApplyPcm16StereoLevels(
+        nint sample,
+        uint channelCount,
+        in MediaAudioStereoLevels levels)
+    {
+        if (levels == MediaAudioStereoLevels.Identity)
         {
             return;
         }
@@ -610,6 +630,7 @@ internal static unsafe partial class WindowsMediaNative
                 uint,
                 nint*,
                 int>)VTable(sample)[40];
+        int channelOffset = 0;
         for (uint index = 0;
              index < bufferCount;
              index++)
@@ -651,12 +672,14 @@ internal static unsafe partial class WindowsMediaNative
                     throw new InvalidDataException(
                         "A PCM16 media buffer has an odd byte length.");
                 }
-                WindowsPcm16GainProcessor.Apply(
+                WindowsPcm16GainProcessor.ApplyStereo(
                     new Span<short>(
                         bytes,
                         checked(
                             (int)(currentLength / 2))),
-                    gain);
+                    channelCount,
+                    levels,
+                    ref channelOffset);
             }
             finally
             {
@@ -674,6 +697,11 @@ internal static unsafe partial class WindowsMediaNative
                 }
                 Release(buffer);
             }
+        }
+        if (channelOffset != 0)
+        {
+            throw new InvalidDataException(
+                "A PCM16 media sample ended inside an interleaved audio frame.");
         }
     }
 

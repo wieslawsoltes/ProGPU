@@ -431,7 +431,15 @@ public sealed class SampleProjectSplitTests
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
+            "OnClipAudioBalanceChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "OnBackgroundAudioGainChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnBackgroundAudioBalanceChanged",
             editor,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -500,7 +508,15 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
-            "gain.gain.value = entry.volume",
+            "volumeNode.gain.value = entry.volume",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioContext.createStereoPanner()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "node.pan.value = parameter0",
             browserAsset,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -580,7 +596,19 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
-            "size: 832",
+            "size: 912",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const values = new Float32Array(228)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const uniformIndex = 36 + pair * 4",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "binding: 3",
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -628,7 +656,7 @@ public sealed class SampleProjectSplitTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryGetAudioEffectGain(",
+            "TryGetAudioEffectGraph(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -640,11 +668,23 @@ public sealed class SampleProjectSplitTests
             audioGraphResolver,
             StringComparison.Ordinal);
         Assert.Contains(
-            "track.Volume * effectGain",
+            "MediaAudioGraphEffectKind.StereoBalance",
+            audioGraphResolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryCaptureBuiltInGraph(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "clip.Volume * effectGain",
+            "WriteAudioGraph(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"audioGraph\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "track.Volume * effectGain",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

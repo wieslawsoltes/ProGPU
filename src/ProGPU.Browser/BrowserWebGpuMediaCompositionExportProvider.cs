@@ -109,8 +109,9 @@ public sealed partial class
             MediaCompositionExportAudioTrack track =
                 request.BackgroundAudioTracks[index];
             if (!IsBrowserMediaUri(track.SourceUri) ||
+                !double.IsFinite(track.Volume) ||
                 track.Volume is < 0d or > 1d ||
-                !TryGetAudioEffectGain(
+                !TryGetAudioEffectGraph(
                     track.AudioEffectDefinitions,
                     out _))
             {
@@ -233,8 +234,9 @@ public sealed partial class
     private bool IsSupportedClip(
         MediaCompositionExportClip clip)
     {
-        if (clip.Volume is < 0d or > 1d ||
-            !TryGetAudioEffectGain(
+        if (!double.IsFinite(clip.Volume) ||
+            clip.Volume is < 0d or > 1d ||
+            !TryGetAudioEffectGraph(
                 clip.AudioEffectDefinitions,
                 out _) ||
             !TryGetVideoEffectPlan(
@@ -397,9 +399,10 @@ public sealed partial class
             foreach (MediaCompositionExportAudioTrack track
                      in request.BackgroundAudioTracks)
             {
-                if (!TryGetAudioEffectGain(
+                if (!TryGetAudioEffectGraph(
                         track.AudioEffectDefinitions,
-                        out double effectGain))
+                        out MediaAudioGraphEffectState[]
+                            audioGraph))
                 {
                     json = string.Empty;
                     return false;
@@ -424,7 +427,10 @@ public sealed partial class
                     track.Delay);
                 writer.WriteNumber(
                     "volume",
-                    track.Volume * effectGain);
+                    track.Volume);
+                WriteAudioGraph(
+                    writer,
+                    audioGraph);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -480,9 +486,10 @@ public sealed partial class
         Utf8JsonWriter writer,
         MediaCompositionExportClip clip)
     {
-        if (!TryGetAudioEffectGain(
+        if (!TryGetAudioEffectGraph(
                 clip.AudioEffectDefinitions,
-                out double effectGain))
+                out MediaAudioGraphEffectState[]
+                    audioGraph))
         {
             return false;
         }
@@ -516,7 +523,10 @@ public sealed partial class
             clip.TrimTimeFromStart);
         writer.WriteNumber(
             "volume",
-            clip.Volume * effectGain);
+            clip.Volume);
+        WriteAudioGraph(
+            writer,
+            audioGraph);
         WriteTransformRow(
             writer,
             "redTransform",
@@ -550,15 +560,39 @@ public sealed partial class
         writer.WriteEndArray();
     }
 
-    private bool TryGetAudioEffectGain(
+    private bool TryGetAudioEffectGraph(
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
-        out double gain) =>
+        out MediaAudioGraphEffectState[] states) =>
         MediaAudioGraphEffectResolver
-            .TryCaptureCombinedGain(
+            .TryCaptureBuiltInGraph(
                 _effects,
                 definitions,
-                out gain);
+                out states);
+
+    private static void WriteAudioGraph(
+        Utf8JsonWriter writer,
+        IReadOnlyList<MediaAudioGraphEffectState>
+            states)
+    {
+        writer.WritePropertyName("audioGraph");
+        writer.WriteStartArray();
+        for (int index = 0;
+             index < states.Count;
+             index++)
+        {
+            MediaAudioGraphEffectState state =
+                states[index];
+            writer.WriteStartArray();
+            writer.WriteNumberValue((int)state.Kind);
+            writer.WriteNumberValue(state.Parameter0);
+            writer.WriteNumberValue(state.Parameter1);
+            writer.WriteNumberValue(state.Parameter2);
+            writer.WriteNumberValue(state.Parameter3);
+            writer.WriteEndArray();
+        }
+        writer.WriteEndArray();
+    }
 
     private static void WriteTime(
         Utf8JsonWriter writer,
@@ -644,7 +678,7 @@ public static partial class BrowserMediaExportCallbacks
             progress;
 
         public TaskCompletionSource<int> Completion
-            { get; } = new();
+        { get; } = new();
     }
 }
 
@@ -652,6 +686,8 @@ public static partial class BrowserMediaExportSmokeTest
 {
     private const string AudioGainEffectId =
         "ProGPU.Browser.Smoke.AudioGain";
+    private const string AudioBalanceEffectId =
+        "ProGPU.Browser.Smoke.AudioBalance";
     private const string GaussianBlurEffectId =
         "ProGPU.Browser.Smoke.GaussianBlur";
     private static readonly Lazy<IDisposable>
@@ -660,6 +696,12 @@ public static partial class BrowserMediaExportSmokeTest
                 MediaEffectRegistry.Default.Register(
                     new MediaAudioGainEffectFactory(
                         AudioGainEffectId)));
+    private static readonly Lazy<IDisposable>
+        s_audioBalanceRegistration = new(
+            static () =>
+                MediaEffectRegistry.Default.Register(
+                    new MediaAudioStereoBalanceEffectFactory(
+                        AudioBalanceEffectId)));
     private static readonly Lazy<IDisposable>
         s_gaussianBlurRegistration = new(
             static () =>
@@ -709,6 +751,7 @@ public static partial class BrowserMediaExportSmokeTest
         if (includeAudio)
         {
             _ = s_audioGainRegistration.Value;
+            _ = s_audioBalanceRegistration.Value;
             clip = clip with
             {
                 AudioEffectDefinitions =
@@ -719,6 +762,13 @@ public static partial class BrowserMediaExportSmokeTest
                         {
                             [MediaAudioGainEffectFactory
                                 .GainPropertyName] = 0.5f
+                        }),
+                    new MediaCompositionEffectDefinition(
+                        AudioBalanceEffectId,
+                        new Dictionary<string, object?>
+                        {
+                            [MediaAudioStereoBalanceEffectFactory
+                                .BalancePropertyName] = -0.25f
                         })
                 ]
             };

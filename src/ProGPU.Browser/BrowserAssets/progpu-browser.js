@@ -1011,7 +1011,10 @@ function createCompositionGaussianUniform(
     weights[index] = weight;
     total += 2 * weight;
   }
-  const values = new Float32Array(208);
+  // TextureGaussianBlur.wgsl owns a fixed 228-float layout:
+  // axis + RGB rows + planar-YUV metadata + 48 packed tap pairs.
+  // Browser composition uses the RGB lane, so the YUV fields remain zero.
+  const values = new Float32Array(228);
   values[0] = directionX;
   values[1] = directionY;
   values[2] = 1 / total;
@@ -1033,7 +1036,7 @@ function createCompositionGaussianUniform(
            second * secondWeight) /
           combined
         : first;
-    const uniformIndex = 16 + pair * 4;
+    const uniformIndex = 36 + pair * 4;
     values[uniformIndex] = offset;
     values[uniformIndex + 1] = combined / total;
   }
@@ -1172,7 +1175,8 @@ function compositionTimelineEntry(
   duration,
   trimStart,
   volume,
-  audioEnabled = true) {
+  audioEnabled = true,
+  audioGraph = []) {
   return {
     visual,
     element: visual?.element || null,
@@ -1181,8 +1185,12 @@ function compositionTimelineEntry(
     trimStart,
     volume,
     audioEnabled,
+    audioGraph:
+      Array.isArray(audioGraph)
+        ? audioGraph
+        : [],
     active: false,
-    gain: null
+    audioNodes: null
   };
 }
 
@@ -1504,14 +1512,14 @@ async function renderBrowserMediaComposition(
           });
         visual.blurHorizontalUniform =
           exportDevice.createBuffer({
-            size: 832,
+            size: 912,
             usage:
               GPUBufferUsage.UNIFORM |
               GPUBufferUsage.COPY_DST
           });
         visual.blurVerticalUniform =
           exportDevice.createBuffer({
-            size: 832,
+            size: 912,
             usage:
               GPUBufferUsage.UNIFORM |
               GPUBufferUsage.COPY_DST
@@ -1549,6 +1557,11 @@ async function renderBrowserMediaComposition(
               },
               {
                 binding: 2,
+                resource:
+                  visual.texture.createView()
+              },
+              {
+                binding: 3,
                 resource: {
                   buffer:
                     visual.blurHorizontalUniform
@@ -1569,6 +1582,12 @@ async function renderBrowserMediaComposition(
               },
               {
                 binding: 2,
+                resource:
+                  visual.blurIntermediate
+                    .createView()
+              },
+              {
+                binding: 3,
                 resource: {
                   buffer:
                     visual.blurVerticalUniform
@@ -1613,7 +1632,9 @@ async function renderBrowserMediaComposition(
           totalDuration,
           duration,
           Math.max(0, Number(clip.trimStart) || 0),
-          Math.max(0, Number(clip.volume) || 0)));
+          Math.max(0, Number(clip.volume) || 0),
+          true,
+          clip.audioGraph));
       totalDuration += duration;
     }
     phase('media');
@@ -1639,7 +1660,8 @@ async function renderBrowserMediaComposition(
             Math.max(0, Number(clip.duration) || 0),
             Math.max(0, Number(clip.trimStart) || 0),
             Math.max(0, Number(clip.volume) || 0),
-            Boolean(overlay.audioEnabled)));
+            Boolean(overlay.audioEnabled),
+            clip.audioGraph));
       }
     }
 
@@ -1669,7 +1691,11 @@ async function renderBrowserMediaComposition(
           Math.max(0, Number(track.volume) || 0),
         audioEnabled: true,
         active: false,
-        gain: null
+        audioGraph:
+          Array.isArray(track.audioGraph)
+            ? track.audioGraph
+            : [],
+        audioNodes: null
       });
     }
     const allEntries = [
@@ -1692,11 +1718,39 @@ async function renderBrowserMediaComposition(
         const source =
           audioContext.createMediaElementSource(
             entry.element);
-        const gain = audioContext.createGain();
-        gain.gain.value = entry.volume;
-        source.connect(gain);
-        gain.connect(audioDestination);
-        entry.gain = gain;
+        const audioNodes = [];
+        const volumeNode = audioContext.createGain();
+        volumeNode.gain.value = entry.volume;
+        source.connect(volumeNode);
+        audioNodes.push(volumeNode);
+        let tail = volumeNode;
+        for (const state of entry.audioGraph) {
+          const kind = Number(state?.[0]);
+          const parameter0 = Number(state?.[1]);
+          let node = null;
+          if (kind === 1) {
+            node = audioContext.createGain();
+            node.gain.value = parameter0;
+          } else if (kind === 2) {
+            if (typeof audioContext.createStereoPanner !==
+                'function') {
+              throw new DOMException(
+                'StereoPannerNode is unavailable.',
+                'NotSupportedError');
+            }
+            node = audioContext.createStereoPanner();
+            node.pan.value = parameter0;
+          } else {
+            throw new DOMException(
+              'The browser media audio graph contains an unsupported node.',
+              'NotSupportedError');
+          }
+          tail.connect(node);
+          audioNodes.push(node);
+          tail = node;
+        }
+        tail.connect(audioDestination);
+        entry.audioNodes = audioNodes;
       }
       await audioContext.resume();
     } else {

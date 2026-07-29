@@ -816,7 +816,7 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
-    public void AudioGraphResolverCombinesSerializedGainDefinitions()
+    public void AudioGraphResolverCapturesGainAndStereoDefinitions()
     {
         const string gainId =
             "ProGPU.Tests.CompositionAudioGain";
@@ -867,16 +867,60 @@ public sealed class MediaPlaybackEngineTests
             registry.Register(
                 new MediaAudioStereoBalanceEffectFactory(
                     balanceId));
+        MediaCompositionEffectDefinition balanceDefinition =
+            new(
+                balanceId,
+                new Dictionary<string, object?>
+                {
+                    [MediaAudioStereoBalanceEffectFactory
+                        .BalancePropertyName] = -0.25f
+                });
         Assert.False(
             MediaAudioGraphEffectResolver
                 .TryCaptureCombinedGain(
                     registry,
-                    [
-                        new MediaCompositionEffectDefinition(
-                            balanceId,
-                            new Dictionary<string, object?>())
-                    ],
+                    [balanceDefinition],
                     out _));
+        Assert.True(
+            MediaAudioGraphEffectResolver
+                .TryCaptureCombinedStereoLevels(
+                    registry,
+                    [
+                        definitions[0],
+                        balanceDefinition,
+                        definitions[1]
+                    ],
+                    out MediaAudioStereoLevels
+                        levels));
+        Assert.Equal(0.125f, levels.Left);
+        Assert.Equal(0.09375f, levels.Right);
+
+        Assert.True(
+            MediaAudioGraphEffectResolver
+                .TryCaptureBuiltInGraph(
+                    registry,
+                    [
+                        definitions[0],
+                        balanceDefinition
+                    ],
+                    out MediaAudioGraphEffectState[]
+                        states));
+        Assert.Collection(
+            states,
+            state =>
+            {
+                Assert.Equal(
+                    MediaAudioGraphEffectKind.Gain,
+                    state.Kind);
+                Assert.Equal(0.5f, state.Parameter0);
+            },
+            state =>
+            {
+                Assert.Equal(
+                    MediaAudioGraphEffectKind.StereoBalance,
+                    state.Kind);
+                Assert.Equal(-0.25f, state.Parameter0);
+            });
     }
 
     [Fact]

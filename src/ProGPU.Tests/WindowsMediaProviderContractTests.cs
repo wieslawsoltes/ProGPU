@@ -200,6 +200,12 @@ public sealed class WindowsMediaProviderContractTests
             registry.Register(
                 new MediaAudioGainEffectFactory(
                     gainId));
+        const string balanceId =
+            "ProGPU.Tests.Windows.ExportBalance";
+        using IDisposable balanceRegistration =
+            registry.Register(
+                new MediaAudioStereoBalanceEffectFactory(
+                    balanceId));
         MediaCompositionExportRequest request =
             CreatePreciseRequest();
         MediaCompositionExportClip clip =
@@ -211,6 +217,14 @@ public sealed class WindowsMediaProviderContractTests
                 {
                     [MediaAudioGainEffectFactory
                         .GainPropertyName] = 0.5d
+                });
+        MediaCompositionEffectDefinition balanceDefinition =
+            new(
+                balanceId,
+                new Dictionary<string, object?>
+                {
+                    [MediaAudioStereoBalanceEffectFactory
+                        .BalancePropertyName] = -0.75d
                 });
 
         Assert.True(
@@ -225,6 +239,26 @@ public sealed class WindowsMediaProviderContractTests
                                 Volume = 0.8d,
                                 AudioEffectDefinitions =
                                     [definition]
+                            }
+                        ]
+                    },
+                    isWindows: true,
+                    effects: registry));
+        Assert.True(
+            WindowsMediaFoundationCompositionExportProvider
+                .IsRequestSupported(
+                    request with
+                    {
+                        Clips =
+                        [
+                            clip with
+                            {
+                                Volume = 0.8d,
+                                AudioEffectDefinitions =
+                                [
+                                    definition,
+                                    balanceDefinition
+                                ]
                             }
                         ]
                     },
@@ -770,6 +804,77 @@ public sealed class WindowsMediaProviderContractTests
         Assert.Equal(before, after);
     }
 
+    [Fact]
+    public void WindowsPcmStereoLevelsPreserveInterleavingAcrossBuffers()
+    {
+        short[] samples =
+        [
+            1_000,
+            1_000,
+            -2_000,
+            -2_000,
+            4_000,
+            4_000
+        ];
+        var levels =
+            new MediaAudioStereoLevels(
+                2f,
+                0.5f);
+        int channelOffset = 0;
+        WindowsPcm16GainProcessor.ApplyStereo(
+            samples.AsSpan(0, 3),
+            channelCount: 2,
+            levels,
+            ref channelOffset);
+        Assert.Equal(1, channelOffset);
+        WindowsPcm16GainProcessor.ApplyStereo(
+            samples.AsSpan(3),
+            channelCount: 2,
+            levels,
+            ref channelOffset);
+
+        Assert.Equal(0, channelOffset);
+        Assert.Equal(
+            [
+                2_000,
+                500,
+                -4_000,
+                -1_000,
+                8_000,
+                2_000
+            ],
+            samples);
+
+        short[] mono = [1_000, -1_000];
+        var monoLevels =
+            new MediaAudioStereoLevels(
+                0.5f,
+                0.25f);
+        WindowsPcm16GainProcessor.ApplyStereo(
+            mono,
+            channelCount: 1,
+            monoLevels,
+            ref channelOffset);
+        Assert.Equal([500, -500], mono);
+
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0;
+             iteration < 1_000;
+             iteration++)
+        {
+            WindowsPcm16GainProcessor.ApplyStereo(
+                samples,
+                channelCount: 2,
+                MediaAudioStereoLevels.Identity,
+                ref channelOffset);
+        }
+        long after =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(before, after);
+    }
+
     [Theory]
     [InlineData(-0.01d)]
     [InlineData(2.01d)]
@@ -875,15 +980,15 @@ public sealed class WindowsMediaProviderContractTests
             registration,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryCaptureAudioGains(",
+            "TryCaptureAudioLevels(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "audioGains[index]",
+            "audioLevels[index]",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ApplyPcm16Gain(",
+            "ApplyPcm16StereoLevels(",
             provider,
             StringComparison.Ordinal);
     }
