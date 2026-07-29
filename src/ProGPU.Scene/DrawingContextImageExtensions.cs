@@ -55,9 +55,9 @@ namespace ProGPU.Scene
         }
 
         /// <summary>
-        /// Records one fused WebGPU pass that samples separate luma and
-        /// interleaved chroma planes, converts them to RGB, and applies the
-        /// ordinary image-effect chain without an intermediate texture.
+        /// Records separate luma and interleaved chroma planes for the shared
+        /// image-effect graph. Color-only work stays fused; supported Gaussian
+        /// work decodes YUV into its retained horizontal-pass intermediate.
         /// </summary>
         public static void DrawPlanarImageWithEffect(
             this DrawingContext context,

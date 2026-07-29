@@ -353,7 +353,7 @@ public static class MediaPlayerPage
         };
         effects.AddChild(Header("GPU post processing"));
         effects.AddChild(Text(
-            "The preview samples the decoded GPU texture directly. Effects are fused in one WebGPU pass."));
+            "The preview samples decoded GPU textures directly. Color effects stay fused; Gaussian blur uses a retained two-axis WebGPU graph."));
         AddEffect(effects, "Brightness", brightness);
         AddEffect(effects, "Contrast", contrast);
         AddEffect(effects, "Saturation", saturation);

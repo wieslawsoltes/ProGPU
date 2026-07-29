@@ -130,8 +130,8 @@ namespace ProGPU.Scene
         public ImageEffectSphericalProjection?
             SphericalProjection { get; }
 
-        internal ImageEffectCommandData WithBlurSigma(
-            float blurSigma)
+        internal ImageEffectCommandData
+            WithRgbSourceWithoutBlur()
         {
             return new ImageEffectCommandData(
                 Brightness,
@@ -140,13 +140,14 @@ namespace ProGPU.Scene
                 Grayscale,
                 Sepia,
                 Invert,
-                blurSigma,
+                0f,
                 MaskTexture,
                 ColorMatrix,
                 LuminanceToAlpha,
-                ChromaTexture,
-                YuvConversion,
-                SphericalProjection);
+                chromaTexture: null,
+                yuvConversion: null,
+                sphericalProjection:
+                    SphericalProjection);
         }
     }
 

@@ -1,9 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using Silk.NET.Core.Native;
 using Silk.NET.WebGPU;
 
 namespace ProGPU.Backend;
+
+/// <summary>
+/// Describes one normalized planar YUV-to-straight-RGB conversion for a GPU
+/// image-processing pass.
+/// </summary>
+public readonly record struct GpuPlanarYuvConversion(
+    Vector4 Range,
+    Vector4 Red,
+    Vector4 Green,
+    Vector4 Blue);
 
 /// <summary>
 /// Applies a normalized, clamp-to-edge separable Gaussian blur entirely on
@@ -24,7 +35,7 @@ public static unsafe class GpuTextureGaussianBlur
     private const int MaximumRadius = 96;
     private const int MaximumPairCount = 48;
     private const int UniformFloatCount =
-        4 + 12 + MaximumPairCount * 4;
+        4 + 12 + 20 + MaximumPairCount * 4;
     private const uint UniformByteSize =
         UniformFloatCount * sizeof(float);
 
@@ -71,11 +82,63 @@ public static unsafe class GpuTextureGaussianBlur
 
             BlurCore(
                 source,
+                source,
                 intermediate,
                 destinationView,
                 destinationFormat,
                 standardDeviation,
                 colorTransform,
+                decodePlanarYuv: false,
+                default,
+                clearColor);
+        }
+    }
+
+    /// <summary>
+    /// Decodes R8/RG8 planar YUV samples into straight RGB while evaluating
+    /// the horizontal Gaussian axis, then evaluates the vertical RGB axis.
+    /// Both axes use one command buffer and one queue submission.
+    /// </summary>
+    public static void BlurPlanar(
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture intermediate,
+        TextureView* destinationView,
+        TextureFormat destinationFormat,
+        float standardDeviation,
+        in GpuPlanarYuvConversion conversion,
+        in GpuTextureColorTransform colorTransform,
+        Color clearColor = default)
+    {
+        Validate(
+            sourceLuma,
+            intermediate,
+            destinationView,
+            standardDeviation);
+        ValidatePlanar(
+            sourceLuma,
+            sourceChroma,
+            intermediate);
+
+        WgpuContext context = sourceLuma.Context;
+        lock (context.RenderLock)
+        {
+            if (context.IsDisposed)
+            {
+                throw new ObjectDisposedException(
+                    nameof(WgpuContext));
+            }
+
+            BlurCore(
+                sourceLuma,
+                sourceChroma,
+                intermediate,
+                destinationView,
+                destinationFormat,
+                standardDeviation,
+                colorTransform,
+                decodePlanarYuv: true,
+                conversion,
                 clearColor);
         }
     }
@@ -162,13 +225,54 @@ public static unsafe class GpuTextureGaussianBlur
         }
     }
 
+    private static void ValidatePlanar(
+        GpuTexture sourceLuma,
+        GpuTexture sourceChroma,
+        GpuTexture intermediate)
+    {
+        ArgumentNullException.ThrowIfNull(sourceChroma);
+        ObjectDisposedException.ThrowIf(
+            sourceChroma.IsDisposed,
+            sourceChroma);
+        if (!ReferenceEquals(
+                sourceLuma.Context,
+                sourceChroma.Context))
+        {
+            throw new ArgumentException(
+                "Planar Gaussian textures must belong to the same WebGPU device.",
+                nameof(sourceChroma));
+        }
+        if (sourceLuma.Format !=
+                TextureFormat.R8Unorm ||
+            sourceChroma.Format !=
+                TextureFormat.RG8Unorm ||
+            sourceChroma.Width !=
+                (sourceLuma.Width + 1) / 2 ||
+            sourceChroma.Height !=
+                (sourceLuma.Height + 1) / 2 ||
+            intermediate.Format is not
+                (TextureFormat.Rgba8Unorm or
+                 TextureFormat.Rgba16float))
+        {
+            throw new NotSupportedException(
+                "Planar Gaussian blur requires an R8 luma plane, half-size RG8 chroma plane, and RGBA8 or RGBA16F intermediate.");
+        }
+        ValidateTexture(
+            sourceChroma,
+            TextureUsage.TextureBinding,
+            nameof(sourceChroma));
+    }
+
     private static void BlurCore(
         GpuTexture source,
+        GpuTexture chroma,
         GpuTexture intermediate,
         TextureView* destinationView,
         TextureFormat destinationFormat,
         float standardDeviation,
         in GpuTextureColorTransform colorTransform,
+        bool decodePlanarYuv,
+        in GpuPlanarYuvConversion yuvConversion,
         Color clearColor)
     {
         WgpuContext context = source.Context;
@@ -201,6 +305,8 @@ public static unsafe class GpuTextureGaussianBlur
             centerWeight,
             pairCount,
             GpuTextureColorTransform.Identity,
+            decodePlanarYuv,
+            yuvConversion,
             weights,
             radius);
         BuildUniform(
@@ -210,6 +316,8 @@ public static unsafe class GpuTextureGaussianBlur
             centerWeight,
             pairCount,
             colorTransform,
+            decodePlanarYuv: false,
+            default,
             weights,
             radius);
         cache.HorizontalUniform.Write<float>(
@@ -229,10 +337,12 @@ public static unsafe class GpuTextureGaussianBlur
                 context,
                 horizontalResources,
                 source.ViewPtr,
+                chroma.ViewPtr,
                 cache.HorizontalUniform);
             verticalBindGroup = CreateBindGroup(
                 context,
                 verticalResources,
+                intermediate.ViewPtr,
                 intermediate.ViewPtr,
                 cache.VerticalUniform);
 
@@ -361,6 +471,8 @@ public static unsafe class GpuTextureGaussianBlur
         float centerWeight,
         int pairCount,
         in GpuTextureColorTransform colorTransform,
+        bool decodePlanarYuv,
+        in GpuPlanarYuvConversion yuvConversion,
         ReadOnlySpan<float> weights,
         int radius)
     {
@@ -372,6 +484,11 @@ public static unsafe class GpuTextureGaussianBlur
         WriteRow(destination, 4, colorTransform.Red);
         WriteRow(destination, 8, colorTransform.Green);
         WriteRow(destination, 12, colorTransform.Blue);
+        destination[16] = decodePlanarYuv ? 1f : 0f;
+        WriteRow(destination, 20, yuvConversion.Range);
+        WriteRow(destination, 24, yuvConversion.Red);
+        WriteRow(destination, 28, yuvConversion.Green);
+        WriteRow(destination, 32, yuvConversion.Blue);
 
         for (int pair = 0;
              pair < pairCount;
@@ -391,7 +508,7 @@ public static unsafe class GpuTextureGaussianBlur
                    secondIndex * secondWeight) /
                   combinedWeight
                 : firstIndex;
-            int uniformIndex = 16 + pair * 4;
+            int uniformIndex = 36 + pair * 4;
             destination[uniformIndex] = offset;
             destination[uniformIndex + 1] =
                 combinedWeight;
@@ -413,9 +530,10 @@ public static unsafe class GpuTextureGaussianBlur
         WgpuContext context,
         Resources resources,
         TextureView* sourceView,
+        TextureView* chromaView,
         GpuBuffer uniform)
     {
-        var entries = stackalloc BindGroupEntry[3];
+        var entries = stackalloc BindGroupEntry[4];
         entries[0] = new BindGroupEntry
         {
             Binding = 0,
@@ -429,6 +547,11 @@ public static unsafe class GpuTextureGaussianBlur
         entries[2] = new BindGroupEntry
         {
             Binding = 2,
+            TextureView = chromaView
+        };
+        entries[3] = new BindGroupEntry
+        {
+            Binding = 3,
             Buffer = uniform.BufferPtr,
             Offset = 0,
             Size = UniformByteSize
@@ -436,7 +559,7 @@ public static unsafe class GpuTextureGaussianBlur
         var descriptor = new BindGroupDescriptor
         {
             Layout = resources.BindGroupLayout,
-            EntryCount = 3,
+            EntryCount = 4,
             Entries = entries
         };
         BindGroup* bindGroup =
@@ -776,7 +899,7 @@ public static unsafe class GpuTextureGaussianBlur
             WgpuContext context)
     {
         var entries =
-            stackalloc BindGroupLayoutEntry[3];
+            stackalloc BindGroupLayoutEntry[4];
         entries[0] = new BindGroupLayoutEntry
         {
             Binding = 0,
@@ -803,6 +926,19 @@ public static unsafe class GpuTextureGaussianBlur
         {
             Binding = 2,
             Visibility = ShaderStage.Fragment,
+            Texture = new TextureBindingLayout
+            {
+                SampleType =
+                    TextureSampleType.Float,
+                ViewDimension =
+                    TextureViewDimension.Dimension2D,
+                Multisampled = false
+            }
+        };
+        entries[3] = new BindGroupLayoutEntry
+        {
+            Binding = 3,
+            Visibility = ShaderStage.Fragment,
             Buffer = new BufferBindingLayout
             {
                 Type = BufferBindingType.Uniform,
@@ -813,7 +949,7 @@ public static unsafe class GpuTextureGaussianBlur
         var descriptor =
             new BindGroupLayoutDescriptor
             {
-                EntryCount = 3,
+                EntryCount = 4,
                 Entries = entries
             };
         BindGroupLayout* layout =

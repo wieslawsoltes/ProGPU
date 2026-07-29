@@ -56,26 +56,35 @@ namespace ProGPU.Scene.Extensions
 
             public LiveBlurResources(
                 GpuTexture source,
+                bool isPlanar,
                 int resourceIndex)
             {
+                TextureFormat format = isPlanar
+                    ? TextureFormat.Rgba16float
+                    : source.Format;
+                GpuTextureAlphaMode alphaMode =
+                    isPlanar
+                        ? GpuTextureAlphaMode.Straight
+                        : source.AlphaMode;
+                IsPlanar = isPlanar;
                 Intermediate = new GpuTexture(
                     source.Context,
                     source.Width,
                     source.Height,
-                    source.Format,
+                    format,
                     Usage,
                     $"Live image blur intermediate {resourceIndex}",
-                    alphaMode: source.AlphaMode);
+                    alphaMode: alphaMode);
                 try
                 {
                     Output = new GpuTexture(
                         source.Context,
                         source.Width,
                         source.Height,
-                        source.Format,
+                        format,
                         Usage,
                         $"Live image blur output {resourceIndex}",
-                        alphaMode: source.AlphaMode);
+                        alphaMode: alphaMode);
                 }
                 catch
                 {
@@ -86,28 +95,44 @@ namespace ProGPU.Scene.Extensions
 
             public GpuTexture Intermediate { get; }
             public GpuTexture Output { get; }
+            public bool IsPlanar { get; }
             public ulong LastUsedFrame { get; set; }
             public ulong PreparedFrame { get; set; }
             public ulong PreparedSourceId { get; set; }
             public uint PreparedSourceGeneration { get; set; }
+            public ulong PreparedChromaId { get; set; }
+            public uint PreparedChromaGeneration { get; set; }
+            public ImageEffectYuvConversion?
+                PreparedYuvConversion { get; set; }
             public int PreparedSigmaBits { get; set; }
 
-            public bool MatchesStorage(GpuTexture source)
+            public bool MatchesStorage(
+                GpuTexture source,
+                bool isPlanar)
             {
                 return
+                    IsPlanar == isPlanar &&
                     ReferenceEquals(
                         Intermediate.Context,
                         source.Context) &&
                     Intermediate.Width == source.Width &&
                     Intermediate.Height == source.Height &&
-                    Intermediate.Format == source.Format &&
-                    Intermediate.AlphaMode == source.AlphaMode &&
+                    Intermediate.Format ==
+                        (isPlanar
+                            ? TextureFormat.Rgba16float
+                            : source.Format) &&
+                    Intermediate.AlphaMode ==
+                        (isPlanar
+                            ? GpuTextureAlphaMode.Straight
+                            : source.AlphaMode) &&
                     !Intermediate.IsDisposed &&
                     !Output.IsDisposed;
             }
 
             public bool MatchesPrepared(
                 GpuTexture source,
+                GpuTexture? chroma,
+                ImageEffectYuvConversion? yuvConversion,
                 float standardDeviation,
                 ulong frame)
             {
@@ -115,9 +140,36 @@ namespace ProGPU.Scene.Extensions
                     PreparedSourceId == source.Id &&
                     PreparedSourceGeneration ==
                         source.Generation &&
+                    PreparedChromaId ==
+                        (chroma?.Id ?? 0) &&
+                    PreparedChromaGeneration ==
+                        (chroma?.Generation ?? 0) &&
+                    YuvConversionsEqual(
+                        PreparedYuvConversion,
+                        yuvConversion) &&
                     PreparedSigmaBits ==
                         BitConverter.SingleToInt32Bits(
                             standardDeviation);
+            }
+
+            private static bool YuvConversionsEqual(
+                ImageEffectYuvConversion? left,
+                ImageEffectYuvConversion? right)
+            {
+                if (!left.HasValue ||
+                    !right.HasValue)
+                {
+                    return left.HasValue ==
+                        right.HasValue;
+                }
+
+                return left.Value.Range ==
+                        right.Value.Range &&
+                    left.Value.Red == right.Value.Red &&
+                    left.Value.Green ==
+                        right.Value.Green &&
+                    left.Value.Blue ==
+                        right.Value.Blue;
             }
 
             public void Dispose()
@@ -449,13 +501,15 @@ namespace ProGPU.Scene.Extensions
             GpuTexture output = PrepareLiveBlur(
                 compositor,
                 source,
+                effect.ChromaTexture,
+                effect.YuvConversion,
                 effect.BlurSigma);
             preparedDrawCall.Texture = output;
             preparedDrawCall.TextureAlphaMode =
                 output.AlphaMode;
             preparedDrawCall.HasImageEffect = true;
             preparedDrawCall.ImageEffect =
-                effect.WithBlurSigma(0f);
+                effect.WithRgbSourceWithoutBlur();
             _preparedLiveBlurDrawCallCount++;
 
             if (legacyParameters?.LastError?.StartsWith(
@@ -471,6 +525,8 @@ namespace ProGPU.Scene.Extensions
         private GpuTexture PrepareLiveBlur(
             Compositor compositor,
             GpuTexture source,
+            GpuTexture? chroma,
+            ImageEffectYuvConversion? yuvConversion,
             float standardDeviation)
         {
             ulong frame = compositor.FrameNumber;
@@ -482,6 +538,8 @@ namespace ProGPU.Scene.Extensions
                     _liveBlurPool[index];
                 if (prepared.MatchesPrepared(
                         source,
+                        chroma,
+                        yuvConversion,
                         standardDeviation,
                         frame))
                 {
@@ -491,20 +549,52 @@ namespace ProGPU.Scene.Extensions
             }
 
             LiveBlurResources resources =
-                AcquireLiveBlurResources(source);
-            GpuTextureGaussianBlur.Blur(
-                source,
-                resources.Intermediate,
-                resources.Output.ViewPtr,
-                resources.Output.Format,
-                standardDeviation,
-                GpuTextureColorTransform.Identity);
+                AcquireLiveBlurResources(
+                    source,
+                    chroma is not null);
+            if (chroma is not null &&
+                yuvConversion.HasValue)
+            {
+                ImageEffectYuvConversion conversion =
+                    yuvConversion.Value;
+                var gpuConversion =
+                    new GpuPlanarYuvConversion(
+                        conversion.Range,
+                        conversion.Red,
+                        conversion.Green,
+                        conversion.Blue);
+                GpuTextureGaussianBlur.BlurPlanar(
+                    source,
+                    chroma,
+                    resources.Intermediate,
+                    resources.Output.ViewPtr,
+                    resources.Output.Format,
+                    standardDeviation,
+                    in gpuConversion,
+                    GpuTextureColorTransform.Identity);
+            }
+            else
+            {
+                GpuTextureGaussianBlur.Blur(
+                    source,
+                    resources.Intermediate,
+                    resources.Output.ViewPtr,
+                    resources.Output.Format,
+                    standardDeviation,
+                    GpuTextureColorTransform.Identity);
+            }
             resources.Output.MarkContentsDirty();
             resources.LastUsedFrame = frame;
             resources.PreparedFrame = frame;
             resources.PreparedSourceId = source.Id;
             resources.PreparedSourceGeneration =
                 source.Generation;
+            resources.PreparedChromaId =
+                chroma?.Id ?? 0;
+            resources.PreparedChromaGeneration =
+                chroma?.Generation ?? 0;
+            resources.PreparedYuvConversion =
+                yuvConversion;
             resources.PreparedSigmaBits =
                 BitConverter.SingleToInt32Bits(
                     standardDeviation);
@@ -513,7 +603,8 @@ namespace ProGPU.Scene.Extensions
         }
 
         private LiveBlurResources AcquireLiveBlurResources(
-            GpuTexture source)
+            GpuTexture source,
+            bool isPlanar)
         {
             for (int index = _usedLiveBlurCount;
                  index < _liveBlurPool.Count;
@@ -521,7 +612,9 @@ namespace ProGPU.Scene.Extensions
             {
                 LiveBlurResources candidate =
                     _liveBlurPool[index];
-                if (!candidate.MatchesStorage(source))
+                if (!candidate.MatchesStorage(
+                        source,
+                        isPlanar))
                 {
                     continue;
                 }
@@ -541,6 +634,7 @@ namespace ProGPU.Scene.Extensions
 
             var created = new LiveBlurResources(
                 source,
+                isPlanar,
                 _liveBlurPool.Count);
             _liveBlurPool.Add(created);
             int createdIndex = _liveBlurPool.Count - 1;
@@ -567,8 +661,6 @@ namespace ProGPU.Scene.Extensions
                 effect.BlurSigma >
                     GpuTextureGaussianBlur
                         .MaximumStandardDeviation ||
-                effect.ChromaTexture != null ||
-                effect.YuvConversion.HasValue ||
                 effect.SphericalProjection.HasValue ||
                 !ValidateTextureContext(
                     compositorContext,
@@ -585,12 +677,45 @@ namespace ProGPU.Scene.Extensions
                 return false;
             }
 
-            return source.Format is
-                TextureFormat.Rgba8Unorm or
-                TextureFormat.Rgba8UnormSrgb or
-                TextureFormat.Bgra8Unorm or
-                TextureFormat.Bgra8UnormSrgb or
-                TextureFormat.Rgba16float;
+            bool hasChroma =
+                effect.ChromaTexture is not null;
+            if (hasChroma !=
+                effect.YuvConversion.HasValue)
+            {
+                return false;
+            }
+
+            if (!hasChroma)
+            {
+                return source.Format is
+                    TextureFormat.Rgba8Unorm or
+                    TextureFormat.Rgba8UnormSrgb or
+                    TextureFormat.Bgra8Unorm or
+                    TextureFormat.Bgra8UnormSrgb or
+                    TextureFormat.Rgba16float;
+            }
+
+            GpuTexture chroma =
+                effect.ChromaTexture!;
+            return source.Format ==
+                    TextureFormat.R8Unorm &&
+                chroma.Format ==
+                    TextureFormat.RG8Unorm &&
+                chroma.Width ==
+                    (source.Width + 1) / 2 &&
+                chroma.Height ==
+                    (source.Height + 1) / 2 &&
+                ValidateTextureContext(
+                    compositorContext,
+                    chroma,
+                    "chroma",
+                    out _) &&
+                (chroma.Usage &
+                    TextureUsage.TextureBinding) != 0 &&
+                chroma.Dimension ==
+                    GpuTextureDimension.Dimension2D &&
+                chroma.DepthOrArrayLayers == 1 &&
+                chroma.SampleCount == 1;
         }
 
         public unsafe void Render(
