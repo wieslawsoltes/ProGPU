@@ -2814,14 +2814,33 @@ function configureBrowserMediaAudioEffect(id, effectId, kind, parameter0, parame
   let effect = entry.audioEffects.get(effectId);
   if (!effect || effect.kind !== kind) {
     if (effect) effect.node.disconnect();
-    if (kind === 1) effect = { kind, node: entry.audioContext.createGain() };
-    else throw new RangeError(`Unsupported browser media audio effect kind ${kind}.`);
+    if (kind === 1) {
+      effect = {
+        kind,
+        node: entry.audioContext.createGain()
+      };
+    } else if (kind === 2) {
+      effect = {
+        kind,
+        node: entry.audioContext.createStereoPanner()
+      };
+    } else {
+      throw new RangeError(`Unsupported browser media audio effect kind ${kind}.`);
+    }
     entry.audioEffects.set(effectId, effect);
   }
 
   if (kind === 1) {
     const gain = Number.isFinite(parameter0) ? Math.max(0, parameter0) : 1;
     effect.node.gain.setValueAtTime(gain, entry.audioContext.currentTime);
+  } else if (kind === 2) {
+    const balance =
+      Number.isFinite(parameter0)
+        ? Math.max(-1, Math.min(1, parameter0))
+        : 0;
+    effect.node.pan.setValueAtTime(
+      balance,
+      entry.audioContext.currentTime);
   }
   rebuildBrowserMediaAudioGraph(entry);
 }

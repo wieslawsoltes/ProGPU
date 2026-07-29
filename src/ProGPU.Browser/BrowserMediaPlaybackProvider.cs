@@ -340,8 +340,10 @@ internal sealed partial class BrowserMediaPlaybackProvider :
 
         MediaAudioGraphEffectState state =
             graphEffect.CaptureState();
-        if (state.Kind !=
-            MediaAudioGraphEffectKind.Gain)
+        if (state.Kind is not (
+                MediaAudioGraphEffectKind.Gain or
+                MediaAudioGraphEffectKind
+                    .StereoBalance))
         {
             if (!optional)
             {

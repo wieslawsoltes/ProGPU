@@ -312,6 +312,24 @@ public sealed class AndroidMediaProviderContractTests
             "Effect.StateChanged += _changed;",
             provider,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioGraphEffectKind\n                    .StereoBalance",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetCombinedAudioLevels()",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "levels.Left /\n            nativeBoost",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
     }
 
     [Fact]

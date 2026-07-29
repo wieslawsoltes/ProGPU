@@ -305,13 +305,15 @@ internal sealed class AndroidMediaPlaybackProvider :
         ArgumentNullException.ThrowIfNull(effect);
         if (effect is not IMediaAudioGraphEffect
             graphEffect ||
-            graphEffect.CaptureState().Kind !=
-                MediaAudioGraphEffectKind.Gain)
+            graphEffect.CaptureState().Kind is not (
+                MediaAudioGraphEffectKind.Gain or
+                MediaAudioGraphEffectKind
+                    .StereoBalance))
         {
             if (!optional)
             {
                 throw new NotSupportedException(
-                    "Android MediaPlayer accepts typed gain IMediaAudioGraphEffect nodes. Arbitrary managed PCM effects require the direct MediaCodec/AAudio lane.");
+                    "Android MediaPlayer accepts typed gain and stereo-balance IMediaAudioGraphEffect nodes. Arbitrary managed PCM effects require the direct MediaCodec/AAudio lane.");
             }
             return;
         }
@@ -693,25 +695,25 @@ internal sealed class AndroidMediaPlaybackProvider :
     }
 
     private void ApplyVolume(
-        global::Android.Media.MediaPlayer player)
+        global::Android.Media.MediaPlayer player,
+        in MediaAudioStereoLevels levels)
     {
-        float effectGain =
-            Math.Min(1f, GetCombinedGain());
         float volume = _muted
             ? 0f
-            : (float)Math.Clamp(_volume, 0d, 1d) *
-                effectGain;
-        float left = volume;
-        float right = volume;
-        double balance = Math.Clamp(_balance, -1d, 1d);
-        if (balance < 0d)
-        {
-            right *= (float)(1d + balance);
-        }
-        else if (balance > 0d)
-        {
-            left *= (float)(1d - balance);
-        }
+            : (float)Math.Clamp(
+                _volume,
+                0d,
+                1d);
+        float nativeBoost =
+            Math.Max(1f, levels.Peak);
+        float left =
+            volume *
+            levels.Left /
+            nativeBoost;
+        float right =
+            volume *
+            levels.Right /
+            nativeBoost;
         player.SetVolume(left, right);
     }
 
@@ -726,8 +728,10 @@ internal sealed class AndroidMediaPlaybackProvider :
     private void ApplyAudioGraph(
         global::Android.Media.MediaPlayer player)
     {
-        float gain = GetCombinedGain();
-        ApplyVolume(player);
+        MediaAudioStereoLevels levels =
+            GetCombinedAudioLevels();
+        float gain = levels.Peak;
+        ApplyVolume(player, in levels);
 
         if (gain <= 1f)
         {
@@ -761,9 +765,15 @@ internal sealed class AndroidMediaPlaybackProvider :
         }
     }
 
-    private float GetCombinedGain()
+    private MediaAudioStereoLevels
+        GetCombinedAudioLevels()
     {
-        float gain = 1f;
+        MediaAudioStereoLevels levels =
+            MediaAudioStereoLevels.FromBalance(
+                (float)Math.Clamp(
+                    _balance,
+                    -1d,
+                    1d));
         lock (_audioEffectGate)
         {
             for (int index = 0;
@@ -774,14 +784,10 @@ internal sealed class AndroidMediaPlaybackProvider :
                     _audioEffects[index]
                         .Effect
                         .CaptureState();
-                gain *= state.Parameter0;
-                if (!float.IsFinite(gain))
-                {
-                    return float.MaxValue;
-                }
+                levels = levels.Apply(in state);
             }
         }
-        return gain;
+        return levels;
     }
 
     private void OnAudioEffectStateChanged() =>

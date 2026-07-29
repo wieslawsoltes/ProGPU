@@ -244,6 +244,14 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
+            "entry.audioContext.createStereoPanner()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effect.node.pan.setValueAtTime(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "configureBrowserMediaAudioEffect",
             browserAsset,
             StringComparison.Ordinal);
@@ -261,6 +269,14 @@ public sealed class SampleProjectSplitTests
             StringComparison.Ordinal);
         Assert.Contains(
             "new MediaAudioGainEffectFactory(",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaAudioStereoBalanceEffectFactory(",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"Audio balance effect\"",
             mediaPlayerSample,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

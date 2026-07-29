@@ -610,6 +610,175 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void
+        PortableStereoBalanceEffectUpdatesPcmAndNativeGraphStateWithoutAllocating()
+    {
+        var factory =
+            new MediaAudioStereoBalanceEffectFactory(
+                "ProGPU.Tests.AudioBalance");
+        using IMediaEffect effect = factory.Create(
+            new MediaEffectDescriptor(
+                factory.ActivatableClassId,
+                MediaEffectKind.Audio,
+                new Dictionary<string, object?>()));
+        var graphEffect =
+            Assert.IsAssignableFrom<
+                IMediaAudioGraphEffect>(effect);
+        int changes = 0;
+        graphEffect.StateChanged += () => changes++;
+
+        factory.Balance = -0.5f;
+        MediaAudioGraphEffectState state =
+            graphEffect.CaptureState();
+        var samples =
+            new float[] { 1f, -1f, 0.5f, -0.5f };
+        var context = new MediaAudioProcessContext(
+            new MediaAudioFormat(48_000, 2),
+            FrameCount: 2,
+            PresentationTime: TimeSpan.Zero);
+        graphEffect.Process(samples, context);
+
+        Assert.Equal(1, changes);
+        Assert.Equal(
+            MediaAudioGraphEffectKind.StereoBalance,
+            state.Kind);
+        Assert.Equal(-0.5f, state.Parameter0);
+        Assert.Equal(
+            [1f, -0.5f, 0.5f, -0.25f],
+            samples);
+
+        var surroundSamples =
+            new float[] { 1f, 1f, 0.25f, 0.5f, 0.5f, -0.25f };
+        graphEffect.Process(
+            surroundSamples,
+            new MediaAudioProcessContext(
+                new MediaAudioFormat(48_000, 3),
+                FrameCount: 2,
+                PresentationTime: TimeSpan.Zero));
+        Assert.Equal(
+            [1f, 0.5f, 0.25f, 0.5f, 0.25f, -0.25f],
+            surroundSamples);
+        var monoSamples = new float[] { 1f, -1f };
+        graphEffect.Process(
+            monoSamples,
+            new MediaAudioProcessContext(
+                new MediaAudioFormat(48_000, 1),
+                FrameCount: 2,
+                PresentationTime: TimeSpan.Zero));
+        Assert.Equal([1f, -1f], monoSamples);
+
+        var callbackSamples = new float[480 * 2];
+        var callbackContext =
+            new MediaAudioProcessContext(
+                new MediaAudioFormat(48_000, 2),
+                FrameCount: 480,
+                PresentationTime: TimeSpan.Zero);
+        graphEffect.Process(
+            callbackSamples,
+            callbackContext);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0;
+             iteration < 100;
+             iteration++)
+        {
+            Array.Fill(callbackSamples, 1f);
+            graphEffect.Process(
+                callbackSamples,
+                callbackContext);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+
+        Assert.Equal(0, allocated);
+        Assert.Equal(1f, callbackSamples[0]);
+        Assert.Equal(0.5f, callbackSamples[1]);
+    }
+
+    [Fact]
+    public void
+        StereoBalanceEffectDefinitionOwnsSerializedState()
+    {
+        var registry = new MediaEffectRegistry();
+        var factory =
+            new MediaAudioStereoBalanceEffectFactory(
+                "ProGPU.Tests.SerializedAudioBalance");
+        using IDisposable registration =
+            registry.Register(factory);
+        var descriptor = new MediaEffectDescriptor(
+            factory.ActivatableClassId,
+            MediaEffectKind.Audio,
+            new Dictionary<string, object?>
+            {
+                [MediaAudioStereoBalanceEffectFactory
+                    .BalancePropertyName] = 0.25d
+            });
+
+        Assert.True(
+            registry.TryCreate(
+                descriptor,
+                out IMediaEffect? created));
+        using IMediaEffect effect = created!;
+        var graphEffect =
+            Assert.IsAssignableFrom<
+                IMediaAudioGraphEffect>(effect);
+
+        factory.Balance = -0.75f;
+        Assert.Equal(
+            0.25f,
+            graphEffect.CaptureState().Parameter0,
+            precision: 6);
+    }
+
+    [Fact]
+    public void StereoLevelsFoldGainAndBalance()
+    {
+        MediaAudioStereoLevels levels =
+            MediaAudioStereoLevels
+                .FromBalance(-0.25f)
+                .Apply(
+                    new MediaAudioGraphEffectState(
+                        MediaAudioGraphEffectKind.Gain,
+                        2f))
+                .Apply(
+                    new MediaAudioGraphEffectState(
+                        MediaAudioGraphEffectKind
+                            .StereoBalance,
+                        0.5f));
+
+        Assert.Equal(1f, levels.Left);
+        Assert.Equal(1.5f, levels.Right);
+        Assert.Equal(1.5f, levels.Peak);
+        Assert.Equal(
+            1f / 3f,
+            levels.Balance,
+            precision: 6);
+        Assert.Equal(
+            0f,
+            new MediaAudioStereoLevels(0f, 0f)
+                .Balance);
+        Assert.Equal(
+            float.MaxValue,
+            MediaAudioStereoLevels.Identity
+                .Scale(float.MaxValue)
+                .Scale(2f)
+                .Peak);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => MediaAudioStereoLevels
+                .FromBalance(1.01f));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MediaAudioStereoLevels(
+                1f,
+                float.NaN));
+        Assert.Equal(
+            (MediaAudioGraphEffectKind)99,
+            new MediaAudioGraphEffectState(
+                (MediaAudioGraphEffectKind)99)
+                .Kind);
+    }
+
+    [Fact]
     public void GainEffectDefinitionOwnsSerializedGainState()
     {
         var registry = new MediaEffectRegistry();
@@ -688,6 +857,23 @@ public sealed class MediaPlaybackEngineTests
                     [
                         new MediaCompositionEffectDefinition(
                             "ProGPU.Tests.Unregistered",
+                            new Dictionary<string, object?>())
+                    ],
+                    out _));
+
+        const string balanceId =
+            "ProGPU.Tests.CompositionAudioBalance";
+        using IDisposable balanceRegistration =
+            registry.Register(
+                new MediaAudioStereoBalanceEffectFactory(
+                    balanceId));
+        Assert.False(
+            MediaAudioGraphEffectResolver
+                .TryCaptureCombinedGain(
+                    registry,
+                    [
+                        new MediaCompositionEffectDefinition(
+                            balanceId,
                             new Dictionary<string, object?>())
                     ],
                     out _));

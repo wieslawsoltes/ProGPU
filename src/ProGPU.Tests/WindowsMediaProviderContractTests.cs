@@ -1234,6 +1234,17 @@ public sealed class WindowsMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaAudioGraphEffectKind\n                    .StereoBalance",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetCombinedAudioLevels()",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "SupportsFrameStepping: true",
             provider,
             StringComparison.Ordinal);

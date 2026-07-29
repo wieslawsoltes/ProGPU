@@ -290,13 +290,15 @@ internal sealed class WindowsMediaPlaybackProvider :
         ArgumentNullException.ThrowIfNull(effect);
         if (effect is not IMediaAudioGraphEffect
             graphEffect ||
-            graphEffect.CaptureState().Kind !=
-                MediaAudioGraphEffectKind.Gain)
+            graphEffect.CaptureState().Kind is not (
+                MediaAudioGraphEffectKind.Gain or
+                MediaAudioGraphEffectKind
+                    .StereoBalance))
         {
             if (!optional)
             {
                 throw new NotSupportedException(
-                    "Media Foundation accepts typed gain IMediaAudioGraphEffect nodes in the built-in lane. Arbitrary PCM effects require an IMFTransform or WASAPI processing provider.");
+                    "Media Foundation accepts typed gain and stereo-balance IMediaAudioGraphEffect nodes in the built-in lane. Arbitrary PCM effects require an IMFTransform or WASAPI processing provider.");
             }
             return;
         }
@@ -740,10 +742,12 @@ internal sealed class WindowsMediaPlaybackProvider :
 
     private void ApplyAudioGraph(nint engine)
     {
-        float gain = GetCombinedGain();
+        MediaAudioStereoLevels levels =
+            GetCombinedAudioLevels();
         double effectiveVolume =
             Math.Clamp(
-                _volume * Math.Min(1d, gain),
+                _volume *
+                    Math.Min(1d, levels.Peak),
                 0d,
                 1d);
         WindowsMediaNative.SetVolume(
@@ -754,34 +758,37 @@ internal sealed class WindowsMediaPlaybackProvider :
             _muted);
         WindowsMediaNative.SetBalance(
             engine,
-            Math.Clamp(_balance, -1d, 1d));
-        if (gain > 1f)
+            levels.Balance);
+        if (levels.Peak > 1f)
         {
             PublishDiagnostics(
                 "The Media Engine volume stage is bounded to unity; gain above 1.0 requires the registered IMFTransform processing lane.");
         }
     }
 
-    private float GetCombinedGain()
+    private MediaAudioStereoLevels
+        GetCombinedAudioLevels()
     {
-        float gain = 1f;
+        MediaAudioStereoLevels levels =
+            MediaAudioStereoLevels.FromBalance(
+                (float)Math.Clamp(
+                    _balance,
+                    -1d,
+                    1d));
         lock (_audioEffectGate)
         {
             for (int index = 0;
                  index < _audioEffects.Count;
                  index++)
             {
-                gain *= _audioEffects[index]
-                    .Effect
-                    .CaptureState()
-                    .Parameter0;
-                if (!float.IsFinite(gain))
-                {
-                    return float.MaxValue;
-                }
+                MediaAudioGraphEffectState state =
+                    _audioEffects[index]
+                        .Effect
+                        .CaptureState();
+                levels = levels.Apply(in state);
             }
         }
-        return gain;
+        return levels;
     }
 
     private void OnAudioEffectStateChanged() =>

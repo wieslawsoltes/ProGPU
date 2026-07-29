@@ -21,6 +21,8 @@ public static class MediaPlayerPage
 {
     private const string AudioGainEffectId =
         "ProGPU.Samples.AudioGain";
+    private const string AudioBalanceEffectId =
+        "ProGPU.Samples.AudioBalance";
     private const string DefaultMediaUri =
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
@@ -149,16 +151,29 @@ public static class MediaPlayerPage
         sphericalYaw.IsEnabled = false;
         sphericalFieldOfView.IsEnabled = false;
         var audioGain = EffectSlider(0d, 2d, 1d);
+        var audioBalance = EffectSlider(-1d, 1d, 0d);
         string audioGainEffectId =
             $"{AudioGainEffectId}.{Guid.NewGuid():N}";
+        string audioBalanceEffectId =
+            $"{AudioBalanceEffectId}.{Guid.NewGuid():N}";
         var audioGainFactory =
             new MediaAudioGainEffectFactory(
                 audioGainEffectId);
-        IDisposable audioEffectRegistration =
+        var audioBalanceFactory =
+            new MediaAudioStereoBalanceEffectFactory(
+                audioBalanceEffectId);
+        IDisposable audioGainRegistration =
             MediaEffectRegistry.Default.Register(
                 audioGainFactory);
+        IDisposable audioBalanceRegistration =
+            MediaEffectRegistry.Default.Register(
+                audioBalanceFactory);
         player.AddAudioEffect(
             audioGainEffectId,
+            effectOptional: true,
+            new PropertySet());
+        player.AddAudioEffect(
+            audioBalanceEffectId,
             effectOptional: true,
             new PropertySet());
 
@@ -219,6 +234,9 @@ public static class MediaPlayerPage
         audioGain.ValueChanged += (_, _) =>
             audioGainFactory.Gain =
                 (float)audioGain.Value;
+        audioBalance.ValueChanged += (_, _) =>
+            audioBalanceFactory.Balance =
+                (float)audioBalance.Value;
 
         void LoadSource(Uri source)
         {
@@ -413,6 +431,10 @@ public static class MediaPlayerPage
         effects.AddChild(Text(
             "Native decoded-audio callback (optional by provider)"));
         AddEffect(effects, "Audio gain", audioGain);
+        AddEffect(
+            effects,
+            "Audio balance effect",
+            audioBalance);
 
         var root = new ResponsiveSplitView
         {
@@ -424,7 +446,8 @@ public static class MediaPlayerPage
         {
             mediaMaterial.Dispose();
             player.Dispose();
-            audioEffectRegistration.Dispose();
+            audioBalanceRegistration.Dispose();
+            audioGainRegistration.Dispose();
         };
         return root;
     }
