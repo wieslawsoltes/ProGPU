@@ -751,6 +751,10 @@ internal sealed class WindowsMediaPlaybackProvider :
                     NaturalVideoWidth = width,
                     NaturalVideoHeight = height
                 };
+                PublishTracks(
+                    engine,
+                    width,
+                    height);
             }
         }
     }
