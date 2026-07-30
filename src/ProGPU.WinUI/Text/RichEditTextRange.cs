@@ -15,17 +15,24 @@ namespace Microsoft.UI.Text;
 [Windows.Foundation.Metadata.ContractVersion(
     TextApiContractInfo.Name,
     TextApiContractInfo.Version1)]
-public class RichEditTextRange : ITextRange
+public sealed class RichEditTextRange : ITextRange
 {
     private readonly RichEditTextDocument _document;
     private readonly RichEditTextCharacterFormat _characterFormat;
     private readonly RichEditTextParagraphFormat _paragraphFormat;
+    private readonly bool _selectionBacked;
     private int _start;
     private int _end;
 
-    internal RichEditTextRange(RichEditTextDocument document, int start, int end, bool track = true)
+    internal RichEditTextRange(
+        RichEditTextDocument document,
+        int start,
+        int end,
+        bool track = true,
+        bool selectionBacked = false)
     {
         _document = document;
+        _selectionBacked = selectionBacked;
         SetRange(start, end);
         _characterFormat = new RichEditTextCharacterFormat(this);
         _paragraphFormat = new RichEditTextParagraphFormat(this);
@@ -57,14 +64,27 @@ public class RichEditTextRange : ITextRange
         set => _characterFormat.ApplyFrom(value);
     }
 
-    public virtual int EndPosition
+    public int EndPosition
     {
-        get => _end;
+        get => _selectionBacked
+            ? _document.Owner.SelectionStart +
+                _document.Owner.SelectionLength
+            : _end;
         set
         {
             int position = Math.Clamp(value, 0, StoryLength);
-            _end = position;
-            if (_end < _start) _start = _end;
+            if (_selectionBacked)
+            {
+                int start = StartPosition;
+                _document.Owner.SetDocumentSelection(
+                    position < start ? position : start,
+                    position);
+            }
+            else
+            {
+                _end = position;
+                if (_end < _start) _start = _end;
+            }
         }
     }
 
@@ -113,14 +133,26 @@ public class RichEditTextRange : ITextRange
         set => _paragraphFormat.ApplyFrom(value);
     }
 
-    public virtual int StartPosition
+    public int StartPosition
     {
-        get => _start;
+        get => _selectionBacked
+            ? _document.Owner.SelectionStart
+            : _start;
         set
         {
             int position = Math.Clamp(value, 0, _document.TextLength);
-            _start = position;
-            if (_start > _end) _end = _start;
+            if (_selectionBacked)
+            {
+                int end = EndPosition;
+                _document.Owner.SetDocumentSelection(
+                    position > end ? position : end,
+                    position);
+            }
+            else
+            {
+                _start = position;
+                if (_start > _end) _end = _start;
+            }
         }
     }
 
@@ -143,12 +175,14 @@ public class RichEditTextRange : ITextRange
         SetText(TextSetOptions.None, replacement);
     }
 
-    public virtual void Collapse(bool value)
+    public void Collapse(bool value)
     {
         int position = value ? NormalizedStart : NormalizedEnd;
         position = Math.Min(position, _document.TextLength);
-        _start = position;
-        _end = position;
+        if (_selectionBacked)
+            _document.Owner.SetDocumentSelection(position, position);
+        else
+            _start = _end = position;
     }
 
     internal void OnDocumentTextReplaced(int editStart, int oldLength, int newLength)
@@ -511,7 +545,10 @@ public class RichEditTextRange : ITextRange
     /// Inserts an editable table and replaces this range, following TOM2
     /// <c>ITextRange2::InsertTable</c> endpoint semantics.
     /// </summary>
-    public void InsertTable(int columnCount, int rowCount, bool autoFit = true)
+    internal void InsertTable(
+        int columnCount,
+        int rowCount,
+        bool autoFit = true)
     {
         (int start, int end) = _document.Owner.InsertDocumentTable(
             NormalizedStart,
@@ -585,8 +622,14 @@ public class RichEditTextRange : ITextRange
         _document.Owner.SelectionStart,
         _document.Owner.SelectionStart + _document.Owner.SelectionLength);
 
-    public virtual void Paste(int format)
+    public void Paste(int format)
     {
+        if (_selectionBacked)
+        {
+            _document.Owner.PasteFromClipboard();
+            return;
+        }
+
         if (format == 0 && Microsoft.UI.Xaml.ClipboardHelper.TryGetRichText(
                 CurrentStyle,
                 out RichTextSpan[] spans,
@@ -606,8 +649,16 @@ public class RichEditTextRange : ITextRange
         _document.Owner.ScrollDocumentPositionIntoView(
             (value & PointOptions.Start) != 0 ? NormalizedStart : NormalizedEnd);
 
-    public virtual void SetRange(int startPosition, int endPosition)
+    public void SetRange(int startPosition, int endPosition)
     {
+        if (_selectionBacked)
+        {
+            _document.Owner.SetDocumentSelection(
+                startPosition,
+                endPosition);
+            return;
+        }
+
         int storyLength = StoryLength;
         int start = Math.Clamp(startPosition, 0, storyLength);
         int end = Math.Clamp(endPosition, 0, storyLength);

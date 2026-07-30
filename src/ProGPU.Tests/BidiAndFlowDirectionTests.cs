@@ -12,6 +12,7 @@ using ProGPU.Text;
 using ProGPU.Text.Bidi;
 using ProGPU.Text.Shaping;
 using ProGPU.Vector;
+using ProGPU.WinUI.Text;
 using Silk.NET.Input;
 using Xunit;
 
@@ -1856,7 +1857,8 @@ public class BidiAndFlowDirectionTests
     {
         var editor = new RichEditBox { Text = "before selected after" };
         editor.TextDocument.ClearUndoRedoHistory();
-        RichEditTextRange range = editor.TextDocument.GetRange2(7, 15);
+        ITextRange range =
+            editor.TextDocument.GetRange(7, 15);
 
         range.InsertTable(columnCount: 2, rowCount: 2);
 
@@ -1882,7 +1884,8 @@ public class BidiAndFlowDirectionTests
     public void RichEditTom2InsertTableValidatesDimensionsAndSupportsFixedColumns()
     {
         var editor = new RichEditBox();
-        RichEditTextRange range = editor.TextDocument.GetRange2(0, 0);
+        ITextRange range =
+            editor.TextDocument.GetRange(0, 0);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => range.InsertTable(0, 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => range.InsertTable(1, 0));

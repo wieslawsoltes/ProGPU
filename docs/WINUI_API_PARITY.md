@@ -91,11 +91,9 @@ With `Microsoft.UI.Windowing` complete, the current baseline advances to 7,269
 ProGPU entries, 3,273 exact matches, and 13,348 missing entries. Windowing
 records 192/192 exact declarations with no extra entries.
 
-The first `Microsoft.UI.Text` contract-shape slice advances the baseline to
-7,279 ProGPU entries, 3,309 exact matches, and 13,312 missing entries. Text now
-records 531/535 exact official declarations. The remaining four missing
-declarations and ProGPU-only implementation details are tracked as the next
-runtime-class projection slice.
+With `Microsoft.UI.Text` complete, the baseline advances to 7,197 ProGPU
+entries, 3,313 exact matches, and 13,308 missing entries. Text records 535/535
+exact declarations with no extra entries.
 
 ## Clean-room implementation log
 
@@ -257,21 +255,29 @@ Primary contracts consulted:
 - [RichEditTextDocument](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.richedittextdocument)
 
 Adopted: the official unsigned storage for the bitwise find/get/set option
-enums, exact published flag and undefined-effect values, the sealed
-non-abstract `FontWeights` runtime-class shape, `TextApiContract` identity and
-version metadata, contract metadata on the implemented public TOM types, and
-the official `Collapse(Boolean value)` parameter name. Existing TOM range,
-selection, RTF, paragraph, shaping, layout, and rendering behavior is retained;
-this slice changes only public projection metadata and constant representation.
-Font-weight getters remain fixed `O(1)` value construction, and a warmed
-100,000-iteration Release invariant verifies zero managed allocations.
+enums, exact published flag and undefined-effect values, sealed
+`FontWeights`/`RichEditTextRange` runtime-class shapes, `TextApiContract`
+identity and version metadata, contract metadata on the implemented public TOM
+types, and the official `Collapse(Boolean value)` parameter name. Concrete
+character-format, paragraph-format, and selection implementations are internal
+typed adapters behind the official interfaces. The selection adapter and its
+retained range are created once per document; property access remains fixed
+`O(1)` and allocation-free. Font-weight and selection-property invariants each
+verify zero managed allocations across 100,000 warmed Release iterations.
+
+ProGPU's TOM2 table insertion is preserved as the public typed
+`ProGPU.WinUI.Text.RichEditTextRangeExtensions.InsertTable` extension instead
+of expanding the official `Microsoft.UI.Text` namespace. It dispatches in
+fixed `O(1)` time to the retained range/selection implementation; table
+construction itself remains `O(R * C)` time and storage for `R` rows and `C`
+columns. Existing TOM range tracking, selection movement, RTF, paragraph,
+shaping, layout, and rendering behavior is retained and covered by the
+existing rich-text regression suite.
 
 The implementation was derived from the locked official NuGet metadata and
 Microsoft documentation. No Microsoft method body or foreign implementation
-source was inspected. The remaining projection work must seal
-`RichEditTextRange` and hide ProGPU implementation classes without regressing
-the retained selection/range behavior; that refactor is intentionally kept out
-of this metadata-only checkpoint.
+source was inspected. The declaration report records `Microsoft.UI.Text` as
+535/535 exact with no missing or extra entries.
 
 ### Microsoft.UI.Windowing
 

@@ -1,4 +1,6 @@
 using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Controls;
+using ProGPU.WinUI.Text;
 using System.Reflection;
 using Windows.Foundation.Metadata;
 using Xunit;
@@ -29,6 +31,34 @@ public sealed class TextContractParityTests
     {
         Assert.True(typeof(FontWeights).IsSealed);
         Assert.False(typeof(FontWeights).IsAbstract);
+        Assert.True(typeof(RichEditTextRange).IsSealed);
+        Assert.Null(
+            typeof(RichEditTextDocument).GetMethod(
+                "GetRange2",
+                BindingFlags.Public |
+                BindingFlags.Instance));
+        Assert.Null(
+            typeof(RichEditTextDocument).GetEvent(
+                "ContentsChanged",
+                BindingFlags.Public |
+                BindingFlags.Instance));
+        Assert.False(
+            GetImplementationType(
+                "Microsoft.UI.Text.RichEditTextCharacterFormat")
+            .IsPublic);
+        Assert.False(
+            GetImplementationType(
+                "Microsoft.UI.Text.RichEditTextParagraphFormat")
+            .IsPublic);
+        Assert.False(
+            GetImplementationType(
+                "Microsoft.UI.Text.RichEditTextSelection")
+            .IsPublic);
+        Assert.NotNull(
+            typeof(RichEditTextRangeExtensions).GetMethod(
+                nameof(RichEditTextRangeExtensions.InsertTable),
+                BindingFlags.Public |
+                BindingFlags.Static));
         Assert.Equal(
             "value",
             typeof(ITextRange)
@@ -76,6 +106,38 @@ public sealed class TextContractParityTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void SelectionAdapterPropertyReadsRemainAllocationFree()
+    {
+        const int Count = 100_000;
+        var editor = new RichEditBox
+        {
+            Text = "retained selection"
+        };
+        editor.SelectionStart = 2;
+        editor.SelectionLength = 8;
+        ITextSelection selection =
+            editor.TextDocument.Selection;
+        _ = selection.Options;
+        _ = selection.Type;
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int index = 0; index < Count; index++)
+        {
+            checksum ^= selection.StartPosition;
+            checksum ^= selection.EndPosition;
+            checksum ^= selection.Length;
+            checksum ^= (int)selection.Options;
+            checksum ^= (int)selection.Type;
+        }
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(checksum);
+        Assert.Equal(0, allocated);
+    }
+
     private static void AssertContractVersion(
         Type type,
         uint expectedVersion)
@@ -94,4 +156,10 @@ public sealed class TextContractParityTests
             Assert.IsType<uint>(
                 attribute.ConstructorArguments[1].Value));
     }
+
+    private static Type GetImplementationType(
+        string typeName) =>
+        typeof(RichEditTextDocument).Assembly.GetType(
+            typeName,
+            throwOnError: true)!;
 }
