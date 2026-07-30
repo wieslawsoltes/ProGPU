@@ -24,6 +24,59 @@ public enum MediaPlaybackTimedTextWeight
 }
 
 /// <summary>
+/// Provider-neutral ruby position. Values intentionally match the WinUI
+/// TimedTextRubyPosition projection.
+/// </summary>
+public enum MediaPlaybackTimedTextRubyPosition
+{
+    Before = 0,
+    After = 1,
+    Outside = 2
+}
+
+/// <summary>
+/// Provider-neutral ruby reserve policy. Values intentionally match the
+/// WinUI TimedTextRubyReserve projection.
+/// </summary>
+public enum MediaPlaybackTimedTextRubyReserve
+{
+    None = 0,
+    Before = 1,
+    After = 2,
+    Both = 3,
+    Outside = 4
+}
+
+/// <summary>
+/// Provider-neutral ruby alignment. Values intentionally match the WinUI
+/// TimedTextRubyAlign projection.
+/// </summary>
+public enum MediaPlaybackTimedTextRubyAlign
+{
+    Center = 0,
+    Start = 1,
+    End = 2,
+    SpaceAround = 3,
+    SpaceBetween = 4,
+    WithBase = 5
+}
+
+/// <summary>
+/// Immutable ruby annotation attached to one timed-text substring.
+/// Construction and reads are allocation-free O(1); the text string is owned
+/// by the publishing presentation snapshot.
+/// </summary>
+public readonly record struct
+    MediaPlaybackTimedTextRubyDescriptor(
+        string? Text = null,
+        MediaPlaybackTimedTextRubyPosition Position =
+            MediaPlaybackTimedTextRubyPosition.Before,
+        MediaPlaybackTimedTextRubyReserve Reserve =
+            MediaPlaybackTimedTextRubyReserve.None,
+        MediaPlaybackTimedTextRubyAlign Align =
+            MediaPlaybackTimedTextRubyAlign.Center);
+
+/// <summary>
 /// Provider-neutral timed-text alignment. Left and Right remain distinct
 /// because WebVTT defines them independently of Start and End.
 /// </summary>
@@ -67,7 +120,8 @@ public enum MediaPlaybackTimedTextLinePositionUnit
 public readonly record struct MediaPlaybackTimedTextStyle(
     MediaPlaybackTimedTextFontStyle? FontStyle = null,
     MediaPlaybackTimedTextWeight? FontWeight = null,
-    bool? IsUnderlineEnabled = null);
+    bool? IsUnderlineEnabled = null,
+    MediaPlaybackTimedTextRubyDescriptor? Ruby = null);
 
 /// <summary>
 /// Immutable formatting span over UTF-16 indices in one timed-text line.

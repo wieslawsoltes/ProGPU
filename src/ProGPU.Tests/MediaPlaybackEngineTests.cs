@@ -1388,6 +1388,146 @@ public sealed class MediaPlaybackEngineTests
 
     [Fact]
     public void
+        WebVttDocumentParserProjectsRubyAnnotationsThroughWinUi()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "00:00.000 --> 00:01.000\n" +
+                "Learn <ruby>日<rt>に</rt>" +
+                "本<rt>ほん</rt></ruby>!\n\n" +
+                "00:01.000 --> 00:02.000\n" +
+                "<ruby>漢<rt>かん</ruby>\n");
+
+        Assert.Equal(2, document.Cues.Count);
+        WebVttDocumentCue first =
+            document.Cues[0];
+        Assert.Equal("Learn 日本!", first.Text);
+        MediaPlaybackTimedTextLineDescriptor firstLine =
+            Assert.Single(first.Presentation.Lines);
+        Assert.Equal(first.Text, firstLine.Text);
+        Assert.Equal(2, firstLine.Subformats.Count);
+
+        MediaPlaybackTimedTextSubformatDescriptor
+            firstRuby = firstLine.Subformats[0];
+        Assert.Equal(6, firstRuby.StartIndex);
+        Assert.Equal(1, firstRuby.Length);
+        MediaPlaybackTimedTextRubyDescriptor
+            firstAnnotation =
+                Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        firstRuby.Style.Ruby);
+        Assert.Equal("に", firstAnnotation.Text);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyPosition.Before,
+            firstAnnotation.Position);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyReserve.None,
+            firstAnnotation.Reserve);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyAlign.Center,
+            firstAnnotation.Align);
+
+        MediaPlaybackTimedTextSubformatDescriptor
+            secondRuby = firstLine.Subformats[1];
+        Assert.Equal(7, secondRuby.StartIndex);
+        Assert.Equal(1, secondRuby.Length);
+        Assert.Equal(
+            "ほん",
+            Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        secondRuby.Style.Ruby)
+                .Text);
+
+        WebVttDocumentCue omittedEndTag =
+            document.Cues[1];
+        Assert.Equal("漢", omittedEndTag.Text);
+        Assert.Equal(
+            "かん",
+            Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        Assert.Single(
+                                Assert.Single(
+                                        omittedEndTag
+                                            .Presentation
+                                            .Lines)
+                                    .Subformats)
+                            .Style.Ruby)
+                .Text);
+
+        var descriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "ruby-cue",
+                first.StartTime,
+                first.Duration,
+                first.Text,
+                first.Presentation);
+        var cue = new TimedTextCue();
+        cue.ApplyProviderState(in descriptor);
+
+        TimedTextLine projectedLine =
+            Assert.Single(cue.Lines);
+        Assert.Equal("Learn 日本!", projectedLine.Text);
+        Assert.Equal(2, projectedLine.Subformats.Count);
+        TimedTextRuby projectedRuby =
+            projectedLine.Subformats[0]
+                .SubformatStyle.Ruby;
+        Assert.Equal("に", projectedRuby.Text);
+        Assert.Equal(
+            TimedTextRubyPosition.Before,
+            projectedRuby.Position);
+        Assert.Equal(
+            TimedTextRubyReserve.None,
+            projectedRuby.Reserve);
+        Assert.Equal(
+            TimedTextRubyAlign.Center,
+            projectedRuby.Align);
+
+        var plainPresentation =
+            new MediaPlaybackTimedTextCuePresentation(
+                [
+                    new
+                        MediaPlaybackTimedTextLineDescriptor(
+                            "plain",
+                            [
+                                new
+                                    MediaPlaybackTimedTextSubformatDescriptor(
+                                        0,
+                                        5,
+                                        new
+                                            MediaPlaybackTimedTextStyle(
+                                                FontWeight:
+                                                    MediaPlaybackTimedTextWeight
+                                                        .Bold))
+                            ])
+                ]);
+        var plainDescriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "plain-cue",
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(1),
+                "plain",
+                plainPresentation);
+        cue.ApplyProviderState(in plainDescriptor);
+
+        TimedTextStyle resetStyle =
+            Assert.Single(
+                    Assert.Single(cue.Lines).Subformats)
+                .SubformatStyle;
+        Assert.Equal(string.Empty, resetStyle.Ruby.Text);
+        Assert.Equal(
+            TimedTextRubyPosition.Before,
+            resetStyle.Ruby.Position);
+        Assert.Equal(
+            TimedTextRubyReserve.None,
+            resetStyle.Ruby.Reserve);
+        Assert.Equal(
+            TimedTextRubyAlign.Center,
+            resetStyle.Ruby.Align);
+    }
+
+    [Fact]
+    public void
         TimedCueTimelineSteadyForwardUpdatesAllocateNothing()
     {
         var client = new RecordingTimedCueTimelineClient();

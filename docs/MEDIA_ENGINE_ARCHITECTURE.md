@@ -104,6 +104,7 @@ design.
   [`TimedTextLine`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextline),
   [`TimedTextSubformat`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsubformat),
   [`TimedTextStyle`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextstyle),
+  [`TimedTextRuby`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextruby),
   [`TimedTextRegion`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion),
   [`TimedTextRegion.Position`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.position),
   [`TimedTextRegion.Extent`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.extent),
@@ -1387,19 +1388,20 @@ from `iden`, cue settings from `sttg`, cue text from `payl`, and timing from the
 ISO-BMFF sample presentation time and duration. The W3C cue-settings grammar
 is parsed once into provider-neutral line/position/size/alignment/vertical and
 region state. Cue text is decoded into display text plus combined bold,
-italic, and underline UTF-16 subformat runs; the six named WebVTT character
-references and CR/LF line boundaries are normalized without an external
-parser. These immutable values project into retained WinUI `TimedTextLine`,
-`TimedTextSubformat`, `TimedTextStyle`, and `TimedTextRegion` objects.
-Parsing remains an open-time O(S + B + U + R) pass for S samples, B nested
-boxes, U UTF-8/UTF-16 units, and R emitted runs, with a 16-MiB per-sample,
+italic, underline, and ruby UTF-16 subformat runs; ruby annotation descendants
+are excluded from display text and retained on the matching base ranges. The
+six named WebVTT character references and CR/LF line boundaries are normalized
+without an external parser. These immutable values project into retained
+WinUI `TimedTextLine`, `TimedTextSubformat`, `TimedTextStyle`,
+`TimedTextRuby`, and `TimedTextRegion` objects. Parsing remains an open-time
+O(S + B + U + R log R) pass for S samples, B nested boxes, U UTF-8/UTF-16
+units, and R emitted runs, with a 16-MiB per-sample,
 256-MiB retained-input, and one-million-cue bound. Duplicate `iden`, `sttg`, or
 `payl` children, invalid UTF-8, malformed box sizes, and invalid public DTO
 ranges fail explicitly. WebVTT class/voice/language CSS, timestamp components,
-ruby annotation projection, in-band region configuration, external `STYLE`
-blocks, `tx3g`, and TTML remain future extensions. `PlatformPresented` is
-still rejected because a reusable WebGPU frame-server surface has no native
-Linux caption presenter.
+in-band region configuration, external `STYLE` blocks, `tx3g`, and TTML remain
+future extensions. `PlatformPresented` is still rejected because a reusable
+WebGPU frame-server surface has no native Linux caption presenter.
 
 External WebVTT uses the same clean-room cue-settings and cue-text parser
 below the WinUI facade. The separate document parser validates the `WEBVTT`
@@ -1408,6 +1410,13 @@ blocks, parses cue identifiers and millisecond timestamps, and recovers from
 malformed cue blocks without accepting a malformed document signature.
 `REGION` definitions are collected before the first cue with W3C defaults,
 bounded to 10,000 definitions, and resolved by the last matching identifier.
+Ruby spans accept one or more base/`rt` annotation pairs, including the
+permitted omitted final `rt` end tag. Annotation text and named character
+references are retained in immutable provider-neutral ruby descriptors while
+only base text enters the cue line. The WinUI projection mutates the retained
+`TimedTextRuby` child with the WebVTT defaults `Before`, `None`, and `Center`;
+applying a later non-ruby snapshot clears all four retained ruby properties so
+pooled cue objects cannot expose stale annotations.
 The provider-neutral region snapshot preserves width, line count, both region
 and viewport anchor pairs, and scroll-up intent exactly. Valid vertical,
 explicit-line, and non-100%-size settings remove a cue from its region before
@@ -1420,7 +1429,8 @@ provider snapshot for a renderer with actual font metrics rather than being
 silently assigned the wrong unit. Stream factories snapshot at most 64 MiB
 while preserving the caller's random-access cursor; file and network URI
 factories use bounded built-in .NET streaming I/O and strict UTF-8. Resolution
-is expected O(B + U + C + D + R) time and O(B + U + C + D + R) retained
+is expected O(B + U + C + D + R log R) time and
+O(B + U + C + D + R) retained
 control-plane storage for B bytes, U decoded units, C cues, D region
 definitions, and R style runs; only adversarial region-dictionary collisions
 raise lookup work toward O(C * D). It never enters video decode, WebGPU
@@ -1489,7 +1499,7 @@ and application-presented modes are supported. `sttg` cue layout and
 bold/italic/underline subformats are projected through the official WinUI
 types; a renderer can consume the retained region/style graph without
 reparsing cue text. Native platform presentation, external WebVTT
-styles/regions, ruby/voice/class styling, `tx3g`/TTML, and AAC decode remain
+styles/regions, voice/class styling, `tx3g`/TTML, and AAC decode remain
 explicit gaps.
 
 This table is deliberately capability-based. “Supported project target” does

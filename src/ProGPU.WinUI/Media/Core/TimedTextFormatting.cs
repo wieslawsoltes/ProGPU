@@ -252,17 +252,43 @@ public sealed class TimedTextStyle
                 MediaPlaybackTimedTextWeight.Normal);
         bool underline =
             style.IsUnderlineEnabled ?? false;
+        MediaPlaybackTimedTextRubyDescriptor? ruby =
+            style.Ruby;
+        string rubyText =
+            ruby?.Text ?? string.Empty;
+        TimedTextRubyPosition rubyPosition =
+            (TimedTextRubyPosition)(
+                ruby?.Position ??
+                MediaPlaybackTimedTextRubyPosition.Before);
+        TimedTextRubyReserve rubyReserve =
+            (TimedTextRubyReserve)(
+                ruby?.Reserve ??
+                MediaPlaybackTimedTextRubyReserve.None);
+        TimedTextRubyAlign rubyAlign =
+            (TimedTextRubyAlign)(
+                ruby?.Align ??
+                MediaPlaybackTimedTextRubyAlign.Center);
         TimedTextLineAlignment lineAlignment =
             ToLineAlignment(alignment);
         bool changed =
             FontStyle != fontStyle ||
             FontWeight != fontWeight ||
             IsUnderlineEnabled != underline ||
-            LineAlignment != lineAlignment;
+            LineAlignment != lineAlignment ||
+            !StringComparer.Ordinal.Equals(
+                Ruby.Text,
+                rubyText) ||
+            Ruby.Position != rubyPosition ||
+            Ruby.Reserve != rubyReserve ||
+            Ruby.Align != rubyAlign;
         FontStyle = fontStyle;
         FontWeight = fontWeight;
         IsUnderlineEnabled = underline;
         LineAlignment = lineAlignment;
+        Ruby.Text = rubyText;
+        Ruby.Position = rubyPosition;
+        Ruby.Reserve = rubyReserve;
+        Ruby.Align = rubyAlign;
         return changed;
     }
 

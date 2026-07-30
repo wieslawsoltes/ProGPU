@@ -6,9 +6,10 @@ namespace ProGPU.Media.Playback;
 
 /// <summary>
 /// Clean-room WebVTT cue settings and cue-text parser based on the W3C WebVTT
-/// data model. Parsing is O(U + T + R) time and O(U + R) retained storage for
-/// U UTF-16 input units, T setting tokens, and R emitted style runs. It runs
-/// only while publishing an immutable native cue snapshot.
+/// data model. Parsing is O(U + T + R log R) time and O(U + R) retained
+/// storage for U UTF-16 input units, T setting tokens, and R emitted style or
+/// ruby runs; sorting orders the independent substring spans within each
+/// line. It runs only while publishing an immutable native cue snapshot.
 /// </summary>
 internal static class WebVttCueParser
 {
@@ -300,11 +301,17 @@ internal static class WebVttCueParser
     {
         var output = new StringBuilder(payload.Length);
         var runs = new List<GlobalSubformat>();
+        var rubyRuns = new List<GlobalRuby>();
+        StringBuilder? rubyText = null;
         int boldDepth = 0;
         int italicDepth = 0;
         int underlineDepth = 0;
         StyleFlags activeStyle = StyleFlags.None;
         int runStart = 0;
+        int rubyBaseStart = 0;
+        int rubyBaseEnd = 0;
+        bool inRuby = false;
+        bool inRubyText = false;
 
         for (int index = 0;
              index < payload.Length;
@@ -321,6 +328,68 @@ internal static class WebVttCueParser
                             index + 1,
                             close - index - 1)
                             .Trim();
+                    GetTagName(
+                        tag,
+                        out ReadOnlySpan<char> tagName,
+                        out bool closing);
+                    if (tagName.SequenceEqual("ruby"))
+                    {
+                        if (closing)
+                        {
+                            if (inRubyText)
+                            {
+                                FlushRuby(
+                                    rubyRuns,
+                                    rubyBaseStart,
+                                    rubyBaseEnd,
+                                    rubyText);
+                            }
+                            inRuby = false;
+                            inRubyText = false;
+                        }
+                        else if (!inRuby)
+                        {
+                            inRuby = true;
+                            inRubyText = false;
+                            rubyBaseStart = output.Length;
+                            rubyBaseEnd = output.Length;
+                        }
+                        index = close;
+                        continue;
+                    }
+                    if (tagName.SequenceEqual("rt") &&
+                        inRuby)
+                    {
+                        if (closing)
+                        {
+                            if (inRubyText)
+                            {
+                                FlushRuby(
+                                    rubyRuns,
+                                    rubyBaseStart,
+                                    rubyBaseEnd,
+                                    rubyText);
+                                rubyBaseStart =
+                                    output.Length;
+                            }
+                            inRubyText = false;
+                        }
+                        else if (!inRubyText)
+                        {
+                            rubyBaseEnd = output.Length;
+                            rubyText ??=
+                                new StringBuilder();
+                            rubyText.Clear();
+                            inRubyText = true;
+                        }
+                        index = close;
+                        continue;
+                    }
+                    if (inRubyText)
+                    {
+                        index = close;
+                        continue;
+                    }
                     StyleFlags oldStyle = activeStyle;
                     ApplyTag(
                         tag,
@@ -350,13 +419,27 @@ internal static class WebVttCueParser
                     out char decoded,
                     out int entityLength))
             {
-                output.Append(decoded);
+                if (inRubyText)
+                {
+                    rubyText!.Append(decoded);
+                }
+                else
+                {
+                    output.Append(decoded);
+                }
                 index += entityLength - 1;
                 continue;
             }
             if (current == '\r')
             {
-                output.Append('\n');
+                if (inRubyText)
+                {
+                    rubyText!.Append('\n');
+                }
+                else
+                {
+                    output.Append('\n');
+                }
                 if (index + 1 < payload.Length &&
                     payload[index + 1] == '\n')
                 {
@@ -364,7 +447,22 @@ internal static class WebVttCueParser
                 }
                 continue;
             }
-            output.Append(current);
+            if (inRubyText)
+            {
+                rubyText!.Append(current);
+            }
+            else
+            {
+                output.Append(current);
+            }
+        }
+        if (inRubyText)
+        {
+            FlushRuby(
+                rubyRuns,
+                rubyBaseStart,
+                rubyBaseEnd,
+                rubyText);
         }
         FlushRun(
             runs,
@@ -375,7 +473,10 @@ internal static class WebVttCueParser
         string text = output.ToString();
         IReadOnlyList<
             MediaPlaybackTimedTextLineDescriptor> lines =
-                BuildLines(text, runs);
+                BuildLines(
+                    text,
+                    runs,
+                    rubyRuns);
         var presentation =
             new MediaPlaybackTimedTextCuePresentation(
                 lines,
@@ -386,13 +487,12 @@ internal static class WebVttCueParser
             isRegionEligible);
     }
 
-    private static void ApplyTag(
+    private static void GetTagName(
         ReadOnlySpan<char> tag,
-        ref int boldDepth,
-        ref int italicDepth,
-        ref int underlineDepth)
+        out ReadOnlySpan<char> name,
+        out bool closing)
     {
-        bool closing =
+        closing =
             tag.Length != 0 && tag[0] == '/';
         if (closing)
         {
@@ -405,7 +505,19 @@ internal static class WebVttCueParser
         {
             nameLength++;
         }
-        ReadOnlySpan<char> name = tag[..nameLength];
+        name = tag[..nameLength];
+    }
+
+    private static void ApplyTag(
+        ReadOnlySpan<char> tag,
+        ref int boldDepth,
+        ref int italicDepth,
+        ref int underlineDepth)
+    {
+        GetTagName(
+            tag,
+            out ReadOnlySpan<char> name,
+            out bool closing);
         ref int depth = ref boldDepth;
         if (name.SequenceEqual("b"))
         {
@@ -484,6 +596,25 @@ internal static class WebVttCueParser
         runs.Add(new GlobalSubformat(start, end, style));
     }
 
+    private static void FlushRuby(
+        List<GlobalRuby> runs,
+        int start,
+        int end,
+        StringBuilder? rubyText)
+    {
+        if (end <= start ||
+            rubyText is null ||
+            rubyText.Length == 0)
+        {
+            return;
+        }
+        runs.Add(
+            new GlobalRuby(
+                start,
+                end,
+                rubyText.ToString()));
+    }
+
     private static bool TryDecodeEntity(
         ReadOnlySpan<char> source,
         out char decoded,
@@ -533,13 +664,15 @@ internal static class WebVttCueParser
     private static IReadOnlyList<
         MediaPlaybackTimedTextLineDescriptor> BuildLines(
             string text,
-            List<GlobalSubformat> runs)
+            List<GlobalSubformat> runs,
+            List<GlobalRuby> rubyRuns)
     {
         var lines =
             new List<
                 MediaPlaybackTimedTextLineDescriptor>();
         int lineStart = 0;
         int runIndex = 0;
+        int rubyRunIndex = 0;
         for (int position = 0;
              position <= text.Length;
              position++)
@@ -576,6 +709,44 @@ internal static class WebVttCueParser
                         end - start,
                         ToStyle(run.Style)));
             }
+            while (rubyRunIndex < rubyRuns.Count &&
+                   rubyRuns[rubyRunIndex].End <= lineStart)
+            {
+                rubyRunIndex++;
+            }
+            for (int index = rubyRunIndex;
+                 index < rubyRuns.Count &&
+                 rubyRuns[index].Start < lineEnd;
+                 index++)
+            {
+                GlobalRuby run = rubyRuns[index];
+                int start = Math.Max(run.Start, lineStart);
+                int end = Math.Min(run.End, lineEnd);
+                if (end <= start)
+                {
+                    continue;
+                }
+                subformats.Add(
+                    new MediaPlaybackTimedTextSubformatDescriptor(
+                        start - lineStart,
+                        end - start,
+                        new MediaPlaybackTimedTextStyle(
+                            Ruby:
+                                new
+                                    MediaPlaybackTimedTextRubyDescriptor(
+                                        run.Text))));
+            }
+            subformats.Sort(
+                static (left, right) =>
+                {
+                    int start =
+                        left.StartIndex.CompareTo(
+                            right.StartIndex);
+                    return start != 0
+                        ? start
+                        : right.Length.CompareTo(
+                            left.Length);
+                });
             lines.Add(
                 new MediaPlaybackTimedTextLineDescriptor(
                     text.Substring(
@@ -617,6 +788,11 @@ internal static class WebVttCueParser
         int Start,
         int End,
         StyleFlags Style);
+
+    private readonly record struct GlobalRuby(
+        int Start,
+        int End,
+        string Text);
 
     internal readonly record struct ParsedCue(
         string Text,
