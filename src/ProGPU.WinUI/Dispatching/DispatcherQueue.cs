@@ -665,7 +665,7 @@ public class DispatcherQueueSynchronizationContext :
 
         private SendOrPostCallback? _callback;
         private object? _state;
-        private ManualResetEventSlim? _completed;
+        private AutoResetEvent? _completed;
         private bool _isSynchronous;
 
         public ContextWorkItem(
@@ -689,22 +689,15 @@ public class DispatcherQueueSynchronizationContext :
             _isSynchronous = isSynchronous;
             if (isSynchronous)
             {
-                if (_completed is null)
-                {
-                    _completed = new ManualResetEventSlim();
-
-                    // Send must have a stable allocation profile after warmup.
-                    // Materialize the platform wait handle when the pooled item is
-                    // first prepared instead of unpredictably on a later contended
-                    // Wait call.
-                    _ = _completed.WaitHandle;
-                }
-
-                _completed.Reset();
+                // Send must have a stable allocation profile after warmup.
+                // Create the kernel-backed wait primitive with the pooled item
+                // instead of relying on ManualResetEventSlim's deferred runtime
+                // transition during a later contended wait.
+                _completed ??= new AutoResetEvent(initialState: false);
             }
         }
 
-        public void Wait() => _completed!.Wait();
+        public void Wait() => _completed!.WaitOne();
 
         public void Reset()
         {

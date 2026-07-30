@@ -241,11 +241,12 @@ records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
 entries.
 
 The macOS CI allocation gate also exposed a deferred
-`ManualResetEventSlim.WaitHandle` materialization on a later contended
-synchronous send. The pooled work item now materializes that platform wait
-handle during its first preparation, which keeps the documented warmed path at
-zero caller-thread managed allocations. Ten isolated Release-process repeats
-of the 2,000-send invariant pass.
+`ManualResetEventSlim` runtime transition on a later contended synchronous
+send. A pooled synchronous work item now creates a kernel-backed
+`AutoResetEvent` during its first preparation. Each wait consumes its signal,
+so steady-state sends avoid both reset bookkeeping and deferred wait-state
+allocation. Fifty independent Release-process runs of the 2,000-send invariant
+reported zero caller-thread managed allocations.
 
 ### Microsoft.UI.Text contract shape
 
