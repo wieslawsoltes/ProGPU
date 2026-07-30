@@ -87,10 +87,79 @@ public class DataGrid : Control
     private float _minRowHeight = 28f;
     private float _estimatedRowHeight = 40f;
     private TextWrapping _cellTextWrapping = TextWrapping.NoWrap;
+    private float _rowCornerRadius;
+    private float _rowHorizontalInset;
+    private bool _showRowGridLines = true;
+    private bool _showSelectionIndicator = true;
 
     public List<DataGridColumn> Columns { get; } = new();
 
+    public static readonly DependencyProperty SelectionBackgroundProperty =
+        DependencyProperty.Register(
+            nameof(SelectionBackground),
+            typeof(Brush),
+            typeof(DataGrid),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty SelectionForegroundProperty =
+        DependencyProperty.Register(
+            nameof(SelectionForeground),
+            typeof(Brush),
+            typeof(DataGrid),
+            new PropertyMetadata(null) { AffectsRender = true });
+
+    public static readonly DependencyProperty IsReadOnlyProperty =
+        DependencyProperty.Register(
+            nameof(IsReadOnly),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(false));
+
+    public static readonly DependencyProperty CanUserSortColumnsProperty =
+        DependencyProperty.Register(
+            nameof(CanUserSortColumns),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(true));
+
+    public static readonly DependencyProperty CanUserResizeColumnsProperty =
+        DependencyProperty.Register(
+            nameof(CanUserResizeColumns),
+            typeof(bool),
+            typeof(DataGrid),
+            new PropertyMetadata(true));
+
     public List<object> ItemsSource => _itemsSource;
+
+    public Brush? SelectionBackground
+    {
+        get => GetValue(SelectionBackgroundProperty) as Brush;
+        set => SetValue(SelectionBackgroundProperty, value);
+    }
+
+    public Brush? SelectionForeground
+    {
+        get => GetValue(SelectionForegroundProperty) as Brush;
+        set => SetValue(SelectionForegroundProperty, value);
+    }
+
+    public bool IsReadOnly
+    {
+        get => (bool)(GetValue(IsReadOnlyProperty) ?? false);
+        set => SetValue(IsReadOnlyProperty, value);
+    }
+
+    public bool CanUserSortColumns
+    {
+        get => (bool)(GetValue(CanUserSortColumnsProperty) ?? true);
+        set => SetValue(CanUserSortColumnsProperty, value);
+    }
+
+    public bool CanUserResizeColumns
+    {
+        get => (bool)(GetValue(CanUserResizeColumnsProperty) ?? true);
+        set => SetValue(CanUserResizeColumnsProperty, value);
+    }
 
     protected override void OnPropertyChanged(Microsoft.UI.Xaml.DependencyProperty dp, object? oldValue, object? newValue)
     {
@@ -117,6 +186,25 @@ public class DataGrid : Control
                 throw new ArgumentOutOfRangeException(nameof(value));
             _rowHeight = value;
             InvalidateRowMeasurements();
+            Invalidate();
+        }
+    }
+
+    public float HeaderHeight
+    {
+        get => _headerHeight;
+        set
+        {
+            if (!float.IsFinite(value) || value <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_headerHeight == value)
+            {
+                return;
+            }
+            _headerHeight = value;
+            InvalidateMeasure();
             Invalidate();
         }
     }
@@ -159,6 +247,50 @@ public class DataGrid : Control
         }
     }
 
+    public float RowCornerRadius
+    {
+        get => _rowCornerRadius;
+        set
+        {
+            if (!float.IsFinite(value) || value < 0f)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _rowCornerRadius = value;
+            Invalidate();
+        }
+    }
+
+    public float RowHorizontalInset
+    {
+        get => _rowHorizontalInset;
+        set
+        {
+            if (!float.IsFinite(value) || value < 0f)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _rowHorizontalInset = value;
+            Invalidate();
+        }
+    }
+
+    public bool ShowRowGridLines
+    {
+        get => _showRowGridLines;
+        set
+        {
+            _showRowGridLines = value;
+            Invalidate();
+        }
+    }
+
+    public bool ShowSelectionIndicator
+    {
+        get => _showSelectionIndicator;
+        set
+        {
+            _showSelectionIndicator = value;
+            Invalidate();
+        }
+    }
+
     public int SelectedIndex
     {
         get => _selectedIndex;
@@ -172,6 +304,11 @@ public class DataGrid : Control
             }
         }
     }
+
+    public object? SelectedItem =>
+        _selectedIndex >= 0 && _selectedIndex < _itemsSource.Count
+            ? _itemsSource[_selectedIndex]
+            : null;
 
     public DataGridColumn? SortingColumn
     {
@@ -207,6 +344,7 @@ public class DataGrid : Control
     public int EditingCol => _editingCol;
 
     public Func<object, string, string>? CellValueBinding { get; set; }
+    public Func<object, string, IComparable?>? CellSortValueBinding { get; set; }
 
     public event EventHandler? SelectionChanged;
 
@@ -544,9 +682,18 @@ public class DataGrid : Control
     {
         string prop = column.PropertyName;
         bool asc = column.IsAscending;
+        object? selectedItem = SelectedItem;
 
         _itemsSource.Sort((x, y) =>
         {
+            if (CellSortValueBinding != null)
+            {
+                IComparable? rawX = CellSortValueBinding(x, prop);
+                IComparable? rawY = CellSortValueBinding(y, prop);
+                int rawComparison = CompareSortValues(rawX, rawY);
+                return asc ? rawComparison : -rawComparison;
+            }
+
             string valX = GetCellValue(x, prop);
             string valY = GetCellValue(y, prop);
 
@@ -557,9 +704,42 @@ public class DataGrid : Control
             return asc ? string.Compare(valX, valY, StringComparison.Ordinal) : string.Compare(valY, valX, StringComparison.Ordinal);
         });
 
+        if (selectedItem is not null)
+        {
+            SelectedIndex = _itemsSource.FindIndex(item =>
+                ReferenceEquals(item, selectedItem));
+        }
         SortingColumn = column;
         InvalidateRowMeasurements();
         Invalidate();
+    }
+
+    private static int CompareSortValues(IComparable? left, IComparable? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left is null)
+        {
+            return -1;
+        }
+        if (right is null)
+        {
+            return 1;
+        }
+
+        try
+        {
+            return left.CompareTo(right);
+        }
+        catch (ArgumentException)
+        {
+            return string.Compare(
+                Convert.ToString(left, CultureInfo.CurrentCulture),
+                Convert.ToString(right, CultureInfo.CurrentCulture),
+                StringComparison.CurrentCultureIgnoreCase);
+        }
     }
 
     public override void OnPointerWheelChanged(PointerRoutedEventArgs e)
@@ -620,7 +800,7 @@ public class DataGrid : Control
             {
                 // First check if within 4px of any column separator for resizing
                 float runningX = Padding.Left;
-                for (int i = 0; i < Columns.Count; i++)
+                for (int i = 0; CanUserResizeColumns && i < Columns.Count; i++)
                 {
                     float separatorX = runningX + Columns[i].ActualWidth;
                     if (Math.Abs(e.Position.X - separatorX) <= 4f)
@@ -641,6 +821,10 @@ public class DataGrid : Control
                 {
                     if (e.Position.X >= runningX && e.Position.X <= runningX + col.ActualWidth)
                     {
+                        if (!CanUserSortColumns)
+                        {
+                            break;
+                        }
                         if (SortingColumn == col)
                         {
                             col.IsAscending = !col.IsAscending;
@@ -981,7 +1165,7 @@ public class DataGrid : Control
 
     private void SortColumn(int columnIndex)
     {
-        if (columnIndex < 0 || columnIndex >= Columns.Count) return;
+        if (!CanUserSortColumns || columnIndex < 0 || columnIndex >= Columns.Count) return;
         var column = Columns[columnIndex];
         if (SortingColumn == column) column.IsAscending = !column.IsAscending;
         else column.IsAscending = true;
@@ -1218,7 +1402,7 @@ public class DataGrid : Control
                 Brush? rowBg = null;
                 if (r == SelectedIndex)
                 {
-                    rowBg = ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
+                    rowBg = SelectionBackground ?? ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
                 }
                 else if (r == _hoveredRowIndex)
                 {
@@ -1229,14 +1413,25 @@ public class DataGrid : Control
                     rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
                 }
 
-                Rect rowRect = new Rect(0, rowY, Size.X, currentRowHeight);
+                Rect rowRect = new Rect(
+                    _rowHorizontalInset,
+                    rowY,
+                    Math.Max(0, Size.X - _rowHorizontalInset * 2),
+                    currentRowHeight);
                 if (rowBg != null)
                 {
-                    context.DrawRectangle(rowBg, null, rowRect);
+                    if (_rowCornerRadius > 0f)
+                    {
+                        context.DrawRoundedRectangle(rowBg, null, rowRect, _rowCornerRadius);
+                    }
+                    else
+                    {
+                        context.DrawRectangle(rowBg, null, rowRect);
+                    }
                 }
 
                 // Draw active selection vertical indicator stripe on far-left
-                if (r == SelectedIndex)
+                if (r == SelectedIndex && ShowSelectionIndicator)
                 {
                     Rect selectionStripe = LogicalToPhysical(new Rect(0f, rowY + 2f, 3f, currentRowHeight - 4f));
                     context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
@@ -1270,7 +1465,9 @@ public class DataGrid : Control
                             val,
                             activeFont,
                             FontSize,
-                            ThemeManager.GetBrush("TextPrimary"),
+                            r == SelectedIndex
+                                ? SelectionForeground ?? ThemeManager.GetBrush("TextPrimary")
+                                : ThemeManager.GetBrush("TextPrimary"),
                             new Vector2(cellTextBounds.X, cellTextY),
                             Matrix4x4.Identity,
                             cellTextBounds,
@@ -1284,7 +1481,10 @@ public class DataGrid : Control
                 }
 
                 // Draw thin grid lines
-                context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
+                if (ShowRowGridLines)
+                {
+                    context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
+                }
 
                 if (rowSizes != null && r == endRow && r + 1 < _itemsSource.Count &&
                     rowY + currentRowHeight < _headerHeight + ViewportHeight)
@@ -1331,7 +1531,33 @@ public class DataGrid : Control
     {
         if (IsEnabled)
         {
-            if (e.Key == Key.Enter)
+            int target = e.Key switch
+            {
+                Key.Down => SelectedIndex < 0
+                    ? 0
+                    : Math.Min(_itemsSource.Count - 1, SelectedIndex + 1),
+                Key.Up => SelectedIndex < 0
+                    ? _itemsSource.Count - 1
+                    : Math.Max(0, SelectedIndex - 1),
+                Key.Home => 0,
+                Key.End => _itemsSource.Count - 1,
+                Key.PageDown => Math.Min(
+                    _itemsSource.Count - 1,
+                    Math.Max(0, SelectedIndex) + VisibleKeyboardRowCount),
+                Key.PageUp => Math.Max(
+                    0,
+                    (SelectedIndex < 0 ? _itemsSource.Count - 1 : SelectedIndex) -
+                    VisibleKeyboardRowCount),
+                _ => -1
+            };
+            if (_itemsSource.Count > 0 && target >= 0)
+            {
+                SelectedIndex = target;
+                EnsureSelectedRowVisible();
+                e.Handled = true;
+                return;
+            }
+            if (!IsReadOnly && e.Key == Key.Enter)
             {
                 if (SelectedIndex >= 0 && SelectedIndex < _itemsSource.Count && _editingRow == -1)
                 {
@@ -1344,9 +1570,52 @@ public class DataGrid : Control
         base.OnKeyDown(e);
     }
 
+    private int VisibleKeyboardRowCount
+    {
+        get
+        {
+            float rowHeight = IsVariableRowHeight
+                ? Math.Max(MinRowHeight, EstimatedRowHeight)
+                : _rowHeight;
+            return Math.Max(1, (int)(Math.Max(0, ViewportHeight) / rowHeight));
+        }
+    }
+
+    private void EnsureSelectedRowVisible()
+    {
+        if (SelectedIndex < 0 || ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        float rowTop;
+        float rowHeight;
+        if (IsVariableRowHeight)
+        {
+            VariableSizeIndex sizes = EnsureRowSizeIndex();
+            rowTop = sizes.GetOffset(SelectedIndex);
+            rowHeight = sizes.GetSize(SelectedIndex);
+        }
+        else
+        {
+            rowTop = SelectedIndex * _rowHeight;
+            rowHeight = _rowHeight;
+        }
+
+        if (rowTop < ScrollOffset)
+        {
+            ScrollOffset = rowTop;
+        }
+        else if (rowTop + rowHeight > ScrollOffset + ViewportHeight)
+        {
+            ScrollOffset = rowTop + rowHeight - ViewportHeight;
+        }
+    }
+
     public void BeginEdit(int row, int col)
     {
-        if (row < 0 || row >= _itemsSource.Count || col < 0 || col >= Columns.Count)
+        if (IsReadOnly ||
+            row < 0 || row >= _itemsSource.Count || col < 0 || col >= Columns.Count)
             return;
 
         _editingRow = row;

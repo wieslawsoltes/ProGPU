@@ -144,6 +144,7 @@ public static class ThemeManager
         { "NavigationViewItemBackgroundPointerOver", new Vector4(1f, 1f, 1f, 0.05f) },
         { "TabViewItemCloseHover", new Vector4(1.0f, 0.33f, 0.33f, 1.0f) },
         { "TextOnAccent", new Vector4(1f, 1f, 1f, 1.0f) },
+        { "DialogOverlay", new Vector4(0f, 0f, 0f, 0.4f) },
         { "Transparent", new Vector4(0f, 0f, 0f, 0f) }
     };
 
@@ -177,6 +178,7 @@ public static class ThemeManager
         { "NavigationViewItemBackgroundPointerOver", new Vector4(0f, 0f, 0f, 0.05f) },
         { "TabViewItemCloseHover", new Vector4(1.0f, 0.33f, 0.33f, 1.0f) },
         { "TextOnAccent", new Vector4(1f, 1f, 1f, 1.0f) },
+        { "DialogOverlay", new Vector4(0f, 0f, 0f, 0.4f) },
         { "Transparent", new Vector4(0f, 0f, 0f, 0f) }
     };
 
@@ -212,6 +214,7 @@ public static class ThemeManager
         { "NavigationViewItemBackgroundPointerOver", new Vector4(1f, 1f, 1f, 0.05f) },
         { "TabViewItemCloseHover", new Vector4(1.0f, 0.2f, 0.2f, 1.0f) },
         { "TextOnAccent", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) },
+        { "DialogOverlay", new Vector4(0f, 0f, 0f, 0.48f) },
         { "ButtonBackgroundTop", new Vector4(0.24f, 0.24f, 0.25f, 1.0f) },
         { "ButtonBackgroundBottom", new Vector4(0.21f, 0.21f, 0.22f, 1.0f) },
         { "ButtonBackgroundTopPointerOver", new Vector4(0.29f, 0.29f, 0.30f, 1.0f) },
@@ -273,6 +276,7 @@ public static class ThemeManager
         { "NavigationViewItemBackgroundPointerOver", new Vector4(0f, 0f, 0f, 0.04f) },
         { "TabViewItemCloseHover", new Vector4(0.95f, 0.2f, 0.2f, 1.0f) },
         { "TextOnAccent", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) },
+        { "DialogOverlay", new Vector4(0f, 0f, 0f, 0.4f) },
         { "ButtonBackgroundTop", new Vector4(0.92f, 0.92f, 0.93f, 1.0f) },
         { "ButtonBackgroundBottom", new Vector4(0.89f, 0.89f, 0.90f, 1.0f) },
         { "ButtonBackgroundTopPointerOver", new Vector4(0.83f, 0.83f, 0.85f, 1.0f) },
@@ -309,6 +313,8 @@ public static class ThemeManager
         { "ItemsControlBackgroundPressed", "Transparent" },
         { "ItemsControlBackgroundFocused", "Transparent" },
         { "ItemsControlBackgroundDisabled", "Transparent" },
+        { "SelectorBarItemBackgroundSelected", "ControlBackgroundPressed" },
+        { "SelectorBarItemBackgroundPointerOver", "ControlBackgroundHover" },
 
         { "ListBoxBackground", "Transparent" },
         { "ListBoxBackgroundPointerOver", "Transparent" },

@@ -944,6 +944,203 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void SelectorBarSynchronizesWinUiSelectedItemAndItemState()
+    {
+        var selectorBar = new SelectorBar();
+        var cpu = new SelectorBarItem { Text = "CPU" };
+        var memory = new SelectorBarItem { Text = "Memory" };
+        int changes = 0;
+        selectorBar.SelectionChanged += (_, _) => changes++;
+        selectorBar.Items.Add(cpu);
+        selectorBar.Items.Add(memory);
+
+        selectorBar.SelectedItem = cpu;
+
+        Assert.True(cpu.IsSelected);
+        Assert.False(memory.IsSelected);
+        Assert.Equal(1, changes);
+
+        memory.IsSelected = true;
+
+        Assert.Same(memory, selectorBar.SelectedItem);
+        Assert.False(cpu.IsSelected);
+        Assert.Equal(2, changes);
+
+        selectorBar.Items.Remove(memory);
+
+        Assert.Null(selectorBar.SelectedItem);
+        Assert.Throws<ArgumentException>(
+            () => selectorBar.SelectedItem = new SelectorBarItem());
+    }
+
+    [Fact]
+    public void SelectorBarPreservesUnequalItemWidthsDuringArrangement()
+    {
+        var selectorBar = new SelectorBar();
+        var shortItem = new SelectorBarItem { Text = "Memory", MinWidth = 100 };
+        var longItem = new SelectorBarItem { Text = "Open Files and Ports", MinWidth = 200 };
+        selectorBar.Items.Add(shortItem);
+        selectorBar.Items.Add(longItem);
+
+        selectorBar.Measure(new Vector2(500, 48));
+        selectorBar.Arrange(new ProGPU.Scene.Rect(0, 0, 500, 48));
+
+        Assert.True(longItem.Size.X > shortItem.Size.X);
+        Assert.True(shortItem.Size.X + longItem.Size.X > 400);
+    }
+
+    [Fact]
+    public void SelectorBarClearDetachesItemsAndKeyboardSkipsNonSelectableItems()
+    {
+        var selectorBar = new SelectorBar();
+        var first = new SelectorBarItem { Text = "First" };
+        var blocked = new SelectorBarItem
+        {
+            Text = "Blocked",
+            CanUserSelect = ItemContainerUserSelectMode.UserCannotSelect
+        };
+        var third = new SelectorBarItem { Text = "Third" };
+        selectorBar.Items.Add(first);
+        selectorBar.Items.Add(blocked);
+        selectorBar.Items.Add(third);
+        selectorBar.SelectedItem = first;
+
+        selectorBar.OnKeyDown(new KeyRoutedEventArgs
+        {
+            Key = Silk.NET.Input.Key.Right
+        });
+
+        Assert.Same(third, selectorBar.SelectedItem);
+        selectorBar.Items.Clear();
+        Assert.Null(selectorBar.SelectedItem);
+        Assert.Null(first.Parent);
+        Assert.Null(blocked.Parent);
+        Assert.Null(third.Parent);
+    }
+
+    [Fact]
+    public void SparklineKeepsAConfiguredBoundedHistory()
+    {
+        var sparkline = new Sparkline { Capacity = 3 };
+
+        sparkline.Append(1);
+        sparkline.Append(2);
+        sparkline.Append(3);
+        sparkline.Append(4);
+
+        Assert.Equal(3, sparkline.ValueCount);
+        sparkline.Clear();
+        Assert.Equal(0, sparkline.ValueCount);
+    }
+
+    [Fact]
+    public void DataGridReadOnlyAndUserColumnContractsMatchToolkitSurface()
+    {
+        var dataGrid = new DataGrid
+        {
+            IsReadOnly = true,
+            CanUserSortColumns = false,
+            CanUserResizeColumns = false
+        };
+        dataGrid.AddItem("row");
+        dataGrid.SelectedIndex = 0;
+
+        Assert.True(dataGrid.IsReadOnly);
+        Assert.False(dataGrid.CanUserSortColumns);
+        Assert.False(dataGrid.CanUserResizeColumns);
+        Assert.Equal("row", dataGrid.SelectedItem);
+    }
+
+    [Fact]
+    public void DataGridSortPreservesSelectedItemIdentity()
+    {
+        var high = Tuple.Create(2, "high");
+        var low = Tuple.Create(1, "low");
+        var column = new DataGridColumn("Value", 100, "Value")
+        {
+            IsAscending = true
+        };
+        var dataGrid = new DataGrid
+        {
+            CellSortValueBinding = (item, _) => ((Tuple<int, string>)item).Item1
+        };
+        dataGrid.Columns.Add(column);
+        dataGrid.ItemsSource.Add(high);
+        dataGrid.ItemsSource.Add(low);
+        dataGrid.SelectedIndex = 0;
+
+        dataGrid.SortItems(column);
+
+        Assert.Same(high, dataGrid.SelectedItem);
+        Assert.Equal(1, dataGrid.SelectedIndex);
+    }
+
+    [Fact]
+    public void DataGridKeyboardNavigationSelectsRowsWithoutPointerInput()
+    {
+        var dataGrid = new DataGrid { IsReadOnly = true };
+        dataGrid.ItemsSource.AddRange(["first", "second", "third"]);
+
+        var down = new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Down };
+        dataGrid.OnKeyDown(down);
+        Assert.True(down.Handled);
+        Assert.Equal("first", dataGrid.SelectedItem);
+
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Down });
+        Assert.Equal("second", dataGrid.SelectedItem);
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.End });
+        Assert.Equal("third", dataGrid.SelectedItem);
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Home });
+        Assert.Equal("first", dataGrid.SelectedItem);
+    }
+
+    [Fact]
+    public void MenuFlyoutPublishesWinUiRadioAndSubmenuContracts()
+    {
+        var radio = new RadioMenuFlyoutItem
+        {
+            Text = "All Processes",
+            GroupName = "Scope",
+            IsChecked = true
+        };
+        var submenu = new MenuFlyoutSubItem
+        {
+            Text = "Update Frequency",
+            AreCheckStatesEnabled = true
+        };
+        submenu.Items.Add(new RadioMenuFlyoutItem
+        {
+            Text = "Normally (5 sec)",
+            GroupName = "Frequency",
+            IsChecked = true
+        });
+
+        radio.Measure(new Vector2(300, 100));
+
+        Assert.True(radio.IsChecked);
+        Assert.Equal("Scope", radio.GroupName);
+        Assert.True(radio.DesiredSize.X >= 210);
+        Assert.True(submenu.AreCheckStatesEnabled);
+        Assert.IsType<RadioMenuFlyoutItem>(Assert.Single(submenu.Items));
+    }
+
+    [Fact]
+    public void ContentDialogUsesWinUiButtonDefaultsAndFullSizeContract()
+    {
+        var dialog = new ContentDialog
+        {
+            PrimaryButtonText = "Quit",
+            SecondaryButtonText = "Force Quit",
+            FullSizeDesired = true
+        };
+
+        Assert.Equal(string.Empty, dialog.CloseButtonText);
+        Assert.Equal("Quit", dialog.PrimaryButtonText);
+        Assert.Equal("Force Quit", dialog.SecondaryButtonText);
+        Assert.True(dialog.FullSizeDesired);
+    }
+
+    [Fact]
     public void RangeControlsShareCanonicalDoubleRangeContract()
     {
         Assert.Equal(typeof(RangeBase), typeof(Slider).BaseType);
