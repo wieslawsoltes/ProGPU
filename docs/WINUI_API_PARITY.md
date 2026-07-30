@@ -79,8 +79,10 @@ baseline recorded 7,012 ProGPU entries, 3,016 exact matches, and 13,605 missing
 entries. With `Microsoft.UI.System` complete, the current baseline records
 7,018 ProGPU entries, 3,022 exact matches, and 13,599 missing entries. With
 `Microsoft.UI.Dispatching` complete, the current baseline records 7,076 ProGPU
-entries, 3,080 exact matches, and 13,541 missing entries, with the same 3,996
-ProGPU-only entries. These are
+entries, 3,080 exact matches, and 13,541 missing entries. With the remaining
+root color-display-name declaration complete, the current baseline records
+7,077 ProGPU entries, 3,081 exact matches, and 13,540 missing entries, with the
+same 3,996 ProGPU-only entries. These are
 declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
@@ -97,6 +99,7 @@ Primary contracts consulted:
 - [native GetWindowIdFromWindow contract](https://learn.microsoft.com/windows/windows-app-sdk/api/win32/microsoft.ui.interop/nf-microsoft-ui-interop-getwindowidfromwindow)
 - [IClosableNotifier](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.iclosablenotifier)
 - [ColorHelper](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.colorhelper)
+- [ColorHelper.ToDisplayName](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.colorhelper.todisplayname)
 
 Adopted: the official mutable 64-bit identifier value layout, value
 equality/hash/operator behavior, the six typed handle/identifier conversions,
@@ -104,12 +107,18 @@ the parameterless close notification delegate, the `IsClosed` contract, and
 the required `FrameworkClosed`-before-`Closed` notification order. The
 identifier and handle conversions are fixed `O(1)` value operations with no
 managed allocation. `ColorHelper.FromArgb` delegates to the shared WinRT color
-value implementation and is fixed `O(1)`.
+value implementation and is fixed `O(1)`. `ColorHelper.ToDisplayName` delegates
+to the typed, culture-aware `IColorDisplayNameProvider`; a valid localized name
+is returned unchanged, while an unavailable or invalid provider result fails
+explicitly with `PlatformNotSupportedException`. Provider lookup and dispatch
+are fixed `O(1)`; the provider owns localization cost.
 
-Deferred rather than stubbed: localized `ColorHelper.ToDisplayName` and OS
-validation/error translation for invalid native handles. Their declaration or
-behavioral gaps remain visible until their documented behavior can be
-implemented and tested. No Microsoft source or method body was inspected.
+Deferred platform integration: each native host still needs to connect its
+localized color-name service, and Windows hosts still need OS validation/error
+translation for invalid native handles. Missing localized service behavior is
+explicit rather than an invented English approximation. The declaration report
+now records the root `Microsoft.UI` namespace as 193/193 exact with no missing
+or extra entries. No Microsoft source or method body was inspected.
 
 ### Microsoft.UI predefined colors
 

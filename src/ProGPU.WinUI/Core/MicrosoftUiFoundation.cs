@@ -1,4 +1,7 @@
 using System;
+using System.Globalization;
+using Microsoft.UI.Xaml;
+using ProGPU.WinUI.Platform;
 using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI;
@@ -29,6 +32,24 @@ public sealed class ColorHelper
         byte g,
         byte b) =>
         Windows.UI.Color.FromArgb(a, r, g, b);
+
+    public static string ToDisplayName(
+        Windows.UI.Color color)
+    {
+        if (XamlPlatformResources.Provider is
+                IColorDisplayNameProvider provider &&
+            provider.TryGetColorDisplayName(
+                color,
+                CultureInfo.CurrentUICulture,
+                out string displayName) &&
+            !string.IsNullOrWhiteSpace(displayName))
+        {
+            return displayName;
+        }
+
+        throw new PlatformNotSupportedException(
+            "The current ProGPU host does not provide localized color display names.");
+    }
 }
 
 [ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]

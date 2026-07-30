@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.System;
 using Microsoft.UI.Xaml;
 using ProGPU.WinUI.Platform;
+using System.Globalization;
 using System.Reflection;
 using Windows.Foundation.Metadata;
 using Xunit;
@@ -66,6 +67,48 @@ public sealed class MicrosoftUiFoundationTests
         Assert.Equal(0x22, color.R);
         Assert.Equal(0x33, color.G);
         Assert.Equal(0x44, color.B);
+    }
+
+    [Fact]
+    public void ColorHelperUsesTypedLocalizedDisplayNameProvider()
+    {
+        var previousProvider = XamlPlatformResources.Provider;
+        var provider = new TestHighContrastProvider();
+        try
+        {
+            XamlPlatformResources.Provider = provider;
+            Windows.UI.Color color =
+                ColorHelper.FromArgb(0xFF, 0x64, 0x95, 0xED);
+
+            Assert.Equal(
+                "Localized Cornflower",
+                ColorHelper.ToDisplayName(color));
+            Assert.Equal(color, provider.DisplayNameColor);
+            Assert.Equal(
+                CultureInfo.CurrentUICulture,
+                provider.DisplayNameCulture);
+        }
+        finally
+        {
+            XamlPlatformResources.Provider = previousProvider;
+        }
+    }
+
+    [Fact]
+    public void ColorHelperFailsExplicitlyWithoutDisplayNameProvider()
+    {
+        var previousProvider = XamlPlatformResources.Provider;
+        try
+        {
+            XamlPlatformResources.Provider = null;
+
+            Assert.Throws<PlatformNotSupportedException>(
+                () => ColorHelper.ToDisplayName(Colors.Red));
+        }
+        finally
+        {
+            XamlPlatformResources.Provider = previousProvider;
+        }
     }
 
     [Fact]
@@ -279,7 +322,8 @@ public sealed class MicrosoftUiFoundationTests
 
     private sealed class TestHighContrastProvider :
         IXamlPlatformResourceProvider,
-        IHighContrastSchemeProvider
+        IHighContrastSchemeProvider,
+        IColorDisplayNameProvider
     {
         public bool IsHighContrast { get; private set; }
 
@@ -287,6 +331,10 @@ public sealed class MicrosoftUiFoundationTests
             string.Empty;
 
         public event EventHandler? ResourcesChanged;
+
+        public Windows.UI.Color DisplayNameColor { get; private set; }
+
+        public CultureInfo? DisplayNameCulture { get; private set; }
 
         public void Publish(bool highContrast, string scheme)
         {
@@ -302,6 +350,17 @@ public sealed class MicrosoftUiFoundationTests
         {
             value = null;
             return false;
+        }
+
+        public bool TryGetColorDisplayName(
+            Windows.UI.Color color,
+            CultureInfo culture,
+            out string displayName)
+        {
+            DisplayNameColor = color;
+            DisplayNameCulture = culture;
+            displayName = "Localized Cornflower";
+            return true;
         }
     }
 
