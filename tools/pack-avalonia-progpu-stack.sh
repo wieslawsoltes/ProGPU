@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
 package_output="${PROGPU_AVALONIA_REPLACEMENT_OUTPUT:-${repo_root}/artifacts/avalonia-replacement}"
-runtime_version="${PROGPU_RUNTIME_PACKAGE_VERSION:-0.1.0-preview.29}"
+runtime_version="${PROGPU_RUNTIME_PACKAGE_VERSION:-0.1.0-preview.30}"
 
 PROGPU_AVALONIA_REPLACEMENT_OUTPUT="${package_output}" \
 PROGPU_AVALONIA_ROOT="${avalonia_root}" \
