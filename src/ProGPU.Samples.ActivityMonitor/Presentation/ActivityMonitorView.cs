@@ -67,6 +67,7 @@ internal sealed class ActivityMonitorView : Grid
     private ActivityCategory _category;
     private ActivityProcessScope _processScope = ActivityProcessScope.AllProcesses;
     private int? _selectedProcessId;
+    private DateTimeOffset? _selectedProcessStartTime;
     private SystemSnapshot? _previousSystem;
     private DateTimeOffset? _previousCapturedAt;
     private long _diskReadRate;
@@ -132,7 +133,9 @@ internal sealed class ActivityMonitorView : Grid
         };
         _dataGrid.SelectionChanged += (_, _) =>
         {
-            _selectedProcessId = SelectedProcess?.ProcessId;
+            ProcessSnapshot? selectedProcess = SelectedProcess;
+            _selectedProcessId = selectedProcess?.ProcessId;
+            _selectedProcessStartTime = selectedProcess?.StartTime;
             UpdateSelectionCommands();
             SelectionChanged?.Invoke(this, EventArgs.Empty);
         };
@@ -218,6 +221,14 @@ internal sealed class ActivityMonitorView : Grid
         }
         UpdateSubtitle();
         RefreshVisibleRows();
+    }
+
+    internal bool SelectVisibleProcess(int processId)
+    {
+        int index = _dataGrid.ItemsSource.FindIndex(
+            item => item is ProcessSnapshot process && process.ProcessId == processId);
+        _dataGrid.SelectedIndex = index;
+        return index >= 0;
     }
 
     internal void SetSearchText(string text)
@@ -645,7 +656,23 @@ internal sealed class ActivityMonitorView : Grid
             return;
         }
 
-        int? selectedId = SelectedProcess?.ProcessId ?? _selectedProcessId;
+        ProcessSnapshot? selectedProcess = SelectedProcess;
+        int? selectedId = selectedProcess?.ProcessId ?? _selectedProcessId;
+        DateTimeOffset? selectedStartTime =
+            selectedProcess?.StartTime ?? _selectedProcessStartTime;
+        bool selectionIdentityExists =
+            selectedId.HasValue &&
+            _snapshot.Processes.Any(process =>
+                ReferenceEquals(process, selectedProcess) ||
+                HasStableProcessIdentity(process, selectedId.Value, selectedStartTime));
+        bool selectionWasRemoved = selectedId.HasValue && !selectionIdentityExists;
+        if (selectionWasRemoved)
+        {
+            selectedId = null;
+            selectedStartTime = null;
+            _selectedProcessId = null;
+            _selectedProcessStartTime = null;
+        }
         string query = _search.Text.Trim();
         IEnumerable<ProcessSnapshot> filtered = _snapshot.Processes;
         string currentUser = Environment.UserName;
@@ -668,8 +695,15 @@ internal sealed class ActivityMonitorView : Grid
                 process.GpuTime.GetValueOrDefault() > TimeSpan.Zero),
             ActivityProcessScope.Applications =>
                 filtered.Where(process => process.IsApplication),
-            ActivityProcessScope.SelectedProcesses when selectedId.HasValue =>
-                filtered.Where(process => process.ProcessId == selectedId.Value),
+            ActivityProcessScope.SelectedProcesses =>
+                selectedId.HasValue
+                    ? filtered.Where(process =>
+                        ReferenceEquals(process, selectedProcess) ||
+                        HasStableProcessIdentity(
+                            process,
+                            selectedId.Value,
+                            selectedStartTime))
+                    : Enumerable.Empty<ProcessSnapshot>(),
             _ => filtered
         };
         if (query.Length > 0)
@@ -718,11 +752,30 @@ internal sealed class ActivityMonitorView : Grid
         if (selectedId.HasValue)
         {
             _dataGrid.SelectedIndex = _dataGrid.ItemsSource.FindIndex(
-                item => item is ProcessSnapshot process && process.ProcessId == selectedId.Value);
+                item =>
+                    item is ProcessSnapshot process &&
+                    (ReferenceEquals(process, selectedProcess) ||
+                     HasStableProcessIdentity(
+                         process,
+                         selectedId.Value,
+                         selectedStartTime)));
+        }
+        else if (selectionWasRemoved)
+        {
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
         UpdateSelectionCommands();
         _dataGrid.Invalidate();
     }
+
+    private static bool HasStableProcessIdentity(
+        ProcessSnapshot process,
+        int processId,
+        DateTimeOffset? startTime) =>
+        process.ProcessId == processId &&
+        startTime.HasValue &&
+        process.StartTime.HasValue &&
+        process.StartTime.Value.Equals(startTime.Value);
 
     private IReadOnlyList<ProcessSnapshot> ArrangeHierarchically(
         IEnumerable<ProcessSnapshot> processes)

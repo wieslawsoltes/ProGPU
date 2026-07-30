@@ -144,17 +144,13 @@ public class CommandBar : AppBar
 
     private void ApplyLabelPosition(ICommandBarElement command)
     {
-        CommandBarLabelPosition position = DefaultLabelPosition ==
-            CommandBarDefaultLabelPosition.Collapsed
-                ? CommandBarLabelPosition.Collapsed
-                : CommandBarLabelPosition.Default;
         if (command is AppBarButton button)
         {
-            button.LabelPosition = position;
+            button.OwningCommandBarLabelPosition = DefaultLabelPosition;
         }
         else if (command is AppBarToggleButton toggleButton)
         {
-            toggleButton.LabelPosition = position;
+            toggleButton.OwningCommandBarLabelPosition = DefaultLabelPosition;
         }
     }
 

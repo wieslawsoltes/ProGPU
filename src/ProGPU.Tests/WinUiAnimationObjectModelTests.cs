@@ -944,6 +944,39 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void CommandBarDefaultLabelPositionPreservesCommandOverrides()
+    {
+        var commandBar = new CommandBar
+        {
+            DefaultLabelPosition = CommandBarDefaultLabelPosition.Bottom
+        };
+        var hidden = new AppBarButton
+        {
+            Label = "Hidden",
+            LabelPosition = CommandBarLabelPosition.Collapsed
+        };
+        var inherited = new AppBarToggleButton
+        {
+            Label = "Inherited",
+            LabelPosition = CommandBarLabelPosition.Default
+        };
+        commandBar.PrimaryCommands.Add(hidden);
+        commandBar.PrimaryCommands.Add(inherited);
+
+        Assert.Equal(CommandBarLabelPosition.Collapsed, hidden.LabelPosition);
+        Assert.False(hidden.IsLabelVisible);
+        Assert.Equal(CommandBarLabelPosition.Default, inherited.LabelPosition);
+        Assert.True(inherited.IsLabelVisible);
+
+        commandBar.DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed;
+
+        Assert.Equal(CommandBarLabelPosition.Collapsed, hidden.LabelPosition);
+        Assert.False(hidden.IsLabelVisible);
+        Assert.Equal(CommandBarLabelPosition.Default, inherited.LabelPosition);
+        Assert.False(inherited.IsLabelVisible);
+    }
+
+    [Fact]
     public void SelectorBarSynchronizesWinUiSelectedItemAndItemState()
     {
         var selectorBar = new SelectorBar();
@@ -1122,6 +1155,25 @@ public sealed class WinUiAnimationObjectModelTests
         Assert.True(radio.DesiredSize.X >= 210);
         Assert.True(submenu.AreCheckStatesEnabled);
         Assert.IsType<RadioMenuFlyoutItem>(Assert.Single(submenu.Items));
+    }
+
+    [Fact]
+    public void MenuFlyoutLeafDismissesItsCompleteSubmenuChain()
+    {
+        var target = new Border();
+        target.Arrange(new ProGPU.Scene.Rect(0, 0, 100, 30));
+        var root = new MenuFlyout();
+        var child = new MenuFlyout { ParentFlyout = root };
+        root.ShowAt(target);
+        child.ShowAt(target);
+
+        Assert.True(root.IsOpen);
+        Assert.True(child.IsOpen);
+
+        child.HideFlyoutChain();
+
+        Assert.False(child.IsOpen);
+        Assert.False(root.IsOpen);
     }
 
     [Fact]
