@@ -156,13 +156,13 @@ internal sealed unsafe class
         RenderFrame(
             in frame,
             effectPlan,
-            Array.Empty<LinuxMediaColorOverlayPlan>(),
+            Array.Empty<LinuxMediaOverlayPlan>(),
             compositionTicks: 0);
 
     internal byte[] RenderFrame(
         in V4l2DecodedFrame frame,
         LinuxGpuVideoEffectPlan effectPlan,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         long compositionTicks)
     {
@@ -218,7 +218,7 @@ internal sealed unsafe class
 
     internal byte[] RenderSnapshot(
         int slot,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         long compositionTicks)
     {
@@ -250,13 +250,13 @@ internal sealed unsafe class
         RenderColor(
             argbColor,
             effectPlan,
-            Array.Empty<LinuxMediaColorOverlayPlan>(),
+            Array.Empty<LinuxMediaOverlayPlan>(),
             compositionTicks: 0);
 
     internal byte[] RenderColor(
         uint argbColor,
         LinuxGpuVideoEffectPlan effectPlan,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         long compositionTicks)
     {
@@ -485,7 +485,7 @@ internal sealed unsafe class
     }
 
     private void CompositeOverlays(
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         long compositionTicks)
     {
@@ -494,11 +494,16 @@ internal sealed unsafe class
              index < overlays.Count;
              index++)
         {
-            LinuxMediaColorOverlayPlan plan =
+            LinuxMediaOverlayPlan plan =
                 overlays[index];
             if (!plan.IsActive(compositionTicks))
             {
                 continue;
+            }
+            if (plan.ArgbColor is not uint color)
+            {
+                throw new InvalidDataException(
+                    "The thumbnail renderer accepts only color overlays.");
             }
             if (overlaySource is null)
             {
@@ -508,7 +513,7 @@ internal sealed unsafe class
             GpuTextureClearer.Clear(
                 overlaySource,
                 ApplyEffects(
-                    plan.ArgbColor,
+                    color,
                     GpuTextureColorTransform
                         .Identity));
             _layerCompositor!.Composite(

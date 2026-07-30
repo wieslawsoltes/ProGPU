@@ -5,43 +5,61 @@ using ProGPU.Media.Effects;
 namespace ProGPU.Linux.Media;
 
 /// <summary>
-/// Immutable execution interval for one standard WinUI solid-color overlay.
-/// Array order is the declared layer/overlay back-to-front order.
+/// Immutable execution interval for one standard WinUI URI or solid-color
+/// overlay. Array order is the declared layer/overlay back-to-front order.
 /// </summary>
-internal readonly record struct LinuxMediaColorOverlayPlan(
-    uint ArgbColor,
+internal readonly record struct LinuxMediaOverlayPlan(
+    Uri? SourceUri,
+    uint? ArgbColor,
+    long SourceStartTicks,
+    long SourceEndTrimTicks,
     long StartTicks,
     long EndTicks,
     GpuTextureLayerPlacement Placement,
     LinuxGpuVideoEffectPlan EffectPlan)
 {
+    internal bool IsUri => SourceUri is not null;
+
     internal bool IsActive(long compositionTicks) =>
         compositionTicks >= StartTicks &&
         compositionTicks < EndTicks &&
         Placement.Opacity > 0f;
+
+    internal long GetSourceTicks(
+        long compositionTicks)
+    {
+        if (!IsActive(compositionTicks))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(compositionTicks));
+        }
+        return checked(
+            SourceStartTicks +
+            compositionTicks -
+            StartTicks);
+    }
 }
 
 /// <summary>
 /// Clean-room capture of the standard WinUI delay, position, opacity, effect,
-/// and declared z-order contracts for Linux solid-color overlays.
+/// source, trim, and declared z-order contracts for Linux overlays.
 /// </summary>
 /// <remarks>
 /// Capture is O(O) time and storage for O overlays. Per-frame resolution is
-/// O(O), allocation-free, and uses half-open composition intervals. URI
-/// overlays and custom compositor definitions are rejected until the Linux
-/// lane owns their retained decoder state.
+/// O(O), allocation-free, and uses half-open composition intervals. Only
+/// local URI sources are accepted. Custom compositor definitions are rejected.
 /// </remarks>
-internal static class LinuxMediaColorOverlayPlanner
+internal static class LinuxMediaOverlayPlanner
 {
     internal static bool TryCapture(
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects,
-        out LinuxMediaColorOverlayPlan[] plans)
+        out LinuxMediaOverlayPlan[] plans)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(effects);
         var captured =
-            new List<LinuxMediaColorOverlayPlan>();
+            new List<LinuxMediaOverlayPlan>();
         try
         {
             for (int layerIndex = 0;
@@ -66,8 +84,21 @@ internal static class LinuxMediaColorOverlayPlanner
                         layer.Overlays[overlayIndex];
                     MediaCompositionExportClip clip =
                         overlay.Clip;
-                    if (clip.SourceUri is not null ||
-                        clip.ArgbColor is not uint color ||
+                    Uri? sourceUri =
+                        clip.SourceUri;
+                    uint? color =
+                        clip.ArgbColor;
+                    bool hasUri =
+                        sourceUri is { IsFile: true };
+                    bool hasColor =
+                        color.HasValue;
+                    if (hasUri == hasColor ||
+                        sourceUri is not null &&
+                            !hasUri ||
+                        hasUri &&
+                            (overlay.AudioEnabled ||
+                             clip.AudioEffectDefinitions
+                                 .Count != 0) ||
                         overlay.Delay < TimeSpan.Zero ||
                         clip.OriginalDuration <=
                             TimeSpan.Zero ||
@@ -101,8 +132,13 @@ internal static class LinuxMediaColorOverlayPlanner
                             clip.TrimTimeFromEnd.Ticks);
                     long start = overlay.Delay.Ticks;
                     captured.Add(
-                        new LinuxMediaColorOverlayPlan(
+                        new LinuxMediaOverlayPlan(
+                            sourceUri,
                             color,
+                            clip.TrimTimeFromStart
+                                .Ticks,
+                            clip.TrimTimeFromEnd
+                                .Ticks,
                             start,
                             checked(start + duration),
                             placement,

@@ -146,13 +146,22 @@ public sealed class
         {
             return false;
         }
-        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+        if (!LinuxMediaOverlayPlanner.TryCapture(
                 composition,
                 effects ?? MediaEffectRegistry.Default,
-                out LinuxMediaColorOverlayPlan[]
+                out LinuxMediaOverlayPlan[]
                     overlays))
         {
             return false;
+        }
+        for (int index = 0;
+             index < overlays.Length;
+             index++)
+        {
+            if (overlays[index].IsUri)
+            {
+                return false;
+            }
         }
 
         for (int index = 0;
@@ -197,14 +206,24 @@ public sealed class
         MediaCompositionThumbnailRequest request,
         CancellationToken cancellationToken)
     {
-        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+        if (!LinuxMediaOverlayPlanner.TryCapture(
                 request.Composition,
                 _effects,
-                out LinuxMediaColorOverlayPlan[]
+                out LinuxMediaOverlayPlan[]
                     overlays))
         {
             throw new InvalidDataException(
                 "The Linux thumbnail overlay plan is invalid.");
+        }
+        for (int index = 0;
+             index < overlays.Length;
+             index++)
+        {
+            if (overlays[index].IsUri)
+            {
+                throw new InvalidDataException(
+                    "Linux URI-overlay thumbnails are not implemented.");
+            }
         }
         if (!LinuxV4l2PreciseMediaCompositionExportProvider
                 .TryGetActiveVulkanDawnContext(
@@ -334,7 +353,7 @@ public sealed class
         int clipIndex,
         List<ThumbnailWorkItem> work,
         LinuxWebGpuCompositionThumbnailRenderer renderer,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         MediaCompositionThumbnail?[] results,
         CancellationToken cancellationToken)
@@ -644,7 +663,7 @@ public sealed class
             LinuxWebGpuCompositionThumbnailRenderer renderer,
             MediaCompositionExportClip clip,
             MediaEffectRegistry effects,
-            IReadOnlyList<LinuxMediaColorOverlayPlan>
+            IReadOnlyList<LinuxMediaOverlayPlan>
                 overlays,
             long compositionTicks)
         {

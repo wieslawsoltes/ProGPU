@@ -206,14 +206,20 @@ public sealed class
                 scaling;
         }
 
-        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+        if (!LinuxMediaOverlayPlanner.TryCapture(
                 request,
                 effectRegistry ??
                     MediaEffectRegistry.Default,
-                out LinuxMediaColorOverlayPlan[]
+                out LinuxMediaOverlayPlan[]
                     overlays))
         {
             return false;
+        }
+        for (int index = 0;
+             index < overlays.Length;
+             index++)
+        {
+            hasUriClip |= overlays[index].IsUri;
         }
         requiresGpu |= overlays.Length != 0;
 
@@ -274,11 +280,11 @@ public sealed class
                         effectPlan) &&
                 !effectPlan.IsIdentity;
         }
-        if (LinuxMediaColorOverlayPlanner.TryCapture(
+        if (LinuxMediaOverlayPlanner.TryCapture(
                 request,
                 effectRegistry ??
                     MediaEffectRegistry.Default,
-                out LinuxMediaColorOverlayPlan[]
+                out LinuxMediaOverlayPlan[]
                     overlays))
         {
             for (int index = 0;
@@ -319,11 +325,13 @@ public sealed class
                 "zero-copy WebGPU lane. A single native-size identity URI " +
                 "clip retains direct " +
                 "decoder-to-encoder DMA-BUF transfer; ordered timelines " +
-                "and standard positioned/opacity solid-color overlays use " +
-                "retained WebGPU passes in declared order. Matching selected AAC " +
+                "and standard positioned/opacity URI or color overlays use " +
+                "bounded V4L2 decoders and retained WebGPU passes in " +
+                "declared order. Matching selected AAC " +
                 "tracks remain compressed; edit lists retain exact trims " +
                 "and silent source/color spans. Audio gain/effects, " +
-                "background audio, URI overlays, and custom compositors are " +
+                "background audio, audible overlay audio, and custom " +
+                "compositors are " +
                 "not yet accepted.");
     }
 
@@ -414,10 +422,10 @@ public sealed class
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+        if (!LinuxMediaOverlayPlanner.TryCapture(
                 request,
                 _effects,
-                out LinuxMediaColorOverlayPlan[]
+                out LinuxMediaOverlayPlan[]
                     overlays))
         {
             throw new InvalidDataException(
@@ -893,7 +901,7 @@ public sealed class
     private void TranscodeTimeline(
         MediaCompositionExportRequest request,
         DawnGpuContext dawn,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
+        IReadOnlyList<LinuxMediaOverlayPlan>
             overlays,
         IsoBmffCompositionTrack? audioTrack,
         string spoolPath,
@@ -928,6 +936,11 @@ public sealed class
 
         using (frameSink)
         {
+            using var overlayRuntime =
+                new LinuxMediaOverlayRuntime(
+                    overlays,
+                    _capabilities.VideoDecoders,
+                    frameSink.Context);
             TimeSpan timelineOffset =
                 TimeSpan.Zero;
             for (int clipIndex = 0;
@@ -962,7 +975,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
-                        overlays,
+                        overlayRuntime,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -977,7 +990,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
-                        overlays,
+                        overlayRuntime,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -1017,8 +1030,7 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
-            overlays,
+        LinuxMediaOverlayRuntime overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -1034,6 +1046,9 @@ public sealed class
                     checked(
                         timelineOffset.Ticks +
                         frameOffset));
+            overlays.Prepare(
+                presentationTime.Ticks,
+                cancellationToken);
             if (frameSink.TryProcessColorFrame(
                     argbColor,
                     presentationTime,
@@ -1074,8 +1089,7 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
-        IReadOnlyList<LinuxMediaColorOverlayPlan>
-            overlays,
+        LinuxMediaOverlayRuntime overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -1208,6 +1222,9 @@ public sealed class
                             pendingFrame
                                 .PresentationTime,
                             trimStart);
+                    overlays.Prepare(
+                        outputTime.Ticks,
+                        cancellationToken);
                     try
                     {
                         if (frameSink.TryProcessFrame(
