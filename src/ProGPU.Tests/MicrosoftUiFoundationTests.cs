@@ -1,4 +1,5 @@
 using Microsoft.UI;
+using System.Reflection;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -63,6 +64,81 @@ public sealed class MicrosoftUiFoundationTests
     }
 
     [Fact]
+    public void ColorsExposeTheOfficialStaticPropertyShape()
+    {
+        var properties = typeof(Colors).GetProperties(
+            BindingFlags.Public | BindingFlags.Static);
+
+        Assert.Equal(141, properties.Length);
+        Assert.All(
+            properties,
+            property =>
+            {
+                Assert.Equal(typeof(Windows.UI.Color), property.PropertyType);
+                Assert.NotNull(property.GetMethod);
+                Assert.True(property.GetMethod.IsStatic);
+                Assert.Null(property.SetMethod);
+            });
+        Assert.Empty(typeof(Colors).GetConstructors());
+
+        ulong fingerprint = 14695981039346656037UL;
+        foreach (var property in properties.OrderBy(
+                     property => property.Name,
+                     StringComparer.Ordinal))
+        {
+            foreach (char character in property.Name)
+                fingerprint = HashByte(fingerprint, (byte)character);
+            fingerprint = HashByte(fingerprint, 0);
+
+            var color = Assert.IsType<Windows.UI.Color>(
+                property.GetValue(null));
+            fingerprint = HashByte(fingerprint, color.A);
+            fingerprint = HashByte(fingerprint, color.R);
+            fingerprint = HashByte(fingerprint, color.G);
+            fingerprint = HashByte(fingerprint, color.B);
+        }
+
+        Assert.Equal(0x04C213E8128032FFUL, fingerprint);
+    }
+
+    [Fact]
+    public void ColorsPreservePublishedArgbValuesAndAliases()
+    {
+        AssertColor(0xFFF0F8FFu, Colors.AliceBlue);
+        AssertColor(0xFF000000u, Colors.Black);
+        AssertColor(0xFF6495EDu, Colors.CornflowerBlue);
+        AssertColor(0xFFFFD700u, Colors.Gold);
+        AssertColor(0xFF4B0082u, Colors.Indigo);
+        AssertColor(0xFF00FF00u, Colors.Lime);
+        AssertColor(0xFFC71585u, Colors.MediumVioletRed);
+        AssertColor(0xFFFFDAB9u, Colors.PeachPuff);
+        AssertColor(0xFF4682B4u, Colors.SteelBlue);
+        AssertColor(0x00FFFFFFu, Colors.Transparent);
+        AssertColor(0xFFFFFFFFu, Colors.White);
+        AssertColor(0xFF9ACD32u, Colors.YellowGreen);
+        Assert.Equal(Colors.Aqua, Colors.Cyan);
+        Assert.Equal(Colors.Fuchsia, Colors.Magenta);
+    }
+
+    [Fact]
+    public void ColorsHaveAllocationFreeSteadyStateAccess()
+    {
+        _ = Colors.AliceBlue;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int channelSum = 0;
+        for (int index = 0; index < 100_000; index++)
+        {
+            var color = Colors.CornflowerBlue;
+            channelSum += color.A + color.R + color.G + color.B;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(100_000 * (0xFF + 0x64 + 0x95 + 0xED), channelSum);
+        Assert.Equal(0L, allocated);
+    }
+
+    [Fact]
     public void ClosableNotifierContractExposesApplicationAndFrameworkEvents()
     {
         var notifier = new TestClosableNotifier();
@@ -91,4 +167,15 @@ public sealed class MicrosoftUiFoundationTests
             Closed?.Invoke();
         }
     }
+
+    private static void AssertColor(uint expected, Windows.UI.Color actual)
+    {
+        Assert.Equal((byte)(expected >> 24), actual.A);
+        Assert.Equal((byte)(expected >> 16), actual.R);
+        Assert.Equal((byte)(expected >> 8), actual.G);
+        Assert.Equal((byte)expected, actual.B);
+    }
+
+    private static ulong HashByte(ulong hash, byte value) =>
+        unchecked((hash ^ value) * 1099511628211UL);
 }

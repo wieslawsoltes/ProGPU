@@ -72,11 +72,12 @@ baseline policy is reviewed.
 
 The preview.31 starting baseline recorded 16,621 official entries, 6,820 ProGPU
 entries, 2,824 exact matches, 13,797 missing entries, and 3,996 ProGPU-only
-entries. The current first implementation slice records 6,863 ProGPU entries,
-2,867 exact matches, and 13,754 missing entries, with the same 3,996
-ProGPU-only entries. These are declaration-level entries rather than type
-counts: a type, base/interface edge, member, generic constraint, constant, or
-semantic attribute is independently actionable.
+entries. After the foundation-identifier and predefined-color slices, the
+current baseline records 7,005 ProGPU entries, 3,009 exact matches, and 13,612
+missing entries, with the same 3,996 ProGPU-only entries. These are
+declaration-level entries rather than type counts: a type, base/interface edge,
+member, generic constraint, constant, or semantic attribute is independently
+actionable.
 
 ## Clean-room implementation log
 
@@ -104,6 +105,26 @@ contract-version attributes, and OS validation/error translation for invalid
 native handles. Their declaration entries remain visibly missing in the
 machine report until their documented behavior can be implemented and tested.
 No Microsoft source or method body was inspected.
+
+### Microsoft.UI predefined colors
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Colors](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.colors)
+- [CSS Color Module Level 4 named colors](https://www.w3.org/TR/css-color-4/#named-colors)
+
+Adopted: all 141 official static color properties and their published packed
+ARGB values, including the `Aqua`/`Cyan` and `Fuchsia`/`Magenta` aliases and
+WinUI's `#00FFFFFF` transparent value. Each getter decodes one compile-time
+packed integer into the shared `Windows.UI.Color` value. Access is fixed
+`O(1)`, allocation-free, culture-independent, and performs no runtime text
+parsing or lookup. Focused tests verify the complete public static property
+shape and packed-value fingerprint, representative values across the table,
+aliases, transparency, and zero managed allocations across 100,000 warmed
+accesses.
+
+Deferred rather than synthesized: the WinRT contract-version attribute remains
+visible as the one missing declaration entry for `Colors`.
 
 ## Implementation policy
 
