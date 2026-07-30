@@ -14,19 +14,37 @@
     <CodesignKey Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'"></CodesignKey>
     <MtouchLink Condition="'$(Configuration)' == 'Debug'">SdkOnly</MtouchLink>
     <MtouchLink Condition="'$(Configuration)' == 'Release'">Full</MtouchLink>
-    <UseInterpreter Condition="'$(Configuration)' == 'Debug'">true</UseInterpreter>
+    <!-- The simulator is a runtime-validation lane, so avoid the iOS SDK's
+         device-only AOT generic-instance closure there. Device Release builds
+         remain fully AOT compiled. -->
+    <UseInterpreter Condition="'$(Configuration)' == 'Debug' or '$(RuntimeIdentifier)' == 'iossimulator-arm64'">true</UseInterpreter>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
     <ProGpuWgpuNativeXCFramework Condition="'$(ProGpuWgpuNativeXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/wgpu-native-ios/wgpu_native.xcframework</ProGpuWgpuNativeXCFramework>
+    <ProGpuDawnIOSXCFramework Condition="'$(ProGpuDawnIOSXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/dawn-ios/webgpu_dawn.xcframework</ProGpuDawnIOSXCFramework>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Retain WebGPUSharp's managed ABI in the linked/AOT closure. The iOS
+         host supplies the exact Dawn ABI as an embedded framework below. -->
+    <PackageReference Include="WebGPUSharp"
+                      ExcludeAssets="native" />
     <ProjectReference Include="..\ProGPU.iOS\ProGPU.iOS.csproj" />
-    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj"
+                      AdditionalProperties="ProGpuSamplesMobile=true" />
   </ItemGroup>
   <ItemGroup Condition="Exists('$(ProGpuWgpuNativeXCFramework)')">
     <NativeReference Include="$(ProGpuWgpuNativeXCFramework)">
       <Kind>Framework</Kind>
       <ForceLoad>true</ForceLoad>
       <SmartLink>true</SmartLink>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuDawnIOSXCFramework)')">
+    <NativeReference Include="$(ProGpuDawnIOSXCFramework)">
+      <Kind>Framework</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <IsCxx>true</IsCxx>
       <Frameworks>Metal</Frameworks>
     </NativeReference>
   </ItemGroup>

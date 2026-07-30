@@ -17,7 +17,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Browser\ProGPU.Browser.csproj" />
+    <!-- Root the reusable editor in the browser host's WebAssembly AOT input set.
+         A transitive reference through ProGPU.Samples is discovered only by the
+         trimmer in Mono 10 and would otherwise ship as interpreted WebCIL. -->
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <!-- ProGPU.Media.Editing's neutral WinRT value contracts must be available
+         to mono-aot-cross while the editor assembly is precompiled. -->
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="wwwroot/main.js"

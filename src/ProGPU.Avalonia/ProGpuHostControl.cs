@@ -652,7 +652,13 @@ public class ProGpuHostControl : Control
             _contextLease = AcquireSharedContext();
             _wgpuContext = _contextLease.Context;
         }
-        if (_dawnContext == null)
+        // Dawn owns instance event processing and may retain a pending Metal
+        // command buffer between WebGPU calls. Polling it from a second
+        // thread can force Dawn to submit that buffer while its encoder is
+        // still open. The wgpu-native host still needs polling for async map
+        // completion.
+        if (_wgpuContext.BackendKind ==
+            WgpuBackendKind.SilkNative)
         {
             StartPolling();
         }

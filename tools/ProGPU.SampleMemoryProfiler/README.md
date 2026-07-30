@@ -112,7 +112,10 @@ minutes. If `xctrace` or its launched application does not terminate, the tool
 stops that exact process tree and removes the incomplete trace bundle instead
 of leaving a hung profiler, application, or unusable raw trace.
 Repeat `--env NAME=value` to configure the launched workload; the manifest
-records only environment-variable names, not their values. The command retains
+records only environment-variable names, not their values. Launch mode also
+redirects each target's standard output to `<template>-target.log` and records
+that path in the manifest, so an apparently valid trace cannot substitute for
+the expected benchmark or smoke-test result. The command retains
 the `.trace` bundles unless `--cleanup-traces` is selected. Logs, TOCs,
 exported Time Profiler samples and hang diagnostics, Metal allocation,
 command-buffer, command-buffer-error, compiler-spill, drawable-wait, and

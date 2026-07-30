@@ -7,6 +7,7 @@
     <PackageVersion Include="Avalonia" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Native" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Win32" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Controls.ColorPicker" Version="12.0.5" />

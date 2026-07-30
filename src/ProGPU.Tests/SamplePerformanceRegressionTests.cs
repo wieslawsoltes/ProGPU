@@ -6,6 +6,7 @@ using ProGPU.Backend;
 using ProGPU.Fonts.Inter;
 using ProGPU.Fonts.Noto;
 using ProGPU.Scene;
+using ProGPU.Samples;
 using ProGPU.Text;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
@@ -17,6 +18,23 @@ namespace ProGPU.Tests;
 
 public sealed class SamplePerformanceRegressionTests
 {
+    [Fact]
+    public void ProcessMemorySnapshotIsCapabilitySafe()
+    {
+        ProcessMemorySnapshot snapshot =
+            ProcessMemorySnapshot.CaptureCurrent();
+
+        Assert.True(snapshot.WorkingSetBytes >= 0);
+        Assert.True(snapshot.PeakWorkingSetBytes >= 0);
+        Assert.True(snapshot.PrivateBytes >= 0);
+        Assert.True(snapshot.VirtualBytes >= 0);
+        Assert.True(snapshot.ResidentBytes >= 0);
+        Assert.True(snapshot.WiredBytes >= 0);
+        Assert.True(snapshot.PhysicalFootprintBytes >= 0);
+        Assert.True(
+            snapshot.LifetimeMaxPhysicalFootprintBytes >= 0);
+    }
+
     [Fact]
     public void CoverageAtlasesUseCompactSingleChannelResidency()
     {

@@ -21,6 +21,7 @@ fi
 
 dotnet build "${test_project}" \
   -c Release \
+  -m:1 \
   -p:ProGpuTextShaperTests=true \
   -p:ProGpuSourceRoot="${repo_root}" \
   -p:ProGpuAvaloniaSourceRoot="${avalonia_root}"

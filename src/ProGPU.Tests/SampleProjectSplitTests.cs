@@ -13,14 +13,124 @@ public sealed class SampleProjectSplitTests
         var shared = Read("src", "ProGPU.Samples", "ProGPU.Samples.csproj");
         var desktop = Read("src", "ProGPU.Samples.Desktop", "ProGPU.Samples.Desktop.csproj");
         var browser = Read("src", "ProGPU.Samples.Browser", "ProGPU.Samples.Browser.csproj");
+        var winUi = Read("src", "ProGPU.WinUI", "ProGPU.WinUI.csproj");
 
         Assert.DoesNotContain("<OutputType>Exe</OutputType>", shared, StringComparison.Ordinal);
         Assert.DoesNotContain("<ApplicationManifest>", shared, StringComparison.Ordinal);
+        Assert.Contains("ProGPU.Media.Editing.csproj", shared, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProGPU.Media.Editing.csproj", winUi, StringComparison.Ordinal);
         Assert.Contains("ProGPU.Samples.csproj", desktop, StringComparison.Ordinal);
         Assert.Contains("<ApplicationManifest>app.manifest</ApplicationManifest>", desktop, StringComparison.Ordinal);
         Assert.Contains("Microsoft.NET.Sdk.WebAssembly", browser, StringComparison.Ordinal);
+        Assert.Contains("ProGPU.Media.Editing.csproj", browser, StringComparison.Ordinal);
+        Assert.Contains("ProGPU.WinRT.csproj", browser, StringComparison.Ordinal);
         Assert.Contains("ProGPU.Samples.csproj", browser, StringComparison.Ordinal);
         Assert.Contains("ProGPU.Browser.csproj", browser, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DesktopNativeAotPreservesPrebuiltDylibsWithoutDisablingStrip()
+    {
+        string desktop = Read(
+            "src",
+            "ProGPU.Samples.Desktop",
+            "ProGPU.Samples.Desktop.csproj");
+
+        Assert.Contains(
+            "ProGpuPreservePrebuiltNativeSymbols",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<EventSourceSupport>true</EventSourceSupport>",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AfterTargets=\"_CollectItemsForPostProcessing\"",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "'%(_PostProcessingItem.Extension)' == '.dylib'",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<NoSymbolStrip>true</NoSymbolStrip>",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<NoSymbolStrip>true</NoSymbolStrip>",
+            desktop[
+                ..desktop.IndexOf(
+                    "<Target Name=\"ProGpuPreservePrebuiltNativeSymbols\"",
+                    StringComparison.Ordinal)],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MobileBenchmarkUsesCapabilitySafeProcessMetrics()
+    {
+        string benchmark = Read(
+            "src",
+            "ProGPU.Samples",
+            "SamplePerformanceBenchmark.cs");
+
+        Assert.Contains(
+            "ProcessMemorySnapshot.CaptureCurrent()",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "process.WorkingSet64",
+            benchmark[
+                ..benchmark.IndexOf(
+                    "public readonly record struct ProcessMemorySnapshot",
+                    StringComparison.Ordinal)],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "catch (PlatformNotSupportedException)",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OperatingSystem.IsBrowser()",
+            benchmark,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VideoEditorBenchmarkRequiresNativePlaybackEvidence()
+    {
+        string benchmark = Read(
+            "src",
+            "ProGPU.Samples",
+            "SamplePerformanceBenchmark.cs");
+        string editor = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "NonLinearVideoEditorPage.cs");
+
+        Assert.Contains(
+            "\"Video Editor\"",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetBenchmarkPlaybackState",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "editorHardwareDecoded",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "editorTransfer",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "session.Play();",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RecordBenchmarkPosition(sourcePosition)",
+            editor,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -210,6 +320,708 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("ClearPickedStorage();", storageServices, StringComparison.Ordinal);
         Assert.Contains("WritePickedStorageText(token, text)", storageServices, StringComparison.Ordinal);
         Assert.Contains("WritePickedStorageBytes(token, (nint)source, bytes.Length)", storageServices, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserMediaUsesTypedNativeWebAudioEffectGraph()
+    {
+        var browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        var browserProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+        var mediaPlayerSample = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "MediaPlayerPage.cs");
+
+        Assert.Contains(
+            "createMediaElementSource(entry.video)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "entry.audioContext.createGain()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "entry.audioContext.createStereoPanner()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effect.node.pan.setValueAtTime(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configureBrowserMediaAudioEffect",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "removeAllBrowserMediaAudioEffects",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effect is not IMediaAudioGraphEffect",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConfigureAudioEffectCore(",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaAudioGainEffectFactory(",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaAudioStereoBalanceEffectFactory(",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"Audio balance effect\"",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "SampleAudioGainEffect",
+            mediaPlayerSample,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserPlaybackSmokeUsesWinUiControlsAndChecksDomOwnership()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string browserProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "progpuMediaPlaybackSmoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Run browser playback smoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getBrowserMediaElementCount",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserMediaPlaybackSmokeTest",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "using var player = new MediaPlayer",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsVideoFrameServerEnabled = true",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.AddAudioEffect(",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.PlaybackSession.Position =",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.GetProGpuSurface().CurrentDescriptor",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetBrowserMediaElementCountCore()",
+            browserProvider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        MediaPlayerSampleExposesWinUiSphericalProjectionWithRetainedEffects()
+    {
+        string mediaPlayer = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "MediaPlayerPage.cs");
+
+        Assert.Contains(
+            "MediaPlaybackSphericalVideoProjection",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".SphericalVideoProjection;",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".SphericalVideoFrameFormat",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SphericalVideoProjectionMode.Spherical",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "projection.ViewOrientation",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "projection.HorizontalFieldOfViewInDegrees",
+            mediaPlayer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AddEffect(effects, \"Blur\", blur);",
+            mediaPlayer,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EditorSampleExposesColorClipPreviewPlaybackAndOverlay()
+    {
+        string editor = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "NonLinearVideoEditorPage.cs");
+
+        Assert.Contains(
+            "Content = \"Add color clip\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaClip.CreateFromColor(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private sealed class EditorRoot",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IAnimatedElement",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_colorSourcePosition +=",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ApplyColorPreview(clip)",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateColorBrush(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "else if (overlay.Clip.ProGpuColor is",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"ProGPU.Sample.Editing.AudioGain\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"ProGPU.Sample.Editing.VideoColor\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"ProGPU.Sample.Editing.VideoGaussianBlur\"",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaEffectRegistry.Default.Register(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AudioEffectDefinition(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new VideoEffectDefinition(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "clip.VideoEffectDefinitions",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaVideoColorEffectFactory(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaVideoGaussianBlurEffectFactory(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU brightness\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU contrast\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU sepia\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text(\"GPU invert\")",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GPU Gaussian blur",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "blurSigma: BlurOf(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnClipAudioGainChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnClipAudioBalanceChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnBackgroundAudioGainChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnBackgroundAudioBalanceChanged",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ApplyAudioEffects(",
+            editor,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Select a URI-backed clip before adding an overlay.",
+            editor,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserEditorUsesNativeFastAndWebGpuExportLanes()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string provider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuMediaCompositionExportProvider.cs");
+        string audioGraphResolver = Read(
+            "src",
+            "ProGPU.Media",
+            "Audio",
+            "MediaAudioGraphEffectResolver.cs");
+        string fastProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserFastMediaCompositionExportProvider.cs");
+        string registration = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+        string shader = Read(
+            "src",
+            "ProGPU.Browser",
+            "Shaders",
+            "BrowserMediaComposition.wgsl");
+
+        Assert.Contains(
+            "new OffscreenCanvas(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "copyExternalImageToTexture(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "transferToImageBitmap()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "createMediaStreamDestination()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "before the first asynchronous GPU or",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu-media-export-audio-smoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "volumeNode.gain.value = entry.volume",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioContext.createStereoPanner()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "node.pan.value = parameter0",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Math.min(1, Number(clip.volume)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Math.min(1, Number(track.volume)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new MediaRecorder(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GPUTextureUsage.RENDER_ATTACHMENT",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "handle.createWritable()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "startBrowserMediaCompositionExport(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpuMediaExportSource",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "startStageBrowserMediaSource(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dispatchMediaExportCompletion",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dispatchMediaStageCompletion",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ShaderResource.Load(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserMediaComposition.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureGaussianBlur.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_gaussianBlurRegistration",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "StandardDeviationPropertyName",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionVideoEffectResolver",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"redTransform\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "redTransform:",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "size: 80",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "size: 912",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const values = new Float32Array(228)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const uniformIndex = 36 + pair * 4",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "binding: 3",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "createCompositionGaussianUniform(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.width *",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Math.abs(destination.width)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "visual.blurHorizontalBindGroup",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const commandBufferSubmission = [null]",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "overlayEntries.filter(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "...(activeBase ?",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "red_transform: vec4<f32>",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsoBmffFastMediaCompositionExportProvider",
+            fastProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IMediaCompositionExportCapabilityProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCompositionExportVideoPath.GpuCopy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetAudioEffectGraph(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effect is not IMediaAudioGraphEffect",
+            audioGraphResolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioGraphEffectKind.Gain",
+            audioGraphResolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioGraphEffectKind.StereoBalance",
+            audioGraphResolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryCaptureBuiltInGraph(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WriteAudioGraph(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"audioGraph\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "track.Volume * effectGain",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AudioEffectDefinitions =",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IMediaCompositionExportCapabilityProvider",
+            fastProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompressedSampleCopy",
+            fastProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserWebGpuMediaCompositionExportProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserFastMediaCompositionExportProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "// Algorithm:",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "// Time complexity:",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "// Space complexity:",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            browserAsset,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BrowserCompositionThumbnailsReuseTheWebGpuCompositionLane()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string provider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuMediaCompositionThumbnailProvider.cs");
+        string registration = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "IMediaCompositionThumbnailProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ShaderResource.Load(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserMediaComposition.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetVideoEffectPlan(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureGaussianBlur.wgsl",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "visual.blurVerticalBindGroup",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "thumbnailSmoke === 'effect'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RunEffectAsync(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_gaussianBlurRegistration",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserWebGpuMediaCompositionThumbnailProvider(",
+            registration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const renderActiveVisuals = async () =>",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "copyExternalImageToTexture(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "convertToBlob({",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "startBrowserMediaCompositionThumbnails(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "copyBrowserMediaCompositionThumbnail(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "heap.set(bytes, destination)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dispatchMediaThumbnailCompletion",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpuMediaThumbnailSmokeResult",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "does not claim zero-copy",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            provider,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BrowserWorkerClosesEveryTransferredMediaFrameOwnershipPath()
+    {
+        var browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js")
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+
+        Assert.Contains(
+            "if (!transferred) frame.close();",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "state.worker.postMessage({ type: 'media-disposed', mediaId: id });",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "case 'media-disposed': {\n" +
+            "        const pending = state.pendingMediaFrames.get(message.mediaId);\n" +
+            "        pending?.close();\n" +
+            "        state.pendingMediaFrames.delete(message.mediaId);",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const previous = state.pendingMediaFrames.get(message.mediaId);\n" +
+            "        previous?.close();",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (isDispatcherWorker) source.close();",
+            browserAsset,
+            StringComparison.Ordinal);
     }
 
     [Fact]

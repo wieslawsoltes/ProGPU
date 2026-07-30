@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />

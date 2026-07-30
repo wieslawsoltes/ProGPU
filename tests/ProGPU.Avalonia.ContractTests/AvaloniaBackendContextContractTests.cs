@@ -17,6 +17,18 @@ public sealed class BackendContextCollection
 public sealed class AvaloniaBackendContextContractTests
 {
     [Fact]
+    public void DawnMetalDevicePrewarmIsOptIn()
+    {
+        var options = new ProGpuOptions();
+
+        Assert.False(options.PrewarmDawnMetalDevice);
+
+        options.PrewarmDawnMetalDevice = true;
+
+        Assert.True(options.PrewarmDawnMetalDevice);
+    }
+
+    [Fact]
     public void ConstructionAndFramebufferSelectionAreGpuLazy()
     {
         int activeBefore = WgpuContext.ActiveContexts.Count;
@@ -98,6 +110,7 @@ public sealed class AvaloniaBackendContextContractTests
             requireNativeCompositionScene: false,
             useDawnMetalPresentation: false,
             requireDawnMetalPresentation: false,
+            prewarmDawnMetalDevice: false,
             useDawnNativePresentation: false,
             requireDawnNativePresentation: false);
 

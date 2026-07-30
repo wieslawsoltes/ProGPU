@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
+using Windows.Storage;
 
 namespace ProGPU.Browser;
 
@@ -18,8 +19,27 @@ internal static partial class BrowserStorageServices
 
     private static async Task<string?> PickPathAsync(int mode, IReadOnlyList<string>? fileTypes, string? defaultName)
     {
+        if (mode == 1 &&
+            !UsesNativeSaveStoragePicker())
+        {
+            var name = Path.GetFileName(
+                string.IsNullOrWhiteSpace(defaultName)
+                    ? "untitled.txt"
+                    : defaultName);
+            var directory =
+                Path.Combine(
+                    SaveDirectory,
+                    "download");
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, name);
+        }
+
         var filters = fileTypes == null ? string.Empty : string.Join(',', fileTypes);
-        var result = await PickStorageCoreAsync(mode, filters, defaultName ?? string.Empty);
+        var result = await PickStorageCoreAsync(
+                mode,
+                filters,
+                defaultName ?? string.Empty)
+            .ConfigureAwait(false);
         if (string.IsNullOrEmpty(result)) return null;
 
         if (mode == 0)
@@ -125,7 +145,7 @@ internal static partial class BrowserStorageServices
         return (token, name);
     }
 
-    private static bool TryGetSaveSelection(string path, out string token, out string name)
+    internal static bool TryGetSaveSelection(string path, out string token, out string name)
     {
         token = string.Empty;
         name = string.Empty;
@@ -141,6 +161,9 @@ internal static partial class BrowserStorageServices
 
     [JSImport("pickStorage", "progpu-browser")]
     private static partial Task<string> PickStorageCoreAsync(int mode, string filters, string defaultName);
+
+    [JSImport("usesNativeSaveStoragePicker", "progpu-browser")]
+    private static partial bool UsesNativeSaveStoragePicker();
 
     [JSImport("getPickedStorageLength", "progpu-browser")]
     private static partial int GetPickedStorageLength();

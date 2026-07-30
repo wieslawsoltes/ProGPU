@@ -28,6 +28,7 @@ public static class SkiaPlatform
             proGpuOptions.RequireNativeCompositionScene,
             proGpuOptions.UseDawnMetalPresentation,
             proGpuOptions.RequireDawnMetalPresentation,
+            proGpuOptions.PrewarmDawnMetalDevice,
             proGpuOptions.UseDawnNativePresentation,
             proGpuOptions.RequireDawnNativePresentation);
 

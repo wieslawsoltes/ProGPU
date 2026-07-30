@@ -21,6 +21,7 @@ internal sealed class PlatformRenderInterface :
     private readonly bool _requireNativeScene;
     private readonly bool _useDawnMetal;
     private readonly bool _requireDawnMetal;
+    private readonly bool _prewarmDawnMetal;
     private readonly bool _useDawnNative;
     private readonly bool _requireDawnNative;
 
@@ -29,6 +30,7 @@ internal sealed class PlatformRenderInterface :
         bool requireNativeCompositionScene = false,
         bool useDawnMetalPresentation = true,
         bool requireDawnMetalPresentation = false,
+        bool prewarmDawnMetalDevice = false,
         bool useDawnNativePresentation = true,
         bool requireDawnNativePresentation = false)
     {
@@ -36,6 +38,7 @@ internal sealed class PlatformRenderInterface :
         _requireNativeScene = requireNativeCompositionScene;
         _useDawnMetal = useDawnMetalPresentation;
         _requireDawnMetal = requireDawnMetalPresentation;
+        _prewarmDawnMetal = prewarmDawnMetalDevice;
         _useDawnNative = useDawnNativePresentation;
         _requireDawnNative = requireDawnNativePresentation;
     }
@@ -57,6 +60,7 @@ internal sealed class PlatformRenderInterface :
             _requireNativeScene,
             _useDawnMetal,
             _requireDawnMetal,
+            _prewarmDawnMetal,
             _useDawnNative,
             _requireDawnNative);
 

@@ -13,8 +13,10 @@ using GdiRectangle = System.Drawing.Rectangle;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Compute;
 using ProGPU.Fonts.Inter;
+using ProGPU.Media.Effects;
 using ProGPU.Scene;
 using ProGPU.Scene.Extensions;
 using ProGPU.Tests.Headless;
@@ -1991,6 +1993,28 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void PooledDrawingContextMovesRetainedResourcesThroughFrameSubmission()
+    {
+        var context = new DrawingContext();
+        var resource = new CountingDisposable();
+        var frameResources =
+            new List<RetainedResourceLease>();
+        context.RetainResource(resource);
+
+        context.MoveRetainedResourcesTo(frameResources);
+        context.Clear();
+
+        Assert.Equal(0, context.RetainedResourceCount);
+        Assert.Single(frameResources);
+        Assert.Equal(0, resource.DisposeCount);
+
+        frameResources[0].Dispose();
+        frameResources.Clear();
+
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
     public void ShaderToyAcceptsBitwiseCompoundAssignments()
     {
         var wgsl = ShaderToyTranspiler.Translate(
@@ -3950,6 +3974,1032 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 255, 0, 0, 255, 255, 255, 255, 255
             },
             destination.ReadPixels());
+    }
+
+    [Fact]
+    public unsafe void GpuTextureBlitterFusesMediaColorEffectsOnGpu()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "GPU media-effect blit source");
+        using var destination = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "GPU media-effect blit destination");
+        source.WritePixels(new byte[] { 255, 0, 0, 255 });
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            saturation: 1f,
+            grayscale: 1f);
+
+        byte[] pixel = destination.ReadPixels();
+        Assert.InRange(pixel[0], 52, 56);
+        Assert.InRange(pixel[1], 52, 56);
+        Assert.InRange(pixel[2], 52, 56);
+        Assert.Equal(255, pixel[3]);
+    }
+
+    [Fact]
+    public unsafe void
+        GpuTextureBlitterExecutesAffineVideoEffectInOnePass()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "GPU affine media-effect source");
+        using var destination = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "GPU affine media-effect destination");
+        source.WritePixels(
+            new byte[] { 255, 0, 0, 128 });
+        MediaVideoColorTransform effect =
+            MediaVideoColorEffectFactory
+                .CreateTransform(
+                    brightness: 0.1f,
+                    sepia: 1f);
+        var backendEffect =
+            new GpuTextureColorTransform(
+                effect.Red,
+                effect.Green,
+                effect.Blue);
+
+        GpuTextureBlitter.Blit(
+            source,
+            destination.ViewPtr,
+            destination.Format,
+            backendEffect);
+
+        Vector3 expected =
+            effect.Transform(
+                new Vector3(1f, 0f, 0f));
+        byte[] pixel = destination.ReadPixels();
+        Assert.InRange(
+            pixel[0],
+            ToByte(expected.X) - 1,
+            ToByte(expected.X) + 1);
+        Assert.InRange(
+            pixel[1],
+            ToByte(expected.Y) - 1,
+            ToByte(expected.Y) + 1);
+        Assert.InRange(
+            pixel[2],
+            ToByte(expected.Z) - 1,
+            ToByte(expected.Z) + 1);
+        Assert.Equal(128, pixel[3]);
+
+        static int ToByte(float value) =>
+            (int)MathF.Round(
+                Math.Clamp(value, 0f, 1f) *
+                byte.MaxValue);
+    }
+
+    [Fact]
+    public unsafe void
+        GpuTextureGaussianBlurIsSymmetricAndGpuResident()
+    {
+        using var window = new HeadlessWindow(5, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "GPU Gaussian source");
+        using var intermediate = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+            "GPU Gaussian intermediate");
+        using var destination = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "GPU Gaussian destination");
+        source.WritePixels(
+            new byte[]
+            {
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 255, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255
+            });
+
+        GpuTextureGaussianBlur.Blur(
+            source,
+            intermediate,
+            destination.ViewPtr,
+            destination.Format,
+            standardDeviation: 1f,
+            GpuTextureColorTransform.Identity);
+
+        byte[] pixels = destination.ReadPixels();
+        Assert.InRange(
+            Math.Abs(pixels[0] - pixels[16]),
+            0,
+            1);
+        Assert.InRange(
+            Math.Abs(pixels[4] - pixels[12]),
+            0,
+            1);
+        Assert.True(pixels[0] < pixels[4]);
+        Assert.True(pixels[4] < pixels[8]);
+        Assert.InRange(pixels[8], 100, 104);
+        for (int index = 0;
+             index < pixels.Length;
+             index += 4)
+        {
+            Assert.Equal(pixels[index], pixels[index + 1]);
+            Assert.Equal(pixels[index], pixels[index + 2]);
+            Assert.Equal(255, pixels[index + 3]);
+        }
+    }
+
+    [Fact]
+    public unsafe void
+        GpuTextureGaussianBlurDecodesPlanarYuvPerHorizontalTap()
+    {
+        using var window = new HeadlessWindow(5, 1);
+        using var luma = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Planar Gaussian luma");
+        using var chroma = new GpuTexture(
+            window.Context,
+            3,
+            1,
+            TextureFormat.RG8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Planar Gaussian chroma");
+        using var intermediate = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+            "Planar Gaussian intermediate");
+        using var destination = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Planar Gaussian destination");
+        luma.WritePixels(
+            new byte[] { 0, 0, 255, 0, 0 });
+        chroma.WritePixels(
+            new byte[]
+            {
+                128, 128,
+                128, 128,
+                128, 128
+            });
+        var conversion = new GpuPlanarYuvConversion(
+            new Vector4(
+                0f,
+                1f,
+                128f / 255f,
+                1f),
+            new Vector4(1f, 0f, 1.5748f, 0f),
+            new Vector4(
+                1f,
+                -0.187324f,
+                -0.468124f,
+                0f),
+            new Vector4(1f, 1.8556f, 0f, 0f));
+
+        GpuTextureGaussianBlur.BlurPlanar(
+            luma,
+            chroma,
+            intermediate,
+            destination.ViewPtr,
+            destination.Format,
+            standardDeviation: 1f,
+            in conversion,
+            GpuTextureColorTransform.Identity);
+
+        byte[] pixels = destination.ReadPixels();
+        Assert.InRange(
+            Math.Abs(pixels[0] - pixels[16]),
+            0,
+            1);
+        Assert.InRange(
+            Math.Abs(pixels[4] - pixels[12]),
+            0,
+            1);
+        Assert.True(pixels[0] < pixels[4]);
+        Assert.True(pixels[4] < pixels[8]);
+        Assert.InRange(pixels[8], 100, 104);
+        for (int index = 0;
+             index < pixels.Length;
+             index += 4)
+        {
+            Assert.Equal(
+                pixels[index],
+                pixels[index + 1]);
+            Assert.Equal(
+                pixels[index],
+                pixels[index + 2]);
+            Assert.Equal(255, pixels[index + 3]);
+        }
+    }
+
+    [Fact]
+    public void
+        ImageEffectLiveGaussianReusesGpuResourcesAndRestoresRetainedDrawCalls()
+    {
+        using var window = new HeadlessWindow(10, 1);
+        using var source = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Live image Gaussian source");
+        source.WritePixels(
+            new byte[]
+            {
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 255, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255
+            });
+        var visual =
+            new RepeatedLiveBlurImageVisual(source);
+        window.Content = visual;
+        using var offscreenTarget = new GpuTexture(
+            window.Context,
+            10,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Live image Gaussian offscreen target");
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<ImageEffectExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .ImageEffect));
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+
+            Compositor.CompositorDrawCall[] drawCalls =
+                GetDrawCalls(window.Compositor);
+            Assert.Equal(2, drawCalls.Length);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in drawCalls)
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.True(drawCall.HasImageEffect);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            byte[] firstFrame = window.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                int left = pixel * 4;
+                int right = (pixel + 5) * 4;
+                Assert.Equal(
+                    firstFrame[left],
+                    firstFrame[right]);
+                Assert.Equal(
+                    firstFrame[left + 1],
+                    firstFrame[right + 1]);
+                Assert.Equal(
+                    firstFrame[left + 2],
+                    firstFrame[right + 2]);
+                Assert.Equal(
+                    firstFrame[left + 3],
+                    firstFrame[right + 3]);
+            }
+            Assert.InRange(
+                Math.Abs(firstFrame[0] - firstFrame[16]),
+                0,
+                1);
+            Assert.InRange(
+                Math.Abs(firstFrame[4] - firstFrame[12]),
+                0,
+                1);
+            Assert.True(firstFrame[0] < firstFrame[4]);
+            Assert.True(firstFrame[4] < firstFrame[8]);
+
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            window.Compositor.RenderOffscreen(
+                visual,
+                width: 10,
+                height: 1,
+                targetTexture: offscreenTarget,
+                padding: 0f,
+                dpiScale: 1f);
+
+            Assert.Equal(1, extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            byte[] offscreenPixels =
+                offscreenTarget.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                Assert.Equal(
+                    offscreenPixels[pixel * 4],
+                    offscreenPixels[(pixel + 5) * 4]);
+            }
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void
+        PlanarImageEffectLiveGaussianReusesGpuResourcesAndRestoresRetainedPlanes()
+    {
+        using var window = new HeadlessWindow(10, 1);
+        using var luma = new GpuTexture(
+            window.Context,
+            5,
+            1,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Live planar Gaussian luma");
+        using var chroma = new GpuTexture(
+            window.Context,
+            3,
+            1,
+            TextureFormat.RG8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Live planar Gaussian chroma");
+        luma.WritePixels(
+            new byte[] { 0, 0, 255, 0, 0 });
+        chroma.WritePixels(
+            new byte[]
+            {
+                128, 128,
+                128, 128,
+                128, 128
+            });
+        var visual =
+            new RepeatedLiveBlurPlanarVisual(
+                luma,
+                chroma);
+        window.Content = visual;
+        using var offscreenTarget = new GpuTexture(
+            window.Context,
+            10,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Live planar Gaussian offscreen target");
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<ImageEffectExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .ImageEffect));
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+
+            Compositor.CompositorDrawCall[] drawCalls =
+                GetDrawCalls(window.Compositor);
+            Assert.Equal(2, drawCalls.Length);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in drawCalls)
+            {
+                Assert.Same(luma, drawCall.Texture);
+                Assert.Same(
+                    chroma,
+                    drawCall.ImageEffect.ChromaTexture);
+                Assert.True(
+                    drawCall.ImageEffect
+                        .YuvConversion.HasValue);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            byte[] firstFrame = window.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                int left = pixel * 4;
+                int right = (pixel + 5) * 4;
+                Assert.Equal(
+                    firstFrame[left],
+                    firstFrame[right]);
+                Assert.Equal(
+                    firstFrame[left + 1],
+                    firstFrame[right + 1]);
+                Assert.Equal(
+                    firstFrame[left + 2],
+                    firstFrame[right + 2]);
+                Assert.Equal(
+                    firstFrame[left + 3],
+                    firstFrame[right + 3]);
+            }
+            Assert.InRange(
+                Math.Abs(
+                    firstFrame[0] -
+                    firstFrame[16]),
+                0,
+                1);
+            Assert.True(
+                firstFrame[0] <
+                firstFrame[4]);
+            Assert.True(
+                firstFrame[4] <
+                firstFrame[8]);
+
+            window.Render();
+
+            Assert.True(
+                window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(luma, drawCall.Texture);
+                Assert.Same(
+                    chroma,
+                    drawCall.ImageEffect.ChromaTexture);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+            }
+
+            window.Compositor.RenderOffscreen(
+                visual,
+                width: 10,
+                height: 1,
+                targetTexture: offscreenTarget,
+                padding: 0f,
+                dpiScale: 1f);
+
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            byte[] offscreenPixels =
+                offscreenTarget.ReadPixels();
+            for (int pixel = 0; pixel < 5; pixel++)
+            {
+                Assert.Equal(
+                    offscreenPixels[pixel * 4],
+                    offscreenPixels[
+                        (pixel + 5) * 4]);
+            }
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public unsafe void
+        P010ImageEffectLiveGaussianUsesTier1PlanesAcrossRetainedAndOffscreenPasses()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn =
+            DawnGpuContext.CreateMetalPresentation();
+        Assert.True(
+            dawn.Context
+                .SupportsTextureFormatsTier1);
+
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false
+            });
+        using var luma = new GpuTexture(
+            dawn.Context,
+            5,
+            1,
+            ProGpuTextureFormats.R16Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "P010 retained Gaussian luma");
+        using var chroma = new GpuTexture(
+            dawn.Context,
+            3,
+            1,
+            ProGpuTextureFormats.RG16Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "P010 retained Gaussian chroma");
+        using var primaryTarget = new GpuTexture(
+            dawn.Context,
+            10,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "P010 retained Gaussian primary");
+        using var offscreenTarget = new GpuTexture(
+            dawn.Context,
+            10,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "P010 retained Gaussian offscreen");
+        luma.WritePixels<ushort>(
+            [
+                0,
+                0,
+                1023 << 6,
+                0,
+                0
+            ]);
+        chroma.WritePixels<ushort>(
+            [
+                512 << 6,
+                512 << 6,
+                512 << 6,
+                512 << 6,
+                512 << 6,
+                512 << 6
+            ]);
+        var conversion =
+            CreateP010FullRangeConversion();
+        var visual =
+            new RepeatedLiveBlurP010Visual(
+                luma,
+                chroma,
+                conversion);
+        visual.Arrange(
+            new Rect(0f, 0f, 10f, 1f));
+
+        compositor.RenderScene(
+            visual,
+            10,
+            1,
+            primaryTarget.ViewPtr);
+
+        var extension =
+            Assert.IsType<ImageEffectExtensionPipeline>(
+                compositor.GetExtension(
+                    CompositorBuiltInExtensions
+                        .ImageEffect));
+        Assert.Equal(1, extension.LiveBlurResourceCount);
+        Assert.Equal(
+            2,
+            extension.PreparedLiveBlurDrawCallCount);
+        Assert.Equal(
+            1,
+            extension.LiveBlurSubmissionCount);
+        AssertRetainedP010DrawCalls(
+            compositor,
+            luma,
+            chroma);
+        AssertRepeatedGaussianImpulse(
+            primaryTarget.ReadPixels());
+
+        compositor.RenderScene(
+            visual,
+            10,
+            1,
+            primaryTarget.ViewPtr);
+
+        Assert.True(compositor.Metrics.SceneCacheHit);
+        Assert.Equal(1, extension.LiveBlurResourceCount);
+        Assert.Equal(
+            1,
+            extension.LiveBlurSubmissionCount);
+        AssertRetainedP010DrawCalls(
+            compositor,
+            luma,
+            chroma);
+
+        compositor.RenderOffscreen(
+            visual,
+            width: 10,
+            height: 1,
+            targetTexture: offscreenTarget,
+            padding: 0f,
+            dpiScale: 1f);
+
+        Assert.Equal(1, extension.LiveBlurResourceCount);
+        Assert.Equal(
+            1,
+            extension.LiveBlurSubmissionCount);
+        AssertRetainedP010DrawCalls(
+            compositor,
+            luma,
+            chroma);
+        AssertRepeatedGaussianImpulse(
+            offscreenTarget.ReadPixels());
+    }
+
+    private static ImageEffectYuvConversion
+        CreateP010FullRangeConversion()
+    {
+        const float denominator = 65535f;
+        const float validMaximum = 1023f * 64f;
+        return new ImageEffectYuvConversion(
+            new Vector4(
+                0f,
+                denominator / validMaximum,
+                (512f * 64f) / denominator,
+                denominator / validMaximum),
+            new Vector4(1f, 0f, 1.5748f, 0f),
+            new Vector4(
+                1f,
+                -0.187324f,
+                -0.468124f,
+                0f),
+            new Vector4(1f, 1.8556f, 0f, 0f));
+    }
+
+    private static void AssertRetainedP010DrawCalls(
+        Compositor compositor,
+        GpuTexture luma,
+        GpuTexture chroma)
+    {
+        Compositor.CompositorDrawCall[] drawCalls =
+            GetDrawCalls(compositor);
+        Assert.Equal(2, drawCalls.Length);
+        foreach (Compositor.CompositorDrawCall drawCall
+                 in drawCalls)
+        {
+            Assert.Same(luma, drawCall.Texture);
+            Assert.Same(
+                chroma,
+                drawCall.ImageEffect.ChromaTexture);
+            Assert.True(
+                drawCall.ImageEffect
+                    .YuvConversion.HasValue);
+            Assert.Equal(
+                1f,
+                drawCall.ImageEffect.BlurSigma);
+        }
+    }
+
+    private static void AssertRepeatedGaussianImpulse(
+        byte[] pixels)
+    {
+        Assert.Equal(40, pixels.Length);
+        for (int pixel = 0; pixel < 5; pixel++)
+        {
+            int left = pixel * 4;
+            int right = (pixel + 5) * 4;
+            Assert.Equal(
+                pixels[left],
+                pixels[right]);
+            Assert.Equal(
+                pixels[left + 1],
+                pixels[right + 1]);
+            Assert.Equal(
+                pixels[left + 2],
+                pixels[right + 2]);
+            Assert.Equal(
+                pixels[left + 3],
+                pixels[right + 3]);
+        }
+        Assert.InRange(
+            Math.Abs(pixels[0] - pixels[16]),
+            0,
+            1);
+        Assert.InRange(
+            Math.Abs(pixels[4] - pixels[12]),
+            0,
+            1);
+        Assert.True(pixels[0] < pixels[4]);
+        Assert.True(pixels[4] < pixels[8]);
+        Assert.InRange(pixels[8], 100, 104);
+        for (int pixel = 0;
+             pixel < pixels.Length;
+             pixel += 4)
+        {
+            Assert.InRange(
+                Math.Abs(
+                    pixels[pixel] -
+                    pixels[pixel + 1]),
+                0,
+                1);
+            Assert.InRange(
+                Math.Abs(
+                    pixels[pixel] -
+                    pixels[pixel + 2]),
+                0,
+                1);
+            Assert.Equal(255, pixels[pixel + 3]);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        SphericalImageEffectLiveGaussianPreservesProjectionAndSharesSourceBlur(
+            bool usePlanarSource)
+    {
+        using var window = new HeadlessWindow(16, 4);
+        using var source = new GpuTexture(
+            window.Context,
+            8,
+            2,
+            usePlanarSource
+                ? TextureFormat.R8Unorm
+                : TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding |
+                TextureUsage.CopyDst,
+            "Spherical Gaussian source");
+        using var chroma = usePlanarSource
+            ? new GpuTexture(
+                window.Context,
+                4,
+                1,
+                TextureFormat.RG8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.CopyDst,
+                "Spherical Gaussian chroma")
+            : null;
+        if (usePlanarSource)
+        {
+            source.WritePixels(
+                new byte[]
+                {
+                    32, 32, 220, 220,
+                    80, 80, 140, 140,
+                    32, 32, 220, 220,
+                    80, 80, 140, 140
+                });
+            chroma!.WritePixels(
+                new byte[]
+                {
+                    128, 128,
+                    128, 128,
+                    128, 128,
+                    128, 128
+                });
+        }
+        else
+        {
+            source.WritePixels(
+                new byte[]
+                {
+                    255, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 0, 255,
+                    255, 0, 0, 255,
+                    0, 255, 0, 255,
+                    0, 255, 0, 255,
+                    0, 0, 255, 255,
+                    0, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 255, 255,
+                    255, 0, 0, 255,
+                    255, 0, 0, 255,
+                    0, 255, 0, 255,
+                    0, 255, 0, 255,
+                    0, 0, 255, 255,
+                    0, 0, 255, 255
+                });
+        }
+
+        var visual =
+            new RepeatedLiveBlurSphericalVisual(
+                source,
+                chroma);
+        window.Content = visual;
+        using var offscreenTarget = new GpuTexture(
+            window.Context,
+            16,
+            4,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.CopySrc,
+            "Spherical Gaussian offscreen target");
+
+        try
+        {
+            window.Render();
+
+            var extension =
+                Assert.IsType<ImageEffectExtensionPipeline>(
+                    window.Compositor.GetExtension(
+                        CompositorBuiltInExtensions
+                            .ImageEffect));
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                2,
+                extension.PreparedLiveBlurDrawCallCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.Equal(
+                    1f,
+                    drawCall.ImageEffect.BlurSigma);
+                Assert.True(
+                    drawCall.ImageEffect
+                        .SphericalProjection.HasValue);
+                if (usePlanarSource)
+                {
+                    Assert.Same(
+                        chroma,
+                        drawCall.ImageEffect
+                            .ChromaTexture);
+                    Assert.True(
+                        drawCall.ImageEffect
+                            .YuvConversion.HasValue);
+                }
+            }
+
+            byte[] firstFrame = window.ReadPixels();
+            AssertSphericalPixels(
+                firstFrame,
+                usePlanarSource);
+
+            window.Render();
+
+            Assert.True(
+                window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            foreach (Compositor.CompositorDrawCall drawCall
+                     in GetDrawCalls(window.Compositor))
+            {
+                Assert.Same(source, drawCall.Texture);
+                Assert.True(
+                    drawCall.ImageEffect
+                        .SphericalProjection.HasValue);
+            }
+
+            window.Compositor.RenderOffscreen(
+                visual,
+                width: 16,
+                height: 4,
+                targetTexture: offscreenTarget,
+                padding: 0f,
+                dpiScale: 1f);
+
+            Assert.Equal(
+                1,
+                extension.LiveBlurResourceCount);
+            Assert.Equal(
+                1,
+                extension.LiveBlurSubmissionCount);
+            AssertSphericalPixels(
+                offscreenTarget.ReadPixels(),
+                usePlanarSource);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+
+        static void AssertSphericalPixels(
+            byte[] pixels,
+            bool isPlanar)
+        {
+            int left = ((2 * 16) + 4) * 4;
+            int right = ((2 * 16) + 12) * 4;
+            for (int channel = 0;
+                 channel < 4;
+                 channel++)
+            {
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left + channel] -
+                        pixels[right + channel]),
+                    0,
+                    1);
+            }
+
+            if (isPlanar)
+            {
+                Assert.True(
+                    pixels[left] >= 120,
+                    $"Expected the rotated view to preserve the bright luma longitude, found {pixels[left]}.");
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left] -
+                        pixels[left + 1]),
+                    0,
+                    1);
+                Assert.InRange(
+                    Math.Abs(
+                        pixels[left] -
+                        pixels[left + 2]),
+                    0,
+                    1);
+            }
+            else
+            {
+                Assert.True(
+                    pixels[left] >
+                        pixels[left + 1] + 40,
+                    $"Expected the rotated view to remain red-dominant instead of sampling the green center longitude; RGB=({pixels[left]}, {pixels[left + 1]}, {pixels[left + 2]}).");
+            }
+        }
     }
 
     [Fact]
@@ -6187,6 +7237,233 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 _texture,
                 new Rect(0f, 0f, 16f, 16f),
                 blurSigma: 1f);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurImageVisual :
+        FrameworkElement
+    {
+        private readonly GpuTexture _texture;
+
+        public RepeatedLiveBlurImageVisual(
+            GpuTexture texture)
+        {
+            _texture = texture;
+            Width = 10f;
+            Height = 1f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            context.DrawImageWithEffect(
+                _texture,
+                new Rect(0f, 0f, 5f, 1f),
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+            context.DrawImageWithEffect(
+                _texture,
+                new Rect(5f, 0f, 5f, 1f),
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurPlanarVisual :
+        FrameworkElement
+    {
+        private static readonly
+            ImageEffectYuvConversion s_conversion =
+                new(
+                    new Vector4(
+                        0f,
+                        1f,
+                        128f / 255f,
+                        1f),
+                    new Vector4(
+                        1f,
+                        0f,
+                        1.5748f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        -0.187324f,
+                        -0.468124f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        1.8556f,
+                        0f,
+                        0f));
+
+        private readonly GpuTexture _luma;
+        private readonly GpuTexture _chroma;
+
+        public RepeatedLiveBlurPlanarVisual(
+            GpuTexture luma,
+            GpuTexture chroma)
+        {
+            _luma = luma;
+            _chroma = chroma;
+            Width = 10f;
+            Height = 1f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            context.DrawPlanarImageWithEffect(
+                _luma,
+                _chroma,
+                new Rect(0f, 0f, 5f, 1f),
+                in s_conversion,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+            context.DrawPlanarImageWithEffect(
+                _luma,
+                _chroma,
+                new Rect(5f, 0f, 5f, 1f),
+                in s_conversion,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurP010Visual :
+        FrameworkElement
+    {
+        private readonly GpuTexture _luma;
+        private readonly GpuTexture _chroma;
+        private readonly ImageEffectYuvConversion
+            _conversion;
+
+        public RepeatedLiveBlurP010Visual(
+            GpuTexture luma,
+            GpuTexture chroma,
+            ImageEffectYuvConversion conversion)
+        {
+            _luma = luma;
+            _chroma = chroma;
+            _conversion = conversion;
+            Width = 10f;
+            Height = 1f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            context.DrawPlanarImageWithEffect(
+                _luma,
+                _chroma,
+                new Rect(0f, 0f, 5f, 1f),
+                in _conversion,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+            context.DrawPlanarImageWithEffect(
+                _luma,
+                _chroma,
+                new Rect(5f, 0f, 5f, 1f),
+                in _conversion,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest);
+        }
+    }
+
+    private sealed class RepeatedLiveBlurSphericalVisual :
+        FrameworkElement
+    {
+        private static readonly
+            ImageEffectYuvConversion s_conversion =
+                new(
+                    new Vector4(
+                        0f,
+                        1f,
+                        128f / 255f,
+                        1f),
+                    new Vector4(
+                        1f,
+                        0f,
+                        1.5748f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        -0.187324f,
+                        -0.468124f,
+                        0f),
+                    new Vector4(
+                        1f,
+                        1.8556f,
+                        0f,
+                        0f));
+        private static readonly
+            ImageEffectSphericalProjection
+                s_projection =
+                    new(
+                        new Vector4(
+                            0f,
+                            0f,
+                            1f,
+                            1f),
+                        Quaternion
+                            .CreateFromAxisAngle(
+                                Vector3.UnitY,
+                                MathF.PI * 0.5f),
+                        MathF.PI * 0.5f,
+                        2f);
+
+        private readonly GpuTexture _source;
+        private readonly GpuTexture? _chroma;
+
+        public RepeatedLiveBlurSphericalVisual(
+            GpuTexture source,
+            GpuTexture? chroma)
+        {
+            _source = source;
+            _chroma = chroma;
+            Width = 16f;
+            Height = 4f;
+        }
+
+        public override void OnRender(
+            DrawingContext context)
+        {
+            Draw(context, new Rect(0f, 0f, 8f, 4f));
+            Draw(context, new Rect(8f, 0f, 8f, 4f));
+        }
+
+        private void Draw(
+            DrawingContext context,
+            Rect destination)
+        {
+            if (_chroma is not null)
+            {
+                context.DrawPlanarImageWithEffect(
+                    _source,
+                    _chroma,
+                    destination,
+                    in s_conversion,
+                    blurSigma: 1f,
+                    samplingMode:
+                        TextureSamplingMode.Nearest,
+                    sphericalProjection:
+                        s_projection);
+                return;
+            }
+
+            context.DrawImageWithEffect(
+                _source,
+                destination,
+                blurSigma: 1f,
+                samplingMode:
+                    TextureSamplingMode.Nearest,
+                sphericalProjection:
+                    s_projection);
         }
     }
 

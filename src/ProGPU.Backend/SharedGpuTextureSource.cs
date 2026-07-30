@@ -18,7 +18,10 @@ public interface ISharedGpuTextureSource
 /// Owns one GPU texture and releases it after the owner and every acquired
 /// lease have been disposed.
 /// </summary>
-public sealed class SharedGpuTextureSource : ISharedGpuTextureSource, IDisposable
+public sealed class SharedGpuTextureSource :
+    ISharedGpuTextureSource,
+    IProGpuTextureLeaseSource,
+    IDisposable
 {
     private static readonly object s_registryLock = new();
     private static readonly Dictionary<nint, SharedGpuTextureSource>
@@ -74,6 +77,31 @@ public sealed class SharedGpuTextureSource : ISharedGpuTextureSource, IDisposabl
         }
 
         return _state.Acquire();
+    }
+
+    public bool TryGetGpuTexture(out GpuTexture texture)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            texture = null!;
+            return false;
+        }
+        return _state.TryGetTexture(out texture);
+    }
+
+    public bool TryAcquireGpuTextureLease(
+        out IProGpuTextureLease lease)
+    {
+        try
+        {
+            lease = AcquireTexture();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            lease = null!;
+            return false;
+        }
     }
 
     public void Dispose()
@@ -160,6 +188,21 @@ public sealed class SharedGpuTextureSource : ISharedGpuTextureSource, IDisposabl
             }
         }
 
+        public bool TryGetTexture(out GpuTexture texture)
+        {
+            GpuTexture? current = Volatile.Read(ref _texture);
+            if (Volatile.Read(ref _references) == 0 ||
+                current is null ||
+                current.IsDisposed)
+            {
+                texture = null!;
+                return false;
+            }
+
+            texture = current;
+            return true;
+        }
+
         public void Release()
         {
             if (Interlocked.Decrement(ref _references) == 0)
@@ -173,7 +216,7 @@ public sealed class SharedGpuTextureSource : ISharedGpuTextureSource, IDisposabl
 /// <summary>
 /// A borrowed reference to a shared GPU texture.
 /// </summary>
-public sealed class GpuTextureLease : IDisposable
+public sealed class GpuTextureLease : IProGpuTextureLease
 {
     private SharedGpuTextureSource.SharedState? _state;
 

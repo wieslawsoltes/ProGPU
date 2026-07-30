@@ -6,7 +6,11 @@ using System.Numerics;
 
 namespace System.Windows.Media;
 
-public class DrawingContext : IDisposable, IPortableNativeDrawingContextSource, IPortableNativeDrawingContextStateSource
+public class DrawingContext :
+    IDisposable,
+    IPortableNativeDrawingContextSource,
+    IPortableNativeDrawingContextStateSource,
+    IProGpuDrawingContextSource
 {
     private readonly ProGPU.Scene.DrawingContext _nativeContext;
     private readonly Stack<Matrix4x4> _transformStack = new();
@@ -33,6 +37,15 @@ public class DrawingContext : IDisposable, IPortableNativeDrawingContextSource, 
         out PortableNativeDrawingContextState state)
     {
         state = new PortableNativeDrawingContextState(_nativeContext, CurrentTransform);
+        return true;
+    }
+
+    bool IProGpuDrawingContextSource.TryGetProGpuDrawingContext(
+        out ProGpuDrawingContextState state)
+    {
+        state = new ProGpuDrawingContextState(
+            _nativeContext,
+            CurrentTransform);
         return true;
     }
 

@@ -18,8 +18,80 @@ namespace ProGPU.Backend.Dawn;
 /// releases ProGPU resources, then releases Queue, Device, Adapter, and
 /// Instance in dependency order.
 /// </remarks>
-public sealed unsafe partial class DawnGpuContext : IDisposable
+public sealed unsafe partial class DawnGpuContext :
+    IDisposable,
+    IProGpuExternalTextureImporter
 {
+    private const string NativeLibraryName = "webgpu_dawn";
+    private const string IosFrameworkLibrary =
+        "@rpath/webgpu_dawn.framework/webgpu_dawn";
+    private static readonly object NativeLibrarySync = new();
+    private static nint s_iosNativeLibrary;
+    private static bool s_iosResolversInstalled;
+
+    /// <summary>
+    /// Reports whether the exact WebGPUSharp/Dawn native ABI can be resolved
+    /// for the current process without creating a GPU instance.
+    /// </summary>
+    public static bool IsNativeLibraryAvailable()
+    {
+        if (OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
+        {
+            return EnsureIosNativeLibrary();
+        }
+
+        if (!NativeLibrary.TryLoad(
+                NativeLibraryName,
+                out nint library))
+        {
+            return false;
+        }
+        NativeLibrary.Free(library);
+        return true;
+    }
+
+    private static bool EnsureIosNativeLibrary()
+    {
+        lock (NativeLibrarySync)
+        {
+            if (s_iosNativeLibrary != 0)
+            {
+                return true;
+            }
+
+            if (!NativeLibrary.TryLoad(
+                    IosFrameworkLibrary,
+                    out s_iosNativeLibrary))
+            {
+                return false;
+            }
+
+            if (!s_iosResolversInstalled)
+            {
+                NativeLibrary.SetDllImportResolver(
+                    typeof(WebGPU_FFI).Assembly,
+                    ResolveIosDawnImport);
+                NativeLibrary.SetDllImportResolver(
+                    typeof(DawnGpuContext).Assembly,
+                    ResolveIosDawnImport);
+                s_iosResolversInstalled = true;
+            }
+
+            return true;
+        }
+    }
+
+    private static nint ResolveIosDawnImport(
+        string libraryName,
+        System.Reflection.Assembly assembly,
+        DllImportSearchPath? searchPath) =>
+        string.Equals(
+            libraryName,
+            NativeLibraryName,
+            StringComparison.Ordinal)
+            ? s_iosNativeLibrary
+            : 0;
+
     private sealed class AdapterRequest
     {
         internal W.RequestAdapterStatus Status;
@@ -91,6 +163,7 @@ public sealed unsafe partial class DawnGpuContext : IDisposable
         Queue = queue;
         SharedTextureMemory =
             new DawnSharedTextureMemoryFeature(device);
+        Context.SetExternalTextureImporter(this);
     }
 
     public WgpuContext Context { get; }
@@ -159,7 +232,7 @@ public sealed unsafe partial class DawnGpuContext : IDisposable
             adapter = RequestMetalAdapter(instance);
 
             Span<W.FeatureName> requiredFeatures =
-                stackalloc W.FeatureName[3];
+                stackalloc W.FeatureName[4];
             requiredFeatures[0] =
                 DawnSharedTextureMemoryFeatures
                     .SharedTextureMemoryIOSurface;
@@ -179,6 +252,14 @@ public sealed unsafe partial class DawnGpuContext : IDisposable
             {
                 requiredFeatures[featureCount++] =
                     W.FeatureName.BGRA8UnormStorage;
+            }
+            bool supportsTextureFormatsTier1 =
+                adapter.HasFeature(
+                    W.FeatureName.TextureFormatsTier1);
+            if (supportsTextureFormatsTier1)
+            {
+                requiredFeatures[featureCount++] =
+                    W.FeatureName.TextureFormatsTier1;
             }
 
             device = RequestDevice(
@@ -217,6 +298,8 @@ public sealed unsafe partial class DawnGpuContext : IDisposable
                 maxSamplersPerShaderStage:
                     limits.MaxSamplersPerShaderStage,
                 maxBindGroups: limits.MaxBindGroups,
+                supportsTextureFormatsTier1:
+                    supportsTextureFormatsTier1,
                 adapterBackendType: SW.BackendType.Metal,
                 adapterName: "Dawn Metal");
 
@@ -263,6 +346,218 @@ public sealed unsafe partial class DawnGpuContext : IDisposable
     public void Dispose()
     {
         Context.Dispose();
+    }
+
+    public bool TryImportExternalTexture(
+        WgpuContext targetContext,
+        in ProGpuExternalTextureDescriptor descriptor,
+        IDisposable nativeOwner,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(targetContext);
+        ArgumentNullException.ThrowIfNull(nativeOwner);
+        if (!ReferenceEquals(targetContext, Context) ||
+            descriptor.Handle == 0)
+        {
+            texture = null!;
+            return false;
+        }
+        bool isIOSurface =
+            descriptor.HandleKind ==
+            ProGpuExternalTextureHandleKind.IOSurface;
+        bool isDxgiHandle =
+            descriptor.HandleKind ==
+            ProGpuExternalTextureHandleKind.DxgiSharedHandle;
+        bool isAHardwareBuffer =
+            descriptor.HandleKind ==
+            ProGpuExternalTextureHandleKind.AndroidHardwareBuffer;
+        bool isDmaBuf =
+            descriptor.HandleKind ==
+            ProGpuExternalTextureHandleKind.DmaBuf;
+        if ((!isIOSurface &&
+             !isDxgiHandle &&
+             !isAHardwareBuffer &&
+             !isDmaBuf) ||
+            (isIOSurface &&
+             Context.AdapterBackendType != SW.BackendType.Metal) ||
+            (isDxgiHandle &&
+             Context.AdapterBackendType != SW.BackendType.D3D12) ||
+            (isAHardwareBuffer &&
+             Context.AdapterBackendType != SW.BackendType.Vulkan) ||
+            (isDmaBuf &&
+             Context.AdapterBackendType != SW.BackendType.Vulkan))
+        {
+            texture = null!;
+            return false;
+        }
+
+        W.TextureFormat dawnFormat = descriptor.Format switch
+        {
+            SW.TextureFormat.Bgra8Unorm =>
+                W.TextureFormat.BGRA8Unorm,
+            SW.TextureFormat.Rgba8Unorm =>
+                W.TextureFormat.RGBA8Unorm,
+            SW.TextureFormat.R8Unorm =>
+                W.TextureFormat.R8Unorm,
+            SW.TextureFormat.RG8Unorm =>
+                W.TextureFormat.RG8Unorm,
+            var format when
+                format ==
+                    ProGpuTextureFormats.R16Unorm =>
+                W.TextureFormat.R16Unorm,
+            var format when
+                format ==
+                    ProGpuTextureFormats.RG16Unorm =>
+                W.TextureFormat.RG16Unorm,
+            _ => W.TextureFormat.Undefined
+        };
+        if (dawnFormat == W.TextureFormat.Undefined ||
+            ProGpuTextureFormats
+                    .RequiresTextureFormatsTier1(
+                        descriptor.Format) &&
+                !targetContext
+                    .SupportsTextureFormatsTier1)
+        {
+            texture = null!;
+            return false;
+        }
+
+        DawnSharedTextureMemory? sharedMemory = null;
+        TextureHandle importedTexture = TextureHandle.Null;
+        bool accessBegan = false;
+        using DawnMetalAutoreleasePool autoreleasePool =
+            DawnMetalAutoreleasePool.Enter(isIOSurface);
+        try
+        {
+            sharedMemory = isIOSurface
+                ? SharedTextureMemory.ImportIOSurface(
+                    descriptor.Handle)
+                : isDxgiHandle
+                    ? SharedTextureMemory.ImportDXGISharedHandle(
+                        descriptor.Handle,
+                        descriptor.UsesKeyedMutex)
+                    : isAHardwareBuffer
+                        ? SharedTextureMemory.ImportAHardwareBuffer(
+                            descriptor.Handle)
+                        : SharedTextureMemory.ImportDmaBuf(
+                            descriptor.Width,
+                            descriptor.Height,
+                            descriptor.DmaBuf);
+            DawnSharedTextureMemoryProperties properties =
+                sharedMemory.GetProperties();
+            if (properties.Size.Width != descriptor.Width ||
+                properties.Size.Height != descriptor.Height ||
+                properties.Format != dawnFormat ||
+                (descriptor.Usage &
+                 SW.TextureUsage.TextureBinding) == 0 ||
+                (properties.Usage &
+                 (W.TextureUsage)descriptor.Usage) !=
+                (W.TextureUsage)descriptor.Usage)
+            {
+                sharedMemory.Dispose();
+                texture = null!;
+                return false;
+            }
+
+            importedTexture = sharedMemory.CreateTexture(
+                (W.TextureUsage)descriptor.Usage,
+                "ProGPU decoded media frame"u8);
+            sharedMemory.BeginAccess(
+                importedTexture,
+                descriptor.IsInitialized);
+            accessBegan = true;
+            var owner = new ImportedSharedTextureOwner(
+                sharedMemory,
+                importedTexture,
+                nativeOwner,
+                useMetalAutoreleasePool: isIOSurface);
+            sharedMemory = null;
+            TextureHandle ownedTexture = importedTexture;
+            importedTexture = TextureHandle.Null;
+            texture = GpuTexture.WrapOwnedExternal(
+                targetContext,
+                (SW.Texture*)ownedTexture.GetAddress(),
+                descriptor.Width,
+                descriptor.Height,
+                descriptor.Format,
+                descriptor.Usage,
+                isIOSurface
+                    ? "Imported IOSurface media frame"
+                    : isDxgiHandle
+                        ? "Imported DXGI media frame"
+                        : isAHardwareBuffer
+                            ? "Imported AHardwareBuffer media frame"
+                            : "Imported DMA-BUF media frame",
+                descriptor.AlphaMode,
+                owner);
+            return true;
+        }
+        catch
+        {
+            if (accessBegan &&
+                sharedMemory is not null &&
+                importedTexture != TextureHandle.Null)
+            {
+                try
+                {
+                    sharedMemory.EndAccess(importedTexture);
+                }
+                catch
+                {
+                }
+            }
+            if (importedTexture != TextureHandle.Null)
+            {
+                importedTexture.Release();
+            }
+            sharedMemory?.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class ImportedSharedTextureOwner : IDisposable
+    {
+        private DawnSharedTextureMemory? _sharedMemory;
+        private IDisposable? _nativeOwner;
+        private readonly TextureHandle _texture;
+        private readonly bool _useMetalAutoreleasePool;
+
+        public ImportedSharedTextureOwner(
+            DawnSharedTextureMemory sharedMemory,
+            TextureHandle texture,
+            IDisposable nativeOwner,
+            bool useMetalAutoreleasePool)
+        {
+            _sharedMemory = sharedMemory;
+            _texture = texture;
+            _nativeOwner = nativeOwner;
+            _useMetalAutoreleasePool =
+                useMetalAutoreleasePool;
+        }
+
+        public void Dispose()
+        {
+            using DawnMetalAutoreleasePool autoreleasePool =
+                DawnMetalAutoreleasePool.Enter(
+                    _useMetalAutoreleasePool);
+            DawnSharedTextureMemory? sharedMemory =
+                Interlocked.Exchange(
+                    ref _sharedMemory,
+                    null);
+            IDisposable? nativeOwner =
+                Interlocked.Exchange(
+                    ref _nativeOwner,
+                    null);
+            try
+            {
+                sharedMemory?.EndAccess(_texture);
+            }
+            finally
+            {
+                sharedMemory?.Dispose();
+                nativeOwner?.Dispose();
+            }
+        }
     }
 
     private static AdapterHandle RequestMetalAdapter(

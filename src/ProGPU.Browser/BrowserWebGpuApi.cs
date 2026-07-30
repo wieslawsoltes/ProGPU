@@ -500,6 +500,27 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
         _commands.CompleteCommand();
     }
 
+    public void CopyExternalMediaFrame(
+        int mediaId,
+        Texture* destination,
+        uint width,
+        uint height)
+    {
+        if (mediaId <= 0) throw new ArgumentOutOfRangeException(nameof(mediaId));
+        if (destination == null) throw new ArgumentNullException(nameof(destination));
+        if (width == 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (height == 0) throw new ArgumentOutOfRangeException(nameof(height));
+
+        var payload = _commands.BeginCommand(
+            BrowserGpuOpcode.CopyExternalMediaFrame,
+            16);
+        WriteUInt32(payload, 0, checked((uint)mediaId));
+        WriteHandle(payload, 4, HandleOf(destination));
+        WriteUInt32(payload, 8, width);
+        WriteUInt32(payload, 12, height);
+        _commands.CompleteCommand();
+    }
+
     public void QueueSubmit(Queue* queue, nuint commandCount, CommandBuffer** commands)
     {
         var count = CheckedCount(commandCount);

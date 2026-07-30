@@ -3292,6 +3292,48 @@ and Xcode scratch from this final pair. Evidence is under
 `artifacts/controlcatalog-final-managed-memory-20260727`, and
 `artifacts/controlcatalog-final-instruments-20260727`.
 
+## Mesh3D media compile scratch (2026-07-29)
+
+The media Mesh3D compiler now applies the retained-resource conclusions from
+the production-engine comparison above to its per-frame CPU staging data.
+The already-consulted WebRender rendering overview, Vello
+[`Renderer`](https://docs.rs/vello/latest/vello/struct.Renderer.html) and
+[`Scene`](https://docs.rs/vello/latest/vello/struct.Scene.html) contracts,
+Skia/Graphite recorder/resource separation, and Direct2D/Win2D device-domain
+rules all keep reusable renderer state separate from transient submission
+ownership. The WebGPU
+[`GPUQueue.submit`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-submit)
+contract remains the submission boundary. The existing Skia/SkParagraph,
+DirectWrite, Parley, and HarfBuzz research is unchanged because this slice
+does not alter shaping, layout, raster quality, or font state.
+
+Adopted: pipeline-owned peak-capacity staging storage and explicit
+submission-lifetime ownership. Adapted: two geometrically growing managed
+arrays hold only the 448-byte storage records and native bind-group pointers;
+native media texture leases and temporary bind groups remain in their
+existing pending lists until queue submission. Rejected: per-frame arrays,
+retaining decoded-frame wrappers in persistent scratch, pooling across
+devices, and changing scene invalidation to hide allocation cost.
+
+The clean-room regression measures zero current-thread allocation across
+4,096 steady-state capacity checks and verifies bounded 4-to-8 element
+growth with value preservation. The focused media/editor/provider suite
+passes 112/112, both media sample pages pass headless rendering, and the
+actual planar-NV12 plus crop/rotation/mirror Mesh3D GPU regressions pass. On
+the exact macOS arm64 Release bundle, 38 samples spanning a complete native
+AVFoundation 3D loop stayed populated with no black/clear luminance outlier;
+the nonlinear editor also reached `Timeline complete`.
+
+Matched final-three-second Time Profiler and Metal System Trace windows were
+captured for the legacy and reusable-scratch binaries. Metal allocated size
+was 192,151,552 versus 191,971,328 bytes and both lanes reported zero
+drawable waits, compiler spills, potential hangs, hang risks, and
+command-buffer errors. Sample and command-buffer row counts are not used as
+a speed claim. Xcode Allocations failed to finalize symmetrically, so no
+native-allocation comparison is claimed. Raw evidence and a compact protocol
+summary are retained under
+`artifacts/performance/media-mesh3d-scratch-20260729`.
+
 ## Retina text and embedded-surface correction (2026-07-27)
 
 The sharpness investigation followed the same shape/layout/raster separation
@@ -3385,3 +3427,72 @@ Metal window, so its zero allocation rows are not interpreted as zero GPU
 memory. The compact evidence is in
 `artifacts/avalonia-retina-text-instruments-final-20260727`; 321,419,162 bytes
 of raw traces, exports, and Xcode scratch were removed after summarization.
+
+## Android exact-ABI Dawn packaging (2026-07-29)
+
+Primary contracts consulted:
+
+- WebGPUSharp's official
+  [`dawn-m150-01249a9` native release](https://github.com/EmilSV/webgpu-dawn-build/releases/tag/dawn-m150-01249a9)
+  identifies Dawn
+  `01249a97332468dbdd6cf5edb8dd7bae77875de5` as the native ABI paired with
+  the managed WebGPUSharp 0.5.5 surface.
+- Dawn's official [building guide](https://dawn.googlesource.com/dawn/+/HEAD/docs/building.md)
+  identifies standalone CMake/Ninja builds, `webgpu_dawn`, dependency
+  synchronization, and Android cross-compilation as the supported integration
+  building blocks.
+- Dawn's pinned Vulkan
+  [`SharedTextureMemoryVk.cpp`](https://dawn.googlesource.com/dawn/+/refs/heads/chromium/6651/src/dawn/native/vulkan/SharedTextureMemoryVk.cpp)
+  implements Android `AHardwareBuffer` import rather than a CPU upload.
+- Dawn's Android
+  [shared-texture tests](https://dawn.googlesource.com/dawn.git/+/refs/heads/chromium/7426/src/dawn/tests/white_box/SharedTextureMemoryTests_android.cpp)
+  exercise `SharedTextureMemoryAHardwareBufferDescriptor` with Vulkan.
+- Android's official [NDK CMake guide](https://developer.android.com/ndk/guides/cmake)
+  defines the per-ABI toolchain, platform, NDK, and CMake inputs.
+- Android's official
+  [16 KiB page-size guidance](https://developer.android.com/guide/practices/page-sizes)
+  requires rebuilt native libraries and specifies the maximum/common page-size
+  linker contract for pre-r28 NDKs.
+
+Adopted: one pinned Dawn source commit, the official Android NDK toolchain,
+Vulkan-only backend selection, static internal implementation libraries, a
+single exported WebGPU C DSO, per-ABI packaging, and explicit ELF validation.
+Adapted: ProGPU's wrapper consumes Dawn's `webgpu_dawn` target but creates an
+independent final shared-object boundary so private Dawn/Tint DSOs and
+`libc++_shared` cannot leak into the APK. Only `wgpu*` remains globally
+visible; AHardwareBuffer and SyncFD functions are mandatory package checks.
+Rejected: copying upstream build helpers into ProGPU, accepting a directory as
+proof that a native library exists, packaging desktop native assets, silently
+substituting wgpu-native for the zero-copy lane, or describing cross-compiled
+artifacts as device evidence.
+
+The script syntax/help contract and source audit are executable on any host.
+Producing and validating the actual ELF additionally requires NDK r27 or
+newer. Runtime completion still requires an Android device whose Vulkan driver
+exposes the imported-memory and native-fence extensions, followed by the
+matched Perfetto/AGI device gate documented in the media architecture record.
+
+The exact artifact validation used NDK 29.0.14206865 and Dawn
+`01249a97332468dbdd6cf5edb8dd7bae77875de5`. The pinned arm64 build completed
+989 native targets, produced an 8,881,288-byte stripped DSO with SHA-256
+`63fab8691fed54a5d8555158c07fac541d4d1710a6901a166d92e7ee74ca33aa`,
+and passed ELF machine, SONAME, required `wgpu*` export, system-only
+dependency, and 16 KiB load-segment checks. A strict Release/AOT
+`android-arm64` sample build then packaged the byte-identical DSO at
+`lib/arm64-v8a/libwebgpu_dawn.so` and packaged no `libwgpu_native.so`; 36
+focused Android/iOS/Dawn/shader-resource contracts passed. This evidence
+establishes reproducible packaging and ABI closure, not runtime extension
+availability, codec correctness, thermal behavior, or sustained device
+performance.
+
+The exact revision also cross-built on Xcode 26.4.1 without a compatibility
+header or source modification. `eng/build-webgpu-dawn-ios.sh` verifies the
+WebGPUSharp 0.5.5 enum values in both generated headers, creates arm64 device
+and simulator dynamic Metal frameworks, and packages them as one
+`webgpu_dawn.xcframework`. The generated header SHA-256 is
+`9a4325200dbc4ff1b17542b2f896f85ade3adee2f95d1c6d355b00a496df782e`;
+the device and simulator binaries are 10,218,392 and 10,304,408 bytes. A
+strict linked iOS Release build and an iPhone 17 Pro simulator launch
+completed without Dawn validation errors. This establishes the managed/native
+ABI and simulator startup path; a physical-device IOSurface/MTLSharedEvent
+run and matched Instruments evidence remain required.

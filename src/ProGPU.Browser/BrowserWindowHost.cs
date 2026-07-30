@@ -15,6 +15,7 @@ namespace ProGPU.Browser;
 public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
 {
     private readonly BrowserGpuCapabilities _capabilities;
+    private readonly IDisposable _mediaRegistration;
     private readonly List<HostedWindow> _windows = [];
     private bool _disposed;
 
@@ -23,6 +24,7 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         ArgumentNullException.ThrowIfNull(capabilities);
         if (!capabilities.IsSupported) throw new PlatformNotSupportedException("WebGPU is unavailable.");
         _capabilities = capabilities;
+        _mediaRegistration = BrowserMedia.Register();
         InterFontFamily.RegisterFonts();
         NotoFontFamily.RegisterFallbacks();
         var fallbackFont = InterFontFamily.Regular;
@@ -131,6 +133,7 @@ public sealed partial class BrowserWindowHost : IWindowHost, IDisposable
         ClipboardHelper.PlatformGetText = null;
         ClipboardHelper.PlatformSetRichText = null;
         ClipboardHelper.PlatformGetRichText = null;
+        _mediaRegistration.Dispose();
         _disposed = true;
     }
 

@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
                       OutputItemType="Analyzer"

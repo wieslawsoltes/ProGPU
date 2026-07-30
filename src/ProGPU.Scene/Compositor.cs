@@ -811,7 +811,14 @@ public unsafe partial class Compositor : IDisposable
 
     private readonly List<ICompositorExtension> _registeredExtensions = new();
     private readonly Dictionary<int, ICompositorExtension> _extensionsById = new();
+    private readonly List<PreparedExtensionDrawCallRestore>
+        _preparedExtensionDrawCallRestores = new();
     private int _extensionFrameDepth;
+
+    private readonly record struct PreparedExtensionDrawCallRestore(
+        List<CompositorDrawCall> DrawCalls,
+        int Index,
+        CompositorDrawCall Original);
 
     public void RegisterExtension(int id, ICompositorExtension extension)
     {
@@ -880,6 +887,79 @@ public unsafe partial class Compositor : IDisposable
         finally
         {
             _extensionFrameDepth--;
+        }
+    }
+
+    private int PrepareExtensionDrawCalls(bool isOffscreen)
+    {
+        int restoreStart = _preparedExtensionDrawCallRestores.Count;
+        try
+        {
+            Span<CompositorDrawCall> drawCalls =
+                CollectionsMarshal.AsSpan(_drawCalls);
+            for (int index = 0; index < drawCalls.Length; index++)
+            {
+                CompositorDrawCall original = drawCalls[index];
+                if (original.Type != DrawCallType.Extension)
+                {
+                    continue;
+                }
+
+                ICompositorExtension? extension =
+                    GetExtension(original.ExtensionId);
+                if (extension == null ||
+                    !extension.TryPrepareDrawCall(
+                        this,
+                        isOffscreen,
+                        in original,
+                        out CompositorDrawCall prepared))
+                {
+                    continue;
+                }
+
+                _preparedExtensionDrawCallRestores.Add(
+                    new PreparedExtensionDrawCallRestore(
+                        _drawCalls,
+                        index,
+                        original));
+                drawCalls[index] = prepared;
+            }
+
+            return restoreStart;
+        }
+        catch
+        {
+            RestorePreparedExtensionDrawCalls(restoreStart);
+            throw;
+        }
+    }
+
+    private void RestorePreparedExtensionDrawCalls(int restoreStart)
+    {
+        if (restoreStart < 0 ||
+            restoreStart > _preparedExtensionDrawCallRestores.Count)
+        {
+            return;
+        }
+
+        for (int index =
+                 _preparedExtensionDrawCallRestores.Count - 1;
+             index >= restoreStart;
+             index--)
+        {
+            PreparedExtensionDrawCallRestore restore =
+                _preparedExtensionDrawCallRestores[index];
+            restore.DrawCalls[restore.Index] = restore.Original;
+        }
+
+        int restoreCount =
+            _preparedExtensionDrawCallRestores.Count -
+            restoreStart;
+        if (restoreCount > 0)
+        {
+            _preparedExtensionDrawCallRestores.RemoveRange(
+                restoreStart,
+                restoreCount);
         }
     }
 
@@ -1147,6 +1227,8 @@ public unsafe partial class Compositor : IDisposable
         public TextureSamplingMode TextureSamplingMode;
         public byte TextureMaxAnisotropy;
         public GpuTextureAlphaMode TextureAlphaMode;
+        public bool HasImageEffect;
+        public ImageEffectCommandData ImageEffect;
 
         // Custom Extension properties
         public int ExtensionId;
@@ -1169,6 +1251,7 @@ public unsafe partial class Compositor : IDisposable
     private readonly List<VectorVertex> _vectorVerticesList = new();
     private readonly List<uint> _vectorIndicesList = new();
     private readonly List<GlyphInstance> _textVerticesList = new();
+    private static readonly ulong GlyphInstanceStride = (ulong)Unsafe.SizeOf<GlyphInstance>();
     private readonly List<VectorVertex> _textureVerticesList = new();
     private readonly List<uint> _textureIndicesList = new();
     public readonly struct TextureCacheKey : IEquatable<TextureCacheKey>
@@ -1224,6 +1307,8 @@ public unsafe partial class Compositor : IDisposable
     }
 
     private readonly List<CompositorDrawCall> _drawCalls = new();
+    private readonly List<RetainedResourceLease>
+        _frameRetainedResources = new();
     private readonly List<CompiledVisualVersion> _compiledExternalLayers = new();
     private readonly List<CompiledLayerVersion> _compiledLayerOwners = new();
     private readonly Dictionary<TextureCacheKey, CachedBindGroup> _persistentTextureBindGroups = new();
@@ -2539,7 +2624,22 @@ public unsafe partial class Compositor : IDisposable
                 ProGpuSceneDiagnostics.WriteLine(
                     "[Compositor] Retrying frame compilation after recoverable PathAtlas capacity exhaustion.");
             }
+            finally
+            {
+                ReleaseFrameRetainedResources();
+            }
         }
+    }
+
+    private void ReleaseFrameRetainedResources()
+    {
+        for (int index = 0;
+             index < _frameRetainedResources.Count;
+             index++)
+        {
+            _frameRetainedResources[index].Dispose();
+        }
+        _frameRetainedResources.Clear();
     }
 
     private void RenderSceneCore(Visual root, uint width, uint height, TextureView* targetView)
@@ -2655,6 +2755,7 @@ public unsafe partial class Compositor : IDisposable
         var extensionFrame = BeginExtensionFrame();
         bool glyphBatchActive = false;
         CommandEncoder* encoder = null;
+        int preparedExtensionDrawCallRestoreStart = -1;
         System.Diagnostics.Stopwatch uploadSw = null!;
         System.Diagnostics.Stopwatch passSw = null!;
         try
@@ -3060,6 +3161,13 @@ SceneStateUploadComplete:
             CreateMsaaResources(renderWidth, renderHeight);
         }
 
+        // Let extensions encode retained GPU preparation before a compositor
+        // render pass exists. The transient draw-call substitutions are
+        // restored in the frame finally block so compiled-scene replay keeps
+        // its original command state.
+        preparedExtensionDrawCallRestoreStart =
+            PrepareExtensionDrawCalls(isOffscreen: false);
+
         // 5. WebGPU Command Encoder and Render Pass Execution
         encoder = CreateCommandEncoder("Compositor Command Encoder\0"u8);
         EncodePendingSceneUploads(encoder);
@@ -3189,8 +3297,10 @@ SceneStateUploadComplete:
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -3388,6 +3498,9 @@ SceneStateUploadComplete:
         }
         finally
         {
+            RestorePreparedExtensionDrawCalls(
+                preparedExtensionDrawCallRestoreStart);
+            preparedExtensionDrawCallRestoreStart = -1;
             if (glyphBatchActive)
             {
                 glyphBatchActive = false;
@@ -3691,6 +3804,7 @@ SceneStateUploadComplete:
         _compiledSceneCacheStateReason =
             !Options.EnableCompiledSceneCache ? "Compiled scene cache disabled" :
             hasDynamicDiagnostics ? "Dynamic diagnostics active" :
+            _frameRetainedResources.Count != 0 ? "Frame-owned resources active" :
             _compiledSceneContainsDrawingVisual ? "Drawing visuals active" :
             _maskRenderPasses.Count != 0 ? "Mask render passes active" :
             _effectTextures.Count != 0 ? "Effects active" :
@@ -4892,6 +5006,8 @@ SceneStateUploadComplete:
             {
                 if (usesPooledContext)
                 {
+                    ctx.MoveRetainedResourcesTo(
+                        _frameRetainedResources);
                     ctx.Clear();
                     ReleaseDrawingContext();
                 }
@@ -5181,6 +5297,10 @@ SceneStateUploadComplete:
             IntParam = localCommand.IntParam,
             FloatParam = localCommand.FloatParam,
             DataParam = localCommand.DataParam,
+            Texture = localCommand.Texture,
+            TextureSamplingMode = localCommand.TextureSamplingMode,
+            HasImageEffect = localCommand.HasImageEffect,
+            ImageEffect = localCommand.ImageEffect,
             PointBufferOffset = (int)_pendingVectorStart,
             PointBufferCount =
                 (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
@@ -5455,6 +5575,10 @@ SceneStateUploadComplete:
                                 IntParam = localCmd.IntParam,
                                 FloatParam = localCmd.FloatParam,
                                 DataParam = localCmd.DataParam,
+                                Texture = localCmd.Texture,
+                                TextureSamplingMode = localCmd.TextureSamplingMode,
+                                HasImageEffect = localCmd.HasImageEffect,
+                                ImageEffect = localCmd.ImageEffect,
                                 PointBufferOffset = (int)_pendingVectorStart,
                                 PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
                                 DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -14024,6 +14148,7 @@ SceneStateUploadComplete:
                 _offscreenRenderDepth--;
                 if (ownsOffscreenFrame)
                 {
+                    ReleaseFrameRetainedResources();
                     _frameNumber++;
                     EvictUnusedBindGroups();
                 }
@@ -14142,6 +14267,7 @@ SceneStateUploadComplete:
         var extensionFrame = BeginExtensionFrame();
         var pathAtlasGenerationAtCompilationStart = _pathAtlas.Generation;
         CommandEncoder* encoder = null;
+        int preparedExtensionDrawCallRestoreStart = -1;
         var extensionFrameEnded = false;
         try
         {
@@ -14250,6 +14376,9 @@ SceneStateUploadComplete:
         _pathAtlas.RasterizePendingPaths();
         RefreshAtlasBindGroupsIfNeeded();
         long uploadEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        preparedExtensionDrawCallRestoreStart =
+            PrepareExtensionDrawCalls(isOffscreen: true);
 
         // Render target view for offscreen GpuTexture
         var targetView = targetTexture.ViewPtr;
@@ -14443,8 +14572,10 @@ SceneStateUploadComplete:
                 }
 
                 var buffer = _textVertexBuffer.BufferPtr;
-                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+                var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -14606,6 +14737,9 @@ SceneStateUploadComplete:
                 GpuBlendMode.Src,
                 copyPassResource);
         }
+        RestorePreparedExtensionDrawCalls(
+            preparedExtensionDrawCallRestoreStart);
+        preparedExtensionDrawCallRestoreStart = -1;
         EndExtensionFrame(extensionFrame);
         extensionFrameEnded = true;
 
@@ -14789,6 +14923,9 @@ SceneStateUploadComplete:
         }
         finally
         {
+            RestorePreparedExtensionDrawCalls(
+                preparedExtensionDrawCallRestoreStart);
+            preparedExtensionDrawCallRestoreStart = -1;
             if (!extensionFrameEnded)
             {
                 EndExtensionFrame(extensionFrame);
@@ -15145,6 +15282,10 @@ SceneStateUploadComplete:
                                     IntParam = localCmd.IntParam,
                                     FloatParam = localCmd.FloatParam,
                                     DataParam = localCmd.DataParam,
+                                    Texture = localCmd.Texture,
+                                    TextureSamplingMode = localCmd.TextureSamplingMode,
+                                    HasImageEffect = localCmd.HasImageEffect,
+                                    ImageEffect = localCmd.ImageEffect,
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -15590,6 +15731,10 @@ SceneStateUploadComplete:
                                     IntParam = localCmd.IntParam,
                                     FloatParam = localCmd.FloatParam,
                                     DataParam = localCmd.DataParam,
+                                    Texture = localCmd.Texture,
+                                    TextureSamplingMode = localCmd.TextureSamplingMode,
+                                    HasImageEffect = localCmd.HasImageEffect,
+                                    ImageEffect = localCmd.ImageEffect,
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -15942,14 +16087,17 @@ SceneStateUploadComplete:
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 1, atlasBg, 0, null);
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBg, 0, null);
 
-                    if (sb.TextVertexBuffer != null)
-                    {
-                        var buffer = sb.TextVertexBuffer.BufferPtr;
-                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, sb.TextVertexBuffer.Size);
-                    }
                     currentType = DrawCallType.Text;
                 }
-                _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+
+                if (sb.TextVertexBuffer != null)
+                {
+                    var buffer = sb.TextVertexBuffer.BufferPtr;
+                    var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                    var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                    _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
+                }
             }
             else if (dc.Type == DrawCallType.Extension)
             {
@@ -18170,11 +18318,14 @@ SceneStateUploadComplete:
                         }
                         _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
-                        var buffer = _textVertexBuffer.BufferPtr;
-                        _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, 0, _textVertexBuffer.Size);
                         currentType = DrawCallType.Text;
                     }
-                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, dc.IndexStart);
+
+                    var buffer = _textVertexBuffer.BufferPtr;
+                    var textVertexOffset = (ulong)dc.IndexStart * GlyphInstanceStride;
+                    var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
+                    _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
+                    _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
                 }
                 else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
                 {

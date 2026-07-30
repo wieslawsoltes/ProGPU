@@ -13,6 +13,20 @@ namespace ProGPU.Scene
             Matrix4x4 transform,
             ref RenderCommand cmd);
 
+        // Called after CPU compilation and before any compositor render pass.
+        // Extensions may prepare retained GPU resources and return a transient
+        // draw-call replacement. The compositor restores the original retained
+        // draw call after encoding, including when compiled-scene replay is used.
+        bool TryPrepareDrawCall(
+            Compositor compositor,
+            bool isOffscreen,
+            in Compositor.CompositorDrawCall drawCall,
+            out Compositor.CompositorDrawCall preparedDrawCall)
+        {
+            preparedDrawCall = drawCall;
+            return false;
+        }
+
         // Called during the active WebGPU render pass with raw parameters for zero-allocation performance
         unsafe void Render(
             Compositor compositor,

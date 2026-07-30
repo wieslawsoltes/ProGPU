@@ -17,9 +17,12 @@ namespace ProGPU.Backend.Dawn;
 /// bindings, attributes, constants, or attachments and uses bounded stack
 /// storage. Submission and draw calls forward without managed allocation.
 /// </remarks>
-public sealed unsafe class DawnWebGpuApi : IWebGpuApi
+public sealed unsafe class DawnWebGpuApi :
+    IWebGpuApi,
+    IWebGpuExternalSurfaceApi
 {
     private const int MaxDescriptorItems = 256;
+    private DawnNativePresentationSurface? _presentationSurface;
 
     private sealed class MapCompletion
     {
@@ -901,18 +904,70 @@ public sealed unsafe class DawnWebGpuApi : IWebGpuApi
 
     public void SurfaceGetCurrentTexture(
         SW.Surface* surface,
-        SW.SurfaceTexture* surfaceTexture) =>
-        throw ExternalSurfaceNotSupported();
+        SW.SurfaceTexture* surfaceTexture)
+    {
+        PresentationSurface(surface).GetCurrentTexture(surfaceTexture);
+    }
 
-    public void SurfacePresent(SW.Surface* surface) =>
-        throw ExternalSurfaceNotSupported();
+    public void SurfacePresent(SW.Surface* surface)
+    {
+        PresentationSurface(surface).Present();
+    }
 
     public void SurfaceRelease(SW.Surface* surface)
     {
-        if (surface != null)
+        DawnNativePresentationSurface? presentation =
+            _presentationSurface;
+        if (presentation is null || surface != presentation.SilkSurface)
+        {
+            if (surface != null)
+            {
+                throw ExternalSurfaceNotSupported();
+            }
+            return;
+        }
+        _presentationSurface = null;
+        presentation.Dispose();
+    }
+
+    public void ConfigureExternalSurface(
+        SW.Surface* surface,
+        uint width,
+        uint height)
+    {
+        PresentationSurface(surface).ConfigureExternal(width, height);
+    }
+
+    public void UnconfigureExternalSurface(SW.Surface* surface)
+    {
+        PresentationSurface(surface).UnconfigureExternal();
+    }
+
+    internal SW.Surface* AttachPresentationSurface(
+        DawnNativePresentationSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        if (_presentationSurface is not null)
+        {
+            throw new InvalidOperationException(
+                "A Dawn native presentation surface is already attached.");
+        }
+        _presentationSurface = surface;
+        return surface.SilkSurface;
+    }
+
+    private DawnNativePresentationSurface PresentationSurface(
+        SW.Surface* surface)
+    {
+        DawnNativePresentationSurface? presentation =
+            _presentationSurface;
+        if (presentation is null ||
+            surface == null ||
+            surface != presentation.SilkSurface)
         {
             throw ExternalSurfaceNotSupported();
         }
+        return presentation;
     }
 
     public void BindGroupRelease(SW.BindGroup* value) =>
@@ -1260,6 +1315,10 @@ public sealed unsafe class DawnWebGpuApi : IWebGpuApi
             SW.TextureFormat.R16Uint => W.TextureFormat.R16Uint,
             SW.TextureFormat.R16Sint => W.TextureFormat.R16Sint,
             SW.TextureFormat.R16float => W.TextureFormat.R16Float,
+            var format when
+                format ==
+                    ProGpuTextureFormats.R16Unorm =>
+                W.TextureFormat.R16Unorm,
             SW.TextureFormat.RG8Unorm => W.TextureFormat.RG8Unorm,
             SW.TextureFormat.RG8Snorm => W.TextureFormat.RG8Snorm,
             SW.TextureFormat.RG8Uint => W.TextureFormat.RG8Uint,
@@ -1270,6 +1329,10 @@ public sealed unsafe class DawnWebGpuApi : IWebGpuApi
             SW.TextureFormat.RG16Uint => W.TextureFormat.RG16Uint,
             SW.TextureFormat.RG16Sint => W.TextureFormat.RG16Sint,
             SW.TextureFormat.RG16float => W.TextureFormat.RG16Float,
+            var format when
+                format ==
+                    ProGpuTextureFormats.RG16Unorm =>
+                W.TextureFormat.RG16Unorm,
             SW.TextureFormat.Rgba8Unorm => W.TextureFormat.RGBA8Unorm,
             SW.TextureFormat.Rgba8UnormSrgb => W.TextureFormat.RGBA8UnormSrgb,
             SW.TextureFormat.Rgba8Snorm => W.TextureFormat.RGBA8Snorm,
@@ -1398,6 +1461,7 @@ public sealed unsafe class DawnWebGpuApi : IWebGpuApi
     private static W.VertexFormat VertexFormat(
         SW.VertexFormat value) => value switch
         {
+            SW.VertexFormat.Uint32 => W.VertexFormat.Uint32,
             SW.VertexFormat.Float32 => W.VertexFormat.Float32,
             SW.VertexFormat.Float32x2 => W.VertexFormat.Float32x2,
             SW.VertexFormat.Float32x3 => W.VertexFormat.Float32x3,

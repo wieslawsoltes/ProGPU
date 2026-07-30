@@ -19,7 +19,21 @@ struct GpuMesh3DRecord {
     opacity: f32,
     renderMode: f32,
     shadingMode: f32,
-    _pad2: f32,
+    textureSamplingMode: f32,
+    textureEffects0: vec4<f32>,
+    textureEffects1: vec4<f32>,
+    textureInfo: vec4<f32>,
+    colorMatrixRed: vec4<f32>,
+    colorMatrixGreen: vec4<f32>,
+    colorMatrixBlue: vec4<f32>,
+    colorMatrixAlpha: vec4<f32>,
+    colorMatrixOffset: vec4<f32>,
+    textureFlags: vec4<f32>,
+    yuvRange: vec4<f32>,
+    yuvRed: vec4<f32>,
+    yuvGreen: vec4<f32>,
+    yuvBlue: vec4<f32>,
+    textureSourceRect: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
@@ -28,6 +42,8 @@ struct GpuMesh3DRecord {
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) textureCoordinate: vec2<f32>,
+    @location(3) recordIndex: u32,
 };
 
 struct VertexOutput {
@@ -212,8 +228,9 @@ fn ComputeLighting(
 }
 
 @vertex
-fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIdx: u32, @builtin(instance_index) instanceIdx: u32) -> VertexOutputWireframe {
+fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIdx: u32) -> VertexOutputWireframe {
     var output: VertexOutputWireframe;
+    let instanceIdx = input.recordIndex;
     let record = meshRecords[instanceIdx];
 
     let worldPos = record.modelTransform * vec4<f32>(input.position, 1.0);

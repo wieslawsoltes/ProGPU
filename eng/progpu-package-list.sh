@@ -5,6 +5,12 @@
 progpu_portable_package_ids=(
   ProGPU.Backend
   ProGPU.Backend.Dawn
+  ProGPU.Media
+  ProGPU.Media.Editing
+  ProGPU.Media.Scene
+  ProGPU.WinRT
+  ProGPU.Windows.Media
+  ProGPU.Linux.Media
   ProGPU.Text.Shaping
   ProGPU.Browser
   ProGPU.DirectX
@@ -39,6 +45,12 @@ progpu_portable_package_ids=(
 progpu_portable_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
   src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
+  src/ProGPU.Media/ProGPU.Media.csproj
+  src/ProGPU.Media.Editing/ProGPU.Media.Editing.csproj
+  src/ProGPU.Media.Scene/ProGPU.Media.Scene.csproj
+  src/ProGPU.WinRT/ProGPU.WinRT.csproj
+  src/ProGPU.Windows.Media/ProGPU.Windows.Media.csproj
+  src/ProGPU.Linux.Media/ProGPU.Linux.Media.csproj
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Browser/ProGPU.Browser.csproj
   src/ProGPU.DirectX/ProGPU.DirectX.csproj
@@ -73,6 +85,12 @@ progpu_portable_package_projects=(
 progpu_portable_package_purposes=(
   "WebGPU device, swapchain, Silk.NET windowing, and platform backend services."
   "Exact-ABI Dawn shared texture memory and cross-queue fence extensions."
+  "Framework-neutral media playback, diagnostics, audio processing, effects, and provider contracts."
+  "Reusable non-destructive composition, project serialization, overlays, effects, and native export coordination."
+  "Retained 2D/3D WebGPU media presentation and fused effect integration."
+  "Platform-neutral WinRT-shaped foundation, storage, property-set, and media value contracts."
+  "Native Windows Media Foundation, D3D11/DXGI, and platform-audio media provider."
+  "Dependency-free Linux V4L2, DMA-BUF, Vulkan Video, and PipeWire media provider."
   "AOT-safe OpenType shaping contracts and execution primitives."
   "Batched .NET WebAssembly dispatcher and navigator.gpu browser host services."
   "DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU."
@@ -147,16 +165,22 @@ progpu_avalonia_runtime_package_purposes=(
 progpu_mobile_package_ids=(
   ProGPU.Android
   ProGPU.iOS
+  ProGPU.Android.Media
+  ProGPU.Apple.Media
 )
 
 progpu_mobile_package_projects=(
   src/ProGPU.Android/ProGPU.Android.csproj
   src/ProGPU.iOS/ProGPU.iOS.csproj
+  src/ProGPU.Android.Media/ProGPU.Android.Media.csproj
+  src/ProGPU.Apple.Media/ProGPU.Apple.Media.csproj
 )
 
 progpu_mobile_package_purposes=(
   "Native Android SurfaceView host, input, storage, and WebGPU/Vulkan integration."
   "Native UIKit and CAMetalLayer host, input, storage, and WebGPU/Metal integration."
+  "Native Android MediaPlayer, ImageReader, AHardwareBuffer, and platform-audio media provider."
+  "Native AVFoundation, IOSurface, and platform-audio provider for iOS and macOS."
 )
 
 progpu_package_ids=("${progpu_portable_package_ids[@]}" "${progpu_mobile_package_ids[@]}")

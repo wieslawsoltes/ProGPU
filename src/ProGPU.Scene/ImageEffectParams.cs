@@ -27,6 +27,134 @@ namespace ProGPU.Scene
         public Vector4 Offset { get; }
     }
 
+    /// <summary>
+    /// Converts normalized luma/chroma samples into straight RGB. Offset and
+    /// scale values encode full/limited range and bit depth; the three rows
+    /// encode the selected BT.601, BT.709, or BT.2020 matrix.
+    /// </summary>
+    public readonly struct ImageEffectYuvConversion
+    {
+        public ImageEffectYuvConversion(
+            Vector4 range,
+            Vector4 red,
+            Vector4 green,
+            Vector4 blue)
+        {
+            Range = range;
+            Red = red;
+            Green = green;
+            Blue = blue;
+        }
+
+        public Vector4 Range { get; }
+        public Vector4 Red { get; }
+        public Vector4 Green { get; }
+        public Vector4 Blue { get; }
+    }
+
+    /// <summary>
+    /// Maps a perspective output quad into an equirectangular source texture.
+    /// The orientation is normalized at the public API boundary.
+    /// </summary>
+    public readonly struct ImageEffectSphericalProjection
+    {
+        public ImageEffectSphericalProjection(
+            Vector4 sourceUvRect,
+            Quaternion viewOrientation,
+            float horizontalFieldOfViewRadians,
+            float outputAspectRatio)
+        {
+            SourceUvRect = sourceUvRect;
+            ViewOrientation = viewOrientation;
+            HorizontalFieldOfViewRadians =
+                horizontalFieldOfViewRadians;
+            OutputAspectRatio = outputAspectRatio;
+        }
+
+        public Vector4 SourceUvRect { get; }
+        public Quaternion ViewOrientation { get; }
+        public float HorizontalFieldOfViewRadians { get; }
+        public float OutputAspectRatio { get; }
+    }
+
+    /// <summary>
+    /// Immutable, inline image-effect state used by retained render commands.
+    /// Keeping this value on the command avoids a managed allocation for every
+    /// changing image or video frame.
+    /// </summary>
+    public readonly struct ImageEffectCommandData
+    {
+        public ImageEffectCommandData(
+            float brightness,
+            float contrast,
+            float saturation,
+            float grayscale,
+            float sepia,
+            float invert,
+            float blurSigma,
+            GpuTexture? maskTexture,
+            ImageEffectColorMatrix? colorMatrix,
+            bool luminanceToAlpha,
+            GpuTexture? chromaTexture = null,
+            ImageEffectYuvConversion? yuvConversion = null,
+            ImageEffectSphericalProjection?
+                sphericalProjection = null)
+        {
+            Brightness = brightness;
+            Contrast = contrast;
+            Saturation = saturation;
+            Grayscale = grayscale;
+            Sepia = sepia;
+            Invert = invert;
+            BlurSigma = blurSigma;
+            MaskTexture = maskTexture;
+            ColorMatrix = colorMatrix;
+            LuminanceToAlpha = luminanceToAlpha;
+            ChromaTexture = chromaTexture;
+            YuvConversion = yuvConversion;
+            SphericalProjection = sphericalProjection;
+        }
+
+        public float Brightness { get; }
+        public float Contrast { get; }
+        public float Saturation { get; }
+        public float Grayscale { get; }
+        public float Sepia { get; }
+        public float Invert { get; }
+        public float BlurSigma { get; }
+        public GpuTexture? MaskTexture { get; }
+        public ImageEffectColorMatrix? ColorMatrix { get; }
+        public bool LuminanceToAlpha { get; }
+        public GpuTexture? ChromaTexture { get; }
+        public ImageEffectYuvConversion? YuvConversion { get; }
+        public ImageEffectSphericalProjection?
+            SphericalProjection { get; }
+
+        internal ImageEffectCommandData
+            WithRgbSourceWithoutBlur()
+        {
+            return new ImageEffectCommandData(
+                Brightness,
+                Contrast,
+                Saturation,
+                Grayscale,
+                Sepia,
+                Invert,
+                0f,
+                MaskTexture,
+                ColorMatrix,
+                LuminanceToAlpha,
+                chromaTexture: null,
+                yuvConversion: null,
+                sphericalProjection:
+                    SphericalProjection);
+        }
+    }
+
+    /// <summary>
+    /// Legacy reference payload retained for source compatibility. New drawing
+    /// commands use <see cref="ImageEffectCommandData"/> inline.
+    /// </summary>
     public class ImageEffectParams
     {
         public GpuTexture Texture { get; set; } = null!;

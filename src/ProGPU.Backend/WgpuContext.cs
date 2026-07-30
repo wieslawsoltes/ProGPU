@@ -45,8 +45,11 @@ public unsafe class WgpuContext : IDisposable
     public uint MaxSamplersPerShaderStage { get; private set; } = 16;
     public uint MaxBindGroups { get; private set; } = 4;
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
+    public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    public IProGpuExternalTextureImporter?
+        ExternalTextureImporter { get; private set; }
     internal WgpuDeviceResourceDomain DeviceResourceDomain =>
         _deviceResourceDomain ??
         throw new InvalidOperationException(
@@ -129,6 +132,8 @@ public unsafe class WgpuContext : IDisposable
     public readonly List<IntPtr> PendingComputePipelines = new();
     public readonly List<IntPtr> PendingSamplers = new();
     public readonly List<IntPtr> PendingShaderModules = new();
+    public readonly List<IDisposable> PendingExternalTextureOwners =
+        new();
     private readonly HashSet<IntPtr> _pendingSnapshotSeen = new();
 
     public void QueueBufferDisposal(IntPtr ptr)
@@ -221,6 +226,43 @@ public unsafe class WgpuContext : IDisposable
         }
     }
 
+    public void QueueExternalTextureOwnerDisposal(
+        IDisposable owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        lock (DisposalLock)
+        {
+            PendingExternalTextureOwners.Add(owner);
+        }
+    }
+
+    public void SetExternalTextureImporter(
+        IProGpuExternalTextureImporter? importer)
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        ExternalTextureImporter = importer;
+    }
+
+    public bool TryImportExternalTexture(
+        in ProGpuExternalTextureDescriptor descriptor,
+        IDisposable nativeOwner,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(nativeOwner);
+        IProGpuExternalTextureImporter? importer =
+            ExternalTextureImporter;
+        if (importer is null)
+        {
+            texture = null!;
+            return false;
+        }
+        return importer.TryImportExternalTexture(
+            this,
+            in descriptor,
+            nativeOwner,
+            out texture);
+    }
+
     public void CleanupPendingResources()
     {
         if (_isDisposed) return;
@@ -239,6 +281,7 @@ public unsafe class WgpuContext : IDisposable
             PooledResourcePointerSnapshot computePipes = default;
             PooledResourcePointerSnapshot samplers = default;
             PooledResourcePointerSnapshot shaders = default;
+            IDisposable[]? externalTextureOwners = null;
 
             try
             {
@@ -273,11 +316,19 @@ public unsafe class WgpuContext : IDisposable
 
                     shaders = SnapshotPendingResourcePointers(PendingShaderModules);
                     PendingShaderModules.Clear();
+
+                    if (PendingExternalTextureOwners.Count > 0)
+                    {
+                        externalTextureOwners =
+                            PendingExternalTextureOwners.ToArray();
+                        PendingExternalTextureOwners.Clear();
+                    }
                 }
 
                 if (views.Length > 0 || textures.Length > 0 || buffers.Length > 0 || bindGroups.Length > 0 ||
                     layouts.Length > 0 || pipeLayouts.Length > 0 || renderPipes.Length > 0 ||
-                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0)
+                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0 ||
+                    externalTextureOwners is not null)
                 {
                     WaitIdle();
                 }
@@ -292,6 +343,8 @@ public unsafe class WgpuContext : IDisposable
                 ReleasePipelineLayouts(pipeLayouts.Span);
                 ReleaseBindGroupLayouts(layouts.Span);
                 ReleaseTextureViews(views.Span);
+                DisposeExternalTextureOwners(
+                    externalTextureOwners);
                 ReleaseTextures(textures.Span);
                 ReleaseBuffers(buffers.Span);
                 ReleaseSamplers(samplers.Span);
@@ -309,6 +362,28 @@ public unsafe class WgpuContext : IDisposable
                 computePipes.Dispose();
                 samplers.Dispose();
                 shaders.Dispose();
+            }
+        }
+    }
+
+    private static void DisposeExternalTextureOwners(
+        IDisposable[]? owners)
+    {
+        if (owners is null)
+        {
+            return;
+        }
+        for (int index = 0; index < owners.Length; index++)
+        {
+            try
+            {
+                owners[index].Dispose();
+            }
+            catch
+            {
+                // Resource cleanup must continue for the remaining native
+                // handles. Platform providers report operational failures
+                // before ownership reaches this deferred release boundary.
             }
         }
     }
@@ -881,6 +956,15 @@ public unsafe class WgpuContext : IDisposable
     /// </summary>
     public void DetachAndroidNativeWindow()
     {
+        DetachExternalNativePresentationSurface();
+    }
+
+    /// <summary>
+    /// Releases an exact-ABI native presentation surface while preserving the
+    /// external device and all reusable GPU resources.
+    /// </summary>
+    public void DetachExternalNativePresentationSurface()
+    {
         lock (RenderLock)
         {
             if (_isDisposed) return;
@@ -925,10 +1009,18 @@ public unsafe class WgpuContext : IDisposable
         if (Surface == null) return;
         if (waitForDevice && Device != null) WaitIdle();
         // Externally owned browser surfaces are opaque command-stream handles and
-        // have no native WebGPU instance to unconfigure. Only the Silk-native path
-        // owns a wgpu-native surface configuration.
-        if (BackendKind == WgpuBackendKind.SilkNative && _isSurfaceConfigured)
+        // have no native WebGPU instance to unconfigure. Exact-ABI native backends
+        // own their configuration and must tear it down through the same ABI.
+        if (Api is IWebGpuExternalSurfaceApi externalSurface &&
+            _isSurfaceConfigured)
+        {
+            externalSurface.UnconfigureExternalSurface(Surface);
+        }
+        else if (BackendKind == WgpuBackendKind.SilkNative &&
+                 _isSurfaceConfigured)
+        {
             Wgpu.SurfaceUnconfigure(Surface);
+        }
         Api.SurfaceRelease(Surface);
         Surface = null;
         _isSurfaceConfigured = false;
@@ -1022,22 +1114,14 @@ public unsafe class WgpuContext : IDisposable
 
     private static nint ResolveAppleStaticWebGpuSymbol(string symbol)
     {
-        nint utf8 = SilkMarshal.StringToPtr(symbol);
-        try
-        {
-            return ResolveStaticallyLinkedWebGpuSymbol((byte*)utf8);
-        }
-        finally
-        {
-            SilkMarshal.Free(utf8);
-        }
+        nint program = NativeLibrary.GetMainProgramHandle();
+        return NativeLibrary.TryGetExport(
+            program,
+            symbol,
+            out nint address)
+                ? address
+                : 0;
     }
-
-    // A direct import keeps the resolver object, and therefore wgpu-native, rooted by
-    // Apple's static linker. Browser applications provide a link-only no-op definition;
-    // this method is unreachable there because OperatingSystem.IsIOS() is false.
-    [DllImport("__Internal", EntryPoint = "progpu_wgpu_get_proc_address")]
-    private static extern nint ResolveStaticallyLinkedWebGpuSymbol(byte* symbol);
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnAdapterRequested(
@@ -1191,6 +1275,7 @@ public unsafe class WgpuContext : IDisposable
         uint maxSamplersPerShaderStage = 16,
         uint maxBindGroups = 4,
         bool supportsReadOnlyAndReadWriteStorageTextures = false,
+        bool supportsTextureFormatsTier1 = false,
         BackendType adapterBackendType = BackendType.Undefined,
         string? adapterName = null)
     {
@@ -1219,6 +1304,8 @@ public unsafe class WgpuContext : IDisposable
         MaxBindGroups = Math.Max(4, maxBindGroups);
         SupportsReadOnlyAndReadWriteStorageTextures =
             supportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTextureFormatsTier1 =
+            supportsTextureFormatsTier1;
         AdapterBackendType = adapterBackendType;
         AdapterName = adapterName ?? string.Empty;
         _externalDeviceLifetime = lifetime;
@@ -1232,6 +1319,40 @@ public unsafe class WgpuContext : IDisposable
             }
         }
         Current = this;
+    }
+
+    /// <summary>
+    /// Attaches a presentation surface owned by the exact-ABI external
+    /// backend to an already initialized native device.
+    /// </summary>
+    public void AttachExternalNativePresentationSurface(
+        Surface* surface,
+        TextureFormat format,
+        uint width,
+        uint height)
+    {
+        if (BackendKind != WgpuBackendKind.DawnNative ||
+            Api is not IWebGpuExternalSurfaceApi)
+        {
+            throw new InvalidOperationException(
+                "The active external backend does not expose native presentation.");
+        }
+        if (Surface != null || surface == null)
+        {
+            throw new InvalidOperationException(
+                "A presentation surface is already attached or invalid.");
+        }
+
+        Surface = surface;
+        SwapChainFormat = format;
+        if (!TryConfigureSwapChain(
+                Math.Max(1u, width),
+                Math.Max(1u, height)))
+        {
+            Surface = null;
+            throw new InvalidOperationException(
+                "The external native surface could not be configured.");
+        }
     }
 
     /// <summary>
@@ -1279,6 +1400,8 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
+        SupportsTextureFormatsTier1 =
+            deviceOwner.SupportsTextureFormatsTier1;
         AdapterBackendType = deviceOwner.AdapterBackendType;
         AdapterName = deviceOwner.AdapterName;
         _deviceResourceDomain = deviceOwner._deviceResourceDomain;
@@ -1362,6 +1485,22 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryConfigureSwapChain(uint width, uint height, bool refreshCapabilities = false)
     {
+        if (Surface != null &&
+            Api is IWebGpuExternalSurfaceApi externalSurface)
+        {
+            uint configuredWidth = Math.Max(1u, width);
+            uint configuredHeight = Math.Max(1u, height);
+            externalSurface.ConfigureExternalSurface(
+                Surface,
+                configuredWidth,
+                configuredHeight);
+            _lastWidth = configuredWidth;
+            _lastHeight = configuredHeight;
+            _isSurfaceConfigured = true;
+            _hasSurfaceConfigurationCapabilities = true;
+            SurfaceConfigurationCount++;
+            return true;
+        }
         if (BackendKind == WgpuBackendKind.BrowserWebGpu)
         {
             _lastWidth = Math.Max(1, width);
@@ -1813,6 +1952,7 @@ public unsafe class WgpuContext : IDisposable
             }
             _sharedDeviceLifetime = null;
             _externalDeviceLifetime = null;
+            ExternalTextureImporter = null;
             ClearSharedDeviceReferences();
             
             _isDisposed = true;

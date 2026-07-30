@@ -13,6 +13,16 @@ public sealed class MediaTransportControlsHelper : DependencyObject
     public static int? GetDropoutOrder(UIElement element) =>
         (int?)element.GetValue(DropoutOrderProperty);
 
-    public static void SetDropoutOrder(UIElement element, int? value) =>
+    public static void SetDropoutOrder(
+        UIElement element,
+        int? value)
+    {
         element.SetValue(DropoutOrderProperty, value);
+        if (element.Parent is
+            MediaTransportControls controls)
+        {
+            controls.InvalidateMeasure();
+            controls.Invalidate();
+        }
+    }
 }

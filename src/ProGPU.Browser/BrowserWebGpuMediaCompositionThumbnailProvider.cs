@@ -1,0 +1,835 @@
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Numerics;
+using System.Runtime.InteropServices.JavaScript;
+using System.Text;
+using System.Text.Json;
+using ProGPU.Backend;
+using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
+
+namespace ProGPU.Browser;
+
+/// <summary>
+/// Browser WebGPU composition thumbnails. One browser GPU device, pipeline,
+/// canvas, media-element set, and texture set serve the complete batch.
+/// HTML media seeks select each requested source frame, the shared
+/// composition shader applies transforms/overlays/effects, and
+/// OffscreenCanvas encodes the completed GPU canvas as PNG.
+/// </summary>
+/// <remarks>
+/// For T requested positions, C timeline entries, and P output pixels,
+/// timeline selection is O(T * C), GPU composition and PNG encoding are
+/// O(T * P), and retained browser GPU/native storage is O(C + P). Managed
+/// storage is O(B) for the required encoded result bytes. Browser video
+/// import is an explicit GPU copy and PNG encoding reads the canvas; this
+/// provider does not claim zero-copy.
+/// </remarks>
+public sealed partial class
+    BrowserWebGpuMediaCompositionThumbnailProvider :
+        IMediaCompositionThumbnailProvider
+{
+    private const int MaximumDimension = 8_192;
+    private static readonly string s_shaderSource =
+        ShaderResource.Load(
+            typeof(
+                BrowserWebGpuMediaCompositionThumbnailProvider),
+            "BrowserMediaComposition.wgsl");
+    private static readonly string
+        s_gaussianShaderSource =
+            ShaderResource.Load(
+                typeof(GpuTextureGaussianBlur),
+                "TextureGaussianBlur.wgsl");
+    private static int s_nextOperationId;
+    private readonly MediaEffectRegistry _effects;
+
+    public BrowserWebGpuMediaCompositionThumbnailProvider(
+        int priority = 100,
+        MediaEffectRegistry? effects = null)
+    {
+        Priority = priority;
+        _effects = effects ?? MediaEffectRegistry.Default;
+    }
+
+    public string Id =>
+        "progpu.browser.webgpu-thumbnails";
+
+    public int Priority { get; }
+
+    public bool CanRender(
+        MediaCompositionThumbnailRequest request) =>
+        IsRequestSupported(
+            request,
+            OperatingSystem.IsBrowser(),
+            _effects);
+
+    internal static bool IsRequestSupported(
+        MediaCompositionThumbnailRequest request,
+        bool isBrowser,
+        MediaEffectRegistry? effects = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        MediaCompositionExportRequest composition =
+            request.Composition;
+        if (!isBrowser ||
+            request.Positions.Count == 0 ||
+            !Enum.IsDefined(request.Precision) ||
+            request.PixelWidth is 0 or > MaximumDimension ||
+            request.PixelHeight is 0 or > MaximumDimension ||
+            composition.Clips.Count == 0 ||
+            composition.EncodingProfile.Width !=
+                request.PixelWidth ||
+            composition.EncodingProfile.Height !=
+                request.PixelHeight ||
+            composition.EncodingProfile
+                .FrameRateNumerator == 0 ||
+            composition.EncodingProfile
+                .FrameRateDenominator == 0)
+        {
+            return false;
+        }
+
+        long durationTicks = 0;
+        for (int index = 0;
+             index < composition.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                composition.Clips[index];
+            if (!IsSupportedVisualClip(
+                    clip,
+                    effects ?? MediaEffectRegistry.Default,
+                    out long clipDurationTicks))
+            {
+                return false;
+            }
+            try
+            {
+                durationTicks = checked(
+                    durationTicks +
+                    clipDurationTicks);
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        for (int layerIndex = 0;
+             layerIndex < composition.OverlayLayers.Count;
+             layerIndex++)
+        {
+            MediaCompositionExportOverlayLayer layer =
+                composition.OverlayLayers[layerIndex];
+            if (layer.CustomCompositorDefinition is not null)
+            {
+                return false;
+            }
+            for (int overlayIndex = 0;
+                 overlayIndex < layer.Overlays.Count;
+                 overlayIndex++)
+            {
+                MediaCompositionExportOverlay overlay =
+                    layer.Overlays[overlayIndex];
+                if (!IsSupportedVisualClip(
+                        overlay.Clip,
+                        effects ?? MediaEffectRegistry.Default,
+                        out _) ||
+                    overlay.Delay < TimeSpan.Zero ||
+                    !double.IsFinite(overlay.PositionX) ||
+                    !double.IsFinite(overlay.PositionY) ||
+                    !double.IsFinite(
+                        overlay.PositionWidth) ||
+                    !double.IsFinite(
+                        overlay.PositionHeight) ||
+                    overlay.PositionWidth <= 0d ||
+                    overlay.PositionHeight <= 0d ||
+                    !double.IsFinite(overlay.Opacity) ||
+                    overlay.Opacity is < 0d or > 1d)
+                {
+                    return false;
+                }
+            }
+        }
+
+        for (int index = 0;
+             index < request.Positions.Count;
+             index++)
+        {
+            long ticks =
+                request.Positions[index].Ticks;
+            if (ticks < 0 ||
+                ticks > durationTicks)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public async ValueTask<IReadOnlyList<
+        MediaCompositionThumbnail>> RenderAsync(
+        MediaCompositionThumbnailRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanRender(request))
+        {
+            throw new ArgumentException(
+                "The thumbnail request is not supported by this provider.",
+                nameof(request));
+        }
+        if (!TryCreateRequestJson(
+                request,
+                out string requestJson))
+        {
+            throw new ArgumentException(
+                "The thumbnail request could not be serialized.",
+                nameof(request));
+        }
+
+        int operationId =
+            Interlocked.Increment(
+                ref s_nextOperationId);
+        Task<BrowserMediaThumbnailCompletion> completion =
+            BrowserMediaThumbnailCallbacks.Register(
+                operationId);
+        try
+        {
+            using CancellationTokenRegistration cancellation =
+                cancellationToken.Register(
+                    static id =>
+                        CancelCore((int)id!),
+                    operationId);
+            StartCore(
+                operationId,
+                requestJson,
+                s_shaderSource,
+                s_gaussianShaderSource);
+            BrowserMediaThumbnailCompletion outcome =
+                await completion
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (outcome.Result != 0)
+            {
+                throw outcome.Result == 3
+                    ? new NotSupportedException(
+                        "The browser cannot create WebGPU composition thumbnails in this environment.")
+                    : new InvalidOperationException(
+                        "The browser failed to render composition thumbnails.");
+            }
+            return CopyResults(
+                operationId,
+                request,
+                outcome.MetadataJson);
+        }
+        finally
+        {
+            ClearCore(operationId);
+            BrowserMediaThumbnailCallbacks.Unregister(
+                operationId);
+        }
+    }
+
+    private static IReadOnlyList<
+        MediaCompositionThumbnail> CopyResults(
+        int operationId,
+        MediaCompositionThumbnailRequest request,
+        string metadataJson)
+    {
+        using JsonDocument document =
+            JsonDocument.Parse(metadataJson);
+        JsonElement root =
+            document.RootElement;
+        if (!string.Equals(
+                root.GetProperty("contentType")
+                    .GetString(),
+                "image/png",
+                StringComparison.OrdinalIgnoreCase) ||
+            root.GetProperty("width")
+                .GetUInt32() != request.PixelWidth ||
+            root.GetProperty("height")
+                .GetUInt32() != request.PixelHeight)
+        {
+            throw new InvalidOperationException(
+                "The browser returned invalid thumbnail metadata.");
+        }
+
+        JsonElement lengths =
+            root.GetProperty("lengths");
+        if (lengths.GetArrayLength() !=
+            request.Positions.Count)
+        {
+            throw new InvalidOperationException(
+                "The browser returned the wrong thumbnail count.");
+        }
+
+        long maximumLength =
+            checked(
+                (long)request.PixelWidth *
+                request.PixelHeight *
+                4L +
+                1_048_576L);
+        var results =
+            new MediaCompositionThumbnail[
+                request.Positions.Count];
+        for (int index = 0;
+             index < results.Length;
+             index++)
+        {
+            int length =
+                lengths[index].GetInt32();
+            if (length <= 0 ||
+                length > maximumLength)
+            {
+                throw new InvalidOperationException(
+                    "The browser returned an invalid encoded thumbnail length.");
+            }
+
+            byte[] bytes =
+                GC.AllocateUninitializedArray<byte>(
+                    length);
+            CopyResult(
+                operationId,
+                index,
+                bytes);
+            results[index] =
+                new MediaCompositionThumbnail(
+                    bytes,
+                    "image/png",
+                    request.PixelWidth,
+                    request.PixelHeight);
+        }
+        return Array.AsReadOnly(results);
+    }
+
+    private static unsafe void CopyResult(
+        int operationId,
+        int index,
+        byte[] destination)
+    {
+        fixed (byte* address = destination)
+        {
+            int copied =
+                CopyCore(
+                    operationId,
+                    index,
+                    (nint)address,
+                    destination.Length);
+            if (copied != destination.Length)
+            {
+                throw new InvalidOperationException(
+                    $"The browser copied {copied} of {destination.Length} thumbnail bytes.");
+            }
+        }
+    }
+
+    private bool TryCreateRequestJson(
+        MediaCompositionThumbnailRequest request,
+        out string json)
+    {
+        var buffer =
+            new ArrayBufferWriter<byte>();
+        using (var writer =
+               new Utf8JsonWriter(buffer))
+        {
+            MediaCompositionExportRequest composition =
+                request.Composition;
+            writer.WriteStartObject();
+            writer.WriteNumber(
+                "width",
+                request.PixelWidth);
+            writer.WriteNumber(
+                "height",
+                request.PixelHeight);
+            writer.WriteNumber(
+                "frameRate",
+                (double)composition.EncodingProfile
+                    .FrameRateNumerator /
+                composition.EncodingProfile
+                    .FrameRateDenominator);
+            writer.WriteBoolean(
+                "includeAudio",
+                false);
+            writer.WritePropertyName("clips");
+            writer.WriteStartArray();
+            for (int index = 0;
+                 index < composition.Clips.Count;
+                 index++)
+            {
+                if (!WriteClip(
+                        writer,
+                        composition.Clips[index]))
+                {
+                    json = string.Empty;
+                    return false;
+                }
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray(
+                "backgroundAudio");
+            writer.WriteEndArray();
+            writer.WritePropertyName(
+                "overlayLayers");
+            writer.WriteStartArray();
+            for (int layerIndex = 0;
+                 layerIndex <
+                    composition.OverlayLayers.Count;
+                 layerIndex++)
+            {
+                MediaCompositionExportOverlayLayer layer =
+                    composition.OverlayLayers[layerIndex];
+                writer.WriteStartArray();
+                for (int overlayIndex = 0;
+                     overlayIndex < layer.Overlays.Count;
+                     overlayIndex++)
+                {
+                    MediaCompositionExportOverlay overlay =
+                        layer.Overlays[overlayIndex];
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("clip");
+                    if (!WriteClip(
+                            writer,
+                            overlay.Clip))
+                    {
+                        json = string.Empty;
+                        return false;
+                    }
+                    WriteTime(
+                        writer,
+                        "delay",
+                        overlay.Delay);
+                    writer.WriteNumber(
+                        "x",
+                        overlay.PositionX);
+                    writer.WriteNumber(
+                        "y",
+                        overlay.PositionY);
+                    writer.WriteNumber(
+                        "width",
+                        overlay.PositionWidth);
+                    writer.WriteNumber(
+                        "height",
+                        overlay.PositionHeight);
+                    writer.WriteNumber(
+                        "opacity",
+                        overlay.Opacity);
+                    writer.WriteBoolean(
+                        "audioEnabled",
+                        false);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            writer.WriteEndArray();
+            writer.WritePropertyName(
+                "thumbnailPositions");
+            writer.WriteStartArray();
+            for (int index = 0;
+                 index < request.Positions.Count;
+                 index++)
+            {
+                writer.WriteNumberValue(
+                    request.Positions[index]
+                        .TotalSeconds);
+            }
+            writer.WriteEndArray();
+            writer.WriteNumber(
+                "thumbnailPrecision",
+                (int)request.Precision);
+            writer.WriteEndObject();
+        }
+        json =
+            Encoding.UTF8.GetString(
+                buffer.WrittenSpan);
+        return true;
+    }
+
+    private bool WriteClip(
+        Utf8JsonWriter writer,
+        MediaCompositionExportClip clip)
+    {
+        if (!BrowserWebGpuMediaCompositionExportProvider
+                .TryGetVideoEffectPlan(
+                    clip,
+                    _effects,
+                    out MediaVideoEffectPlan plan))
+        {
+            return false;
+        }
+        writer.WriteStartObject();
+        if (clip.SourceUri is { } source)
+        {
+            writer.WriteString(
+                "uri",
+                source.AbsoluteUri);
+        }
+        if (clip.ArgbColor is uint color)
+        {
+            writer.WriteNumber(
+                "argb",
+                color);
+        }
+        WriteTime(
+            writer,
+            "duration",
+            clip.OriginalDuration -
+            clip.TrimTimeFromStart -
+            clip.TrimTimeFromEnd);
+        WriteTime(
+            writer,
+            "trimStart",
+            clip.TrimTimeFromStart);
+        writer.WriteNumber("volume", 0d);
+        WriteTransformRow(
+            writer,
+            "redTransform",
+            plan.ColorTransform.Red);
+        WriteTransformRow(
+            writer,
+            "greenTransform",
+            plan.ColorTransform.Green);
+        WriteTransformRow(
+            writer,
+            "blueTransform",
+            plan.ColorTransform.Blue);
+        writer.WriteNumber(
+            "blurStandardDeviation",
+            plan.BlurStandardDeviation);
+        writer.WriteEndObject();
+        return true;
+    }
+
+    private static bool IsSupportedVisualClip(
+        MediaCompositionExportClip clip,
+        MediaEffectRegistry effects,
+        out long durationTicks)
+    {
+        durationTicks = 0;
+        if (clip.OriginalDuration <= TimeSpan.Zero ||
+            clip.TrimTimeFromStart < TimeSpan.Zero ||
+            clip.TrimTimeFromEnd < TimeSpan.Zero ||
+            clip.TrimTimeFromStart >=
+                clip.OriginalDuration ||
+            clip.TrimTimeFromEnd >=
+                clip.OriginalDuration -
+                clip.TrimTimeFromStart)
+        {
+            return false;
+        }
+        bool hasUri =
+            clip.SourceUri is { } source &&
+            IsBrowserMediaUri(source);
+        bool hasColor =
+            clip.ArgbColor.HasValue;
+        durationTicks =
+            clip.OriginalDuration.Ticks -
+            clip.TrimTimeFromStart.Ticks -
+            clip.TrimTimeFromEnd.Ticks;
+        return hasUri != hasColor &&
+               durationTicks > 0 &&
+               BrowserWebGpuMediaCompositionExportProvider
+                   .TryGetVideoEffectPlan(
+                       clip,
+                       effects,
+                       out _);
+    }
+
+    private static bool IsBrowserMediaUri(
+        Uri source) =>
+        source.IsAbsoluteUri &&
+        (source.Scheme.Equals(
+             Uri.UriSchemeHttp,
+             StringComparison.OrdinalIgnoreCase) ||
+         source.Scheme.Equals(
+             Uri.UriSchemeHttps,
+             StringComparison.OrdinalIgnoreCase) ||
+         source.Scheme.Equals(
+             "blob",
+             StringComparison.OrdinalIgnoreCase));
+
+    private static void WriteTransformRow(
+        Utf8JsonWriter writer,
+        string name,
+        Vector4 row)
+    {
+        writer.WritePropertyName(name);
+        writer.WriteStartArray();
+        writer.WriteNumberValue(row.X);
+        writer.WriteNumberValue(row.Y);
+        writer.WriteNumberValue(row.Z);
+        writer.WriteNumberValue(row.W);
+        writer.WriteEndArray();
+    }
+
+    private static void WriteTime(
+        Utf8JsonWriter writer,
+        string name,
+        TimeSpan value) =>
+        writer.WriteNumber(
+            name,
+            value.TotalSeconds);
+
+    [JSImport(
+        "startBrowserMediaCompositionThumbnails",
+        "progpu-browser")]
+    private static partial void StartCore(
+        int operationId,
+        string requestJson,
+        string shaderSource,
+        string gaussianShaderSource);
+
+    [JSImport(
+        "copyBrowserMediaCompositionThumbnail",
+        "progpu-browser")]
+    private static partial int CopyCore(
+        int operationId,
+        int index,
+        nint destination,
+        int length);
+
+    [JSImport(
+        "clearBrowserMediaCompositionThumbnails",
+        "progpu-browser")]
+    private static partial void ClearCore(
+        int operationId);
+
+    [JSImport(
+        "cancelBrowserMediaCompositionExport",
+        "progpu-browser")]
+    private static partial void CancelCore(
+        int operationId);
+}
+
+public readonly record struct BrowserMediaThumbnailCompletion(
+    int Result,
+    string MetadataJson);
+
+public static partial class BrowserMediaThumbnailCallbacks
+{
+    private static readonly ConcurrentDictionary<
+        int,
+        TaskCompletionSource<
+            BrowserMediaThumbnailCompletion>>
+        s_pending = new();
+
+    internal static Task<
+        BrowserMediaThumbnailCompletion> Register(
+        int operationId)
+    {
+        var completion =
+            new TaskCompletionSource<
+                BrowserMediaThumbnailCompletion>(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        if (!s_pending.TryAdd(
+                operationId,
+                completion))
+        {
+            throw new InvalidOperationException(
+                $"Browser media thumbnail operation {operationId} is already registered.");
+        }
+        return completion.Task;
+    }
+
+    internal static void Unregister(
+        int operationId) =>
+        s_pending.TryRemove(
+            operationId,
+            out _);
+
+    [JSExport]
+    public static void DispatchCompletion(
+        int operationId,
+        int result,
+        string metadataJson)
+    {
+        if (s_pending.TryGetValue(
+                operationId,
+                out TaskCompletionSource<
+                    BrowserMediaThumbnailCompletion>?
+                    completion))
+        {
+            completion.TrySetResult(
+                new BrowserMediaThumbnailCompletion(
+                    result,
+                    metadataJson));
+        }
+    }
+}
+
+public static partial class BrowserMediaThumbnailSmokeTest
+{
+    private const string GaussianBlurEffectId =
+        "ProGPU.Browser.Smoke.ThumbnailGaussianBlur";
+    private static readonly Lazy<IDisposable>
+        s_gaussianBlurRegistration = new(
+            static () =>
+                MediaEffectRegistry.Default.Register(
+                    new MediaVideoGaussianBlurEffectFactory(
+                        GaussianBlurEffectId)));
+
+    [JSExport]
+    public static Task<int> RunAsync()
+    {
+        var profile =
+            new MediaCompositionEncodingProfile(
+                "PNG",
+                "RGBA",
+                null,
+                160,
+                90,
+                0,
+                30,
+                1,
+                0,
+                0,
+                0);
+        MediaCompositionExportClip[] clips =
+        [
+            new MediaCompositionExportClip(
+                null,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                0d,
+                0xFFFF0000u,
+                new Dictionary<string, string>()),
+            new MediaCompositionExportClip(
+                null,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                0d,
+                0xFF0000FFu,
+                new Dictionary<string, string>())
+        ];
+        var request =
+            new MediaCompositionThumbnailRequest(
+                new MediaCompositionExportRequest(
+                    string.Empty,
+                    clips,
+                    MediaCompositionTrimmingMode.Precise,
+                    profile,
+                    new Dictionary<string, string>()),
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(2)
+                ],
+                160,
+                90,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+        return RenderAndValidateAsync(request);
+    }
+
+    [JSExport]
+    public static Task<int> RunEffectAsync(
+        string sourceUri)
+    {
+        _ = s_gaussianBlurRegistration.Value;
+        var profile =
+            new MediaCompositionEncodingProfile(
+                "PNG",
+                "RGBA",
+                null,
+                160,
+                90,
+                0,
+                30,
+                1,
+                0,
+                0,
+                0);
+        var clip =
+            new MediaCompositionExportClip(
+                new Uri(sourceUri),
+                TimeSpan.FromSeconds(5.055),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                0d,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["progpu.saturation"] = "1",
+                    ["progpu.grayscale"] = "0.5"
+                })
+            {
+                VideoEffectDefinitions =
+                [
+                    new MediaCompositionEffectDefinition(
+                        GaussianBlurEffectId,
+                        new Dictionary<string, object?>
+                        {
+                            [MediaVideoGaussianBlurEffectFactory
+                                .StandardDeviationPropertyName] = 4f
+                        })
+                ]
+            };
+        var request =
+            new MediaCompositionThumbnailRequest(
+                new MediaCompositionExportRequest(
+                    string.Empty,
+                    [clip],
+                    MediaCompositionTrimmingMode.Precise,
+                    profile,
+                    new Dictionary<string, string>()),
+                [
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(2),
+                    TimeSpan.FromSeconds(5.055)
+                ],
+                160,
+                90,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+        return RenderAndValidateAsync(request);
+    }
+
+    private static async Task<int>
+        RenderAndValidateAsync(
+            MediaCompositionThumbnailRequest request)
+    {
+        IReadOnlyList<MediaCompositionThumbnail> results =
+            await new BrowserWebGpuMediaCompositionThumbnailProvider()
+                .RenderAsync(
+                    request,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        if (results.Count != request.Positions.Count)
+        {
+            return 1;
+        }
+        for (int index = 0;
+             index < results.Count;
+             index++)
+        {
+            MediaCompositionThumbnail thumbnail =
+                results[index];
+            byte[] bytes =
+                thumbnail.EncodedBytes;
+            if (thumbnail.PixelWidth != 160 ||
+                thumbnail.PixelHeight != 90 ||
+                !string.Equals(
+                    thumbnail.ContentType,
+                    "image/png",
+                    StringComparison.OrdinalIgnoreCase) ||
+                bytes.Length < 8 ||
+                bytes[0] != 0x89 ||
+                bytes[1] != 0x50 ||
+                bytes[2] != 0x4E ||
+                bytes[3] != 0x47 ||
+                bytes[4] != 0x0D ||
+                bytes[5] != 0x0A ||
+                bytes[6] != 0x1A ||
+                bytes[7] != 0x0A)
+            {
+                return 2;
+            }
+        }
+        return 0;
+    }
+}

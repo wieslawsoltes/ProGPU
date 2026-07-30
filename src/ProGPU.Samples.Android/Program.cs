@@ -3,6 +3,8 @@ using Android.Content.PM;
 using Microsoft.UI.Xaml;
 using ProGPU.Android;
 
+[assembly: UsesPermission(Android.Manifest.Permission.Internet)]
+
 namespace ProGPU.Samples.Android;
 
 [Activity(
@@ -22,10 +24,23 @@ namespace ProGPU.Samples.Android;
         ConfigChanges.KeyboardHidden)]
 public sealed class MainActivity : ProGpuActivity
 {
-    protected override Task LaunchProGpuApplicationAsync() =>
-        AppBuilder<ProGPU.Samples.App>
+    private IDisposable? _mediaRegistration;
+
+    protected override Task LaunchProGpuApplicationAsync()
+    {
+        _mediaRegistration ??=
+            ProGPU.Android.Media.AndroidMedia.Register();
+        return AppBuilder<ProGPU.Samples.App>
             .Configure()
             .WithTitle("ProGPU Samples")
             .Build()
             .RunAsync([]);
+    }
+
+    protected override void OnDestroy()
+    {
+        _mediaRegistration?.Dispose();
+        _mediaRegistration = null;
+        base.OnDestroy();
+    }
 }

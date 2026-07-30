@@ -601,6 +601,8 @@ public struct RenderCommand
     public byte TextureMaxAnisotropy;
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
+    public bool HasImageEffect;
+    public ImageEffectCommandData ImageEffect;
 
     // Vector render options
     public bool IsEdgeAliased;
@@ -940,7 +942,9 @@ public class GpuPictureRecorder
     }
 }
 
-public class DrawingContext : IRenderDataProvider
+public class DrawingContext :
+    IRenderDataProvider,
+    IProGpuDrawingContextSource
 {
     public List<RenderCommand> Commands { get; } = new();
     private List<RetainedResourceLease>? _retainedResources;
@@ -956,6 +960,15 @@ public class DrawingContext : IRenderDataProvider
     public List<float> FloatBuffer => _floatBuffer ??= new();
 
     public int RetainedResourceCount => _retainedResources?.Count ?? 0;
+
+    public bool TryGetProGpuDrawingContext(
+        out ProGpuDrawingContextState state)
+    {
+        state = new ProGpuDrawingContextState(
+            this,
+            Matrix4x4.Identity);
+        return true;
+    }
 
     /// <summary>
     /// Reserves storage for a known upper bound of retained commands. Repeated
@@ -1055,6 +1068,66 @@ public class DrawingContext : IRenderDataProvider
                 .Add(RetainedResourceLease.Create(
                     textureLease,
                     leasedTexture));
+        }
+
+        texture = leasedTexture;
+        return true;
+    }
+
+    /// <summary>
+    /// Transfers an already acquired texture lease into this retained drawing
+    /// context. Duplicate texture identities release the extra lease
+    /// immediately.
+    /// </summary>
+    public bool TryRetainTextureLease(
+        IProGpuTextureLease textureLease,
+        WgpuContext requiredContext,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(textureLease);
+        ArgumentNullException.ThrowIfNull(requiredContext);
+
+        GpuTexture leasedTexture = textureLease.Texture;
+        if (leasedTexture is null || leasedTexture.IsDisposed)
+        {
+            textureLease.Dispose();
+            texture = null!;
+            return false;
+        }
+
+        try
+        {
+            ValidateTextureContext(
+                leasedTexture,
+                requiredContext);
+        }
+        catch
+        {
+            textureLease.Dispose();
+            throw;
+        }
+
+        if (HasRetainedResourceIdentity(leasedTexture))
+        {
+            textureLease.Dispose();
+        }
+        else
+        {
+            RetainedResourceLease retained =
+                RetainedResourceLease.Create(
+                    textureLease,
+                    leasedTexture);
+            try
+            {
+                (_retainedResources ??=
+                    new List<RetainedResourceLease>())
+                    .Add(retained);
+            }
+            catch
+            {
+                retained.Dispose();
+                throw;
+            }
         }
 
         texture = leasedTexture;
@@ -2329,9 +2402,22 @@ public class DrawingContext : IRenderDataProvider
                 else
                 {
                     if (adjustedCmd.Type == RenderCommandType.DrawExtension &&
-                        IsRectBackedExtensionDataParam(adjustedCmd.DataParam))
+                        (adjustedCmd.HasImageEffect ||
+                         IsRectBackedExtensionDataParam(adjustedCmd.DataParam)))
                     {
-                        adjustedCmd.DataParam = TranslateExtensionDataParam(adjustedCmd.DataParam, translation);
+                        if (adjustedCmd.HasImageEffect)
+                        {
+                            adjustedCmd.Rect = TranslateRect(
+                                adjustedCmd.Rect,
+                                translation);
+                        }
+                        else
+                        {
+                            adjustedCmd.DataParam =
+                                TranslateExtensionDataParam(
+                                    adjustedCmd.DataParam,
+                                    translation);
+                        }
                     }
 
                     adjustedCmd.Position += translation;
@@ -2557,5 +2643,64 @@ public class DrawingContext : IRenderDataProvider
         }
 
         _retainedResources.Clear();
+    }
+
+    /// <summary>
+    /// Transfers deferred-command resource ownership to the active compositor
+    /// frame. This is O(R) for R retained resources and does not allocate or
+    /// increment reference counts. Duplicate identities are released.
+    /// </summary>
+    internal void MoveRetainedResourcesTo(
+        List<RetainedResourceLease> destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (_retainedResources == null ||
+            _retainedResources.Count == 0)
+        {
+            return;
+        }
+
+        destination.EnsureCapacity(
+            checked(
+                destination.Count +
+                _retainedResources.Count));
+        for (int index = 0;
+             index < _retainedResources.Count;
+             index++)
+        {
+            RetainedResourceLease resource =
+                _retainedResources[index];
+            object? identity = resource.Identity;
+            if (identity is not null &&
+                ContainsRetainedResourceIdentity(
+                    destination,
+                    identity))
+            {
+                resource.Dispose();
+            }
+            else
+            {
+                destination.Add(resource);
+            }
+        }
+        _retainedResources.Clear();
+    }
+
+    private static bool ContainsRetainedResourceIdentity(
+        List<RetainedResourceLease> resources,
+        object identity)
+    {
+        for (int index = 0;
+             index < resources.Count;
+             index++)
+        {
+            if (ReferenceEquals(
+                    resources[index].Identity,
+                    identity))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

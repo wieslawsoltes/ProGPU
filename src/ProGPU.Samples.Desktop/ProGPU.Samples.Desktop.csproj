@@ -1,14 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net10.0-macos</TargetFrameworks>
+    <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos'">org.progpu.samples.desktop</ApplicationId>
+    <ApplicationTitle Condition="'$(TargetFramework)' == 'net10.0-macos'">ProGPU Samples Desktop</ApplicationTitle>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
     <PublishAot>true</PublishAot>
+    <EventSourceSupport>true</EventSourceSupport>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="WebGPUSharp" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+    <ProjectReference Include="..\ProGPU.Apple.Media\ProGPU.Apple.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0-macos'" />
+    <ProjectReference Include="..\ProGPU.Windows.Media\ProGPU.Windows.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
+    <ProjectReference Include="..\ProGPU.Linux.Media\ProGPU.Linux.Media.csproj"
+                      Condition="'$(TargetFramework)' == 'net10.0'" />
   </ItemGroup>
+
+  <!--
+    Package-provided macOS dylibs are already deployment binaries. Re-stripping
+    them fails on Xcode 26 when their indirect symbol tables retain imports.
+    Keep prebuilt dylibs intact while still stripping the NativeAOT executable.
+  -->
+  <Target Name="ProGpuPreservePrebuiltNativeSymbols"
+          AfterTargets="_CollectItemsForPostProcessing"
+          BeforeTargets="_PreparePostProcessing"
+          Condition="'$(TargetFramework)' == 'net10.0-macos'">
+    <ItemGroup>
+      <_PostProcessingItem Update="@(_PostProcessingItem)"
+                           Condition="'%(_PostProcessingItem.Extension)' == '.dylib'">
+        <NoSymbolStrip>true</NoSymbolStrip>
+      </_PostProcessingItem>
+    </ItemGroup>
+  </Target>
 </Project>

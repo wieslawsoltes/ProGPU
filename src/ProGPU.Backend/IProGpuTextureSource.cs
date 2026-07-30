@@ -37,3 +37,17 @@ public interface IProGpuContextTextureLeaseSource : IProGpuTextureLeaseSource
         WgpuContext requiredContext,
         out IProGpuTextureLease lease);
 }
+
+/// <summary>
+/// Atomically leases two texture planes in the WebGPU device domain that will
+/// consume them. This is the framework-neutral ownership seam for native
+/// multi-plane allocations such as NV12 and P010; callers attach the
+/// appropriate color-conversion metadata separately.
+/// </summary>
+public interface IProGpuPlanarTextureLeaseSource
+{
+    bool TryAcquireGpuPlaneTextureLeases(
+        WgpuContext requiredContext,
+        out IProGpuTextureLease lumaLease,
+        out IProGpuTextureLease chromaLease);
+}
