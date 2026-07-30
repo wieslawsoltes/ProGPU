@@ -37,6 +37,7 @@ const state = {
   dispatchMediaEvent: null,
   dispatchMediaTimedMetadata: null,
   audioWorkletNodeCreationCount: 0,
+  audioWorkletSignalMaximumError: Number.NaN,
   worker: null,
   workerRequests: new Map(),
   nextWorkerRequest: 1,
@@ -1261,6 +1262,113 @@ async function createAudioWorkletEffectNode(
       workletState.nodeOptionsJson));
   state.audioWorkletNodeCreationCount++;
   return node;
+}
+
+// Algorithm: render a fixed two-channel saw sequence through the same
+// application-supplied AudioWorklet construction path used by playback and
+// compare its browser-owned output samples with the analytically expected
+// scalar-gain result.
+// Time complexity: O(F * C) for F offline frames and C channels.
+// Space complexity: O(F * C) browser-owned input/output samples and O(1)
+// application state; only the scalar maximum error crosses the WASM boundary.
+function browserMediaAudioWorkletSignalValue(
+  frame,
+  channel) {
+  const amplitude =
+    channel === 0
+      ? 1
+      : 0.5;
+  return (((frame % 17) - 8) / 16) * amplitude;
+}
+
+async function runBrowserMediaAudioWorkletSignalSmoke(
+  moduleUri,
+  processorName,
+  nodeOptionsJson,
+  expectedGain) {
+  const channelCount = 2;
+  const frameCount = 512;
+  const sampleRate = 48000;
+  const gain = Number(expectedGain);
+  state.audioWorkletSignalMaximumError = Number.NaN;
+  if (typeof OfflineAudioContext !== 'function') {
+    throw new DOMException(
+      'OfflineAudioContext is unavailable.',
+      'NotSupportedError');
+  }
+  if (!Number.isFinite(gain)) {
+    throw new TypeError(
+      'The expected AudioWorklet signal gain must be finite.');
+  }
+
+  const context = new OfflineAudioContext(
+    channelCount,
+    frameCount,
+    sampleRate);
+  const source = context.createBufferSource();
+  const buffer = context.createBuffer(
+    channelCount,
+    frameCount,
+    sampleRate);
+  let node = null;
+  try {
+    for (let channel = 0;
+         channel < channelCount;
+         channel++) {
+      const samples = buffer.getChannelData(channel);
+      for (let frame = 0;
+           frame < frameCount;
+           frame++) {
+        samples[frame] =
+          browserMediaAudioWorkletSignalValue(
+            frame,
+            channel);
+      }
+    }
+
+    node = await createAudioWorkletEffectNode(
+      context,
+      new Map(),
+      {
+        moduleUri,
+        processorName,
+        nodeOptionsJson
+      });
+    source.buffer = buffer;
+    source.connect(node);
+    node.connect(context.destination);
+    source.start(0);
+    const rendered = await context.startRendering();
+    let maximumError = 0;
+    for (let channel = 0;
+         channel < channelCount;
+         channel++) {
+      const samples = rendered.getChannelData(channel);
+      for (let frame = 0;
+           frame < frameCount;
+           frame++) {
+        const expected =
+          browserMediaAudioWorkletSignalValue(
+            frame,
+            channel) * gain;
+        maximumError = Math.max(
+          maximumError,
+          Math.abs(samples[frame] - expected));
+      }
+    }
+    if (!Number.isFinite(maximumError)) {
+      throw new Error(
+        'AudioWorklet signal verification produced a non-finite error.');
+    }
+    state.audioWorkletSignalMaximumError = maximumError;
+    return maximumError;
+  } finally {
+    source.disconnect();
+    if (node) {
+      node.disconnect();
+      node.port?.close();
+    }
+  }
 }
 
 async function renderBrowserMediaComposition(
@@ -3247,6 +3355,10 @@ function getBrowserMediaAudioWorkletNodeCreationCount() {
   return state.audioWorkletNodeCreationCount;
 }
 
+function getBrowserMediaAudioWorkletSignalMaximumError() {
+  return state.audioWorkletSignalMaximumError;
+}
+
 function dispatch(address, length) {
   const heap = runtime.localHeapViewU8();
   if (state.worker) {
@@ -3983,7 +4095,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getBrowserMediaAudioWorkletNodeCreationCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getBrowserMediaAudioWorkletNodeCreationCount, runBrowserMediaAudioWorkletSignalSmoke, getBrowserMediaAudioWorkletSignalMaximumError, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
@@ -4024,6 +4136,8 @@ if (isDispatcherWorker) {
             String(getBrowserMediaElementCount());
           document.documentElement.dataset.progpuMediaPlaybackAudioWorkletNodes =
             String(getBrowserMediaAudioWorkletNodeCreationCount());
+          document.documentElement.dataset.progpuMediaPlaybackAudioWorkletSignalMaximumError =
+            String(getBrowserMediaAudioWorkletSignalMaximumError());
           button.textContent = 'Browser playback smoke passed';
         } catch (error) {
           document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
@@ -4032,6 +4146,8 @@ if (isDispatcherWorker) {
             String(getBrowserMediaElementCount());
           document.documentElement.dataset.progpuMediaPlaybackAudioWorkletNodes =
             String(getBrowserMediaAudioWorkletNodeCreationCount());
+          document.documentElement.dataset.progpuMediaPlaybackAudioWorkletSignalMaximumError =
+            String(getBrowserMediaAudioWorkletSignalMaximumError());
           button.textContent = 'Browser playback smoke failed';
           console.error(
             '[ProGPU] Browser media playback smoke test failed.',

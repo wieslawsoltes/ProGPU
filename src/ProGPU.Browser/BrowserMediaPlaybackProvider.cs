@@ -1154,6 +1154,16 @@ public static partial class BrowserMediaPlaybackSmokeTest
         "./progpu-audio-worklet-smoke.js";
     private const string AudioWorkletProcessorName =
         "progpu-smoke-gain";
+    private const string AudioWorkletNodeOptionsJson =
+        """
+        {
+          "processorOptions": {
+            "gain": 0.875
+          }
+        }
+        """;
+    private const double AudioWorkletExpectedGain = 0.875d;
+    private const double AudioWorkletSignalTolerance = 0.000001d;
     private static readonly TimeSpan Timeout =
         TimeSpan.FromSeconds(30);
 
@@ -1176,8 +1186,25 @@ public static partial class BrowserMediaPlaybackSmokeTest
                 nameof(sourceUri));
         }
 
+        double signalMaximumError =
+            await RunAudioWorkletSignalCoreAsync(
+                AudioWorkletModuleUri,
+                AudioWorkletProcessorName,
+                AudioWorkletNodeOptionsJson,
+                AudioWorkletExpectedGain);
+        if (!double.IsFinite(signalMaximumError) ||
+            signalMaximumError >
+                AudioWorkletSignalTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Browser AudioWorklet signal verification exceeded the {AudioWorkletSignalTolerance:R} maximum-error tolerance: {signalMaximumError:R}.");
+        }
+
         int initialElementCount =
             GetBrowserMediaElementCountCore();
+        // The offline signal gate above creates and closes one worklet node.
+        // Capture the baseline afterwards so the live player must construct
+        // a distinct node through its WinUI-aligned effect definition.
         int initialAudioWorkletNodeCount =
             GetBrowserMediaAudioWorkletNodeCreationCountCore();
         var opened = CreateSignal();
@@ -1208,13 +1235,7 @@ public static partial class BrowserMediaPlaybackSmokeTest
                     AudioWorkletEffectId,
                     AudioWorkletModuleUri,
                     AudioWorkletProcessorName,
-                    """
-                    {
-                      "processorOptions": {
-                        "gain": 0.875
-                      }
-                    }
-                    """));
+                    AudioWorkletNodeOptionsJson));
         using MediaSource source =
             MediaSource.CreateFromUri(sourceAddress);
         using var player = new MediaPlayer
@@ -1442,6 +1463,16 @@ public static partial class BrowserMediaPlaybackSmokeTest
         "progpu-browser")]
     private static partial int
         GetBrowserMediaAudioWorkletNodeCreationCountCore();
+
+    [JSImport(
+        "runBrowserMediaAudioWorkletSignalSmoke",
+        "progpu-browser")]
+    private static partial Task<double>
+        RunAudioWorkletSignalCoreAsync(
+            string moduleUri,
+            string processorName,
+            string nodeOptionsJson,
+            double expectedGain);
 }
 
 internal sealed class BrowserMediaGpuFrame :

@@ -53,13 +53,16 @@ dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
 Append `?progpuMediaPlaybackSmoke=1` to the printed HTTP URL and activate
 **Run browser playback smoke** to exercise the WinUI-aligned `MediaPlayer`
 contract under a real user gesture. The gate opens browser-owned media, enables
-frame-server notifications, installs the typed gain/balance Web Audio graph
-and the sample's application-supplied `AudioWorkletProcessor`, plays, pauses,
-seeks, replays, validates the decoded `GpuCopy` frame and provider diagnostics,
-then verifies successful worklet-node creation and that source disposal returns
-the owned DOM media-element count to its starting value. Override the default
-CORS-enabled fixture with the absolute `progpuMediaPlaybackSource` query
-parameter.
+frame-server notifications, first renders a deterministic stereo signal through
+the sample's application-supplied `AudioWorkletProcessor` in an
+[`OfflineAudioContext`](https://www.w3.org/TR/webaudio-1.1/#OfflineAudioContext),
+and compares the browser-owned rendered samples with the expected gain result.
+Only the scalar maximum error crosses the WASM boundary. It then installs the
+typed gain/balance Web Audio graph and a distinct live worklet node, plays,
+pauses, seeks, replays, validates the decoded `GpuCopy` frame and provider
+diagnostics, and verifies that source disposal returns the owned DOM
+media-element count to its starting value. Override the default CORS-enabled
+fixture with the absolute `progpuMediaPlaybackSource` query parameter.
 
 Append
 `?progpuMediaExportSmoke=effect-audio&progpuSavePicker=memory` and activate

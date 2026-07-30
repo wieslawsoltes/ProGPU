@@ -89,7 +89,35 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
+            "new OfflineAudioContext(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "await context.startRendering()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "only the scalar maximum error crosses the WASM boundary",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "runBrowserMediaAudioWorkletSignalSmoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpuMediaPlaybackAudioWorkletSignalMaximumError",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "new BrowserAudioWorkletEffectFactory(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RunAudioWorkletSignalCoreAsync(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AudioWorkletSignalTolerance",
             playback,
             StringComparison.Ordinal);
         Assert.Contains(
