@@ -135,6 +135,9 @@ public sealed class TimedTextCue : IMediaCue
     internal MediaPlaybackTimedTextCueLayout
         ProviderLayout { get; private set; }
 
+    internal MediaPlaybackTimedTextRegionDescriptor?
+        ProviderRegion { get; private set; }
+
     internal bool ApplyProviderState(
         in MediaPlaybackTimedMetadataCueDescriptor
             descriptor)
@@ -166,14 +169,22 @@ public sealed class TimedTextCue : IMediaCue
             presentation?.Style ?? default;
         MediaPlaybackTimedTextCueLayout layout =
             presentation?.Layout ?? default;
+        MediaPlaybackTimedTextRegionDescriptor? region =
+            presentation?.Region;
         changed |= _cueStyle.ApplyProviderStyle(
             in style,
             layout.TextAlignment);
         changed |= _cueRegion.ApplyProviderLayout(
-            in layout);
+            in layout,
+            region);
         if (ProviderLayout != layout)
         {
             ProviderLayout = layout;
+            changed = true;
+        }
+        if (ProviderRegion != region)
+        {
+            ProviderRegion = region;
             changed = true;
         }
         if (timingChanged)

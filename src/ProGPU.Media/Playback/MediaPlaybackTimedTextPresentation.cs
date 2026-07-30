@@ -156,6 +156,23 @@ public readonly record struct
         MediaPlaybackTimedTextWritingMode? WritingMode = null);
 
 /// <summary>
+/// Immutable provider-neutral WebVTT region definition. The line count and
+/// both anchor pairs remain exact WebVTT values; they are not converted to
+/// device pixels or percentages of an unknown rendered line height.
+/// Construction and reads are allocation-free O(1).
+/// </summary>
+public readonly record struct
+    MediaPlaybackTimedTextRegionDescriptor(
+        string? Name = null,
+        double WidthPercentage = 100d,
+        int LineCount = 3,
+        double RegionAnchorXPercentage = 0d,
+        double RegionAnchorYPercentage = 100d,
+        double ViewportAnchorXPercentage = 0d,
+        double ViewportAnchorYPercentage = 100d,
+        bool ScrollUp = false);
+
+/// <summary>
 /// Immutable provider-neutral presentation snapshot for one timed-text cue.
 /// Construction performs O(L) bounded copying for L immutable lines; reads are
 /// O(1). Parsing and allocation happen only when providers publish cue state,
@@ -176,14 +193,23 @@ public sealed class MediaPlaybackTimedTextCuePresentation
         IReadOnlyList<
             MediaPlaybackTimedTextLineDescriptor>? lines,
         MediaPlaybackTimedTextStyle style = default,
-        MediaPlaybackTimedTextCueLayout layout = default)
+        MediaPlaybackTimedTextCueLayout layout = default,
+        MediaPlaybackTimedTextRegionDescriptor? region = null)
     {
         ValidateLayout(in layout);
+        ValidateRegion(region);
         Style = style;
         Layout = layout with
         {
             RegionName = layout.RegionName ?? string.Empty
         };
+        Region = region is
+            MediaPlaybackTimedTextRegionDescriptor value
+                ? value with
+                {
+                    Name = value.Name ?? string.Empty
+                }
+                : null;
         if (lines is null || lines.Count == 0)
         {
             _lines = s_emptyLines;
@@ -210,6 +236,9 @@ public sealed class MediaPlaybackTimedTextCuePresentation
     public MediaPlaybackTimedTextStyle Style { get; }
 
     public MediaPlaybackTimedTextCueLayout Layout { get; }
+
+    public MediaPlaybackTimedTextRegionDescriptor?
+        Region { get; }
 
     private static void ValidateLayout(
         in MediaPlaybackTimedTextCueLayout layout)
@@ -247,6 +276,51 @@ public sealed class MediaPlaybackTimedTextCuePresentation
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 $"{propertyName} must be between 0 and 100.");
+        }
+    }
+
+    private static void ValidateRegion(
+        MediaPlaybackTimedTextRegionDescriptor? region)
+    {
+        if (region is not
+            MediaPlaybackTimedTextRegionDescriptor value)
+        {
+            return;
+        }
+        if (value.LineCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(region),
+                "A timed-text region line count cannot be negative.");
+        }
+        ValidateRegionPercentage(
+            value.WidthPercentage,
+            nameof(value.WidthPercentage));
+        ValidateRegionPercentage(
+            value.RegionAnchorXPercentage,
+            nameof(value.RegionAnchorXPercentage));
+        ValidateRegionPercentage(
+            value.RegionAnchorYPercentage,
+            nameof(value.RegionAnchorYPercentage));
+        ValidateRegionPercentage(
+            value.ViewportAnchorXPercentage,
+            nameof(value.ViewportAnchorXPercentage));
+        ValidateRegionPercentage(
+            value.ViewportAnchorYPercentage,
+            nameof(value.ViewportAnchorYPercentage));
+    }
+
+    private static void ValidateRegionPercentage(
+        double value,
+        string propertyName)
+    {
+        if (!double.IsFinite(value) ||
+            value < 0d ||
+            value > 100d)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                $"{propertyName} must be finite and between 0 and 100.");
         }
     }
 

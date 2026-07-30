@@ -5,13 +5,16 @@ namespace ProGPU.Media.Playback;
 
 /// <summary>
 /// Clean-room parser for the WebVTT file structure defined by the W3C WebVTT
-/// specification. Parsing is O(N + C) time and O(N + C) retained storage for
-/// N UTF-16 input units and C cues. The caller bounds and strictly decodes the
-/// byte input before invoking this parser.
+/// specification. Parsing is expected O(N + C + D) time, with O(C * D) lookup
+/// work only under adversarial dictionary collisions, and O(N + C + D)
+/// retained storage for N UTF-16 input units, C cues, and D region
+/// definitions. The caller bounds and strictly decodes the byte input before
+/// invoking this parser; cue and region counts are bounded independently.
 /// </summary>
 internal static class WebVttDocumentParser
 {
     internal const int MaximumCueCount = 100_000;
+    internal const int MaximumRegionCount = 10_000;
 
     internal static WebVttDocument Parse(string source)
     {
@@ -36,6 +39,13 @@ internal static class WebVttDocumentParser
 
         SkipHeader(text, ref position);
         var cues = new List<WebVttDocumentCue>();
+        var regions =
+            new Dictionary<
+                string,
+                MediaPlaybackTimedTextRegionDescriptor>(
+                    StringComparer.Ordinal);
+        int regionCount = 0;
+        bool seenCue = false;
         while (position < text.Length)
         {
             SkipBlankLines(text, ref position);
@@ -47,6 +57,27 @@ internal static class WebVttDocumentParser
             int blockStart = position;
             ReadOnlySpan<char> firstLine =
                 ReadLine(text, ref position);
+            if (!seenCue &&
+                StartsBlock(firstLine, "REGION"))
+            {
+                regionCount++;
+                if (regionCount > MaximumRegionCount)
+                {
+                    throw new FormatException(
+                        $"A WebVTT source cannot contain more than {MaximumRegionCount} region definitions.");
+                }
+                string regionSettings =
+                    ReadPayload(text, ref position);
+                if (TryParseRegion(
+                        regionSettings,
+                        out
+                            MediaPlaybackTimedTextRegionDescriptor
+                                region))
+                {
+                    regions[region.Name!] = region;
+                }
+                continue;
+            }
             if (IsMetadataBlock(firstLine))
             {
                 SkipBlock(text, ref position);
@@ -79,6 +110,39 @@ internal static class WebVttDocumentParser
             string payload = ReadPayload(text, ref position);
             WebVttCueParser.ParsedCue parsed =
                 WebVttCueParser.Parse(payload, settings);
+            MediaPlaybackTimedTextRegionDescriptor?
+                resolvedRegion = null;
+            MediaPlaybackTimedTextCueLayout layout =
+                parsed.Presentation.Layout;
+            string regionName =
+                layout.RegionName ?? string.Empty;
+            if (parsed.IsRegionEligible &&
+                regionName.Length != 0 &&
+                regions.TryGetValue(
+                    regionName,
+                    out
+                        MediaPlaybackTimedTextRegionDescriptor
+                            match))
+            {
+                resolvedRegion = match;
+                layout = layout with
+                {
+                    RegionName = match.Name
+                };
+            }
+            else if (regionName.Length != 0)
+            {
+                layout = layout with
+                {
+                    RegionName = string.Empty
+                };
+            }
+            var presentation =
+                new MediaPlaybackTimedTextCuePresentation(
+                    parsed.Presentation.Lines,
+                    parsed.Presentation.Style,
+                    layout,
+                    resolvedRegion);
             if (cues.Count == MaximumCueCount)
             {
                 throw new FormatException(
@@ -90,7 +154,8 @@ internal static class WebVttDocumentParser
                     start,
                     end - start,
                     parsed.Text,
-                    parsed.Presentation));
+                    presentation));
+            seenCue = true;
         }
 
         return new WebVttDocument(cues);
@@ -188,6 +253,168 @@ internal static class WebVttDocumentParser
         {
         }
     }
+
+    private static bool TryParseRegion(
+        string settings,
+        out MediaPlaybackTimedTextRegionDescriptor region)
+    {
+        string name = string.Empty;
+        double width = 100d;
+        int lineCount = 3;
+        double regionAnchorX = 0d;
+        double regionAnchorY = 100d;
+        double viewportAnchorX = 0d;
+        double viewportAnchorY = 100d;
+        bool scrollUp = false;
+
+        ReadOnlySpan<char> source = settings.AsSpan();
+        int position = 0;
+        while (position < source.Length)
+        {
+            while (position < source.Length &&
+                   IsRegionWhitespace(source[position]))
+            {
+                position++;
+            }
+            int tokenStart = position;
+            while (position < source.Length &&
+                   !IsRegionWhitespace(source[position]))
+            {
+                position++;
+            }
+            ReadOnlySpan<char> token =
+                source[tokenStart..position];
+            int colon = token.IndexOf(':');
+            if (colon <= 0 ||
+                colon == token.Length - 1)
+            {
+                continue;
+            }
+
+            ReadOnlySpan<char> settingName =
+                token[..colon];
+            ReadOnlySpan<char> value =
+                token[(colon + 1)..];
+            if (settingName.SequenceEqual("id"))
+            {
+                name = value.ToString();
+            }
+            else if (
+                settingName.SequenceEqual("width") &&
+                TryParsePercentage(
+                    value,
+                    out double parsedWidth))
+            {
+                width = parsedWidth;
+            }
+            else if (
+                settingName.SequenceEqual("lines") &&
+                int.TryParse(
+                    value,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int parsedLineCount) &&
+                parsedLineCount >= 0)
+            {
+                lineCount = parsedLineCount;
+            }
+            else if (
+                settingName.SequenceEqual(
+                    "regionanchor") &&
+                TryParsePercentagePair(
+                    value,
+                    out double parsedRegionAnchorX,
+                    out double parsedRegionAnchorY))
+            {
+                regionAnchorX = parsedRegionAnchorX;
+                regionAnchorY = parsedRegionAnchorY;
+            }
+            else if (
+                settingName.SequenceEqual(
+                    "viewportanchor") &&
+                TryParsePercentagePair(
+                    value,
+                    out double parsedViewportAnchorX,
+                    out double parsedViewportAnchorY))
+            {
+                viewportAnchorX =
+                    parsedViewportAnchorX;
+                viewportAnchorY =
+                    parsedViewportAnchorY;
+            }
+            else if (
+                settingName.SequenceEqual("scroll") &&
+                value.SequenceEqual("up"))
+            {
+                scrollUp = true;
+            }
+        }
+
+        if (name.Length == 0 ||
+            name.Contains("-->", StringComparison.Ordinal) ||
+            ContainsRegionWhitespace(name))
+        {
+            region = default;
+            return false;
+        }
+        region =
+            new MediaPlaybackTimedTextRegionDescriptor(
+                name,
+                width,
+                lineCount,
+                regionAnchorX,
+                regionAnchorY,
+                viewportAnchorX,
+                viewportAnchorY,
+                scrollUp);
+        return true;
+    }
+
+    private static bool TryParsePercentagePair(
+        ReadOnlySpan<char> value,
+        out double x,
+        out double y)
+    {
+        x = 0d;
+        y = 0d;
+        int comma = value.IndexOf(',');
+        return comma > 0 &&
+               comma < value.Length - 1 &&
+               TryParsePercentage(value[..comma], out x) &&
+               TryParsePercentage(value[(comma + 1)..], out y);
+    }
+
+    private static bool TryParsePercentage(
+        ReadOnlySpan<char> value,
+        out double percentage)
+    {
+        percentage = 0d;
+        return value.Length >= 2 &&
+               value[^1] == '%' &&
+               double.TryParse(
+                   value[..^1],
+                   NumberStyles.AllowDecimalPoint,
+                   CultureInfo.InvariantCulture,
+                   out percentage) &&
+               double.IsFinite(percentage) &&
+               percentage is >= 0d and <= 100d;
+    }
+
+    private static bool ContainsRegionWhitespace(
+        string value)
+    {
+        for (int index = 0; index < value.Length; index++)
+        {
+            if (IsRegionWhitespace(value[index]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsRegionWhitespace(char value) =>
+        value is ' ' or '\t' or '\n';
 
     private static string ReadPayload(
         ReadOnlySpan<char> text,

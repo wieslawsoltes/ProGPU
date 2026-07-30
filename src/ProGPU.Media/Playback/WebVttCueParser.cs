@@ -18,13 +18,21 @@ internal static class WebVttCueParser
     {
         ArgumentNullException.ThrowIfNull(payload);
         MediaPlaybackTimedTextCueLayout layout =
-            ParseSettings(settings);
-        return ParseText(payload, in layout);
+            ParseSettings(
+                settings,
+                out bool isRegionEligible);
+        return ParseText(
+            payload,
+            in layout,
+            isRegionEligible);
     }
 
     private static MediaPlaybackTimedTextCueLayout
-        ParseSettings(string? settings)
+        ParseSettings(
+            string? settings,
+            out bool isRegionEligible)
     {
+        isRegionEligible = true;
         if (string.IsNullOrWhiteSpace(settings))
         {
             return default;
@@ -87,23 +95,28 @@ internal static class WebVttCueParser
                     writingMode =
                         MediaPlaybackTimedTextWritingMode
                             .TopBottomRightLeft;
+                    isRegionEligible = false;
                 }
                 else if (value.SequenceEqual("lr"))
                 {
                     writingMode =
                         MediaPlaybackTimedTextWritingMode
                             .TopBottomLeftRight;
+                    isRegionEligible = false;
                 }
             }
             else if (name.SequenceEqual("line") &&
                      !hasLine)
             {
                 hasLine = true;
-                ParseLine(
-                    value,
-                    out linePosition,
-                    out lineUnit,
-                    out lineAlignment);
+                if (ParseLine(
+                        value,
+                        out linePosition,
+                        out lineUnit,
+                        out lineAlignment))
+                {
+                    isRegionEligible = false;
+                }
             }
             else if (name.SequenceEqual("position") &&
                      !hasPosition)
@@ -123,6 +136,10 @@ internal static class WebVttCueParser
                         out double parsedSize))
                 {
                     size = parsedSize;
+                    if (parsedSize != 100d)
+                    {
+                        isRegionEligible = false;
+                    }
                 }
             }
             else if (name.SequenceEqual("align") &&
@@ -152,7 +169,7 @@ internal static class WebVttCueParser
             writingMode);
     }
 
-    private static void ParseLine(
+    private static bool ParseLine(
         ReadOnlySpan<char> value,
         out double? linePosition,
         out MediaPlaybackTimedTextLinePositionUnit unit,
@@ -168,7 +185,7 @@ internal static class WebVttCueParser
         alignment = ParseAlignment(alignmentValue);
         if (scalar.SequenceEqual("auto"))
         {
-            return;
+            return false;
         }
         if (TryParsePercentage(
                 scalar,
@@ -178,7 +195,7 @@ internal static class WebVttCueParser
             unit =
                 MediaPlaybackTimedTextLinePositionUnit
                     .Percentage;
-            return;
+            return true;
         }
         if (double.TryParse(
                 scalar,
@@ -189,7 +206,9 @@ internal static class WebVttCueParser
             double.IsFinite(line))
         {
             linePosition = line;
+            return true;
         }
+        return false;
     }
 
     private static void ParsePosition(
@@ -276,7 +295,8 @@ internal static class WebVttCueParser
 
     private static ParsedCue ParseText(
         string payload,
-        in MediaPlaybackTimedTextCueLayout layout)
+        in MediaPlaybackTimedTextCueLayout layout,
+        bool isRegionEligible)
     {
         var output = new StringBuilder(payload.Length);
         var runs = new List<GlobalSubformat>();
@@ -360,7 +380,10 @@ internal static class WebVttCueParser
             new MediaPlaybackTimedTextCuePresentation(
                 lines,
                 layout: layout);
-        return new ParsedCue(text, presentation);
+        return new ParsedCue(
+            text,
+            presentation,
+            isRegionEligible);
     }
 
     private static void ApplyTag(
@@ -598,5 +621,6 @@ internal static class WebVttCueParser
     internal readonly record struct ParsedCue(
         string Text,
         MediaPlaybackTimedTextCuePresentation
-            Presentation);
+            Presentation,
+        bool IsRegionEligible);
 }

@@ -105,6 +105,9 @@ design.
   [`TimedTextSubformat`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsubformat),
   [`TimedTextStyle`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextstyle),
   [`TimedTextRegion`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion),
+  [`TimedTextRegion.Position`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.position),
+  [`TimedTextRegion.Extent`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.extent),
+  [`TimedTextRegion.ScrollMode`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.scrollmode),
   and
   [`DataCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.datacue)
   establish caller-owned external tracks, source-resolved timed-text tracks,
@@ -1393,24 +1396,37 @@ boxes, U UTF-8/UTF-16 units, and R emitted runs, with a 16-MiB per-sample,
 256-MiB retained-input, and one-million-cue bound. Duplicate `iden`, `sttg`, or
 `payl` children, invalid UTF-8, malformed box sizes, and invalid public DTO
 ranges fail explicitly. WebVTT class/voice/language CSS, timestamp components,
-ruby annotation projection, external `STYLE`/`REGION` blocks, `tx3g`, and TTML
-remain future extensions. `PlatformPresented` is still rejected because a
-reusable WebGPU frame-server surface has no native Linux caption presenter.
+ruby annotation projection, in-band region configuration, external `STYLE`
+blocks, `tx3g`, and TTML remain future extensions. `PlatformPresented` is
+still rejected because a reusable WebGPU frame-server surface has no native
+Linux caption presenter.
 
 External WebVTT uses the same clean-room cue-settings and cue-text parser
 below the WinUI facade. The separate document parser validates the `WEBVTT`
-signature, normalizes CR/LF, skips `NOTE`, `STYLE`, and `REGION` blocks that
-are not yet projected, parses cue identifiers and millisecond timestamps, and
-recovers from malformed cue blocks without accepting a malformed document
-signature. Stream factories snapshot at most 64 MiB while preserving the
-caller's random-access cursor; file and network URI factories use bounded
-built-in .NET streaming I/O and strict UTF-8. Resolution is
-O(B + U + C + R) time and O(B + U + C + R) retained control-plane storage for
-B bytes, U decoded units, C cues, and R style runs. It never enters video
-decode, WebGPU recording, or the audio callback. Indexed image subtitles,
-TTML, `tx3g`, CSS application from `STYLE`, and named `REGION` definitions
-fail or remain unprojected explicitly instead of loading an external codec
-library.
+signature, normalizes CR/LF, skips `NOTE` and currently unapplied `STYLE`
+blocks, parses cue identifiers and millisecond timestamps, and recovers from
+malformed cue blocks without accepting a malformed document signature.
+`REGION` definitions are collected before the first cue with W3C defaults,
+bounded to 10,000 definitions, and resolved by the last matching identifier.
+The provider-neutral region snapshot preserves width, line count, both region
+and viewport anchor pairs, and scroll-up intent exactly. Valid vertical,
+explicit-line, and non-100%-size settings remove a cue from its region before
+projection as required by WebVTT. The retained WinUI `TimedTextRegion`
+projects the exact name, percentage width and horizontal anchor, viewport
+vertical anchor, clipping/wrapping, and pop-on/roll-up state. Its percentage
+height remains zero because WebVTT height is a line count, not a percentage;
+the exact line count and vertical region anchor remain on the internal typed
+provider snapshot for a renderer with actual font metrics rather than being
+silently assigned the wrong unit. Stream factories snapshot at most 64 MiB
+while preserving the caller's random-access cursor; file and network URI
+factories use bounded built-in .NET streaming I/O and strict UTF-8. Resolution
+is expected O(B + U + C + D + R) time and O(B + U + C + D + R) retained
+control-plane storage for B bytes, U decoded units, C cues, D region
+definitions, and R style runs; only adversarial region-dictionary collisions
+raise lookup work toward O(C * D). It never enters video decode, WebGPU
+recording, or the audio callback. Indexed image subtitles, TTML, `tx3g`, and
+CSS application from `STYLE` fail or remain unprojected explicitly instead of
+loading an external codec library.
 
 Linux alternate-track selection follows the official WinUI
 [`MediaPlaybackAudioTrackList.SelectedIndex`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist.selectedindex)

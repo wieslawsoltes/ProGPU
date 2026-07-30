@@ -660,6 +660,23 @@ public sealed class MediaPlaybackEngineTests
                     layout:
                         new(
                             SizePercentage: 101d)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    region:
+                        new(
+                            Name: "captions",
+                            LineCount: -1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    region:
+                        new(
+                            Name: "captions",
+                            WidthPercentage:
+                                double.NaN)));
     }
 
     [Fact]
@@ -1272,6 +1289,101 @@ public sealed class MediaPlaybackEngineTests
             TimeSpan.FromSeconds(1.25),
             cue.Duration);
         Assert.Equal("valid", cue.Text);
+    }
+
+    [Fact]
+    public void
+        WebVttDocumentParserResolvesExactRegionDefinitions()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "REGION\n" +
+                "id:chat width:80%\n\n" +
+                "REGION\n" +
+                "id:chat width:40% lines:4 " +
+                "regionanchor:25%,100% " +
+                "viewportanchor:50%,90% scroll:up\n\n" +
+                "00:00.000 --> 00:01.000 " +
+                "region:chat position:20%,center\n" +
+                "eligible\n\n" +
+                "00:01.000 --> 00:02.000 " +
+                "line:2 region:chat\n" +
+                "line drops out\n\n" +
+                "00:02.000 --> 00:03.000 " +
+                "region:chat size:100%\n" +
+                "full size remains\n\n" +
+                "00:03.000 --> 00:04.000 " +
+                "region:chat size:99%\n" +
+                "sized drops out\n");
+
+        Assert.Equal(4, document.Cues.Count);
+        WebVttDocumentCue eligible =
+            document.Cues[0];
+        MediaPlaybackTimedTextRegionDescriptor region =
+            Assert.IsType<
+                MediaPlaybackTimedTextRegionDescriptor>(
+                    eligible.Presentation.Region);
+        Assert.Equal("chat", region.Name);
+        Assert.Equal(40d, region.WidthPercentage);
+        Assert.Equal(4, region.LineCount);
+        Assert.Equal(
+            25d,
+            region.RegionAnchorXPercentage);
+        Assert.Equal(
+            100d,
+            region.RegionAnchorYPercentage);
+        Assert.Equal(
+            50d,
+            region.ViewportAnchorXPercentage);
+        Assert.Equal(
+            90d,
+            region.ViewportAnchorYPercentage);
+        Assert.True(region.ScrollUp);
+        Assert.Equal(
+            "chat",
+            eligible.Presentation.Layout.RegionName);
+
+        Assert.Null(
+            document.Cues[1].Presentation.Region);
+        Assert.Equal(
+            string.Empty,
+            document.Cues[1]
+                .Presentation.Layout.RegionName);
+        Assert.NotNull(
+            document.Cues[2].Presentation.Region);
+        Assert.Null(
+            document.Cues[3].Presentation.Region);
+
+        var descriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "region-cue",
+                eligible.StartTime,
+                eligible.Duration,
+                eligible.Text,
+                eligible.Presentation);
+        var cue = new TimedTextCue();
+        cue.ApplyProviderState(in descriptor);
+
+        Assert.Equal("chat", cue.CueRegion.Name);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Position.Unit);
+        Assert.Equal(40d, cue.CueRegion.Position.X);
+        Assert.Equal(90d, cue.CueRegion.Position.Y);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Extent.Unit);
+        Assert.Equal(40d, cue.CueRegion.Extent.Width);
+        Assert.Equal(0d, cue.CueRegion.Extent.Height);
+        Assert.Equal(
+            TimedTextScrollMode.Rollup,
+            cue.CueRegion.ScrollMode);
+        Assert.Equal(
+            TimedTextWrapping.Wrap,
+            cue.CueRegion.TextWrapping);
+        Assert.True(cue.CueRegion.IsOverflowClipped);
+        Assert.Equal(region, cue.ProviderRegion);
     }
 
     [Fact]

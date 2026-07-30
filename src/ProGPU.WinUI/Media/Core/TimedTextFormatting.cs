@@ -319,13 +319,22 @@ public sealed class TimedTextRegion
     public int ZIndex { get; set; }
 
     internal bool ApplyProviderLayout(
-        in MediaPlaybackTimedTextCueLayout layout)
+        in MediaPlaybackTimedTextCueLayout layout,
+        MediaPlaybackTimedTextRegionDescriptor?
+            providerRegion = null)
     {
         TimedTextWritingMode writingMode =
             (TimedTextWritingMode)(
                 layout.WritingMode ??
                 MediaPlaybackTimedTextWritingMode
                     .LeftRightTopBottom);
+        if (providerRegion is
+            MediaPlaybackTimedTextRegionDescriptor region)
+        {
+            return ApplyProviderRegion(
+                in region,
+                writingMode);
+        }
         TimedTextDisplayAlignment displayAlignment =
             layout.LineAlignment switch
             {
@@ -384,17 +393,80 @@ public sealed class TimedTextRegion
                 Unit = TimedTextUnit.Percentage
             };
         string name = layout.RegionName ?? string.Empty;
+        const TimedTextScrollMode ScrollModeValue =
+            TimedTextScrollMode.Popon;
+        const TimedTextWrapping WrappingValue =
+            TimedTextWrapping.NoWrap;
         bool changed =
             !StringComparer.Ordinal.Equals(Name, name) ||
             WritingMode != writingMode ||
             DisplayAlignment != displayAlignment ||
             !Position.Equals(position) ||
-            !Extent.Equals(extent);
+            !Extent.Equals(extent) ||
+            ScrollMode != ScrollModeValue ||
+            TextWrapping != WrappingValue ||
+            IsOverflowClipped;
         Name = name;
         WritingMode = writingMode;
         DisplayAlignment = displayAlignment;
         Position = position;
         Extent = extent;
+        ScrollMode = ScrollModeValue;
+        TextWrapping = WrappingValue;
+        IsOverflowClipped = false;
+        return changed;
+    }
+
+    private bool ApplyProviderRegion(
+        in MediaPlaybackTimedTextRegionDescriptor region,
+        TimedTextWritingMode writingMode)
+    {
+        double width = region.WidthPercentage;
+        double positionX = Math.Clamp(
+            region.ViewportAnchorXPercentage -
+                region.RegionAnchorXPercentage *
+                    width /
+                    100d,
+            0d,
+            Math.Max(0d, 100d - width));
+        var position = new TimedTextPoint
+        {
+            X = positionX,
+            Y = region.ViewportAnchorYPercentage,
+            Unit = TimedTextUnit.Percentage
+        };
+        var extent = new TimedTextSize
+        {
+            Width = width,
+            Height = 0d,
+            Unit = TimedTextUnit.Percentage
+        };
+        TimedTextScrollMode scrollMode =
+            region.ScrollUp
+                ? TimedTextScrollMode.Rollup
+                : TimedTextScrollMode.Popon;
+        const TimedTextDisplayAlignment DisplayAlignmentValue =
+            TimedTextDisplayAlignment.After;
+        const TimedTextWrapping WrappingValue =
+            TimedTextWrapping.Wrap;
+        string name = region.Name ?? string.Empty;
+        bool changed =
+            !StringComparer.Ordinal.Equals(Name, name) ||
+            WritingMode != writingMode ||
+            DisplayAlignment != DisplayAlignmentValue ||
+            !Position.Equals(position) ||
+            !Extent.Equals(extent) ||
+            ScrollMode != scrollMode ||
+            TextWrapping != WrappingValue ||
+            !IsOverflowClipped;
+        Name = name;
+        WritingMode = writingMode;
+        DisplayAlignment = DisplayAlignmentValue;
+        Position = position;
+        Extent = extent;
+        ScrollMode = scrollMode;
+        TextWrapping = WrappingValue;
+        IsOverflowClipped = true;
         return changed;
     }
 
