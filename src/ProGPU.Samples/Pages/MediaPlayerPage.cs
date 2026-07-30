@@ -127,6 +127,8 @@ public static class MediaPlayerPage
 
         var status = Text(
             "Choose a local file or load the sample URI.");
+        var cueStatus = Text(
+            "Application cue: waiting for media.");
         var position = new Slider
         {
             Minimum = 0d,
@@ -187,6 +189,7 @@ public static class MediaPlayerPage
                 });
         }
         MediaPlaybackItem? currentPlaybackItem = null;
+        TimedMetadataTrack? sampleCueTrack = null;
         bool updatingTrackSelection = false;
 
         var brightness = EffectSlider(-1d, 1d, 0d);
@@ -444,6 +447,33 @@ public static class MediaPlayerPage
             RefreshTrackSelectors();
         }
 
+        void OnSampleCueEntered(
+            TimedMetadataTrack sender,
+            MediaCueEventArgs args)
+        {
+            _ = sender;
+            string label =
+                args.Cue is DataCue dataCue &&
+                dataCue.Properties.TryGetValue(
+                    "Label",
+                    out object? value)
+                    ? value?.ToString() ?? args.Cue.Id
+                    : args.Cue.Id;
+            SetText(
+                cueStatus,
+                $"Application cue active: {label}");
+        }
+
+        void OnSampleCueExited(
+            TimedMetadataTrack sender,
+            MediaCueEventArgs args)
+        {
+            _ = sender;
+            SetText(
+                cueStatus,
+                $"Application cue exited: {args.Cue.Id}");
+        }
+
         audioTrack.SelectionChanged += (_, _) =>
         {
             if (updatingTrackSelection ||
@@ -533,8 +563,38 @@ public static class MediaPlayerPage
             try
             {
                 SetText(status, $"Opening {source} …");
-                var item = new MediaPlaybackItem(
-                    MediaSource.CreateFromUri(source));
+                MediaSource mediaSource =
+                    MediaSource.CreateFromUri(source);
+                var applicationTrack =
+                    new TimedMetadataTrack(
+                        "progpu-sample-markers",
+                        "en-US",
+                        TimedMetadataKind.Data)
+                    {
+                        Label = "ProGPU sample markers"
+                    };
+                for (int index = 0; index < 3; index++)
+                {
+                    var cue = new DataCue
+                    {
+                        Id = $"marker-{index + 1}",
+                        StartTime =
+                            TimeSpan.FromSeconds(
+                                1d + (index * 1.5d)),
+                        Duration =
+                            TimeSpan.FromSeconds(0.75d)
+                    };
+                    cue.Properties["Label"] =
+                        $"GPU marker {index + 1}";
+                    applicationTrack.AddCue(cue);
+                }
+                applicationTrack.CueEntered +=
+                    OnSampleCueEntered;
+                applicationTrack.CueExited +=
+                    OnSampleCueExited;
+                mediaSource.ExternalTimedMetadataTracks.Add(
+                    applicationTrack);
+                var item = new MediaPlaybackItem(mediaSource);
                 if (currentPlaybackItem is not null)
                 {
                     currentPlaybackItem.AudioTracksChanged -=
@@ -554,7 +614,15 @@ public static class MediaPlayerPage
                         .PresentationModeChanged -=
                         OnTimedMetadataPresentationModeChanged;
                 }
+                if (sampleCueTrack is not null)
+                {
+                    sampleCueTrack.CueEntered -=
+                        OnSampleCueEntered;
+                    sampleCueTrack.CueExited -=
+                        OnSampleCueExited;
+                }
                 currentPlaybackItem = item;
+                sampleCueTrack = applicationTrack;
                 item.AudioTracksChanged += OnTracksChanged;
                 item.VideoTracksChanged += OnTracksChanged;
                 item.TimedMetadataTracksChanged +=
@@ -578,6 +646,23 @@ public static class MediaPlayerPage
                     "ProGPU WebGPU media";
                 item.ApplyDisplayProperties(display);
                 player.Source = item;
+                if (item.TimedMetadataTracks.IndexOf(
+                        applicationTrack,
+                        out uint applicationTrackIndex))
+                {
+                    item.TimedMetadataTracks.SetPresentationMode(
+                        applicationTrackIndex,
+                        TimedMetadataTrackPresentationMode
+                            .ApplicationPresented);
+                    RefreshTrackSelectors();
+                    timedMetadataTrack.SelectedItem =
+                        timedMetadataTrack.Items[
+                            checked(
+                                (int)applicationTrackIndex)];
+                }
+                SetText(
+                    cueStatus,
+                    "Application cue: waiting for marker.");
                 player.Play();
             }
             catch (Exception exception)
@@ -755,6 +840,7 @@ public static class MediaPlayerPage
         preview.AddChild(position);
         preview.AddChild(transportRow);
         preview.AddChild(status);
+        preview.AddChild(cueStatus);
 
         var effects = new StackPanel
         {
@@ -826,6 +912,14 @@ public static class MediaPlayerPage
                     .PresentationModeChanged -=
                     OnTimedMetadataPresentationModeChanged;
                 currentPlaybackItem = null;
+            }
+            if (sampleCueTrack is not null)
+            {
+                sampleCueTrack.CueEntered -=
+                    OnSampleCueEntered;
+                sampleCueTrack.CueExited -=
+                    OnSampleCueExited;
+                sampleCueTrack = null;
             }
             player.Dispose();
             audioBalanceRegistration.Dispose();

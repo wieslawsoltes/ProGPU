@@ -94,6 +94,18 @@ design.
   value is projected from the active provider snapshot only onto the current
   list item, remains in the documented 0–1 range, and starts complete for a
   local file URI.
+- [`MediaSource.ExternalTimedMetadataTracks`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.mediasource.externaltimedmetadatatracks),
+  [`TimedMetadataTrack.ActiveCues`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.activecues),
+  [`CueEntered`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.cueentered),
+  and
+  [`DataCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.datacue)
+  establish caller-owned external tracks, the active-cue view, cue lifecycle
+  events, and binary custom metadata. Microsoft's
+  [media items, playlists, and tracks guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-playback-with-mediasource)
+  establishes that `Disabled` suppresses cue events while `Hidden`,
+  `ApplicationPresented`, and `PlatformPresented` continue scheduling them.
+  ProGPU adopts that lifecycle contract without claiming a platform caption
+  renderer where none is connected.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -1027,6 +1039,19 @@ and dispatch type. Timed metadata uses the official per-track `Disabled`,
 being forced into the audio/video single-selection model. Mode requests flow
 through an optional typed provider contract and publish
 `PresentationModeChanged` only after the active provider accepts the request.
+Caller-created tracks in `MediaSource.ExternalTimedMetadataTracks` retain
+their exact object identity in the playback item and do not require a native
+provider mode call. `DataCue` provides the official binary buffer and property
+bag surface. Its timing changes invalidate the shared schedule immediately;
+custom mutable `IMediaCue` implementations should be removed and re-added
+after changing timing because the official interface has no change event.
+The reusable `MediaTimedCueTimeline<TCue>` in `ProGPU.Media` owns scheduling
+independently of WinUI. It keeps half-open `[start, start + duration)` active
+intervals, suppresses all events while disabled, reconciles backward seeks,
+and drops fully skipped cue windows rather than synthesizing stale events.
+Cue insertion is O(C); warmed steady forward updates are O(E + A) with zero
+managed allocation, and seek/schedule reconciliation is O(C * A), for C
+cues, E crossed boundaries, and A active cues.
 An open or changed provider snapshot updates membership first and publishes typed
 `IVectorChangedEventArgs`; selection-only updates preserve the existing
 `AudioTrack`/`VideoTrack`/`TimedMetadataTrack` object identities and
@@ -1064,13 +1089,14 @@ browser HTML media currently publish their active audio/video stream facts;
 enumerating and switching every alternate stream remains pending until their
 typed native stream-selection lanes are implemented. No provider claims
 multi-track selection from only a `HasAudio`/`HasVideo` probe.
-Provider-backed timed-cue delivery, active-cue clock scheduling, and native
-caption rendering remain separate capability-gated work. Until a provider
-implements those typed lanes it must reject presentation-mode changes rather
-than treating native text-track selection as proof that cue events or
-platform-rendered captions are available. Custom `TimedMetadataTrack`
-instances already provide the official cue ownership surface without placing
-cue-list mutations on the playback frame path.
+Provider-backed timed-cue payload delivery and native caption rendering remain
+separate capability-gated work. Until a provider implements those typed lanes
+it must reject presentation-mode changes rather than treating native
+text-track selection as proof that cue payloads or platform-rendered captions
+are available. External application cues already use the shared playback
+clock and remain available to Avalonia, LibreWPF, and LibreWinForms through
+the neutral scheduler without placing cue-list mutations on the playback
+frame path.
 The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay

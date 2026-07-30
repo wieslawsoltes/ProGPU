@@ -293,16 +293,15 @@ namespace Windows.Media.Core
         public Exception Error { get; }
     }
 
-    public sealed class TimedMetadataTrack : IMediaTrack
+    public sealed class TimedMetadataTrack :
+        IMediaTrack,
+        IMediaTimedCueTimelineClient<IMediaCue>
     {
-        private static readonly IReadOnlyList<IMediaCue>
-            s_emptyCues =
-                Array.AsReadOnly(Array.Empty<IMediaCue>());
-
-        private readonly List<IMediaCue> _cues = [];
-        private readonly System.Collections.ObjectModel
-            .ReadOnlyCollection<IMediaCue> _readOnlyCues;
+        private readonly MediaTimedCueTimeline<IMediaCue>
+            _timeline;
         private MediaPlaybackTrackDescriptor _descriptor;
+        private MediaSource? _sourceOwner;
+        private MediaPlaybackItem? _playbackItem;
         private string _label;
 
         public TimedMetadataTrack(
@@ -337,16 +336,17 @@ namespace Windows.Media.Core
                     nameof(descriptor));
             }
 
-            PlaybackItem = playbackItem;
+            _playbackItem = playbackItem;
             _descriptor = descriptor;
             _label = descriptor.Label;
-            _readOnlyCues = _cues.AsReadOnly();
+            _timeline =
+                new MediaTimedCueTimeline<IMediaCue>(this);
         }
 
         public IReadOnlyList<IMediaCue> ActiveCues =>
-            s_emptyCues;
+            _timeline.ActiveCues;
         public IReadOnlyList<IMediaCue> Cues =>
-            _readOnlyCues;
+            _timeline.Cues;
         public string DispatchType =>
             _descriptor.DispatchType;
         public string Id => _descriptor.ProviderTrackId;
@@ -357,7 +357,8 @@ namespace Windows.Media.Core
         }
         public string Language => _descriptor.Language;
         public string Name => _descriptor.Name;
-        public MediaPlaybackItem? PlaybackItem { get; }
+        public MediaPlaybackItem? PlaybackItem =>
+            _playbackItem;
         public TimedMetadataKind TimedMetadataKind =>
             ToPublicKind(_descriptor.TimedMetadataKind);
         public MediaTrackKind TrackKind =>
@@ -376,16 +377,27 @@ namespace Windows.Media.Core
         public void AddCue(IMediaCue cue)
         {
             ArgumentNullException.ThrowIfNull(cue);
-            if (!_cues.Contains(cue))
+            if (_timeline.AddCue(cue))
             {
-                _cues.Add(cue);
+                if (cue is DataCue dataCue)
+                {
+                    dataCue.TimingChanged += OnCueTimingChanged;
+                }
+                _playbackItem?.RequestTimedMetadataRefresh();
             }
         }
 
         public void RemoveCue(IMediaCue cue)
         {
             ArgumentNullException.ThrowIfNull(cue);
-            _cues.Remove(cue);
+            if (_timeline.RemoveCue(cue))
+            {
+                if (cue is DataCue dataCue)
+                {
+                    dataCue.TimingChanged -= OnCueTimingChanged;
+                }
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
         }
 
         internal bool Update(
@@ -413,6 +425,72 @@ namespace Windows.Media.Core
             TrackFailed?.Invoke(
                 this,
                 new TimedMetadataTrackFailedEventArgs(error));
+
+        internal void AttachToSource(
+            MediaSource source,
+            MediaPlaybackItem? playbackItem)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (_sourceOwner is not null &&
+                !ReferenceEquals(_sourceOwner, source))
+            {
+                throw new InvalidOperationException(
+                    "A timed-metadata track can belong to only one MediaSource.");
+            }
+            _sourceOwner = source;
+            _playbackItem = playbackItem;
+        }
+
+        internal void SetPlaybackItem(
+            MediaPlaybackItem? playbackItem) =>
+            _playbackItem = playbackItem;
+
+        internal void DetachFromSource(MediaSource source)
+        {
+            if (!ReferenceEquals(_sourceOwner, source))
+            {
+                return;
+            }
+            _timeline.Reset();
+            _sourceOwner = null;
+            _playbackItem = null;
+        }
+
+        internal void Synchronize(
+            TimeSpan position,
+            bool enabled) =>
+            _timeline.Synchronize(position, enabled);
+
+        internal void ResetTimeline() =>
+            _timeline.Reset();
+
+        TimeSpan
+            IMediaTimedCueTimelineClient<IMediaCue>.GetStartTime(
+                IMediaCue cue) =>
+            cue.StartTime;
+
+        TimeSpan
+            IMediaTimedCueTimelineClient<IMediaCue>.GetDuration(
+                IMediaCue cue) =>
+            cue.Duration;
+
+        void
+            IMediaTimedCueTimelineClient<IMediaCue>.OnCueEntered(
+                IMediaCue cue) =>
+            RaiseCueEntered(cue);
+
+        void
+            IMediaTimedCueTimelineClient<IMediaCue>.OnCueExited(
+                IMediaCue cue) =>
+            RaiseCueExited(cue);
+
+        private void OnCueTimingChanged(
+            object? sender,
+            EventArgs args)
+        {
+            _timeline.InvalidateSchedule();
+            _playbackItem?.RequestTimedMetadataRefresh();
+        }
 
         private static TimedMetadataKind ToPublicKind(
             MediaPlaybackTimedMetadataKind kind) =>
@@ -876,6 +954,8 @@ namespace Windows.Media.Playback
         IReadOnlyList<TimedMetadataTrack>
     {
         private readonly MediaPlaybackItem _owner;
+        private TimedMetadataTrack[] _providerItems = [];
+        private TimedMetadataTrack[] _externalItems = [];
         private TimedMetadataTrack[] _items = [];
         private TimedMetadataTrackPresentationMode[] _modes = [];
 
@@ -961,10 +1041,13 @@ namespace Windows.Media.Playback
                 return;
             }
 
-            _owner.RequestTimedMetadataPresentationMode(
-                itemIndex,
-                (MediaPlaybackTimedMetadataPresentationMode)
-                    (int)value);
+            if (itemIndex < _providerItems.Length)
+            {
+                _owner.RequestTimedMetadataPresentationMode(
+                    itemIndex,
+                    (MediaPlaybackTimedMetadataPresentationMode)
+                        (int)value);
+            }
             _modes[itemIndex] = value;
             PresentationModeChanged?.Invoke(
                 this,
@@ -972,6 +1055,7 @@ namespace Windows.Media.Playback
                     _items[itemIndex],
                     oldValue,
                     value));
+            _owner.RequestTimedMetadataRefresh();
         }
 
         public IEnumerator<TimedMetadataTrack> GetEnumerator() =>
@@ -987,31 +1071,16 @@ namespace Windows.Media.Playback
         {
             ArgumentNullException.ThrowIfNull(descriptors);
             var changes = new List<IVectorChangedEventArgs>();
-            if (_items.Length == 0)
-            {
-                _items = CreateTracks(descriptors);
-                _modes =
-                    new TimedMetadataTrackPresentationMode[
-                        _items.Length];
-                for (int index = 0;
-                     index < _items.Length;
-                     index++)
-                {
-                    changes.Add(
-                        new PlaybackTrackVectorChangedEventArgs(
-                            CollectionChange.ItemInserted,
-                            checked((uint)index)));
-                }
-            }
-            else if (HaveSameIdentity(descriptors))
+            if (HaveSameProviderIdentity(descriptors))
             {
                 for (int index = 0;
-                     index < _items.Length;
+                     index < _providerItems.Length;
                      index++)
                 {
                     MediaPlaybackTrackDescriptor descriptor =
                         descriptors[index];
-                    if (_items[index].Update(in descriptor))
+                    if (_providerItems[index].Update(
+                            in descriptor))
                     {
                         changes.Add(
                             new PlaybackTrackVectorChangedEventArgs(
@@ -1022,19 +1091,107 @@ namespace Windows.Media.Playback
             }
             else
             {
-                _items = CreateTracks(descriptors);
-                _modes =
-                    new TimedMetadataTrackPresentationMode[
-                        _items.Length];
-                changes.Add(
-                    new PlaybackTrackVectorChangedEventArgs(
-                        CollectionChange.Reset,
-                        0));
+                int previousProviderCount =
+                    _providerItems.Length;
+                for (int index = 0;
+                     index < _providerItems.Length;
+                     index++)
+                {
+                    _providerItems[index].ResetTimeline();
+                }
+                _providerItems =
+                    CreateProviderTracks(descriptors);
+                RebuildCombinedItems();
+
+                if (previousProviderCount == 0 &&
+                    _externalItems.Length == 0)
+                {
+                    for (int index = 0;
+                         index < _providerItems.Length;
+                         index++)
+                    {
+                        changes.Add(
+                            new
+                                PlaybackTrackVectorChangedEventArgs(
+                                    CollectionChange.ItemInserted,
+                                    checked((uint)index)));
+                    }
+                }
+                else
+                {
+                    changes.Add(
+                        new PlaybackTrackVectorChangedEventArgs(
+                            CollectionChange.Reset,
+                            0));
+                }
             }
             return changes;
         }
 
-        private TimedMetadataTrack[] CreateTracks(
+        internal IVectorChangedEventArgs
+            UpdateExternalTracks(
+                IReadOnlyList<TimedMetadataTrack> tracks,
+                IVectorChangedEventArgs change)
+        {
+            ArgumentNullException.ThrowIfNull(tracks);
+            ArgumentNullException.ThrowIfNull(change);
+            _externalItems = new TimedMetadataTrack[tracks.Count];
+            for (int index = 0;
+                 index < _externalItems.Length;
+                 index++)
+            {
+                _externalItems[index] = tracks[index];
+            }
+            RebuildCombinedItems();
+            return new PlaybackTrackVectorChangedEventArgs(
+                change.CollectionChange,
+                change.CollectionChange ==
+                    CollectionChange.Reset
+                    ? 0u
+                    : checked(
+                        (uint)_providerItems.Length +
+                        change.Index));
+        }
+
+        internal void InitializeExternalTracks(
+            IReadOnlyList<TimedMetadataTrack> tracks)
+        {
+            ArgumentNullException.ThrowIfNull(tracks);
+            _externalItems = new TimedMetadataTrack[tracks.Count];
+            for (int index = 0;
+                 index < _externalItems.Length;
+                 index++)
+            {
+                _externalItems[index] = tracks[index];
+            }
+            RebuildCombinedItems();
+        }
+
+        internal void Synchronize(TimeSpan position)
+        {
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                _items[index].Synchronize(
+                    position,
+                    _modes[index] !=
+                        TimedMetadataTrackPresentationMode
+                            .Disabled);
+            }
+        }
+
+        internal void ResetTimelines()
+        {
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                _items[index].ResetTimeline();
+            }
+        }
+
+        private TimedMetadataTrack[] CreateProviderTracks(
             IReadOnlyList<MediaPlaybackTrackDescriptor>
                 descriptors)
         {
@@ -1054,26 +1211,62 @@ namespace Windows.Media.Playback
             return result;
         }
 
-        private bool HaveSameIdentity(
+        private bool HaveSameProviderIdentity(
             IReadOnlyList<MediaPlaybackTrackDescriptor>
                 descriptors)
         {
-            if (_items.Length != descriptors.Count)
+            if (_providerItems.Length != descriptors.Count)
             {
                 return false;
             }
             for (int index = 0;
-                 index < _items.Length;
+                 index < _providerItems.Length;
                  index++)
             {
                 if (!StringComparer.Ordinal.Equals(
-                        _items[index].Id,
+                        _providerItems[index].Id,
                         descriptors[index].ProviderTrackId))
                 {
                     return false;
                 }
             }
             return true;
+        }
+
+        private void RebuildCombinedItems()
+        {
+            TimedMetadataTrack[] previousItems = _items;
+            TimedMetadataTrackPresentationMode[] previousModes =
+                _modes;
+            _items = new TimedMetadataTrack[
+                _providerItems.Length + _externalItems.Length];
+            Array.Copy(
+                _providerItems,
+                0,
+                _items,
+                0,
+                _providerItems.Length);
+            Array.Copy(
+                _externalItems,
+                0,
+                _items,
+                _providerItems.Length,
+                _externalItems.Length);
+            _modes =
+                new TimedMetadataTrackPresentationMode[
+                    _items.Length];
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                int previousIndex =
+                    Array.IndexOf(previousItems, _items[index]);
+                if (previousIndex >= 0)
+                {
+                    _modes[index] =
+                        previousModes[previousIndex];
+                }
+            }
         }
     }
 }

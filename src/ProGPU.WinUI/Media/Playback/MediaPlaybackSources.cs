@@ -226,6 +226,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     internal event EventHandler<
         PlaybackTimedMetadataPresentationModeRequestedEventArgs>?
         TimedMetadataPresentationModeRequested;
+    internal event EventHandler?
+        TimedMetadataRefreshRequested;
 
     public static MediaPlaybackItem? FindFromMediaSource(
         MediaSource source)
@@ -312,6 +314,36 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
                 PlaybackTimedMetadataPresentationModeRequestedEventArgs(
                     index,
                     mode));
+
+    internal void RequestTimedMetadataRefresh() =>
+        TimedMetadataRefreshRequested?.Invoke(
+            this,
+            EventArgs.Empty);
+
+    internal void SynchronizeTimedMetadata(
+        TimeSpan position) =>
+        _timedMetadataTracks.Synchronize(position);
+
+    internal void ResetTimedMetadata() =>
+        _timedMetadataTracks.ResetTimelines();
+
+    internal void ApplyExternalTimedMetadataTracks(
+        IReadOnlyList<TimedMetadataTrack> tracks) =>
+        _timedMetadataTracks.InitializeExternalTracks(tracks);
+
+    internal void ApplyExternalTimedMetadataTracks(
+        IReadOnlyList<TimedMetadataTrack> tracks,
+        IVectorChangedEventArgs change)
+    {
+        IVectorChangedEventArgs combinedChange =
+            _timedMetadataTracks.UpdateExternalTracks(
+                tracks,
+                change);
+        TimedMetadataTracksChanged?.Invoke(
+            this,
+            combinedChange);
+        RequestTimedMetadataRefresh();
+    }
 
     internal void AttachPlaybackList(MediaPlaybackList list)
     {

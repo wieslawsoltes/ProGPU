@@ -875,11 +875,15 @@ public sealed class MediaPlayer : IDisposable
         }
         if (_trackPlaybackItem is not null)
         {
+            _trackPlaybackItem.ResetTimedMetadata();
             _trackPlaybackItem.TrackSelectionRequested -=
                 OnTrackSelectionRequested;
             _trackPlaybackItem
                 .TimedMetadataPresentationModeRequested -=
                 OnTimedMetadataPresentationModeRequested;
+            _trackPlaybackItem
+                .TimedMetadataRefreshRequested -=
+                OnTimedMetadataRefreshRequested;
         }
         _trackPlaybackItem = current;
         if (current is not null)
@@ -888,6 +892,10 @@ public sealed class MediaPlayer : IDisposable
                 OnTrackSelectionRequested;
             current.TimedMetadataPresentationModeRequested +=
                 OnTimedMetadataPresentationModeRequested;
+            current.TimedMetadataRefreshRequested +=
+                OnTimedMetadataRefreshRequested;
+            current.SynchronizeTimedMetadata(
+                _engine.Snapshot.Position);
         }
     }
 
@@ -918,6 +926,17 @@ public sealed class MediaPlayer : IDisposable
             args.Mode);
     }
 
+    private void OnTimedMetadataRefreshRequested(
+        object? sender,
+        EventArgs args)
+    {
+        if (ReferenceEquals(sender, GetCurrentPlaybackItem()))
+        {
+            _trackPlaybackItem?.SynchronizeTimedMetadata(
+                _engine.Snapshot.Position);
+        }
+    }
+
     private void OnEngineChanged(
         object? sender,
         MediaPlaybackChangedEventArgs args) =>
@@ -926,6 +945,14 @@ public sealed class MediaPlayer : IDisposable
             MediaPlaybackState previousState =
                 PlaybackSession.PlaybackState;
             PlaybackSession.AcceptChange(args);
+            if ((args.Change &
+                 (MediaPlaybackChange.Position |
+                  MediaPlaybackChange.Source)) != 0)
+            {
+                GetCurrentPlaybackItem()?
+                    .SynchronizeTimedMetadata(
+                        args.Snapshot.Position);
+            }
             if ((args.Change &
                  (MediaPlaybackChange.Source |
                   MediaPlaybackChange.Download)) != 0)
@@ -1189,11 +1216,15 @@ public sealed class MediaPlayer : IDisposable
             OnFrameAvailable;
         if (_trackPlaybackItem is not null)
         {
+            _trackPlaybackItem.ResetTimedMetadata();
             _trackPlaybackItem.TrackSelectionRequested -=
                 OnTrackSelectionRequested;
             _trackPlaybackItem
                 .TimedMetadataPresentationModeRequested -=
                 OnTimedMetadataPresentationModeRequested;
+            _trackPlaybackItem
+                .TimedMetadataRefreshRequested -=
+                OnTimedMetadataRefreshRequested;
             _trackPlaybackItem = null;
         }
         _engine.Dispose();
