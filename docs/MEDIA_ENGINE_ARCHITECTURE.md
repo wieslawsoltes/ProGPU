@@ -1370,6 +1370,24 @@ exposes raw WebVTT cue text, rejects invalid UTF-8 and malformed box sizes, and
 rejects `PlatformPresented` because a reusable WebGPU frame-server surface has
 no native Linux caption presenter.
 
+Linux alternate-track selection follows the official WinUI
+[`MediaPlaybackAudioTrackList.SelectedIndex`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist.selectedindex)
+and
+[media-track selection guidance](https://learn.microsoft.com/en-us/windows/apps/develop/media-playback/media-playback-with-mediasource).
+The provider enumerates native ISO-BMFF indices once in O(T) time for T
+tracks, reports support from the probed V4L2/PipeWire capabilities, and
+coalesces each audio/video selection kind into one O(1) worker request.
+Video changes apply the Linux kernel
+[stateful-decoder seek model](https://docs.kernel.org/userspace-api/media/v4l/dev-decoder.html#seek):
+the old decoder is stopped, the selected track restarts at the preceding sync
+sample for the current presentation time, stale output is discarded by
+timestamp, and a failed open restores the previous decoder at that same
+position. Audio changes start and position the replacement PipeWire stream
+before atomically publishing it and retiring the prior stream. This keeps
+native lifetime transitions off the UI thread, preserves one selected track
+per kind, and adds no work or allocation to steady frame presentation or the
+PipeWire realtime callback.
+
 Windows-only contracts such as casting, SMTC, DRM/protection managers,
 timeline-controller integration, audio-device objects, and Direct3D surface
 copy/composition are not stubbed. They require a real typed platform adapter
@@ -1391,12 +1409,13 @@ registered provider can faithfully encode the requested timeline.
 | Shared desktop/mobile UI | WinUI facade, standalone `ProGPU.Media.Editing`, platform-neutral `ProGPU.WinRT` contracts, framework-neutral 2D recording, direct Mesh3D material path, coalescing `MediaGpuSurfacePresenter`, and Avalonia sample navigation are implemented | WebGPU effects work for any provider texture in the consuming device domain | Framework packages still own their ordinary control templates and transport chrome |
 | Avalonia/LibreWPF/LibreWinForms | Playback core, the standalone editing assembly, Scene contracts, and typed presenter controller are reusable without referencing `ProGPU.WinUI`; the presenter captures the owning synchronization context, coalesces provider-thread frame notifications, exposes natural size, and records the retained GPU lease. Native hosts can implement `IProGpuDrawingContextSource`; package-neutral WPF hosts instead convert their portable native context through the allocation-free `ProGpuDrawingContextState.TryCreate` type check and call the public state-based `Record` overload. ProGPU-backed `System.Drawing.Graphics` uses the same typed state, so WPF and WinForms preserve their current outer transform without reflection or boxed per-frame adapters. The Avalonia sample host exposes both media pages | All three host families can consume the same editable composition and `MediaGpuSurface` without duplicating media core or reading pixels to the CPU. Host recording composes command-local and framework transforms exactly once while retaining the decoded GPU lease | Dedicated convenience control templates for LibreWPF and LibreWinForms remain work in their sibling framework packages; the typed rendering/lifecycle seam is implemented here without shim-owned geometry or media types |
 
-Linux timed-metadata addendum: seekable ISO-BMFF `text`/`wvtt` tracks now
+Linux track addendum: seekable ISO-BMFF audio/video tracks now expose
+capability-gated WinUI `SelectedIndex` switching, and `text`/`wvtt` tracks
 publish language/name metadata plus stable subtitle cue snapshots through the
 same WinUI-aligned track API used by the other providers. Disabled, hidden,
 and application-presented modes are supported. Native platform presentation,
-WebVTT settings/region rendering, `tx3g`/TTML, and alternate Linux audio/video
-track selection remain explicit gaps.
+WebVTT settings/region rendering, `tx3g`/TTML, and AAC decode remain explicit
+gaps.
 
 This table is deliberately capability-based. “Supported project target” does
 not mean a native media provider has already been completed for that target.

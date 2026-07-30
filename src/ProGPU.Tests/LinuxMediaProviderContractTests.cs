@@ -917,6 +917,10 @@ public sealed class LinuxMediaProviderContractTests
     public void LinuxPlaybackExposesTypedTimedMetadataCapability()
     {
         Assert.True(
+            typeof(IMediaPlaybackTrackProvider)
+                .IsAssignableFrom(
+                    typeof(LinuxMediaPlaybackProvider)));
+        Assert.True(
             typeof(IMediaPlaybackTimedMetadataProvider)
                 .IsAssignableFrom(
                     typeof(LinuxMediaPlaybackProvider)));
@@ -933,6 +937,174 @@ public sealed class LinuxMediaProviderContractTests
             ".PlatformPresented ||",
             source,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "TakeTrackSelectionRequests()",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "the previous V4L2 track was restored",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LinuxTrackSelectionMapsNativeIndicesAndSupport()
+    {
+        IsoBmffTrack h264 =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Video,
+                IsoBmffCodec.H264);
+        IsoBmffTrack aac =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Audio,
+                IsoBmffCodec.Aac);
+        IsoBmffTrack pcm =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Audio,
+                IsoBmffCodec.Pcm) with
+            {
+                AudioChannelCount = 2,
+                AudioBitsPerSample = 16,
+                AudioSampleRate = 48_000,
+                PcmEncoding =
+                    IsoBmffPcmEncoding
+                        .SignedLittleEndian,
+                Language = "eng",
+                Name = "English"
+            };
+        IsoBmffTrack h265 =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Video,
+                IsoBmffCodec.H265);
+        IsoBmffTrack webVtt =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.TimedMetadata,
+                IsoBmffCodec.WebVtt);
+        var movie = new IsoBmffMovie(
+            [h264, aac, pcm, h265, webVtt]);
+        var capabilities =
+            new LinuxNativeMediaCapabilitySnapshot(
+                [
+                    new LinuxVideoDecoderDevice(
+                        "/dev/video0",
+                        "test",
+                        "test",
+                        LinuxHardwareVideoCodec.H264 |
+                        LinuxHardwareVideoCodec.H265,
+                        UsesMultiPlanarQueues: true,
+                        SupportsStreaming: true)
+                ],
+                PipeWireAvailable: true);
+
+        LinuxMediaTrackSelectionState selection =
+            LinuxMediaPlaybackProvider
+                .CreateTrackSelectionState(
+                    movie,
+                    in capabilities,
+                    h264,
+                    pcm,
+                    audioActive: true);
+        MediaPlaybackTracksSnapshot snapshot =
+            LinuxMediaPlaybackProvider
+                .CreateTrackSnapshot(
+                    movie,
+                    selection);
+
+        Assert.Equal([1, 2],
+            selection.AudioNativeIndices);
+        Assert.Equal([false, true],
+            selection.AudioSupported);
+        Assert.Equal([0, 3],
+            selection.VideoNativeIndices);
+        Assert.Equal([true, true],
+            selection.VideoSupported);
+        Assert.Equal(
+            1,
+            selection.SelectedAudioTrackIndex);
+        Assert.Equal(
+            0,
+            selection.SelectedVideoTrackIndex);
+        Assert.Equal(
+            1,
+            snapshot.SelectedAudioTrackIndex);
+        Assert.Equal(
+            0,
+            snapshot.SelectedVideoTrackIndex);
+        Assert.Equal(
+            MediaPlaybackTrackSupport.Unsupported,
+            snapshot.AudioTracks[0].Support);
+        Assert.Equal(
+            MediaPlaybackTrackSupport.Supported,
+            snapshot.AudioTracks[1].Support);
+        Assert.All(
+            snapshot.VideoTracks,
+            static track => Assert.Equal(
+                MediaPlaybackTrackSupport.Supported,
+                track.Support));
+        Assert.Equal(
+            "eng",
+            snapshot.AudioTracks[1].Language);
+        Assert.Equal(
+            "English",
+            snapshot.AudioTracks[1].Label);
+        Assert.Single(
+            snapshot.TimedMetadataTracks);
+    }
+
+    [Fact]
+    public void LinuxTrackSelectionRequiresNativeCapabilities()
+    {
+        IsoBmffTrack video =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Video,
+                IsoBmffCodec.H264);
+        IsoBmffTrack audio =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Audio,
+                IsoBmffCodec.Pcm) with
+            {
+                AudioChannelCount = 2,
+                AudioBitsPerSample = 16,
+                AudioSampleRate = 48_000,
+                PcmEncoding =
+                    IsoBmffPcmEncoding
+                        .SignedLittleEndian
+            };
+        var movie =
+            new IsoBmffMovie([video, audio]);
+        var capabilities =
+            new LinuxNativeMediaCapabilitySnapshot(
+                Array.Empty<
+                    LinuxVideoDecoderDevice>(),
+                PipeWireAvailable: false);
+
+        LinuxMediaTrackSelectionState selection =
+            LinuxMediaPlaybackProvider
+                .CreateTrackSelectionState(
+                    movie,
+                    in capabilities,
+                    video,
+                    audio,
+                    audioActive: false);
+        MediaPlaybackTracksSnapshot snapshot =
+            LinuxMediaPlaybackProvider
+                .CreateTrackSnapshot(
+                    movie,
+                    selection);
+
+        Assert.Equal([false],
+            selection.VideoSupported);
+        Assert.Equal([false],
+            selection.AudioSupported);
+        Assert.Equal(
+            -1,
+            snapshot.SelectedAudioTrackIndex);
+        Assert.Equal(
+            MediaPlaybackTrackSupport.Unsupported,
+            snapshot.VideoTracks[0].Support);
+        Assert.Equal(
+            MediaPlaybackTrackSupport.Unsupported,
+            snapshot.AudioTracks[0].Support);
     }
 
     [Fact]
@@ -2561,6 +2733,37 @@ public sealed class LinuxMediaProviderContractTests
                 new IsoBmffSample(
                     0,
                     sampleSize,
+                    0,
+                    0,
+                    1_000,
+                    IsSync: true)
+            ]);
+
+    private static IsoBmffTrack
+        CreateSyntheticIndexedTrack(
+            IsoBmffTrackKind kind,
+            IsoBmffCodec codec) =>
+        new(
+            kind,
+            codec,
+            1_000,
+            2_000,
+            kind == IsoBmffTrackKind.Video
+                ? (ushort)1_920
+                : (ushort)0,
+            kind == IsoBmffTrackKind.Video
+                ? (ushort)1_080
+                : (ushort)0,
+            codec is
+                IsoBmffCodec.H264 or
+                IsoBmffCodec.H265
+                    ? 4
+                    : 0,
+            [],
+            [
+                new IsoBmffSample(
+                    0,
+                    1,
                     0,
                     0,
                     1_000,

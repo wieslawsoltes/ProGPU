@@ -156,6 +156,7 @@ public sealed class LinuxMediaPlaybackProviderFactory :
 internal sealed class LinuxMediaPlaybackProvider :
     IMediaPlaybackProvider,
     IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTrackProvider,
     IMediaPlaybackTimedMetadataProvider
 {
     private const double DecodeAheadSeconds = 0.35;
@@ -187,6 +188,11 @@ internal sealed class LinuxMediaPlaybackProvider :
     private double _balance;
     private MediaPlaybackConfiguration _configuration =
         MediaPlaybackConfiguration.Default;
+    private LinuxMediaTrackSelectionState
+        _trackSelectionState =
+            LinuxMediaTrackSelectionState.Empty;
+    private int? _audioTrackSelectionRequest;
+    private int? _videoTrackSelectionRequest;
     private bool _muted;
     private bool _looping;
     private bool _playRequested;
@@ -364,6 +370,12 @@ internal sealed class LinuxMediaPlaybackProvider :
                 throw new NotSupportedException(
                     "The built-in PipeWire PCM lane does not resample audio for non-unity playback rates.");
             }
+            if (_audioTrackSelectionRequest is >= 0 &&
+                value != 1d)
+            {
+                throw new NotSupportedException(
+                    "A PipeWire audio-track selection is pending; non-unity playback requires the audio track to be disabled first.");
+            }
             UpdateAnchorLocked();
             _rate = value;
             _snapshot = _snapshot with
@@ -417,6 +429,64 @@ internal sealed class LinuxMediaPlaybackProvider :
 
     public bool StepBackwardOneFrame() =>
         false;
+
+    public bool TrySelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        if (kind is not (
+                MediaPlaybackTrackKind.Audio or
+                MediaPlaybackTrackKind.Video))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            LinuxMediaTrackSelectionState state =
+                _trackSelectionState;
+            int[] nativeIndices = kind ==
+                MediaPlaybackTrackKind.Audio
+                    ? state.AudioNativeIndices
+                    : state.VideoNativeIndices;
+            bool[] supported = kind ==
+                MediaPlaybackTrackKind.Audio
+                    ? state.AudioSupported
+                    : state.VideoSupported;
+            bool disablesVideo =
+                kind == MediaPlaybackTrackKind.Video &&
+                index < 0;
+            bool selectsUnsupportedTrack =
+                index >= 0 &&
+                index < nativeIndices.Length &&
+                (index >= supported.Length ||
+                 !supported[index]);
+            bool selectsAudioAtNonUnityRate =
+                kind == MediaPlaybackTrackKind.Audio &&
+                index >= 0 &&
+                _rate != 1d;
+            if (index < -1 ||
+                index >= nativeIndices.Length ||
+                disablesVideo ||
+                selectsUnsupportedTrack ||
+                selectsAudioAtNonUnityRate)
+            {
+                return false;
+            }
+
+            if (kind == MediaPlaybackTrackKind.Audio)
+            {
+                _audioTrackSelectionRequest = index;
+            }
+            else
+            {
+                _videoTrackSelectionRequest = index;
+            }
+        }
+        _signal.Set();
+        return true;
+    }
 
     public bool TrySetTimedMetadataPresentationMode(
         int index,
@@ -624,20 +694,26 @@ internal sealed class LinuxMediaPlaybackProvider :
                         : "PipeWire is unavailable, so the Linux provider is presenting video only.";
             }
 
-            TimeSpan duration =
-                FromMediaTime(
-                    track.Duration,
-                    track.Timescale);
-            if (audioTrack is not null)
+            LinuxMediaTrackSelectionState
+                trackSelectionState =
+                    CreateTrackSelectionState(
+                        movie,
+                        in nativeCapabilities,
+                        track,
+                        audioTrack,
+                        audioOutput is not null);
+            lock (_gate)
             {
-                duration = TimeSpan.FromTicks(
-                    Math.Max(
-                        duration.Ticks,
-                        FromMediaTime(
-                            audioTrack.Duration,
-                            audioTrack.Timescale)
-                        .Ticks));
+                _trackSelectionState =
+                    trackSelectionState;
             }
+
+            TimeSpan duration =
+                GetPlaybackDuration(
+                    track,
+                    audioOutput is not null
+                        ? audioTrack
+                        : null);
             TimeSpan frameDuration =
                 track.Samples.Length == 0
                     ? TimeSpan.Zero
@@ -678,9 +754,7 @@ internal sealed class LinuxMediaPlaybackProvider :
             MediaPlaybackTracksSnapshot tracks =
                 CreateTrackSnapshot(
                     movie,
-                    track,
-                    audioTrack,
-                    audioOutput is not null);
+                    trackSelectionState);
             Volatile.Write(
                 ref _timedMetadataTrackCount,
                 tracks.TimedMetadataTracks.Count);
@@ -712,6 +786,253 @@ internal sealed class LinuxMediaPlaybackProvider :
 
             while (!_stop.IsSet)
             {
+                LinuxMediaTrackSelectionRequests
+                    selectionRequests =
+                        TakeTrackSelectionRequests();
+                bool selectionChanged = false;
+                if (selectionRequests.VideoIndex is
+                        int requestedVideo &&
+                    requestedVideo !=
+                        trackSelectionState
+                            .SelectedVideoTrackIndex)
+                {
+                    TimeSpan resume =
+                        CurrentPosition();
+                    IsoBmffTrack previousTrack =
+                        track;
+                    LinuxVideoDecoderDevice
+                        previousDevice =
+                            device;
+                    int nativeIndex =
+                        trackSelectionState
+                            .VideoNativeIndices[
+                                requestedVideo];
+                    IsoBmffTrack requestedTrack =
+                        movie.Tracks[nativeIndex];
+                    if (hasPendingFrame)
+                    {
+                        pendingFrame.Owner.Dispose();
+                        pendingFrame = default;
+                        hasPendingFrame = false;
+                    }
+                    reader.Dispose();
+                    decoder.Dispose();
+                    try
+                    {
+                        device = SelectDecoder(
+                            requestedTrack,
+                            in nativeCapabilities);
+                        reader =
+                            new IsoBmffNalAccessUnitReader(
+                                stream,
+                                requestedTrack);
+                        decoder =
+                            CreateDecoder(
+                                device,
+                                requestedTrack);
+                        track = requestedTrack;
+                        trackSelectionState =
+                            trackSelectionState with
+                            {
+                                SelectedVideoTrackIndex =
+                                    requestedVideo
+                            };
+                        selectionChanged = true;
+                    }
+                    catch (Exception selectionException)
+                    {
+                        reader?.Dispose();
+                        decoder?.Dispose();
+                        try
+                        {
+                            device = previousDevice;
+                            reader =
+                                new IsoBmffNalAccessUnitReader(
+                                    stream,
+                                    previousTrack);
+                            decoder =
+                                CreateDecoder(
+                                    device,
+                                    previousTrack);
+                            track = previousTrack;
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            throw new AggregateException(
+                                "Linux video-track selection failed and the previous V4L2 decoder could not be restored.",
+                                selectionException,
+                                rollbackException);
+                        }
+                        PublishDiagnostics(
+                            $"Linux could not select video track {requestedVideo}; the previous V4L2 track was restored: {selectionException.Message}");
+                    }
+
+                    sampleIndex =
+                        FindResumeSample(
+                            track,
+                            resume);
+                    frameDuration =
+                        track.Samples.Length == 0
+                            ? TimeSpan.Zero
+                            : FromMediaTime(
+                                track.Samples[0]
+                                    .Duration,
+                                track.Timescale);
+                    discardBefore = resume;
+                    draining = false;
+                }
+
+                if (selectionRequests.AudioIndex is
+                        int requestedAudio &&
+                    requestedAudio !=
+                        trackSelectionState
+                            .SelectedAudioTrackIndex)
+                {
+                    TimeSpan resume =
+                        CurrentPosition();
+                    if (requestedAudio < 0)
+                    {
+                        PipeWirePcmOutput?
+                            previousOutput =
+                                audioOutput;
+                        lock (_gate)
+                        {
+                            if (ReferenceEquals(
+                                    _audioOutput,
+                                    previousOutput))
+                            {
+                                _audioOutput = null;
+                            }
+                        }
+                        audioOutput = null;
+                        if (previousOutput is not null)
+                        {
+                            try
+                            {
+                                previousOutput.SetActive(
+                                    false);
+                            }
+                            catch (Exception exception)
+                            {
+                                PublishDiagnostics(
+                                    $"The disabled PipeWire track could not be deactivated cleanly: {exception.Message}");
+                            }
+                            finally
+                            {
+                                previousOutput.Dispose();
+                            }
+                        }
+                        pcmReader?.Dispose();
+                        pcmReader = null;
+                        audioTrack = null;
+                        audioSampleIndex = 0;
+                        audioScalarOffset = 0;
+                        trackSelectionState =
+                            trackSelectionState with
+                            {
+                                SelectedAudioTrackIndex = -1
+                            };
+                        selectionChanged = true;
+                    }
+                    else
+                    {
+                        int nativeIndex =
+                            trackSelectionState
+                                .AudioNativeIndices[
+                                    requestedAudio];
+                        IsoBmffTrack requestedTrack =
+                            movie.Tracks[nativeIndex];
+                        IsoBmffPcmSampleReader?
+                            requestedReader = null;
+                        PipeWirePcmOutput?
+                            requestedOutput = null;
+                        try
+                        {
+                            requestedReader =
+                                new IsoBmffPcmSampleReader(
+                                    stream,
+                                    requestedTrack);
+                            requestedOutput =
+                                CreateAudioOutput(
+                                    requestedTrack,
+                                    resume,
+                                    IsPlaying());
+                        }
+                        catch (Exception selectionException)
+                        {
+                            requestedOutput?.Dispose();
+                            requestedReader?.Dispose();
+                            PublishDiagnostics(
+                                $"Linux could not select audio track {requestedAudio}; the previous PipeWire track remains active: {selectionException.Message}");
+                        }
+
+                        if (requestedReader is not null &&
+                            requestedOutput is not null)
+                        {
+                            PipeWirePcmOutput?
+                                previousOutput =
+                                    audioOutput;
+                            IsoBmffPcmSampleReader?
+                                previousReader =
+                                    pcmReader;
+                            lock (_gate)
+                            {
+                                _audioOutput =
+                                    requestedOutput;
+                            }
+                            audioTrack = requestedTrack;
+                            pcmReader = requestedReader;
+                            audioOutput = requestedOutput;
+                            if (previousOutput is not null)
+                            {
+                                try
+                                {
+                                    previousOutput.SetActive(
+                                        false);
+                                }
+                                catch (Exception exception)
+                                {
+                                    PublishDiagnostics(
+                                        $"The previous PipeWire track could not be deactivated cleanly during selection: {exception.Message}");
+                                }
+                                finally
+                                {
+                                    previousOutput.Dispose();
+                                }
+                            }
+                            previousReader?.Dispose();
+                            audioSampleIndex =
+                                FindResumeSample(
+                                    audioTrack,
+                                    resume);
+                            audioScalarOffset = 0;
+                            trackSelectionState =
+                                trackSelectionState with
+                                {
+                                    SelectedAudioTrackIndex =
+                                        requestedAudio
+                                };
+                            selectionChanged = true;
+                        }
+                    }
+                }
+
+                if (selectionChanged)
+                {
+                    duration =
+                        GetPlaybackDuration(
+                            track,
+                            audioOutput is not null
+                                ? audioTrack
+                                : null);
+                    PublishTrackSelection(
+                        movie,
+                        trackSelectionState,
+                        track,
+                        audioOutput is not null,
+                        duration);
+                }
+
                 TimeSpan? seek =
                     TakeSeekRequest();
                 if (seek.HasValue)
@@ -1044,12 +1365,73 @@ internal sealed class LinuxMediaPlaybackProvider :
             "The Linux V4L2 provider currently accepts H.264 or H.265 video tracks in seekable ISO-BMFF sources.");
     }
 
-    private static MediaPlaybackTracksSnapshot
-        CreateTrackSnapshot(
+    internal static LinuxMediaTrackSelectionState
+        CreateTrackSelectionState(
             IsoBmffMovie movie,
+            in LinuxNativeMediaCapabilitySnapshot
+                capabilities,
             IsoBmffTrack selectedVideoTrack,
             IsoBmffTrack? selectedAudioTrack,
             bool audioActive)
+    {
+        var audioNativeIndices = new List<int>();
+        var audioSupported = new List<bool>();
+        var videoNativeIndices = new List<int>();
+        var videoSupported = new List<bool>();
+        int selectedAudio = -1;
+        int selectedVideo = -1;
+        for (int nativeIndex = 0;
+             nativeIndex < movie.Tracks.Length;
+             nativeIndex++)
+        {
+            IsoBmffTrack track =
+                movie.Tracks[nativeIndex];
+            if (track.Kind == IsoBmffTrackKind.Audio)
+            {
+                if (audioActive &&
+                    ReferenceEquals(
+                        track,
+                        selectedAudioTrack))
+                {
+                    selectedAudio =
+                        audioNativeIndices.Count;
+                }
+                audioNativeIndices.Add(nativeIndex);
+                audioSupported.Add(
+                    capabilities.PipeWireAvailable &&
+                    IsSupportedPcmTrack(track));
+            }
+            else if (track.Kind ==
+                     IsoBmffTrackKind.Video)
+            {
+                if (ReferenceEquals(
+                        track,
+                        selectedVideoTrack))
+                {
+                    selectedVideo =
+                        videoNativeIndices.Count;
+                }
+                videoNativeIndices.Add(nativeIndex);
+                videoSupported.Add(
+                    CanDecodeVideoTrack(
+                        track,
+                        in capabilities));
+            }
+        }
+
+        return new LinuxMediaTrackSelectionState(
+            audioNativeIndices.ToArray(),
+            audioSupported.ToArray(),
+            videoNativeIndices.ToArray(),
+            videoSupported.ToArray(),
+            selectedAudio,
+            selectedVideo);
+    }
+
+    internal static MediaPlaybackTracksSnapshot
+        CreateTrackSnapshot(
+            IsoBmffMovie movie,
+            LinuxMediaTrackSelectionState selection)
     {
         var audio =
             new List<MediaPlaybackTrackDescriptor>();
@@ -1057,8 +1439,8 @@ internal sealed class LinuxMediaPlaybackProvider :
             new List<MediaPlaybackTrackDescriptor>();
         var timedMetadata =
             new List<MediaPlaybackTrackDescriptor>();
-        int selectedAudio = -1;
-        int selectedVideo = -1;
+        int audioIndex = 0;
+        int videoIndex = 0;
         for (int nativeIndex = 0;
              nativeIndex < movie.Tracks.Length;
              nativeIndex++)
@@ -1066,29 +1448,15 @@ internal sealed class LinuxMediaPlaybackProvider :
             IsoBmffTrack track = movie.Tracks[nativeIndex];
             MediaPlaybackTrackKind kind;
             List<MediaPlaybackTrackDescriptor> destination;
-            bool selected;
             if (track.Kind == IsoBmffTrackKind.Audio)
             {
                 kind = MediaPlaybackTrackKind.Audio;
                 destination = audio;
-                selected =
-                    audioActive &&
-                    ReferenceEquals(track, selectedAudioTrack);
-                if (selected)
-                {
-                    selectedAudio = destination.Count;
-                }
             }
             else if (track.Kind == IsoBmffTrackKind.Video)
             {
                 kind = MediaPlaybackTrackKind.Video;
                 destination = video;
-                selected =
-                    ReferenceEquals(track, selectedVideoTrack);
-                if (selected)
-                {
-                    selectedVideo = destination.Count;
-                }
             }
             else if (track.Kind ==
                      IsoBmffTrackKind.TimedMetadata)
@@ -1096,7 +1464,6 @@ internal sealed class LinuxMediaPlaybackProvider :
                 kind =
                     MediaPlaybackTrackKind.TimedMetadata;
                 destination = timedMetadata;
-                selected = false;
             }
             else
             {
@@ -1114,17 +1481,28 @@ internal sealed class LinuxMediaPlaybackProvider :
                     (uint)track.Samples[0].Duration);
             }
             MediaPlaybackTrackSupport support =
-                kind ==
-                MediaPlaybackTrackKind.TimedMetadata
-                    ? track.Codec ==
-                        IsoBmffCodec.WebVtt
-                        ? MediaPlaybackTrackSupport
-                            .Supported
-                        : MediaPlaybackTrackSupport
+                kind switch
+                {
+                    MediaPlaybackTrackKind
+                        .TimedMetadata
+                        when track.Codec ==
+                             IsoBmffCodec.WebVtt =>
+                            MediaPlaybackTrackSupport
+                                .Supported,
+                    MediaPlaybackTrackKind.Audio
+                        when selection.AudioSupported[
+                            audioIndex] =>
+                            MediaPlaybackTrackSupport
+                                .Supported,
+                    MediaPlaybackTrackKind.Video
+                        when selection.VideoSupported[
+                            videoIndex] =>
+                            MediaPlaybackTrackSupport
+                                .Supported,
+                    _ =>
+                        MediaPlaybackTrackSupport
                             .Unsupported
-                    : selected
-                    ? MediaPlaybackTrackSupport.Supported
-                    : MediaPlaybackTrackSupport.Unsupported;
+                };
             string fallbackName = kind switch
             {
                 MediaPlaybackTrackKind.Audio =>
@@ -1167,12 +1545,21 @@ internal sealed class LinuxMediaPlaybackProvider :
                     MediaPlaybackTrackKind.TimedMetadata
                         ? "text/vtt"
                         : string.Empty));
+            if (kind == MediaPlaybackTrackKind.Audio)
+            {
+                audioIndex++;
+            }
+            else if (kind ==
+                     MediaPlaybackTrackKind.Video)
+            {
+                videoIndex++;
+            }
         }
         return new MediaPlaybackTracksSnapshot(
             audio,
-            selectedAudio,
+            selection.SelectedAudioTrackIndex,
             video,
-            selectedVideo,
+            selection.SelectedVideoTrackIndex,
             timedMetadata);
     }
 
@@ -1237,24 +1624,57 @@ internal sealed class LinuxMediaPlaybackProvider :
             $"No streaming multi-planar V4L2 stateful decoder exposes {required}.");
     }
 
+    private static bool CanDecodeVideoTrack(
+        IsoBmffTrack track,
+        in LinuxNativeMediaCapabilitySnapshot
+            capabilities)
+    {
+        if (track.Kind != IsoBmffTrackKind.Video ||
+            track.Codec is not (
+                IsoBmffCodec.H264 or
+                IsoBmffCodec.H265) ||
+            track.Samples.Length == 0)
+        {
+            return false;
+        }
+
+        LinuxHardwareVideoCodec required =
+            track.Codec == IsoBmffCodec.H264
+                ? LinuxHardwareVideoCodec.H264
+                : LinuxHardwareVideoCodec.H265;
+        for (int index = 0;
+             index < capabilities.VideoDecoders.Count;
+             index++)
+        {
+            LinuxVideoDecoderDevice device =
+                capabilities.VideoDecoders[index];
+            if (device.UsesMultiPlanarQueues &&
+                device.SupportsStreaming &&
+                (device.Codecs & required) != 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsSupportedPcmTrack(
+        IsoBmffTrack track) =>
+        track.Kind == IsoBmffTrackKind.Audio &&
+        track.Codec == IsoBmffCodec.Pcm &&
+        track.PcmEncoding !=
+            IsoBmffPcmEncoding.Unknown &&
+        track.AudioChannelCount is > 0 and <= 8 &&
+        track.AudioBitsPerSample is 16 or 24 or 32 &&
+        track.AudioSampleRate is >= 8_000 and <= 384_000;
+
     private static IsoBmffTrack? SelectPcmTrack(
         IsoBmffMovie movie)
     {
         foreach (IsoBmffTrack track in
                  movie.Tracks)
         {
-            if (track.Kind ==
-                    IsoBmffTrackKind.Audio &&
-                track.Codec ==
-                    IsoBmffCodec.Pcm &&
-                track.PcmEncoding !=
-                    IsoBmffPcmEncoding.Unknown &&
-                track.AudioChannelCount is
-                    > 0 and <= 8 &&
-                track.AudioBitsPerSample is
-                    16 or 24 or 32 &&
-                track.AudioSampleRate is
-                    >= 8_000 and <= 384_000)
+            if (IsSupportedPcmTrack(track))
             {
                 return track;
             }
@@ -1434,6 +1854,28 @@ internal sealed class LinuxMediaPlaybackProvider :
                     timescale)));
     }
 
+    private static TimeSpan GetPlaybackDuration(
+        IsoBmffTrack videoTrack,
+        IsoBmffTrack? audioTrack)
+    {
+        TimeSpan duration =
+            FromMediaTime(
+                videoTrack.Duration,
+                videoTrack.Timescale);
+        if (audioTrack is not null)
+        {
+            TimeSpan audioDuration =
+                FromMediaTime(
+                    audioTrack.Duration,
+                    audioTrack.Timescale);
+            if (audioDuration > duration)
+            {
+                duration = audioDuration;
+            }
+        }
+        return duration;
+    }
+
     private static long ToMediaTime(
         TimeSpan value,
         uint timescale) =>
@@ -1544,6 +1986,58 @@ internal sealed class LinuxMediaPlaybackProvider :
         }
     }
 
+    private PipeWirePcmOutput CreateAudioOutput(
+        IsoBmffTrack track,
+        TimeSpan presentationTime,
+        bool active)
+    {
+        var output =
+            new PipeWirePcmOutput(
+                track.AudioSampleRate,
+                track.AudioChannelCount,
+                CurrentPipeWireRole());
+        try
+        {
+            lock (_gate)
+            {
+                output.SetVolume(
+                    _volume,
+                    _balance,
+                    _muted);
+                output.SetProcessors(
+                    _audioProcessors);
+            }
+            output.StartAsync(
+                    CancellationToken.None)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult();
+            output.Reset(presentationTime);
+            output.SetActive(active);
+            return output;
+        }
+        catch
+        {
+            output.Dispose();
+            throw;
+        }
+    }
+
+    private LinuxMediaTrackSelectionRequests
+        TakeTrackSelectionRequests()
+    {
+        lock (_gate)
+        {
+            var requests =
+                new LinuxMediaTrackSelectionRequests(
+                    _audioTrackSelectionRequest,
+                    _videoTrackSelectionRequest);
+            _audioTrackSelectionRequest = null;
+            _videoTrackSelectionRequest = null;
+            return requests;
+        }
+    }
+
     private TimeSpan? TakeSeekRequest()
     {
         lock (_gate)
@@ -1622,6 +2116,56 @@ internal sealed class LinuxMediaPlaybackProvider :
             };
             snapshot = _snapshot;
         }
+        _sink.Update(in snapshot);
+    }
+
+    private void PublishTrackSelection(
+        IsoBmffMovie movie,
+        LinuxMediaTrackSelectionState selection,
+        IsoBmffTrack videoTrack,
+        bool audioActive,
+        TimeSpan duration)
+    {
+        MediaPlaybackSnapshot snapshot;
+        lock (_gate)
+        {
+            _trackSelectionState = selection;
+            if (_anchorPosition > duration)
+            {
+                _anchorPosition = duration;
+                _anchorTimestamp =
+                    Stopwatch.GetTimestamp();
+            }
+            TimeSpan position =
+                _snapshot.Position > duration
+                    ? duration
+                    : _snapshot.Position;
+            _snapshot = _snapshot with
+            {
+                Position = position,
+                NaturalDuration = duration,
+                NaturalVideoWidth =
+                    videoTrack.Width,
+                NaturalVideoHeight =
+                    videoTrack.Height,
+                Capabilities =
+                    new MediaProviderCapabilities(
+                        CanPause: true,
+                        CanSeek: true,
+                        SupportsRate:
+                            !audioActive,
+                        SupportsFrameStepping:
+                            false,
+                        HardwareDecoded: true,
+                        HasAudio: audioActive,
+                        HasVideo: true)
+            };
+            snapshot = _snapshot;
+        }
+        _sink.UpdateTracks(
+            CreateTrackSnapshot(
+                movie,
+                selection));
         _sink.Update(in snapshot);
     }
 
@@ -1711,3 +2255,20 @@ internal sealed class LinuxMediaPlaybackProvider :
             this);
     }
 }
+
+internal sealed record LinuxMediaTrackSelectionState(
+    int[] AudioNativeIndices,
+    bool[] AudioSupported,
+    int[] VideoNativeIndices,
+    bool[] VideoSupported,
+    int SelectedAudioTrackIndex,
+    int SelectedVideoTrackIndex)
+{
+    internal static LinuxMediaTrackSelectionState Empty { get; } =
+        new([], [], [], [], -1, -1);
+}
+
+internal readonly record struct
+    LinuxMediaTrackSelectionRequests(
+        int? AudioIndex,
+        int? VideoIndex);
