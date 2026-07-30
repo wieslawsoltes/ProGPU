@@ -99,6 +99,9 @@ design.
   [`CueEntered`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.cueentered),
   [`TimedTextCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextcue),
   [`TimedTextLine`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextline),
+  [`TimedTextSubformat`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsubformat),
+  [`TimedTextStyle`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextstyle),
+  [`TimedTextRegion`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion),
   and
   [`DataCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.datacue)
   establish caller-owned external tracks, the active-cue view, cue lifecycle
@@ -108,6 +111,17 @@ design.
   `ApplicationPresented`, and `PlatformPresented` continue scheduling them.
   ProGPU adopts that lifecycle contract without claiming a platform caption
   renderer where none is connected.
+- The current Windows SDK public metadata defines the complete WinUI timed-text
+  object graph: retained cue and line collections, substring subformats,
+  cue-level style and region objects, pixel/percentage value structs, writing,
+  flow, alignment, wrapping and scrolling enums, and the newer ruby and bouten
+  style children. ProGPU exposes those same public type names and property
+  types under `Windows.Media.Core`. Native providers publish immutable
+  package-neutral lines, UTF-16 spans, sparse style state, and cue-layout DTOs
+  through `ProGPU.Media`; the WinUI layer mutates retained projection objects
+  in O(L + S) time for L lines and S subformats. This keeps Avalonia,
+  LibreWPF, and LibreWinForms consumers independent of WinUI while avoiding
+  reflection, boxed adapters, or parsing in the audio/video frame path.
 - The
   [WHATWG media/text-track model](https://html.spec.whatwg.org/multipage/media.html)
   and the browser
@@ -1358,17 +1372,22 @@ the MP4 Registration Authority
 [`wvtt` registration](https://mp4ra.org/registered-types/codecs), and the W3C
 [WebVTT data model](https://www.w3.org/TR/webvtt1/). The implementation adopts
 the specified `text` handler plus `wvtt` sample entry, sources cue identifiers
-from `iden`, cue text from `payl`, and timing from the ISO-BMFF sample
-presentation time and duration. It adapts those values into immutable
-provider-neutral snapshots instead of introducing a platform or parser
-dependency. Parsing is an open-time O(S + B + U) pass for S samples, B nested
-boxes, and U UTF-8 bytes, with a 16-MiB per-sample, 256-MiB retained-text, and
-one-million-cue bound.
-Unknown cue-layout boxes remain a future styling extension rather than being
-interpreted incorrectly; the current WinUI-aligned application-presented lane
-exposes raw WebVTT cue text, rejects invalid UTF-8 and malformed box sizes, and
-rejects `PlatformPresented` because a reusable WebGPU frame-server surface has
-no native Linux caption presenter.
+from `iden`, cue settings from `sttg`, cue text from `payl`, and timing from the
+ISO-BMFF sample presentation time and duration. The W3C cue-settings grammar
+is parsed once into provider-neutral line/position/size/alignment/vertical and
+region state. Cue text is decoded into display text plus combined bold,
+italic, and underline UTF-16 subformat runs; the six named WebVTT character
+references and CR/LF line boundaries are normalized without an external
+parser. These immutable values project into retained WinUI `TimedTextLine`,
+`TimedTextSubformat`, `TimedTextStyle`, and `TimedTextRegion` objects.
+Parsing remains an open-time O(S + B + U + R) pass for S samples, B nested
+boxes, U UTF-8/UTF-16 units, and R emitted runs, with a 16-MiB per-sample,
+256-MiB retained-input, and one-million-cue bound. Duplicate `iden`, `sttg`, or
+`payl` children, invalid UTF-8, malformed box sizes, and invalid public DTO
+ranges fail explicitly. WebVTT class/voice/language CSS, timestamp components,
+ruby annotation projection, external `STYLE`/`REGION` blocks, `tx3g`, and TTML
+remain future extensions. `PlatformPresented` is still rejected because a
+reusable WebGPU frame-server surface has no native Linux caption presenter.
 
 Linux alternate-track selection follows the official WinUI
 [`MediaPlaybackAudioTrackList.SelectedIndex`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist.selectedindex)
@@ -1427,9 +1446,12 @@ Linux track addendum: seekable ISO-BMFF audio/video tracks now expose
 capability-gated WinUI `SelectedIndex` switching, and `text`/`wvtt` tracks
 publish language/name metadata plus stable subtitle cue snapshots through the
 same WinUI-aligned track API used by the other providers. Disabled, hidden,
-and application-presented modes are supported. Native platform presentation,
-WebVTT settings/region rendering, `tx3g`/TTML, and AAC decode remain explicit
-gaps.
+and application-presented modes are supported. `sttg` cue layout and
+bold/italic/underline subformats are projected through the official WinUI
+types; a renderer can consume the retained region/style graph without
+reparsing cue text. Native platform presentation, external WebVTT
+styles/regions, ruby/voice/class styling, `tx3g`/TTML, and AAC decode remain
+explicit gaps.
 
 This table is deliberately capability-based. “Supported project target” does
 not mean a native media provider has already been completed for that target.

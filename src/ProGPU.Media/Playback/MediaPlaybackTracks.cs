@@ -343,7 +343,9 @@ public readonly record struct
         string CueId,
         TimeSpan StartTime,
         TimeSpan Duration,
-        string Text);
+        string Text,
+        MediaPlaybackTimedTextCuePresentation?
+            Presentation = null);
 
 /// <summary>
 /// Immutable cue snapshot for one provider timed-metadata track.

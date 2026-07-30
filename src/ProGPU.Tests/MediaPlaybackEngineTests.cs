@@ -130,9 +130,139 @@ public sealed class MediaPlaybackEngineTests
             typeof(TimedTextCue)
                 .GetProperty(nameof(TimedTextCue.Lines))!
                 .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextStyle),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.CueStyle))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextRegion),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.CueRegion))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IList<TimedTextSubformat>),
+            typeof(TimedTextLine)
+                .GetProperty(
+                    nameof(TimedTextLine.Subformats))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextStyle),
+            typeof(TimedTextSubformat)
+                .GetProperty(
+                    nameof(
+                        TimedTextSubformat
+                            .SubformatStyle))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextPoint),
+            typeof(TimedTextRegion)
+                .GetProperty(
+                    nameof(TimedTextRegion.Position))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextSize),
+            typeof(TimedTextRegion)
+                .GetProperty(
+                    nameof(TimedTextRegion.Extent))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextDouble),
+            typeof(TimedTextStyle)
+                .GetProperty(
+                    nameof(TimedTextStyle.FontSize))!
+                .PropertyType);
+        Assert.Equal(400, (int)TimedTextWeight.Normal);
+        Assert.Equal(700, (int)TimedTextWeight.Bold);
+        Assert.Equal(
+            2,
+            (int)TimedTextLineAlignment.Center);
+        Assert.Equal(
+            6,
+            (int)TimedTextWritingMode.TopBottom);
         Assert.Equal(0, (int)MediaTrackKind.Audio);
         Assert.Equal(1, (int)MediaTrackKind.Video);
         Assert.Equal(2, (int)MediaTrackKind.TimedMetadata);
+    }
+
+    [Fact]
+    public void TimedTextFormattingApiMatchesOfficialContract()
+    {
+        Assert.Equal(
+            [
+                "Background",
+                "Bouten",
+                "FlowDirection",
+                "FontAngleInDegrees",
+                "FontFamily",
+                "FontSize",
+                "FontStyle",
+                "FontWeight",
+                "Foreground",
+                "IsBackgroundAlwaysShown",
+                "IsLineThroughEnabled",
+                "IsOverlineEnabled",
+                "IsTextCombined",
+                "IsUnderlineEnabled",
+                "LineAlignment",
+                "Name",
+                "OutlineColor",
+                "OutlineRadius",
+                "OutlineThickness",
+                "Ruby"
+            ],
+            typeof(TimedTextStyle)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Background",
+                "DisplayAlignment",
+                "Extent",
+                "IsOverflowClipped",
+                "LineHeight",
+                "Name",
+                "Padding",
+                "Position",
+                "ScrollMode",
+                "TextWrapping",
+                "WritingMode",
+                "ZIndex"
+            ],
+            typeof(TimedTextRegion)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.False(
+            typeof(TimedTextStyle)
+                .GetProperty(nameof(TimedTextStyle.Bouten))!
+                .CanWrite);
+        Assert.False(
+            typeof(TimedTextStyle)
+                .GetProperty(nameof(TimedTextStyle.Ruby))!
+                .CanWrite);
+        Assert.Equal(
+            [
+                "Color",
+                "Position",
+                "Type"
+            ],
+            typeof(TimedTextBouten)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Align",
+                "Position",
+                "Reserve",
+                "Text"
+            ],
+            typeof(TimedTextRuby)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -312,7 +442,39 @@ public sealed class MediaPlaybackEngineTests
                     "subtitle-1",
                     TimeSpan.FromSeconds(1),
                     TimeSpan.FromSeconds(2),
-                    "First")
+                    "First GPU",
+                    new MediaPlaybackTimedTextCuePresentation(
+                        [
+                            new(
+                                "First GPU",
+                                [
+                                    new(
+                                        6,
+                                        3,
+                                        new(
+                                            FontWeight:
+                                                MediaPlaybackTimedTextWeight
+                                                    .Bold))
+                                ])
+                        ],
+                        layout:
+                            new(
+                                RegionName: "captions",
+                                LinePosition: 80d,
+                                LinePositionUnit:
+                                    MediaPlaybackTimedTextLinePositionUnit
+                                        .Percentage,
+                                TextPositionPercentage: 25d,
+                                PositionAlignment:
+                                    MediaPlaybackTimedTextAlignment
+                                        .Center,
+                                SizePercentage: 50d,
+                                TextAlignment:
+                                    MediaPlaybackTimedTextAlignment
+                                        .Center,
+                                WritingMode:
+                                    MediaPlaybackTimedTextWritingMode
+                                        .TopBottomRightLeft)))
             };
         var firstSnapshot =
             new MediaPlaybackTimedMetadataCueSnapshot(
@@ -328,7 +490,29 @@ public sealed class MediaPlaybackEngineTests
             Assert.IsType<TimedTextCue>(
                 Assert.Single(track.Cues));
         Assert.Equal("subtitle-1", cue.Id);
-        Assert.Equal("First", Assert.Single(cue.Lines).Text);
+        TimedTextLine projectedLine =
+            Assert.Single(cue.Lines);
+        Assert.Equal("First GPU", projectedLine.Text);
+        TimedTextSubformat projectedSubformat =
+            Assert.Single(projectedLine.Subformats);
+        Assert.Equal(6, projectedSubformat.StartIndex);
+        Assert.Equal(3, projectedSubformat.Length);
+        Assert.Equal(
+            TimedTextWeight.Bold,
+            projectedSubformat.SubformatStyle.FontWeight);
+        Assert.Equal(
+            TimedTextLineAlignment.Center,
+            cue.CueStyle.LineAlignment);
+        Assert.Equal("captions", cue.CueRegion.Name);
+        Assert.Equal(
+            TimedTextWritingMode.TopBottomRightLeft,
+            cue.CueRegion.WritingMode);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Position.Unit);
+        Assert.Equal(80d, cue.CueRegion.Position.X);
+        Assert.Equal(0d, cue.CueRegion.Position.Y);
+        Assert.Equal(50d, cue.CueRegion.Extent.Height);
         item.TimedMetadataTracks.SetPresentationMode(
             0,
             TimedMetadataTrackPresentationMode
@@ -358,6 +542,10 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             "Updated",
             Assert.Single(cue.Lines).Text);
+        Assert.Empty(cue.Lines[0].Subformats);
+        Assert.Equal(
+            TimedTextWeight.Normal,
+            cue.CueStyle.FontWeight);
         Assert.Empty(track.ActiveCues);
         Assert.Equal(1, exited);
 
@@ -429,6 +617,23 @@ public sealed class MediaPlaybackEngineTests
                             TimeSpan.Zero,
                             string.Empty)
                     ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextLineDescriptor(
+                    "short",
+                    [
+                        new(
+                            4,
+                            2,
+                            default)
+                    ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    layout:
+                        new(
+                            SizePercentage: 101d)));
     }
 
     [Fact]

@@ -126,6 +126,7 @@ internal static class IsoBmffWebVttCueReader
             }
 
             string? cueId = null;
+            string? cueSettings = null;
             string? cueText = null;
             int childPosition = box.PayloadStart;
             ReadOnlySpan<byte> children =
@@ -171,6 +172,20 @@ internal static class IsoBmffWebVttCueReader
                         payload,
                         "WebVTT cue payload");
                 }
+                else if (child.Type == BoxType.Sttg)
+                {
+                    if (cueSettings is not null)
+                    {
+                        throw new InvalidDataException(
+                            "A WebVTT cue contains more than one sttg box.");
+                    }
+                    ReserveRetainedUtf8(
+                        payload.Length,
+                        ref retainedUtf8Bytes);
+                    cueSettings = DecodeUtf8(
+                        payload,
+                        "WebVTT cue settings");
+                }
             }
             if (childPosition != box.End)
             {
@@ -189,6 +204,10 @@ internal static class IsoBmffWebVttCueReader
                 sampleIndex,
                 cueOrdinal,
                 cueIds);
+            IsoBmffWebVttCueParser.ParsedCue parsed =
+                IsoBmffWebVttCueParser.Parse(
+                    cueText,
+                    cueSettings);
             cues.Add(
                 new MediaPlaybackTimedMetadataCueDescriptor(
                     stableId,
@@ -198,7 +217,8 @@ internal static class IsoBmffWebVttCueReader
                     FromMediaTime(
                         sample.Duration,
                         timescale),
-                    cueText));
+                    parsed.Text,
+                    parsed.Presentation));
             cueOrdinal++;
         }
     }
@@ -386,5 +406,6 @@ internal static class IsoBmffWebVttCueReader
         internal const uint Vttc = 0x7674_7463;
         internal const uint Iden = 0x6964_656E;
         internal const uint Payl = 0x7061_796C;
+        internal const uint Sttg = 0x7374_7467;
     }
 }

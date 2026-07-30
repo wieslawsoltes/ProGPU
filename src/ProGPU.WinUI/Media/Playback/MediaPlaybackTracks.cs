@@ -455,9 +455,7 @@ namespace Windows.Media.Core
                             Id = descriptor.CueId
                         };
                         cue.ApplyProviderState(
-                            descriptor.StartTime,
-                            descriptor.Duration,
-                            descriptor.Text);
+                            in descriptor);
                         _providerCues.Add(
                             descriptor.CueId,
                             cue);
@@ -468,9 +466,7 @@ namespace Windows.Media.Core
                     else
                     {
                         changed |= cue.ApplyProviderState(
-                            descriptor.StartTime,
-                            descriptor.Duration,
-                            descriptor.Text);
+                            in descriptor);
                     }
                 }
 

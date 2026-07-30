@@ -903,8 +903,76 @@ public sealed class LinuxMediaProviderContractTests
             TimeSpan.FromSeconds(1),
             snapshot.Cues[0].Duration);
         Assert.Equal(
-            "Hello <b>GPU</b>",
+            "Hello GPU & effects\nReady",
             snapshot.Cues[0].Text);
+        Assert.NotNull(snapshot.Cues[0].Presentation);
+        MediaPlaybackTimedTextCuePresentation
+            presentation =
+                snapshot.Cues[0].Presentation!;
+        Assert.Equal(2, presentation.Lines.Count);
+        Assert.Equal(
+            "Hello GPU & effects",
+            presentation.Lines[0].Text);
+        Assert.Equal(
+            "Ready",
+            presentation.Lines[1].Text);
+        Assert.Collection(
+            presentation.Lines[0].Subformats,
+            subformat =>
+            {
+                Assert.Equal(6, subformat.StartIndex);
+                Assert.Equal(6, subformat.Length);
+                Assert.Equal(
+                    MediaPlaybackTimedTextWeight.Bold,
+                    subformat.Style.FontWeight);
+                Assert.Null(subformat.Style.FontStyle);
+            },
+            subformat =>
+            {
+                Assert.Equal(12, subformat.StartIndex);
+                Assert.Equal(7, subformat.Length);
+                Assert.Equal(
+                    MediaPlaybackTimedTextWeight.Bold,
+                    subformat.Style.FontWeight);
+                Assert.Equal(
+                    MediaPlaybackTimedTextFontStyle.Italic,
+                    subformat.Style.FontStyle);
+            });
+        MediaPlaybackTimedTextSubformatDescriptor
+            underline =
+                Assert.Single(
+                    presentation.Lines[1].Subformats);
+        Assert.True(
+            underline.Style.IsUnderlineEnabled);
+        Assert.Equal(
+            "captions",
+            presentation.Layout.RegionName);
+        Assert.Equal(
+            80d,
+            presentation.Layout.LinePosition);
+        Assert.Equal(
+            MediaPlaybackTimedTextLinePositionUnit
+                .Percentage,
+            presentation.Layout.LinePositionUnit);
+        Assert.Equal(
+            MediaPlaybackTimedTextAlignment.Center,
+            presentation.Layout.LineAlignment);
+        Assert.Equal(
+            25d,
+            presentation.Layout.TextPositionPercentage);
+        Assert.Equal(
+            MediaPlaybackTimedTextAlignment.Start,
+            presentation.Layout.PositionAlignment);
+        Assert.Equal(
+            50d,
+            presentation.Layout.SizePercentage);
+        Assert.Equal(
+            MediaPlaybackTimedTextAlignment.Center,
+            presentation.Layout.TextAlignment);
+        Assert.Equal(
+            MediaPlaybackTimedTextWritingMode
+                .TopBottomRightLeft,
+            presentation.Layout.WritingMode);
         Assert.Equal(
             "isobmff:1:0:1",
             snapshot.Cues[1].CueId);
@@ -1244,6 +1312,36 @@ public sealed class LinuxMediaProviderContractTests
             Box(
                 "payl",
                 [0xC3, 0x28]));
+        using var stream =
+            new MemoryStream(
+                malformed,
+                writable: false);
+
+        Assert.Throws<InvalidDataException>(
+            () => IsoBmffWebVttCueReader.ReadAll(
+                stream,
+                CreateSyntheticWebVttTrack(
+                    malformed.Length),
+                "isobmff:0"));
+    }
+
+    [Fact]
+    public void IsoBmffWebVttRejectsDuplicateSettingsBoxes()
+    {
+        byte[] malformed = Box(
+            "vttc",
+            Box(
+                "sttg",
+                Encoding.UTF8.GetBytes(
+                    "align:start")),
+            Box(
+                "sttg",
+                Encoding.UTF8.GetBytes(
+                    "align:end")),
+            Box(
+                "payl",
+                Encoding.UTF8.GetBytes(
+                    "duplicate settings")));
         using var stream =
             new MemoryStream(
                 malformed,
@@ -2760,11 +2858,11 @@ public sealed class LinuxMediaProviderContractTests
                 Box(
                     "sttg",
                     Encoding.UTF8.GetBytes(
-                        "align:center")),
+                        "line:80%,center position:25%,start size:50% align:center vertical:rl region:captions")),
                 Box(
                     "payl",
                     Encoding.UTF8.GetBytes(
-                        "Hello <b>GPU</b>"))),
+                        "Hello <b>GPU &amp; <i>effects</i></b>\n<u>Ready</u>"))),
             Box(
                 "vttc",
                 Box(
