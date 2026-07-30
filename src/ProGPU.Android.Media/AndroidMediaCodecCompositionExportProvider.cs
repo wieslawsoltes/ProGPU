@@ -44,9 +44,11 @@ internal interface IAndroidEncoderSurfaceRenderer :
 /// remuxed without decode or managed copies. Video-only solid colors are
 /// generated on the same GPU paths. For C clips, V decoded/generated frames,
 /// A compressed audio samples, and P output pixels, export is
-/// O(C + V + A + P) time and O(1) managed working storage beyond bounded
-/// native rings and one compressed-sample buffer. No decoded video pixel
-/// enters managed memory.
+/// O(C + V + A + P + F * L) time and O(C + B) managed audio-source state
+/// beyond bounded native rings, one compressed-sample buffer, and a fixed
+/// block accumulator, for F PCM frames, L active audio layers, and B
+/// background tracks. No decoded video pixel or managed PCM array enters
+/// managed memory.
 /// </summary>
 public sealed partial class
     AndroidMediaCodecCompositionExportProvider :
@@ -96,7 +98,6 @@ public sealed partial class
         if (!isAndroid ||
             string.IsNullOrWhiteSpace(request.DestinationPath) ||
             request.Clips.Count == 0 ||
-            request.BackgroundAudioTracks.Count != 0 ||
             request.OverlayLayers.Count != 0 ||
             !string.Equals(
                 profile.ContainerSubtype,
@@ -129,7 +130,13 @@ public sealed partial class
 
         bool requiresTranscode =
             request.TrimmingMode ==
-                MediaCompositionTrimmingMode.Precise;
+                MediaCompositionTrimmingMode.Precise ||
+            request.BackgroundAudioTracks.Count != 0;
+        if (profile.AudioSubtype is null &&
+            request.BackgroundAudioTracks.Count != 0)
+        {
+            return false;
+        }
         MediaEffectRegistry effectRegistry =
             effects ?? MediaEffectRegistry.Default;
         for (int index = 0;
@@ -172,6 +179,32 @@ public sealed partial class
                 !plan.IsIdentity ||
                 clip.Volume != 1d ||
                 clip.AudioEffectDefinitions.Count != 0;
+        }
+
+        for (int index = 0;
+             index <
+                request.BackgroundAudioTracks.Count;
+             index++)
+        {
+            MediaCompositionExportAudioTrack track =
+                request.BackgroundAudioTracks[index];
+            if (!track.SourceUri.IsAbsoluteUri ||
+                !double.IsFinite(track.Volume) ||
+                track.Volume is < 0d or > 1d ||
+                track.OriginalDuration <= TimeSpan.Zero ||
+                track.TrimTimeFromStart < TimeSpan.Zero ||
+                track.TrimTimeFromEnd < TimeSpan.Zero ||
+                track.TrimTimeFromStart +
+                    track.TrimTimeFromEnd >=
+                    track.OriginalDuration ||
+                !TryGetEffectiveAudioLevels(
+                    track.Volume,
+                    track.AudioEffectDefinitions,
+                    effectRegistry,
+                    out _))
+            {
+                return false;
+            }
         }
 
         return requiresTranscode;
@@ -220,13 +253,15 @@ public sealed partial class
                     : "use a decoder-surface to encoder-surface native GPU pass. ") +
                 "Identity AAC is remuxed only when every source exactly " +
                 "matches the requested sample rate, channels, bitrate, and " +
-                "codec configuration. Effect-bearing audio is decoded to " +
-                "direct PCM16 MediaCodec buffers, applies registered gain " +
-                "and stereo-balance levels in place, and is encoded by the " +
-                "native AAC codec without managed PCM copies. Solid-color " +
-                "clips generate bounded native PCM16 silence when audio is " +
-                "requested. Mixing, overlays, unsupported or unregistered " +
-                "effects remain rejected.");
+                "codec configuration. Effect-bearing main and background " +
+                "audio is decoded from synchronous MediaCodec buffers, mixed " +
+                "in bounded 1,024-frame wide-accumulator blocks with " +
+                "registered gain and balance, then encoded by the native AAC " +
+                "codec without managed PCM arrays. Positive and negative " +
+                "WinUI background delays and trim intervals are applied on " +
+                "the exact PCM timeline. Solid-color clips generate native " +
+                "PCM16 silence when audio is requested. Visual overlays, " +
+                "unsupported or unregistered effects remain rejected.");
     }
 
     public ValueTask<MediaCompositionExportFailure>

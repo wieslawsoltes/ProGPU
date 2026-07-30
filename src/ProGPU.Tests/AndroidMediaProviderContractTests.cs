@@ -403,6 +403,14 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android.Media",
             "AndroidMediaCodecCompositionAudio.cs");
+        string timelineMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecAudioTimelineMixer.cs");
+        string pcmMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidPcm16Mixer.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Android.Media",
@@ -542,6 +550,22 @@ public sealed class AndroidMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "request.BackgroundAudioTracks.Count != 0)",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.BackgroundAudioTracks.Count;",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "request.BackgroundAudioTracks.Count != 0 ||\n" +
+            "            request.OverlayLayers.Count != 0",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
             ".android.audio.tmp.mp4",
             provider,
             StringComparison.Ordinal);
@@ -551,31 +575,27 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "decoder.GetOutputBuffer(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "encoder.GetInputBuffer(",
-            audio,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "input.Put(source);",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "JNIEnv.GetDirectBufferAddress(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
-            "QueueSilenceToFrame(",
-            audio,
+            "AndroidPcm16Mixer.FramesPerBlock",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".GetDurationFrameCountCeiling(",
-            audio,
+            "stackalloc long[",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "GetWritableDirectPcm16Span(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "MediaAudioGraphEffectResolver" +
@@ -586,20 +606,27 @@ public sealed class AndroidMediaProviderContractTests
                 StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
-            "MediaPcm16StereoProcessor.ApplyStereo(",
-            audio,
+            "AndroidPcm16Mixer.WriteSaturated(",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
-            "extractor.Release();",
-            audio,
+            "destination[\n",
+            pcmMixer.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
-            "decoder.Release();",
-            audio,
+            "_extractor?.Release();",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_decoder?.Release();",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Marshal.Copy",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "ShaderResource.Load(",
