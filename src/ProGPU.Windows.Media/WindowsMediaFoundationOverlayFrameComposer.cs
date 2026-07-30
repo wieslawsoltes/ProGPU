@@ -232,12 +232,6 @@ internal sealed class
                                 effects,
                                 out MediaAudioStereoLevels
                                     audioLevels) ||
-                        includeAudio &&
-                        request.EncodingProfile.AudioSubtype is
-                            not null &&
-                        overlay.AudioEnabled &&
-                        hasSource &&
-                        audioLevels.Peak > 0f ||
                         !WindowsMediaFoundationCompositionExportProvider
                             .TryGetVideoEffectPlan(
                                 clip,

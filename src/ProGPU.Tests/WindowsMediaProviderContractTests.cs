@@ -12,6 +12,18 @@ using WindowsMediaFoundationCompositionThumbnailProvider =
 using WindowsPcm16GainProcessor =
     WindowsMediaProvider::ProGPU.Windows.Media
         .WindowsPcm16GainProcessor;
+using WindowsPcm16Mixer =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsPcm16Mixer;
+using WindowsPcm16MixLevels =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsPcm16MixLevels;
+using WindowsMediaFoundationAudioMixer =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsMediaFoundationAudioMixer;
+using WindowsMediaFoundationAudioPlanner =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsMediaFoundationAudioPlanner;
 using WindowsMediaFoundationOverlayFrameComposer =
     WindowsMediaProvider::ProGPU.Windows.Media
         .WindowsMediaFoundationOverlayFrameComposer;
@@ -170,6 +182,269 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
+    public void WindowsAudioPlannerPreservesMainBackgroundAndOverlayTiming()
+    {
+        MediaCompositionExportRequest request =
+            CreatePreciseRequest();
+        MediaCompositionExportClip clip =
+            request.Clips[0];
+        request =
+            request with
+            {
+                BackgroundAudioTracks =
+                [
+                    new MediaCompositionExportAudioTrack(
+                        new Uri(
+                            "file:///C:/media/background.m4a"),
+                        TimeSpan.FromSeconds(10),
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromSeconds(2),
+                        TimeSpan.FromSeconds(-2),
+                        0.5d,
+                        new Dictionary<string, string>()),
+                    new MediaCompositionExportAudioTrack(
+                        new Uri(
+                            "file:///C:/media/delayed.m4a"),
+                        TimeSpan.FromSeconds(10),
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromSeconds(2),
+                        TimeSpan.FromSeconds(2),
+                        1d,
+                        new Dictionary<string, string>())
+                ],
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                    [
+                        new MediaCompositionExportOverlay(
+                            clip,
+                            TimeSpan.FromSeconds(2),
+                            0d,
+                            0d,
+                            320d,
+                            180d,
+                            1d,
+                            true)
+                    ])
+                ]
+            };
+
+        Assert.True(
+            WindowsMediaFoundationAudioPlanner.TryCapture(
+                request,
+                MediaEffectRegistry.Default,
+                includeAudio: true,
+                out var plans,
+                out long durationTicks));
+        Assert.Equal(
+            TimeSpan.FromSeconds(7).Ticks,
+            durationTicks);
+        Assert.Equal(4, plans.Length);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(1).Ticks,
+            plans[0].SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(8).Ticks,
+            plans[0].SourceEndTicks);
+        Assert.Equal(0, plans[0].DestinationStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(7).Ticks,
+            plans[0].DestinationEndTicks);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(3).Ticks,
+            plans[1].SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(8).Ticks,
+            plans[1].SourceEndTicks);
+        Assert.Equal(0, plans[1].DestinationStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5).Ticks,
+            plans[1].DestinationEndTicks);
+        Assert.Equal(16_384, plans[1].Levels.Left);
+        Assert.Equal(16_384, plans[1].Levels.Right);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(1).Ticks,
+            plans[2].SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(6).Ticks,
+            plans[2].SourceEndTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2).Ticks,
+            plans[2].DestinationStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(7).Ticks,
+            plans[2].DestinationEndTicks);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(1).Ticks,
+            plans[3].SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(6).Ticks,
+            plans[3].SourceEndTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2).Ticks,
+            plans[3].DestinationStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(7).Ticks,
+            plans[3].DestinationEndTicks);
+
+        Assert.True(
+            WindowsMediaFoundationAudioPlanner.TryCapture(
+                request,
+                MediaEffectRegistry.Default,
+                includeAudio: false,
+                out WindowsMediaProvider::ProGPU.Windows.Media
+                    .WindowsMediaFoundationAudioPlan[]
+                    mutedPlans,
+                out long mutedDurationTicks));
+        Assert.Empty(mutedPlans);
+        Assert.Equal(durationTicks, mutedDurationTicks);
+    }
+
+    [Fact]
+    public void WindowsPcmMixerUsesWideOrderIndependentSaturation()
+    {
+        Assert.True(
+            WindowsPcm16MixLevels.TryCreate(
+                MediaAudioStereoLevels.Identity,
+                out WindowsPcm16MixLevels identity));
+        Assert.True(
+            WindowsPcm16MixLevels.TryCreate(
+                new MediaAudioStereoLevels(
+                    0.5f,
+                    0.25f),
+                out WindowsPcm16MixLevels attenuated));
+        short[] first =
+        [
+            30_000,
+            -30_000,
+            1_000,
+            -1_000
+        ];
+        short[] second =
+        [
+            20_000,
+            20_000,
+            -4_000,
+            8_000
+        ];
+        long[] forward = new long[4];
+        long[] reverse = new long[4];
+        short[] output = new short[4];
+
+        WindowsPcm16Mixer.Add(
+            first,
+            2,
+            identity,
+            forward,
+            destinationFrameOffset: 0);
+        WindowsPcm16Mixer.Add(
+            second,
+            2,
+            attenuated,
+            forward,
+            destinationFrameOffset: 0);
+        WindowsPcm16Mixer.Add(
+            second,
+            2,
+            attenuated,
+            reverse,
+            destinationFrameOffset: 0);
+        WindowsPcm16Mixer.Add(
+            first,
+            2,
+            identity,
+            reverse,
+            destinationFrameOffset: 0);
+        WindowsPcm16Mixer.WriteSaturated(
+            forward,
+            output);
+
+        Assert.Equal(forward, reverse);
+        Assert.Equal(
+            [short.MaxValue, -25_000, -1_000, 1_000],
+            output);
+
+        WindowsPcm16Mixer.Add(
+            first,
+            2,
+            identity,
+            forward,
+            destinationFrameOffset: 0);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            forward.AsSpan().Clear();
+            WindowsPcm16Mixer.Add(
+                first,
+                2,
+                identity,
+                forward,
+                destinationFrameOffset: 0);
+            WindowsPcm16Mixer.Add(
+                second,
+                2,
+                attenuated,
+                forward,
+                destinationFrameOffset: 0);
+            WindowsPcm16Mixer.WriteSaturated(
+                forward,
+                output);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void WindowsAudioFrameClockRoundsEndpointsDirectionally()
+    {
+        Assert.Equal(
+            48_000,
+            WindowsMediaFoundationAudioMixer
+                .TicksToFramesFloor(
+                    TimeSpan.TicksPerSecond,
+                    48_000));
+        Assert.Equal(
+            0,
+            WindowsMediaFoundationAudioMixer
+                .TicksToFramesFloor(
+                    1,
+                    48_000));
+        Assert.Equal(
+            1,
+            WindowsMediaFoundationAudioMixer
+                .TicksToFramesCeiling(
+                    1,
+                    48_000));
+        Assert.Equal(
+            -1,
+            WindowsMediaFoundationAudioMixer
+                .TicksToFramesFloor(
+                    -1,
+                    48_000));
+        Assert.Equal(
+            0,
+            WindowsMediaFoundationAudioMixer
+                .TicksToFramesCeiling(
+                    -1,
+                    48_000));
+        Assert.Equal(
+            TimeSpan.TicksPerSecond,
+            WindowsMediaFoundationAudioMixer
+                .FramesToTicksFloor(
+                    48_000,
+                    48_000));
+    }
+
+    [Fact]
     public void WindowsPreciseExporterAcceptsOnlyItsNativeContract()
     {
         MediaCompositionExportRequest request =
@@ -197,7 +472,7 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
-    public void WindowsPreciseExporterAcceptsAttenuationAndVideoOverlays()
+    public void WindowsPreciseExporterAcceptsNativeAudioMixingAndVideoOverlays()
     {
         MediaCompositionExportRequest request =
             CreatePreciseRequest();
@@ -247,7 +522,7 @@ public sealed class WindowsMediaProviderContractTests
                         }
                     ]
                 }));
-        Assert.False(
+        Assert.True(
             IsSupported(
                 request with
                 {
@@ -283,7 +558,7 @@ public sealed class WindowsMediaProviderContractTests
                         ])
                     ]
                 }));
-        Assert.False(
+        Assert.True(
             IsSupported(
                 request with
                 {
@@ -1033,6 +1308,14 @@ public sealed class WindowsMediaProviderContractTests
             "src",
             "ProGPU.Windows.Media",
             "WindowsMediaTranscodeNative.cs");
+        string audioMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaFoundationAudioMixer.cs");
+        string pcmMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsPcm16Mixer.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Windows.Media",
@@ -1095,16 +1378,36 @@ public sealed class WindowsMediaProviderContractTests
             registration,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryCaptureAudioLevels(",
+            "WindowsMediaFoundationAudioPlanner",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "audioLevels[index]",
+            "audioMixer!.Render(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ApplyPcm16StereoLevels(",
-            provider,
+            "stackalloc long[",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreatePcm16Sample(",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MFCreateAlignedMemoryBuffer(",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ReadSourceSample(",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Span<long>",
+            pcmMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            audioMixer,
             StringComparison.Ordinal);
     }
 
