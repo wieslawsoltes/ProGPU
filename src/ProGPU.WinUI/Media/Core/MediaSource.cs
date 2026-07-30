@@ -13,6 +13,8 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
     private readonly object _playbackItemGate = new();
     private readonly ExternalTimedMetadataTrackVector
         _externalTimedMetadataTracks;
+    private readonly ExternalTimedTextSourceVector
+        _externalTimedTextSources;
     private MediaPlaybackItem? _playbackItem;
     private int _disposed;
 
@@ -22,6 +24,8 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
         CustomProperties = new PropertySet();
         _externalTimedMetadataTracks =
             new ExternalTimedMetadataTrackVector(this);
+        _externalTimedTextSources =
+            new ExternalTimedTextSourceVector(this);
     }
 
     public Uri? Uri => _descriptor.Uri;
@@ -31,6 +35,9 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
     public IObservableVector<TimedMetadataTrack>
         ExternalTimedMetadataTracks =>
         _externalTimedMetadataTracks;
+    public IObservableVector<TimedTextSource>
+        ExternalTimedTextSources =>
+        _externalTimedTextSources;
 
     MediaSourceDescriptor
         IProGpuMediaPlaybackSource.ResolveDescriptor() =>
@@ -125,6 +132,8 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
+            _externalTimedTextSources
+                .DetachAllForOwnerDisposal();
             _descriptor.Dispose();
         }
     }
@@ -147,6 +156,75 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
             new PlaybackTrackVectorChangedEventArgs(
                 change,
                 index));
+    }
+
+    internal bool PublishResolvedTimedTextTracks(
+        TimedTextSource source,
+        IReadOnlyList<TimedMetadataTrack> tracks)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(tracks);
+        if (Volatile.Read(ref _disposed) != 0 ||
+            !_externalTimedTextSources.Contains(source))
+        {
+            return false;
+        }
+
+        var added = new List<TimedMetadataTrack>(
+            tracks.Count);
+        try
+        {
+            for (int index = 0;
+                 index < tracks.Count;
+                 index++)
+            {
+                TimedMetadataTrack track =
+                    tracks[index] ??
+                    throw new ArgumentException(
+                        "Resolved track collections cannot contain null.",
+                        nameof(tracks));
+                _externalTimedMetadataTracks.Add(track);
+                added.Add(track);
+            }
+            if (!_externalTimedTextSources
+                    .TrySetResolvedTracks(
+                        source,
+                        added))
+            {
+                for (int index = added.Count - 1;
+                     index >= 0;
+                     index--)
+                {
+                    _externalTimedMetadataTracks.Remove(
+                        added[index]);
+                }
+                return false;
+            }
+            return true;
+        }
+        catch
+        {
+            for (int index = added.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                _externalTimedMetadataTracks.Remove(
+                    added[index]);
+            }
+            throw;
+        }
+    }
+
+    private void RemoveResolvedTimedTextTracks(
+        IReadOnlyList<TimedMetadataTrack> tracks)
+    {
+        for (int index = tracks.Count - 1;
+             index >= 0;
+             index--)
+        {
+            _externalTimedMetadataTracks.Remove(
+                tracks[index]);
+        }
     }
 
     private sealed class ExternalTimedMetadataTrackVector :
@@ -274,5 +352,163 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
                     change,
                     index));
         }
+    }
+
+    private sealed class ExternalTimedTextSourceVector :
+        Collection<TimedTextSource>,
+        IObservableVector<TimedTextSource>
+    {
+        private readonly MediaSource _owner;
+        private readonly Dictionary<
+            TimedTextSource,
+            IReadOnlyList<TimedMetadataTrack>>
+            _resolvedTracks =
+                new(
+                    ReferenceEqualityComparer.Instance);
+
+        internal ExternalTimedTextSourceVector(
+            MediaSource owner)
+        {
+            _owner = owner;
+        }
+
+        public event VectorChangedEventHandler<
+            TimedTextSource>? VectorChanged;
+
+        internal bool TrySetResolvedTracks(
+            TimedTextSource source,
+            IReadOnlyList<TimedMetadataTrack> tracks)
+        {
+            if (!Contains(source))
+            {
+                return false;
+            }
+            _resolvedTracks[source] = tracks;
+            return true;
+        }
+
+        internal void DetachAllForOwnerDisposal()
+        {
+            for (int index = 0;
+                 index < Count;
+                 index++)
+            {
+                this[index].DetachFromSource(_owner);
+            }
+            _resolvedTracks.Clear();
+        }
+
+        protected override void InsertItem(
+            int index,
+            TimedTextSource item)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            _owner.EnsureOpen();
+            if (Contains(item))
+            {
+                throw new InvalidOperationException(
+                    "A timed-text source cannot be inserted into the same MediaSource more than once.");
+            }
+            item.AttachToSource(_owner);
+            try
+            {
+                base.InsertItem(index, item);
+            }
+            catch
+            {
+                item.DetachFromSource(_owner);
+                throw;
+            }
+            RaiseChanged(
+                CollectionChange.ItemInserted,
+                checked((uint)index));
+            item.BeginResolve(_owner);
+        }
+
+        protected override void SetItem(
+            int index,
+            TimedTextSource item)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            _owner.EnsureOpen();
+            TimedTextSource previous = this[index];
+            if (ReferenceEquals(previous, item))
+            {
+                return;
+            }
+            if (Contains(item))
+            {
+                throw new InvalidOperationException(
+                    "A timed-text source cannot be inserted into the same MediaSource more than once.");
+            }
+
+            item.AttachToSource(_owner);
+            try
+            {
+                base.SetItem(index, item);
+            }
+            catch
+            {
+                item.DetachFromSource(_owner);
+                throw;
+            }
+            Detach(previous);
+            RaiseChanged(
+                CollectionChange.ItemChanged,
+                checked((uint)index));
+            item.BeginResolve(_owner);
+        }
+
+        protected override void RemoveItem(int index)
+        {
+            _owner.EnsureOpen();
+            TimedTextSource previous = this[index];
+            base.RemoveItem(index);
+            Detach(previous);
+            RaiseChanged(
+                CollectionChange.ItemRemoved,
+                checked((uint)index));
+        }
+
+        protected override void ClearItems()
+        {
+            _owner.EnsureOpen();
+            if (Count == 0)
+            {
+                return;
+            }
+            var previous = new TimedTextSource[Count];
+            CopyTo(previous, 0);
+            base.ClearItems();
+            for (int index = 0;
+                 index < previous.Length;
+                 index++)
+            {
+                Detach(previous[index]);
+            }
+            RaiseChanged(CollectionChange.Reset, 0);
+        }
+
+        private void Detach(TimedTextSource source)
+        {
+            source.DetachFromSource(_owner);
+            if (_resolvedTracks.Remove(
+                    source,
+                    out IReadOnlyList<
+                        TimedMetadataTrack>? tracks))
+            {
+                _owner.RemoveResolvedTimedTextTracks(
+                    tracks);
+            }
+        }
+
+        private void RaiseChanged(
+            CollectionChange change,
+            uint index) =>
+            VectorChanged?.Invoke(
+                this,
+                new PlaybackTrackVectorChangedEventArgs(
+                    change,
+                    index));
     }
 }

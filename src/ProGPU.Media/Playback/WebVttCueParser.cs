@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using ProGPU.Media.Playback;
 
-namespace ProGPU.Linux.Media;
+namespace ProGPU.Media.Playback;
 
 /// <summary>
 /// Clean-room WebVTT cue settings and cue-text parser based on the W3C WebVTT
@@ -10,7 +10,7 @@ namespace ProGPU.Linux.Media;
 /// U UTF-16 input units, T setting tokens, and R emitted style runs. It runs
 /// only while publishing an immutable native cue snapshot.
 /// </summary>
-internal static class IsoBmffWebVttCueParser
+internal static class WebVttCueParser
 {
     internal static ParsedCue Parse(
         string payload,

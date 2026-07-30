@@ -14,6 +14,7 @@ using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media;
 using Windows.Foundation.Collections;
+using Windows.Storage.Streams;
 using Thickness = Microsoft.UI.Xaml.Thickness;
 
 namespace ProGPU.Samples;
@@ -146,6 +147,8 @@ public static class MediaPlayerPage
         };
         var load = new Button { Content = "Load URI" };
         var open = new Button { Content = "Open file" };
+        var addWebVtt =
+            new Button { Content = "Add WebVTT" };
         var play = new Button { Content = "Play" };
         var pause = new Button { Content = "Pause" };
         var previousFrame = new Button { Content = "◀ Frame" };
@@ -710,6 +713,78 @@ public static class MediaPlayerPage
                 SetText(status, $"File picker failed: {exception.Message}");
             }
         };
+        addWebVtt.Click += async (_, _) =>
+        {
+            if (currentPlaybackItem is not { } item)
+            {
+                SetText(
+                    status,
+                    "Open media before adding an external WebVTT source.");
+                return;
+            }
+            try
+            {
+                var picker = new FileOpenPicker();
+                picker.FileTypeFilter.Add(".vtt");
+                StorageFile? file =
+                    await picker.PickSingleFileAsync();
+                if (file is null)
+                {
+                    return;
+                }
+                using IRandomAccessStreamWithContentType
+                    stream = await file.OpenReadAsync();
+                TimedTextSource textSource =
+                    TimedTextSource.CreateFromStream(
+                        stream);
+                textSource.Resolved +=
+                    (_, args) =>
+                    {
+                        if (args.Error is { } error)
+                        {
+                            SetText(
+                                status,
+                                $"WebVTT failed: {error.ErrorCode} — {error.ExtendedError.Message}");
+                            return;
+                        }
+                        for (int index = 0;
+                             index < args.Tracks.Count;
+                             index++)
+                        {
+                            TimedMetadataTrack track =
+                                args.Tracks[index];
+                            track.Label = file.Name;
+                            track.CueEntered +=
+                                OnSampleCueEntered;
+                            track.CueExited +=
+                                OnSampleCueExited;
+                            if (item.TimedMetadataTracks
+                                    .IndexOf(
+                                        track,
+                                        out uint trackIndex))
+                            {
+                                item.TimedMetadataTracks
+                                    .SetPresentationMode(
+                                        trackIndex,
+                                        TimedMetadataTrackPresentationMode
+                                            .ApplicationPresented);
+                            }
+                        }
+                        RefreshTrackSelectors();
+                        SetText(
+                            status,
+                            $"Loaded {file.Name}: {args.Tracks.Count} timed-text track(s).");
+                    };
+                item.Source.ExternalTimedTextSources.Add(
+                    textSource);
+            }
+            catch (Exception exception)
+            {
+                SetText(
+                    status,
+                    $"WebVTT picker failed: {exception.Message}");
+            }
+        };
         play.Click += (_, _) => player.Play();
         pause.Click += (_, _) => player.Pause();
         previousFrame.Click +=
@@ -814,6 +889,7 @@ public static class MediaPlayerPage
         sourceRow.AddChild(uri);
         sourceRow.AddChild(load);
         sourceRow.AddChild(open);
+        sourceRow.AddChild(addWebVtt);
 
         var transportRow = new StackPanel
         {

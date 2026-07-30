@@ -95,6 +95,9 @@ design.
   list item, remains in the documented 0–1 range, and starts complete for a
   local file URI.
 - [`MediaSource.ExternalTimedMetadataTracks`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.mediasource.externaltimedmetadatatracks),
+  [`MediaSource.ExternalTimedTextSources`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.mediasource.externaltimedtextsources),
+  [`TimedTextSource`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsource),
+  [`TimedTextSource.Resolved`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsource.resolved),
   [`TimedMetadataTrack.ActiveCues`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.activecues),
   [`CueEntered`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.cueentered),
   [`TimedTextCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextcue),
@@ -104,8 +107,9 @@ design.
   [`TimedTextRegion`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion),
   and
   [`DataCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.datacue)
-  establish caller-owned external tracks, the active-cue view, cue lifecycle
-  events, and binary custom metadata. Microsoft's
+  establish caller-owned external tracks, source-resolved timed-text tracks,
+  the active-cue view, cue lifecycle events, and binary custom metadata.
+  Microsoft's
   [media items, playlists, and tracks guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-playback-with-mediasource)
   establishes that `Disabled` suppresses cue events while `Hidden`,
   `ApplicationPresented`, and `PlatformPresented` continue scheduling them.
@@ -1138,7 +1142,11 @@ through an optional typed provider contract and publish
 `PresentationModeChanged` only after the active provider accepts the request.
 Caller-created tracks in `MediaSource.ExternalTimedMetadataTracks` retain
 their exact object identity in the playback item and do not require a native
-provider mode call. `DataCue` provides the official binary buffer and property
+provider mode call. URI/stream `TimedTextSource` values resolve into that same
+observable collection and publish the official `Resolved` event with either
+the inserted tracks or a typed `TimedMetadataTrackError`. Removing the source
+transactionally removes only the tracks it generated. `DataCue` provides the
+official binary buffer and property
 bag surface. Its timing changes invalidate the shared schedule immediately;
 custom mutable `IMediaCue` implementations should be removed and re-added
 after changing timing because the official interface has no change event.
@@ -1389,6 +1397,21 @@ ruby annotation projection, external `STYLE`/`REGION` blocks, `tx3g`, and TTML
 remain future extensions. `PlatformPresented` is still rejected because a
 reusable WebGPU frame-server surface has no native Linux caption presenter.
 
+External WebVTT uses the same clean-room cue-settings and cue-text parser
+below the WinUI facade. The separate document parser validates the `WEBVTT`
+signature, normalizes CR/LF, skips `NOTE`, `STYLE`, and `REGION` blocks that
+are not yet projected, parses cue identifiers and millisecond timestamps, and
+recovers from malformed cue blocks without accepting a malformed document
+signature. Stream factories snapshot at most 64 MiB while preserving the
+caller's random-access cursor; file and network URI factories use bounded
+built-in .NET streaming I/O and strict UTF-8. Resolution is
+O(B + U + C + R) time and O(B + U + C + R) retained control-plane storage for
+B bytes, U decoded units, C cues, and R style runs. It never enters video
+decode, WebGPU recording, or the audio callback. Indexed image subtitles,
+TTML, `tx3g`, CSS application from `STYLE`, and named `REGION` definitions
+fail or remain unprojected explicitly instead of loading an external codec
+library.
+
 Linux alternate-track selection follows the official WinUI
 [`MediaPlaybackAudioTrackList.SelectedIndex`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist.selectedindex)
 and
@@ -1477,9 +1500,10 @@ startup. Packaging must not make every consumer load every native API.
 
 The ProGPU sample navigation contains:
 
-- **GPU Media Player**: local/URI source selection, play/pause, frame stepping,
-  seek, mute, loop, mirror, live provider diagnostics, and fused WebGPU effect
-  controls. Its optional live Mesh3D view uses the same player, session crop,
+- **GPU Media Player**: local/URI source selection, external WebVTT loading,
+  play/pause, frame stepping, seek, mute, loop, mirror, live provider
+  diagnostics, and fused WebGPU effect controls. Its optional live Mesh3D
+  view uses the same player, session crop,
   rotation, mirror state, planar conversion, and fused effects without an
   intermediate 2D texture. Live registered audio-gain and stereo-balance
   effects exercise the same typed graph through Apple/Linux decoded-PCM

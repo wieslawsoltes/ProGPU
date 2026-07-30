@@ -204,8 +204,8 @@ internal static class IsoBmffWebVttCueReader
                 sampleIndex,
                 cueOrdinal,
                 cueIds);
-            IsoBmffWebVttCueParser.ParsedCue parsed =
-                IsoBmffWebVttCueParser.Parse(
+            WebVttCueParser.ParsedCue parsed =
+                WebVttCueParser.Parse(
                     cueText,
                     cueSettings);
             cues.Add(

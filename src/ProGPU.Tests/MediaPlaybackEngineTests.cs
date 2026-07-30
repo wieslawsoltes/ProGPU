@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -108,6 +109,31 @@ public sealed class MediaPlaybackEngineTests
                     nameof(
                         MediaSource
                             .ExternalTimedMetadataTracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IObservableVector<TimedTextSource>),
+            typeof(MediaSource)
+                .GetProperty(
+                    nameof(
+                        MediaSource
+                            .ExternalTimedTextSources))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(Windows.Foundation.TypedEventHandler<
+                TimedTextSource,
+                TimedTextSourceResolveResultEventArgs>),
+            typeof(TimedTextSource)
+                .GetEvent(
+                    nameof(TimedTextSource.Resolved))!
+                .EventHandlerType);
+        Assert.Equal(
+            typeof(IReadOnlyList<TimedMetadataTrack>),
+            typeof(
+                    TimedTextSourceResolveResultEventArgs)
+                .GetProperty(
+                    nameof(
+                        TimedTextSourceResolveResultEventArgs
+                            .Tracks))!
                 .PropertyType);
         Assert.Equal(
             typeof(IBuffer),
@@ -1041,6 +1067,211 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             (CollectionChange.ItemRemoved, 0u),
             sourceChanges[1]);
+    }
+
+    [Fact]
+    public async Task
+        ExternalTimedTextSourceResolvesWebVttIntoExternalTrack()
+    {
+        const string WebVtt =
+            "\uFEFFWEBVTT - ProGPU test\n\n" +
+            "NOTE ignored metadata\nignored\n\n" +
+            "intro\n" +
+            "00:00:01.000 --> 00:00:03.500 " +
+            "line:20%,center position:30%,start " +
+            "size:60% align:center\n" +
+            "First <b>bold</b>\n" +
+            "<i>second</i>\n\n";
+        using var subtitleStream =
+            new RandomAccessStream(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(WebVtt)));
+        TimedTextSource textSource =
+            TimedTextSource.CreateFromStream(
+                subtitleStream,
+                "en-US");
+        var completion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        textSource.Resolved +=
+            (_, args) =>
+                completion.TrySetResult(args);
+
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/video.mp4"));
+        var sourceChanges =
+            new List<(CollectionChange Change, uint Index)>();
+        source.ExternalTimedTextSources.VectorChanged +=
+            (_, args) =>
+                sourceChanges.Add(
+                    (args.CollectionChange, args.Index));
+        var item = new MediaPlaybackItem(source);
+        source.ExternalTimedTextSources.Add(textSource);
+
+        TimedTextSourceResolveResultEventArgs result =
+            await completion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Null(result.Error);
+        TimedMetadataTrack track =
+            Assert.Single(result.Tracks);
+        Assert.Same(
+            track,
+            Assert.Single(
+                source.ExternalTimedMetadataTracks));
+        Assert.Equal("en-US", track.Language);
+        Assert.Equal(
+            TimedMetadataKind.Subtitle,
+            track.TimedMetadataKind);
+        TimedTextCue cue =
+            Assert.IsType<TimedTextCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("intro", cue.Id);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            cue.StartTime);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2.5),
+            cue.Duration);
+        Assert.Equal(2, cue.Lines.Count);
+        Assert.Equal("First bold", cue.Lines[0].Text);
+        Assert.Equal("second", cue.Lines[1].Text);
+        TimedTextSubformat bold =
+            Assert.Single(cue.Lines[0].Subformats);
+        Assert.Equal(6, bold.StartIndex);
+        Assert.Equal(4, bold.Length);
+        Assert.Equal(
+            TimedTextWeight.Bold,
+            bold.SubformatStyle.FontWeight);
+        TimedTextSubformat italic =
+            Assert.Single(cue.Lines[1].Subformats);
+        Assert.Equal(
+            TimedTextFontStyle.Italic,
+            italic.SubformatStyle.FontStyle);
+        Assert.Equal(
+            TimedTextLineAlignment.Center,
+            cue.CueStyle.LineAlignment);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Extent.Unit);
+        Assert.Equal(60d, cue.CueRegion.Extent.Width);
+        Assert.Equal(
+            [(CollectionChange.ItemInserted, 0u)],
+            sourceChanges);
+
+        Assert.Same(
+            track,
+            Assert.Single(item.TimedMetadataTracks));
+        Assert.Same(item, track.PlaybackItem);
+
+        source.ExternalTimedTextSources.Remove(textSource);
+
+        Assert.Empty(source.ExternalTimedTextSources);
+        Assert.Empty(source.ExternalTimedMetadataTracks);
+        Assert.Empty(item.TimedMetadataTracks);
+        Assert.Null(track.PlaybackItem);
+        Assert.Equal(
+            [
+                (CollectionChange.ItemInserted, 0u),
+                (CollectionChange.ItemRemoved, 0u)
+            ],
+            sourceChanges);
+    }
+
+    [Fact]
+    public async Task
+        ExternalTimedTextSourceReportsFormatAndIndexErrors()
+    {
+        using var invalidStream =
+            new RandomAccessStream(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        "not WebVTT")));
+        TimedTextSource invalid =
+            TimedTextSource.CreateFromStream(
+                invalidStream);
+        var invalidCompletion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        invalid.Resolved +=
+            (_, args) =>
+                invalidCompletion.TrySetResult(args);
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/video.mp4"));
+        source.ExternalTimedTextSources.Add(invalid);
+
+        TimedTextSourceResolveResultEventArgs invalidResult =
+            await invalidCompletion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Empty(invalidResult.Tracks);
+        Assert.Equal(
+            TimedMetadataTrackErrorCode.DataFormatError,
+            Assert.IsType<TimedMetadataTrackError>(
+                    invalidResult.Error)
+                .ErrorCode);
+        Assert.Empty(source.ExternalTimedMetadataTracks);
+
+        using var imageStream =
+            new RandomAccessStream(
+                new MemoryStream([1, 2, 3]));
+        using var indexStream =
+            new RandomAccessStream(
+                new MemoryStream([4, 5, 6]));
+        TimedTextSource indexed =
+            TimedTextSource.CreateFromStreamWithIndex(
+                imageStream,
+                indexStream);
+        var indexedCompletion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        indexed.Resolved +=
+            (_, args) =>
+                indexedCompletion.TrySetResult(args);
+        source.ExternalTimedTextSources.Add(indexed);
+
+        TimedTextSourceResolveResultEventArgs indexedResult =
+            await indexedCompletion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Empty(indexedResult.Tracks);
+        Assert.Equal(
+            TimedMetadataTrackErrorCode.InternalError,
+            Assert.IsType<TimedMetadataTrackError>(
+                    indexedResult.Error)
+                .ErrorCode);
+        Assert.IsType<NotSupportedException>(
+            indexedResult.Error!.ExtendedError);
+    }
+
+    [Fact]
+    public void WebVttDocumentParserSkipsMalformedCueBlocks()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "bad\nnot timing\npayload\n\n" +
+                "00:01.250 --> 00:02.500\nvalid\n");
+
+        WebVttDocumentCue cue =
+            Assert.Single(document.Cues);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1.25),
+            cue.StartTime);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1.25),
+            cue.Duration);
+        Assert.Equal("valid", cue.Text);
     }
 
     [Fact]
