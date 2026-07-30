@@ -77,8 +77,7 @@ public sealed class
             profile.Height != request.PixelHeight ||
             profile.FrameRateNumerator == 0 ||
             profile.FrameRateDenominator == 0 ||
-            composition.Clips.Count == 0 ||
-            composition.OverlayLayers.Count != 0)
+            composition.Clips.Count == 0)
         {
             return false;
         }
@@ -92,7 +91,7 @@ public sealed class
                 composition.Clips[index];
             bool hasUri =
                 clip.SourceUri is
-                    { IsAbsoluteUri: true };
+                { IsAbsoluteUri: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             if (hasUri == hasColor ||
@@ -138,7 +137,12 @@ public sealed class
                 return false;
             }
         }
-        return true;
+        return WindowsMediaFoundationOverlayFrameComposer
+            .TryCapturePlans(
+                composition,
+                effects,
+                includeAudio: false,
+                out _);
     }
 
     public ValueTask<IReadOnlyList<
@@ -176,8 +180,11 @@ public sealed class
         nint d3dContext = 0;
         nint dxgiManager = 0;
         WindowsDxgiGpuEffectFrameSink? renderer = null;
-        ClipReader?[] readers =
-            new ClipReader?[request.Composition.Clips.Count];
+        WindowsMediaFoundationOverlayFrameComposer?
+            overlayComposer = null;
+        WindowsMediaFoundationVideoFrameReader?[] readers =
+            new WindowsMediaFoundationVideoFrameReader?[
+                request.Composition.Clips.Count];
         var effectPlans =
             new WindowsGpuVideoEffectPlan[
                 request.Composition.Clips.Count];
@@ -197,6 +204,17 @@ public sealed class
                     throw new InvalidOperationException(
                         "Validated Windows thumbnail effects became invalid.");
                 }
+            }
+            if (!WindowsMediaFoundationOverlayFrameComposer
+                    .TryCapturePlans(
+                        request.Composition,
+                        effects,
+                        includeAudio: false,
+                        out WindowsMediaFoundationOverlayPlan[]
+                            overlayPlans))
+            {
+                throw new InvalidOperationException(
+                    "Validated Windows thumbnail overlays became invalid.");
             }
             WindowsMediaNative.InitializeCom();
             comInitialized = true;
@@ -226,6 +244,17 @@ public sealed class
                 request,
                 dxgiManager,
                 readers);
+            if (overlayPlans.Length != 0)
+            {
+                overlayComposer =
+                    new WindowsMediaFoundationOverlayFrameComposer(
+                        overlayPlans,
+                        dxgiManager,
+                        request.Composition.EncodingProfile,
+                        randomAccess: true,
+                        randomAccessPrecision:
+                            request.Precision);
+            }
 
             TimelineIndex timeline =
                 TimelineIndex.Create(
@@ -266,6 +295,8 @@ public sealed class
                         renderer.ProcessColorAndReadback(
                             color,
                             effectPlan,
+                            overlayComposer,
+                            position.CompositionTicks,
                             cancellationToken);
                 }
                 else
@@ -282,6 +313,8 @@ public sealed class
                             renderer.ProcessAndReadback(
                                 sample,
                                 effectPlan,
+                                overlayComposer,
+                                position.CompositionTicks,
                                 cancellationToken);
                     }
                     finally
@@ -313,6 +346,7 @@ public sealed class
             {
                 readers[index]?.Dispose();
             }
+            overlayComposer?.Dispose();
             renderer?.Dispose();
             WindowsMediaNative.Release(dxgiManager);
             WindowsMediaNative.Release(d3dContext);
@@ -331,7 +365,7 @@ public sealed class
     private static void CreateReaders(
         MediaCompositionThumbnailRequest request,
         nint dxgiManager,
-        ClipReader?[] readers)
+        WindowsMediaFoundationVideoFrameReader?[] readers)
     {
         MediaCompositionEncodingProfile profile =
             request.Composition.EncodingProfile;
@@ -344,7 +378,7 @@ public sealed class
             if (clip.SourceUri is not null)
             {
                 readers[index] =
-                    new ClipReader(
+                    new WindowsMediaFoundationVideoFrameReader(
                         clip.SourceUri,
                         dxgiManager,
                         profile.Width,
@@ -352,135 +386,6 @@ public sealed class
                         profile.FrameRateNumerator,
                         profile.FrameRateDenominator);
             }
-        }
-    }
-
-    private sealed class ClipReader :
-        IDisposable
-    {
-        private nint _reader;
-        private nint _mediaType;
-
-        internal ClipReader(
-            Uri source,
-            nint dxgiManager,
-            uint width,
-            uint height,
-            uint frameRateNumerator,
-            uint frameRateDenominator)
-        {
-            try
-            {
-                _reader =
-                    WindowsMediaNative
-                        .CreateTranscodeSourceReader(
-                            WindowsMediaFoundationCompositionExportProvider
-                                .ToSourceUrl(source),
-                            dxgiManager);
-                _mediaType =
-                    WindowsMediaNative.CreateArgb32VideoType(
-                        width,
-                        height,
-                        frameRateNumerator,
-                        frameRateDenominator);
-                WindowsMediaNative.ConfigureSourceReaderStream(
-                    _reader,
-                    WindowsMediaNative.FirstVideoStream,
-                    _mediaType);
-            }
-            catch
-            {
-                Dispose();
-                throw;
-            }
-        }
-
-        internal nint ReadFrame(
-            long sourceTicks,
-            MediaCompositionThumbnailPrecision precision,
-            CancellationToken cancellationToken)
-        {
-            WindowsMediaNative.SetSourceReaderPosition(
-                _reader,
-                sourceTicks);
-            nint candidate = 0;
-            long candidateTimestamp = long.MinValue;
-            try
-            {
-                while (true)
-                {
-                    cancellationToken
-                        .ThrowIfCancellationRequested();
-                    nint sample =
-                        WindowsMediaNative.ReadSourceSample(
-                            _reader,
-                            WindowsMediaNative.FirstVideoStream,
-                            out uint flags,
-                            out long timestamp);
-                    if ((flags &
-                         WindowsMediaNative
-                             .SourceReaderEndOfStream) != 0)
-                    {
-                        WindowsMediaNative.Release(sample);
-                        break;
-                    }
-                    if (sample == 0)
-                    {
-                        continue;
-                    }
-                    if (precision ==
-                        MediaCompositionThumbnailPrecision
-                            .NearestKeyFrame)
-                    {
-                        WindowsMediaNative.Release(candidate);
-                        candidate = sample;
-                        break;
-                    }
-                    if (timestamp >= sourceTicks)
-                    {
-                        if (candidate == 0 ||
-                            timestamp - sourceTicks <
-                            sourceTicks -
-                            candidateTimestamp)
-                        {
-                            WindowsMediaNative.Release(candidate);
-                            candidate = sample;
-                        }
-                        else
-                        {
-                            WindowsMediaNative.Release(sample);
-                        }
-                        break;
-                    }
-                    WindowsMediaNative.Release(candidate);
-                    candidate = sample;
-                    candidateTimestamp = timestamp;
-                }
-                if (candidate == 0)
-                {
-                    throw new InvalidDataException(
-                        "Media Foundation returned no frame for the requested thumbnail position.");
-                }
-                nint result = candidate;
-                candidate = 0;
-                return result;
-            }
-            finally
-            {
-                WindowsMediaNative.Release(candidate);
-            }
-        }
-
-        public void Dispose()
-        {
-            WindowsMediaNative.Release(
-                Interlocked.Exchange(
-                    ref _mediaType,
-                    0));
-            WindowsMediaNative.Release(
-                Interlocked.Exchange(
-                    ref _reader,
-                    0));
         }
     }
 
@@ -567,6 +472,7 @@ public sealed class
                         _starts[clipIndex]));
             return new TimelinePosition(
                 clipIndex,
+                effective,
                 checked(
                     _clips[clipIndex]
                         .TrimTimeFromStart.Ticks +
@@ -576,5 +482,6 @@ public sealed class
 
     private readonly record struct TimelinePosition(
         int ClipIndex,
+        long CompositionTicks,
         long SourceTicks);
 }

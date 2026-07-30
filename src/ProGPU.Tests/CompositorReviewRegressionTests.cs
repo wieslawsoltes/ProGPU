@@ -4076,6 +4076,130 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
     [Fact]
     public unsafe void
+        GpuTextureLayerCompositorPlacesAndBlendsRetainedSource()
+    {
+        using var window =
+            new HeadlessWindow(4, 2);
+        using var source =
+            new GpuTexture(
+                window.Context,
+                1,
+                1,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.CopyDst,
+                "GPU texture-layer source",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        using var destination =
+            new GpuTexture(
+                window.Context,
+                4,
+                2,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                    TextureUsage.CopySrc,
+                "GPU texture-layer destination");
+        using var compositor =
+            new GpuTextureLayerCompositor(
+                window.Context,
+                destination.Format);
+        source.WritePixels(
+            new byte[]
+            {
+                255, 0, 0, 255
+            });
+        destination.ClearRenderTarget(
+            new Silk.NET.WebGPU.Color
+            {
+                B = 1d,
+                A = 1d
+            });
+
+        var placement =
+            new GpuTextureLayerPlacement(
+                0.5f,
+                0f,
+                0.5f,
+                1f,
+                0.5f);
+        compositor.Composite(
+            source,
+            destination.ViewPtr,
+            placement,
+            GpuTextureColorTransform.Identity);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 16;
+             index++)
+        {
+            compositor.Composite(
+                source,
+                destination.ViewPtr,
+                placement,
+                GpuTextureColorTransform.Identity);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+        Assert.Equal(0, allocated);
+
+        destination.ClearRenderTarget(
+            new Silk.NET.WebGPU.Color
+            {
+                B = 1d,
+                A = 1d
+            });
+        compositor.Composite(
+            source,
+            destination.ViewPtr,
+            placement,
+            GpuTextureColorTransform.Identity);
+
+        byte[] pixels =
+            destination.ReadPixels();
+        for (int y = 0; y < 2; y++)
+        {
+            for (int x = 0; x < 4; x++)
+            {
+                int offset =
+                    (y * 4 + x) * 4;
+                if (x < 2)
+                {
+                    Assert.Equal(
+                        new byte[]
+                        {
+                            0, 0, 255, 255
+                        },
+                        pixels.AsSpan(
+                                offset,
+                                4)
+                            .ToArray());
+                }
+                else
+                {
+                    Assert.InRange(
+                        pixels[offset],
+                        127,
+                        129);
+                    Assert.Equal(
+                        0,
+                        pixels[offset + 1]);
+                    Assert.InRange(
+                        pixels[offset + 2],
+                        126,
+                        128);
+                    Assert.Equal(
+                        255,
+                        pixels[offset + 3]);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public unsafe void
         GpuTextureGaussianBlurIsSymmetricAndGpuResident()
     {
         using var window = new HeadlessWindow(5, 1);

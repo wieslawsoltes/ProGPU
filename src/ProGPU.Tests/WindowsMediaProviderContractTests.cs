@@ -12,6 +12,9 @@ using WindowsMediaFoundationCompositionThumbnailProvider =
 using WindowsPcm16GainProcessor =
     WindowsMediaProvider::ProGPU.Windows.Media
         .WindowsPcm16GainProcessor;
+using WindowsMediaFoundationOverlayFrameComposer =
+    WindowsMediaProvider::ProGPU.Windows.Media
+        .WindowsMediaFoundationOverlayFrameComposer;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -68,10 +71,102 @@ public sealed class WindowsMediaProviderContractTests
                                 [
                                     new MediaCompositionExportOverlayLayer(
                                         [])
+                                    {
+                                        CustomCompositorDefinition =
+                                            new MediaCompositionEffectDefinition(
+                                                "ProGPU.Tests.CustomCompositor",
+                                                new Dictionary<string, object?>())
+                                    }
                                 ]
                             }
                     },
                     isWindows: true));
+    }
+
+    [Fact]
+    public void WindowsOverlayPlansPreserveLayerOrderAndResolveTimeline()
+    {
+        MediaCompositionExportRequest request =
+            CreatePreciseRequest();
+        MediaCompositionExportClip clip =
+            request.Clips[0];
+        var first =
+            new MediaCompositionExportOverlay(
+                clip,
+                TimeSpan.FromSeconds(2),
+                128d,
+                72d,
+                640d,
+                360d,
+                0.75d,
+                false);
+        var second =
+            first with
+            {
+                Delay = TimeSpan.FromSeconds(3),
+                PositionX = 0d,
+                Opacity = 0.5d
+            };
+        request =
+            request with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                        [first]),
+                    new MediaCompositionExportOverlayLayer(
+                        [second])
+                ]
+            };
+
+        Assert.True(
+            WindowsMediaFoundationOverlayFrameComposer
+                .TryCapturePlans(
+                    request,
+                    MediaEffectRegistry.Default,
+                    includeAudio: true,
+                    out var plans));
+        Assert.Equal(2, plans.Length);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2).Ticks,
+            plans[0].StartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(3).Ticks,
+            plans[1].StartTicks);
+        Assert.Equal(0.1f, plans[0].Placement.X);
+        Assert.Equal(0.1f, plans[0].Placement.Y);
+        Assert.Equal(0.5f, plans[0].Placement.Width);
+        Assert.Equal(0.5f, plans[0].Placement.Height);
+        Assert.Equal(0.75f, plans[0].Placement.Opacity);
+        Assert.False(
+            plans[0].TryResolve(
+                TimeSpan.FromSeconds(1).Ticks,
+                out _));
+        Assert.True(
+            plans[0].TryResolve(
+                TimeSpan.FromSeconds(4).Ticks,
+                out long sourceTicks));
+        Assert.Equal(
+            TimeSpan.FromSeconds(3).Ticks,
+            sourceTicks);
+
+        plans[0].TryResolve(
+            TimeSpan.FromSeconds(4).Ticks,
+            out _);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            plans[0].TryResolve(
+                TimeSpan.FromSeconds(4).Ticks,
+                out _);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -102,7 +197,7 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
-    public void WindowsPreciseExporterAcceptsAttenuationAndRejectsOtherCompositionWork()
+    public void WindowsPreciseExporterAcceptsAttenuationAndVideoOverlays()
     {
         MediaCompositionExportRequest request =
             CreatePreciseRequest();
@@ -168,7 +263,7 @@ public sealed class WindowsMediaProviderContractTests
                             new Dictionary<string, string>())
                     ]
                 }));
-        Assert.False(
+        Assert.True(
             IsSupported(
                 request with
                 {
@@ -185,6 +280,26 @@ public sealed class WindowsMediaProviderContractTests
                                 1d,
                                 1d,
                                 false)
+                        ])
+                    ]
+                }));
+        Assert.False(
+            IsSupported(
+                request with
+                {
+                    OverlayLayers =
+                    [
+                        new MediaCompositionExportOverlayLayer(
+                        [
+                            new MediaCompositionExportOverlay(
+                                clip,
+                                TimeSpan.Zero,
+                                0d,
+                                0d,
+                                320d,
+                                180d,
+                                1d,
+                                true)
                         ])
                     ]
                 }));
@@ -1124,7 +1239,7 @@ public sealed class WindowsMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ClipReader?[] readers",
+            "WindowsMediaFoundationVideoFrameReader?[] readers",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1507,6 +1622,81 @@ public sealed class WindowsMediaProviderContractTests
         Assert.DoesNotContain(
             "System.Reflection",
             provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsOverlaysRetainNativeReadersAndSourceOverGpuState()
+    {
+        string composer = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaFoundationOverlayFrameComposer.cs");
+        string reader = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaFoundationVideoFrameReader.cs");
+        string sink = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsDxgiGpuEffectFrameSink.cs");
+        string layer = ReadRepoFile(
+            "src",
+            "ProGPU.Backend",
+            "GpuTextureLayerCompositor.cs");
+        string shader = ReadRepoFile(
+            "src",
+            "ProGPU.Backend",
+            "Shaders",
+            "TextureLayerCompositor.wgsl");
+
+        Assert.Contains(
+            "ReadFrameForward(",
+            composer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private nint _currentSample;",
+            reader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private nint _nextSample;",
+            reader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositeDecodedLayer(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerCompositor",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaxRetainedSourceBindings = 64",
+            layer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LoadOp = LoadOp.Load",
+            layer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OneMinusSrcAlpha",
+            layer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sampled.a * parameters.layer.x",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ReadPixels(",
+            composer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "MapAsync",
+            layer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            composer,
             StringComparison.Ordinal);
     }
 

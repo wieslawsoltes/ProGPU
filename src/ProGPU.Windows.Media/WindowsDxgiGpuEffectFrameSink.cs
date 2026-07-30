@@ -41,6 +41,8 @@ internal sealed unsafe class
     private bool _disposed;
     private bool _resourcesReleased;
     private GpuTexture? _blurIntermediate;
+    private GpuTexture? _overlayEffectOutput;
+    private GpuTextureLayerCompositor? _layerCompositor;
 
     internal WindowsDxgiGpuEffectFrameSink(
         DawnGpuContext dawn,
@@ -88,6 +90,10 @@ internal sealed unsafe class
                     _d3dDevice,
                     width,
                     height);
+            _layerCompositor =
+                new GpuTextureLayerCompositor(
+                    _gpuContext,
+                    TextureFormat.Bgra8Unorm);
         }
         catch
         {
@@ -103,6 +109,8 @@ internal sealed unsafe class
         long timestamp,
         long duration,
         in WindowsGpuVideoEffectPlan effectPlan,
+        WindowsMediaFoundationOverlayFrameComposer?
+            overlays,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -143,6 +151,12 @@ internal sealed unsafe class
             source.Access.EndAccess();
             ReturnSource(source);
             sourceReturned = true;
+
+            overlays?.Composite(
+                timestamp,
+                this,
+                target.Access.Texture,
+                cancellationToken);
 
             Slot submittedTarget = target;
             target = null;
@@ -174,6 +188,9 @@ internal sealed unsafe class
     internal byte[] ProcessAndReadback(
         nint decodedSample,
         in WindowsGpuVideoEffectPlan effectPlan,
+        WindowsMediaFoundationOverlayFrameComposer?
+            overlays,
+        long compositionTicks,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -214,6 +231,12 @@ internal sealed unsafe class
             source.Access.EndAccess();
             ReturnSource(source);
             sourceReturned = true;
+
+            overlays?.Composite(
+                compositionTicks,
+                this,
+                target.Access.Texture,
+                cancellationToken);
 
             byte[] pixels =
                 AllocateReadback();
@@ -249,6 +272,8 @@ internal sealed unsafe class
         long timestamp,
         long duration,
         in WindowsGpuVideoEffectPlan effectPlan,
+        WindowsMediaFoundationOverlayFrameComposer?
+            overlays,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -282,6 +307,12 @@ internal sealed unsafe class
 
             ReturnSource(source);
             sourceReturned = true;
+
+            overlays?.Composite(
+                timestamp,
+                this,
+                target.Access.Texture,
+                cancellationToken);
 
             Slot submittedTarget = target;
             target = null;
@@ -312,6 +343,9 @@ internal sealed unsafe class
     internal byte[] ProcessColorAndReadback(
         uint argbColor,
         in WindowsGpuVideoEffectPlan effectPlan,
+        WindowsMediaFoundationOverlayFrameComposer?
+            overlays,
+        long compositionTicks,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -344,6 +378,12 @@ internal sealed unsafe class
                 applySpatialEffect: false);
             ReturnSource(source);
             sourceReturned = true;
+
+            overlays?.Composite(
+                compositionTicks,
+                this,
+                target.Access.Texture,
+                cancellationToken);
 
             byte[] pixels =
                 AllocateReadback();
@@ -382,6 +422,97 @@ internal sealed unsafe class
         if (release)
         {
             ReleaseResources();
+        }
+    }
+
+    internal void CompositeDecodedLayer(
+        nint decodedSample,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in WindowsGpuVideoEffectPlan effectPlan,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        Slot source =
+            Rent(
+                _availableSources,
+                cancellationToken);
+        bool sourceReturned = false;
+        nint decodedTexture = 0;
+        try
+        {
+            PrepareForD3D(source);
+            decodedTexture =
+                WindowsMediaNative.GetSampleD3D11Texture(
+                    decodedSample);
+            WindowsMediaNative.CopyD3D11Texture(
+                _d3dContext,
+                source.Texture,
+                decodedTexture);
+            WindowsMediaNative.ReleaseKeyedMutex(
+                source.KeyedMutex);
+            source.MutexOwned = false;
+            source.Access.BeginAccess(initialized: true);
+            RenderLayer(
+                source.Access.Texture,
+                destination,
+                placement,
+                effectPlan,
+                applySpatialEffect: true);
+            source.Access.EndAccess();
+            ReturnSource(source);
+            sourceReturned = true;
+        }
+        finally
+        {
+            WindowsMediaNative.Release(decodedTexture);
+            if (!sourceReturned)
+            {
+                RecoverSource(source);
+            }
+        }
+    }
+
+    internal void CompositeColorLayer(
+        uint argbColor,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in WindowsGpuVideoEffectPlan effectPlan,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        Slot source =
+            Rent(
+                _availableSources,
+                cancellationToken);
+        bool sourceReturned = false;
+        try
+        {
+            if (!source.Access.IsAccessActive)
+            {
+                source.Access.BeginAccess(
+                    initialized: true);
+            }
+            GpuTextureClearer.Clear(
+                source.Access.Texture,
+                ToWebGpuColor(argbColor));
+            RenderLayer(
+                source.Access.Texture,
+                destination,
+                placement,
+                effectPlan,
+                applySpatialEffect: false);
+            ReturnSource(source);
+            sourceReturned = true;
+        }
+        finally
+        {
+            if (!sourceReturned)
+            {
+                ReturnSource(source);
+            }
         }
     }
 
@@ -531,6 +662,60 @@ internal sealed unsafe class
             destinationFormat,
             effectPlan.BlurStandardDeviation,
             effectPlan.ColorTransform);
+    }
+
+    private void RenderLayer(
+        GpuTexture source,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in WindowsGpuVideoEffectPlan effectPlan,
+        bool applySpatialEffect)
+    {
+        if (!applySpatialEffect ||
+            !effectPlan.HasSpatialEffect)
+        {
+            _layerCompositor!.Composite(
+                source,
+                destination.ViewPtr,
+                placement,
+                effectPlan.ColorTransform);
+            return;
+        }
+
+        _blurIntermediate ??=
+            new GpuTexture(
+                _gpuContext,
+                _width,
+                _height,
+                TextureFormat.Bgra8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Windows Media Gaussian Intermediate",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        _overlayEffectOutput ??=
+            new GpuTexture(
+                _gpuContext,
+                _width,
+                _height,
+                TextureFormat.Bgra8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Windows Media Overlay Effect Output",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        GpuTextureGaussianBlur.Blur(
+            source,
+            _blurIntermediate,
+            _overlayEffectOutput.ViewPtr,
+            _overlayEffectOutput.Format,
+            effectPlan.BlurStandardDeviation,
+            effectPlan.ColorTransform);
+        _layerCompositor!.Composite(
+            _overlayEffectOutput,
+            destination.ViewPtr,
+            placement,
+            GpuTextureColorTransform.Identity);
     }
 
     private byte[] AllocateReadback() =>
@@ -803,6 +988,10 @@ internal sealed unsafe class
         }
         DisposeSlots(_targets);
         DisposeSlots(_sources);
+        _layerCompositor?.Dispose();
+        _layerCompositor = null;
+        _overlayEffectOutput?.Dispose();
+        _overlayEffectOutput = null;
         _blurIntermediate?.Dispose();
         _blurIntermediate = null;
         WindowsMediaNative.Release(
@@ -830,7 +1019,8 @@ internal sealed unsafe class
         internal nint KeyedMutex { get; }
         internal DawnExplicitSharedTextureAccess Access { get; }
         internal WindowsMediaTrackedSampleCallback?
-            Callback { get; }
+            Callback
+        { get; }
         internal bool MutexOwned { get; set; }
     }
 
