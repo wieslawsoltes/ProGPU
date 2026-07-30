@@ -1037,8 +1037,9 @@ changes or the player is disposed, preventing a stale item from changing a
 later provider.
 Publication is O(T) time and storage for T tracks and does not enter the
 per-frame playback path. The shared GPU Media Player sample presents the
-reported audio/video tracks in selectors and drives the same official
-`SelectedIndex` properties used by applications.
+reported audio, video, and timed-metadata tracks in selectors and drives the
+same official `SelectedIndex` and per-track presentation-mode properties used
+by applications.
 
 This track design adopts the public WinUI
 [`AudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.audiotrack),

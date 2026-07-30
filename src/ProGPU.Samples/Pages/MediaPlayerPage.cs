@@ -164,6 +164,28 @@ public static class MediaPlayerPage
             Width = 280f,
             PlaceholderText = "No video tracks"
         };
+        var timedMetadataTrack = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "No timed metadata tracks"
+        };
+        var timedMetadataMode = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "Presentation mode",
+            IsEnabled = false
+        };
+        foreach (TimedMetadataTrackPresentationMode mode in
+                 Enum.GetValues<
+                     TimedMetadataTrackPresentationMode>())
+        {
+            timedMetadataMode.Items.Add(
+                new ComboBoxItem
+                {
+                    Text = mode.ToString(),
+                    Tag = mode
+                });
+        }
         MediaPlaybackItem? currentPlaybackItem = null;
         bool updatingTrackSelection = false;
 
@@ -274,10 +296,20 @@ public static class MediaPlayerPage
             {
                 audioTrack.Items.Clear();
                 videoTrack.Items.Clear();
+                int timedMetadataIndex =
+                    timedMetadataTrack.SelectedItem is
+                        ComboBoxItem selectedMetadata &&
+                    selectedMetadata.Tag is int selectedIndex
+                        ? selectedIndex
+                        : -1;
+                timedMetadataTrack.Items.Clear();
                 if (currentPlaybackItem is not { } item)
                 {
                     audioTrack.SelectedItem = null;
                     videoTrack.SelectedItem = null;
+                    timedMetadataTrack.SelectedItem = null;
+                    timedMetadataMode.SelectedItem = null;
+                    timedMetadataMode.IsEnabled = false;
                     return;
                 }
 
@@ -313,6 +345,23 @@ public static class MediaPlayerPage
                             Tag = index
                         });
                 }
+                for (int index = 0;
+                     index < item.TimedMetadataTracks.Count;
+                     index++)
+                {
+                    TimedMetadataTrack track =
+                        item.TimedMetadataTracks[index];
+                    timedMetadataTrack.Items.Add(
+                        new ComboBoxItem
+                        {
+                            Text = TrackLabel(
+                                track.Name,
+                                track.Language,
+                                track.TimedMetadataKind
+                                    .ToString()),
+                            Tag = index
+                        });
+                }
 
                 audioTrack.SelectedItem =
                     item.AudioTracks.SelectedIndex >= 0 &&
@@ -328,6 +377,39 @@ public static class MediaPlayerPage
                         ? videoTrack.Items[
                             item.VideoTracks.SelectedIndex]
                         : null;
+                timedMetadataIndex =
+                    timedMetadataIndex >= 0 &&
+                    timedMetadataIndex <
+                        timedMetadataTrack.Items.Count
+                        ? timedMetadataIndex
+                        : timedMetadataTrack.Items.Count > 0
+                            ? 0
+                            : -1;
+                timedMetadataTrack.SelectedItem =
+                    timedMetadataIndex >= 0
+                        ? timedMetadataTrack.Items[
+                            timedMetadataIndex]
+                        : null;
+                TimedMetadataTrackPresentationMode mode =
+                    timedMetadataIndex >= 0
+                        ? item.TimedMetadataTracks
+                            .GetPresentationMode(
+                                checked(
+                                    (uint)timedMetadataIndex))
+                        : default;
+                timedMetadataMode.SelectedItem =
+                    timedMetadataIndex >= 0
+                        ? timedMetadataMode.Items
+                            .OfType<ComboBoxItem>()
+                            .First(
+                                candidate =>
+                                    candidate.Tag is
+                                        TimedMetadataTrackPresentationMode
+                                            candidateMode &&
+                                    candidateMode == mode)
+                        : null;
+                timedMetadataMode.IsEnabled =
+                    timedMetadataIndex >= 0;
             }
             finally
             {
@@ -347,6 +429,15 @@ public static class MediaPlayerPage
         void OnSelectedTrackChanged(
             ISingleSelectMediaTrackList sender,
             object args)
+        {
+            _ = sender;
+            _ = args;
+            RefreshTrackSelectors();
+        }
+
+        void OnTimedMetadataPresentationModeChanged(
+            MediaPlaybackTimedMetadataTrackList sender,
+            TimedMetadataPresentationModeChangedEventArgs args)
         {
             _ = sender;
             _ = args;
@@ -397,6 +488,45 @@ public static class MediaPlayerPage
                 RefreshTrackSelectors();
             }
         };
+        timedMetadataTrack.SelectionChanged +=
+            (_, _) =>
+            {
+                if (!updatingTrackSelection)
+                {
+                    RefreshTrackSelectors();
+                }
+            };
+        timedMetadataMode.SelectionChanged +=
+            (_, _) =>
+            {
+                if (updatingTrackSelection ||
+                    currentPlaybackItem is not { } item ||
+                    timedMetadataTrack.SelectedItem is not
+                        ComboBoxItem selectedTrack ||
+                    selectedTrack.Tag is not int trackIndex ||
+                    timedMetadataMode.SelectedItem is not
+                        ComboBoxItem selectedMode ||
+                    selectedMode.Tag is not
+                        TimedMetadataTrackPresentationMode mode)
+                {
+                    return;
+                }
+                try
+                {
+                    item.TimedMetadataTracks
+                        .SetPresentationMode(
+                            checked((uint)trackIndex),
+                            mode);
+                }
+                catch (Exception exception)
+                {
+                    SetText(
+                        status,
+                        "Timed metadata presentation change failed: " +
+                        exception.Message);
+                    RefreshTrackSelectors();
+                }
+            };
 
         void LoadSource(Uri source)
         {
@@ -411,20 +541,31 @@ public static class MediaPlayerPage
                         OnTracksChanged;
                     currentPlaybackItem.VideoTracksChanged -=
                         OnTracksChanged;
+                    currentPlaybackItem
+                        .TimedMetadataTracksChanged -=
+                        OnTracksChanged;
                     currentPlaybackItem.AudioTracks
                         .SelectedIndexChanged -=
                             OnSelectedTrackChanged;
                     currentPlaybackItem.VideoTracks
                         .SelectedIndexChanged -=
                             OnSelectedTrackChanged;
+                    currentPlaybackItem.TimedMetadataTracks
+                        .PresentationModeChanged -=
+                        OnTimedMetadataPresentationModeChanged;
                 }
                 currentPlaybackItem = item;
                 item.AudioTracksChanged += OnTracksChanged;
                 item.VideoTracksChanged += OnTracksChanged;
+                item.TimedMetadataTracksChanged +=
+                    OnTracksChanged;
                 item.AudioTracks.SelectedIndexChanged +=
                     OnSelectedTrackChanged;
                 item.VideoTracks.SelectedIndexChanged +=
                     OnSelectedTrackChanged;
+                item.TimedMetadataTracks
+                    .PresentationModeChanged +=
+                    OnTimedMetadataPresentationModeChanged;
                 RefreshTrackSelectors();
                 MediaItemDisplayProperties display =
                     item.GetDisplayProperties();
@@ -643,6 +784,10 @@ public static class MediaPlayerPage
         effects.AddChild(audioTrack);
         effects.AddChild(Text("Native video track"));
         effects.AddChild(videoTrack);
+        effects.AddChild(Text("Timed metadata track"));
+        effects.AddChild(timedMetadataTrack);
+        effects.AddChild(Text("Timed metadata presentation"));
+        effects.AddChild(timedMetadataMode);
         AddEffect(effects, "Audio gain", audioGain);
         AddEffect(
             effects,
@@ -668,12 +813,18 @@ public static class MediaPlayerPage
                     OnTracksChanged;
                 currentPlaybackItem.VideoTracksChanged -=
                     OnTracksChanged;
+                currentPlaybackItem
+                    .TimedMetadataTracksChanged -=
+                    OnTracksChanged;
                 currentPlaybackItem.AudioTracks
                     .SelectedIndexChanged -=
                         OnSelectedTrackChanged;
                 currentPlaybackItem.VideoTracks
                     .SelectedIndexChanged -=
                         OnSelectedTrackChanged;
+                currentPlaybackItem.TimedMetadataTracks
+                    .PresentationModeChanged -=
+                    OnTimedMetadataPresentationModeChanged;
                 currentPlaybackItem = null;
             }
             player.Dispose();
