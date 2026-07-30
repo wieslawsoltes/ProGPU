@@ -333,6 +333,66 @@ public sealed class AndroidMediaProviderContractTests
     }
 
     [Fact]
+    public void AndroidPlaybackProjectsOnlyParsedNativeTimedTextAsCues()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaTrackType.Timedtext or",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaTrackType.Subtitle",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.TimedText += OnTimedText;",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "args.Text?.Text",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTimedTextCueAccumulator",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sink.UpdateTimedMetadataCues(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTrackSupport\n                                .Unsupported",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode ==\n                MediaPlaybackTimedMetadataPresentationMode\n                    .PlatformPresented",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "OnSubtitleData",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AndroidPreciseExporterUsesNativeSurfaceCodecAndMuxer()
     {
         string provider = ReadRepoFile(

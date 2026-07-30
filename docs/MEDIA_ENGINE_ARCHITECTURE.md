@@ -141,6 +141,25 @@ design.
   and N delivered strings. AVFoundation remains responsible for parsing and
   styled native presentation; ProGPU publishes only text and timing to the
   reusable application-presented path.
+- Android's
+  [`MediaPlayer.TrackInfo`](https://developer.android.com/reference/android/media/MediaPlayer.TrackInfo),
+  [`MediaPlayer.OnTimedTextListener`](https://developer.android.com/reference/android/media/MediaPlayer.OnTimedTextListener),
+  [`TimedText`](https://developer.android.com/reference/android/media/TimedText),
+  and
+  [`SubtitleData`](https://developer.android.com/reference/android/media/SubtitleData)
+  contracts distinguish parsed, display-ready timed text from encoded subtitle
+  bytes. The Android provider enumerates both native track types, but projects
+  cues only from the platform-parsed `TimedText` callback. A null text closes
+  the active cue at the current media position; seek, disable, and completion
+  flush it through the shared deterministic accumulator. `Hidden` and
+  `ApplicationPresented` select this application-rendered lane.
+  `PlatformPresented` is rejected because the reusable `ImageReader`/WebGPU
+  surface has no native subtitle view, and raw `SubtitleData` tracks are
+  reported unsupported until a typed binary-data or native-view contract
+  exists. ProGPU therefore adopts Android's native parsing and selection while
+  rejecting an external subtitle parser and any false platform-rendering
+  claim. Track publication is O(T), and each native cue update retains the
+  shared accumulator's O(C) cue storage.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -1127,11 +1146,13 @@ tracks and complete WebVTT cue snapshots. Apple publishes AVFoundation
 legible media-selection options and accumulated attributed-text cue snapshots;
 its media-selection group is mutually exclusive. Enabling a second Apple
 legible option is rejected until the current option is disabled, so the
-managed modes never claim two native selections. Android, Windows, and Linux
-provider-backed timed-cue payload delivery remain capability-gated. Until a
-provider implements that typed lane it must reject presentation-mode changes
-rather than treating native text-track selection as proof that cue payloads
-or platform-rendered captions are available. External application cues already
+managed modes never claim two native selections. Android publishes parsed
+`TimedText` payloads for application presentation and rejects encoded
+`SubtitleData` plus platform presentation. Windows and Linux provider-backed
+timed-cue payload delivery remain capability-gated. Until a provider implements
+that typed lane it must reject presentation-mode changes rather than treating
+native text-track selection as proof that cue payloads or platform-rendered
+captions are available. External application cues already
 use the shared playback clock and remain available to Avalonia, LibreWPF, and
 LibreWinForms through the neutral scheduler without placing cue-list mutations
 on the playback frame path. Platform-styled captions remain host/native-view
