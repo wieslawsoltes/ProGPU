@@ -1441,6 +1441,14 @@ public sealed class WindowsMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "!Enum.IsDefined(mode)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RemoveStaleTimedTextCueStates(timedMetadataIds)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "_timedTextCueEvents.Enqueue(",
             provider,
             StringComparison.Ordinal);

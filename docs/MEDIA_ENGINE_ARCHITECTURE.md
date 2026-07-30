@@ -184,11 +184,11 @@ design.
   `PlatformPresented` is rejected because frame-server output has no native
   caption presenter, and binary metadata tracks remain visible but
   unsupported until the shared API has a typed data-cue payload. Track
-  enumeration is O(T); cue upsert is average O(1), and publishing the
-  complete stable snapshot is O(C) time and storage for C known cues. ProGPU
-  adopts Media Foundation's parser and scheduling while rejecting an
-  external parser, reflection, callback-thread rendering, and retained COM
-  cue ownership.
+  reconciliation is O(T + S) for T native tracks and S retained per-track cue
+  states; cue upsert is average O(1), and publishing the complete stable
+  snapshot is O(C) time and storage for C known cues. ProGPU adopts Media
+  Foundation's parser and scheduling while rejecting an external parser,
+  reflection, callback-thread rendering, and retained COM cue ownership.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),

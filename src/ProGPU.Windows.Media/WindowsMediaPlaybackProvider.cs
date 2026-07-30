@@ -341,7 +341,8 @@ internal sealed class WindowsMediaPlaybackProvider :
         int index,
         MediaPlaybackTimedMetadataPresentationMode mode)
     {
-        if (mode ==
+        if (!Enum.IsDefined(mode) ||
+            mode ==
             MediaPlaybackTimedMetadataPresentationMode
                 .PlatformPresented)
         {
@@ -861,6 +862,7 @@ internal sealed class WindowsMediaPlaybackProvider :
         Volatile.Write(
             ref _timedTextTrackSelectable,
             selectableTimedMetadata);
+        RemoveStaleTimedTextCueStates(timedMetadataIds);
         _sink.UpdateTracks(
             new MediaPlaybackTracksSnapshot(
                 audio,
@@ -868,6 +870,44 @@ internal sealed class WindowsMediaPlaybackProvider :
                 video,
                 selectedVideo,
                 timedMetadata));
+    }
+
+    private void RemoveStaleTimedTextCueStates(
+        ReadOnlySpan<uint> retainedTrackIds)
+    {
+        if (_timedTextCueStates.Count == 0)
+        {
+            return;
+        }
+
+        var retained =
+            new HashSet<uint>(retainedTrackIds.Length);
+        for (int index = 0;
+             index < retainedTrackIds.Length;
+             index++)
+        {
+            retained.Add(retainedTrackIds[index]);
+        }
+        var removedTrackIds = new List<uint>();
+        foreach (uint trackId in
+                 _timedTextCueStates.Keys)
+        {
+            if (!retained.Contains(trackId))
+            {
+                removedTrackIds.Add(trackId);
+            }
+        }
+        for (int index = 0;
+             index < removedTrackIds.Count;
+             index++)
+        {
+            uint trackId = removedTrackIds[index];
+            TimedTextTrackCueState state =
+                _timedTextCueStates[trackId];
+            _sink.UpdateTimedMetadataCues(
+                state.Reset());
+            _timedTextCueStates.Remove(trackId);
+        }
     }
 
     private void RunPlaybackLoop(
