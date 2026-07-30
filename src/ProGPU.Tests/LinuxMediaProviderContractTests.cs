@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using ProGPU.Backend;
 using ProGPU.Browser;
+using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Containers;
 using ProGPU.Media.Effects;
@@ -3057,6 +3058,14 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxV4l2PreciseMediaCompositionExportProvider.cs");
+        string audioPlanner = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxCompositionAudioPlanner.cs");
+        string audioMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxPcm16TimelineMixer.cs");
 
         Assert.Contains(
             "progpu.linux.v4l2",
@@ -3130,6 +3139,30 @@ public sealed class LinuxMediaProviderContractTests
             "GStreamer",
             preciseExporter,
             StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "LinuxCompositionAudioSourceKind",
+            audioPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LinuxPcm16Mixer.Accumulate(",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            audioPlanner,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "GStreamer",
+            audioPlanner,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            audioMixer,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "GStreamer",
+            audioMixer,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static MediaCompositionExportRequest
@@ -3179,6 +3212,505 @@ public sealed class LinuxMediaProviderContractTests
             height,
             opacity,
             AudioEnabled: false);
+
+    [Fact]
+    public void LinuxAudioPlanCapturesMainBackgroundAndAudibleOverlay()
+    {
+        const string gainId =
+            "ProGPU.Tests.Linux.AudioGain";
+        const string balanceId =
+            "ProGPU.Tests.Linux.AudioBalance";
+        var effects = new MediaEffectRegistry();
+        using IDisposable gainRegistration =
+            effects.Register(
+                new MediaAudioGainEffectFactory(
+                    gainId));
+        using IDisposable balanceRegistration =
+            effects.Register(
+                new MediaAudioStereoBalanceEffectFactory(
+                    balanceId));
+        MediaCompositionEffectDefinition gain =
+            new(
+                gainId,
+                new Dictionary<string, object?>
+                {
+                    [MediaAudioGainEffectFactory
+                        .GainPropertyName] = 0.5d
+                });
+        MediaCompositionEffectDefinition balance =
+            new(
+                balanceId,
+                new Dictionary<string, object?>
+                {
+                    [MediaAudioStereoBalanceEffectFactory
+                        .BalancePropertyName] = 0.5d
+                });
+        var main =
+            new MediaCompositionExportClip(
+                new Uri(
+                    "file:///media/main.mp4"),
+                TimeSpan.FromSeconds(8),
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(2),
+                0.5d,
+                null,
+                new Dictionary<string, string>())
+            {
+                SourceAudioTrackIndex = 2,
+                AudioEffectDefinitions =
+                    [gain, balance]
+            };
+        var overlayClip =
+            new MediaCompositionExportClip(
+                new Uri(
+                    "file:///media/overlay.mp4"),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(1),
+                1d,
+                null,
+                new Dictionary<string, string>());
+        var request =
+            new MediaCompositionExportRequest(
+                "/tmp/output.mp4",
+                [main],
+                MediaCompositionTrimmingMode.Precise,
+                new MediaCompositionEncodingProfile(
+                    "MPEG4",
+                    "H264",
+                    "AAC",
+                    320,
+                    180,
+                    2_000_000,
+                    30,
+                    1,
+                    192_000,
+                    48_000,
+                    2),
+                new Dictionary<string, string>())
+            {
+                BackgroundAudioTracks =
+                [
+                    new MediaCompositionExportAudioTrack(
+                        new Uri(
+                            "file:///media/music.mov"),
+                        TimeSpan.FromSeconds(9),
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromSeconds(-2),
+                        0.25d,
+                        new Dictionary<string, string>())
+                ],
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                    [
+                        new MediaCompositionExportOverlay(
+                            overlayClip,
+                            TimeSpan.FromSeconds(1.5),
+                            0d,
+                            0d,
+                            100d,
+                            100d,
+                            1d,
+                            AudioEnabled: true),
+                        new MediaCompositionExportOverlay(
+                            overlayClip with
+                            {
+                                SourceUri =
+                                    new Uri(
+                                        "file:///media/silent.mp4")
+                            },
+                            TimeSpan.Zero,
+                            0d,
+                            0d,
+                            100d,
+                            100d,
+                            1d,
+                            AudioEnabled: false)
+                    ])
+                ]
+            };
+
+        Assert.True(
+            LinuxCompositionAudioPlanner.TryCapture(
+                request,
+                effects,
+                out LinuxCompositionAudioSourcePlan[]
+                    plans,
+                out long frameCount));
+        Assert.Equal(240_000, frameCount);
+        Assert.Equal(3, plans.Length);
+
+        LinuxCompositionAudioSourcePlan mainPlan =
+            Assert.Single(
+                plans,
+                static plan =>
+                    plan.Kind ==
+                    LinuxCompositionAudioSourceKind
+                        .MainClip);
+        Assert.Equal(2u, mainPlan.SourceTrackIndex);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1).Ticks,
+            mainPlan.SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(6).Ticks,
+            mainPlan.SourceEndTicks);
+        Assert.Equal(0, mainPlan.DestinationStartFrame);
+        Assert.Equal(240_000, mainPlan.DestinationEndFrame);
+        Assert.Equal(4_096, mainPlan.Levels.Left);
+        Assert.Equal(8_192, mainPlan.Levels.Right);
+
+        LinuxCompositionAudioSourcePlan background =
+            Assert.Single(
+                plans,
+                static plan =>
+                    plan.Kind ==
+                    LinuxCompositionAudioSourceKind
+                        .BackgroundTrack);
+        Assert.Equal(
+            TimeSpan.FromSeconds(3).Ticks,
+            background.SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(8).Ticks,
+            background.SourceEndTicks);
+        Assert.Equal(0, background.DestinationStartFrame);
+        Assert.Equal(
+            240_000,
+            background.DestinationEndFrame);
+        Assert.Equal(8_192, background.Levels.Left);
+        Assert.Equal(8_192, background.Levels.Right);
+
+        LinuxCompositionAudioSourcePlan overlay =
+            Assert.Single(
+                plans,
+                static plan =>
+                    plan.Kind ==
+                    LinuxCompositionAudioSourceKind
+                        .Overlay);
+        Assert.Equal(72_000, overlay.DestinationStartFrame);
+        Assert.Equal(216_000, overlay.DestinationEndFrame);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1).Ticks,
+            overlay.SourceStartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(4).Ticks,
+            overlay.SourceEndTicks);
+    }
+
+    [Fact]
+    public void LinuxWidePcmMixerIsOrderIndependentAndAllocationFree()
+    {
+        var full =
+            new LinuxPcm16MixLevels(
+                32_768,
+                32_768);
+        Span<short> first =
+            stackalloc short[]
+            {
+                30_000, -30_000,
+                10_000, -10_000
+            };
+        Span<short> second =
+            stackalloc short[]
+            {
+                20_000, -20_000,
+                -30_000, 30_000
+            };
+        Span<long> forward =
+            stackalloc long[4];
+        Span<long> reverse =
+            stackalloc long[4];
+        Span<short> forwardOutput =
+            stackalloc short[4];
+        Span<short> reverseOutput =
+            stackalloc short[4];
+
+        LinuxPcm16Mixer.Accumulate(
+            first,
+            2,
+            full,
+            forward,
+            0);
+        LinuxPcm16Mixer.Accumulate(
+            second,
+            2,
+            full,
+            forward,
+            0);
+        LinuxPcm16Mixer.Accumulate(
+            second,
+            2,
+            full,
+            reverse,
+            0);
+        LinuxPcm16Mixer.Accumulate(
+            first,
+            2,
+            full,
+            reverse,
+            0);
+        LinuxPcm16Mixer.Saturate(
+            forward,
+            forwardOutput);
+        LinuxPcm16Mixer.Saturate(
+            reverse,
+            reverseOutput);
+
+        Assert.True(
+            forwardOutput.SequenceEqual(
+                reverseOutput));
+        Assert.True(
+            forwardOutput.SequenceEqual(
+                new short[]
+                {
+                    short.MaxValue,
+                    short.MinValue,
+                    -20_000,
+                    20_000
+                }));
+
+        forward.Clear();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            LinuxPcm16Mixer.Accumulate(
+                first,
+                2,
+                full,
+                forward,
+                0);
+            LinuxPcm16Mixer.Saturate(
+                forward,
+                forwardOutput);
+            forward.Clear();
+        }
+        Assert.Equal(
+            0,
+            GC.GetAllocatedBytesForCurrentThread() -
+            before);
+    }
+
+    [Fact]
+    public void LinuxTimelineMixerStreamsFixedBlocksAndExactOverlaps()
+    {
+        var full =
+            new LinuxPcm16MixLevels(
+                32_768,
+                32_768);
+        LinuxCompositionAudioSourcePlan[] plans =
+        [
+            new(
+                LinuxCompositionAudioSourceKind
+                    .MainClip,
+                new Uri(
+                    "file:///media/main.mov"),
+                0,
+                0,
+                TimeSpan.FromSeconds(2).Ticks,
+                0,
+                1_500,
+                full),
+            new(
+                LinuxCompositionAudioSourceKind
+                    .BackgroundTrack,
+                new Uri(
+                    "file:///media/music.mov"),
+                0,
+                TimeSpan.FromMilliseconds(250)
+                    .Ticks,
+                TimeSpan.FromSeconds(1).Ticks,
+                512,
+                1_300,
+                full)
+        ];
+        ILinuxPcm16TimelineSource[] sources =
+        [
+            new ConstantPcm16TimelineSource(
+                20_000),
+            new ConstantPcm16TimelineSource(
+                -5_000)
+        ];
+        var collector =
+            new Pcm16BlockCollector(
+                frameCount: 1_500,
+                channelCount: 2);
+
+        try
+        {
+            LinuxPcm16TimelineMixer.MixCore(
+                plans,
+                sources,
+                compositionFrameCount: 1_500,
+                sampleRate: 8_000,
+                channelCount: 2,
+                collector.Accept);
+        }
+        finally
+        {
+            foreach (ILinuxPcm16TimelineSource
+                     source in sources)
+            {
+                source.Dispose();
+            }
+        }
+
+        Assert.Equal(2, collector.BlockCount);
+        Assert.Equal(
+            [0L, 1_024L],
+            collector.BlockStarts);
+        Assert.Equal(
+            20_000,
+            collector.SampleAt(
+                frame: 511,
+                channel: 0));
+        Assert.Equal(
+            15_000,
+            collector.SampleAt(
+                frame: 512,
+                channel: 0));
+        Assert.Equal(
+            15_000,
+            collector.SampleAt(
+                frame: 1_299,
+                channel: 1));
+        Assert.Equal(
+            20_000,
+            collector.SampleAt(
+                frame: 1_300,
+                channel: 1));
+        Assert.All(
+            sources.Cast<
+                ConstantPcm16TimelineSource>(),
+            static source =>
+                Assert.True(source.IsDisposed));
+    }
+
+    [Fact]
+    public void LinuxIsoBmffPcmTimelineSourceReadsAcrossSampleBoundaries()
+    {
+        string path =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-pcm-{Guid.NewGuid():N}.mov");
+        File.WriteAllBytes(
+            path,
+            BuildSyntheticPcmMovie());
+        try
+        {
+            var plan =
+                new LinuxCompositionAudioSourcePlan(
+                    LinuxCompositionAudioSourceKind
+                        .MainClip,
+                    new Uri(path),
+                    SourceTrackIndex: 0,
+                    SourceStartTicks: 0,
+                    SourceEndTicks:
+                        TimeSpan.FromMilliseconds(
+                            0.5).Ticks,
+                    DestinationStartFrame: 0,
+                    DestinationEndFrame: 4,
+                    new LinuxPcm16MixLevels(
+                        32_768,
+                        32_768));
+            using var source =
+                new IsoBmffPcm16TimelineSource(
+                    plan,
+                    sampleRate: 8_000,
+                    channelCount: 2);
+            Span<short> samples =
+                stackalloc short[6];
+
+            source.ReadFrames(
+                firstFrame: 1,
+                samples);
+
+            Assert.True(
+                samples.SequenceEqual(
+                    new short[]
+                    {
+                        300, 400,
+                        500, 600,
+                        700, 800
+                    }));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LinuxTimelineMixerWarmBlocksAllocateNothing()
+    {
+        LinuxCompositionAudioSourcePlan[] plans =
+        [
+            new(
+                LinuxCompositionAudioSourceKind
+                    .MainClip,
+                new Uri(
+                    "file:///media/main.mov"),
+                0,
+                0,
+                TimeSpan.FromSeconds(1).Ticks,
+                0,
+                64,
+                new LinuxPcm16MixLevels(
+                    24_576,
+                    16_384))
+        ];
+        ILinuxPcm16TimelineSource[] sources =
+        [
+            new ConstantPcm16TimelineSource(
+                1_000)
+        ];
+        var sink =
+            new Pcm16ChecksumSink();
+        LinuxPcm16BlockHandler handler =
+            sink.Accept;
+        try
+        {
+            LinuxPcm16TimelineMixer.MixCore(
+                plans,
+                sources,
+                compositionFrameCount: 64,
+                sampleRate: 8_000,
+                channelCount: 2,
+                handler);
+            sink.Reset();
+
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0;
+                 index < 100;
+                 index++)
+            {
+                LinuxPcm16TimelineMixer.MixCore(
+                    plans,
+                    sources,
+                    compositionFrameCount: 64,
+                    sampleRate: 8_000,
+                    channelCount: 2,
+                    handler);
+            }
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() -
+                before;
+
+            Assert.Equal(0, allocated);
+            Assert.Equal(
+                100,
+                sink.BlockCount);
+            Assert.NotEqual(0, sink.Checksum);
+        }
+        finally
+        {
+            sources[0].Dispose();
+        }
+    }
 
     [Fact]
     public void PipeWireInteropAndRawAudioPodMatchSpaAbi()
@@ -3327,6 +3859,134 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Equal(
             converted.ToArray(),
             reader.Current.ToArray());
+
+        ReadOnlySpan<short> pcm16 =
+            reader.ReadPcm16(0);
+        Assert.True(
+            pcm16.SequenceEqual(
+                new short[]
+                {
+                    short.MinValue,
+                    0,
+                    short.MaxValue
+                }));
+        _ = reader.ReadPcm16(0);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 10_000;
+             index++)
+        {
+            _ = reader.ReadPcm16(0);
+        }
+        Assert.Equal(
+            0,
+            GC.GetAllocatedBytesForCurrentThread() -
+            before);
+    }
+
+    private sealed class ConstantPcm16TimelineSource :
+        ILinuxPcm16TimelineSource
+    {
+        private readonly short _sample;
+
+        internal ConstantPcm16TimelineSource(
+            short sample)
+        {
+            _sample = sample;
+        }
+
+        internal bool IsDisposed { get; private set; }
+
+        public void ReadFrames(
+            long firstFrame,
+            Span<short> destination)
+        {
+            Assert.False(IsDisposed);
+            Assert.True(firstFrame >= 0);
+            destination.Fill(_sample);
+        }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+        }
+    }
+
+    private sealed class Pcm16BlockCollector
+    {
+        private readonly short[] _samples;
+        private readonly int _channels;
+        private readonly List<long>
+            _blockStarts = [];
+
+        internal Pcm16BlockCollector(
+            int frameCount,
+            int channelCount)
+        {
+            _samples =
+                new short[
+                    checked(
+                        frameCount *
+                        channelCount)];
+            _channels = channelCount;
+        }
+
+        internal int BlockCount =>
+            _blockStarts.Count;
+
+        internal IReadOnlyList<long>
+            BlockStarts =>
+                _blockStarts;
+
+        internal void Accept(
+            long firstFrame,
+            ReadOnlySpan<short> samples)
+        {
+            _blockStarts.Add(firstFrame);
+            samples.CopyTo(
+                _samples.AsSpan(
+                    checked(
+                        (int)firstFrame *
+                        _channels)));
+        }
+
+        internal short SampleAt(
+            int frame,
+            int channel) =>
+            _samples[
+                checked(
+                    frame *
+                    _channels +
+                    channel)];
+    }
+
+    private sealed class Pcm16ChecksumSink
+    {
+        internal int BlockCount { get; private set; }
+
+        internal long Checksum { get; private set; }
+
+        internal void Accept(
+            long firstFrame,
+            ReadOnlySpan<short> samples)
+        {
+            BlockCount++;
+            long checksum = Checksum + firstFrame;
+            for (int index = 0;
+                 index < samples.Length;
+                 index++)
+            {
+                checksum += samples[index];
+            }
+            Checksum = checksum;
+        }
+
+        internal void Reset()
+        {
+            BlockCount = 0;
+            Checksum = 0;
+        }
     }
 
     private static byte[] BuildSyntheticH264Movie()
@@ -3575,6 +4235,87 @@ public sealed class LinuxMediaProviderContractTests
             result[offset + 1] = 0xAA;
             result[offset + 2] = 0x55;
             result[offset + 3] = 0xCC;
+        }
+        return result;
+    }
+
+    private static byte[] BuildSyntheticPcmMovie()
+    {
+        const int payloadOffset = 4_096;
+        const int sampleCount = 2;
+        const int framesPerSample = 2;
+        const int channels = 2;
+        const int bytesPerScalar = 2;
+        const int sampleSize =
+            framesPerSample *
+            channels *
+            bytesPerScalar;
+
+        var audioHeader = new byte[28];
+        BinaryPrimitives.WriteUInt16BigEndian(
+            audioHeader.AsSpan(6),
+            1);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            audioHeader.AsSpan(16),
+            channels);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            audioHeader.AsSpan(18),
+            16);
+        BinaryPrimitives.WriteUInt32BigEndian(
+            audioHeader.AsSpan(24),
+            8_000u << 16);
+        byte[] sampleEntry =
+            Box(
+                "sowt",
+                audioHeader);
+        byte[] track =
+            BuildSyntheticTrack(
+                "soun",
+                timescale: 8_000,
+                duration:
+                    sampleCount *
+                    framesPerSample,
+                sampleEntry,
+                sampleCount,
+                sampleDuration:
+                    framesPerSample,
+                uniformSampleSize:
+                    sampleSize,
+                sampleSizes: [],
+                chunkOffset:
+                    payloadOffset,
+                syncSamples: []);
+        byte[] movie =
+            Box(
+                "moov",
+                track);
+        Assert.True(
+            movie.Length < payloadOffset);
+
+        var result =
+            new byte[
+                payloadOffset +
+                sampleCount *
+                sampleSize];
+        movie.CopyTo(result, 0);
+        short[] samples =
+        [
+            100, 200,
+            300, 400,
+            500, 600,
+            700, 800
+        ];
+        for (int index = 0;
+             index < samples.Length;
+             index++)
+        {
+            BinaryPrimitives
+                .WriteInt16LittleEndian(
+                    result.AsSpan(
+                        payloadOffset +
+                        index *
+                        bytesPerScalar),
+                    samples[index]);
         }
         return result;
     }

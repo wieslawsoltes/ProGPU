@@ -19,9 +19,12 @@ internal sealed class IsoBmffPcmSampleReader :
 
     private readonly Stream _stream;
     private readonly IsoBmffTrack _track;
+    private readonly int _maximumScalarCount;
     private byte[]? _input;
     private float[]? _output;
+    private short[]? _pcm16;
     private int _length;
+    private int _pcm16Length;
 
     internal IsoBmffPcmSampleReader(
         Stream stream,
@@ -77,12 +80,14 @@ internal sealed class IsoBmffPcmSampleReader :
         _input =
             ArrayPool<byte>.Shared.Rent(
                 largest);
+        _maximumScalarCount =
+            Math.Max(
+                1,
+                largest /
+                bytesPerScalar);
         _output =
             ArrayPool<float>.Shared.Rent(
-                Math.Max(
-                    1,
-                    largest /
-                    bytesPerScalar));
+                _maximumScalarCount);
     }
 
     internal ReadOnlySpan<float> Current =>
@@ -90,6 +95,16 @@ internal sealed class IsoBmffPcmSampleReader :
          throw new ObjectDisposedException(
              nameof(IsoBmffPcmSampleReader)))
         .AsSpan(0, _length);
+
+    internal ReadOnlySpan<short> CurrentPcm16 =>
+        _input is null
+            ? throw new ObjectDisposedException(
+                nameof(IsoBmffPcmSampleReader))
+            : _pcm16 is null
+                ? ReadOnlySpan<short>.Empty
+                : _pcm16.AsSpan(
+                    0,
+                    _pcm16Length);
 
     internal ReadOnlySpan<float> Read(
         int sampleIndex)
@@ -165,6 +180,62 @@ internal sealed class IsoBmffPcmSampleReader :
             scalars);
     }
 
+    internal ReadOnlySpan<short> ReadPcm16(
+        int sampleIndex)
+    {
+        byte[] input =
+            _input ??
+            throw new ObjectDisposedException(
+                nameof(IsoBmffPcmSampleReader));
+        short[] output =
+            _pcm16 ??=
+                ArrayPool<short>.Shared.Rent(
+                    _maximumScalarCount);
+        IsoBmffSample sample =
+            GetSample(sampleIndex);
+        int scalarBytes =
+            _track.AudioBitsPerSample / 8;
+        int scalars =
+            ReadSample(
+                sample,
+                input,
+                scalarBytes);
+        bool littleEndian =
+            _track.PcmEncoding ==
+            IsoBmffPcmEncoding
+                .SignedLittleEndian;
+        for (int index = 0;
+             index < scalars;
+             index++)
+        {
+            ReadOnlySpan<byte> source =
+                input.AsSpan(
+                    index * scalarBytes,
+                    scalarBytes);
+            output[index] =
+                scalarBytes switch
+                {
+                    2 => ReadInt16(
+                        source,
+                        littleEndian),
+                    3 => (short)(
+                        ReadInt24(
+                            source,
+                            littleEndian) >>
+                        8),
+                    4 => (short)(
+                        ReadInt32(
+                            source,
+                            littleEndian) >>
+                        16),
+                    _ => throw new
+                        UnreachableException()
+                };
+        }
+        _pcm16Length = scalars;
+        return output.AsSpan(0, scalars);
+    }
+
     public void Dispose()
     {
         byte[]? input =
@@ -175,7 +246,12 @@ internal sealed class IsoBmffPcmSampleReader :
             Interlocked.Exchange(
                 ref _output,
                 null);
+        short[]? pcm16 =
+            Interlocked.Exchange(
+                ref _pcm16,
+                null);
         _length = 0;
+        _pcm16Length = 0;
         if (input is not null)
         {
             ArrayPool<byte>.Shared.Return(
@@ -186,6 +262,42 @@ internal sealed class IsoBmffPcmSampleReader :
             ArrayPool<float>.Shared.Return(
                 output);
         }
+        if (pcm16 is not null)
+        {
+            ArrayPool<short>.Shared.Return(
+                pcm16);
+        }
+    }
+
+    private IsoBmffSample GetSample(
+        int sampleIndex)
+    {
+        if ((uint)sampleIndex >=
+            _track.Samples.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sampleIndex));
+        }
+        return _track.Samples[sampleIndex];
+    }
+
+    private int ReadSample(
+        in IsoBmffSample sample,
+        byte[] input,
+        int scalarBytes)
+    {
+        int frameBytes = checked(
+            scalarBytes *
+            _track.AudioChannelCount);
+        if (sample.Size % frameBytes != 0)
+        {
+            throw new InvalidDataException(
+                "An ISO-BMFF PCM sample does not contain complete interleaved frames.");
+        }
+        _stream.Position = sample.Offset;
+        _stream.ReadExactly(
+            input.AsSpan(0, sample.Size));
+        return sample.Size / scalarBytes;
     }
 
     private static short ReadInt16(
