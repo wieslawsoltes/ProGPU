@@ -314,9 +314,8 @@ internal static class SamplePerformanceBenchmark
         long gen2Bytes = generationInfo.Length > 2 ? generationInfo[2].SizeAfterBytes : 0;
         long lohBytes = generationInfo.Length > 3 ? generationInfo[3].SizeAfterBytes : 0;
         long pohBytes = generationInfo.Length > 4 ? generationInfo[4].SizeAfterBytes : 0;
-        using var process = Process.GetCurrentProcess();
-        process.Refresh();
-        ProcessMemorySnapshot processMemory = ProcessMemorySnapshot.Capture(process);
+        ProcessMemorySnapshot processMemory =
+            ProcessMemorySnapshot.CaptureCurrent();
         var finalMetrics = AppState._screenCompositor?.Metrics;
         var finalResizeMetrics = s_window?.ResizeMetrics ?? default;
         ulong resizeEvents = finalResizeMetrics.LogicalResizeEvents - s_resizeMetricsAtStart.LogicalResizeEvents;
@@ -420,6 +419,32 @@ internal static class SamplePerformanceBenchmark
                 $" mediaHardwareDecoded={mediaHardwareDecoded}" +
                 $" mediaTransfer={mediaTransferMode}";
         }
+        else if (string.Equals(
+                     RequestedPage,
+                     "Video Editor",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            if (!NonLinearVideoEditorPage
+                    .TryGetBenchmarkPlaybackState(
+                        out TimeSpan editorPosition,
+                        out TimeSpan editorMaximumPosition,
+                        out string editorPlaybackState,
+                        out string editorProvider,
+                        out bool editorHardwareDecoded,
+                        out string editorTransferMode))
+            {
+                throw new InvalidOperationException(
+                    "Video Editor benchmark did not advance native timeline playback with an active provider.");
+            }
+
+            workloadDetails =
+                $" editorPositionMs={editorPosition.TotalMilliseconds:F0}" +
+                $" editorMaximumPositionMs={editorMaximumPosition.TotalMilliseconds:F0}" +
+                $" editorPlaybackState={editorPlaybackState}" +
+                $" editorProvider={editorProvider}" +
+                $" editorHardwareDecoded={editorHardwareDecoded}" +
+                $" editorTransfer={editorTransferMode}";
+        }
 
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
@@ -506,10 +531,10 @@ internal static class SamplePerformanceBenchmark
             $" gcPauseMs={gcPauseMilliseconds:F3}" +
             $" pinnedObjects={gcMemoryInfo.PinnedObjectsCount}" +
             $" finalizationPending={gcMemoryInfo.FinalizationPendingCount}" +
-            $" processWorkingSetBytes={process.WorkingSet64}" +
-            $" processPeakWorkingSetBytes={process.PeakWorkingSet64}" +
-            $" processPrivateBytes={process.PrivateMemorySize64}" +
-            $" processVirtualBytes={process.VirtualMemorySize64}" +
+            $" processWorkingSetBytes={processMemory.WorkingSetBytes}" +
+            $" processPeakWorkingSetBytes={processMemory.PeakWorkingSetBytes}" +
+            $" processPrivateBytes={processMemory.PrivateBytes}" +
+            $" processVirtualBytes={processMemory.VirtualBytes}" +
             $" processResidentBytes={processMemory.ResidentBytes}" +
             $" processWiredBytes={processMemory.WiredBytes}" +
             $" processPhysicalFootprintBytes={processMemory.PhysicalFootprintBytes}" +
@@ -718,20 +743,105 @@ internal static class SamplePerformanceBenchmark
 }
 
 public readonly record struct ProcessMemorySnapshot(
+    long WorkingSetBytes,
+    long PeakWorkingSetBytes,
+    long PrivateBytes,
+    long VirtualBytes,
     long ResidentBytes,
     long WiredBytes,
     long PhysicalFootprintBytes,
     long LifetimeMaxPhysicalFootprintBytes)
 {
-    public static ProcessMemorySnapshot Capture(Process process)
+    public static ProcessMemorySnapshot CaptureCurrent()
     {
-        if (OperatingSystem.IsMacOS() && MacOsProcessMemory.TryCapture(process.Id, out var mac))
-            return mac;
-        return new ProcessMemorySnapshot(
-            process.WorkingSet64,
-            0,
-            process.WorkingSet64,
-            process.PeakWorkingSet64);
+        ProcessMemorySnapshot native = default;
+        bool hasNativeMacSnapshot =
+            OperatingSystem.IsMacOS() &&
+            MacOsProcessMemory.TryCapture(
+                Environment.ProcessId,
+                out native);
+        if (OperatingSystem.IsBrowser())
+        {
+            return native;
+        }
+
+        try
+        {
+            using Process process = Process.GetCurrentProcess();
+            TryRefresh(process);
+            long workingSetBytes =
+                ReadMetric(() => process.WorkingSet64);
+            long peakWorkingSetBytes =
+                ReadMetric(() => process.PeakWorkingSet64);
+            long privateBytes =
+                ReadMetric(() => process.PrivateMemorySize64);
+            long virtualBytes =
+                ReadMetric(() => process.VirtualMemorySize64);
+
+            return new ProcessMemorySnapshot(
+                workingSetBytes,
+                peakWorkingSetBytes,
+                privateBytes,
+                virtualBytes,
+                hasNativeMacSnapshot
+                    ? native.ResidentBytes
+                    : workingSetBytes,
+                hasNativeMacSnapshot
+                    ? native.WiredBytes
+                    : 0,
+                hasNativeMacSnapshot
+                    ? native.PhysicalFootprintBytes
+                    : workingSetBytes,
+                hasNativeMacSnapshot
+                    ? native.LifetimeMaxPhysicalFootprintBytes
+                    : peakWorkingSetBytes);
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return native;
+        }
+        catch (NotSupportedException)
+        {
+            return native;
+        }
+        catch (InvalidOperationException)
+        {
+            return native;
+        }
+    }
+
+    private static void TryRefresh(Process process)
+    {
+        try
+        {
+            process.Refresh();
+        }
+        catch (PlatformNotSupportedException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+    }
+
+    private static long ReadMetric(Func<long> read)
+    {
+        try
+        {
+            return Math.Max(0, read());
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return 0;
+        }
+        catch (NotSupportedException)
+        {
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
     }
 }
 
@@ -745,6 +855,10 @@ internal static unsafe class MacOsProcessMemory
         if (ProcPidRUsage(processId, RUsageInfoV4Flavor, ref usage) == 0)
         {
             snapshot = new ProcessMemorySnapshot(
+                WorkingSetBytes: 0,
+                PeakWorkingSetBytes: 0,
+                PrivateBytes: 0,
+                VirtualBytes: 0,
                 checked((long)usage.ResidentSize),
                 checked((long)usage.WiredSize),
                 checked((long)usage.PhysicalFootprint),

@@ -66,6 +66,74 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void MobileBenchmarkUsesCapabilitySafeProcessMetrics()
+    {
+        string benchmark = Read(
+            "src",
+            "ProGPU.Samples",
+            "SamplePerformanceBenchmark.cs");
+
+        Assert.Contains(
+            "ProcessMemorySnapshot.CaptureCurrent()",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "process.WorkingSet64",
+            benchmark[
+                ..benchmark.IndexOf(
+                    "public readonly record struct ProcessMemorySnapshot",
+                    StringComparison.Ordinal)],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "catch (PlatformNotSupportedException)",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OperatingSystem.IsBrowser()",
+            benchmark,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VideoEditorBenchmarkRequiresNativePlaybackEvidence()
+    {
+        string benchmark = Read(
+            "src",
+            "ProGPU.Samples",
+            "SamplePerformanceBenchmark.cs");
+        string editor = Read(
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "NonLinearVideoEditorPage.cs");
+
+        Assert.Contains(
+            "\"Video Editor\"",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetBenchmarkPlaybackState",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "editorHardwareDecoded",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "editorTransfer",
+            benchmark,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "session.Play();",
+            editor,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RecordBenchmarkPosition(sourcePosition)",
+            editor,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WorkerCanvasResizeNeverMutatesTransferredHtmlCanvas()
     {
         var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");

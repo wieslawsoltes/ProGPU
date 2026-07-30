@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using ProGPU.Media;
 using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Effects;
@@ -24,6 +25,8 @@ namespace ProGPU.Samples;
 
 public static class NonLinearVideoEditorPage
 {
+    private static EditorSession? s_benchmarkSession;
+    private static long s_benchmarkMaximumPositionTicks;
     private const string SampleUri =
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
     private const string AudioGainEffectId =
@@ -708,7 +711,78 @@ public static class NonLinearVideoEditorPage
         root.Session = session;
         root.Unloaded += (_, _) => session.Dispose();
         session.Add(new Uri(SampleUri), "Flower sample");
+        if (string.Equals(
+                SamplePerformanceBenchmark.RequestedPage,
+                "Video Editor",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            s_benchmarkSession = session;
+            Interlocked.Exchange(
+                ref s_benchmarkMaximumPositionTicks,
+                0);
+            session.Play();
+        }
         return root;
+    }
+
+    internal static bool TryGetBenchmarkPlaybackState(
+        out TimeSpan position,
+        out TimeSpan maximumPosition,
+        out string playbackState,
+        out string provider,
+        out bool hardwareDecoded,
+        out string transferMode)
+    {
+        EditorSession? session = s_benchmarkSession;
+        if (session is null)
+        {
+            position = default;
+            maximumPosition = default;
+            playbackState = "Unavailable";
+            provider = "none";
+            hardwareDecoded = false;
+            transferMode = "unavailable";
+            return false;
+        }
+
+        MediaPlayer player = session.Player;
+        position = player.PlaybackSession.Position;
+        maximumPosition = TimeSpan.FromTicks(
+            Interlocked.Read(
+                ref s_benchmarkMaximumPositionTicks));
+        playbackState =
+            player.PlaybackSession.PlaybackState.ToString();
+        var diagnostics = player.GetProGpuDiagnostics();
+        provider = diagnostics.ProviderId ?? "none";
+        hardwareDecoded = diagnostics.HardwareDecoded;
+        transferMode =
+            diagnostics.TransferMode?.ToString() ??
+            "unavailable";
+        return maximumPosition > TimeSpan.Zero &&
+            !string.Equals(
+                provider,
+                "none",
+                StringComparison.Ordinal);
+    }
+
+    private static void RecordBenchmarkPosition(
+        TimeSpan position)
+    {
+        long candidate = position.Ticks;
+        long observed = Interlocked.Read(
+            ref s_benchmarkMaximumPositionTicks);
+        while (candidate > observed)
+        {
+            long previous = Interlocked.CompareExchange(
+                ref s_benchmarkMaximumPositionTicks,
+                candidate,
+                observed);
+            if (previous == observed)
+            {
+                return;
+            }
+            observed = previous;
+        }
     }
 
     private static bool TryParseArgb(
@@ -970,6 +1044,8 @@ public static class NonLinearVideoEditorPage
             RebuildTimeline();
             SetStatus($"Added {name}.");
         }
+
+        public MediaPlayer Player => _player;
 
         public void AddColor(
             Color color,
@@ -1877,6 +1953,12 @@ public static class NonLinearVideoEditorPage
                 return;
             }
             TimeSpan sourcePosition = sender.Position;
+            if (ReferenceEquals(
+                    s_benchmarkSession,
+                    this))
+            {
+                RecordBenchmarkPosition(sourcePosition);
+            }
             if (_pendingPlay &&
                 sourcePosition >= EndOf(clip))
             {
@@ -3369,6 +3451,12 @@ public static class NonLinearVideoEditorPage
             }
             _overlayPlayback.Clear();
             _player.Dispose();
+            if (ReferenceEquals(
+                    s_benchmarkSession,
+                    this))
+            {
+                s_benchmarkSession = null;
+            }
         }
     }
 }

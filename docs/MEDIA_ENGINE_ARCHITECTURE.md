@@ -2286,3 +2286,55 @@ seek/loop/device-loss stress, and physical Windows, Linux, Android, and iOS
 qualification. The macOS result proves the current AVFoundation-to-Metal
 zero-copy lane on this machine and workload; it is deliberately not
 generalized to unmeasured adapters, codecs, formats, displays, or platforms.
+
+### iOS simulator media and editor functional qualification
+
+The iOS 26.4 simulator checkpoint used the dedicated iPhone 17 Pro simulator
+`F837E28A-C6F6-44AD-86B1-7AA45CC43B3F` and the strict
+`net10.0-ios`/`iossimulator-arm64` Release build:
+
+```bash
+dotnet build src/ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj \
+  -c Release -f net10.0-ios -r iossimulator-arm64 \
+  -p:ProGpuRequireZeroCopyMedia=true --no-restore
+```
+
+The first real `GPU Media Player` benchmark exposed an iOS portability defect:
+`System.Diagnostics.Process.WorkingSet64` throws
+`PlatformNotSupportedException` when the benchmark collects its final
+metrics. Process metrics are now captured independently behind capability
+checks, with the existing `libproc` snapshot retained for macOS and
+unsupported values reported as zero. Zero in an iOS simulator result
+therefore means unavailable, not zero memory consumption. The repaired
+600-frame media run completed, advanced through the 5,011-ms flower clip, and
+reported runtime provider `progpu.apple.avfoundation`, hardware decode, and
+`NativeZeroCopy`.
+
+The `Video Editor` benchmark now starts the composed timeline and refuses to
+report success unless playback actually advances through an active native
+provider. Its 180-frame warm-up and 600-frame measurement reached 5,011 ms
+and reported `progpu.apple.avfoundation`, hardware decode, and
+`NativeZeroCopy`. The final paused state is expected because the default
+one-clip editor timeline reached its end. A separate long-warm-up launch
+visually confirmed that the flower video populated the editor preview and
+that the composed timeline contained the 5.011-second clip. Raw console logs
+and screenshots are under
+`artifacts/performance/media-final-qualification-20260730`; this directory is
+intentionally ignored by Git.
+
+The editor run reported 55.64 wall FPS, a 10.1879-ms average frame, a
+52.5198-ms maximum, 36 frames above 16.667 ms, and 4,107 managed bytes per
+frame. These numbers are recorded only to make regressions reproducible. The
+iOS project uses interpreter-backed simulator execution, and the simulator
+shares the Mac's CPU, GPU, network, and power environment; none of these
+numbers qualify physical-device throughput, latency, allocation, power,
+thermal, audio-glitch, or hardware-decoder behavior. Those remain device
+gates, alongside Android hardware qualification.
+
+The same deterministic editor gate also passed in the rebuilt macOS ARM64
+`ProGPU.Samples.Desktop` Release host. It reached the 5,011-ms timeline end
+through AVFoundation hardware `NativeZeroCopy` playback and completed 600
+measured frames at 116.69 wall FPS, with an 8.5295-ms average frame, a
+16.9850-ms maximum, six frames above 16.667 ms, and 3,852 managed bytes per
+frame. This is a single functional regression run, not a replacement for the
+matched multi-run NativeAOT media-player qualification above.
