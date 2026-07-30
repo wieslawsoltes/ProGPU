@@ -910,7 +910,7 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
-    public void LinuxThumbnailCapabilityAcceptsColorOverlaysOnColorTimeline()
+    public void LinuxThumbnailCapabilityAcceptsColorOverlaysAcrossMainClipKinds()
     {
         MediaCompositionExportRequest baseline =
             CreateLinuxPreciseRequest(
@@ -974,15 +974,24 @@ public sealed class LinuxMediaProviderContractTests
                         new Dictionary<string, string>())
                 ]
             };
+        MediaCompositionThumbnailRequest uriRequest =
+            request with
+            {
+                Composition = uriComposition
+            };
+        Assert.True(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    uriRequest,
+                    isLinux: true,
+                    hasH264Decoder: true,
+                    hasVulkanWebGpu: true));
         Assert.False(
             LinuxV4l2MediaCompositionThumbnailProvider
                 .CanRenderRequest(
-                    request with
-                    {
-                        Composition = uriComposition
-                    },
+                    uriRequest,
                     isLinux: true,
-                    hasH264Decoder: true,
+                    hasH264Decoder: false,
                     hasVulkanWebGpu: true));
     }
 
@@ -1060,6 +1069,34 @@ public sealed class LinuxMediaProviderContractTests
             renderer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "private const int SnapshotSlotCount = 2",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CaptureFrame(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RenderSnapshot(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_target.CopyBaseLevelFrom(snapshot)",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ReleaseSnapshot(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositionTicks",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "current?.Dispose();",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "LinuxMediaColorOverlayPlanner.TryCapture(",
             provider,
             StringComparison.Ordinal);
@@ -1094,6 +1131,14 @@ public sealed class LinuxMediaProviderContractTests
         Assert.DoesNotContain(
             "Marshal.Copy",
             provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WritePixels",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            renderer,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "FFmpeg",

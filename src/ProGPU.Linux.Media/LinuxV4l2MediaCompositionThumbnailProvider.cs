@@ -150,8 +150,7 @@ public sealed class
                 composition,
                 effects ?? MediaEffectRegistry.Default,
                 out LinuxMediaColorOverlayPlan[]
-                    overlays) ||
-            overlays.Length != 0 && hasUri)
+                    overlays))
         {
             return false;
         }
@@ -285,7 +284,9 @@ public sealed class
                     []).Add(
                     new ThumbnailWorkItem(
                         index,
-                        position.SourceTicks));
+                        position.SourceTicks,
+                        request.Positions[index]
+                            .Ticks));
             }
 
             for (int clipIndex = 0;
@@ -307,6 +308,7 @@ public sealed class
                     clipIndex,
                     work,
                     renderer,
+                    overlays,
                     results,
                     cancellationToken);
             }
@@ -332,6 +334,8 @@ public sealed class
         int clipIndex,
         List<ThumbnailWorkItem> work,
         LinuxWebGpuCompositionThumbnailRenderer renderer,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
         MediaCompositionThumbnail?[] results,
         CancellationToken cancellationToken)
     {
@@ -425,30 +429,41 @@ public sealed class
                 while (decoder.TryDequeueFrame(
                            out V4l2DecodedFrame frame))
                 {
-                    var current =
+                    FrameCandidate? current =
                         new FrameCandidate(frame);
-                    while (workIndex < work.Count &&
-                           work[workIndex].SourceTicks <=
-                               current.Timestamp)
+                    try
                     {
-                        FrameCandidate selected =
-                            previous is not null &&
-                            work[workIndex].SourceTicks -
-                                previous.Timestamp <=
-                            current.Timestamp -
-                                work[workIndex].SourceTicks
-                                ? previous
-                                : current;
-                        results[work[workIndex].ResultIndex] =
-                            selected.Render(
-                                request,
-                                renderer,
-                                clip,
-                                _effects);
-                        workIndex++;
+                        while (workIndex < work.Count &&
+                               work[workIndex].SourceTicks <=
+                                   current.Timestamp)
+                        {
+                            FrameCandidate selected =
+                                previous is not null &&
+                                work[workIndex].SourceTicks -
+                                    previous.Timestamp <=
+                                current.Timestamp -
+                                    work[workIndex].SourceTicks
+                                    ? previous
+                                    : current;
+                            results[work[workIndex].ResultIndex] =
+                                selected.Render(
+                                    request,
+                                    renderer,
+                                    clip,
+                                    _effects,
+                                    overlays,
+                                    work[workIndex]
+                                        .CompositionTicks);
+                            workIndex++;
+                        }
+                        previous?.Dispose();
+                        previous = current;
+                        current = null;
                     }
-                    previous?.Dispose();
-                    previous = current;
+                    finally
+                    {
+                        current?.Dispose();
+                    }
                     if (workIndex == work.Count)
                     {
                         break;
@@ -483,7 +498,10 @@ public sealed class
                                 request,
                                 renderer,
                                 clip,
-                                _effects);
+                                _effects,
+                                overlays,
+                                work[workIndex]
+                                    .CompositionTicks);
                         workIndex++;
                     }
                 }
@@ -607,6 +625,9 @@ public sealed class
     {
         private V4l2DecodedFrame? _frame;
         private MediaCompositionThumbnail? _thumbnail;
+        private LinuxWebGpuCompositionThumbnailRenderer?
+            _snapshotOwner;
+        private int _snapshotSlot = -1;
 
         internal FrameCandidate(
             V4l2DecodedFrame frame)
@@ -622,17 +643,17 @@ public sealed class
             MediaCompositionThumbnailRequest request,
             LinuxWebGpuCompositionThumbnailRenderer renderer,
             MediaCompositionExportClip clip,
-            MediaEffectRegistry effects)
+            MediaEffectRegistry effects,
+            IReadOnlyList<LinuxMediaColorOverlayPlan>
+                overlays,
+            long compositionTicks)
         {
-            if (_thumbnail is not null)
+            ArgumentNullException.ThrowIfNull(overlays);
+            if (overlays.Count == 0 &&
+                _thumbnail is not null)
             {
                 return _thumbnail;
             }
-            V4l2DecodedFrame frame =
-                _frame ??
-                throw new ObjectDisposedException(
-                    nameof(FrameCandidate));
-            _frame = null;
             if (!LinuxV4l2PreciseMediaCompositionExportProvider
                     .TryGetVideoEffectPlan(
                         clip,
@@ -643,15 +664,37 @@ public sealed class
                 throw new InvalidDataException(
                     "The clip contains an unsupported video effect.");
             }
-            byte[] pixels =
-                renderer.RenderFrame(
-                    in frame,
-                    effectPlan);
-            _thumbnail =
-                Encode(
-                    request,
-                    pixels);
-            return _thumbnail;
+            if (overlays.Count == 0)
+            {
+                V4l2DecodedFrame frame =
+                    TakeFrame();
+                byte[] pixels =
+                    renderer.RenderFrame(
+                        in frame,
+                        effectPlan);
+                _thumbnail =
+                    Encode(
+                        request,
+                        pixels);
+                return _thumbnail;
+            }
+
+            if (_snapshotSlot < 0)
+            {
+                V4l2DecodedFrame frame =
+                    TakeFrame();
+                _snapshotSlot =
+                    renderer.CaptureFrame(
+                        in frame,
+                        effectPlan);
+                _snapshotOwner = renderer;
+            }
+            return Encode(
+                request,
+                renderer.RenderSnapshot(
+                    _snapshotSlot,
+                    overlays,
+                    compositionTicks));
         }
 
         public void Dispose()
@@ -660,12 +703,30 @@ public sealed class
                 _frame;
             _frame = null;
             frame?.Owner.Dispose();
+            if (_snapshotSlot >= 0)
+            {
+                _snapshotOwner!.ReleaseSnapshot(
+                    _snapshotSlot);
+                _snapshotSlot = -1;
+                _snapshotOwner = null;
+            }
+        }
+
+        private V4l2DecodedFrame TakeFrame()
+        {
+            V4l2DecodedFrame frame =
+                _frame ??
+                throw new ObjectDisposedException(
+                    nameof(FrameCandidate));
+            _frame = null;
+            return frame;
         }
     }
 
     private readonly record struct ThumbnailWorkItem(
         int ResultIndex,
-        long SourceTicks);
+        long SourceTicks,
+        long CompositionTicks);
 
     private sealed class TimelineIndex
     {
