@@ -30,7 +30,6 @@ internal enum ActivityProcessScope
     ActiveProcesses,
     InactiveProcesses,
     GpuProcesses,
-    WindowedProcesses,
     SelectedProcesses,
     Applications
 }
@@ -470,7 +469,6 @@ internal sealed class ActivityMonitorView : Grid
         AddScopeItem(scope, ActivityProcessScope.ActiveProcesses, "Active Processes");
         AddScopeItem(scope, ActivityProcessScope.InactiveProcesses, "Inactive Processes");
         AddScopeItem(scope, ActivityProcessScope.GpuProcesses, "GPU Processes");
-        AddScopeItem(scope, ActivityProcessScope.WindowedProcesses, "Windowed Processes");
         AddScopeItem(scope, ActivityProcessScope.SelectedProcesses, "Selected Processes");
         AddScopeItem(scope, ActivityProcessScope.Applications, "Applications");
         flyout.Items.Add(scope);
@@ -565,7 +563,6 @@ internal sealed class ActivityMonitorView : Grid
             ActivityProcessScope.ActiveProcesses => "Active Processes",
             ActivityProcessScope.InactiveProcesses => "Inactive Processes",
             ActivityProcessScope.GpuProcesses => "GPU Processes",
-            ActivityProcessScope.WindowedProcesses => "Windowed Processes",
             ActivityProcessScope.SelectedProcesses => "Selected Processes",
             ActivityProcessScope.Applications => "Applications",
             _ => "All Processes"
@@ -669,8 +666,7 @@ internal sealed class ActivityMonitorView : Grid
             ActivityProcessScope.GpuProcesses => filtered.Where(process =>
                 process.GpuPercent.GetValueOrDefault() > 0.01 ||
                 process.GpuTime.GetValueOrDefault() > TimeSpan.Zero),
-            ActivityProcessScope.WindowedProcesses or
-                ActivityProcessScope.Applications =>
+            ActivityProcessScope.Applications =>
                 filtered.Where(process => process.IsApplication),
             ActivityProcessScope.SelectedProcesses when selectedId.HasValue =>
                 filtered.Where(process => process.ProcessId == selectedId.Value),
@@ -1057,8 +1053,8 @@ internal sealed class ActivityMonitorView : Grid
             "User" => process.User,
             "PortCount" => ActivityMetricFormatter.Count(process.PortCount),
             "EnergyImpact" => ActivityMetricFormatter.Percent(process.EnergyImpact),
-            "AppNap" => process.AppNap ? "Yes" : "No",
-            "PreventingSleep" => process.PreventingSleep ? "Yes" : "No",
+            "AppNap" => FormatAvailability(process.AppNap),
+            "PreventingSleep" => FormatAvailability(process.PreventingSleep),
             "DiskWrittenBytes" => ActivityMetricFormatter.Bytes(process.DiskWrittenBytes),
             "DiskReadBytes" => ActivityMetricFormatter.Bytes(process.DiskReadBytes),
             "NetworkSentBytes" => ActivityMetricFormatter.Bytes(process.NetworkSentBytes),
@@ -1068,6 +1064,11 @@ internal sealed class ActivityMonitorView : Grid
             _ => string.Empty
         };
     }
+
+    private static string FormatAvailability(bool? value) =>
+        value.HasValue
+            ? value.Value ? "Yes" : "No"
+            : "Unavailable";
 
     private string FormatProcessName(ProcessSnapshot process)
     {

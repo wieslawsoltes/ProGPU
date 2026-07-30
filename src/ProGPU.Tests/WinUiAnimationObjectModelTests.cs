@@ -1076,6 +1076,25 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void DataGridKeyboardNavigationSelectsRowsWithoutPointerInput()
+    {
+        var dataGrid = new DataGrid { IsReadOnly = true };
+        dataGrid.ItemsSource.AddRange(["first", "second", "third"]);
+
+        var down = new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Down };
+        dataGrid.OnKeyDown(down);
+        Assert.True(down.Handled);
+        Assert.Equal("first", dataGrid.SelectedItem);
+
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Down });
+        Assert.Equal("second", dataGrid.SelectedItem);
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.End });
+        Assert.Equal("third", dataGrid.SelectedItem);
+        dataGrid.OnKeyDown(new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Home });
+        Assert.Equal("first", dataGrid.SelectedItem);
+    }
+
+    [Fact]
     public void MenuFlyoutPublishesWinUiRadioAndSubmenuContracts()
     {
         var radio = new RadioMenuFlyoutItem

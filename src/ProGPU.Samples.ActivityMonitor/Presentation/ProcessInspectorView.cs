@@ -76,7 +76,7 @@ internal sealed class ProcessInspectorView : Grid
         [
             $"User:                 {_details.User}",
             $"PID:                    {_details.ProcessId}",
-            $"Recent hangs:   0",
+            $"Recent hangs:   Unavailable",
             $"Started:              {FormatStartTime(_details.StartTime)}"
         ]);
         summary.AddChild(left);

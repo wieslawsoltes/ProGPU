@@ -1531,6 +1531,32 @@ public class DataGrid : Control
     {
         if (IsEnabled)
         {
+            int target = e.Key switch
+            {
+                Key.Down => SelectedIndex < 0
+                    ? 0
+                    : Math.Min(_itemsSource.Count - 1, SelectedIndex + 1),
+                Key.Up => SelectedIndex < 0
+                    ? _itemsSource.Count - 1
+                    : Math.Max(0, SelectedIndex - 1),
+                Key.Home => 0,
+                Key.End => _itemsSource.Count - 1,
+                Key.PageDown => Math.Min(
+                    _itemsSource.Count - 1,
+                    Math.Max(0, SelectedIndex) + VisibleKeyboardRowCount),
+                Key.PageUp => Math.Max(
+                    0,
+                    (SelectedIndex < 0 ? _itemsSource.Count - 1 : SelectedIndex) -
+                    VisibleKeyboardRowCount),
+                _ => -1
+            };
+            if (_itemsSource.Count > 0 && target >= 0)
+            {
+                SelectedIndex = target;
+                EnsureSelectedRowVisible();
+                e.Handled = true;
+                return;
+            }
             if (!IsReadOnly && e.Key == Key.Enter)
             {
                 if (SelectedIndex >= 0 && SelectedIndex < _itemsSource.Count && _editingRow == -1)
@@ -1542,6 +1568,48 @@ public class DataGrid : Control
             }
         }
         base.OnKeyDown(e);
+    }
+
+    private int VisibleKeyboardRowCount
+    {
+        get
+        {
+            float rowHeight = IsVariableRowHeight
+                ? Math.Max(MinRowHeight, EstimatedRowHeight)
+                : _rowHeight;
+            return Math.Max(1, (int)(Math.Max(0, ViewportHeight) / rowHeight));
+        }
+    }
+
+    private void EnsureSelectedRowVisible()
+    {
+        if (SelectedIndex < 0 || ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        float rowTop;
+        float rowHeight;
+        if (IsVariableRowHeight)
+        {
+            VariableSizeIndex sizes = EnsureRowSizeIndex();
+            rowTop = sizes.GetOffset(SelectedIndex);
+            rowHeight = sizes.GetSize(SelectedIndex);
+        }
+        else
+        {
+            rowTop = SelectedIndex * _rowHeight;
+            rowHeight = _rowHeight;
+        }
+
+        if (rowTop < ScrollOffset)
+        {
+            ScrollOffset = rowTop;
+        }
+        else if (rowTop + rowHeight > ScrollOffset + ViewportHeight)
+        {
+            ScrollOffset = rowTop + rowHeight - ViewportHeight;
+        }
     }
 
     public void BeginEdit(int row, int col)

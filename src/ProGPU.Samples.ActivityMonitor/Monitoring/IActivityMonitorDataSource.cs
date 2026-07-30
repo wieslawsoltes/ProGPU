@@ -64,8 +64,8 @@ public sealed record ProcessSnapshot(
     int PortCount,
     double? GpuPercent,
     TimeSpan? GpuTime,
-    bool AppNap,
-    bool PreventingSleep,
+    bool? AppNap,
+    bool? PreventingSleep,
     string Kind,
     string ExecutablePath,
     bool IsApplication);

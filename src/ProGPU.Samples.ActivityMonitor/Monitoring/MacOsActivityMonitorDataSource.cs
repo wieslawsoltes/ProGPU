@@ -432,8 +432,8 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                         portCount,
                         null,
                         null,
-                        false,
-                        false,
+                        null,
+                        null,
                         kind,
                         executablePath,
                         isApplication));
