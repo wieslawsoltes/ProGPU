@@ -521,6 +521,8 @@ public sealed class MediaPlayer : IDisposable
             if (_source is MediaPlaybackList previousList)
             {
                 previousList.DetachPlayer(this);
+                previousList.PlaybackOrderChanged -=
+                    OnPlaybackOrderChanged;
             }
 
             _source = value;
@@ -528,6 +530,8 @@ public sealed class MediaPlayer : IDisposable
             if (_source is MediaPlaybackList currentList)
             {
                 currentList.AttachPlayer(this);
+                currentList.PlaybackOrderChanged +=
+                    OnPlaybackOrderChanged;
             }
             if (_typedSource is not null)
             {
@@ -816,6 +820,11 @@ public sealed class MediaPlayer : IDisposable
         RefreshEngineSource();
         CommandManager.Refresh();
     }
+
+    private void OnPlaybackOrderChanged(
+        object? sender,
+        EventArgs args) =>
+        CommandManager.Refresh();
 
     private void RefreshEngineSource()
     {
@@ -1106,6 +1115,8 @@ public sealed class MediaPlayer : IDisposable
         if (_source is MediaPlaybackList list)
         {
             list.DetachPlayer(this);
+            list.PlaybackOrderChanged -=
+                OnPlaybackOrderChanged;
         }
         _engine.Changed -= OnEngineChanged;
         _engine.Opened -= OnEngineOpened;

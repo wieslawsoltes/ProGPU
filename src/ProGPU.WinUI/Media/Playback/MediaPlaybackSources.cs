@@ -216,43 +216,34 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     private readonly object _playbackOwnersGate = new();
     private readonly List<PlaybackOwnerEntry> _playbackOwners = [];
     private int _currentIndex = -1;
+    private MediaPlaybackItem? _currentItem;
     private MediaPlaybackItem[] _shuffledItems = [];
+    private bool _autoRepeatEnabled;
     private bool _shuffleEnabled;
     private MediaPlaybackItem? _startingItem;
 
     public MediaPlaybackList()
     {
-        _items.CollectionChanged += (_, _) =>
-        {
-            if (_shuffleEnabled)
-            {
-                RegenerateShuffle();
-            }
-            if (_items.Count == 0)
-            {
-                SetCurrentIndex(
-                    -1,
-                    MediaPlaybackItemChangedReason.AppRequested);
-            }
-            else if (_currentIndex < 0 ||
-                     _currentIndex >= _items.Count)
-            {
-                SetCurrentIndex(
-                    0,
-                    MediaPlaybackItemChangedReason.InitialItem);
-            }
-            SourceInvalidated?.Invoke(this, EventArgs.Empty);
-        };
+        _items.CollectionChanged += OnItemsCollectionChanged;
     }
 
     public IObservableVector<MediaPlaybackItem> Items => _items;
-    public MediaPlaybackItem? CurrentItem =>
-        _currentIndex >= 0 && _currentIndex < _items.Count
-            ? _items[_currentIndex]
-            : null;
+    public MediaPlaybackItem? CurrentItem => _currentItem;
     public uint CurrentItemIndex =>
         _currentIndex < 0 ? uint.MaxValue : (uint)_currentIndex;
-    public bool AutoRepeatEnabled { get; set; }
+    public bool AutoRepeatEnabled
+    {
+        get => _autoRepeatEnabled;
+        set
+        {
+            if (_autoRepeatEnabled == value)
+            {
+                return;
+            }
+            _autoRepeatEnabled = value;
+            PlaybackOrderChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
     public bool ShuffleEnabled
     {
         get => _shuffleEnabled;
@@ -263,10 +254,12 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
                 return;
             }
             _shuffleEnabled = value;
-            if (value && _shuffledItems.Length == 0)
+            if (value &&
+                _shuffledItems.Length != _items.Count)
             {
                 RegenerateShuffle();
             }
+            PlaybackOrderChanged?.Invoke(this, EventArgs.Empty);
         }
     }
     public MediaPlaybackItem? StartingItem
@@ -314,6 +307,145 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         ItemFailed;
 
     internal event EventHandler? SourceInvalidated;
+    internal event EventHandler? PlaybackOrderChanged;
+
+    private void OnItemsCollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs args)
+    {
+        if (_shuffleEnabled)
+        {
+            RegenerateShuffle();
+        }
+        else if (_shuffledItems.Length != 0)
+        {
+            _shuffledItems = [];
+        }
+
+        switch (args.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                HandleItemsAdded(args);
+                return;
+            case NotifyCollectionChangedAction.Remove:
+                HandleItemsRemoved(args);
+                return;
+            case NotifyCollectionChangedAction.Replace:
+                HandleItemsReplaced(args);
+                return;
+            case NotifyCollectionChangedAction.Move:
+                SynchronizeCurrentItemIndex();
+                PlaybackOrderChanged?.Invoke(
+                    this,
+                    EventArgs.Empty);
+                return;
+            default:
+                SetCurrentIndex(
+                    -1,
+                    MediaPlaybackItemChangedReason.AppRequested);
+                return;
+        }
+    }
+
+    private void HandleItemsAdded(
+        NotifyCollectionChangedEventArgs args)
+    {
+        int addedCount = args.NewItems?.Count ?? 0;
+        if (_currentItem is null)
+        {
+            SetCurrentIndex(
+                0,
+                MediaPlaybackItemChangedReason.InitialItem);
+            return;
+        }
+
+        if (args.NewStartingIndex >= 0 &&
+            args.NewStartingIndex <= _currentIndex)
+        {
+            _currentIndex = checked(
+                _currentIndex + addedCount);
+        }
+        PlaybackOrderChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void HandleItemsRemoved(
+        NotifyCollectionChangedEventArgs args)
+    {
+        if (_currentItem is null)
+        {
+            PlaybackOrderChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+            return;
+        }
+
+        int removedStart = args.OldStartingIndex;
+        int removedCount = args.OldItems?.Count ?? 0;
+        int removedEnd = checked(removedStart + removedCount);
+        if (removedStart < 0)
+        {
+            SynchronizeCurrentItemIndex();
+            PlaybackOrderChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+            return;
+        }
+        if (_currentIndex < removedStart)
+        {
+            PlaybackOrderChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+            return;
+        }
+        if (_currentIndex >= removedEnd)
+        {
+            _currentIndex -= removedCount;
+            PlaybackOrderChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+            return;
+        }
+
+        int nextIndex = _items.Count == 0
+            ? -1
+            : Math.Min(removedStart, _items.Count - 1);
+        SetCurrentIndex(
+            nextIndex,
+            MediaPlaybackItemChangedReason.AppRequested);
+    }
+
+    private void HandleItemsReplaced(
+        NotifyCollectionChangedEventArgs args)
+    {
+        int replacedStart = args.OldStartingIndex;
+        int replacedCount = args.OldItems?.Count ?? 0;
+        if (replacedStart >= 0 &&
+            _currentIndex >= replacedStart &&
+            _currentIndex <
+                checked(replacedStart + replacedCount))
+        {
+            SetCurrentIndex(
+                _currentIndex,
+                MediaPlaybackItemChangedReason.AppRequested);
+            return;
+        }
+        PlaybackOrderChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SynchronizeCurrentItemIndex()
+    {
+        if (_currentItem is null)
+        {
+            _currentIndex = -1;
+            return;
+        }
+
+        _currentIndex = _items.IndexOf(_currentItem);
+        if (_currentIndex < 0)
+        {
+            _currentItem = null;
+        }
+    }
 
     private sealed class MediaPlaybackItemVector :
         ObservableCollection<MediaPlaybackItem>,
@@ -471,6 +603,7 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
             }
         }
         _shuffledItems = shuffled;
+        PlaybackOrderChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal bool MoveNextAfterEnd() =>
@@ -736,14 +869,19 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         int value,
         MediaPlaybackItemChangedReason reason)
     {
-        if (_currentIndex == value)
+        MediaPlaybackItem? newItem =
+            value >= 0 && value < _items.Count
+                ? _items[value]
+                : null;
+        if (_currentIndex == value &&
+            ReferenceEquals(_currentItem, newItem))
         {
             return value >= 0;
         }
 
-        MediaPlaybackItem? oldItem = CurrentItem;
+        MediaPlaybackItem? oldItem = _currentItem;
         _currentIndex = value;
-        MediaPlaybackItem? newItem = CurrentItem;
+        _currentItem = newItem;
         CurrentItemChanged?.Invoke(
             this,
             new CurrentMediaPlaybackItemChangedEventArgs(

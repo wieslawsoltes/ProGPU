@@ -974,6 +974,14 @@ projection. Insert, remove, replacement, and reset mutations publish one
 typed `VectorChanged` notification with the documented `CollectionChange`
 and zero-based index after the list has updated its playback state. The
 notification adds O(1) work and no reflection to each ordinary mutation.
+Mutating an item before or after the active item preserves active-item
+identity and updates `CurrentItemIndex` without reopening the native decoder.
+Removing or replacing the active item raises the official
+[`CurrentItemChanged`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacklist.currentitemchanged)
+event once with `AppRequested` and opens only the resulting item. A separate
+typed playback-order notification refreshes command enablement without
+invalidating the media source. Non-shuffle insert, remove, and replacement
+bookkeeping is O(1); regenerating an enabled shuffle remains O(N) for N items.
 `MediaPlaybackItem.GetDisplayProperties`,
 `ApplyDisplayProperties`, and `AutoLoadedDisplayProperties` follow the
 official

@@ -2958,6 +2958,122 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void PlaybackListMutationsPreserveActiveItemAndProvider()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource currentSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/current.mp4"));
+        using MediaSource laterSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/later.mp4"));
+        using MediaSource prefixSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/prefix.mp4"));
+        using MediaSource replacementSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/replacement.mp4"));
+        var current = new MediaPlaybackItem(currentSource);
+        var later = new MediaPlaybackItem(laterSource);
+        var prefix = new MediaPlaybackItem(prefixSource);
+        var replacement =
+            new MediaPlaybackItem(replacementSource);
+        var list = new MediaPlaybackList();
+        int sourceInvalidations = 0;
+        int playbackOrderChanges = 0;
+        var itemChanges =
+            new List<
+                CurrentMediaPlaybackItemChangedEventArgs>();
+        ((IProGpuMediaPlaybackSource)list)
+            .SourceInvalidated +=
+            (_, _) => sourceInvalidations++;
+        list.PlaybackOrderChanged +=
+            (_, _) => playbackOrderChanges++;
+        list.CurrentItemChanged +=
+            (_, args) => itemChanges.Add(args);
+
+        list.Items.Add(current);
+        list.Items.Add(later);
+        player.Source = list;
+        RecordingProvider activeProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+
+        list.Items.Insert(0, prefix);
+
+        Assert.Same(current, list.CurrentItem);
+        Assert.Equal(1u, list.CurrentItemIndex);
+        Assert.Same(activeProvider, factory.LastProvider);
+
+        list.Items.Remove(prefix);
+
+        Assert.Same(current, list.CurrentItem);
+        Assert.Equal(0u, list.CurrentItemIndex);
+        Assert.Same(activeProvider, factory.LastProvider);
+
+        list.Items[1] = replacement;
+
+        Assert.Same(current, list.CurrentItem);
+        Assert.Equal(0u, list.CurrentItemIndex);
+        Assert.Same(activeProvider, factory.LastProvider);
+        Assert.Equal(1, sourceInvalidations);
+        Assert.Equal(4, playbackOrderChanges);
+        Assert.Single(itemChanges);
+        Assert.Null(itemChanges[0].OldItem);
+        Assert.Same(current, itemChanges[0].NewItem);
+        Assert.Equal(
+            MediaPlaybackItemChangedReason.InitialItem,
+            itemChanges[0].Reason);
+
+        list.Items.RemoveAt(0);
+
+        Assert.Same(replacement, list.CurrentItem);
+        Assert.Equal(0u, list.CurrentItemIndex);
+        Assert.NotSame(activeProvider, factory.LastProvider);
+        Assert.Equal(2, sourceInvalidations);
+        Assert.Equal(4, playbackOrderChanges);
+        Assert.Equal(2, itemChanges.Count);
+        Assert.Same(current, itemChanges[1].OldItem);
+        Assert.Same(replacement, itemChanges[1].NewItem);
+        Assert.Equal(
+            MediaPlaybackItemChangedReason.AppRequested,
+            itemChanges[1].Reason);
+
+        RecordingProvider replacementProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        list.Items[0] = later;
+
+        Assert.Same(later, list.CurrentItem);
+        Assert.Equal(0u, list.CurrentItemIndex);
+        Assert.NotSame(
+            replacementProvider,
+            factory.LastProvider);
+        Assert.Equal(3, sourceInvalidations);
+        Assert.Equal(3, itemChanges.Count);
+        Assert.Same(replacement, itemChanges[2].OldItem);
+        Assert.Same(later, itemChanges[2].NewItem);
+
+        list.Items.Clear();
+
+        Assert.Null(list.CurrentItem);
+        Assert.Equal(uint.MaxValue, list.CurrentItemIndex);
+        Assert.Equal(4, sourceInvalidations);
+        Assert.Equal(4, itemChanges.Count);
+        Assert.Same(later, itemChanges[3].OldItem);
+        Assert.Null(itemChanges[3].NewItem);
+    }
+
+    [Fact]
     public void WinUiPlaybackListCanSkipBlocksOnlyManualActiveNavigation()
     {
         var registry = new MediaProviderRegistry();
