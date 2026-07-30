@@ -27,7 +27,9 @@ namespace ProGPU.Android.Media;
 /// The only full-frame operation after WebGPU effects is one terminal EGL
 /// texture sample/write into the timestamped encoder surface. Solid-color
 /// frames replace decoder staging with a WebGPU clear on the same bounded
-/// source ring.
+/// source ring. Standard overlays retain only their external-OES decoder
+/// inputs; selected URI/color layers reuse the same source ring and one
+/// retained WebGPU source-over pipeline.
 /// </remarks>
 public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     IMediaGpuEncoderFrameSink,
@@ -40,6 +42,8 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     private readonly Queue<int> _available = new(TargetCount);
     private readonly AndroidHardwareBufferEglPresenter _presenter;
     private GpuTexture? _blurIntermediate;
+    private GpuTexture? _overlayEffectOutput;
+    private GpuTextureLayerCompositor? _layerCompositor;
     private int _outstanding;
     private int _nextSourceSlot;
     private int _disposed;
@@ -157,6 +161,39 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
     public AndroidSurface DecoderSurface =>
         _presenter.DecoderSurface;
 
+    internal AndroidDecoderSurfaceInput
+        CreateOverlayDecoderInput()
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        PrepareOverlayComposition();
+        return _presenter.CreateDecoderInput();
+    }
+
+    internal void PrepareOverlayComposition()
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        _layerCompositor ??=
+            new GpuTextureLayerCompositor(
+                Context,
+                TextureFormat.Rgba8Unorm);
+    }
+
+    internal void UpdateOverlayDecoderInput(
+        AndroidDecoderSurfaceInput input,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        _presenter.UpdateDecoderInput(
+            input,
+            cancellationToken);
+    }
+
     public bool TryAcquireFrame(
         TimeSpan presentationTime,
         out IMediaGpuEncoderFrame frame)
@@ -187,9 +224,10 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
         }
     }
 
-    public void DrawFrame(
+    void IAndroidEncoderSurfaceRenderer.DrawFrame(
         long presentationTimeMicroseconds,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -211,8 +249,10 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
                 : -1;
         int eglWriteFence =
             _presenter.StageDecoderFrame(
+                _presenter.MainDecoderInput,
                 source.EglTarget,
                 priorWebGpuFence,
+                updateFromProducer: true,
                 cancellationToken);
         source.Access.BeginAccessAndConsumeSyncFd(
             eglWriteFence,
@@ -244,6 +284,11 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
+            overlays?.Composite(
+                presentationTimeMicroseconds,
+                this,
+                encoderFrame.Texture,
+                cancellationToken);
             encoderFrame.Complete(renderSucceeded: true);
             encoderFrame = null;
         }
@@ -265,10 +310,11 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
         }
     }
 
-    public void DrawColorFrame(
+    void IAndroidEncoderSurfaceRenderer.DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -325,6 +371,11 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             source.Access.EndAccessAndExportSyncFd(
                 source.WebGpuFence);
             sourceAccessActive = false;
+            overlays?.Composite(
+                presentationTimeMicroseconds,
+                this,
+                encoderFrame.Texture,
+                cancellationToken);
             encoderFrame.Complete(renderSucceeded: true);
             encoderFrame = null;
         }
@@ -407,6 +458,188 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
             destinationFormat,
             effectPlan.BlurStandardDeviation,
             transform);
+    }
+
+    internal void CompositeDecodedLayer(
+        AndroidDecoderSurfaceInput input,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in MediaVideoEffectPlan effectPlan,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(destination);
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        PrepareOverlayComposition();
+
+        SourceSlot source =
+            _sourceSlots[
+                _nextSourceSlot++ %
+                _sourceSlots.Length];
+        int priorWebGpuFence =
+            source.WebGpuFence.HasFence
+                ? source.WebGpuFence.DetachHandle()
+                : -1;
+        int eglWriteFence =
+            _presenter.StageDecoderFrame(
+                input,
+                source.EglTarget,
+                priorWebGpuFence,
+                updateFromProducer: false,
+                cancellationToken);
+        source.Access.BeginAccessAndConsumeSyncFd(
+            eglWriteFence,
+            initialized: true);
+        bool sourceAccessActive = true;
+        try
+        {
+            RenderLayer(
+                source.Access.Texture,
+                destination,
+                placement,
+                effectPlan,
+                applySpatialEffect: true);
+            source.Access.EndAccessAndExportSyncFd(
+                source.WebGpuFence);
+            sourceAccessActive = false;
+        }
+        finally
+        {
+            if (sourceAccessActive)
+            {
+                try
+                {
+                    source.Access.EndAccessAndExportSyncFd(
+                        source.WebGpuFence);
+                }
+                catch
+                {
+                    // Preserve the original export failure.
+                }
+            }
+        }
+    }
+
+    internal void CompositeColorLayer(
+        uint argbColor,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in MediaVideoEffectPlan effectPlan,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        PrepareOverlayComposition();
+
+        SourceSlot source =
+            _sourceSlots[
+                _nextSourceSlot++ %
+                _sourceSlots.Length];
+        if (source.WebGpuFence.HasFence)
+        {
+            source.Access.BeginAccessAndConsumeSyncFd(
+                source.WebGpuFence.DetachHandle(),
+                source.WebGpuFence.Initialized);
+        }
+        else
+        {
+            source.Access.BeginAccess(
+                initialized: false);
+        }
+        bool sourceAccessActive = true;
+        try
+        {
+            GpuTextureClearer.Clear(
+                source.Access.Texture,
+                ToWebGpuColor(argbColor));
+            RenderLayer(
+                source.Access.Texture,
+                destination,
+                placement,
+                effectPlan,
+                applySpatialEffect: false);
+            source.Access.EndAccessAndExportSyncFd(
+                source.WebGpuFence);
+            sourceAccessActive = false;
+        }
+        finally
+        {
+            if (sourceAccessActive)
+            {
+                try
+                {
+                    source.Access.EndAccessAndExportSyncFd(
+                        source.WebGpuFence);
+                }
+                catch
+                {
+                    // Preserve the original export failure.
+                }
+            }
+        }
+    }
+
+    private void RenderLayer(
+        GpuTexture source,
+        GpuTexture destination,
+        in GpuTextureLayerPlacement placement,
+        in MediaVideoEffectPlan effectPlan,
+        bool applySpatialEffect)
+    {
+        GpuTextureColorTransform transform =
+            ToGpuTransform(
+                effectPlan.ColorTransform);
+        if (!applySpatialEffect ||
+            !effectPlan.HasSpatialEffect)
+        {
+            _layerCompositor!.Composite(
+                source,
+                destination.ViewPtr,
+                placement,
+                transform);
+            return;
+        }
+
+        _blurIntermediate ??=
+            new GpuTexture(
+                Context,
+                Width,
+                Height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Android Media Gaussian Intermediate",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        _overlayEffectOutput ??=
+            new GpuTexture(
+                Context,
+                Width,
+                Height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment,
+                "Android Media Overlay Effect Output",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        GpuTextureGaussianBlur.Blur(
+            source,
+            _blurIntermediate,
+            _overlayEffectOutput.ViewPtr,
+            _overlayEffectOutput.Format,
+            effectPlan.BlurStandardDeviation,
+            transform);
+        _layerCompositor!.Composite(
+            _overlayEffectOutput,
+            destination.ViewPtr,
+            placement,
+            GpuTextureColorTransform.Identity);
     }
 
     public ValueTask DrainAsync(
@@ -549,6 +782,10 @@ public sealed unsafe class AndroidMediaCodecGpuEncoderFrameSink :
 
         _blurIntermediate?.Dispose();
         _blurIntermediate = null;
+        _overlayEffectOutput?.Dispose();
+        _overlayEffectOutput = null;
+        _layerCompositor?.Dispose();
+        _layerCompositor = null;
         for (int index = 0; index < _slots.Length; index++)
         {
             Slot? slot = _slots[index];
@@ -853,12 +1090,11 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
     private readonly int _height;
     private readonly FloatBuffer _quad;
     private readonly FloatBuffer _decoderQuad;
-    private readonly AutoResetEvent _frameAvailable = new(false);
     private readonly HandlerThread _callbackThread;
     private readonly Handler _callbackHandler;
-    private readonly DecoderFrameListener _frameListener;
-    private readonly float[] _textureTransform = new float[16];
-    private readonly int[] _decoderTextureIds = new int[1];
+    private readonly List<AndroidDecoderSurfaceInput>
+        _decoderInputs = [];
+    private AndroidDecoderSurfaceInput? _mainDecoderInput;
     private EGLDisplay? _display;
     private EGLContext? _context;
     private EGLSurface? _surface;
@@ -867,8 +1103,6 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
     private int _fragmentShader;
     private int _positionLocation;
     private int _texCoordLocation;
-    private AndroidSurfaceTexture? _surfaceTexture;
-    private AndroidSurface? _decoderSurface;
     private int _decoderProgram;
     private int _decoderVertexShader;
     private int _decoderFragmentShader;
@@ -910,13 +1144,13 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
                 _callbackThread.Looper ??
                 throw new InvalidOperationException(
                     "Android could not create the WebGPU export decoder looper."));
-        _frameListener =
-            new DecoderFrameListener(_frameAvailable);
         try
         {
             InitializeEgl(encoderSurface);
             InitializeGl();
             InitializeDecoderGl();
+            _mainDecoderInput =
+                CreateDecoderInput();
         }
         catch
         {
@@ -926,9 +1160,105 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
     }
 
     internal AndroidSurface DecoderSurface =>
-        _decoderSurface ??
+        _mainDecoderInput?.Surface ??
         throw new ObjectDisposedException(
             nameof(AndroidHardwareBufferEglPresenter));
+
+    internal AndroidDecoderSurfaceInput
+        MainDecoderInput =>
+        _mainDecoderInput ??
+        throw new ObjectDisposedException(
+            nameof(AndroidHardwareBufferEglPresenter));
+
+    internal AndroidDecoderSurfaceInput
+        CreateDecoderInput()
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        MakeCurrent();
+        var textureIds = new int[1];
+        GLES20.GlGenTextures(
+            1,
+            textureIds,
+            0);
+        int texture = textureIds[0];
+        AndroidSurfaceTexture? surfaceTexture = null;
+        AndroidSurface? surface = null;
+        AutoResetEvent? frameAvailable = null;
+        DecoderFrameListener? listener = null;
+        try
+        {
+            GLES20.GlBindTexture(
+                GLES11Ext.GlTextureExternalOes,
+                texture);
+            GLES20.GlTexParameteri(
+                GLES11Ext.GlTextureExternalOes,
+                GLES20.GlTextureMinFilter,
+                GLES20.GlLinear);
+            GLES20.GlTexParameteri(
+                GLES11Ext.GlTextureExternalOes,
+                GLES20.GlTextureMagFilter,
+                GLES20.GlLinear);
+            GLES20.GlTexParameteri(
+                GLES11Ext.GlTextureExternalOes,
+                GLES20.GlTextureWrapS,
+                GLES20.GlClampToEdge);
+            GLES20.GlTexParameteri(
+                GLES11Ext.GlTextureExternalOes,
+                GLES20.GlTextureWrapT,
+                GLES20.GlClampToEdge);
+
+            frameAvailable =
+                new AutoResetEvent(false);
+            listener =
+                new DecoderFrameListener(
+                    frameAvailable);
+            surfaceTexture =
+                new AndroidSurfaceTexture(texture);
+            surfaceTexture.SetDefaultBufferSize(
+                _width,
+                _height);
+            surfaceTexture.SetOnFrameAvailableListener(
+                listener,
+                _callbackHandler);
+            surface =
+                new AndroidSurface(surfaceTexture);
+            var input =
+                new AndroidDecoderSurfaceInput(
+                    this,
+                    texture,
+                    surfaceTexture,
+                    surface,
+                    frameAvailable,
+                    listener);
+            _decoderInputs.Add(input);
+            surfaceTexture = null;
+            surface = null;
+            frameAvailable = null;
+            listener = null;
+            return input;
+        }
+        catch
+        {
+            surface?.Release();
+            surface?.Dispose();
+            surfaceTexture?.SetOnFrameAvailableListener(
+                null);
+            surfaceTexture?.Release();
+            surfaceTexture?.Dispose();
+            listener?.Dispose();
+            frameAvailable?.Dispose();
+            if (texture != 0)
+            {
+                GLES20.GlDeleteTextures(
+                    1,
+                    textureIds,
+                    0);
+            }
+            throw;
+        }
+    }
 
     internal AndroidEglImageTarget CreateTarget(
         nint hardwareBuffer) =>
@@ -1061,37 +1391,29 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
     }
 
     internal int StageDecoderFrame(
+        AndroidDecoderSurfaceInput input,
         AndroidEglImageTarget target,
         int ownedPriorWebGpuSyncFd,
+        bool updateFromProducer,
         CancellationToken cancellationToken)
     {
         int pendingSyncFd = ownedPriorWebGpuSyncFd;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long deadline =
-                Stopwatch.GetTimestamp() +
-                FrameWaitMilliseconds *
-                Stopwatch.Frequency /
-                1_000;
-            while (!_frameAvailable.WaitOne(50))
+            if (updateFromProducer)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (Stopwatch.GetTimestamp() >= deadline)
-                {
-                    throw new TimeoutException(
-                        "Android decoder did not deliver its WebGPU staging frame.");
-                }
+                UpdateDecoderInput(
+                    input,
+                    cancellationToken);
+            }
+            else if (!input.HasCurrentImage)
+            {
+                throw new InvalidOperationException(
+                    "The Android decoder input has no current image.");
             }
 
             MakeCurrent();
-            AndroidSurfaceTexture texture =
-                _surfaceTexture ??
-                throw new ObjectDisposedException(
-                    nameof(AndroidHardwareBufferEglPresenter));
-            texture.UpdateTexImage();
-            texture.GetTransformMatrix(
-                _textureTransform);
             if (pendingSyncFd >= 0)
             {
                 int waitFd = pendingSyncFd;
@@ -1111,7 +1433,7 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
             GLES20.GlActiveTexture(GLES20.GlTexture0);
             GLES20.GlBindTexture(
                 GLES11Ext.GlTextureExternalOes,
-                _decoderTextureIds[0]);
+                input.Texture);
             _decoderQuad.Position(0);
             GLES20.GlEnableVertexAttribArray(
                 _decoderPositionLocation);
@@ -1136,7 +1458,7 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
                 _decoderTransformLocation,
                 1,
                 false,
-                _textureTransform,
+                input.TextureTransform,
                 0);
             GLES20.GlUniform4f(
                 _decoderRedTransformLocation,
@@ -1173,6 +1495,35 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
         {
             AndroidEglNative.Close(pendingSyncFd);
         }
+    }
+
+    internal void UpdateDecoderInput(
+        AndroidDecoderSurfaceInput input,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        input.ThrowIfUnavailable(this);
+        cancellationToken.ThrowIfCancellationRequested();
+        long deadline =
+            Stopwatch.GetTimestamp() +
+            FrameWaitMilliseconds *
+            Stopwatch.Frequency /
+            1_000;
+        while (!input.FrameAvailable.WaitOne(50))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Stopwatch.GetTimestamp() >= deadline)
+            {
+                throw new TimeoutException(
+                    "Android decoder did not deliver its WebGPU staging frame.");
+            }
+        }
+
+        MakeCurrent();
+        input.SurfaceTexture.UpdateTexImage();
+        input.SurfaceTexture.GetTransformMatrix(
+            input.TextureTransform);
+        input.HasCurrentImage = true;
     }
 
     internal int Present(
@@ -1534,43 +1885,8 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
                 _decoderProgram,
                 "u_source");
 
-        GLES20.GlGenTextures(
-            1,
-            _decoderTextureIds,
-            0);
-        GLES20.GlBindTexture(
-            GLES11Ext.GlTextureExternalOes,
-            _decoderTextureIds[0]);
-        GLES20.GlTexParameteri(
-            GLES11Ext.GlTextureExternalOes,
-            GLES20.GlTextureMinFilter,
-            GLES20.GlLinear);
-        GLES20.GlTexParameteri(
-            GLES11Ext.GlTextureExternalOes,
-            GLES20.GlTextureMagFilter,
-            GLES20.GlLinear);
-        GLES20.GlTexParameteri(
-            GLES11Ext.GlTextureExternalOes,
-            GLES20.GlTextureWrapS,
-            GLES20.GlClampToEdge);
-        GLES20.GlTexParameteri(
-            GLES11Ext.GlTextureExternalOes,
-            GLES20.GlTextureWrapT,
-            GLES20.GlClampToEdge);
         GLES20.GlUseProgram(_decoderProgram);
         GLES20.GlUniform1i(sourceLocation, 0);
-
-        _surfaceTexture =
-            new AndroidSurfaceTexture(
-                _decoderTextureIds[0]);
-        _surfaceTexture.SetDefaultBufferSize(
-            _width,
-            _height);
-        _surfaceTexture.SetOnFrameAvailableListener(
-            _frameListener,
-            _callbackHandler);
-        _decoderSurface =
-            new AndroidSurface(_surfaceTexture);
     }
 
     private void MakeCurrent()
@@ -1643,21 +1959,16 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
                     _surface,
                     _context);
             }
-            _surfaceTexture?
-                .SetOnFrameAvailableListener(null);
-            _decoderSurface?.Release();
-            _decoderSurface?.Dispose();
-            _decoderSurface = null;
-            _surfaceTexture?.Release();
-            _surfaceTexture?.Dispose();
-            _surfaceTexture = null;
-            if (_decoderTextureIds[0] != 0)
+            for (int index =
+                     _decoderInputs.Count - 1;
+                 index >= 0;
+                 index--)
             {
-                GLES20.GlDeleteTextures(
-                    1,
-                    _decoderTextureIds,
-                    0);
+                ReleaseDecoderInputCore(
+                    _decoderInputs[index]);
             }
+            _decoderInputs.Clear();
+            _mainDecoderInput = null;
             if (_decoderProgram != 0)
             {
                 GLES20.GlDeleteProgram(
@@ -1711,8 +2022,37 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
         _callbackThread.Join();
         _callbackHandler.Dispose();
         _callbackThread.Dispose();
-        _frameListener.Dispose();
-        _frameAvailable.Dispose();
+    }
+
+    internal void ReleaseDecoderInput(
+        AndroidDecoderSurfaceInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            input.ReleaseManagedResources();
+            return;
+        }
+        MakeCurrent();
+        if (!_decoderInputs.Remove(input))
+        {
+            return;
+        }
+        ReleaseDecoderInputCore(input);
+    }
+
+    private static void ReleaseDecoderInputCore(
+        AndroidDecoderSurfaceInput input)
+    {
+        int texture = input.DetachTexture();
+        input.ReleaseManagedResources();
+        if (texture != 0)
+        {
+            GLES20.GlDeleteTextures(
+                1,
+                [texture],
+                0);
+        }
     }
 
     private sealed class DecoderFrameListener :
@@ -1733,6 +2073,105 @@ internal sealed unsafe class AndroidHardwareBufferEglPresenter :
             _ = surfaceTexture;
             _available.Set();
         }
+    }
+}
+
+/// <summary>
+/// One retained MediaCodec output SurfaceTexture bound to the export EGL
+/// context. The current external-OES image remains native and reusable until
+/// the next selected decoder output is consumed.
+/// </summary>
+internal sealed class AndroidDecoderSurfaceInput :
+    IDisposable
+{
+    private readonly AndroidHardwareBufferEglPresenter _owner;
+    private readonly IDisposable _listener;
+    private int _texture;
+    private int _disposed;
+    private int _resourcesReleased;
+
+    internal AndroidDecoderSurfaceInput(
+        AndroidHardwareBufferEglPresenter owner,
+        int texture,
+        AndroidSurfaceTexture surfaceTexture,
+        AndroidSurface surface,
+        AutoResetEvent frameAvailable,
+        IDisposable listener)
+    {
+        _owner = owner;
+        _texture = texture;
+        SurfaceTexture = surfaceTexture;
+        Surface = surface;
+        FrameAvailable = frameAvailable;
+        _listener = listener;
+        TextureTransform = new float[16];
+    }
+
+    internal AndroidSurface Surface { get; private set; }
+
+    internal AndroidSurfaceTexture SurfaceTexture
+    {
+        get;
+        private set;
+    }
+
+    internal AutoResetEvent FrameAvailable { get; }
+
+    internal float[] TextureTransform { get; }
+
+    internal int Texture =>
+        Volatile.Read(ref _texture);
+
+    internal bool HasCurrentImage { get; set; }
+
+    internal void ThrowIfUnavailable(
+        AndroidHardwareBufferEglPresenter owner)
+    {
+        if (!ReferenceEquals(_owner, owner))
+        {
+            throw new ArgumentException(
+                "The decoder input belongs to another EGL presenter.",
+                nameof(owner));
+        }
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(
+                ref _disposed,
+                1) != 0)
+        {
+            return;
+        }
+        _owner.ReleaseDecoderInput(this);
+    }
+
+    internal int DetachTexture() =>
+        Interlocked.Exchange(ref _texture, 0);
+
+    internal void ReleaseManagedResources()
+    {
+        if (Interlocked.Exchange(
+                ref _resourcesReleased,
+                1) != 0)
+        {
+            return;
+        }
+        Interlocked.Exchange(
+            ref _disposed,
+            1);
+        SurfaceTexture.SetOnFrameAvailableListener(
+            null);
+        Surface.Release();
+        Surface.Dispose();
+        SurfaceTexture.Release();
+        SurfaceTexture.Dispose();
+        FrameAvailable.Dispose();
+        _listener.Dispose();
+        HasCurrentImage = false;
     }
 }
 

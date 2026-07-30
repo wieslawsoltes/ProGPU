@@ -16,15 +16,16 @@ internal readonly record struct AndroidMediaCodecAudioPlan(
     AndroidPcm16MixLevels Levels);
 
 /// <summary>
-/// Clean-room schedule capture for WinUI-compatible main and background
-/// composition audio.
+/// Clean-room schedule capture for WinUI-compatible main, background, and
+/// audio-enabled overlay composition audio.
 /// </summary>
 /// <remarks>
-/// Capture is O(C + B) time and storage for C main clips and B background
-/// tracks. A negative background delay advances its source interval; a
-/// positive delay advances its destination interval. Every plan is clipped
-/// to the duration of the sequential main composition before a native codec
-/// is created.
+/// Capture is O(C + B + O) time and storage for C main clips, B background
+/// tracks, and O audible URI overlays. A negative background delay advances
+/// its source interval; a positive delay advances its destination interval.
+/// Overlay delay is nonnegative. Every concurrent plan is clipped to the
+/// duration of the sequential main composition before a native codec is
+/// created.
 /// </remarks>
 internal static class AndroidMediaCodecAudioPlanner
 {
@@ -207,6 +208,95 @@ internal static class AndroidMediaCodecAudioPlanner
                         destinationStartFrame,
                         destinationEndFrame,
                         levels));
+            }
+
+            for (int layerIndex = 0;
+                 layerIndex <
+                    request.OverlayLayers.Count;
+                 layerIndex++)
+            {
+                MediaCompositionExportOverlayLayer layer =
+                    request.OverlayLayers[layerIndex];
+                for (int overlayIndex = 0;
+                     overlayIndex <
+                        layer.Overlays.Count;
+                     overlayIndex++)
+                {
+                    MediaCompositionExportOverlay overlay =
+                        layer.Overlays[overlayIndex];
+                    MediaCompositionExportClip clip =
+                        overlay.Clip;
+                    if (!overlay.AudioEnabled ||
+                        clip.SourceUri is not
+                        { IsAbsoluteUri: true } source)
+                    {
+                        continue;
+                    }
+
+                    long durationTicks =
+                        GetTrimmedDurationTicks(
+                            clip.OriginalDuration,
+                            clip.TrimTimeFromStart,
+                            clip.TrimTimeFromEnd);
+                    if (overlay.Delay < TimeSpan.Zero ||
+                        !TryGetLevels(
+                            clip.Volume,
+                            clip.AudioEffectDefinitions,
+                            effects,
+                            out AndroidPcm16MixLevels
+                                levels))
+                    {
+                        plans = [];
+                        compositionFrameCount = 0;
+                        return false;
+                    }
+
+                    long destinationStartFrame =
+                        TicksToFramesCeiling(
+                            overlay.Delay.Ticks,
+                            sampleRate);
+                    if (destinationStartFrame >=
+                        compositionFrameCount)
+                    {
+                        continue;
+                    }
+                    long availableFrames =
+                        TicksToFramesFloor(
+                            durationTicks,
+                            sampleRate);
+                    long destinationEndFrame =
+                        Math.Min(
+                            compositionFrameCount,
+                            checked(
+                                destinationStartFrame +
+                                availableFrames));
+                    if (destinationStartFrame >=
+                            destinationEndFrame ||
+                        levels is
+                        { Left: 0, Right: 0 })
+                    {
+                        continue;
+                    }
+
+                    long includedFrameCount =
+                        destinationEndFrame -
+                        destinationStartFrame;
+                    long sourceStart =
+                        ToMicroseconds(
+                            clip.TrimTimeFromStart);
+                    captured.Add(
+                        new AndroidMediaCodecAudioPlan(
+                            source,
+                            sourceStart,
+                            checked(
+                                sourceStart +
+                                FramesToMicrosecondsCeiling(
+                                    includedFrameCount,
+                                    sampleRate)),
+                            destinationStartFrame,
+                            destinationEndFrame,
+                            levels));
+                }
             }
         }
         catch (OverflowException)

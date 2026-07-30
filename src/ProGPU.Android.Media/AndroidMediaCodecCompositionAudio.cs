@@ -35,6 +35,28 @@ public sealed partial class
                 return true;
             }
         }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[layerIndex]
+                        .Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex < overlays.Count;
+                 overlayIndex++)
+            {
+                MediaCompositionExportOverlay overlay =
+                    overlays[overlayIndex];
+                if (overlay.AudioEnabled &&
+                    overlay.Clip.SourceUri is not null)
+                {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -87,12 +109,13 @@ public sealed partial class
     }
 
     /// <summary>
-    /// Decodes and mixes the selected main/background timeline through direct
-    /// PCM16 codec buffers, then writes one native AAC-only staging asset.
-    /// Work is O(A + F * L) for A compressed access units, F output frames,
-    /// and L active layers. Managed source state is O(P) for P scheduled
-    /// sources; the PCM accumulator is fixed at 1,024 frames. Codec buffers
-    /// and the encoded staging file remain platform-owned.
+    /// Decodes and mixes the selected main/background/audible-overlay
+    /// timeline through direct PCM16 codec buffers, then writes one native
+    /// AAC-only staging asset. Work is O(A + F * L) for A compressed access
+    /// units, F output frames, and L active layers. Managed source state is
+    /// O(P) for P scheduled sources; the PCM accumulator is fixed at 1,024
+    /// frames. Codec buffers and the encoded staging file remain
+    /// platform-owned.
     /// </summary>
     private static void BakeAudioTimeline(
         MediaCompositionExportRequest request,

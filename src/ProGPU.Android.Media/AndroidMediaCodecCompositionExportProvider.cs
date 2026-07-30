@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Diagnostics;
 using Android.Graphics;
 using Android.Media;
@@ -25,12 +24,14 @@ internal interface IAndroidEncoderSurfaceRenderer :
     void DrawFrame(
         long presentationTimeMicroseconds,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken);
 
     void DrawColorFrame(
         long presentationTimeMicroseconds,
         uint argbColor,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken);
 }
 
@@ -43,12 +44,12 @@ internal interface IAndroidEncoderSurfaceRenderer :
 /// direct SurfaceTexture/EGL GPU lane. Compatible AAC access units are
 /// remuxed without decode or managed copies. Video-only solid colors are
 /// generated on the same GPU paths. For C clips, V decoded/generated frames,
-/// A compressed audio samples, and P output pixels, export is
-/// O(C + V + A + P + F * L) time and O(C + B) managed audio-source state
-/// beyond bounded native rings, one compressed-sample buffer, and a fixed
-/// block accumulator, for F PCM frames, L active audio layers, and B
-/// background tracks. No decoded video pixel or managed PCM array enters
-/// managed memory.
+/// O standard overlays, A compressed audio samples, and P output pixels,
+/// export is O(C + V + O * V + A + P + F * L) time and O(C + B + O)
+/// managed schedule/source state beyond bounded native rings, one compressed
+/// sample buffer, and a fixed block accumulator, for F PCM frames, L active
+/// audio layers, and B background tracks. No decoded video pixel or managed
+/// PCM array enters managed memory.
 /// </summary>
 public sealed partial class
     AndroidMediaCodecCompositionExportProvider :
@@ -82,7 +83,8 @@ public sealed partial class
             request,
             OperatingSystem.IsAndroid(),
             _effects) &&
-        (!HasSpatialVideoEffects(
+        (request.OverlayLayers.Count == 0 &&
+         !HasSpatialVideoEffects(
              request,
              _effects) ||
          HasActiveVulkanDawnContext());
@@ -98,7 +100,6 @@ public sealed partial class
         if (!isAndroid ||
             string.IsNullOrWhiteSpace(request.DestinationPath) ||
             request.Clips.Count == 0 ||
-            request.OverlayLayers.Count != 0 ||
             !string.Equals(
                 profile.ContainerSubtype,
                 "MPEG4",
@@ -131,7 +132,8 @@ public sealed partial class
         bool requiresTranscode =
             request.TrimmingMode ==
                 MediaCompositionTrimmingMode.Precise ||
-            request.BackgroundAudioTracks.Count != 0;
+            request.BackgroundAudioTracks.Count != 0 ||
+            request.OverlayLayers.Count != 0;
         if (profile.AudioSubtype is null &&
             request.BackgroundAudioTracks.Count != 0)
         {
@@ -207,6 +209,36 @@ public sealed partial class
             }
         }
 
+        if (!AndroidMediaCodecOverlayPlanner.TryCapture(
+                request,
+                effectRegistry,
+                out AndroidMediaCodecOverlayPlan[]
+                    overlays))
+        {
+            return false;
+        }
+        for (int index = 0;
+             index < overlays.Length;
+             index++)
+        {
+            ref readonly AndroidMediaCodecOverlayPlan overlay =
+                ref overlays[index];
+            MediaCompositionExportClip clip =
+                overlay.Clip;
+            if (!double.IsFinite(clip.Volume) ||
+                clip.Volume is < 0d or > 1d ||
+                (profile.AudioSubtype is null &&
+                 (clip.Volume != 1d ||
+                  clip.AudioEffectDefinitions.Count != 0)) ||
+                !TryGetEffectiveAudioLevels(
+                    clip,
+                    effectRegistry,
+                    out _))
+            {
+                return false;
+            }
+        }
+
         return requiresTranscode;
     }
 
@@ -260,8 +292,12 @@ public sealed partial class
                 "codec without managed PCM arrays. Positive and negative " +
                 "WinUI background delays and trim intervals are applied on " +
                 "the exact PCM timeline. Solid-color clips generate native " +
-                "PCM16 silence when audio is requested. Visual overlays, " +
-                "unsupported or unregistered effects remain rejected.");
+                "PCM16 silence when audio is requested. Standard URI/color " +
+                "overlays use retained per-source SurfaceTextures, the same " +
+                "bounded AHardwareBuffer ring, and ordered WebGPU source-over " +
+                "passes; enabled URI-overlay audio joins the native mixer. " +
+                "Custom compositors and unsupported or unregistered effects " +
+                "remain rejected.");
     }
 
     public ValueTask<MediaCompositionExportFailure>
@@ -388,6 +424,15 @@ public sealed partial class
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
     {
+        if (!AndroidMediaCodecOverlayPlanner.TryCapture(
+                request,
+                effects,
+                out AndroidMediaCodecOverlayPlan[]
+                    overlayPlans))
+        {
+            return MediaCompositionExportFailure
+                .InvalidProfile;
+        }
         MediaFormat? audioFormat =
             bakedAudio is null
                 ? InspectSources(
@@ -407,6 +452,8 @@ public sealed partial class
         MediaCodec? encoder = null;
         Surface? encoderSurface = null;
         IAndroidEncoderSurfaceRenderer? renderer = null;
+        AndroidMediaCodecOverlayFrameComposer?
+            overlays = null;
         bool muxerStarted = false;
         bool encoderStarted = false;
         try
@@ -439,9 +486,24 @@ public sealed partial class
                 encoderSurface,
                 checked((int)request.EncodingProfile.Width),
                 checked((int)request.EncodingProfile.Height),
+                request.OverlayLayers.Count != 0 ||
                 HasSpatialVideoEffects(
                     request,
                     effects));
+            if (overlayPlans.Length != 0)
+            {
+                if (renderer is not
+                    AndroidMediaCodecGpuEncoderFrameSink
+                        gpuRenderer)
+                {
+                    return MediaCompositionExportFailure
+                        .InvalidProfile;
+                }
+                overlays =
+                    new AndroidMediaCodecOverlayFrameComposer(
+                        overlayPlans,
+                        gpuRenderer);
+            }
             encoder.Start();
             encoderStarted = true;
 
@@ -491,6 +553,7 @@ public sealed partial class
                         clipDuration,
                         timelineOffset,
                         effectPlan,
+                        overlays,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -510,6 +573,7 @@ public sealed partial class
                         sourceEnd,
                         timelineOffset,
                         effectPlan,
+                        overlays,
                         totalDuration,
                         reporter,
                         cancellationToken);
@@ -567,6 +631,7 @@ public sealed partial class
             {
                 TryStop(encoder);
             }
+            overlays?.Dispose();
             renderer?.Dispose();
             encoderSurface?.Release();
             encoderSurface?.Dispose();
@@ -595,6 +660,7 @@ public sealed partial class
         long clipDuration,
         long timelineOffset,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -610,6 +676,7 @@ public sealed partial class
                 outputTimestamp,
                 argbColor,
                 effectPlan,
+                overlays,
                 cancellationToken);
             DrainEncoder(
                 encoder,
@@ -696,6 +763,7 @@ public sealed partial class
         long sourceEnd,
         long timelineOffset,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         long totalDuration,
         AndroidExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -813,6 +881,7 @@ public sealed partial class
                         renderer.DrawFrame(
                             outputTimestamp,
                             effectPlan,
+                            overlays,
                             cancellationToken);
                         DrainEncoder(
                             encoder,
@@ -1380,72 +1449,22 @@ public sealed partial class
     internal static bool TryGetBuiltInEffects(
         IReadOnlyDictionary<string, string> userData,
         out float saturation,
-        out float grayscale)
-    {
-        saturation = 1f;
-        grayscale = 0f;
-        if (userData.TryGetValue(
-                "progpu.saturation",
-                out string? saturationText) &&
-            (!float.TryParse(
-                saturationText,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out saturation) ||
-             !float.IsFinite(saturation) ||
-             saturation is < 0f or > 1f))
-        {
-            return false;
-        }
-        if (userData.TryGetValue(
-                "progpu.grayscale",
-                out string? grayscaleText) &&
-            (!float.TryParse(
-                grayscaleText,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out grayscale) ||
-             !float.IsFinite(grayscale) ||
-             grayscale is < 0f or > 1f))
-        {
-            return false;
-        }
-        return true;
-    }
+        out float grayscale) =>
+        AndroidMediaCodecVideoEffectPlanner
+            .TryGetBuiltInEffects(
+                userData,
+                out saturation,
+                out grayscale);
 
     internal static bool TryGetVideoEffectPlan(
         MediaCompositionExportClip clip,
         MediaEffectRegistry effects,
-        out MediaVideoEffectPlan plan)
-    {
-        ArgumentNullException.ThrowIfNull(clip);
-        ArgumentNullException.ThrowIfNull(effects);
-        plan = MediaVideoEffectPlan.Identity;
-        if (!TryGetBuiltInEffects(
-                clip.UserData,
-                out float saturation,
-                out float grayscale) ||
-            !MediaCompositionVideoEffectResolver
-                .TryCapturePlan(
-                    effects,
-                    clip.VideoEffectDefinitions,
-                    out MediaVideoEffectPlan
-                        declared))
-        {
-            return false;
-        }
-
-        MediaVideoColorTransform transform =
-            MediaVideoColorEffectFactory
-                .CreateTransform(
-                    saturation: saturation,
-                    grayscale: grayscale)
-                .Then(declared.ColorTransform);
-        plan = new MediaVideoEffectPlan(
-            transform,
-            declared.BlurStandardDeviation);
-        return true;
-    }
+        out MediaVideoEffectPlan plan) =>
+        AndroidMediaCodecVideoEffectPlanner
+            .TryGetVideoEffectPlan(
+                clip,
+                effects,
+                out plan);
 
     private bool HasVideoEffects(
         MediaCompositionExportRequest request)
@@ -1461,6 +1480,29 @@ public sealed partial class
                 !plan.IsIdentity)
             {
                 return true;
+            }
+        }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[layerIndex]
+                        .Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex < overlays.Count;
+                 overlayIndex++)
+            {
+                if (TryGetVideoEffectPlan(
+                        overlays[overlayIndex].Clip,
+                        _effects,
+                        out MediaVideoEffectPlan plan) &&
+                    !plan.IsIdentity)
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -1481,6 +1523,29 @@ public sealed partial class
                 plan.HasSpatialEffect)
             {
                 return true;
+            }
+        }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[layerIndex]
+                        .Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex < overlays.Count;
+                 overlayIndex++)
+            {
+                if (TryGetVideoEffectPlan(
+                        overlays[overlayIndex].Clip,
+                        effects,
+                        out MediaVideoEffectPlan plan) &&
+                    plan.HasSpatialEffect)
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -1687,8 +1752,14 @@ internal sealed class AndroidEncoderSurfaceRenderer :
     public void DrawFrame(
         long presentationTimeMicroseconds,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken)
     {
+        if (overlays is not null)
+        {
+            throw new NotSupportedException(
+                "Android media overlays require the Vulkan Dawn WebGPU lane.");
+        }
         cancellationToken.ThrowIfCancellationRequested();
         long deadline =
             Stopwatch.GetTimestamp() +
@@ -1723,8 +1794,14 @@ internal sealed class AndroidEncoderSurfaceRenderer :
         long presentationTimeMicroseconds,
         uint argbColor,
         MediaVideoEffectPlan effectPlan,
+        AndroidMediaCodecOverlayFrameComposer? overlays,
         CancellationToken cancellationToken)
     {
+        if (overlays is not null)
+        {
+            throw new NotSupportedException(
+                "Android media overlays require the Vulkan Dawn WebGPU lane.");
+        }
         cancellationToken.ThrowIfCancellationRequested();
         if (presentationTimeMicroseconds < 0)
         {

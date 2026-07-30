@@ -132,6 +132,95 @@ public sealed class AndroidMediaAudioPlannerTests
     }
 
     [Fact]
+    public void PlannerIncludesOnlyAudioEnabledUriOverlays()
+    {
+        var audibleClip =
+            new MediaCompositionExportClip(
+                new Uri(
+                    "file:///media/overlay.mp4"),
+                TimeSpan.FromSeconds(8),
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(2),
+                0.25d,
+                null,
+                new Dictionary<string, string>());
+        var mutedClip =
+            audibleClip with
+            {
+                SourceUri =
+                    new Uri(
+                        "file:///media/muted-overlay.mp4")
+            };
+        MediaCompositionExportRequest request =
+            CreateRequest() with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                    [
+                        new MediaCompositionExportOverlay(
+                            audibleClip,
+                            TimeSpan.FromSeconds(1.5),
+                            10d,
+                            20d,
+                            320d,
+                            180d,
+                            0.75d,
+                            AudioEnabled: true),
+                        new MediaCompositionExportOverlay(
+                            mutedClip,
+                            TimeSpan.Zero,
+                            20d,
+                            30d,
+                            320d,
+                            180d,
+                            1d,
+                            AudioEnabled: false)
+                    ])
+                ]
+            };
+
+        Assert.True(
+            AndroidMediaCodecAudioPlanner.TryCapture(
+                request,
+                MediaEffectRegistry.Default,
+                out AndroidMediaCodecAudioPlan[] plans,
+                out long compositionFrames));
+        Assert.Equal(336_000, compositionFrames);
+        Assert.Equal(2, plans.Length);
+
+        AndroidMediaCodecAudioPlan overlay =
+            Assert.Single(
+                plans,
+                plan =>
+                    plan.SourceUri.AbsolutePath
+                        .EndsWith(
+                            "overlay.mp4",
+                            StringComparison.Ordinal));
+        Assert.Equal(
+            1_000_000,
+            overlay.SourceStartMicroseconds);
+        Assert.Equal(
+            6_000_000,
+            overlay.SourceEndMicroseconds);
+        Assert.Equal(
+            72_000,
+            overlay.DestinationStartFrame);
+        Assert.Equal(
+            312_000,
+            overlay.DestinationEndFrame);
+        Assert.Equal(8_192, overlay.Levels.Left);
+        Assert.Equal(8_192, overlay.Levels.Right);
+        Assert.DoesNotContain(
+            plans,
+            plan =>
+                plan.SourceUri.AbsolutePath
+                    .EndsWith(
+                        "muted-overlay.mp4",
+                        StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WideMixerSaturatesOnceAndIsOrderIndependent()
     {
         var full =

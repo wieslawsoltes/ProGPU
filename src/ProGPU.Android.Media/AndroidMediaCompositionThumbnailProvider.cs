@@ -98,7 +98,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 composition.Clips[index];
             bool hasUri =
                 clip.SourceUri is
-                    { IsAbsoluteUri: true };
+                { IsAbsoluteUri: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             long clipDurationTicks =
@@ -244,6 +244,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                         presentationTimeMicroseconds,
                         color,
                         effectPlan,
+                        overlays: null,
                         cancellationToken);
                 }
                 else
@@ -273,6 +274,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     renderer.DrawFrame(
                         presentationTimeMicroseconds,
                         effectPlan,
+                        overlays: null,
                         cancellationToken);
                 }
 

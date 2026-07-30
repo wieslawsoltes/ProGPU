@@ -411,6 +411,22 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android.Media",
             "AndroidPcm16Mixer.cs");
+        string overlayPlanner = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecOverlayPlanner.cs");
+        string videoEffectPlanner = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecVideoEffectPlanner.cs");
+        string overlayComposer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecOverlayFrameComposer.cs");
+        string gpuSink = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecGpuEncoderFrameSink.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Android.Media",
@@ -491,11 +507,11 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "MediaCompositionVideoEffectResolver",
-            provider,
+            videoEffectPlanner,
             StringComparison.Ordinal);
         Assert.Contains(
             ".TryCapturePlan(",
-            provider,
+            videoEffectPlanner,
             StringComparison.Ordinal);
         Assert.Contains(
             "u_red_transform",
@@ -557,8 +573,20 @@ public sealed class AndroidMediaProviderContractTests
             "request.BackgroundAudioTracks.Count;",
             provider,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "request.OverlayLayers.Count != 0",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AndroidMediaCodecOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AndroidMediaCodecOverlayFrameComposer(",
+            provider,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "request.BackgroundAudioTracks.Count != 0 ||\n" +
+            "request.Clips.Count == 0 ||\n" +
             "            request.OverlayLayers.Count != 0",
             provider.Replace(
                 "\r\n",
@@ -610,6 +638,21 @@ public sealed class AndroidMediaProviderContractTests
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "overlay.AudioEnabled",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.OverlayLayers.Count;",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AudioEnabled: true",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Tests",
+                "AndroidMediaAudioPlannerTests.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "destination[\n",
             pcmMixer.Replace(
                 "\r\n",
@@ -627,6 +670,58 @@ public sealed class AndroidMediaProviderContractTests
         Assert.DoesNotContain(
             "Marshal.Copy",
             timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerPlacement",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "layer.CustomCompositorDefinition is not null",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Array order is the declared layer/overlay back-to-front order",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCodec.CreateDecoderByType(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private int _heldOutputIndex = -1;",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sink.UpdateOverlayDecoderInput(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Input.HasCurrentImage",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sink.CompositeDecodedLayer(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerCompositor",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateOverlayDecoderInput(",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "updateFromProducer: false",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Android Media Overlay Effect Output",
+            gpuSink,
             StringComparison.Ordinal);
         Assert.Contains(
             "ShaderResource.Load(",

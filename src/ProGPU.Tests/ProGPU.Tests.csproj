@@ -32,6 +32,10 @@
              Link="Android\AndroidPcm16Mixer.cs" />
     <Compile Include="..\ProGPU.Android.Media\AndroidMediaCodecAudioPlanner.cs"
              Link="Android\AndroidMediaCodecAudioPlanner.cs" />
+    <Compile Include="..\ProGPU.Android.Media\AndroidMediaCodecVideoEffectPlanner.cs"
+             Link="Android\AndroidMediaCodecVideoEffectPlanner.cs" />
+    <Compile Include="..\ProGPU.Android.Media\AndroidMediaCodecOverlayPlanner.cs"
+             Link="Android\AndroidMediaCodecOverlayPlanner.cs" />
     <Compile Include="..\ProGPU.iOS\IosIndirectScrollPolicy.cs"
              Link="iOS\IosIndirectScrollPolicy.cs" />
     <ProjectReference Include="..\WindowsBase\WindowsBase.csproj" />
