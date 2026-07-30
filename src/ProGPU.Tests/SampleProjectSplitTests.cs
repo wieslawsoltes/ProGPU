@@ -29,6 +29,43 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void DesktopNativeAotPreservesPrebuiltDylibsWithoutDisablingStrip()
+    {
+        string desktop = Read(
+            "src",
+            "ProGPU.Samples.Desktop",
+            "ProGPU.Samples.Desktop.csproj");
+
+        Assert.Contains(
+            "ProGpuPreservePrebuiltNativeSymbols",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<EventSourceSupport>true</EventSourceSupport>",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AfterTargets=\"_CollectItemsForPostProcessing\"",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "'%(_PostProcessingItem.Extension)' == '.dylib'",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<NoSymbolStrip>true</NoSymbolStrip>",
+            desktop,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<NoSymbolStrip>true</NoSymbolStrip>",
+            desktop[
+                ..desktop.IndexOf(
+                    "<Target Name=\"ProGpuPreservePrebuiltNativeSymbols\"",
+                    StringComparison.Ordinal)],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WorkerCanvasResizeNeverMutatesTransferredHtmlCanvas()
     {
         var browserAsset = Read("src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");

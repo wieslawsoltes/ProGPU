@@ -158,6 +158,10 @@ public sealed class MemoryProfilerToolTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "\"--no-prompt\",",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "process.Kill(entireProcessTree: true)",
             source,
             StringComparison.Ordinal);
@@ -194,6 +198,18 @@ public sealed class MemoryProfilerToolTests
 
         Assert.Contains(
             "recordArguments.Add(\"--attach\");",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "recordArguments.Add(\"--target-stdout\");",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$\"{slug}-target.log\"",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "string? TargetOutputPath",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

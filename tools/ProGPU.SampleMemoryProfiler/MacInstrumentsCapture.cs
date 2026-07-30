@@ -68,6 +68,12 @@ internal static class MacInstrumentsCapture
             string logPath = Path.Combine(
                 options.OutputDirectory,
                 $"{slug}.log");
+            string? targetOutputPath =
+                options.Attach
+                    ? null
+                    : Path.Combine(
+                        options.OutputDirectory,
+                        $"{slug}-target.log");
             if (Directory.Exists(tracePath) || File.Exists(tracePath))
             {
                 Console.Error.WriteLine(
@@ -84,6 +90,7 @@ internal static class MacInstrumentsCapture
             {
                 "xctrace",
                 "record",
+                "--no-prompt",
                 "--template",
                 templateName,
                 "--time-limit",
@@ -104,6 +111,8 @@ internal static class MacInstrumentsCapture
             }
             else
             {
+                recordArguments.Add("--target-stdout");
+                recordArguments.Add(targetOutputPath!);
                 foreach (string environmentVariable in options.EnvironmentVariables)
                 {
                     recordArguments.Add("--env");
@@ -304,6 +313,7 @@ internal static class MacInstrumentsCapture
                     tracePath,
                     tocPath,
                     logPath,
+                    targetOutputPath,
                     record.ExitCode,
                     exports,
                     TraceRetained: !options.CleanupTraces,
@@ -715,6 +725,7 @@ internal static class MacInstrumentsCapture
         string TracePath,
         string TableOfContentsPath,
         string LogPath,
+        string? TargetOutputPath,
         int RecordExitCode,
         IReadOnlyList<string> Exports,
         bool TraceRetained,

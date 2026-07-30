@@ -2164,3 +2164,125 @@ warnings/errors; targeted formatting, whitespace, clean-room tree/history,
 and dependency-marker audits passed. No Android device was attached, so codec
 interoperability, encoder delay, audible channel levels, duration, allocation
 rate, queue stalls, power, and thermal behavior remain required device gates.
+
+### Final macOS NativeAOT playback qualification
+
+The final macOS checkpoint used commit
+`92d7e2e02865ba6e4519359ed620de14a7cd8919` plus the packaging and profiler
+changes in this checkpoint. The deployment target was the signed
+`net10.0-macos`/`osx-arm64` NativeAOT application on macOS 26.4.1
+(`25E253`), an Apple M3 Pro with 14 GPU cores and Metal 4, the built-in
+3024-by-1964 Retina display, and AC power. The toolchain was .NET SDK
+10.0.201 and Xcode 26.4.1 (`17E202`). The deterministic input was the public
+MDN flower MP4 with SHA-256
+`0cd83d944a6ca7822b4a8306cecc60a36e859b041f6702c6a1ad9ead78924451`.
+Every playback run selected `progpu.apple.avfoundation`, reported hardware
+decode and `NativeZeroCopy`, warmed 180 frames, measured 600 frames, and
+reached the expected 5,011-ms native duration while remaining in the Playing
+state. Raw local artifacts and exact manifests are under
+`artifacts/performance/media-final-qualification-20260730`; the directory is
+intentionally ignored by Git because the traces and publish output are large.
+
+The production-equivalent publish command was:
+
+```bash
+dotnet publish src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj \
+  -c Release -f net10.0-macos -r osx-arm64 --no-restore \
+  -o artifacts/performance/media-final-qualification-20260730/publish
+```
+
+Xcode 26 initially made that publish fail while re-stripping three
+package-provided deployment libraries: `libonigwrap.dylib`,
+`libwgpu_native.dylib`, and `libglfw.3.dylib`. The desktop project now marks
+only macOS `.dylib` post-processing items with `NoSymbolStrip`; it does not
+disable stripping of the NativeAOT executable. A source-contract regression
+protects both the target ordering and that scope. The republished app passed
+`codesign --verify --deep --strict`, and its installer package was produced
+successfully.
+
+Three fresh uninstrumented NativeAOT runs used the same application, media
+file, window, warm-up, and frame count. The benchmark environment set
+`PROGPU_SAMPLE_BENCHMARK_PAGE=GPU Media Player`,
+`PROGPU_SAMPLE_BENCHMARK_MEDIA_URI` to the local file URI,
+`PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=180`, and
+`PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=600`. The runs reported:
+
+| Metric | Median | Range |
+| --- | ---: | ---: |
+| Wall FPS | 120.22 | 120.21-120.23 |
+| Average total frame | 8.2972 ms | 8.2911-8.2996 ms |
+| Maximum frame | 10.0500 ms | 9.9102-10.1271 ms |
+| Frames above 16.667 ms | 0 | 0 |
+| Managed allocation | 7,574 B/frame | 7,536-7,643 B/frame |
+| Measured collections | 0 | 0 |
+
+The average is paced by drawable acquisition rather than by render work:
+median compositor work was 1.5474 ms and acquisition was approximately
+6.3 ms. These three runs establish a repeatable workload distribution; they
+do not by themselves establish GPU saturation, display latency, power, or
+native allocation lifetime.
+
+The repository profiler then launched fresh copies of the same NativeAOT
+binary through installed `Time Profiler` and `Metal System Trace` templates.
+It now passes `--no-prompt`, redirects each launched target's standard output
+to a per-template log, records that path in the manifest, and rejects an
+apparently valid capture as workload evidence unless the target log contains
+the benchmark result. The clean 12-second no-hold capture retained its
+exported XML, logs, compact summaries, and manifest after deleting the large
+raw trace and Xcode scratch files. Time Profiler completed the workload at
+119.98 wall FPS with an 8.3129-ms average, a 15.1805-ms maximum, and zero
+frames above 16.667 ms. Metal System Trace completed at 120.23 wall FPS with
+an 8.2984-ms average, a 10.4415-ms maximum, and zero frames above budget.
+
+The Metal capture sampled `currentAllocatedSize` 901 times, with a
+92,733,440-byte maximum and 67,796,992-byte final value. It observed 236
+resource allocations totaling 461,258,752 bytes across their lifetimes and
+22 resources totaling 68,829,184 bytes still live at capture end. The live
+set was dominated by two 16,646,144-byte window-system textures and two
+same-sized drawable textures; the remaining live resources were bounded
+driver and application buffers. There were 1,620 submissions, 6,533
+completion events, zero drawable waits, zero graphics-compiler spills, zero
+hang risks, and zero command-buffer errors. Two brief main-thread intervals
+occurred before the 180-frame warm-up completed: 172.548 ms in file loading
+and 209.398 ms while Dawn parsed WGSL and translated the initial pipeline to
+MSL. They are cold-start/first-use costs, not steady-state playback hitches.
+
+NativeAOT EventPipe diagnostics are optional; Microsoft documents that
+setting [`EventSourceSupport=true`](https://learn.microsoft.com/dotnet/core/deploying/native-aot/diagnostics)
+includes EventPipe support in the NativeAOT binary, and the standard
+[`dotnet-trace`](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace)
+profile supplies runtime events and sampled thread time. The desktop project
+now opts in explicitly. The final 540-KiB trace used
+`dotnet-common,dotnet-sampled-thread-time` plus the
+`ProGPU-SampleBenchmark` provider and resolved these stable boundaries:
+workload start at 412.957 ms, measurement start at 2,139.144 ms,
+measurement stop at 7,131.141 ms, and snapshot-hold start at 7,131.931 ms.
+All five observed runtime collections completed around 393 ms, before the
+workload marker. The traced 600-frame interval ran at 120.19 wall FPS with an
+8.2886-ms average, an 11.3825-ms maximum, zero frames above budget, and 7,547
+managed bytes allocated per frame. NativeAOT sampled stacks remain only
+partially symbolized, so the trace establishes phase and runtime ownership
+but is not used for method-level CPU attribution.
+
+A separate four-point `vmmap`/native-heap series covered active playback and
+the diagnostic hold. It reported working set from 208.02 to 214.36 MiB,
+physical footprint from 360.90 to 190.20 MiB, stable 63.60-MiB IOSurface
+residency, a 7.46-MiB reduction in resident IOAccelerator memory, and a
+4.70-MiB increase in resident `VM_ALLOCATE`; live native allocator payload
+was 20.72 MiB. `vmmap` suspends the target and strongly perturbed this run:
+the benchmark fell to 95.95 wall FPS and included a 643-ms frame while
+purgeable graphics residency was reclaimed. Consequently these values are
+ownership and bounded-residency evidence only. They are not comparable
+throughput results and a four-point series is not a soak or leak proof.
+
+The installed Xcode Allocations template still failed to finalize after its
+15-second recording window, both before and after adding `--no-prompt`.
+The profiler bounded finalization to duration plus 120 seconds, killed only
+its exact process tree, and removed the incomplete trace and newly created
+Xcode scratch data. No Allocations-table result is claimed. The remaining
+production gates therefore include a successful native allocation timeline
+or equivalent replacement, repeated power/thermal and audible-glitch runs,
+seek/loop/device-loss stress, and physical Windows, Linux, Android, and iOS
+qualification. The macOS result proves the current AVFoundation-to-Metal
+zero-copy lane on this machine and workload; it is deliberately not
+generalized to unmeasured adapters, codecs, formats, displays, or platforms.
