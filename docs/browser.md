@@ -59,6 +59,16 @@ provider diagnostics, then verifies that source disposal returns the owned DOM
 media-element count to its starting value. Override the default CORS-enabled
 fixture with the absolute `progpuMediaPlaybackSource` query parameter.
 
+HTML media text tracks remain browser-owned. `ProGPU.Browser` enumerates
+`TextTrackList`, observes membership and `cuechange`, and projects complete cue
+snapshots through the framework-neutral media sink. `TimedMetadataTrack` then
+retains one WinUI-aligned `TimedTextCue` per provider cue ID, so timing and text
+updates do not replace objects held by UI bindings. Presentation modes map as
+follows: `Disabled` → `disabled`, `Hidden`/`ApplicationPresented` → `hidden`,
+and `PlatformPresented` → `showing`. The browser therefore owns WebVTT loading
+and native caption presentation; ProGPU owns typed scheduling and application
+cue events without reparsing track text or adding an external codec library.
+
 ### Publish with managed WebAssembly AOT
 
 Install the .NET WebAssembly build tools once, then publish the Release host:

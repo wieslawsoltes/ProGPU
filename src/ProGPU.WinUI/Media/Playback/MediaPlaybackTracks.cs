@@ -299,10 +299,14 @@ namespace Windows.Media.Core
     {
         private readonly MediaTimedCueTimeline<IMediaCue>
             _timeline;
+        private readonly Dictionary<string, TimedTextCue>
+            _providerCues = new(StringComparer.Ordinal);
+        private readonly bool _providerOwned;
         private MediaPlaybackTrackDescriptor _descriptor;
         private MediaSource? _sourceOwner;
         private MediaPlaybackItem? _playbackItem;
         private string _label;
+        private bool _applyingProviderCues;
 
         public TimedMetadataTrack(
             string id,
@@ -320,13 +324,15 @@ namespace Windows.Media.Core
                         nameof(language)),
                     MediaPlaybackTrackEncoding.Empty,
                     MediaPlaybackTrackSupport.Unknown,
-                    ToProviderKind(kind)))
+                    ToProviderKind(kind)),
+                providerOwned: false)
         {
         }
 
         internal TimedMetadataTrack(
             MediaPlaybackItem? playbackItem,
-            in MediaPlaybackTrackDescriptor descriptor)
+            in MediaPlaybackTrackDescriptor descriptor,
+            bool providerOwned = true)
         {
             if (descriptor.Kind !=
                 MediaPlaybackTrackKind.TimedMetadata)
@@ -337,6 +343,7 @@ namespace Windows.Media.Core
             }
 
             _playbackItem = playbackItem;
+            _providerOwned = providerOwned;
             _descriptor = descriptor;
             _label = descriptor.Label;
             _timeline =
@@ -379,10 +386,7 @@ namespace Windows.Media.Core
             ArgumentNullException.ThrowIfNull(cue);
             if (_timeline.AddCue(cue))
             {
-                if (cue is DataCue dataCue)
-                {
-                    dataCue.TimingChanged += OnCueTimingChanged;
-                }
+                SubscribeCueTiming(cue);
                 _playbackItem?.RequestTimedMetadataRefresh();
             }
         }
@@ -392,10 +396,110 @@ namespace Windows.Media.Core
             ArgumentNullException.ThrowIfNull(cue);
             if (_timeline.RemoveCue(cue))
             {
-                if (cue is DataCue dataCue)
+                UnsubscribeCueTiming(cue);
+                if (cue is TimedTextCue timedTextCue &&
+                    _providerOwned)
                 {
-                    dataCue.TimingChanged -= OnCueTimingChanged;
+                    string? providerCueId = null;
+                    foreach (KeyValuePair<string, TimedTextCue>
+                                 pair in _providerCues)
+                    {
+                        if (ReferenceEquals(
+                                pair.Value,
+                                timedTextCue))
+                        {
+                            providerCueId = pair.Key;
+                            break;
+                        }
+                    }
+                    if (providerCueId is not null)
+                    {
+                        _providerCues.Remove(providerCueId);
+                    }
                 }
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        internal void ApplyProviderCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            if (!_providerOwned ||
+                !StringComparer.Ordinal.Equals(
+                    Id,
+                    snapshot.ProviderTrackId))
+            {
+                return;
+            }
+
+            var retainedIds = new HashSet<string>(
+                StringComparer.Ordinal);
+            bool changed = false;
+            _applyingProviderCues = true;
+            try
+            {
+                for (int index = 0;
+                     index < snapshot.Cues.Count;
+                     index++)
+                {
+                    MediaPlaybackTimedMetadataCueDescriptor
+                        descriptor = snapshot.Cues[index];
+                    retainedIds.Add(descriptor.CueId);
+                    if (!_providerCues.TryGetValue(
+                            descriptor.CueId,
+                            out TimedTextCue? cue))
+                    {
+                        cue = new TimedTextCue
+                        {
+                            Id = descriptor.CueId
+                        };
+                        cue.ApplyProviderState(
+                            descriptor.StartTime,
+                            descriptor.Duration,
+                            descriptor.Text);
+                        _providerCues.Add(
+                            descriptor.CueId,
+                            cue);
+                        _timeline.AddCue(cue);
+                        SubscribeCueTiming(cue);
+                        changed = true;
+                    }
+                    else
+                    {
+                        changed |= cue.ApplyProviderState(
+                            descriptor.StartTime,
+                            descriptor.Duration,
+                            descriptor.Text);
+                    }
+                }
+
+                if (_providerCues.Count != retainedIds.Count)
+                {
+                    string[] removedIds = _providerCues.Keys
+                        .Where(id => !retainedIds.Contains(id))
+                        .ToArray();
+                    for (int index = 0;
+                         index < removedIds.Length;
+                         index++)
+                    {
+                        TimedTextCue cue =
+                            _providerCues[removedIds[index]];
+                        _providerCues.Remove(removedIds[index]);
+                        _timeline.RemoveCue(cue);
+                        UnsubscribeCueTiming(cue);
+                        changed = true;
+                    }
+                }
+            }
+            finally
+            {
+                _applyingProviderCues = false;
+            }
+
+            if (changed)
+            {
+                _timeline.InvalidateSchedule();
                 _playbackItem?.RequestTimedMetadataRefresh();
             }
         }
@@ -489,7 +593,34 @@ namespace Windows.Media.Core
             EventArgs args)
         {
             _timeline.InvalidateSchedule();
-            _playbackItem?.RequestTimedMetadataRefresh();
+            if (!_applyingProviderCues)
+            {
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        private void SubscribeCueTiming(IMediaCue cue)
+        {
+            if (cue is DataCue dataCue)
+            {
+                dataCue.TimingChanged += OnCueTimingChanged;
+            }
+            else if (cue is TimedTextCue timedTextCue)
+            {
+                timedTextCue.TimingChanged += OnCueTimingChanged;
+            }
+        }
+
+        private void UnsubscribeCueTiming(IMediaCue cue)
+        {
+            if (cue is DataCue dataCue)
+            {
+                dataCue.TimingChanged -= OnCueTimingChanged;
+            }
+            else if (cue is TimedTextCue timedTextCue)
+            {
+                timedTextCue.TimingChanged -= OnCueTimingChanged;
+            }
         }
 
         private static TimedMetadataKind ToPublicKind(
@@ -1178,6 +1309,26 @@ namespace Windows.Media.Playback
                     _modes[index] !=
                         TimedMetadataTrackPresentationMode
                             .Disabled);
+            }
+        }
+
+        internal void ApplyProviderCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            for (int index = 0;
+                 index < _providerItems.Length;
+                 index++)
+            {
+                TimedMetadataTrack track =
+                    _providerItems[index];
+                if (StringComparer.Ordinal.Equals(
+                        track.Id,
+                        snapshot.ProviderTrackId))
+                {
+                    track.ApplyProviderCues(snapshot);
+                    return;
+                }
             }
         }
 

@@ -119,6 +119,17 @@ public sealed class MediaPlaybackEngineTests
             typeof(DataCue)
                 .GetProperty(nameof(DataCue.Properties))!
                 .PropertyType);
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedTextCue).Namespace);
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedTextLine).Namespace);
+        Assert.Equal(
+            typeof(IList<TimedTextLine>),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.Lines))!
+                .PropertyType);
         Assert.Equal(0, (int)MediaTrackKind.Audio);
         Assert.Equal(1, (int)MediaTrackKind.Video);
         Assert.Equal(2, (int)MediaTrackKind.TimedMetadata);
@@ -263,6 +274,161 @@ public sealed class MediaPlaybackEngineTests
                     1,
                     TimedMetadataTrackPresentationMode
                         .Hidden));
+    }
+
+    [Fact]
+    public void
+        ProviderTimedTextCuesPreserveIdentityAndSchedule()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/provider-cues.mp4"));
+        var item = new MediaPlaybackItem(source);
+
+        player.Source = item;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        TimedMetadataTrack track =
+            Assert.Single(item.TimedMetadataTracks);
+        int entered = 0;
+        int exited = 0;
+        track.CueEntered += (_, _) => entered++;
+        track.CueExited += (_, _) => exited++;
+
+        var sourceCues =
+            new MediaPlaybackTimedMetadataCueDescriptor[]
+            {
+                new(
+                    "subtitle-1",
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(2),
+                    "First")
+            };
+        var firstSnapshot =
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                sourceCues);
+        sourceCues[0] = sourceCues[0] with
+        {
+            Text = "mutated caller buffer"
+        };
+        provider.ReportTimedMetadataCues(firstSnapshot);
+
+        TimedTextCue cue =
+            Assert.IsType<TimedTextCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("subtitle-1", cue.Id);
+        Assert.Equal("First", Assert.Single(cue.Lines).Text);
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(1.5)));
+
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(1, entered);
+        Assert.Equal(0, exited);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new(
+                        "subtitle-1",
+                        TimeSpan.FromSeconds(4),
+                        TimeSpan.FromSeconds(3),
+                        "Updated")
+                ]));
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Equal(
+            TimeSpan.FromSeconds(4),
+            cue.StartTime);
+        Assert.Equal(
+            "Updated",
+            Assert.Single(cue.Lines).Text);
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(1, exited);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(4.5)));
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(2, entered);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                []));
+        Assert.Empty(track.Cues);
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(2, exited);
+
+        using MediaSource replacementSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/new-provider-cues.mp4"));
+        var replacementItem =
+            new MediaPlaybackItem(replacementSource);
+        player.Source = replacementItem;
+        provider.ReportTimedMetadataCues(firstSnapshot);
+
+        Assert.Empty(track.Cues);
+        Assert.Empty(
+            replacementItem.TimedMetadataTracks[0].Cues);
+    }
+
+    [Fact]
+    public void TimedMetadataCueSnapshotsValidateIdentityAndTiming()
+    {
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            string.Empty,
+                            TimeSpan.Zero,
+                            TimeSpan.FromSeconds(1),
+                            string.Empty)
+                    ]));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            "duplicate",
+                            TimeSpan.Zero,
+                            TimeSpan.FromSeconds(1),
+                            string.Empty),
+                        new(
+                            "duplicate",
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromSeconds(1),
+                            string.Empty)
+                    ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            "negative",
+                            TimeSpan.FromTicks(-1),
+                            TimeSpan.Zero,
+                            string.Empty)
+                    ]));
     }
 
     [Fact]
@@ -4907,6 +5073,9 @@ public sealed class MediaPlaybackEngineTests
         public void ReportTracks(
             MediaPlaybackTracksSnapshot tracks) =>
             _sink.UpdateTracks(tracks);
+        public void ReportTimedMetadataCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot) =>
+            _sink.UpdateTimedMetadataCues(snapshot);
         public void ReportEnded() => _sink.Ended();
         public void Dispose() { }
 

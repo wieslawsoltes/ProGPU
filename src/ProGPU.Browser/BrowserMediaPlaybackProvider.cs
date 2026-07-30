@@ -122,7 +122,8 @@ public sealed class BrowserMediaPlaybackProviderFactory :
 }
 
 internal sealed partial class BrowserMediaPlaybackProvider :
-    IMediaPlaybackProvider
+    IMediaPlaybackProvider,
+    IMediaPlaybackTimedMetadataProvider
 {
     private static int s_nextId;
     private readonly object _gate = new();
@@ -146,6 +147,8 @@ internal sealed partial class BrowserMediaPlaybackProvider :
     private bool _looping;
     private MediaPlaybackSnapshot _snapshot =
         MediaPlaybackSnapshot.Empty;
+    private MediaPlaybackTracksSnapshot _tracks =
+        MediaPlaybackTracksSnapshot.Empty;
     private int _opened;
     private int _nextAudioEffectId;
     private int _disposed;
@@ -228,12 +231,18 @@ internal sealed partial class BrowserMediaPlaybackProvider :
                     _hasPendingSeek = false;
                 }
             }
-            _sink.UpdateTracks(
-                CreateDefaultTrackSnapshot(
-                    capabilities.HasAudio,
-                    capabilities.HasVideo,
-                    width,
-                    height));
+            IReadOnlyList<
+                MediaPlaybackTimedMetadataCueSnapshot>
+                timedMetadataCues;
+            _tracks = CreateTrackSnapshot(
+                root,
+                capabilities.HasAudio,
+                capabilities.HasVideo,
+                width,
+                height,
+                out timedMetadataCues);
+            _sink.UpdateTracks(_tracks);
+            PublishTimedMetadataCues(timedMetadataCues);
             _sink.Opened(in _snapshot);
             _sink.UpdateDiagnostics(
                 new MediaProviderDiagnostics(
@@ -333,6 +342,36 @@ internal sealed partial class BrowserMediaPlaybackProvider :
 
     public bool StepForwardOneFrame() => false;
     public bool StepBackwardOneFrame() => false;
+
+    public bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        if ((uint)index >=
+                (uint)_tracks.TimedMetadataTracks.Count ||
+            !Enum.IsDefined(mode) ||
+            Volatile.Read(ref _opened) == 0 ||
+            Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+
+        string browserMode = mode switch
+        {
+            MediaPlaybackTimedMetadataPresentationMode
+                .Disabled => "disabled",
+            MediaPlaybackTimedMetadataPresentationMode
+                .PlatformPresented => "showing",
+            _ => "hidden"
+        };
+        string metadataJson =
+            SetTimedMetadataModeCore(
+                _id,
+                index,
+                browserMode);
+        ApplyBrowserTimedMetadata(metadataJson);
+        return true;
+    }
 
     public void AddEffect(IMediaEffect effect, bool optional)
     {
@@ -479,6 +518,16 @@ internal sealed partial class BrowserMediaPlaybackProvider :
         _sink.Update(in _snapshot);
     }
 
+    internal void OnBrowserTimedMetadata(string metadataJson)
+    {
+        if (Volatile.Read(ref _disposed) != 0 ||
+            Volatile.Read(ref _opened) == 0)
+        {
+            return;
+        }
+        ApplyBrowserTimedMetadata(metadataJson);
+    }
+
     internal unsafe bool TryGetTexture(
         in MediaGpuFrameDescriptor descriptor,
         WgpuContext requiredContext,
@@ -596,11 +645,15 @@ internal sealed partial class BrowserMediaPlaybackProvider :
             : TimeSpan.Zero;
 
     private static MediaPlaybackTracksSnapshot
-        CreateDefaultTrackSnapshot(
+        CreateTrackSnapshot(
+            JsonElement root,
             bool hasAudio,
             bool hasVideo,
             uint width,
-            uint height)
+            uint height,
+            out IReadOnlyList<
+                MediaPlaybackTimedMetadataCueSnapshot>
+                timedMetadataCues)
     {
         MediaPlaybackTrackDescriptor[] audio = hasAudio
             ?
@@ -631,12 +684,168 @@ internal sealed partial class BrowserMediaPlaybackProvider :
                     MediaPlaybackTrackSupport.Unknown)
             ]
             : [];
+        ParseTimedMetadataTracks(
+            root,
+            out MediaPlaybackTrackDescriptor[] metadata,
+            out MediaPlaybackTimedMetadataCueSnapshot[]
+                cueSnapshots);
+        timedMetadataCues = cueSnapshots;
         return new MediaPlaybackTracksSnapshot(
             audio,
             hasAudio ? 0 : -1,
             video,
-            hasVideo ? 0 : -1);
+            hasVideo ? 0 : -1,
+            metadata);
     }
+
+    private void ApplyBrowserTimedMetadata(string metadataJson)
+    {
+        using JsonDocument document =
+            JsonDocument.Parse(metadataJson);
+        ParseTimedMetadataTracks(
+            document.RootElement,
+            out MediaPlaybackTrackDescriptor[] metadata,
+            out MediaPlaybackTimedMetadataCueSnapshot[] cues);
+        _tracks = new MediaPlaybackTracksSnapshot(
+            _tracks.AudioTracks,
+            _tracks.SelectedAudioTrackIndex,
+            _tracks.VideoTracks,
+            _tracks.SelectedVideoTrackIndex,
+            metadata);
+        _sink.UpdateTracks(_tracks);
+        PublishTimedMetadataCues(cues);
+    }
+
+    private void PublishTimedMetadataCues(
+        IReadOnlyList<
+            MediaPlaybackTimedMetadataCueSnapshot> snapshots)
+    {
+        for (int index = 0;
+             index < snapshots.Count;
+             index++)
+        {
+            _sink.UpdateTimedMetadataCues(snapshots[index]);
+        }
+    }
+
+    private static void ParseTimedMetadataTracks(
+        JsonElement root,
+        out MediaPlaybackTrackDescriptor[] tracks,
+        out MediaPlaybackTimedMetadataCueSnapshot[] cues)
+    {
+        if (!root.TryGetProperty(
+                "textTracks",
+                out JsonElement textTracks) ||
+            textTracks.ValueKind != JsonValueKind.Array)
+        {
+            tracks = [];
+            cues = [];
+            return;
+        }
+
+        int count = textTracks.GetArrayLength();
+        tracks = new MediaPlaybackTrackDescriptor[count];
+        cues =
+            new MediaPlaybackTimedMetadataCueSnapshot[count];
+        int trackIndex = 0;
+        foreach (JsonElement track in textTracks
+                     .EnumerateArray())
+        {
+            string providerTrackId =
+                GetString(track, "providerTrackId");
+            string kind = GetString(track, "kind");
+            string label = GetString(track, "label");
+            string language = GetString(track, "language");
+            tracks[trackIndex] =
+                new MediaPlaybackTrackDescriptor(
+                    providerTrackId,
+                    MediaPlaybackTrackKind.TimedMetadata,
+                    string.IsNullOrEmpty(label)
+                        ? $"Text track {trackIndex + 1}"
+                        : label,
+                    label,
+                    language,
+                    new MediaPlaybackTrackEncoding(
+                        "WebVTT"),
+                    MediaPlaybackTrackSupport.Supported,
+                    ToTimedMetadataKind(kind),
+                    "text/vtt");
+
+            JsonElement cueArray;
+            if (!track.TryGetProperty(
+                    "cues",
+                    out cueArray) ||
+                cueArray.ValueKind != JsonValueKind.Array)
+            {
+                cues[trackIndex] =
+                    new MediaPlaybackTimedMetadataCueSnapshot(
+                        providerTrackId,
+                        []);
+                trackIndex++;
+                continue;
+            }
+
+            var descriptors =
+                new MediaPlaybackTimedMetadataCueDescriptor[
+                    cueArray.GetArrayLength()];
+            int cueIndex = 0;
+            foreach (JsonElement cue in cueArray
+                         .EnumerateArray())
+            {
+                descriptors[cueIndex++] =
+                    new
+                        MediaPlaybackTimedMetadataCueDescriptor(
+                            GetString(cue, "id"),
+                            Seconds(
+                                GetDouble(
+                                    cue,
+                                    "startTime")),
+                            Seconds(
+                                GetDouble(
+                                    cue,
+                                    "duration")),
+                            GetString(cue, "text"));
+            }
+            cues[trackIndex] =
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    providerTrackId,
+                    descriptors);
+            trackIndex++;
+        }
+    }
+
+    private static string GetString(
+        JsonElement element,
+        string name) =>
+        element.TryGetProperty(name, out JsonElement value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static double GetDouble(
+        JsonElement element,
+        string name) =>
+        element.TryGetProperty(name, out JsonElement value) &&
+        value.ValueKind == JsonValueKind.Number
+            ? value.GetDouble()
+            : 0d;
+
+    private static MediaPlaybackTimedMetadataKind
+        ToTimedMetadataKind(string kind) =>
+        kind switch
+        {
+            "captions" =>
+                MediaPlaybackTimedMetadataKind.Caption,
+            "chapters" =>
+                MediaPlaybackTimedMetadataKind.Chapter,
+            "descriptions" =>
+                MediaPlaybackTimedMetadataKind.Description,
+            "metadata" =>
+                MediaPlaybackTimedMetadataKind.Data,
+            "subtitles" =>
+                MediaPlaybackTimedMetadataKind.Subtitle,
+            _ => MediaPlaybackTimedMetadataKind.Custom
+        };
 
     private void OnAudioEffectStateChanged(
         AudioGraphEffectBinding binding)
@@ -696,6 +905,15 @@ internal sealed partial class BrowserMediaPlaybackProvider :
         double volume,
         double balance,
         bool muted);
+
+    [JSImport(
+        "setBrowserMediaTimedMetadataMode",
+        "progpu-browser")]
+    private static partial string
+        SetTimedMetadataModeCore(
+            int id,
+            int index,
+            string mode);
 
     [JSImport(
         "configureBrowserMediaAudioEffect",
@@ -796,6 +1014,22 @@ public static partial class BrowserMediaCallbacks
                 height,
                 progress,
                 message);
+        }
+        else
+        {
+            s_providers.TryRemove(id, out _);
+        }
+    }
+
+    [JSExport]
+    public static void DispatchTimedMetadata(
+        int id,
+        string metadataJson)
+    {
+        if (s_providers.TryGetValue(id, out var reference) &&
+            reference.TryGetTarget(out var provider))
+        {
+            provider.OnBrowserTimedMetadata(metadataJson);
         }
         else
         {

@@ -296,6 +296,10 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         }
     }
 
+    internal void ApplyTimedMetadataCues(
+        MediaPlaybackTimedMetadataCueSnapshot snapshot) =>
+        _timedMetadataTracks.ApplyProviderCues(snapshot);
+
     internal void RequestTrackSelection(
         MediaPlaybackTrackKind kind,
         int index) =>

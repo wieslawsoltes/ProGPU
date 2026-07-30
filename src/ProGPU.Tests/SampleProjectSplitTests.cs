@@ -391,6 +391,70 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void
+        BrowserMediaProjectsNativeTextTracksThroughWinUiCueContracts()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string browserProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "captureBrowserMediaTextTracks(entry)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "track.addEventListener('cuechange'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "video.textTracks.addEventListener(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "setBrowserMediaTimedMetadataMode",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'disabled'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'hidden'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'showing'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".Disabled => \"disabled\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".PlatformPresented => \"showing\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_ => \"hidden\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sink.UpdateTimedMetadataCues(",
+            browserProvider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BrowserPlaybackSmokeUsesWinUiControlsAndChecksDomOwnership()
     {
         string browserAsset = Read(

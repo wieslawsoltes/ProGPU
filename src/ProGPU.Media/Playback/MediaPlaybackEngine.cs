@@ -51,6 +51,9 @@ public sealed class MediaPlaybackEngine : IDisposable
     public event EventHandler<MediaPlaybackChangedEventArgs>? Changed;
     public event EventHandler<MediaPlaybackTracksChangedEventArgs>?
         TracksChanged;
+    public event EventHandler<
+        MediaPlaybackTimedMetadataCuesChangedEventArgs>?
+        TimedMetadataCuesChanged;
     public event EventHandler? Opened;
     public event EventHandler? Ended;
     public event EventHandler? SeekCompleted;
@@ -943,6 +946,45 @@ public sealed class MediaPlaybackEngine : IDisposable
         TracksChanged?.Invoke(this, change);
     }
 
+    private void AcceptTimedMetadataCues(
+        long generation,
+        MediaPlaybackTimedMetadataCueSnapshot value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        MediaPlaybackTimedMetadataCuesChangedEventArgs? change =
+            null;
+        lock (_gate)
+        {
+            if (!IsCurrent(generation))
+            {
+                return;
+            }
+
+            IReadOnlyList<MediaPlaybackTrackDescriptor> tracks =
+                _tracks.TimedMetadataTracks;
+            bool found = false;
+            for (int index = 0; index < tracks.Count; index++)
+            {
+                if (StringComparer.Ordinal.Equals(
+                        tracks[index].ProviderTrackId,
+                        value.ProviderTrackId))
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                return;
+            }
+
+            change =
+                new MediaPlaybackTimedMetadataCuesChangedEventArgs(
+                    value);
+        }
+        TimedMetadataCuesChanged?.Invoke(this, change);
+    }
+
     private void AcceptOpened(
         long generation,
         in MediaPlaybackSnapshot value)
@@ -1407,6 +1449,12 @@ public sealed class MediaPlaybackEngine : IDisposable
         public void UpdateTracks(
             MediaPlaybackTracksSnapshot tracks) =>
             _owner.AcceptTracks(_generation, tracks);
+
+        public void UpdateTimedMetadataCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot) =>
+            _owner.AcceptTimedMetadataCues(
+                _generation,
+                snapshot);
 
         public void Opened(in MediaPlaybackSnapshot snapshot) =>
             _owner.AcceptOpened(_generation, snapshot);

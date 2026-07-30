@@ -335,6 +335,101 @@ public sealed class MediaPlaybackTracksChangedEventArgs :
 }
 
 /// <summary>
+/// Immutable provider-neutral timed-text cue. Providers publish complete
+/// per-track snapshots when cue membership or timing changes.
+/// </summary>
+public readonly record struct
+    MediaPlaybackTimedMetadataCueDescriptor(
+        string CueId,
+        TimeSpan StartTime,
+        TimeSpan Duration,
+        string Text);
+
+/// <summary>
+/// Immutable cue snapshot for one provider timed-metadata track.
+/// Publication is O(C) time and storage for C cues.
+/// </summary>
+public sealed class MediaPlaybackTimedMetadataCueSnapshot
+{
+    private readonly ReadOnlyCollection<
+        MediaPlaybackTimedMetadataCueDescriptor> _cues;
+
+    public MediaPlaybackTimedMetadataCueSnapshot(
+        string providerTrackId,
+        IReadOnlyList<
+            MediaPlaybackTimedMetadataCueDescriptor>? cues)
+    {
+        if (string.IsNullOrWhiteSpace(providerTrackId))
+        {
+            throw new ArgumentException(
+                "A provider track identifier is required.",
+                nameof(providerTrackId));
+        }
+
+        ProviderTrackId = providerTrackId;
+        if (cues is null || cues.Count == 0)
+        {
+            _cues = Array.AsReadOnly(
+                Array.Empty<
+                    MediaPlaybackTimedMetadataCueDescriptor>());
+            return;
+        }
+
+        var copy =
+            new MediaPlaybackTimedMetadataCueDescriptor[
+                cues.Count];
+        var cueIds = new HashSet<string>(
+            StringComparer.Ordinal);
+        for (int index = 0; index < copy.Length; index++)
+        {
+            MediaPlaybackTimedMetadataCueDescriptor cue =
+                cues[index];
+            if (string.IsNullOrWhiteSpace(cue.CueId) ||
+                !cueIds.Add(cue.CueId))
+            {
+                throw new ArgumentException(
+                    "Provider cue identifiers must be non-empty and unique within a track snapshot.",
+                    nameof(cues));
+            }
+            if (cue.StartTime < TimeSpan.Zero ||
+                cue.Duration < TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(cues),
+                    "Cue timing must be non-negative.");
+            }
+            copy[index] = cue with
+            {
+                Text = cue.Text ?? string.Empty
+            };
+        }
+        _cues = Array.AsReadOnly(copy);
+    }
+
+    public string ProviderTrackId { get; }
+    public IReadOnlyList<
+        MediaPlaybackTimedMetadataCueDescriptor> Cues =>
+        _cues;
+}
+
+public sealed class
+    MediaPlaybackTimedMetadataCuesChangedEventArgs :
+    EventArgs
+{
+    public MediaPlaybackTimedMetadataCuesChangedEventArgs(
+        MediaPlaybackTimedMetadataCueSnapshot snapshot)
+    {
+        Snapshot = snapshot ??
+            throw new ArgumentNullException(nameof(snapshot));
+    }
+
+    public MediaPlaybackTimedMetadataCueSnapshot Snapshot
+    {
+        get;
+    }
+}
+
+/// <summary>
 /// Optional provider capability for selecting one audio or video track.
 /// Implementations return false without mutating native state when the
 /// requested selection is unsupported.

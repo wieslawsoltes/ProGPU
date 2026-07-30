@@ -35,6 +35,7 @@ const state = {
   mediaElements: new Map(),
   pendingMediaFrames: new Map(),
   dispatchMediaEvent: null,
+  dispatchMediaTimedMetadata: null,
   worker: null,
   workerRequests: new Map(),
   nextWorkerRequest: 1,
@@ -2730,6 +2731,86 @@ function dispatchMediaEvent(id, kind, video, message = '') {
     message);
 }
 
+function browserMediaTextTrackId(entry, track) {
+  let value = entry.textTrackIds.get(track);
+  if (!value) {
+    value = `htmlmedia:text:${entry.id}:${entry.nextTextTrackId++}`;
+    entry.textTrackIds.set(track, value);
+  }
+  return value;
+}
+
+function browserMediaCueId(entry, cue) {
+  let value = entry.cueIds.get(cue);
+  if (!value) {
+    value = `htmlmedia:cue:${entry.id}:${entry.nextCueId++}`;
+    entry.cueIds.set(cue, value);
+  }
+  return value;
+}
+
+function captureBrowserMediaTextTracks(entry) {
+  return Array.from(entry.video.textTracks || []).map(track => ({
+    providerTrackId: browserMediaTextTrackId(entry, track),
+    kind: track.kind || '',
+    label: track.label || '',
+    language: track.language || '',
+    mode: track.mode || 'disabled',
+    cues: Array.from(track.cues || []).map(cue => {
+      const startTime = Number.isFinite(cue.startTime)
+        ? Math.max(0, cue.startTime)
+        : 0;
+      const endTime = Number.isFinite(cue.endTime)
+        ? Math.max(startTime, cue.endTime)
+        : startTime;
+      return {
+        id: browserMediaCueId(entry, cue),
+        startTime,
+        duration: endTime - startTime,
+        text: typeof cue.text === 'string' ? cue.text : ''
+      };
+    })
+  }));
+}
+
+function captureBrowserMediaTimedMetadata(entry) {
+  return JSON.stringify({
+    textTracks: captureBrowserMediaTextTracks(entry)
+  });
+}
+
+function dispatchBrowserMediaTimedMetadata(entry) {
+  if (entry.disposed || !state.dispatchMediaTimedMetadata) return;
+  state.dispatchMediaTimedMetadata(
+    entry.id,
+    captureBrowserMediaTimedMetadata(entry));
+}
+
+function observeBrowserMediaTextTracks(entry) {
+  const currentTracks = new Set(
+    Array.from(entry.video.textTracks || []));
+  for (const [track, listener] of entry.textTrackListeners) {
+    if (!currentTracks.has(track)) {
+      track.removeEventListener('cuechange', listener);
+      entry.textTrackListeners.delete(track);
+    }
+  }
+  for (const track of currentTracks) {
+    browserMediaTextTrackId(entry, track);
+    if (!entry.textTrackListeners.has(track)) {
+      const listener = () =>
+        dispatchBrowserMediaTimedMetadata(entry);
+      track.addEventListener('cuechange', listener);
+      entry.textTrackListeners.set(track, listener);
+    }
+  }
+}
+
+function onBrowserMediaTextTracksChanged(entry) {
+  observeBrowserMediaTextTracks(entry);
+  dispatchBrowserMediaTimedMetadata(entry);
+}
+
 function scheduleMediaFrame(entry) {
   if (entry.disposed || entry.frameCallbackActive) return;
   entry.frameCallbackActive = true;
@@ -2767,7 +2848,13 @@ async function createBrowserMedia(id, uri) {
     audioContext: null,
     audioSource: null,
     panner: null,
-    audioEffects: new Map()
+    audioEffects: new Map(),
+    textTrackIds: new WeakMap(),
+    cueIds: new WeakMap(),
+    nextTextTrackId: 1,
+    nextCueId: 1,
+    textTrackListeners: new Map(),
+    textTrackListChanged: null
   };
   state.mediaElements.set(id, entry);
 
@@ -2799,11 +2886,24 @@ async function createBrowserMedia(id, uri) {
   video.src = uri;
   video.load();
   await metadata;
+  entry.textTrackListChanged = () =>
+    onBrowserMediaTextTracksChanged(entry);
+  video.textTracks.addEventListener(
+    'change',
+    entry.textTrackListChanged);
+  video.textTracks.addEventListener(
+    'addtrack',
+    entry.textTrackListChanged);
+  video.textTracks.addEventListener(
+    'removetrack',
+    entry.textTrackListChanged);
+  observeBrowserMediaTextTracks(entry);
   scheduleMediaFrame(entry);
   return JSON.stringify({
     duration: Number.isFinite(video.duration) ? video.duration : 0,
     width: video.videoWidth || 0,
-    height: video.videoHeight || 0
+    height: video.videoHeight || 0,
+    textTracks: captureBrowserMediaTextTracks(entry)
   });
 }
 
@@ -2836,6 +2936,25 @@ function setBrowserMediaAudio(id, volume, balance, muted) {
   entry.video.muted = muted;
   if (balance !== 0) ensureBrowserMediaAudioGraph(entry);
   if (entry.panner) entry.panner.pan.value = Math.max(-1, Math.min(1, balance));
+}
+
+function setBrowserMediaTimedMetadataMode(id, index, mode) {
+  const entry = requireMediaElement(id);
+  if (!Number.isInteger(index) ||
+      index < 0 ||
+      index >= entry.video.textTracks.length) {
+    throw new RangeError(
+      `Browser media text-track index ${index} is out of range.`);
+  }
+  if (mode !== 'disabled' &&
+      mode !== 'hidden' &&
+      mode !== 'showing') {
+    throw new RangeError(
+      `Unsupported browser media text-track mode '${mode}'.`);
+  }
+  entry.video.textTracks[index].mode = mode;
+  observeBrowserMediaTextTracks(entry);
+  return captureBrowserMediaTimedMetadata(entry);
 }
 
 function ensureBrowserMediaAudioGraph(entry) {
@@ -2934,6 +3053,21 @@ function disposeBrowserMedia(id) {
   const entry = state.mediaElements.get(id);
   if (!entry) return;
   entry.disposed = true;
+  if (entry.textTrackListChanged) {
+    entry.video.textTracks.removeEventListener(
+      'change',
+      entry.textTrackListChanged);
+    entry.video.textTracks.removeEventListener(
+      'addtrack',
+      entry.textTrackListChanged);
+    entry.video.textTracks.removeEventListener(
+      'removetrack',
+      entry.textTrackListChanged);
+  }
+  for (const [track, listener] of entry.textTrackListeners) {
+    track.removeEventListener('cuechange', listener);
+  }
+  entry.textTrackListeners.clear();
   if (entry.frameCallbackHandle) {
     if (typeof entry.video.cancelVideoFrameCallback === 'function') entry.video.cancelVideoFrameCallback(entry.frameCallbackHandle);
     else cancelAnimationFrame(entry.frameCallbackHandle);
@@ -3696,11 +3830,12 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
   state.dispatchMediaEvent = browserExports.ProGPU.Browser.BrowserMediaCallbacks.DispatchEvent;
+  state.dispatchMediaTimedMetadata = browserExports.ProGPU.Browser.BrowserMediaCallbacks.DispatchTimedMetadata;
   state.dispatchMediaExportProgress = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchProgress;
   state.dispatchMediaExportCompletion = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchCompletion;
   state.dispatchMediaThumbnailCompletion = browserExports.ProGPU.Browser.BrowserMediaThumbnailCallbacks.DispatchCompletion;

@@ -489,6 +489,8 @@ public sealed class MediaPlayer : IDisposable
         CommandManager = new MediaPlaybackCommandManager(this);
         _engine.Changed += OnEngineChanged;
         _engine.TracksChanged += OnEngineTracksChanged;
+        _engine.TimedMetadataCuesChanged +=
+            OnEngineTimedMetadataCuesChanged;
         _engine.Opened += OnEngineOpened;
         _engine.Ended += OnEngineEnded;
         _engine.SeekCompleted += OnEngineSeekCompleted;
@@ -1017,6 +1019,13 @@ public sealed class MediaPlayer : IDisposable
         Dispatch(() =>
             GetCurrentPlaybackItem()?.ApplyTracks(args.Tracks));
 
+    private void OnEngineTimedMetadataCuesChanged(
+        object? sender,
+        MediaPlaybackTimedMetadataCuesChangedEventArgs args) =>
+        Dispatch(() =>
+            GetCurrentPlaybackItem()?.ApplyTimedMetadataCues(
+                args.Snapshot));
+
     private MediaPlaybackItem? GetCurrentPlaybackItem() =>
         _source switch
         {
@@ -1208,6 +1217,8 @@ public sealed class MediaPlayer : IDisposable
         }
         _engine.Changed -= OnEngineChanged;
         _engine.TracksChanged -= OnEngineTracksChanged;
+        _engine.TimedMetadataCuesChanged -=
+            OnEngineTimedMetadataCuesChanged;
         _engine.Opened -= OnEngineOpened;
         _engine.Ended -= OnEngineEnded;
         _engine.SeekCompleted -= OnEngineSeekCompleted;
