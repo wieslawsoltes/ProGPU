@@ -110,12 +110,24 @@ internal static class LinuxAacCompositionEncoder
             return false;
         }
 
-        configuration =
-            new LinuxAacEncoderConfiguration(
-                request.EncodingProfile.AudioSampleRate,
-                request.EncodingProfile.AudioChannelCount,
-                request.EncodingProfile.AudioBitrate,
-                compositionFrameCount);
+        try
+        {
+            configuration =
+                new LinuxAacEncoderConfiguration(
+                    request.EncodingProfile.AudioSampleRate,
+                    request.EncodingProfile.AudioChannelCount,
+                    request.EncodingProfile.AudioBitrate,
+                    checked(
+                        compositionFrameCount +
+                        GetMaximumTailFrameCount(
+                            plans)));
+        }
+        catch (OverflowException)
+        {
+            plans = [];
+            configuration = default;
+            return false;
+        }
         try
         {
             if (factory.CanEncode(in configuration))
@@ -132,6 +144,24 @@ internal static class LinuxAacCompositionEncoder
         plans = [];
         configuration = default;
         return false;
+    }
+
+    private static int GetMaximumTailFrameCount(
+        ReadOnlySpan<LinuxCompositionAudioSourcePlan>
+            plans)
+    {
+        int maximum = 0;
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            maximum = Math.Max(
+                maximum,
+                plans[index]
+                    .ProcessorTiming
+                    .TailFrameCount);
+        }
+        return maximum;
     }
 
     internal static IsoBmffCompositionTrack Encode(

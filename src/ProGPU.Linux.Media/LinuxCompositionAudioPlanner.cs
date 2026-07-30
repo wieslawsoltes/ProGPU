@@ -26,7 +26,11 @@ internal readonly record struct LinuxCompositionAudioSourcePlan(
     long DestinationEndFrame,
     LinuxPcm16MixLevels Levels,
     MediaCompositionEffectDefinition[]
-        ProcessorDefinitions);
+        ProcessorDefinitions)
+{
+    internal MediaAudioProcessorTiming
+        ProcessorTiming { get; init; }
+}
 
 /// <summary>
 /// Captures the WinUI composition-audio model before native decoding starts.
@@ -39,6 +43,9 @@ internal readonly record struct LinuxCompositionAudioSourcePlan(
 /// </remarks>
 internal static class LinuxCompositionAudioPlanner
 {
+    internal const int MaximumProcessorTimingSeconds =
+        600;
+
     internal static bool TryCapture(
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects,
@@ -69,6 +76,10 @@ internal static class LinuxCompositionAudioPlanner
                 TicksToFramesCeiling(
                     compositionTicks,
                     sampleRate);
+            var format =
+                new MediaAudioFormat(
+                    checked((int)sampleRate),
+                    checked((int)channelCount));
             var captured =
                 new List<LinuxCompositionAudioSourcePlan>(
                     checked(
@@ -80,18 +91,21 @@ internal static class LinuxCompositionAudioPlanner
                     request.Clips,
                     effects,
                     sampleRate,
+                    format,
                     captured) &&
                 CaptureBackgroundTracks(
                     request.BackgroundAudioTracks,
                     compositionTicks,
                     effects,
                     sampleRate,
+                    format,
                     captured) &&
                 CaptureAudibleOverlays(
                     request.OverlayLayers,
                     compositionTicks,
                     effects,
                     sampleRate,
+                    format,
                     captured);
             if (!valid)
             {
@@ -159,6 +173,7 @@ internal static class LinuxCompositionAudioPlanner
         IReadOnlyList<MediaCompositionExportClip> clips,
         MediaEffectRegistry effects,
         uint sampleRate,
+        MediaAudioFormat format,
         List<LinuxCompositionAudioSourcePlan>
             destination)
     {
@@ -179,9 +194,12 @@ internal static class LinuxCompositionAudioPlanner
                     clip.Volume,
                     clip.AudioEffectDefinitions,
                     effects,
+                    format,
                     out LinuxPcm16MixLevels levels,
                     out MediaCompositionEffectDefinition[]
-                        processorDefinitions))
+                        processorDefinitions,
+                    out MediaAudioProcessorTiming
+                        processorTiming))
             {
                 return false;
             }
@@ -210,7 +228,8 @@ internal static class LinuxCompositionAudioPlanner
                         nextCursor,
                         sampleRate,
                         levels,
-                        processorDefinitions);
+                        processorDefinitions,
+                        processorTiming);
                 }
             }
             else if (clip.SourceUri is not null)
@@ -228,6 +247,7 @@ internal static class LinuxCompositionAudioPlanner
         long compositionTicks,
         MediaEffectRegistry effects,
         uint sampleRate,
+        MediaAudioFormat format,
         List<LinuxCompositionAudioSourcePlan>
             destination)
     {
@@ -248,9 +268,12 @@ internal static class LinuxCompositionAudioPlanner
                     track.Volume,
                     track.AudioEffectDefinitions,
                     effects,
+                    format,
                     out LinuxPcm16MixLevels levels,
                     out MediaCompositionEffectDefinition[]
-                        processorDefinitions))
+                        processorDefinitions,
+                    out MediaAudioProcessorTiming
+                        processorTiming))
             {
                 return false;
             }
@@ -295,7 +318,8 @@ internal static class LinuxCompositionAudioPlanner
                 presentationEnd,
                 sampleRate,
                 levels,
-                processorDefinitions);
+                processorDefinitions,
+                processorTiming);
         }
         return true;
     }
@@ -306,6 +330,7 @@ internal static class LinuxCompositionAudioPlanner
         long compositionTicks,
         MediaEffectRegistry effects,
         uint sampleRate,
+        MediaAudioFormat format,
         List<LinuxCompositionAudioSourcePlan>
             destination)
     {
@@ -342,9 +367,12 @@ internal static class LinuxCompositionAudioPlanner
                         clip.Volume,
                         clip.AudioEffectDefinitions,
                         effects,
+                        format,
                         out LinuxPcm16MixLevels levels,
                         out MediaCompositionEffectDefinition[]
-                            processorDefinitions))
+                            processorDefinitions,
+                        out MediaAudioProcessorTiming
+                            processorTiming))
                 {
                     return false;
                 }
@@ -383,7 +411,8 @@ internal static class LinuxCompositionAudioPlanner
                     presentationEnd,
                     sampleRate,
                     levels,
-                    processorDefinitions);
+                    processorDefinitions,
+                    processorTiming);
             }
         }
         return true;
@@ -407,7 +436,8 @@ internal static class LinuxCompositionAudioPlanner
         uint sampleRate,
         in LinuxPcm16MixLevels levels,
         MediaCompositionEffectDefinition[]
-            processorDefinitions)
+            processorDefinitions,
+        MediaAudioProcessorTiming processorTiming)
     {
         if (levels.IsSilent)
         {
@@ -436,7 +466,11 @@ internal static class LinuxCompositionAudioPlanner
                 destinationStartFrame,
                 destinationEndFrame,
                 levels,
-                processorDefinitions));
+                processorDefinitions)
+            {
+                ProcessorTiming =
+                    processorTiming
+            });
     }
 
     private static bool TryResolveProcessing(
@@ -444,9 +478,12 @@ internal static class LinuxCompositionAudioPlanner
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
         MediaEffectRegistry effects,
+        MediaAudioFormat format,
         out LinuxPcm16MixLevels levels,
         out MediaCompositionEffectDefinition[]
-            processorDefinitions)
+            processorDefinitions,
+        out MediaAudioProcessorTiming
+            processorTiming)
     {
         if (!double.IsFinite(volume) ||
             volume is < 0d or >
@@ -455,6 +492,7 @@ internal static class LinuxCompositionAudioPlanner
         {
             levels = default;
             processorDefinitions = [];
+            processorTiming = default;
             return false;
         }
 
@@ -474,11 +512,41 @@ internal static class LinuxCompositionAudioPlanner
             {
                 levels = default;
                 processorDefinitions = [];
+                processorTiming = default;
                 return false;
             }
 
             using (processorChain)
             {
+                try
+                {
+                    processorTiming =
+                        processorChain!.GetTiming(
+                            in format);
+                    int maximumTimingFrames =
+                        checked(
+                            format.SampleRate *
+                            MaximumProcessorTimingSeconds);
+                    if (processorTiming
+                            .LatencyFrameCount >
+                            maximumTimingFrames ||
+                        processorTiming
+                            .TailFrameCount >
+                            maximumTimingFrames)
+                    {
+                        levels = default;
+                        processorDefinitions = [];
+                        processorTiming = default;
+                        return false;
+                    }
+                }
+                catch
+                {
+                    levels = default;
+                    processorDefinitions = [];
+                    processorTiming = default;
+                    return false;
+                }
                 if (!LinuxPcm16MixLevels.TryCreate(
                         MediaAudioStereoLevels
                             .Identity
@@ -486,6 +554,7 @@ internal static class LinuxCompositionAudioPlanner
                         out levels))
                 {
                     processorDefinitions = [];
+                    processorTiming = default;
                     return false;
                 }
             }
@@ -504,12 +573,14 @@ internal static class LinuxCompositionAudioPlanner
                     (float)volume),
                 out levels);
             processorDefinitions = [];
+            processorTiming = default;
             return valid;
         }
         catch (ArgumentOutOfRangeException)
         {
             levels = default;
             processorDefinitions = [];
+            processorTiming = default;
             return false;
         }
     }

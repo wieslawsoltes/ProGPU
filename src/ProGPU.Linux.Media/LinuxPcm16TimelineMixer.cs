@@ -363,13 +363,14 @@ internal sealed class IsoBmffPcm16TimelineSource :
 /// Executes a captured Linux composition-audio plan in fixed PCM16 blocks.
 /// </summary>
 /// <remarks>
-/// Work is O(F × A) for F output frames and A active sources in the simple
-/// bounded scan. Typed processor work is O(E × F × C) for E block-local
-/// effects and C channels. The block workspace is O(1,024 × channels); each
-/// source additionally retains its ISO-BMFF sample index, one pooled
-/// media-sample conversion buffer, and its prepared effect instances. No PCM
-/// storage scales with composition duration, and pooled blocks are returned
-/// on every success or failure path.
+/// Work is O((F + D + T) × A) for F output frames, global compensation
+/// latency D, maximum finite tail T, and A sources in the simple bounded scan.
+/// Typed processor work is O(E × (F + D + T) × C) for E serial effects and C
+/// channels. The block workspace is O(1,024 × channels); each source
+/// additionally retains its ISO-BMFF sample index, one pooled media-sample
+/// conversion buffer, timing metadata, and its prepared effect instances. No
+/// PCM storage scales with composition duration, latency, or tail, and pooled
+/// blocks are returned on every success or failure path.
 /// </remarks>
 internal static class LinuxPcm16TimelineMixer
 {
@@ -427,6 +428,22 @@ internal static class LinuxPcm16TimelineMixer
                 {
                     throw new NotSupportedException(
                         "A prepared Linux composition audio effect can no longer be activated through the typed registry.");
+                }
+                if (processorChains[index] is
+                        { } processorChain)
+                {
+                    var format =
+                        new MediaAudioFormat(
+                            checked((int)sampleRate),
+                            checked((int)channelCount));
+                    if (processorChain.GetTiming(
+                            in format) !=
+                        plans[index]
+                            .ProcessorTiming)
+                    {
+                        throw new NotSupportedException(
+                            "A Linux composition audio effect changed its declared timing after capability preparation.");
+                    }
                 }
             }
             MixCore(
@@ -514,9 +531,23 @@ internal static class LinuxPcm16TimelineMixer
                 : null;
         try
         {
+            var format =
+                new MediaAudioFormat(
+                    checked((int)sampleRate),
+                    channels);
+            int compensationFrameCount =
+                ValidateProcessorTiming(
+                    plans,
+                    processorChains,
+                    compositionFrameCount,
+                    in format);
+            long engineFrameCount =
+                checked(
+                    compositionFrameCount +
+                    compensationFrameCount);
             for (long blockStart = 0;
                  blockStart <
-                    compositionFrameCount;
+                    engineFrameCount;
                  blockStart = checked(
                      blockStart +
                      LinuxPcm16Mixer
@@ -529,7 +560,7 @@ internal static class LinuxPcm16TimelineMixer
                         (int)Math.Min(
                             LinuxPcm16Mixer
                                 .FramesPerBlock,
-                            compositionFrameCount -
+                            engineFrameCount -
                             blockStart));
                 int blockSamples =
                     checked(
@@ -551,43 +582,6 @@ internal static class LinuxPcm16TimelineMixer
                 {
                     LinuxCompositionAudioSourcePlan
                         plan = plans[index];
-                    long overlapStart =
-                        Math.Max(
-                            blockStart,
-                            plan
-                                .DestinationStartFrame);
-                    long overlapEnd =
-                        Math.Min(
-                            blockEnd,
-                            plan
-                                .DestinationEndFrame);
-                    if (overlapEnd <= overlapStart)
-                    {
-                        continue;
-                    }
-
-                    int frameCount =
-                        checked(
-                            (int)(
-                                overlapEnd -
-                                overlapStart));
-                    Span<short> source =
-                        sourceBuffer.AsSpan(
-                            0,
-                            checked(
-                                frameCount *
-                                channels));
-                    long sourceFirstFrame =
-                        checked(
-                            TicksToFramesCeiling(
-                                plan.SourceStartTicks,
-                                sampleRate) +
-                            overlapStart -
-                            plan
-                                .DestinationStartFrame);
-                    sources[index].ReadFrames(
-                        sourceFirstFrame,
-                        source);
                     MediaAudioEffectProcessorChain?
                         processorChain =
                             processorChains.IsEmpty
@@ -596,6 +590,90 @@ internal static class LinuxPcm16TimelineMixer
                                     index];
                     if (processorChain is not null)
                     {
+                        MediaAudioProcessorTiming timing =
+                            plan.ProcessorTiming;
+                        long inputShift =
+                            compensationFrameCount -
+                            timing.LatencyFrameCount;
+                        long processStart =
+                            Math.Max(
+                                blockStart,
+                                checked(
+                                    plan.DestinationStartFrame +
+                                    inputShift));
+                        long processEnd =
+                            Math.Min(
+                                blockEnd,
+                                checked(
+                                    plan.DestinationEndFrame +
+                                    compensationFrameCount +
+                                    timing.TailFrameCount));
+                        if (processEnd <= processStart)
+                        {
+                            continue;
+                        }
+
+                        int frameCount =
+                            checked(
+                                (int)(
+                                    processEnd -
+                                    processStart));
+                        Span<short> source =
+                            sourceBuffer.AsSpan(
+                                0,
+                                checked(
+                                    frameCount *
+                                    channels));
+                        source.Clear();
+                        long inputStart =
+                            checked(
+                                processStart -
+                                inputShift);
+                        long inputEnd =
+                            checked(
+                                processEnd -
+                                inputShift);
+                        long inputOverlapStart =
+                            Math.Max(
+                                inputStart,
+                                plan.DestinationStartFrame);
+                        long inputOverlapEnd =
+                            Math.Min(
+                                inputEnd,
+                                plan.DestinationEndFrame);
+                        if (inputOverlapEnd >
+                            inputOverlapStart)
+                        {
+                            int inputOffsetFrames =
+                                checked(
+                                    (int)(
+                                        inputOverlapStart -
+                                        inputStart));
+                            int inputFrameCount =
+                                checked(
+                                    (int)(
+                                        inputOverlapEnd -
+                                        inputOverlapStart));
+                            Span<short> input =
+                                source.Slice(
+                                    checked(
+                                        inputOffsetFrames *
+                                        channels),
+                                    checked(
+                                        inputFrameCount *
+                                        channels));
+                            long sourceFirstFrame =
+                                checked(
+                                    TicksToFramesCeiling(
+                                        plan.SourceStartTicks,
+                                        sampleRate) +
+                                    inputOverlapStart -
+                                    plan.DestinationStartFrame);
+                            sources[index].ReadFrames(
+                                sourceFirstFrame,
+                                input);
+                        }
+
                         ReadOnlySpan<float>
                             processed =
                                 ProcessEffects(
@@ -604,20 +682,89 @@ internal static class LinuxPcm16TimelineMixer
                             processorChain,
                             sampleRate,
                             channels,
-                            overlapStart);
+                            inputStart);
+                        long outputStart =
+                            Math.Max(
+                                processStart,
+                                compensationFrameCount);
+                        long outputEnd =
+                            Math.Min(
+                                processEnd,
+                                checked(
+                                    compensationFrameCount +
+                                    compositionFrameCount));
+                        if (outputEnd <= outputStart)
+                        {
+                            continue;
+                        }
+                        int processedOffsetFrames =
+                            checked(
+                                (int)(
+                                    outputStart -
+                                    processStart));
+                        int outputFrameCount =
+                            checked(
+                                (int)(
+                                    outputEnd -
+                                    outputStart));
                         LinuxPcm16Mixer
                             .AccumulateProcessed(
-                                processed,
+                                processed.Slice(
+                                    checked(
+                                        processedOffsetFrames *
+                                        channels),
+                                    checked(
+                                        outputFrameCount *
+                                        channels)),
                                 channelCount,
                                 plan.Levels,
                                 blockAccumulator,
                                 checked(
                                     (int)(
-                                        overlapStart -
+                                        outputStart -
                                         blockStart)));
                     }
                     else
                     {
+                        long overlapStart =
+                            Math.Max(
+                                blockStart,
+                                checked(
+                                    plan.DestinationStartFrame +
+                                    compensationFrameCount));
+                        long overlapEnd =
+                            Math.Min(
+                                blockEnd,
+                                checked(
+                                    plan.DestinationEndFrame +
+                                    compensationFrameCount));
+                        if (overlapEnd <= overlapStart)
+                        {
+                            continue;
+                        }
+
+                        int frameCount =
+                            checked(
+                                (int)(
+                                    overlapEnd -
+                                    overlapStart));
+                        Span<short> source =
+                            sourceBuffer.AsSpan(
+                                0,
+                                checked(
+                                    frameCount *
+                                    channels));
+                        long sourceFirstFrame =
+                            checked(
+                                TicksToFramesCeiling(
+                                    plan.SourceStartTicks,
+                                    sampleRate) +
+                                overlapStart -
+                                compensationFrameCount -
+                                plan.DestinationStartFrame);
+                        sources[index].ReadFrames(
+                            sourceFirstFrame,
+                            source);
                         LinuxPcm16Mixer.Accumulate(
                             source,
                             channelCount,
@@ -637,9 +784,40 @@ internal static class LinuxPcm16TimelineMixer
                 LinuxPcm16Mixer.Saturate(
                     blockAccumulator,
                     result);
-                handler(
-                    blockStart,
-                    result);
+                long emitStart =
+                    Math.Max(
+                        blockStart,
+                        compensationFrameCount);
+                long emitEnd =
+                    Math.Min(
+                        blockEnd,
+                        checked(
+                            compensationFrameCount +
+                            compositionFrameCount));
+                if (emitEnd > emitStart)
+                {
+                    int emitOffsetFrames =
+                        checked(
+                            (int)(
+                                emitStart -
+                                blockStart));
+                    int emitFrameCount =
+                        checked(
+                            (int)(
+                                emitEnd -
+                                emitStart));
+                    handler(
+                        checked(
+                            emitStart -
+                            compensationFrameCount),
+                        result.Slice(
+                            checked(
+                                emitOffsetFrames *
+                                channels),
+                            checked(
+                                emitFrameCount *
+                                channels)));
+                }
             }
         }
         finally
@@ -656,6 +834,65 @@ internal static class LinuxPcm16TimelineMixer
                     effectBuffer);
             }
         }
+    }
+
+    private static int ValidateProcessorTiming(
+        ReadOnlySpan<LinuxCompositionAudioSourcePlan>
+            plans,
+        ReadOnlySpan<
+            MediaAudioEffectProcessorChain?>
+            processorChains,
+        long outputFrameCount,
+        in MediaAudioFormat format)
+    {
+        int maximumLatency = 0;
+        long requiredOutputFrameCount = 0;
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            MediaAudioProcessorTiming declared =
+                plans[index].ProcessorTiming;
+            MediaAudioEffectProcessorChain? chain =
+                processorChains.IsEmpty
+                    ? null
+                    : processorChains[index];
+            if (chain is null)
+            {
+                if (declared !=
+                    MediaAudioProcessorTiming.Zero)
+                {
+                    throw new ArgumentException(
+                        "A timed audio plan requires an activated processor chain.",
+                        nameof(processorChains));
+                }
+            }
+            else if (chain.GetTiming(in format) !=
+                     declared)
+            {
+                throw new ArgumentException(
+                    "The activated audio processor timing does not match its prepared plan.",
+                    nameof(processorChains));
+            }
+
+            maximumLatency = Math.Max(
+                maximumLatency,
+                declared.LatencyFrameCount);
+            requiredOutputFrameCount = Math.Max(
+                requiredOutputFrameCount,
+                checked(
+                    plans[index]
+                        .DestinationEndFrame +
+                    declared.TailFrameCount));
+        }
+        if (requiredOutputFrameCount >
+            outputFrameCount)
+        {
+            throw new ArgumentException(
+                "The output timeline is too short to drain every declared audio effect tail.",
+                nameof(outputFrameCount));
+        }
+        return maximumLatency;
     }
 
     private static bool HasProcessorChain(

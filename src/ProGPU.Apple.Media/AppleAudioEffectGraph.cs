@@ -202,6 +202,31 @@ internal sealed unsafe class AppleAudioEffectTap :
             return;
         }
 
+        IMediaAudioProcessor[] processors =
+            _fixedProcessors ??
+            _getProcessors!();
+        var mediaFormat =
+            new MediaAudioFormat(
+                _format.SampleRate,
+                _format.ChannelCount);
+        for (int index = 0;
+             index < processors.Length;
+             index++)
+        {
+            if (processors[index] is
+                    IMediaAudioProcessorTiming timed &&
+                timed.GetTiming(
+                    in mediaFormat) !=
+                MediaAudioProcessorTiming.Zero)
+            {
+                _scratch = [];
+                Volatile.Write(
+                    ref _unsupportedFormat,
+                    1);
+                return;
+            }
+        }
+
         int samples = checked(
             (int)maxFrames *
             _format.ChannelCount);

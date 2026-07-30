@@ -9,6 +9,54 @@ public sealed class MediaAudioEffectProcessorChainTests
 {
     [Fact]
     public void
+        ProcessorTimingValidatesAndSerialChainsUseFormatSpecificSums()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MediaAudioProcessorTiming(
+                latencyFrameCount: -1,
+                tailFrameCount: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MediaAudioProcessorTiming(
+                latencyFrameCount: 0,
+                tailFrameCount: -1));
+
+        var chain = new MediaAudioProcessorChain();
+        chain.SetProcessors(
+            [
+                new TimedProcessor(
+                    latencyMilliseconds: 1,
+                    tailMilliseconds: 4),
+                new UntimedProcessor(),
+                new TimedProcessor(
+                    latencyMilliseconds: 2,
+                    tailMilliseconds: 3)
+            ]);
+
+        var format =
+            new MediaAudioFormat(
+                sampleRate: 48_000,
+                channelCount: 2);
+        Assert.Equal(
+            new MediaAudioProcessorTiming(
+                latencyFrameCount: 144,
+                tailFrameCount: 336),
+            chain.GetTiming(in format));
+
+        chain.SetProcessors(
+            [
+                new FixedTimedProcessor(
+                    int.MaxValue,
+                    0),
+                new FixedTimedProcessor(
+                    1,
+                    0)
+            ]);
+        Assert.Throws<InvalidOperationException>(
+            () => chain.GetTiming(in format));
+    }
+
+    [Fact]
+    public void
         TypedEffectChainPreservesOrderAndWarmProcessingDoesNotAllocate()
     {
         var registry = new MediaEffectRegistry();
@@ -260,6 +308,60 @@ public sealed class MediaAudioEffectProcessorChainTests
             public void Dispose() =>
                 Interlocked.Increment(
                     ref owner._disposeCount);
+        }
+    }
+
+    private sealed class TimedProcessor(
+        int latencyMilliseconds,
+        int tailMilliseconds) :
+        IMediaAudioProcessor,
+        IMediaAudioProcessorTiming
+    {
+        public MediaAudioProcessorTiming GetTiming(
+            in MediaAudioFormat format) =>
+            new(
+                checked(
+                    format.SampleRate *
+                    latencyMilliseconds /
+                    1_000),
+                checked(
+                    format.SampleRate *
+                    tailMilliseconds /
+                    1_000));
+
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
+        }
+    }
+
+    private sealed class FixedTimedProcessor(
+        int latencyFrameCount,
+        int tailFrameCount) :
+        IMediaAudioProcessor,
+        IMediaAudioProcessorTiming
+    {
+        public MediaAudioProcessorTiming GetTiming(
+            in MediaAudioFormat format) =>
+            new(
+                latencyFrameCount,
+                tailFrameCount);
+
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
+        }
+    }
+
+    private sealed class UntimedProcessor :
+        IMediaAudioProcessor
+    {
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
         }
     }
 }

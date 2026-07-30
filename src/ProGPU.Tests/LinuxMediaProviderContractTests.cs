@@ -4036,6 +4036,176 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
+    public void
+        LinuxTimelineMixerCompensatesLatencyAndDrainsFiniteEffectTail()
+    {
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new TestLinuxTimedEchoEffectFactory());
+        MediaCompositionEffectDefinition[]
+            definitions =
+            [
+                new(
+                    TestLinuxTimedEchoEffectFactory
+                        .EffectId,
+                    new Dictionary<string, object?>())
+            ];
+        Assert.True(
+            MediaAudioEffectProcessorChain
+                .TryCreate(
+                    registry,
+                    definitions,
+                    out MediaAudioEffectProcessorChain?
+                        chain));
+        Assert.NotNull(chain);
+        using (chain)
+        {
+            var timing =
+                new MediaAudioProcessorTiming(
+                    latencyFrameCount: 2,
+                    tailFrameCount: 2);
+            LinuxCompositionAudioSourcePlan[] plans =
+            [
+                new(
+                    LinuxCompositionAudioSourceKind
+                        .MainClip,
+                    new Uri(
+                        "file:///media/impulse.mov"),
+                    0,
+                    0,
+                    TimeSpan.FromSeconds(1).Ticks,
+                    0,
+                    4,
+                    new LinuxPcm16MixLevels(
+                        32_768,
+                        32_768),
+                    definitions)
+                {
+                    ProcessorTiming = timing
+                }
+            ];
+            ILinuxPcm16TimelineSource[] sources =
+            [
+                new ImpulsePcm16TimelineSource(
+                    amplitude: 16_000,
+                    channelCount: 2)
+            ];
+            MediaAudioEffectProcessorChain?[]
+                processorChains = [chain];
+            var samples =
+                new Pcm16BlockCollector(
+                    frameCount: 6,
+                    channelCount: 2);
+            try
+            {
+                LinuxPcm16TimelineMixer.MixCore(
+                    plans,
+                    sources,
+                    compositionFrameCount: 6,
+                    sampleRate: 8_000,
+                    channelCount: 2,
+                    samples.Accept,
+                    processorChains:
+                        processorChains);
+
+                Assert.Equal(
+                    (short)16_000,
+                    samples.SampleAt(0, 0));
+                Assert.Equal(
+                    (short)16_000,
+                    samples.SampleAt(0, 1));
+                Assert.Equal(
+                    (short)8_000,
+                    samples.SampleAt(2, 0));
+                Assert.Equal(
+                    (short)8_000,
+                    samples.SampleAt(2, 1));
+                Assert.Equal(
+                    (short)0,
+                    samples.SampleAt(1, 0));
+                Assert.Equal(
+                    (short)0,
+                    samples.SampleAt(5, 1));
+            }
+            finally
+            {
+                sources[0].Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void
+        LinuxTimedAudioPlanExtendsEncoderTimelineByDeclaredTail()
+    {
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new TestLinuxTimedEchoEffectFactory());
+        var request =
+            new MediaCompositionExportRequest(
+                "/tmp/output.mp4",
+                [
+                    new MediaCompositionExportClip(
+                        new Uri(
+                            "file:///media/timed-pcm.mov"),
+                        TimeSpan.FromTicks(5_000),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        null,
+                        new Dictionary<
+                            string,
+                            string>())
+                    {
+                        SourceAudioSubtype = "PCM",
+                        SourceAudioSampleRate = 8_000,
+                        SourceAudioChannelCount = 2,
+                        AudioEffectDefinitions =
+                        [
+                            new(
+                                TestLinuxTimedEchoEffectFactory
+                                    .EffectId,
+                                new Dictionary<
+                                    string,
+                                    object?>())
+                        ]
+                    }
+                ],
+                MediaCompositionTrimmingMode.Precise,
+                new MediaCompositionEncodingProfile(
+                    "MPEG4",
+                    "H264",
+                    "AAC",
+                    320,
+                    180,
+                    2_000_000,
+                    30,
+                    1,
+                    96_000,
+                    8_000,
+                    2),
+                new Dictionary<string, string>());
+
+        Assert.True(
+            LinuxAacCompositionEncoder.TryPrepare(
+                request,
+                registry,
+                new TestLinuxAacEncoderFactory(),
+                out LinuxCompositionAudioSourcePlan[]
+                    plans,
+                out LinuxAacEncoderConfiguration
+                    configuration));
+        LinuxCompositionAudioSourcePlan plan =
+            Assert.Single(plans);
+        Assert.Equal(
+            new MediaAudioProcessorTiming(2, 2),
+            plan.ProcessorTiming);
+        Assert.Equal(6, configuration.TotalFrameCount);
+    }
+
+    [Fact]
     public async Task
         LinuxPluggableAacEncoderSpoolsExactPcmTimeline()
     {
@@ -4671,6 +4841,113 @@ public sealed class LinuxMediaProviderContractTests
         }
     }
 
+    private sealed class
+        TestLinuxTimedEchoEffectFactory :
+        IMediaEffectFactory
+    {
+        internal const string EffectId =
+            "ProGPU.Tests.LinuxTimedEcho";
+
+        public string ActivatableClassId =>
+            EffectId;
+
+        public IMediaEffect Create(
+            in MediaEffectDescriptor descriptor) =>
+            new TestLinuxTimedEchoEffect();
+    }
+
+    private sealed class TestLinuxTimedEchoEffect :
+        IMediaAudioEffect,
+        IMediaAudioProcessorTiming
+    {
+        private const int LatencyFrames = 2;
+        private const int TailFrames = 2;
+        private readonly float[] _history =
+            new float[
+                (LatencyFrames +
+                 TailFrames +
+                 1) *
+                2];
+        private int _cursor;
+
+        public string Id =>
+            TestLinuxTimedEchoEffectFactory
+                .EffectId;
+
+        public MediaEffectKind Kind =>
+            MediaEffectKind.Audio;
+
+        public MediaAudioProcessorTiming GetTiming(
+            in MediaAudioFormat format) =>
+            new(
+                LatencyFrames,
+                TailFrames);
+
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
+            int channels =
+                context.Format.ChannelCount;
+            Assert.Equal(2, channels);
+            int historyFrames =
+                _history.Length /
+                channels;
+            for (int frame = 0;
+                 frame < context.FrameCount;
+                 frame++)
+            {
+                int writeFrame = _cursor;
+                int latencyFrame =
+                    (_cursor -
+                     LatencyFrames +
+                     historyFrames) %
+                    historyFrames;
+                int echoFrame =
+                    (_cursor -
+                     LatencyFrames -
+                     TailFrames +
+                     historyFrames) %
+                    historyFrames;
+                for (int channel = 0;
+                     channel < channels;
+                     channel++)
+                {
+                    int sample =
+                        frame *
+                        channels +
+                        channel;
+                    int write =
+                        writeFrame *
+                        channels +
+                        channel;
+                    float input =
+                        interleavedSamples[sample];
+                    float output =
+                        _history[
+                            latencyFrame *
+                            channels +
+                            channel] +
+                        _history[
+                            echoFrame *
+                            channels +
+                            channel] *
+                        0.5f;
+                    _history[write] = input;
+                    interleavedSamples[sample] =
+                        output;
+                }
+                _cursor =
+                    (_cursor + 1) %
+                    historyFrames;
+            }
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
     private sealed class TestLinuxAacEncoderFactory :
         ILinuxAacEncoderFactory
     {
@@ -4808,6 +5085,54 @@ public sealed class LinuxMediaProviderContractTests
         public void Dispose()
         {
             IsDisposed = true;
+        }
+    }
+
+    private sealed class ImpulsePcm16TimelineSource :
+        ILinuxPcm16TimelineSource
+    {
+        private readonly short _amplitude;
+        private readonly int _channelCount;
+
+        internal ImpulsePcm16TimelineSource(
+            short amplitude,
+            int channelCount)
+        {
+            _amplitude = amplitude;
+            _channelCount = channelCount;
+        }
+
+        public void ReadFrames(
+            long firstFrame,
+            Span<short> destination)
+        {
+            destination.Clear();
+            int frameCount =
+                destination.Length /
+                _channelCount;
+            for (int frame = 0;
+                 frame < frameCount;
+                 frame++)
+            {
+                if (firstFrame + frame != 0)
+                {
+                    continue;
+                }
+                for (int channel = 0;
+                     channel < _channelCount;
+                     channel++)
+                {
+                    destination[
+                        frame *
+                        _channelCount +
+                        channel] =
+                        _amplitude;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
         }
     }
 

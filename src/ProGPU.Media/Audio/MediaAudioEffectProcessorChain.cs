@@ -30,6 +30,24 @@ public sealed class MediaAudioEffectProcessorChain :
         0;
 
     /// <summary>
+    /// Returns the serial sum of the activated effects' finite latency and
+    /// tail declarations. Effects without the optional timing contract are
+    /// block-local.
+    /// </summary>
+    public MediaAudioProcessorTiming GetTiming(
+        in MediaAudioFormat format)
+    {
+        IMediaAudioEffect[] effects =
+            Volatile.Read(ref _effects) ??
+            throw new ObjectDisposedException(
+                nameof(
+                    MediaAudioEffectProcessorChain));
+        return MediaAudioProcessorTiming.Sum(
+            effects,
+            in format);
+    }
+
+    /// <summary>
     /// Activates every definition through the supplied typed registry in
     /// declaration order. A failed or non-audio activation disposes all
     /// already-created effects and returns false.

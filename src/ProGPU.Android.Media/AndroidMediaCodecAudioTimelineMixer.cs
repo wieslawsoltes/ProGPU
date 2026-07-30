@@ -333,6 +333,15 @@ public sealed partial class
                 throw new NotSupportedException(
                     "A registered Android composition audio effect could not be activated.");
             }
+            if (processorChain is not null &&
+                processorChain.GetTiming(
+                    in _format) !=
+                MediaAudioProcessorTiming.Zero)
+            {
+                processorChain.Dispose();
+                throw new NotSupportedException(
+                    "Android composition export does not yet compensate custom audio effect latency or drain effect tails.");
+            }
             _processorChain = processorChain;
         }
 
