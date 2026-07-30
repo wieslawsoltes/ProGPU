@@ -22,6 +22,8 @@ public class AppBarButton : Button, ICommandBarElement
 {
     private readonly StackPanel _presentation;
     private readonly TextBlock _labelText;
+    private CommandBarDefaultLabelPosition _owningCommandBarLabelPosition =
+        CommandBarDefaultLabelPosition.Bottom;
 
     public AppBarButtonTemplateSettings TemplateSettings { get; } = new();
 
@@ -91,6 +93,25 @@ public class AppBarButton : Button, ICommandBarElement
         set => SetValue(LabelPositionProperty, value);
     }
 
+    internal CommandBarDefaultLabelPosition OwningCommandBarLabelPosition
+    {
+        get => _owningCommandBarLabelPosition;
+        set
+        {
+            if (_owningCommandBarLabelPosition == value)
+            {
+                return;
+            }
+            _owningCommandBarLabelPosition = value;
+            RebuildPresentation();
+        }
+    }
+
+    internal bool IsLabelVisible =>
+        LabelPosition != CommandBarLabelPosition.Collapsed &&
+        _owningCommandBarLabelPosition != CommandBarDefaultLabelPosition.Collapsed &&
+        Label.Length > 0;
+
     public bool IsInOverflow => (bool)(GetValue(IsInOverflowProperty) ?? false);
 
     public int DynamicOverflowOrder
@@ -127,8 +148,7 @@ public class AppBarButton : Button, ICommandBarElement
             _presentation.AddChild(Icon);
         }
         _labelText.Text = Label;
-        if (LabelPosition != CommandBarLabelPosition.Collapsed &&
-            Label.Length > 0)
+        if (IsLabelVisible)
         {
             _presentation.AddChild(_labelText);
         }
@@ -152,6 +172,8 @@ public class AppBarToggleButton : ToggleButton, ICommandBarElement
 {
     private readonly StackPanel _presentation;
     private readonly TextBlock _labelText;
+    private CommandBarDefaultLabelPosition _owningCommandBarLabelPosition =
+        CommandBarDefaultLabelPosition.Bottom;
 
     public AppBarToggleButtonTemplateSettings TemplateSettings { get; } = new();
 
@@ -222,6 +244,25 @@ public class AppBarToggleButton : ToggleButton, ICommandBarElement
         set => SetValue(LabelPositionProperty, value);
     }
 
+    internal CommandBarDefaultLabelPosition OwningCommandBarLabelPosition
+    {
+        get => _owningCommandBarLabelPosition;
+        set
+        {
+            if (_owningCommandBarLabelPosition == value)
+            {
+                return;
+            }
+            _owningCommandBarLabelPosition = value;
+            RebuildPresentation();
+        }
+    }
+
+    internal bool IsLabelVisible =>
+        LabelPosition != CommandBarLabelPosition.Collapsed &&
+        _owningCommandBarLabelPosition != CommandBarDefaultLabelPosition.Collapsed &&
+        Label.Length > 0;
+
     public bool IsInOverflow => (bool)(GetValue(IsInOverflowProperty) ?? false);
 
     public int DynamicOverflowOrder
@@ -258,8 +299,7 @@ public class AppBarToggleButton : ToggleButton, ICommandBarElement
             _presentation.AddChild(Icon);
         }
         _labelText.Text = Label;
-        if (LabelPosition != CommandBarLabelPosition.Collapsed &&
-            Label.Length > 0)
+        if (IsLabelVisible)
         {
             _presentation.AddChild(_labelText);
         }

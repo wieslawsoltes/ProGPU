@@ -38,7 +38,24 @@ public sealed class ActivityMonitorViewTests
             100,
             MacOsActivityMonitorDataSource.ExtractCounterSum(
                 output,
-                "\"Bytes (Write)\"="));
+            "\"Bytes (Write)\"="));
+    }
+
+    [Fact]
+    public void CachedMemoryUsesOnlyTheNonOverlappingFileBackedCounter()
+    {
+        Assert.Equal(
+            40_960,
+            MacOsActivityMonitorDataSource.ComputeCachedMemoryBytes(
+                fileBackedPages: 10,
+                pageSize: 4096,
+                physicalMemoryBytes: 1_000_000));
+        Assert.Equal(
+            1_000_000,
+            MacOsActivityMonitorDataSource.ComputeCachedMemoryBytes(
+                fileBackedPages: long.MaxValue,
+                pageSize: 4096,
+                physicalMemoryBytes: 1_000_000));
     }
 
     [Fact]
@@ -223,6 +240,49 @@ public sealed class ActivityMonitorViewTests
             Assert.Equal([parent.ProcessId, child.ProcessId], view.VisibleProcessIds);
             Assert.Equal(0, view.VisibleHierarchyDepth(parent.ProcessId));
             Assert.Equal(1, view.VisibleHierarchyDepth(child.ProcessId));
+        }
+        finally
+        {
+            Application.Current = previousApplication;
+            ThemeManager.CurrentTheme = previousTheme;
+            ThemeManager.CurrentThemeFamily = previousFamily;
+            PopupService.DefaultFont = previousPopupFont;
+        }
+    }
+
+    [Fact]
+    public void SelectionDoesNotFollowAReusedProcessIdentifier()
+    {
+        Application previousApplication = Application.Current;
+        ElementTheme previousTheme = ThemeManager.CurrentTheme;
+        VisualThemeFamily previousFamily = ThemeManager.CurrentThemeFamily;
+        TtfFont? previousPopupFont = PopupService.DefaultFont;
+        try
+        {
+            Application.Current = new App();
+            InterFontFamily.RegisterFonts();
+            PopupService.DefaultFont = InterFontFamily.Regular;
+            var view = new ActivityMonitorView(InterFontFamily.Regular);
+            ActivitySnapshot snapshot = CreateSnapshot();
+            ProcessSnapshot selected = snapshot.Processes[0];
+            view.ApplySnapshot(snapshot);
+            Assert.True(view.SelectVisibleProcess(selected.ProcessId));
+            Assert.Equal(selected.StartTime, view.SelectedProcess?.StartTime);
+
+            ProcessSnapshot replacement = selected with
+            {
+                Name = "Replacement",
+                StartTime = selected.StartTime?.AddMinutes(1)
+            };
+            view.ApplySnapshot(snapshot with
+            {
+                CapturedAt = snapshot.CapturedAt.AddSeconds(2),
+                Processes = [replacement, .. snapshot.Processes.Skip(1)]
+            });
+
+            Assert.Null(view.SelectedProcess);
+            view.SelectProcessScope(ActivityProcessScope.SelectedProcesses);
+            Assert.Equal(0, view.VisibleProcessCount);
         }
         finally
         {
