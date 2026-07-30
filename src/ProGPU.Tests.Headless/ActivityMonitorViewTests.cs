@@ -13,6 +13,16 @@ namespace ProGPU.Tests.Headless;
 public sealed class ActivityMonitorViewTests
 {
     [Fact]
+    public void CpuTickDeltaHandlesThirtyTwoBitRollover()
+    {
+        Assert.Equal(
+            4UL,
+            MacOsActivityMonitorDataSource.ComputeTickDelta(
+                current: 2,
+                previous: uint.MaxValue - 1));
+    }
+
+    [Fact]
     public void ActivityMonitorRendersPopulatedCpuView()
     {
         Application previousApplication = Application.Current;
@@ -141,6 +151,7 @@ public sealed class ActivityMonitorViewTests
             view.SelectProcessScope(ActivityProcessScope.AllProcesses);
             view.SelectCategory(ActivityCategory.Energy);
             Assert.Contains("Energy Impact", view.ColumnHeaders);
+            Assert.DoesNotContain("12 hr Power", view.ColumnHeaders);
             Assert.Equal(12, view.VisibleProcessCount);
 
             view.SetSearchText("Process 08");
@@ -150,6 +161,12 @@ public sealed class ActivityMonitorViewTests
             Assert.Contains("Bytes Written", view.ColumnHeaders);
             view.SelectCategory(ActivityCategory.Network);
             Assert.Contains("Rcvd Bytes", view.ColumnHeaders);
+
+            Assert.Equal(1, view.HistoryPointCount(ActivityCategory.Cpu));
+            view.SelectCategory(ActivityCategory.Cpu);
+            view.SelectCategory(ActivityCategory.Memory);
+            view.SelectCategory(ActivityCategory.Cpu);
+            Assert.Equal(1, view.HistoryPointCount(ActivityCategory.Cpu));
         }
         finally
         {
@@ -225,8 +242,10 @@ public sealed class ActivityMonitorViewTests
             .Select(index => new ProcessSnapshot(
                 1000 + index,
                 1,
+                1000,
                 $"Process {index:00}",
                 index % 5 == 0 ? "root" : "sample-user",
+                DateTimeOffset.UtcNow.AddMinutes(-index),
                 96 - index * 1.3,
                 TimeSpan.FromSeconds(index * 17),
                 2 + index % 20,
@@ -236,8 +255,9 @@ public sealed class ActivityMonitorViewTests
                 index * 1_800_000L,
                 index * 400_000L,
                 index * 300_000L,
+                index * 400L,
+                index * 300L,
                 50 - index * 0.7,
-                60 - index * 0.6,
                 index * 7,
                 20 + index,
                 index % 8,

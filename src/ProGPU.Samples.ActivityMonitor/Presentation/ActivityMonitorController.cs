@@ -129,16 +129,20 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
             return;
         }
 
-        var dialog = new ContentDialog
+        ContentDialogResult choice = await RunOnUiThreadAsync(async () =>
         {
-            Title = $"{details.Name} ({details.ProcessId})",
-            Content = new ProcessInspectorView(_font, details),
-            PrimaryButtonText = "Sample",
-            SecondaryButtonText = "Quit",
-            CloseButtonText = "Done",
-            FullSizeDesired = true
-        };
-        switch (await dialog.ShowAsync())
+            var dialog = new ContentDialog
+            {
+                Title = $"{details.Name} ({details.ProcessId})",
+                Content = new ProcessInspectorView(_font, details),
+                PrimaryButtonText = "Sample",
+                SecondaryButtonText = "Quit",
+                CloseButtonText = "Done",
+                FullSizeDesired = true
+            };
+            return await dialog.ShowAsync();
+        });
+        switch (choice)
         {
             case ContentDialogResult.Primary:
                 BeginUserAction("Sample Failed", SampleSelectedAsync);
@@ -157,17 +161,27 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
             await ShowMessageAsync("Quit Process", "Select a process in the table first.");
             return;
         }
-
-        var dialog = new ContentDialog
+        if (!selected.StartTime.HasValue)
         {
-            Title = "Are you sure you want to quit this process?",
-            Content = $"Do you really want to quit “{selected.Name}”?",
-            PrimaryButtonText = "Quit",
-            SecondaryButtonText = "Force Quit",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        ContentDialogResult choice = await dialog.ShowAsync();
+            await ShowMessageAsync(
+                "Quit Process",
+                "The selected process identity could not be verified, so no signal will be sent.");
+            return;
+        }
+
+        ContentDialogResult choice = await RunOnUiThreadAsync(async () =>
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "Are you sure you want to quit this process?",
+                Content = $"Do you really want to quit “{selected.Name}”?",
+                PrimaryButtonText = "Quit",
+                SecondaryButtonText = "Force Quit",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary
+            };
+            return await dialog.ShowAsync();
+        });
         ProcessTerminationMode? mode = choice switch
         {
             ContentDialogResult.Primary => ProcessTerminationMode.Quit,
@@ -181,9 +195,10 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
 
         ProcessActionResult result = await _dataSource.TerminateProcessAsync(
             selected.ProcessId,
+            selected.StartTime.Value,
             mode.Value,
             _cancellation.Token);
-        _view.SetStatus(result.Message);
+        UIThread.Post(() => _view.SetStatus(result.Message));
         if (!result.Succeeded)
         {
             string verb = mode == ProcessTerminationMode.ForceQuit
@@ -223,7 +238,7 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
             kind,
             processId,
             _cancellation.Token);
-        _view.SetStatus(result.Message);
+        UIThread.Post(() => _view.SetStatus(result.Message));
         await ShowMessageAsync(
             result.Succeeded ? "Diagnostic Started" : "Diagnostic Failed",
             result.Message);
@@ -252,14 +267,34 @@ internal sealed class ActivityMonitorController : IAsyncDisposable
         }
     }
 
-    private static async Task ShowMessageAsync(string title, string content)
-    {
-        var dialog = new ContentDialog
+    private static Task ShowMessageAsync(string title, string content) =>
+        RunOnUiThreadAsync(async () =>
         {
-            Title = title,
-            Content = content,
-            PrimaryButtonText = "OK"
-        };
-        await dialog.ShowAsync();
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = content,
+                PrimaryButtonText = "OK"
+            };
+            await dialog.ShowAsync();
+            return true;
+        });
+
+    private static Task<T> RunOnUiThreadAsync<T>(Func<Task<T>> action)
+    {
+        var completion = new TaskCompletionSource<T>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        UIThread.Post(async () =>
+        {
+            try
+            {
+                completion.TrySetResult(await action());
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        });
+        return completion.Task;
     }
 }

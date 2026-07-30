@@ -15,6 +15,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     private const int HostCpuLoadInfo = 3;
     private const int SignalTerminate = 15;
     private const int SignalKill = 9;
+    private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(10);
 
     private readonly SemaphoreSlim _captureGate = new(1, 1);
     private readonly CancellationTokenSource _disposeCts = new();
@@ -87,17 +88,6 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             .Skip(1)
             .Take(200)
             .ToArray();
-        DateTimeOffset? startTime = null;
-        try
-        {
-            using Process nativeProcess = Process.GetProcessById(processId);
-            startTime = nativeProcess.StartTime;
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-        }
-
         return new ProcessDetails(
             process.ProcessId,
             process.ParentProcessId,
@@ -105,13 +95,14 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             process.User,
             process.ExecutablePath,
             commandLine.Trim(),
-            startTime,
+            process.StartTime,
             process,
             openFilesAndPorts);
     }
 
     public ValueTask<ProcessActionResult> TerminateProcessAsync(
         int processId,
+        DateTimeOffset expectedStartTime,
         ProcessTerminationMode mode,
         CancellationToken cancellationToken = default)
     {
@@ -120,6 +111,26 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         if (processId <= 0)
         {
             return ValueTask.FromResult(new ProcessActionResult(false, "Select a valid process first."));
+        }
+
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            DateTimeOffset actualStartTime = process.StartTime;
+            if (actualStartTime.ToUniversalTime() != expectedStartTime.ToUniversalTime())
+            {
+                return ValueTask.FromResult(new ProcessActionResult(
+                    false,
+                    $"Process {processId} exited and its identifier was reused. No signal was sent."));
+            }
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or
+            System.ComponentModel.Win32Exception)
+        {
+            return ValueTask.FromResult(new ProcessActionResult(
+                false,
+                $"Process {processId} is no longer available. No signal was sent."));
         }
 
         int signal = mode == ProcessTerminationMode.ForceQuit ? SignalKill : SignalTerminate;
@@ -348,13 +359,19 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                     liveProcessIds.Add(processId);
                     if (!metadata.TryGetValue(processId, out PsProcessMetadata processMetadata))
                     {
-                        processMetadata = new PsProcessMetadata(0, string.Empty, 0, string.Empty);
+                        processMetadata = new PsProcessMetadata(0, 0, string.Empty, 0, string.Empty);
                     }
                     string executablePath = processMetadata.ExecutablePath;
                     string name = NormalizeProcessName(nativeProcess.ProcessName, executablePath);
+                    DateTimeOffset? startTime = SafeRead<DateTimeOffset?>(
+                        () => nativeProcess.StartTime);
                     TimeSpan cpuTime = nativeProcess.TotalProcessorTime;
                     double cpuPercent = processMetadata.PsCpuPercent;
-                    if (_previousProcesses.TryGetValue(processId, out PreviousProcessSample previous))
+                    bool isSameProcess =
+                        _previousProcesses.TryGetValue(processId, out PreviousProcessSample previous) &&
+                        startTime.HasValue &&
+                        previous.StartTime.ToUniversalTime() == startTime.Value.ToUniversalTime();
+                    if (isSameProcess)
                     {
                         cpuPercent = Math.Max(
                             0,
@@ -370,12 +387,18 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                         ? SaturatingLong(usage.PackageIdleWakeUps + usage.InterruptWakeUps)
                         : 0;
                     double wakeUpRate = 0;
-                    if (_previousProcesses.TryGetValue(processId, out previous))
+                    if (isSameProcess)
                     {
                         wakeUpRate = Math.Max(0, wakeUps - previous.WakeUps) / elapsedSeconds;
                     }
 
-                    NetworkCounters network = _networkByProcess.GetValueOrDefault(processId);
+                    if (!isSameProcess)
+                    {
+                        _networkByProcess.TryRemove(processId, out _);
+                    }
+                    NetworkCounters network = isSameProcess
+                        ? _networkByProcess.GetValueOrDefault(processId)
+                        : default;
                     long memoryBytes = SafeRead(() => nativeProcess.WorkingSet64);
                     long virtualMemoryBytes = SafeRead(() => nativeProcess.VirtualMemorySize64);
                     int threadCount = SafeRead(() => nativeProcess.Threads.Count);
@@ -389,8 +412,10 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                     snapshots.Add(new ProcessSnapshot(
                         processId,
                         processMetadata.ParentProcessId,
+                        processMetadata.ProcessGroupId,
                         name,
                         processMetadata.User,
+                        startTime,
                         cpuPercent,
                         cpuTime,
                         threadCount,
@@ -400,19 +425,26 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                         diskWritten,
                         network.Received,
                         network.Sent,
-                        energyImpact,
+                        network.ReceivedPackets,
+                        network.SentPackets,
                         energyImpact,
                         wakeUps,
                         portCount,
-                        0,
-                        TimeSpan.Zero,
+                        null,
+                        null,
                         false,
                         false,
                         kind,
                         executablePath,
                         isApplication));
 
-                    _previousProcesses[processId] = new PreviousProcessSample(cpuTime, wakeUps);
+                    if (startTime.HasValue)
+                    {
+                        _previousProcesses[processId] = new PreviousProcessSample(
+                            startTime.Value,
+                            cpuTime,
+                            wakeUps);
+                    }
                 }
                 catch (Exception exception) when (
                     exception is ArgumentException or InvalidOperationException or
@@ -427,6 +459,10 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         {
             _previousProcesses.Remove(staleProcessId);
         }
+        foreach (int staleProcessId in _networkByProcess.Keys.Where(id => !liveProcessIds.Contains(id)))
+        {
+            _networkByProcess.TryRemove(staleProcessId, out _);
+        }
 
         return snapshots;
     }
@@ -435,24 +471,37 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     {
         var info = new HostCpuLoadInfoData();
         uint count = 4;
-        if (host_statistics(mach_host_self(), HostCpuLoadInfo, ref info, ref count) != 0)
+        uint host = mach_host_self();
+        try
         {
-            return new CpuPercentages(0, 0, 100);
+            if (host_statistics(host, HostCpuLoadInfo, ref info, ref count) != 0)
+            {
+                return new CpuPercentages(0, 0, 100);
+            }
+        }
+        finally
+        {
+            _ = mach_port_deallocate(mach_task_self(), host);
         }
 
         var current = new CpuTicks(info.User, info.System, info.Idle, info.Nice);
         CpuTicks previous = _previousCpuTicks ?? current;
         _previousCpuTicks = current;
 
-        ulong userDelta = current.User - previous.User;
-        ulong systemDelta = current.System - previous.System;
-        ulong idleDelta = current.Idle - previous.Idle;
-        ulong niceDelta = current.Nice - previous.Nice;
+        ulong userDelta = ComputeTickDelta(current.User, previous.User);
+        ulong systemDelta = ComputeTickDelta(current.System, previous.System);
+        ulong idleDelta = ComputeTickDelta(current.Idle, previous.Idle);
+        ulong niceDelta = ComputeTickDelta(current.Nice, previous.Nice);
         double total = Math.Max(1, userDelta + systemDelta + idleDelta + niceDelta);
         double user = (userDelta + niceDelta) * 100 / total;
         double system = systemDelta * 100 / total;
         return new CpuPercentages(user, system, Math.Max(0, 100 - user - system));
     }
+
+    internal static ulong ComputeTickDelta(uint current, uint previous) =>
+        current >= previous
+            ? current - previous
+            : (ulong)uint.MaxValue - previous + current + 1;
 
     private static MemoryCounters CaptureMemoryCounters(CancellationToken cancellationToken)
     {
@@ -592,30 +641,32 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     {
         string output = RunCommand(
             "/bin/ps",
-            ["-axo", "pid=,ppid=,user=,%cpu=,comm="],
+            ["-axo", "pid=,ppid=,pgid=,user=,%cpu=,comm="],
             cancellationToken);
         var result = new Dictionary<int, PsProcessMetadata>();
         foreach (string rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             string line = rawLine.Trim();
-            string[] fields = line.Split((char[]?)null, 5, StringSplitOptions.RemoveEmptyEntries);
-            if (fields.Length != 5 ||
+            string[] fields = line.Split((char[]?)null, 6, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length != 6 ||
                 !int.TryParse(fields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId) ||
-                !int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parentProcessId))
+                !int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parentProcessId) ||
+                !int.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int processGroupId))
             {
                 continue;
             }
 
             double.TryParse(
-                fields[3],
+                fields[4],
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture,
                 out double cpuPercent);
             result[processId] = new PsProcessMetadata(
                 parentProcessId,
-                fields[2],
+                processGroupId,
+                fields[3],
                 cpuPercent,
-                fields[4]);
+                fields[5]);
         }
         return result;
     }
@@ -644,7 +695,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             process.StartInfo.ArgumentList.Add("-s");
             process.StartInfo.ArgumentList.Add("1");
             process.StartInfo.ArgumentList.Add("-J");
-            process.StartInfo.ArgumentList.Add("bytes_in,bytes_out");
+            process.StartInfo.ArgumentList.Add("packets_in,bytes_in,packets_out,bytes_out");
 
             try
             {
@@ -670,10 +721,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             }
             finally
             {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
+                TryTerminateProcess(process);
             }
 
             if (!cancellationToken.IsCancellationRequested)
@@ -686,7 +734,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     private void ParseNetworkLine(string line)
     {
         string[] fields = line.Split(',');
-        if (fields.Length < 3 || fields[0].Length == 0)
+        if (fields.Length < 5 || fields[0].Length == 0)
         {
             return;
         }
@@ -694,13 +742,19 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         int dot = fields[0].LastIndexOf('.');
         if (dot < 0 ||
             !int.TryParse(fields[0].AsSpan(dot + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId) ||
-            !long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out long received) ||
-            !long.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long sent))
+            !long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out long receivedPackets) ||
+            !long.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long received) ||
+            !long.TryParse(fields[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out long sentPackets) ||
+            !long.TryParse(fields[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out long sent))
         {
             return;
         }
 
-        _networkByProcess[processId] = new NetworkCounters(received, sent);
+        _networkByProcess[processId] = new NetworkCounters(
+            received,
+            sent,
+            receivedPackets,
+            sentPackets);
     }
 
     private static string NormalizeProcessName(string processName, string executablePath)
@@ -887,28 +941,21 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
     private static string RunCommand(
         string fileName,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        using var process = CreateCommand(fileName, arguments);
-        process.Start();
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        cancellationToken.ThrowIfCancellationRequested();
-        return output;
-    }
+        CancellationToken cancellationToken) =>
+        RunCommandResultAsync(fileName, arguments, cancellationToken)
+            .GetAwaiter()
+            .GetResult()
+            .StandardOutput;
 
     private static async Task<string> RunCommandAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
-    {
-        using var process = CreateCommand(fileName, arguments);
-        process.Start();
-        Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        return await output.ConfigureAwait(false);
-    }
+        => (await RunCommandResultAsync(
+                fileName,
+                arguments,
+                cancellationToken).ConfigureAwait(false))
+            .StandardOutput;
 
     private static async Task<CommandResult> RunCommandResultAsync(
         string fileName,
@@ -916,14 +963,31 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         CancellationToken cancellationToken)
     {
         using var process = CreateCommand(fileName, arguments);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(CommandTimeout);
         process.Start();
-        Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        return new CommandResult(
-            process.ExitCode,
-            await output.ConfigureAwait(false),
-            await error.ConfigureAwait(false));
+        using CancellationTokenRegistration registration =
+            timeout.Token.Register(() => TryTerminateProcess(process));
+        try
+        {
+            Task<string> output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            Task<string> error = process.StandardError.ReadToEndAsync(timeout.Token);
+            Task exit = process.WaitForExitAsync(timeout.Token);
+            await Task.WhenAll(output, error, exit).ConfigureAwait(false);
+            return new CommandResult(
+                process.ExitCode,
+                await output.ConfigureAwait(false),
+                await error.ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"{Path.GetFileName(fileName)} did not complete within {CommandTimeout.TotalSeconds:N0} seconds.");
+        }
+        finally
+        {
+            TryTerminateProcess(process);
+        }
     }
 
     private static Process CreateCommand(string fileName, IReadOnlyList<string> arguments)
@@ -946,11 +1010,34 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         return process;
     }
 
+    private static void TryTerminateProcess(Process process)
+    {
+        try
+        {
+            if (process.Id > 0 && !process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or
+            NotSupportedException or
+            System.ComponentModel.Win32Exception)
+        {
+        }
+    }
+
     [DllImport("/usr/lib/libproc.dylib", SetLastError = true)]
     private static extern int proc_pid_rusage(int pid, int flavor, ref RusageInfoV2 buffer);
 
     [DllImport("/usr/lib/libSystem.B.dylib")]
     private static extern uint mach_host_self();
+
+    [DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern uint mach_task_self();
+
+    [DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern int mach_port_deallocate(uint task, uint name);
 
     [DllImport("/usr/lib/libSystem.B.dylib")]
     private static extern int host_statistics(
@@ -1024,6 +1111,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
 
     private readonly record struct PsProcessMetadata(
         int ParentProcessId,
+        int ProcessGroupId,
         string User,
         double PsCpuPercent,
         string ExecutablePath);
@@ -1039,9 +1127,16 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         long ReadOperations,
         long WriteOperations);
 
-    private readonly record struct PreviousProcessSample(TimeSpan CpuTime, long WakeUps);
-    private readonly record struct NetworkCounters(long Received, long Sent);
-    private readonly record struct CpuTicks(ulong User, ulong System, ulong Idle, ulong Nice);
+    private readonly record struct PreviousProcessSample(
+        DateTimeOffset StartTime,
+        TimeSpan CpuTime,
+        long WakeUps);
+    private readonly record struct NetworkCounters(
+        long Received,
+        long Sent,
+        long ReceivedPackets,
+        long SentPackets);
+    private readonly record struct CpuTicks(uint User, uint System, uint Idle, uint Nice);
     private readonly record struct CpuPercentages(double User, double System, double Idle);
     private readonly record struct MemoryCounters(
         long Physical,

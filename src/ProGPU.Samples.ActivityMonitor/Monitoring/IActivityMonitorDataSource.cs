@@ -18,6 +18,7 @@ public interface IActivityMonitorDataSource : IAsyncDisposable
 
     ValueTask<ProcessActionResult> TerminateProcessAsync(
         int processId,
+        DateTimeOffset expectedStartTime,
         ProcessTerminationMode mode,
         CancellationToken cancellationToken = default);
 
@@ -43,8 +44,10 @@ public sealed record ActivitySnapshot(
 public sealed record ProcessSnapshot(
     int ProcessId,
     int ParentProcessId,
+    int ProcessGroupId,
     string Name,
     string User,
+    DateTimeOffset? StartTime,
     double CpuPercent,
     TimeSpan CpuTime,
     int ThreadCount,
@@ -54,12 +57,13 @@ public sealed record ProcessSnapshot(
     long DiskWrittenBytes,
     long NetworkReceivedBytes,
     long NetworkSentBytes,
+    long NetworkReceivedPackets,
+    long NetworkSentPackets,
     double EnergyImpact,
-    double TwelveHourPower,
     long IdleWakeUps,
     int PortCount,
-    double GpuPercent,
-    TimeSpan GpuTime,
+    double? GpuPercent,
+    TimeSpan? GpuTime,
     bool AppNap,
     bool PreventingSleep,
     string Kind,

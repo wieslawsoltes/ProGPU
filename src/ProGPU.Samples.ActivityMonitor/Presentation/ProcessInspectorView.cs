@@ -69,7 +69,7 @@ internal sealed class ProcessInspectorView : Grid
         [
             $"Executable Path:  {_details.ExecutablePath}",
             $"Parent Process:   {_details.ParentProcessId}",
-            $"Process Group:    {_details.ParentProcessId}",
+            $"Process Group:    {_details.Snapshot.ProcessGroupId}",
             $"% CPU:                  {ActivityMetricFormatter.Percent(_details.Snapshot.CpuPercent)}"
         ]);
         var right = CreateSummaryColumn(
@@ -148,8 +148,8 @@ internal sealed class ProcessInspectorView : Grid
     private string BuildMemoryText() =>
         $"Real Memory Size:      {ActivityMetricFormatter.Bytes(_details.Snapshot.MemoryBytes)}\n" +
         $"Virtual Memory Size:  {ActivityMetricFormatter.Bytes(_details.Snapshot.VirtualMemoryBytes)}\n" +
-        $"Shared Memory Size:  0 bytes\n" +
-        $"Private Memory Size:  {ActivityMetricFormatter.Bytes(_details.Snapshot.MemoryBytes)}";
+        "Shared Memory Size:  Unavailable\n" +
+        "Private Memory Size:  Unavailable";
 
     private string BuildStatisticsText() =>
         $"Process ID:           {_details.ProcessId}\n" +

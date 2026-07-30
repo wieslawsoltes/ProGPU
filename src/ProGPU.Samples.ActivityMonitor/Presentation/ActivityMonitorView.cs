@@ -32,7 +32,7 @@ internal enum ActivityProcessScope
     GpuProcesses,
     WindowedProcesses,
     SelectedProcesses,
-    ApplicationsInLast12Hours
+    Applications
 }
 
 internal sealed class ActivityUpdateFrequencyChangedEventArgs(TimeSpan interval) : EventArgs
@@ -194,6 +194,8 @@ internal sealed class ActivityMonitorView : Grid
     internal ActivityCategory ActiveCategory => _category;
     internal ActivityProcessScope ProcessScope => _processScope;
     internal int VisibleProcessCount => _dataGrid.ItemsSource.Count;
+    internal int HistoryPointCount(ActivityCategory category) =>
+        _histories[category].ValueCount;
     internal IReadOnlyList<string> ColumnHeaders =>
         _dataGrid.Columns.Select(column => column.Header).ToArray();
 
@@ -462,7 +464,7 @@ internal sealed class ActivityMonitorView : Grid
         AddScopeItem(scope, ActivityProcessScope.GpuProcesses, "GPU Processes");
         AddScopeItem(scope, ActivityProcessScope.WindowedProcesses, "Windowed Processes");
         AddScopeItem(scope, ActivityProcessScope.SelectedProcesses, "Selected Processes");
-        AddScopeItem(scope, ActivityProcessScope.ApplicationsInLast12Hours, "Applications in last 12 hours");
+        AddScopeItem(scope, ActivityProcessScope.Applications, "Applications");
         flyout.Items.Add(scope);
         return flyout;
     }
@@ -557,14 +559,14 @@ internal sealed class ActivityMonitorView : Grid
             ActivityProcessScope.GpuProcesses => "GPU Processes",
             ActivityProcessScope.WindowedProcesses => "Windowed Processes",
             ActivityProcessScope.SelectedProcesses => "Selected Processes",
-            ActivityProcessScope.ApplicationsInLast12Hours => "Applications in last 12 hours",
+            ActivityProcessScope.Applications => "Applications",
             _ => "All Processes"
         };
     }
 
     private ActivityProcessScope EffectiveProcessScope =>
         _category == ActivityCategory.Energy
-            ? ActivityProcessScope.ApplicationsInLast12Hours
+            ? ActivityProcessScope.Applications
             : _processScope;
 
     private void ConfigureColumns()
@@ -581,8 +583,8 @@ internal sealed class ActivityMonitorView : Grid
                 AddColumn("Memory", 105, "MemoryBytes");
                 AddColumn("Idle Wake-Ups", 115, "IdleWakeUps");
                 AddColumn("Kind", 80, "Kind");
-                AddColumn("% GPU", 78, "GpuPercent");
-                AddColumn("GPU Time", 90, "GpuTime");
+                AddColumn("% GPU", 92, "GpuPercent");
+                AddColumn("GPU Time", 105, "GpuTime");
                 AddColumn("PID", 76, "ProcessId");
                 AddColumn("User", 145, "User");
                 break;
@@ -595,13 +597,12 @@ internal sealed class ActivityMonitorView : Grid
                 AddColumn("User", 150, "User");
                 AddColumn("% CPU", 82, "CpuPercent");
                 AddColumn("Kind", 82, "Kind");
-                AddColumn("% GPU", 82, "GpuPercent");
+                AddColumn("% GPU", 96, "GpuPercent");
                 AddColumn("Real Mem", 115, "MemoryBytes");
                 break;
             case ActivityCategory.Energy:
                 AddColumn("App Name", "*", "Name");
                 AddColumn("Energy Impact", 140, "EnergyImpact");
-                AddColumn("12 hr Power", 120, "TwelveHourPower");
                 AddColumn("App Nap", 100, "AppNap");
                 AddColumn("Preventing Sleep", 145, "PreventingSleep");
                 AddColumn("User", 170, "User");
@@ -654,13 +655,14 @@ internal sealed class ActivityMonitorView : Grid
                 process.User != "root" &&
                 !process.User.StartsWith('_')),
             ActivityProcessScope.ActiveProcesses => filtered.Where(process =>
-                process.CpuPercent > 0.01 || process.GpuPercent > 0.01),
+                process.CpuPercent > 0.01 || process.GpuPercent.GetValueOrDefault() > 0.01),
             ActivityProcessScope.InactiveProcesses => filtered.Where(process =>
-                process.CpuPercent <= 0.01 && process.GpuPercent <= 0.01),
+                process.CpuPercent <= 0.01 && process.GpuPercent.GetValueOrDefault() <= 0.01),
             ActivityProcessScope.GpuProcesses => filtered.Where(process =>
-                process.GpuPercent > 0.01 || process.GpuTime > TimeSpan.Zero),
+                process.GpuPercent.GetValueOrDefault() > 0.01 ||
+                process.GpuTime.GetValueOrDefault() > TimeSpan.Zero),
             ActivityProcessScope.WindowedProcesses or
-                ActivityProcessScope.ApplicationsInLast12Hours =>
+                ActivityProcessScope.Applications =>
                 filtered.Where(process => process.IsApplication),
             ActivityProcessScope.SelectedProcesses when selectedId.HasValue =>
                 filtered.Where(process => process.ProcessId == selectedId.Value),
@@ -772,7 +774,7 @@ internal sealed class ActivityMonitorView : Grid
                     system.Battery.IsCharging ? "Battery Is Charging" : "Battery Is Not Charging",
                     $"Time on AC:            {system.Battery.TimeRemaining}"
                 ]);
-                AddFooterGraph(2, "BATTERY (Last 12 hours)", _batteryHistory);
+                AddFooterGraph(2, "BATTERY (Session)", _batteryHistory);
                 break;
             case ActivityCategory.Disk:
                 AddFooterPanel(0, string.Empty, [
@@ -967,21 +969,24 @@ internal sealed class ActivityMonitorView : Grid
             "MemoryBytes" => ActivityMetricFormatter.Bytes(process.MemoryBytes),
             "IdleWakeUps" => ActivityMetricFormatter.Count(process.IdleWakeUps),
             "Kind" => process.Kind,
-            "GpuPercent" => ActivityMetricFormatter.Percent(process.GpuPercent),
-            "GpuTime" => ActivityMetricFormatter.Duration(process.GpuTime),
+            "GpuPercent" => process.GpuPercent.HasValue
+                ? ActivityMetricFormatter.Percent(process.GpuPercent.Value)
+                : "Unavailable",
+            "GpuTime" => process.GpuTime.HasValue
+                ? ActivityMetricFormatter.Duration(process.GpuTime.Value)
+                : "Unavailable",
             "ProcessId" => process.ProcessId.ToString(),
             "User" => process.User,
             "PortCount" => ActivityMetricFormatter.Count(process.PortCount),
             "EnergyImpact" => ActivityMetricFormatter.Percent(process.EnergyImpact),
-            "TwelveHourPower" => ActivityMetricFormatter.Percent(process.TwelveHourPower),
             "AppNap" => process.AppNap ? "Yes" : "No",
             "PreventingSleep" => process.PreventingSleep ? "Yes" : "No",
             "DiskWrittenBytes" => ActivityMetricFormatter.Bytes(process.DiskWrittenBytes),
             "DiskReadBytes" => ActivityMetricFormatter.Bytes(process.DiskReadBytes),
             "NetworkSentBytes" => ActivityMetricFormatter.Bytes(process.NetworkSentBytes),
             "NetworkReceivedBytes" => ActivityMetricFormatter.Bytes(process.NetworkReceivedBytes),
-            "SentPackets" => ActivityMetricFormatter.Count(process.NetworkSentBytes / 1200),
-            "ReceivedPackets" => ActivityMetricFormatter.Count(process.NetworkReceivedBytes / 1200),
+            "SentPackets" => ActivityMetricFormatter.Count(process.NetworkSentPackets),
+            "ReceivedPackets" => ActivityMetricFormatter.Count(process.NetworkReceivedPackets),
             _ => string.Empty
         };
     }
@@ -1007,15 +1012,14 @@ internal sealed class ActivityMonitorView : Grid
             "User" => process.User,
             "PortCount" => process.PortCount,
             "EnergyImpact" => process.EnergyImpact,
-            "TwelveHourPower" => process.TwelveHourPower,
             "AppNap" => process.AppNap,
             "PreventingSleep" => process.PreventingSleep,
             "DiskWrittenBytes" => process.DiskWrittenBytes,
             "DiskReadBytes" => process.DiskReadBytes,
             "NetworkSentBytes" => process.NetworkSentBytes,
             "NetworkReceivedBytes" => process.NetworkReceivedBytes,
-            "SentPackets" => process.NetworkSentBytes,
-            "ReceivedPackets" => process.NetworkReceivedBytes,
+            "SentPackets" => process.NetworkSentPackets,
+            "ReceivedPackets" => process.NetworkReceivedPackets,
             _ => null
         };
     }
